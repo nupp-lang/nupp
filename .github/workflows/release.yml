@@ -132,7 +132,7 @@ jobs:
           # The stub runs the compiler, which reads its own doc comments
           # through nupp.peg, so it carries LPeg.
           bootstrap_host=$(./scripts/toolchain host lpeg)
-          native_library=$(./scripts/toolchain native files,process)
+          native_v2_library=$(./scripts/toolchain native-rust files,process)
 
           # Stage 0 through the launcher, which stages the native file provider that
           # listing the compiler's own sources reaches. Stage 1 through the stub, so
@@ -145,7 +145,7 @@ jobs:
           dofile(os.getenv("GITHUB_WORKSPACE") .. "/build/nupp/compiler/main.lua")
           LUA
           NUPP_COMPILER_ROOT="$GITHUB_WORKSPACE" \
-            NUPP_NATIVE_LIBRARY="$native_library" \
+            NUPP_NATIVE_V2_LIBRARY="$native_v2_library" \
             "$bootstrap_host" \
             build/current-compiler.lua build --target dist
 

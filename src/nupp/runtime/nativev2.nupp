@@ -16,6 +16,13 @@ ffi.cdef[[
 uint32_t nuppNativeV2AbiVersion(void);
 uint64_t nuppNativeV2Features(void);
 const char *nuppNativeV2LastError(void);
+int32_t nuppNativeV2BytesCopy(
+    uint64_t handle,
+    uint8_t *outputData,
+    size_t capacity,
+    size_t *outputLength
+);
+int32_t nuppNativeV2BytesRelease(uint64_t handle);
 ]]
 
 local native = {}
@@ -96,6 +103,36 @@ function native.requireFeature(bit: integer, name: string): nil
     if native.C.nuppNativeV2Features() & bit == 0 then
         error("nupp: the Rust native provider was built without " .. name, 3)
     end
+end
+
+--- Takes an owned byte result from the provider and releases its handle.
+--- @export
+--- @raises when the result cannot be copied or released
+function native.bytes(handle: any): string
+    local length = ffi.new("size_t[1]")
+    local status = native.C.nuppNativeV2BytesCopy(handle, nil, 0, length)
+    local count = (tonumber(length[0]) or 0) as integer
+    if count == 0 then
+        local released = native.C.nuppNativeV2BytesRelease(handle)
+        native.succeeded(status, 3)
+        native.succeeded(released, 3)
+
+        return ""
+    end
+    -- Capacity is the expected result of probing a nonempty value.
+    if status ~= 2 then
+        local released = native.C.nuppNativeV2BytesRelease(handle)
+        native.succeeded(status, 3)
+        native.succeeded(released, 3)
+    end
+
+    local buffer = ffi.new("uint8_t[?]", count)
+    status = native.C.nuppNativeV2BytesCopy(handle, buffer, count, length)
+    local released = native.C.nuppNativeV2BytesRelease(handle)
+    native.succeeded(status, 3)
+    native.succeeded(released, 3)
+
+    return ffi.string(buffer, count)
 end
 
 export = native

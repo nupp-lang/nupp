@@ -937,6 +937,7 @@ name = "nupp-native"
 version = "0.1.0"
 dependencies = [
  "nupp-native-abi",
+ "nupp-native-files",
  "nupp-native-gpu",
  "nupp-native-http",
  "nupp-native-platform",
@@ -948,6 +949,17 @@ dependencies = [
 [[package]]
 name = "nupp-native-abi"
 version = "0.1.0"
+
+[[package]]
+name = "nupp-native-files"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+ "nupp-native-runtime",
+ "tokio",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "nupp-native-gpu"

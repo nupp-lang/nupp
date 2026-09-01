@@ -25,6 +25,14 @@ _Static_assert(offsetof(NuppNativeV2HttpReady, transfer) == 0,
     "HTTP ready handle moved");
 _Static_assert(offsetof(NuppNativeV2HttpReady, tokens) == sizeof(uint64_t),
     "HTTP ready tokens have an unexpected offset");
+_Static_assert(offsetof(NuppNativeV2FilesSlice, length) == sizeof(void *),
+    "filesystem slice length has an unexpected offset");
+_Static_assert(offsetof(NuppNativeV2FilesInfo, read_only) == 4,
+    "filesystem info read-only flag has an unexpected offset");
+_Static_assert(offsetof(NuppNativeV2FilesInfo, size) == 8,
+    "filesystem info size has an unexpected offset");
+_Static_assert(offsetof(NuppNativeV2FilesInfo, modified) == 16,
+    "filesystem info modification time has an unexpected offset");
 
 static int failed(const char *operation, int32_t status) {
     fprintf(stderr, "%s: status %d: %s\n", operation, status,
@@ -44,6 +52,14 @@ int main(void) {
     size_t adapter_length = 0;
     uint64_t uri = 0;
     uint64_t client = 0;
+    uint64_t file = 0;
+    int64_t file_size = 0;
+    uint32_t transfer_state = 0;
+    NuppNativeV2FilesInfo file_info = {0};
+    NuppNativeV2FilesSlice current = {
+        (const uint8_t *)".", sizeof "." - 1};
+    NuppNativeV2FilesSlice cargo = {
+        (const uint8_t *)"Cargo.toml", sizeof "Cargo.toml" - 1};
     NuppNativeV2HttpClientOptions http_options = {0};
     int32_t status;
 
@@ -54,10 +70,14 @@ int main(void) {
     if ((nuppNativeV2Features() & (NUPP_NATIVE_V2_FEATURE_BASE
             | NUPP_NATIVE_V2_FEATURE_UUID | NUPP_NATIVE_V2_FEATURE_GPU
             | NUPP_NATIVE_V2_FEATURE_URI | NUPP_NATIVE_V2_FEATURE_HTTP
-            | NUPP_NATIVE_V2_FEATURE_PROCESS))
+            | NUPP_NATIVE_V2_FEATURE_PROCESS
+            | NUPP_NATIVE_V2_FEATURE_FILESYSTEM
+            | NUPP_NATIVE_V2_FEATURE_FILES))
         != (NUPP_NATIVE_V2_FEATURE_BASE | NUPP_NATIVE_V2_FEATURE_UUID
             | NUPP_NATIVE_V2_FEATURE_GPU | NUPP_NATIVE_V2_FEATURE_URI
-            | NUPP_NATIVE_V2_FEATURE_HTTP | NUPP_NATIVE_V2_FEATURE_PROCESS)) {
+            | NUPP_NATIVE_V2_FEATURE_HTTP | NUPP_NATIVE_V2_FEATURE_PROCESS
+            | NUPP_NATIVE_V2_FEATURE_FILESYSTEM
+            | NUPP_NATIVE_V2_FEATURE_FILES)) {
         fprintf(stderr, "a requested Rust-native feature bit is absent\n");
         return 1;
     }
@@ -78,6 +98,31 @@ int main(void) {
             0, adapter, sizeof adapter, &adapter_length)
         != NUPP_NATIVE_V2_STALE_HANDLE) {
         fprintf(stderr, "invalid GPU context description was accepted\n");
+        return 1;
+    }
+    status = nuppNativeV2FilesInfo(current, 1, &file_info);
+    if (status != NUPP_NATIVE_V2_OK) return failed("filesystem info", status);
+    if (file_info.kind != 2) {
+        fprintf(stderr, "current directory is not a directory\n");
+        return 1;
+    }
+    status = nuppNativeV2FileOpen(cargo, 0, &file);
+    if (status != NUPP_NATIVE_V2_OK) return failed("file open", status);
+    status = nuppNativeV2FileSize(file, &file_size);
+    if (status != NUPP_NATIVE_V2_OK) return failed("file size", status);
+    if (file_size <= 0) {
+        fprintf(stderr, "Cargo.toml is unexpectedly empty\n");
+        return 1;
+    }
+    if (nuppNativeV2FilesTransferStatus(file, &transfer_state)
+        != NUPP_NATIVE_V2_INVALID_ARGUMENT) {
+        fprintf(stderr, "open file was accepted as a transfer\n");
+        return 1;
+    }
+    status = nuppNativeV2FileRelease(file);
+    if (status != NUPP_NATIVE_V2_OK) return failed("file release", status);
+    if (nuppNativeV2FileRelease(file) != NUPP_NATIVE_V2_STALE_HANDLE) {
+        fprintf(stderr, "released file handle was revived\n");
         return 1;
     }
     status = nuppNativeV2BytesCreate(expected, sizeof expected - 1, &handle);

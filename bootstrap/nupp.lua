@@ -40587,10 +40587,11 @@ if not compilerRoot then
 return nil , "the compiler-owned Nupp stub needs compiler source; "
 .. "use a source checkout or name a prebuilt stub path"
 end
-local featureNames = { }
+local featureNames , included = { } , { }
 for _ , feature in ipairs ( native . features ( effects ) ) do
-if feature . host then
+if feature . host and not included [ feature . host ] then
 featureNames [ # featureNames + 1 ] = feature . host
+included [ feature . host ] = true
 end
 end
 table . sort ( featureNames )
@@ -40628,10 +40629,11 @@ end
 if not compilerRoot and ( pack == nil or ( pack ) . linkHost == nil ) then
 return nil , "standalone native linking needs compiler source or an installed compiler pack"
 end
-local featureNames = { }
+local featureNames , included = { } , { }
 for _ , feature in ipairs ( native . features ( effects ) ) do
-if feature . host then
+if feature . host and not included [ feature . host ] then
 featureNames [ # featureNames + 1 ] = feature . host
+included [ feature . host ] = true
 end
 end
 table . sort ( featureNames )
@@ -42981,12 +42983,14 @@ report : at ( "bundle" )
 report : step ( "bundling " .. ( target . name or target . kind ) )
 local runtimeModules = { }
 local requiredHostFeatures = { }
+local includedHostFeatures = { }
 for _ , feature in ipairs ( nativeFeatures . features ( resolvedEffects ) ) do
 if feature . runtimeModule then
 runtimeModules [ # runtimeModules + 1 ] = feature . runtimeModule
 end
-if feature . host then
+if feature . host and not includedHostFeatures [ feature . host ] then
 requiredHostFeatures [ # requiredHostFeatures + 1 ] = feature . host
+includedHostFeatures [ feature . host ] = true
 end
 end
 table . sort ( runtimeModules )
@@ -134023,7 +134027,14 @@ runtimeModule = "nupp.compiler.runtime.reflect" ,
 portableRuntime = true ,
 } ,
 [ "stdlib.derives" ] = { name = "derives" , globals = { } , runtimeModule = "nupp.derive" , portableRuntime = true , } ,
-[ "stdlib.io" ] = { name = "io" , modules = { "nupp.io" } , } ,
+[
+"stdlib.io"
+] = {
+name = "io" ,
+modules = { "nupp.io" } ,
+runtimeModule = "nupp.io" ,
+requires = { "stdlib.math" , "runtime.spanview" , "runtime.text_buffer" } ,
+} ,
 
 
 
@@ -134042,11 +134053,24 @@ name = "path" ,
 
 
 modules = { "nupp.io.path" , "nupp.io.path.provider" } ,
-provider = "nupp_native" ,
+provider = "nupp_native_v2" ,
+providerDriver = "native-rust" ,
 providerFeature = "filesystem" ,
-library = "nupp_native" ,
+host = "native-files" ,
+library = "nupp_native_v2" ,
 binary = true ,
+runtimeModule = "nupp.io.path.provider" ,
+requires = { "runtime.path" , "runtime.native_v2" } ,
 } ,
+[
+"runtime.path"
+] = {
+name = "path_runtime" ,
+runtimeModule = "nupp.io.path" ,
+portableRuntime = true ,
+requires = { "runtime.pathtext" } ,
+} ,
+[ "runtime.pathtext" ] = { name = "pathtext" , runtimeModule = "nupp.io.pathtext" , portableRuntime = true , } ,
 [
 "native.uri"
 ] = {
@@ -134074,14 +134098,16 @@ requires = { "runtime.native_v2" } ,
 [ "native.files" ] = {
 name = "files" ,
 modules = { "nupp.io.files" } ,
-provider = "nupp_native" ,
+provider = "nupp_native_v2" ,
+providerDriver = "native-rust" ,
 providerFeature = "files" ,
 host = "native-files" ,
-library = "nupp_native" ,
+library = "nupp_native_v2" ,
 binary = true ,
+runtimeModule = "nupp.io.files" ,
 
 
-requires = { "runtime.suspension" } ,
+requires = { "native.path" , "stdlib.io" , "runtime.spanview" , "runtime.suspension" , "runtime.native_v2" , } ,
 } ,
 [ "runtime.suspension" ] = {
 
@@ -168411,7 +168437,7 @@ const newScalarWriter
  end);if not __nuppOk then package.loaded["nupp.io"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.io.files"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT26={}; const function __nuppT23(...) return {n=select("#",...),...} end; const __nuppT27,__nuppT28,__nuppT29,__nuppT30,__nuppT31,__nuppT32,__nuppT33,__nuppT34=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT24(value) return value end; const function __nuppT25(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT32({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT33(v.primary) for _,reason in __nuppT34(v.suppressed) do text=text.."\ncleanup: "..__nuppT33(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports={};package.loaded["nupp.io.files"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local append;__nuppExports["append"]=function(...) return append(...) end;local copy;__nuppExports["copy"]=function(...) return copy(...) end;local createDirectory;__nuppExports["createDirectory"]=function(...) return createDirectory(...) end;local createSymlink;__nuppExports["createSymlink"]=function(...) return createSymlink(...) end;local createTemporaryDirectory;__nuppExports["createTemporaryDirectory"]=function(...) return createTemporaryDirectory(...) end;local createTemporaryFile;__nuppExports["createTemporaryFile"]=function(...) return createTemporaryFile(...) end;local currentDirectory;__nuppExports["currentDirectory"]=function(...) return currentDirectory(...) end;local exists;__nuppExports["exists"]=function(...) return exists(...) end;local glob;__nuppExports["glob"]=function(...) return glob(...) end;local info;__nuppExports["info"]=function(...) return info(...) end;local isDirectory;__nuppExports["isDirectory"]=function(...) return isDirectory(...) end;local isFile;__nuppExports["isFile"]=function(...) return isFile(...) end;local isSymlink;__nuppExports["isSymlink"]=function(...) return isSymlink(...) end;local lines;__nuppExports["lines"]=function(...) return lines(...) end;local list;__nuppExports["list"]=function(...) return list(...) end;local open;__nuppExports["open"]=function(...) return open(...) end;local pendingTransfers;__nuppExports["pendingTransfers"]=function(...) return pendingTransfers(...) end;local read;__nuppExports["read"]=function(...) return read(...) end;local readLink;__nuppExports["readLink"]=function(...) return readLink(...) end;local remove;__nuppExports["remove"]=function(...) return remove(...) end;local rename;__nuppExports["rename"]=function(...) return rename(...) end;local setReadOnly;__nuppExports["setReadOnly"]=function(...) return setReadOnly(...) end;local userFolder;__nuppExports["userFolder"]=function(...) return userFolder(...) end;local write;__nuppExports["write"]=function(...) return write(...) end;local writeAtomic;__nuppExports["writeAtomic"]=function(...) return writeAtomic(...) end;
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT28={}; const function __nuppT25(...) return {n=select("#",...),...} end; const __nuppT29,__nuppT30,__nuppT31,__nuppT32,__nuppT33,__nuppT34,__nuppT35,__nuppT36=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT26(value) return value end; const function __nuppT27(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT34({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT35(v.primary) for _,reason in __nuppT36(v.suppressed) do text=text.."\ncleanup: "..__nuppT35(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports={};package.loaded["nupp.io.files"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local append;__nuppExports["append"]=function(...) return append(...) end;local copy;__nuppExports["copy"]=function(...) return copy(...) end;local createDirectory;__nuppExports["createDirectory"]=function(...) return createDirectory(...) end;local createSymlink;__nuppExports["createSymlink"]=function(...) return createSymlink(...) end;local createTemporaryDirectory;__nuppExports["createTemporaryDirectory"]=function(...) return createTemporaryDirectory(...) end;local createTemporaryFile;__nuppExports["createTemporaryFile"]=function(...) return createTemporaryFile(...) end;local currentDirectory;__nuppExports["currentDirectory"]=function(...) return currentDirectory(...) end;local exists;__nuppExports["exists"]=function(...) return exists(...) end;local glob;__nuppExports["glob"]=function(...) return glob(...) end;local info;__nuppExports["info"]=function(...) return info(...) end;local isDirectory;__nuppExports["isDirectory"]=function(...) return isDirectory(...) end;local isFile;__nuppExports["isFile"]=function(...) return isFile(...) end;local isSymlink;__nuppExports["isSymlink"]=function(...) return isSymlink(...) end;local lines;__nuppExports["lines"]=function(...) return lines(...) end;local list;__nuppExports["list"]=function(...) return list(...) end;local open;__nuppExports["open"]=function(...) return open(...) end;local pendingTransfers;__nuppExports["pendingTransfers"]=function(...) return pendingTransfers(...) end;local read;__nuppExports["read"]=function(...) return read(...) end;local readLink;__nuppExports["readLink"]=function(...) return readLink(...) end;local remove;__nuppExports["remove"]=function(...) return remove(...) end;local rename;__nuppExports["rename"]=function(...) return rename(...) end;local setReadOnly;__nuppExports["setReadOnly"]=function(...) return setReadOnly(...) end;local userFolder;__nuppExports["userFolder"]=function(...) return userFolder(...) end;local write;__nuppExports["write"]=function(...) return write(...) end;local writeAtomic;__nuppExports["writeAtomic"]=function(...) return writeAtomic(...) end;
 
 
 
@@ -168702,7 +168728,8 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-const native = require ( "nupp.runtime.native" )
+
+const native = require ( "nupp.runtime.nativev2" )
 const suspension = require ( "nupp.suspension" )
 const paths = require ( "nupp.io.path" )
 const io = require ( "nupp.io" )
@@ -168714,60 +168741,103 @@ const span = require ( "nupp.mem.span" )
 
 
 
-pcall(__nuppFfi.cdef, "struct NuppFileInfo { uint32_t kind; _Bool readOnly; uint64_t size; double modified; };") const NuppFileInfo = __nuppFfi.typeof("struct NuppFileInfo")
+pcall(__nuppFfi.cdef, "struct NuppNativeV2FilesInfo { uint32_t kind; int32_t read_only; uint64_t size; double modified; };") const NuppNativeV2FilesInfo = __nuppFfi.typeof("struct NuppNativeV2FilesInfo")
 
 
+
+
+
+
+pcall(__nuppFfi.cdef, "struct NuppNativeV2FilesSlice { const char * data; uint64_t length; };") const NuppNativeV2FilesSlice = __nuppFfi.typeof("struct NuppNativeV2FilesSlice")
 
 
 
 
 native . ffi . cdef [[
-bool nuppFilesInfo(const uint8_t *, size_t, bool, struct NuppFileInfo *);
-NuppBytes *nuppFilesReadLink(const uint8_t *, size_t);
-NuppBytes *nuppFilesGlob(const uint8_t *, size_t);
-bool nuppFilesCreateSymlink(const uint8_t *, size_t, const uint8_t *, size_t, bool);
-bool nuppFilesSetReadOnly(const uint8_t *, size_t, bool);
-bool nuppFilesCreateDirectory(const uint8_t *, size_t);
-bool nuppFilesRemove(const uint8_t *, size_t, bool);
-bool nuppFilesRename(const uint8_t *, size_t, const uint8_t *, size_t);
-NuppBytes *nuppFilesList(const uint8_t *, size_t);
-NuppBytes *nuppFilesCreateTemporary(
-    const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *, size_t, bool);
-NuppBytes *nuppFilesCurrentDirectory(void);
-NuppBytes *nuppFilesUserFolder(uint32_t);
-typedef struct NuppFile NuppFile;
-NuppFile *nuppFileOpen(const uint8_t *, size_t, uint32_t);
-int64_t nuppFileRead(NuppFile *, uint8_t *, size_t);
-int64_t nuppFileWrite(NuppFile *, const uint8_t *, size_t);
-int64_t nuppFileSeek(NuppFile *, int64_t, uint32_t);
-int64_t nuppFileSize(NuppFile *);
-bool nuppFileFlush(NuppFile *);
-bool nuppFileClose(NuppFile *);
-typedef struct NuppRequest NuppRequest;
-NuppRequest *nuppFsSubmitRead(const uint8_t *, size_t);
-NuppRequest *nuppFsSubmitWrite(const uint8_t *, size_t, const uint8_t *, size_t, uint32_t);
-NuppRequest *nuppFsSubmitCopy(const uint8_t *, size_t, const uint8_t *, size_t);
-int32_t nuppFsStatus(const NuppRequest *);
-const uint8_t *nuppFsData(const NuppRequest *);
-size_t nuppFsLength(const NuppRequest *);
-const char *nuppFsError(const NuppRequest *);
-bool nuppFsCancel(NuppRequest *);
-void nuppFsDestroy(NuppRequest *);
-size_t nuppFsPoll(void);
-size_t nuppFsWait(uint64_t);
-size_t nuppFsPending(void);
+int32_t nuppNativeV2FilesInfo(
+    struct NuppNativeV2FilesSlice, int32_t, struct NuppNativeV2FilesInfo *);
+int32_t nuppNativeV2FilesReadLink(struct NuppNativeV2FilesSlice, uint64_t *);
+int32_t nuppNativeV2FilesCreateSymlink(
+    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice, int32_t);
+int32_t nuppNativeV2FilesSetReadOnly(struct NuppNativeV2FilesSlice, int32_t);
+int32_t nuppNativeV2FilesCreateDirectory(struct NuppNativeV2FilesSlice);
+int32_t nuppNativeV2FilesRemove(struct NuppNativeV2FilesSlice, int32_t);
+int32_t nuppNativeV2FilesRename(
+    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice);
+int32_t nuppNativeV2FilesList(struct NuppNativeV2FilesSlice, uint64_t *);
+int32_t nuppNativeV2FilesGlob(struct NuppNativeV2FilesSlice, uint64_t *);
+int32_t nuppNativeV2FilesCreateTemporary(
+    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice,
+    struct NuppNativeV2FilesSlice,
+    int32_t, uint64_t *);
+int32_t nuppNativeV2FilesCurrentDirectory(uint64_t *);
+int32_t nuppNativeV2FilesUserFolder(uint32_t, uint64_t *);
+
+int32_t nuppNativeV2FileOpen(struct NuppNativeV2FilesSlice, uint32_t, uint64_t *);
+int32_t nuppNativeV2FileRead(uint64_t, uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2FileWrite(uint64_t, const uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2FileSeek(uint64_t, int64_t, uint32_t, int64_t *);
+int32_t nuppNativeV2FileSize(uint64_t, int64_t *);
+int32_t nuppNativeV2FileFlush(uint64_t);
+int32_t nuppNativeV2FileRelease(uint64_t);
+
+int32_t nuppNativeV2FilesTransferSubmitRead(
+    struct NuppNativeV2FilesSlice, uint64_t *);
+int32_t nuppNativeV2FilesTransferSubmitWrite(
+    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice,
+    uint32_t, uint64_t *);
+int32_t nuppNativeV2FilesTransferSubmitCopy(
+    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice, uint64_t *);
+int32_t nuppNativeV2FilesTransferStatus(uint64_t, uint32_t *);
+int32_t nuppNativeV2FilesTransferTakeBytes(uint64_t, uint64_t *);
+int32_t nuppNativeV2FilesTransferCancel(uint64_t);
+int32_t nuppNativeV2FilesTransferRelease(uint64_t);
+int32_t nuppNativeV2FilesTransferPoll(size_t *);
+int32_t nuppNativeV2FilesTransferWait(uint64_t, size_t *);
+int32_t nuppNativeV2FilesTransferPending(size_t *);
 ]]
 
 local ffi = native . ffi
 local C = native . C
-local function fileRead ( handle , destination , count ) 
-local call = C . nuppFileRead
-return call ( handle , destination , count )
+const FILES_FEATURE = 128
+local featureChecked = false
+
+local function requireFiles ( ) 
+if not featureChecked then
+native . requireFeature ( FILES_FEATURE , "files" )
+featureChecked = true
+end
 end
 
-local function fileWrite ( handle , source , count ) 
-local call = C . nuppFileWrite
-return call ( handle , source , count )
+local function slice ( text ) 
+requireFiles ( )
+local value = __nuppFfi.new(NuppNativeV2FilesSlice )
+value . data = text
+value . length = # text
+
+return value
+end
+
+local function fileRead ( handle , destination , count , wrote ) 
+local call = C . nuppNativeV2FileRead
+
+
+
+
+
+
+return call ( handle , destination , count , wrote )
+end
+
+local function fileWrite ( handle , source , count , wrote ) 
+local call = C . nuppNativeV2FileWrite
+
+
+
+
+
+
+return call ( handle , source , count , wrote )
 end
 
 
@@ -168780,7 +168850,10 @@ local MODES = { r = 0 , w = 1 , a = 2 , [ "r+" ] = 3 , [ "w+" ] = 4 , [ "a+" ] =
 local ORIGINS = { set = 0 , current = 1 , [ "end" ] = 2 , }
 
 local READ_SIZE = 65536
-local PENDING , READY = 0 , 1
+local PENDING = 0
+local READY = 1
+local FAILED = 2
+local CANCELED = 3
 
 
 
@@ -168922,21 +168995,22 @@ end
 
 
 
-local function done ( answered ) 
-if answered then
+local function done ( status ) 
+if status == 0 then
 return true , nil
 end
 
-return false , native . error ( )
+return false , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
 
-local function answer ( handle ) 
-if handle == nil then
-return nil , native . error ( )
+
+local function answer ( status , output ) 
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
-return native . bytes ( handle ) , nil
+return native . bytes ( output [ 0 ] ) , nil
 end
 
 
@@ -168982,12 +169056,13 @@ function File:size()
 if self . _closed then
 error ( "nupp: io.files File is closed" , 2 )
 end
-local size = tonumber ( C . nuppFileSize ( self . _handle ) ) or - 1
-if size < 0 then
-return nil , native . error ( )
+local output = ffi . new ( "int64_t[1]" )
+local status = C . nuppNativeV2FileSize ( self . _handle , output )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
-return size , nil
+return tonumber ( output [ 0 ] ) , nil
 end
 
 
@@ -169005,12 +169080,13 @@ local whence = ORIGINS [ origin or "set" ]
 if whence == nil then
 error ( "nupp: io.files has no seek origin named " .. tostring ( origin ) , 2 )
 end
-local at = tonumber ( C . nuppFileSeek ( self . _handle , whole ( offset or 0 , "seek offset" , 2 ) , whence ) ) or - 1
-if at < 0 then
-return nil , native . error ( )
+local output = ffi . new ( "int64_t[1]" )
+local status = C . nuppNativeV2FileSeek ( self . _handle , whole ( offset or 0 , "seek offset" , 2 ) , whence , output )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
-return at , nil
+return tonumber ( output [ 0 ] ) , nil
 end
 
 
@@ -169031,7 +169107,7 @@ if self . _closed then
 error ( "nupp: io.files File is closed" , 2 )
 end
 
-return done ( C . nuppFileFlush ( self . _handle ) )
+return done ( C . nuppNativeV2FileFlush ( self . _handle ) )
 end
 
 
@@ -169069,7 +169145,7 @@ end
 state . _closed = true
 local handle = state . _handle
 state . _handle = nil
-C . nuppFileClose ( handle )
+C . nuppNativeV2FileRelease ( handle )
 end
 
 
@@ -169081,7 +169157,7 @@ end
 file . _closed = true
 local handle = file . _handle
 file . _handle = nil
-C . nuppFileClose ( handle )
+C . nuppNativeV2FileRelease ( handle )
 end
 
 
@@ -169118,10 +169194,12 @@ return nil , reason
 end
 local wanted = positive ( count , "FileReader:read count" , 2 )
 local into = scratch ( self , wanted )
-local got = tonumber ( C . nuppFileRead ( ( file ) . _handle , into , wanted ) ) or - 1
-if got < 0 then
-return nil , native . error ( )
+local output = ffi . new ( "size_t[1]" )
+local status = C . nuppNativeV2FileRead ( ( file ) . _handle , into , wanted , output )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
+local got = tonumber ( output [ 0 ] )
 if got == 0 then
 return "" , nil
 end
@@ -169136,12 +169214,13 @@ return nil , reason
 end
 local wanted = positive ( # destination , "FileReader:readSpan destination length" , 2 )
 local pointer = destination : ref ( )
-local got = tonumber ( fileRead ( ( file ) . _handle , pointer , wanted ) ) or - 1
-if got < 0 then
-return nil , native . error ( )
+local output = ffi . new ( "size_t[1]" )
+local status = fileRead ( ( file ) . _handle , pointer , wanted , output )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
-return got , nil
+return tonumber ( output [ 0 ] ) , nil
 end
 
 
@@ -169169,17 +169248,17 @@ if taking == 0 then
 return 0 , nil
 end
 local input = span . fromString ( chunk )
-do local __nuppT35=0; local  __nuppT41 ; local __nuppT42=false ; const __nuppT36,__nuppT37,__nuppT38=__nuppT28(function() do const __nuppT43= destination : reserveWrite ( from , wanted ) ; __nuppT41= __nuppT43 ; __nuppT35=1;  __nuppT42=true;  local lease=__nuppT41;
+do local __nuppT37=0; local  __nuppT43 ; local __nuppT44=false ; const __nuppT38,__nuppT39,__nuppT40=__nuppT30(function() do const __nuppT45= destination : reserveWrite ( from , wanted ) ; __nuppT43= __nuppT45 ; __nuppT37=1;  __nuppT44=true;  local lease=__nuppT43;
 do
-do local __nuppT44=0; local  __nuppT50 ; local __nuppT51=false ; const __nuppT45,__nuppT46,__nuppT47=__nuppT28(function() do const __nuppT52= lease : span ( ) ; __nuppT50= __nuppT52 ; __nuppT44=1;  __nuppT51=true;  local output=__nuppT50;
+do local __nuppT46=0; local  __nuppT52 ; local __nuppT53=false ; const __nuppT47,__nuppT48,__nuppT49=__nuppT30(function() do const __nuppT54= lease : span ( ) ; __nuppT52= __nuppT54 ; __nuppT46=1;  __nuppT53=true;  local output=__nuppT52;
 for index = 1 , taking do
 output :set( index , input :get( index ) )
 end
-do __nuppT51=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT24); const __nuppT48={}; local __nuppT49=0; if __nuppT44>=1 and __nuppT51 then  const __nuppT53,__nuppT54=__nuppT27(__nuppCleanup1,__nuppT50);  if not __nuppT53 then __nuppT49=__nuppT49+1; __nuppT48[__nuppT49]=__nuppT54 end; end; if not __nuppT45 then if __nuppT49>0 then __nuppT29(__nuppT25(__nuppT46,__nuppT48,1),0) else __nuppT29(__nuppT46,0) end end; if __nuppT49>0 then if __nuppT49>1 then __nuppT29(__nuppT25(__nuppT48[1],__nuppT48,2),0) else __nuppT29(__nuppT48[1],0) end end; if __nuppT46=="return" then  return "return",__nuppT47  end; end
+do __nuppT53=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT26); const __nuppT50={}; local __nuppT51=0; if __nuppT46>=1 and __nuppT53 then  const __nuppT55,__nuppT56=__nuppT29(__nuppCleanup1,__nuppT52);  if not __nuppT55 then __nuppT51=__nuppT51+1; __nuppT50[__nuppT51]=__nuppT56 end; end; if not __nuppT47 then if __nuppT51>0 then __nuppT31(__nuppT27(__nuppT48,__nuppT50,1),0) else __nuppT31(__nuppT48,0) end end; if __nuppT51>0 then if __nuppT51>1 then __nuppT31(__nuppT27(__nuppT50[1],__nuppT50,2),0) else __nuppT31(__nuppT50[1],0) end end; if __nuppT48=="return" then  return "return",__nuppT49  end; end
 end
-do (function(__nuppT55,...)  __nuppT42=false;  return __nuppT55:commit(...)  end)( lease , taking ) end
+do (function(__nuppT57,...)  __nuppT44=false;  return __nuppT57:commit(...)  end)( lease , taking ) end
 
-return "return",__nuppT23( taking , nil ) end; return "normal" end,__nuppT24); const __nuppT39={}; local __nuppT40=0; if __nuppT35>=1 and __nuppT42 then  const __nuppT56,__nuppT57=__nuppT27(__nuppCleanup2,__nuppT41);  if not __nuppT56 then __nuppT40=__nuppT40+1; __nuppT39[__nuppT40]=__nuppT57 end; end; if not __nuppT36 then if __nuppT40>0 then __nuppT29(__nuppT25(__nuppT37,__nuppT39,1),0) else __nuppT29(__nuppT37,0) end end; if __nuppT40>0 then if __nuppT40>1 then __nuppT29(__nuppT25(__nuppT39[1],__nuppT39,2),0) else __nuppT29(__nuppT39[1],0) end end; if __nuppT37=="return" then  return __nuppT30(__nuppT38,1,__nuppT38.n)  end; end
+return "return",__nuppT25( taking , nil ) end; return "normal" end,__nuppT26); const __nuppT41={}; local __nuppT42=0; if __nuppT37>=1 and __nuppT44 then  const __nuppT58,__nuppT59=__nuppT29(__nuppCleanup2,__nuppT43);  if not __nuppT58 then __nuppT42=__nuppT42+1; __nuppT41[__nuppT42]=__nuppT59 end; end; if not __nuppT38 then if __nuppT42>0 then __nuppT31(__nuppT27(__nuppT39,__nuppT41,1),0) else __nuppT31(__nuppT39,0) end end; if __nuppT42>0 then if __nuppT42>1 then __nuppT31(__nuppT27(__nuppT41[1],__nuppT41,2),0) else __nuppT31(__nuppT41[1],0) end end; if __nuppT39=="return" then  return __nuppT32(__nuppT40,1,__nuppT40.n)  end; end
 end
 
 
@@ -169243,8 +169322,10 @@ end
 if type ( bytes ) ~= "string" then
 error ( "nupp: io.files FileWriter:write needs a string" , 2 )
 end
-if ( tonumber ( C . nuppFileWrite ( ( file ) . _handle , bytes , # bytes ) ) or - 1 ) < 0 then
-return false , native . error ( )
+local output = ffi . new ( "size_t[1]" )
+local status = C . nuppNativeV2FileWrite ( ( file ) . _handle , bytes , # bytes , output )
+if status ~= 0 then
+return false , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
 return true , nil
@@ -169260,12 +169341,13 @@ if count == 0 then
 return 0 , nil
 end
 local pointer = source : ref ( )
-local wrote = tonumber ( fileWrite ( ( file ) . _handle , pointer , count ) ) or - 1
-if wrote < 0 then
-return nil , native . error ( )
+local output = ffi . new ( "size_t[1]" )
+local status = fileWrite ( ( file ) . _handle , pointer , count , output )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
-return wrote , nil
+return tonumber ( output [ 0 ] ) , nil
 end
 
 
@@ -169320,7 +169402,7 @@ if self . _closed then
 return false , "the temporary path is released"
 end
 local to = named ( destination , "destination path" , 2 )
-local moved , reason = done ( C . nuppFilesRename ( self . _text , # self . _text , to , # to ) )
+local moved , reason = done ( C . nuppNativeV2FilesRename ( slice ( self . _text ) , slice ( to ) ) )
 if not moved then
 return false , reason
 end
@@ -169356,7 +169438,7 @@ return true
 end
 state . _closed = true
 
-return C . nuppFilesRemove ( state . _text , # state . _text , state . _directory )
+return C . nuppNativeV2FilesRemove ( slice ( state . _text ) , state . _directory and 1 or 0 ) == 0
 end ;__nuppExports["TemporaryPath"]=TemporaryPath
 
 
@@ -169372,7 +169454,7 @@ if state . _closed then
 return
 end
 state . _closed = true
-C . nuppFilesRemove ( state . _text , # state . _text , state . _directory )
+C . nuppNativeV2FilesRemove ( slice ( state . _text ) , state . _directory and 1 or 0 )
 end
 
 ;
@@ -169450,8 +169532,8 @@ end
 
 local function described ( path , follow , level ) 
 local text = named ( path , "path" , level + 1 )
-local record = __nuppFfi.new("struct NuppFileInfo[1]" )
-if not C . nuppFilesInfo ( text , # text , follow , record ) then
+local record = __nuppFfi.new("struct NuppNativeV2FilesInfo[1]" )
+if C . nuppNativeV2FilesInfo ( slice ( text ) , follow and 1 or 0 , record ) ~= 0 then
 return nil
 end
 local found = nil
@@ -169463,7 +169545,7 @@ local found = nil
 do
 found = {
 kind = record [ 0 ] . kind ,
-readOnly = record [ 0 ] . readOnly ,
+readOnly = record [ 0 ] . read_only ~= 0 ,
 size = record [ 0 ] . size ,
 modified = record [ 0 ] . modified ,
 }
@@ -169477,6 +169559,21 @@ end
 
 local waits = { }
 
+local function transferState ( handle ) 
+local output = ffi . new ( "uint32_t[1]" )
+local status = C . nuppNativeV2FilesTransferStatus ( handle , output )
+if status ~= 0 then
+return FAILED , ffi . string ( C . nuppNativeV2LastError ( ) )
+end
+
+local state = tonumber ( output [ 0 ] )
+if state == FAILED then
+return state , ffi . string ( C . nuppNativeV2LastError ( ) )
+end
+
+return state , nil
+end
+
 
 
 
@@ -169488,7 +169585,7 @@ local moved = 0
 local index = # waits
 while index > 0 do
 local entry = waits [ index ]
-if C . nuppFsStatus ( entry . handle ) ~= PENDING then
+if transferState ( entry . handle ) ~= PENDING then
 waits [ index ] = waits [ # waits ]
 waits [ # waits ] = nil
 moved = moved + 1
@@ -169501,13 +169598,15 @@ return moved
 end
 
 local function polled ( ) 
-C . nuppFsPoll ( )
+local output = ffi . new ( "size_t[1]" )
+C . nuppNativeV2FilesTransferPoll ( output )
 
 return harvest ( )
 end
 
 local function slept ( waitMs ) 
-C . nuppFsWait ( waitMs )
+local output = ffi . new ( "size_t[1]" )
+C . nuppNativeV2FilesTransferWait ( waitMs , output )
 
 return harvest ( )
 end
@@ -169526,7 +169625,7 @@ end
 
 
 local function await ( handle ) 
-if C . nuppFsStatus ( handle ) ~= PENDING then
+if transferState ( handle ) ~= PENDING then
 return
 end
 suspension . suspend ( "file transfer" , function ( resume , context ) 
@@ -169535,7 +169634,7 @@ context : source ( SOURCE , PRIORITY , polled , slept )
 waits [ # waits + 1 ] = entry
 
 
-if C . nuppFsStatus ( handle ) ~= PENDING then
+if transferState ( handle ) ~= PENDING then
 forget ( entry )
 resume ( true )
 
@@ -169556,8 +169655,8 @@ return
 end
 cancelled = true
 forget ( entry )
-C . nuppFsCancel ( handle )
-C . nuppFsDestroy ( handle )
+C . nuppNativeV2FilesTransferCancel ( handle )
+C . nuppNativeV2FilesTransferRelease ( handle )
 end
 end )
 end
@@ -169565,13 +169664,14 @@ end
 
 
 local function settled ( handle ) 
-if handle == nil then
-return nil , native . error ( )
+if handle == nil or handle == 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 await ( handle )
-if C . nuppFsStatus ( handle ) ~= READY then
-local reason = ffi . string ( C . nuppFsError ( handle ) )
-C . nuppFsDestroy ( handle )
+local state , failure = transferState ( handle )
+if state ~= READY then
+local reason = failure or ( state == CANCELED and "file transfer was cancelled" or "file transfer failed" )
+C . nuppNativeV2FilesTransferRelease ( handle )
 
 return nil , reason
 end
@@ -169584,7 +169684,7 @@ local ready , reason = settled ( handle )
 if ready == nil then
 return false , reason
 end
-C . nuppFsDestroy ( ready )
+C . nuppNativeV2FilesTransferRelease ( ready )
 
 return true , nil
 end
@@ -169594,8 +169694,16 @@ local ready , reason = settled ( handle )
 if ready == nil then
 return nil , reason
 end
-local out = ffi . string ( C . nuppFsData ( ready ) , tonumber ( C . nuppFsLength ( ready ) ) )
-C . nuppFsDestroy ( ready )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FilesTransferTakeBytes ( ready , output )
+if status ~= 0 then
+local failure = ffi . string ( C . nuppNativeV2LastError ( ) )
+C . nuppNativeV2FilesTransferRelease ( ready )
+
+return nil , failure
+end
+local out = native . bytes ( output [ 0 ] )
+C . nuppNativeV2FilesTransferRelease ( ready )
 
 return out , nil
 end
@@ -169624,7 +169732,16 @@ local root = where ~= nil and named ( where , "temporary directory" , level + 1 
 local prefix = optional ( options , "prefix" , level + 1 )
 local suffix = optional ( options , "suffix" , level + 1 )
 
-return answer ( C . nuppFilesCreateTemporary ( root , # root , prefix , # prefix , suffix , # suffix , directory ) )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FilesCreateTemporary (
+slice ( root ) ,
+slice ( prefix ) ,
+slice ( suffix ) ,
+directory and 1 or 0 ,
+output
+)
+
+return answer ( status , output )
 end
 
 
@@ -169659,7 +169776,7 @@ end
 info=function ( path ) 
 local found = described ( path , true , 2 )
 if found == nil then
-return nil , native . error ( )
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
 return setmetatable({ kind =
@@ -169715,8 +169832,9 @@ end ;__nuppExports["isSymlink"]=isSymlink
 
 readLink=function ( path ) 
 local text = named ( path , "path" , 2 )
+local output = ffi . new ( "uint64_t[1]" )
 
-return answer ( C . nuppFilesReadLink ( text , # text ) )
+return answer ( C . nuppNativeV2FilesReadLink ( slice ( text ) , output ) , output )
 end ;__nuppExports["readLink"]=readLink
 
 
@@ -169741,7 +169859,7 @@ if kind ~= nil and kind ~= "file" and kind ~= "directory" then
 error ( "nupp: io.files symlink kind must be 'file' or 'directory'" , 2 )
 end
 
-return done ( C . nuppFilesCreateSymlink ( to , # to , at , # at , kind == "directory" ) )
+return done ( C . nuppNativeV2FilesCreateSymlink ( slice ( to ) , slice ( at ) , kind == "directory" and 1 or 0 ) )
 end ;__nuppExports["createSymlink"]=createSymlink
 
 
@@ -169753,7 +169871,7 @@ end ;__nuppExports["createSymlink"]=createSymlink
 setReadOnly=function ( path , readOnly ) 
 local text = named ( path , "path" , 2 )
 
-return done ( C . nuppFilesSetReadOnly ( text , # text , readOnly and true or false ) )
+return done ( C . nuppNativeV2FilesSetReadOnly ( slice ( text ) , readOnly and 1 or 0 ) )
 end ;__nuppExports["setReadOnly"]=setReadOnly
 
 
@@ -169766,7 +169884,7 @@ end ;__nuppExports["setReadOnly"]=setReadOnly
 createDirectory=function ( path ) 
 local text = named ( path , "path" , 2 )
 
-return done ( C . nuppFilesCreateDirectory ( text , # text ) )
+return done ( C . nuppNativeV2FilesCreateDirectory ( slice ( text ) ) )
 end ;__nuppExports["createDirectory"]=createDirectory
 
 
@@ -169778,7 +169896,7 @@ end ;__nuppExports["createDirectory"]=createDirectory
 remove=function ( path , recursive ) 
 local text = named ( path , "path" , 2 )
 
-return done ( C . nuppFilesRemove ( text , # text , recursive and true or false ) )
+return done ( C . nuppNativeV2FilesRemove ( slice ( text ) , recursive and 1 or 0 ) )
 end ;__nuppExports["remove"]=remove
 
 
@@ -169791,7 +169909,7 @@ rename=function ( from , to )
 local source = named ( from , "source path" , 2 )
 local destination = named ( to , "destination path" , 2 )
 
-return done ( C . nuppFilesRename ( source , # source , destination , # destination ) )
+return done ( C . nuppNativeV2FilesRename ( slice ( source ) , slice ( destination ) ) )
 end ;__nuppExports["rename"]=rename
 
 
@@ -169812,12 +169930,13 @@ end ;__nuppExports["rename"]=rename
 
 list=function ( path ) 
 local text = named ( path , "path" , 2 )
-local handle = C . nuppFilesList ( text , # text )
-if handle == nil then
-return nil , native . error ( )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FilesList ( slice ( text ) , output )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
-local blob = native . bytes ( handle )
+local blob = native . bytes ( output [ 0 ] )
 local entries = { }
 local at = 1
 while at <= # blob do
@@ -169852,11 +169971,12 @@ end ;__nuppExports["list"]=list
 
 glob=function ( pattern ) 
 local text = named ( pattern , "glob pattern" , 2 )
-local handle = C . nuppFilesGlob ( text , # text )
-if handle == nil then
-return nil , native . error ( )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FilesGlob ( slice ( text ) , output )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
-local blob = native . bytes ( handle )
+local blob = native . bytes ( output [ 0 ] )
 local matches = { }
 local at = 1
 while at <= # blob do
@@ -169888,8 +170008,14 @@ end ;__nuppExports["glob"]=glob
 
 read=function ( path ) 
 local text = named ( path , "path" , 2 )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FilesTransferSubmitRead ( slice ( text ) , output )
 
-return fetched ( C . nuppFsSubmitRead ( text , # text ) )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
+end
+
+return fetched ( output [ 0 ] )
 end ;__nuppExports["read"]=read
 
 
@@ -169901,8 +170027,14 @@ end ;__nuppExports["read"]=read
 write=function ( path , bytes ) 
 local text = named ( path , "path" , 2 )
 local out = payload ( bytes , "contents" , 2 )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FilesTransferSubmitWrite ( slice ( text ) , slice ( out ) , 0 , output )
 
-return transferred ( C . nuppFsSubmitWrite ( text , # text , out , # out , 0 ) )
+if status ~= 0 then
+return false , ffi . string ( C . nuppNativeV2LastError ( ) )
+end
+
+return transferred ( output [ 0 ] )
 end ;__nuppExports["write"]=write
 
 
@@ -169914,8 +170046,14 @@ end ;__nuppExports["write"]=write
 append=function ( path , bytes ) 
 local text = named ( path , "path" , 2 )
 local out = payload ( bytes , "contents" , 2 )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FilesTransferSubmitWrite ( slice ( text ) , slice ( out ) , 1 , output )
 
-return transferred ( C . nuppFsSubmitWrite ( text , # text , out , # out , 1 ) )
+if status ~= 0 then
+return false , ffi . string ( C . nuppNativeV2LastError ( ) )
+end
+
+return transferred ( output [ 0 ] )
 end ;__nuppExports["append"]=append
 
 
@@ -169931,8 +170069,14 @@ end ;__nuppExports["append"]=append
 writeAtomic=function ( path , bytes ) 
 local text = named ( path , "path" , 2 )
 local out = payload ( bytes , "contents" , 2 )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FilesTransferSubmitWrite ( slice ( text ) , slice ( out ) , 2 , output )
 
-return transferred ( C . nuppFsSubmitWrite ( text , # text , out , # out , 2 ) )
+if status ~= 0 then
+return false , ffi . string ( C . nuppNativeV2LastError ( ) )
+end
+
+return transferred ( output [ 0 ] )
 end ;__nuppExports["writeAtomic"]=writeAtomic
 
 
@@ -169944,8 +170088,14 @@ end ;__nuppExports["writeAtomic"]=writeAtomic
 copy=function ( from , to ) 
 local source = named ( from , "source path" , 2 )
 local destination = named ( to , "destination path" , 2 )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FilesTransferSubmitCopy ( slice ( source ) , slice ( destination ) , output )
 
-return transferred ( C . nuppFsSubmitCopy ( source , # source , destination , # destination ) )
+if status ~= 0 then
+return false , ffi . string ( C . nuppNativeV2LastError ( ) )
+end
+
+return transferred ( output [ 0 ] )
 end ;__nuppExports["copy"]=copy
 
 
@@ -169956,7 +170106,13 @@ end ;__nuppExports["copy"]=copy
 
 
 pendingTransfers=function ( ) 
-return tonumber ( C . nuppFsPending ( ) )
+requireFiles ( )
+local output = ffi . new ( "size_t[1]" )
+if C . nuppNativeV2FilesTransferPending ( output ) ~= 0 then
+return 0
+end
+
+return tonumber ( output [ 0 ] )
 end ;__nuppExports["pendingTransfers"]=pendingTransfers
 
 
@@ -169987,12 +170143,13 @@ local selected = MODES [ mode or "r" ]
 if selected == nil then
 error ( "nupp: io.files has no mode named " .. tostring ( mode ) , 2 )
 end
-local handle = C . nuppFileOpen ( text , # text , selected )
-if handle == nil then
-return nil , native . error ( )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FileOpen ( slice ( text ) , selected , output )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
-return setmetatable({ _handle =  handle ,  _closed =  false }, File) , nil
+return setmetatable({ _handle =  output [ 0 ] ,  _closed =  false }, File) , nil
 end ;__nuppExports["open"]=open
 
 
@@ -170013,11 +170170,12 @@ lines=function ( path )
 
 
 local text = named ( path , "path" , 2 )
-local handle = C . nuppFileOpen ( text , # text , MODES . r )
-if handle == nil then
-return nil , native . error ( )
+local output = ffi . new ( "uint64_t[1]" )
+local status = C . nuppNativeV2FileOpen ( slice ( text ) , MODES . r , output )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
-local opened = setmetatable({ _handle =  handle ,  _closed =  false }, File)
+local opened = setmetatable({ _handle =  output [ 0 ] ,  _closed =  false }, File)
 local reader = opened : newReader ( )
 local held = ""
 local finished = false
@@ -170120,7 +170278,10 @@ end ;__nuppExports["createTemporaryDirectory"]=createTemporaryDirectory
 
 
 currentDirectory=function ( ) 
-return answer ( C . nuppFilesCurrentDirectory ( ) )
+requireFiles ( )
+local output = ffi . new ( "uint64_t[1]" )
+
+return answer ( C . nuppNativeV2FilesCurrentDirectory ( output ) , output )
 end ;__nuppExports["currentDirectory"]=currentDirectory
 
 
@@ -170135,7 +170296,10 @@ if index == nil then
 error ( "nupp: io.files has no user folder named " .. tostring ( which ) , 2 )
 end
 
-return answer ( C . nuppFilesUserFolder ( index ) )
+requireFiles ( )
+local output = ffi . new ( "uint64_t[1]" )
+
+return answer ( C . nuppNativeV2FilesUserFolder ( index , output ) , output )
 end ;__nuppExports["userFolder"]=userFolder
 local __nuppWorkerRecords=_G.rawget(_G.nupp,"__workerRecords");if _G.type(__nuppWorkerRecords)~="table" then __nuppWorkerRecords=_G.setmetatable({},{__mode="k"});_G.rawset(_G.nupp,"__workerRecords",__nuppWorkerRecords) end;__nuppWorkerRecords[Entry]="nupp.io.files\0Entry";__nuppWorkerRecords[File]="nupp.io.files\0File";__nuppWorkerRecords[FileReader]="nupp.io.files\0FileReader";__nuppWorkerRecords[FileWriter]="nupp.io.files\0FileWriter";__nuppWorkerRecords[Info]="nupp.io.files\0Info";__nuppWorkerRecords[TemporaryOptions]="nupp.io.files\0TemporaryOptions";__nuppWorkerRecords[TemporaryPath]="nupp.io.files\0TemporaryPath"; end);if not __nuppOk then package.loaded["nupp.io.files"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.files"]=__nuppExports;return __nuppExports
 end
@@ -174382,42 +174546,71 @@ end ;__nuppExports["separator"]=separator
 local __nuppWorkerRecords=_G.rawget(_G.nupp,"__workerRecords");if _G.type(__nuppWorkerRecords)~="table" then __nuppWorkerRecords=_G.setmetatable({},{__mode="k"});_G.rawset(_G.nupp,"__workerRecords",__nuppWorkerRecords) end;__nuppWorkerRecords[Path]="nupp.io.path\0Path"; end);if not __nuppOk then package.loaded["nupp.io.path"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.path"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.io.path.provider"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
 
 
 
-const native = require ( "nupp.runtime.native" )
+const native = require ( "nupp.runtime.nativev2" )
+
+pcall(__nuppFfi.cdef, "struct NuppNativeV2FilesystemSlice { const char * data; uint64_t length; };") const NuppNativeV2FilesystemSlice = __nuppFfi.typeof("struct NuppNativeV2FilesystemSlice")
+
+
+
 
 native . ffi . cdef [[
-NuppBytes *nuppFilesCurrentDirectory(void);
-NuppBytes *nuppFilesCanonicalize(const uint8_t *, size_t);
+int32_t nuppNativeV2FilesCurrentDirectory(uint64_t *);
+int32_t nuppNativeV2FilesCanonicalize(
+    struct NuppNativeV2FilesystemSlice, uint64_t *);
 ]]
 
 local provider = { }
+local ffi = native . ffi
+local C = native . C
+const FILESYSTEM_FEATURE = 64
+local featureChecked = false
+
+local function requireFilesystem ( ) 
+if not featureChecked then
+native . requireFeature ( FILESYSTEM_FEATURE , "filesystem" )
+featureChecked = true
+end
+end
+
+local function slice ( text ) 
+requireFilesystem ( )
+local value = __nuppFfi.new(NuppNativeV2FilesystemSlice )
+value . data = text
+value . length = # text
+
+return value
+end
+
+local function answered ( status , output ) 
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
+end
+
+return native . bytes ( output [ 0 ] ) , nil
+end
 
 function provider . separator ( ) 
 return package . config : sub ( 1 , 1 )
 end
 
 function provider . currentDirectory ( ) 
-local out = native . C . nuppFilesCurrentDirectory ( )
-if out == nil then
-return nil , native . error ( )
-end
+requireFilesystem ( )
+local output = ffi . new ( "uint64_t[1]" )
 
-return native . bytes ( out ) , nil
+return answered ( C . nuppNativeV2FilesCurrentDirectory ( output ) , output )
 end
 
 function provider . canonicalize ( path ) 
-local out = native . C . nuppFilesCanonicalize ( path , # path )
-if out == nil then
-return nil , native . error ( )
-end
+local output = ffi . new ( "uint64_t[1]" )
 
-return native . bytes ( out ) , nil
+return answered ( C . nuppNativeV2FilesCanonicalize ( slice ( path ) , output ) , output )
 end
 
 const __nuppExportValue= provider ;__nuppExports=__nuppExportValue
@@ -185140,6 +185333,13 @@ ffi . cdef [[
 uint32_t nuppNativeV2AbiVersion(void);
 uint64_t nuppNativeV2Features(void);
 const char *nuppNativeV2LastError(void);
+int32_t nuppNativeV2BytesCopy(
+    uint64_t handle,
+    uint8_t *outputData,
+    size_t capacity,
+    size_t *outputLength
+);
+int32_t nuppNativeV2BytesRelease(uint64_t handle);
 ]]
 
 local native = { }
@@ -185220,6 +185420,36 @@ function native . requireFeature ( bit , name )
 if native . C . nuppNativeV2Features ( ) & bit == 0 then
 error ( "nupp: the Rust native provider was built without " .. name , 3 )
 end
+end
+
+
+
+
+function native . bytes ( handle ) 
+local length = ffi . new ( "size_t[1]" )
+local status = native . C . nuppNativeV2BytesCopy ( handle , nil , 0 , length )
+local count = ( tonumber ( length [ 0 ] ) or 0 )
+if count == 0 then
+local released = native . C . nuppNativeV2BytesRelease ( handle )
+native . succeeded ( status , 3 )
+native . succeeded ( released , 3 )
+
+return ""
+end
+
+if status ~= 2 then
+local released = native . C . nuppNativeV2BytesRelease ( handle )
+native . succeeded ( status , 3 )
+native . succeeded ( released , 3 )
+end
+
+local buffer = ffi . new ( "uint8_t[?]" , count )
+status = native . C . nuppNativeV2BytesCopy ( handle , buffer , count , length )
+local released = native . C . nuppNativeV2BytesRelease ( handle )
+native . succeeded ( status , 3 )
+native . succeeded ( released , 3 )
+
+return ffi . string ( buffer , count )
 end
 
 const __nuppExportValue= native ;__nuppExports=__nuppExportValue
@@ -215543,8 +215773,9 @@ end
 
 ## Cost
 
-Reaching `nupp.io.files` selects the compiler-owned C provider, whose filesystem
-operations and worker lane are backed by libuv, and loads it on first use. A
+Reaching `nupp.io.files` selects the compiler-owned Rust provider, whose filesystem
+operations use the platform standard library and whose blocking transfers run through
+the shared native executor, and loads it on first use. A
 program that never reaches it links nothing and initializes nothing, which is
 the rule for every facility in the [standard
 library](docs/learn/runtime/data/standard-library.md). A target that uses it also carries
@@ -215574,7 +215805,7 @@ Scheduling a transfer costs more than those cost to run.
 -- The native binding
 ----------------------------------------------------------------------------
 
-const native = require("nupp.runtime.native")
+const native = require("nupp.runtime.nativev2")
 const suspension = require("nupp.suspension")
 const paths = require("nupp.io.path")
 const io = require("nupp.io")
@@ -215584,62 +215815,105 @@ const span = require("nupp.mem.span")
 -- `ffi.new` names it and the checker has to know the type to accept that. It reaches
 -- LuaJIT as a bare `struct` rather than a typedef, which is why the prototype below
 -- writes it that way. The functions stay in the runtime declaration: they are reached
--- through the handle `nupp.runtime.native` opened, not the default namespace a `cdef
+-- through the handle `nupp.runtime.nativev2` opened, not the default namespace a `cdef
 -- function` binds to.
-cdef struct NuppFileInfo
+cdef struct NuppNativeV2FilesInfo
     kind: uint32
-    readOnly: boolean
+    read_only: int32
     size: uint64
     modified: number
 end
 
+cdef struct NuppNativeV2FilesSlice
+    data: cstring
+    length: uint64
+end
+
 native.ffi.cdef[[
-bool nuppFilesInfo(const uint8_t *, size_t, bool, struct NuppFileInfo *);
-NuppBytes *nuppFilesReadLink(const uint8_t *, size_t);
-NuppBytes *nuppFilesGlob(const uint8_t *, size_t);
-bool nuppFilesCreateSymlink(const uint8_t *, size_t, const uint8_t *, size_t, bool);
-bool nuppFilesSetReadOnly(const uint8_t *, size_t, bool);
-bool nuppFilesCreateDirectory(const uint8_t *, size_t);
-bool nuppFilesRemove(const uint8_t *, size_t, bool);
-bool nuppFilesRename(const uint8_t *, size_t, const uint8_t *, size_t);
-NuppBytes *nuppFilesList(const uint8_t *, size_t);
-NuppBytes *nuppFilesCreateTemporary(
-    const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *, size_t, bool);
-NuppBytes *nuppFilesCurrentDirectory(void);
-NuppBytes *nuppFilesUserFolder(uint32_t);
-typedef struct NuppFile NuppFile;
-NuppFile *nuppFileOpen(const uint8_t *, size_t, uint32_t);
-int64_t nuppFileRead(NuppFile *, uint8_t *, size_t);
-int64_t nuppFileWrite(NuppFile *, const uint8_t *, size_t);
-int64_t nuppFileSeek(NuppFile *, int64_t, uint32_t);
-int64_t nuppFileSize(NuppFile *);
-bool nuppFileFlush(NuppFile *);
-bool nuppFileClose(NuppFile *);
-typedef struct NuppRequest NuppRequest;
-NuppRequest *nuppFsSubmitRead(const uint8_t *, size_t);
-NuppRequest *nuppFsSubmitWrite(const uint8_t *, size_t, const uint8_t *, size_t, uint32_t);
-NuppRequest *nuppFsSubmitCopy(const uint8_t *, size_t, const uint8_t *, size_t);
-int32_t nuppFsStatus(const NuppRequest *);
-const uint8_t *nuppFsData(const NuppRequest *);
-size_t nuppFsLength(const NuppRequest *);
-const char *nuppFsError(const NuppRequest *);
-bool nuppFsCancel(NuppRequest *);
-void nuppFsDestroy(NuppRequest *);
-size_t nuppFsPoll(void);
-size_t nuppFsWait(uint64_t);
-size_t nuppFsPending(void);
+int32_t nuppNativeV2FilesInfo(
+    struct NuppNativeV2FilesSlice, int32_t, struct NuppNativeV2FilesInfo *);
+int32_t nuppNativeV2FilesReadLink(struct NuppNativeV2FilesSlice, uint64_t *);
+int32_t nuppNativeV2FilesCreateSymlink(
+    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice, int32_t);
+int32_t nuppNativeV2FilesSetReadOnly(struct NuppNativeV2FilesSlice, int32_t);
+int32_t nuppNativeV2FilesCreateDirectory(struct NuppNativeV2FilesSlice);
+int32_t nuppNativeV2FilesRemove(struct NuppNativeV2FilesSlice, int32_t);
+int32_t nuppNativeV2FilesRename(
+    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice);
+int32_t nuppNativeV2FilesList(struct NuppNativeV2FilesSlice, uint64_t *);
+int32_t nuppNativeV2FilesGlob(struct NuppNativeV2FilesSlice, uint64_t *);
+int32_t nuppNativeV2FilesCreateTemporary(
+    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice,
+    struct NuppNativeV2FilesSlice,
+    int32_t, uint64_t *);
+int32_t nuppNativeV2FilesCurrentDirectory(uint64_t *);
+int32_t nuppNativeV2FilesUserFolder(uint32_t, uint64_t *);
+
+int32_t nuppNativeV2FileOpen(struct NuppNativeV2FilesSlice, uint32_t, uint64_t *);
+int32_t nuppNativeV2FileRead(uint64_t, uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2FileWrite(uint64_t, const uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2FileSeek(uint64_t, int64_t, uint32_t, int64_t *);
+int32_t nuppNativeV2FileSize(uint64_t, int64_t *);
+int32_t nuppNativeV2FileFlush(uint64_t);
+int32_t nuppNativeV2FileRelease(uint64_t);
+
+int32_t nuppNativeV2FilesTransferSubmitRead(
+    struct NuppNativeV2FilesSlice, uint64_t *);
+int32_t nuppNativeV2FilesTransferSubmitWrite(
+    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice,
+    uint32_t, uint64_t *);
+int32_t nuppNativeV2FilesTransferSubmitCopy(
+    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice, uint64_t *);
+int32_t nuppNativeV2FilesTransferStatus(uint64_t, uint32_t *);
+int32_t nuppNativeV2FilesTransferTakeBytes(uint64_t, uint64_t *);
+int32_t nuppNativeV2FilesTransferCancel(uint64_t);
+int32_t nuppNativeV2FilesTransferRelease(uint64_t);
+int32_t nuppNativeV2FilesTransferPoll(size_t *);
+int32_t nuppNativeV2FilesTransferWait(uint64_t, size_t *);
+int32_t nuppNativeV2FilesTransferPending(size_t *);
 ]]
 
 local ffi = native.ffi
 local C = native.C
-local function fileRead(handle: any, borrows destination: uint8[?], count: integer): int64
-    local call = C.nuppFileRead as function(handle: any, borrows destination: uint8[?], count: integer): int64
-    return call(handle, destination, count)
+const FILES_FEATURE = 128
+local featureChecked = false
+
+local function requireFiles(): nil
+    if not featureChecked then
+        native.requireFeature(FILES_FEATURE, "files")
+        featureChecked = true
+    end
 end
 
-local function fileWrite(handle: any, borrows source: const uint8[?], count: integer): int64
-    local call = C.nuppFileWrite as function(handle: any, borrows source: const uint8[?], count: integer): int64
-    return call(handle, source, count)
+local function slice(text: string): any
+    requireFiles()
+    local value = ffi.new<NuppNativeV2FilesSlice>()
+    value.data = text
+    value.length = #text
+
+    return value
+end
+
+local function fileRead(handle: any, borrows destination: uint8[?], count: integer, wrote: any): integer
+    local call = C.nuppNativeV2FileRead as function(
+        handle: any,
+        borrows destination: uint8[?],
+        count: integer,
+        wrote: any
+    ): integer
+
+    return call(handle, destination, count, wrote)
+end
+
+local function fileWrite(handle: any, borrows source: const uint8[?], count: integer, wrote: any): integer
+    local call = C.nuppNativeV2FileWrite as function(
+        handle: any,
+        borrows source: const uint8[?],
+        count: integer,
+        wrote: any
+    ): integer
+
+    return call(handle, source, count, wrote)
 end
 
 -- The library numbers what a path is, what an entry is, which user folder, how a file
@@ -215652,7 +215926,10 @@ local MODES = {r = 0, w = 1, a = 2, ["r+"] = 3, ["w+"] = 4, ["a+"] = 5,}
 local ORIGINS = {set = 0, current = 1, ["end"] = 2,}
 
 local READ_SIZE: integer = 65536
-local PENDING, READY = 0, 1
+local PENDING: integer = 0
+local READY: integer = 1
+local FAILED: integer = 2
+local CANCELED: integer = 3
 
 -- The readiness pump this module registers with whoever is handling suspensions. The
 -- priority puts it with the other completion-oriented sources rather than ahead of
@@ -215792,23 +216069,24 @@ local function positive(value: any, what: string, level: integer): integer
     return answer
 end
 
--- A direct call answers a boolean, and the reason for a false lives on the error
--- channel rather than in the result.
-local function done(answered: boolean): (boolean, string?)
-    if answered then
+-- A direct call answers a status, and a failure's reason lives on the provider's
+-- thread-local error channel.
+local function done(status: integer): (boolean, string?)
+    if status == 0 then
         return true, nil
     end
 
-    return false, native.error()
+    return false, ffi.string(C.nuppNativeV2LastError())
 end
 
--- A direct call that answers a byte buffer reports failure with a nil buffer.
-local function answer(handle: any): (string?, string?)
-    if handle == nil then
-        return nil, native.error()
+-- Dynamic answers cross as generic v2 byte handles. `native.bytes` copies their
+-- contents into a Lua string and releases the generational handle exactly once.
+local function answer(status: integer, output: any): (string?, string?)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
     end
 
-    return native.bytes(handle), nil
+    return native.bytes(output[0]), nil
 end
 
 ----------------------------------------------------------------------------
@@ -215854,12 +216132,13 @@ export record File
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
-        local size = tonumber(C.nuppFileSize(self._handle)) or -1
-        if size < 0 then
-            return nil, native.error()
+        local output = ffi.new("int64_t[1]")
+        local status = C.nuppNativeV2FileSize(self._handle, output)
+        if status ~= 0 then
+            return nil, ffi.string(C.nuppNativeV2LastError())
         end
 
-        return size as integer, nil
+        return tonumber(output[0]) as integer, nil
     end
 
     --- Moves the cursor and answers where it landed.
@@ -215877,12 +216156,13 @@ export record File
         if whence == nil then
             error("nupp: io.files has no seek origin named " .. tostring(origin), 2)
         end
-        local at = tonumber(C.nuppFileSeek(self._handle, whole(offset or 0, "seek offset", 2), whence)) or -1
-        if at < 0 then
-            return nil, native.error()
+        local output = ffi.new("int64_t[1]")
+        local status = C.nuppNativeV2FileSeek(self._handle, whole(offset or 0, "seek offset", 2), whence, output)
+        if status ~= 0 then
+            return nil, ffi.string(C.nuppNativeV2LastError())
         end
 
-        return at as integer, nil
+        return tonumber(output[0]) as integer, nil
     end
 
     --- Answers the cursor's current position.
@@ -215903,7 +216183,7 @@ export record File
             error("nupp: io.files File is closed", 2)
         end
 
-        return done(C.nuppFileFlush(self._handle))
+        return done(C.nuppNativeV2FileFlush(self._handle))
     end
 
     --- Whether this file has been closed.
@@ -215941,7 +216221,7 @@ function File.drop(takes self: File): nil
     state._closed = true
     local handle = state._handle
     state._handle = nil
-    C.nuppFileClose(handle)
+    C.nuppNativeV2FileRelease(handle)
 end
 
 -- Closes a file without consuming an owner, which is what the line iterator needs: it
@@ -215953,7 +216233,7 @@ local function closeFile(file: File): nil
     file._closed = true
     local handle = file._handle
     file._handle = nil
-    C.nuppFileClose(handle)
+    C.nuppNativeV2FileRelease(handle)
 end
 
 ----------------------------------------------------------------------------
@@ -215990,10 +216270,12 @@ export record FileReader is io.Reader
         end
         local wanted = positive(count, "FileReader:read count", 2)
         local into = scratch(self, wanted)
-        local got = tonumber(C.nuppFileRead((file as File)._handle, into, wanted)) or -1
-        if got < 0 then
-            return nil, native.error()
+        local output = ffi.new("size_t[1]")
+        local status = C.nuppNativeV2FileRead((file as File)._handle, into, wanted, output)
+        if status ~= 0 then
+            return nil, ffi.string(C.nuppNativeV2LastError())
         end
+        local got = tonumber(output[0]) as integer
         if got == 0 then
             return "", nil
         end
@@ -216008,12 +216290,13 @@ export record FileReader is io.Reader
         end
         local wanted = positive(#destination, "FileReader:readSpan destination length", 2)
         local pointer = destination:ref()
-        local got = tonumber(fileRead((file as File)._handle, pointer, wanted)) or -1
-        if got < 0 then
-            return nil, native.error()
+        local output = ffi.new("size_t[1]")
+        local status = fileRead((file as File)._handle, pointer, wanted, output)
+        if status ~= 0 then
+            return nil, ffi.string(C.nuppNativeV2LastError())
         end
 
-        return got as integer, nil
+        return tonumber(output[0]) as integer, nil
     end
 
     --- Reads into a buffer.
@@ -216115,8 +216398,10 @@ export record FileWriter is io.Writer
         if type(bytes) ~= "string" then
             error("nupp: io.files FileWriter:write needs a string", 2)
         end
-        if (tonumber(C.nuppFileWrite((file as File)._handle, bytes, #bytes)) or -1) < 0 then
-            return false, native.error()
+        local output = ffi.new("size_t[1]")
+        local status = C.nuppNativeV2FileWrite((file as File)._handle, bytes, #bytes, output)
+        if status ~= 0 then
+            return false, ffi.string(C.nuppNativeV2LastError())
         end
 
         return true, nil
@@ -216132,12 +216417,13 @@ export record FileWriter is io.Writer
             return 0, nil
         end
         local pointer = source:ref()
-        local wrote = tonumber(fileWrite((file as File)._handle, pointer, count)) or -1
-        if wrote < 0 then
-            return nil, native.error()
+        local output = ffi.new("size_t[1]")
+        local status = fileWrite((file as File)._handle, pointer, count, output)
+        if status ~= 0 then
+            return nil, ffi.string(C.nuppNativeV2LastError())
         end
 
-        return wrote as integer, nil
+        return tonumber(output[0]) as integer, nil
     end
 
     --- Pushes the file's buffered writes at the operating system.
@@ -216192,7 +216478,7 @@ export record TemporaryPath
             return false, "the temporary path is released"
         end
         local to = named(destination, "destination path", 2)
-        local moved, reason = done(C.nuppFilesRename(self._text, #self._text, to, #to))
+        local moved, reason = done(C.nuppNativeV2FilesRename(slice(self._text), slice(to)))
         if not moved then
             return false, reason
         end
@@ -216228,7 +216514,7 @@ export record TemporaryPath
         end
         state._closed = true
 
-        return C.nuppFilesRemove(state._text, #state._text, state._directory)
+        return C.nuppNativeV2FilesRemove(slice(state._text), state._directory and 1 or 0) == 0
     end
 
     metamethod __tostring: function(self): string
@@ -216244,7 +216530,7 @@ function TemporaryPath.drop(takes self: TemporaryPath): nil
         return
     end
     state._closed = true
-    C.nuppFilesRemove(state._text, #state._text, state._directory)
+    C.nuppNativeV2FilesRemove(slice(state._text), state._directory and 1 or 0)
 end
 
     ;
@@ -216322,8 +216608,8 @@ end
 --- Describes one path, following symbolic links unless asked not to.
 local function described(path: string | paths.Path, follow: boolean, level: integer): any
     local text = named(path, "path", level + 1)
-    local record = ffi.new<NuppFileInfo[1]>()
-    if not C.nuppFilesInfo(text, #text, follow, record) then
+    local record = ffi.new<NuppNativeV2FilesInfo[1]>()
+    if C.nuppNativeV2FilesInfo(slice(text), follow and 1 or 0, record) ~= 0 then
         return nil
     end
     local found: any = nil
@@ -216335,7 +216621,7 @@ local function described(path: string | paths.Path, follow: boolean, level: inte
     unsafe do
         found = {
             kind = record[0].kind,
-            readOnly = record[0].readOnly,
+            readOnly = record[0].read_only ~= 0,
             size = record[0].size,
             modified = record[0].modified,
         }
@@ -216349,6 +216635,21 @@ end
 -- something a caller can ask about.
 local waits: {any} = {}
 
+local function transferState(handle: any): (integer, string?)
+    local output = ffi.new("uint32_t[1]")
+    local status = C.nuppNativeV2FilesTransferStatus(handle, output)
+    if status ~= 0 then
+        return FAILED, ffi.string(C.nuppNativeV2LastError())
+    end
+
+    local state = tonumber(output[0]) as integer
+    if state == FAILED then
+        return state, ffi.string(C.nuppNativeV2LastError())
+    end
+
+    return state, nil
+end
+
 ----------------------------------------------------------------------------
 -- Driving the request loop
 ----------------------------------------------------------------------------
@@ -216360,7 +216661,7 @@ local function harvest(): integer
     local index = #waits
     while index > 0 do
         local entry = waits[index]
-        if C.nuppFsStatus(entry.handle) ~= PENDING then
+        if transferState(entry.handle) ~= PENDING then
             waits[index] = waits[#waits]
             waits[#waits] = nil
             moved = moved + 1
@@ -216373,13 +216674,15 @@ local function harvest(): integer
 end
 
 local function polled(): integer
-    C.nuppFsPoll()
+    local output = ffi.new("size_t[1]")
+    C.nuppNativeV2FilesTransferPoll(output)
 
     return harvest()
 end
 
 local function slept(waitMs: integer): integer
-    C.nuppFsWait(waitMs)
+    local output = ffi.new("size_t[1]")
+    C.nuppNativeV2FilesTransferWait(waitMs, output)
 
     return harvest()
 end
@@ -216398,7 +216701,7 @@ end
 -- A request that has already settled is not waited for at all, so the common small
 -- read never reaches the suspension machinery.
 local function await(handle: any): nil
-    if C.nuppFsStatus(handle) ~= PENDING then
+    if transferState(handle) ~= PENDING then
         return
     end
     suspension.suspend("file transfer", function(resume: function(boolean), context: any): function()?
@@ -216407,7 +216710,7 @@ local function await(handle: any): nil
         waits[#waits + 1] = entry
         -- Settled between the status check above and the subscription: resume now and
         -- answer no cancellation, which is what a subscription that did not park owes.
-        if C.nuppFsStatus(handle) ~= PENDING then
+        if transferState(handle) ~= PENDING then
             forget(entry)
             resume(true)
 
@@ -216428,8 +216731,8 @@ local function await(handle: any): nil
             end
             cancelled = true
             forget(entry)
-            C.nuppFsCancel(handle)
-            C.nuppFsDestroy(handle)
+            C.nuppNativeV2FilesTransferCancel(handle)
+            C.nuppNativeV2FilesTransferRelease(handle)
         end
     end)
 end
@@ -216437,13 +216740,14 @@ end
 -- Waits for one submitted request and answers the handle when it is ready. A failed
 -- request is destroyed here, because nothing else will read it.
 local function settled(handle: any): (any?, string?)
-    if handle == nil then
-        return nil, native.error()
+    if handle == nil or handle == 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
     end
     await(handle)
-    if C.nuppFsStatus(handle) ~= READY then
-        local reason = ffi.string(C.nuppFsError(handle))
-        C.nuppFsDestroy(handle)
+    local state, failure = transferState(handle)
+    if state ~= READY then
+        local reason = failure or (state == CANCELED and "file transfer was cancelled" or "file transfer failed")
+        C.nuppNativeV2FilesTransferRelease(handle)
 
         return nil, reason
     end
@@ -216456,7 +216760,7 @@ local function transferred(handle: any): (boolean, string?)
     if ready == nil then
         return false, reason
     end
-    C.nuppFsDestroy(ready)
+    C.nuppNativeV2FilesTransferRelease(ready)
 
     return true, nil
 end
@@ -216466,10 +216770,18 @@ local function fetched(handle: any): (string?, string?)
     if ready == nil then
         return nil, reason
     end
-    local out = ffi.string(C.nuppFsData(ready), tonumber(C.nuppFsLength(ready)) as integer)
-    C.nuppFsDestroy(ready)
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FilesTransferTakeBytes(ready, output)
+    if status ~= 0 then
+        local failure = ffi.string(C.nuppNativeV2LastError())
+        C.nuppNativeV2FilesTransferRelease(ready)
 
-    return out, nil
+        return nil, failure
+    end
+    local out = native.bytes(output[0])
+    C.nuppNativeV2FilesTransferRelease(ready)
+
+    return out as string, nil
 end
 
 ----------------------------------------------------------------------------
@@ -216496,7 +216808,16 @@ local function temporary(options: TemporaryOptions?, directory: boolean, level: 
     local prefix = optional(options, "prefix", level + 1)
     local suffix = optional(options, "suffix", level + 1)
 
-    return answer(C.nuppFilesCreateTemporary(root, #root, prefix, #prefix, suffix, #suffix, directory))
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FilesCreateTemporary(
+        slice(root),
+        slice(prefix),
+        slice(suffix),
+        directory and 1 or 0,
+        output
+    )
+
+    return answer(status, output)
 end
 
 --- @raises when value is neither bytes nor a byte view
@@ -216531,7 +216852,7 @@ end
 export function info(path: string | paths.Path): (Info?, string?)
     local found = described(path, true, 2)
     if found == nil then
-        return nil, native.error()
+        return nil, ffi.string(C.nuppNativeV2LastError())
     end
 
     return new Info(
@@ -216587,8 +216908,9 @@ end
 --- @export
 export function readLink(path: string | paths.Path): (string?, string?)
     local text = named(path, "path", 2)
+    local output = ffi.new("uint64_t[1]")
 
-    return answer(C.nuppFilesReadLink(text, #text))
+    return answer(C.nuppNativeV2FilesReadLink(slice(text), output), output)
 end
 
 --- Creates a symbolic link.
@@ -216613,7 +216935,7 @@ export function createSymlink(
         error("nupp: io.files symlink kind must be 'file' or 'directory'", 2)
     end
 
-    return done(C.nuppFilesCreateSymlink(to, #to, at, #at, kind == "directory"))
+    return done(C.nuppNativeV2FilesCreateSymlink(slice(to), slice(at), kind == "directory" and 1 or 0))
 end
 
 --- Sets or clears a path's read-only attribute.
@@ -216625,7 +216947,7 @@ end
 export function setReadOnly(path: string | paths.Path, readOnly: boolean): (boolean, string?)
     local text = named(path, "path", 2)
 
-    return done(C.nuppFilesSetReadOnly(text, #text, readOnly and true or false))
+    return done(C.nuppNativeV2FilesSetReadOnly(slice(text), readOnly and 1 or 0))
 end
 
 --- Creates a directory and every missing parent.
@@ -216638,7 +216960,7 @@ end
 export function createDirectory(path: string | paths.Path): (boolean, string?)
     local text = named(path, "path", 2)
 
-    return done(C.nuppFilesCreateDirectory(text, #text))
+    return done(C.nuppNativeV2FilesCreateDirectory(slice(text)))
 end
 
 --- Removes a file, a symbolic link, or a directory.
@@ -216650,7 +216972,7 @@ end
 export function remove(path: string | paths.Path, recursive: boolean?): (boolean, string?)
     local text = named(path, "path", 2)
 
-    return done(C.nuppFilesRemove(text, #text, recursive and true or false))
+    return done(C.nuppNativeV2FilesRemove(slice(text), recursive and 1 or 0))
 end
 
 --- Renames a path, replacing an existing destination.
@@ -216663,7 +216985,7 @@ export function rename(from: string | paths.Path, to: string | paths.Path): (boo
     local source = named(from, "source path", 2)
     local destination = named(to, "destination path", 2)
 
-    return done(C.nuppFilesRename(source, #source, destination, #destination))
+    return done(C.nuppNativeV2FilesRename(slice(source), slice(destination)))
 end
 
 --- Lists a directory's immediate children.
@@ -216684,12 +217006,13 @@ end
 --- @export
 export function list(path: string | paths.Path): ({Entry}?, string?)
     local text = named(path, "path", 2)
-    local handle = C.nuppFilesList(text, #text)
-    if handle == nil then
-        return nil, native.error()
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FilesList(slice(text), output)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
     end
     -- The library answers one blob: a kind byte, the name, and a NUL, repeated.
-    local blob = native.bytes(handle) as string
+    local blob = native.bytes(output[0])
     local entries: {Entry} = {}
     local at = 1
     while at <= #blob do
@@ -216724,11 +217047,12 @@ end
 --- @export
 export function glob(pattern: string | paths.Path): ({string}?, string?)
     local text = named(pattern, "glob pattern", 2)
-    local handle = C.nuppFilesGlob(text, #text)
-    if handle == nil then
-        return nil, native.error()
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FilesGlob(slice(text), output)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
     end
-    local blob = native.bytes(handle) as string
+    local blob = native.bytes(output[0])
     local matches: {string} = {}
     local at = 1
     while at <= #blob do
@@ -216760,8 +217084,14 @@ end
 --- @export
 export function read(path: string | paths.Path): (string?, string?)
     local text = named(path, "path", 2)
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FilesTransferSubmitRead(slice(text), output)
 
-    return fetched(C.nuppFsSubmitRead(text, #text))
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
+    end
+
+    return fetched(output[0])
 end
 
 --- Writes a whole file, replacing its contents.
@@ -216773,8 +217103,14 @@ end
 export function write(path: string | paths.Path, bytes: string | io.ByteView): (boolean, string?)
     local text = named(path, "path", 2)
     local out = payload(bytes, "contents", 2)
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FilesTransferSubmitWrite(slice(text), slice(out), 0, output)
 
-    return transferred(C.nuppFsSubmitWrite(text, #text, out, #out, 0))
+    if status ~= 0 then
+        return false, ffi.string(C.nuppNativeV2LastError())
+    end
+
+    return transferred(output[0])
 end
 
 --- Adds to the end of a file, creating it when it does not exist.
@@ -216786,8 +217122,14 @@ end
 export function append(path: string | paths.Path, bytes: string | io.ByteView): (boolean, string?)
     local text = named(path, "path", 2)
     local out = payload(bytes, "contents", 2)
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FilesTransferSubmitWrite(slice(text), slice(out), 1, output)
 
-    return transferred(C.nuppFsSubmitWrite(text, #text, out, #out, 1))
+    if status ~= 0 then
+        return false, ffi.string(C.nuppNativeV2LastError())
+    end
+
+    return transferred(output[0])
 end
 
 --- Writes a whole file through a temporary beside it, so an interrupted write leaves
@@ -216803,8 +217145,14 @@ end
 export function writeAtomic(path: string | paths.Path, bytes: string | io.ByteView): (boolean, string?)
     local text = named(path, "path", 2)
     local out = payload(bytes, "contents", 2)
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FilesTransferSubmitWrite(slice(text), slice(out), 2, output)
 
-    return transferred(C.nuppFsSubmitWrite(text, #text, out, #out, 2))
+    if status ~= 0 then
+        return false, ffi.string(C.nuppNativeV2LastError())
+    end
+
+    return transferred(output[0])
 end
 
 --- Copies a file's contents over a destination.
@@ -216816,8 +217164,14 @@ end
 export function copy(from: string | paths.Path, to: string | paths.Path): (boolean, string?)
     local source = named(from, "source path", 2)
     local destination = named(to, "destination path", 2)
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FilesTransferSubmitCopy(slice(source), slice(destination), output)
 
-    return transferred(C.nuppFsSubmitCopy(source, #source, destination, #destination))
+    if status ~= 0 then
+        return false, ffi.string(C.nuppNativeV2LastError())
+    end
+
+    return transferred(output[0])
 end
 
 --- How many whole-file transfers this program is still holding.
@@ -216828,7 +217182,13 @@ end
 --- @return the number of live transfers
 --- @export
 export function pendingTransfers(): integer
-    return tonumber(C.nuppFsPending()) as integer
+    requireFiles()
+    local output = ffi.new("size_t[1]")
+    if C.nuppNativeV2FilesTransferPending(output) ~= 0 then
+        return 0
+    end
+
+    return tonumber(output[0]) as integer
 end
 
 ----------------------------------------------------------------------------
@@ -216859,12 +217219,13 @@ export function open(path: string | paths.Path, mode: Mode?): (affine(File?, des
     if selected == nil then
         error("nupp: io.files has no mode named " .. tostring(mode), 2)
     end
-    local handle = C.nuppFileOpen(text, #text, selected)
-    if handle == nil then
-        return nil, native.error()
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FileOpen(slice(text), selected, output)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
     end
 
-    return new File(_handle = handle, _closed = false), nil
+    return new File(_handle = output[0], _closed = false), nil
 end
 
 --- Iterates a file's lines, closing it at the end.
@@ -216885,11 +217246,12 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
     -- never sees would leave the discharge the scope machine already wrote behind it,
     -- closing the file before the first line is read.
     local text = named(path, "path", 2)
-    local handle = C.nuppFileOpen(text, #text, MODES.r)
-    if handle == nil then
-        return nil, native.error()
+    local output = ffi.new("uint64_t[1]")
+    local status = C.nuppNativeV2FileOpen(slice(text), MODES.r, output)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
     end
-    local opened = new File(_handle = handle, _closed = false)
+    local opened = new File(_handle = output[0], _closed = false)
     local reader = opened:newReader()
     local held = ""
     local finished = false
@@ -216992,7 +217354,10 @@ end
 --- @return a failure reason, when unsuccessful
 --- @export
 export function currentDirectory(): (string?, string?)
-    return answer(C.nuppFilesCurrentDirectory())
+    requireFiles()
+    local output = ffi.new("uint64_t[1]")
+
+    return answer(C.nuppNativeV2FilesCurrentDirectory(output), output)
 end
 
 --- Answers a well-known user folder.
@@ -217007,7 +217372,10 @@ export function userFolder(which: UserFolder): (string?, string?)
         error("nupp: io.files has no user folder named " .. tostring(which), 2)
     end
 
-    return answer(C.nuppFilesUserFolder(index))
+    requireFiles()
+    local output = ffi.new("uint64_t[1]")
+
+    return answer(C.nuppNativeV2FilesUserFolder(index, output), output)
 end
 ]=],
 ["/nupp/io/http.nupp"] = [=[
@@ -223288,35 +223656,64 @@ module nupp.io.path.provider
 -- The default host implementation of the three environmental path questions.
 -- A portable backend preloads this module name with its own provider; path
 -- arithmetic never crosses this boundary.
-const native = require("nupp.runtime.native")
+const native = require("nupp.runtime.nativev2")
+
+cdef struct NuppNativeV2FilesystemSlice
+    data: cstring
+    length: uint64
+end
 
 native.ffi.cdef[[
-NuppBytes *nuppFilesCurrentDirectory(void);
-NuppBytes *nuppFilesCanonicalize(const uint8_t *, size_t);
+int32_t nuppNativeV2FilesCurrentDirectory(uint64_t *);
+int32_t nuppNativeV2FilesCanonicalize(
+    struct NuppNativeV2FilesystemSlice, uint64_t *);
 ]]
 
 local provider = {}
+local ffi = native.ffi
+local C = native.C
+const FILESYSTEM_FEATURE = 64
+local featureChecked = false
+
+local function requireFilesystem(): nil
+    if not featureChecked then
+        native.requireFeature(FILESYSTEM_FEATURE, "filesystem")
+        featureChecked = true
+    end
+end
+
+local function slice(text: string): any
+    requireFilesystem()
+    local value = ffi.new<NuppNativeV2FilesystemSlice>()
+    value.data = text
+    value.length = #text
+
+    return value
+end
+
+local function answered(status: integer, output: any): (string?, string?)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
+    end
+
+    return native.bytes(output[0]), nil
+end
 
 function provider.separator(): string
     return package.config:sub(1, 1)
 end
 
 function provider.currentDirectory(): (string?, string?)
-    local out = native.C.nuppFilesCurrentDirectory()
-    if out == nil then
-        return nil, native.error()
-    end
+    requireFilesystem()
+    local output = ffi.new("uint64_t[1]")
 
-    return native.bytes(out) as string, nil
+    return answered(C.nuppNativeV2FilesCurrentDirectory(output), output)
 end
 
 function provider.canonicalize(path: string): (string?, string?)
-    local out = native.C.nuppFilesCanonicalize(path, #path)
-    if out == nil then
-        return nil, native.error()
-    end
+    local output = ffi.new("uint64_t[1]")
 
-    return native.bytes(out) as string, nil
+    return answered(C.nuppNativeV2FilesCanonicalize(slice(path), output), output)
 end
 
 export = provider
@@ -233512,6 +233909,13 @@ ffi.cdef[[
 uint32_t nuppNativeV2AbiVersion(void);
 uint64_t nuppNativeV2Features(void);
 const char *nuppNativeV2LastError(void);
+int32_t nuppNativeV2BytesCopy(
+    uint64_t handle,
+    uint8_t *outputData,
+    size_t capacity,
+    size_t *outputLength
+);
+int32_t nuppNativeV2BytesRelease(uint64_t handle);
 ]]
 
 local native = {}
@@ -233592,6 +233996,36 @@ function native.requireFeature(bit: integer, name: string): nil
     if native.C.nuppNativeV2Features() & bit == 0 then
         error("nupp: the Rust native provider was built without " .. name, 3)
     end
+end
+
+--- Takes an owned byte result from the provider and releases its handle.
+--- @export
+--- @raises when the result cannot be copied or released
+function native.bytes(handle: any): string
+    local length = ffi.new("size_t[1]")
+    local status = native.C.nuppNativeV2BytesCopy(handle, nil, 0, length)
+    local count = (tonumber(length[0]) or 0) as integer
+    if count == 0 then
+        local released = native.C.nuppNativeV2BytesRelease(handle)
+        native.succeeded(status, 3)
+        native.succeeded(released, 3)
+
+        return ""
+    end
+    -- Capacity is the expected result of probing a nonempty value.
+    if status ~= 2 then
+        local released = native.C.nuppNativeV2BytesRelease(handle)
+        native.succeeded(status, 3)
+        native.succeeded(released, 3)
+    end
+
+    local buffer = ffi.new("uint8_t[?]", count)
+    status = native.C.nuppNativeV2BytesCopy(handle, buffer, count, length)
+    local released = native.C.nuppNativeV2BytesRelease(handle)
+    native.succeeded(status, 3)
+    native.succeeded(released, 3)
+
+    return ffi.string(buffer, count)
 end
 
 export = native

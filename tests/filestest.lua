@@ -26,14 +26,14 @@ function M.beforeAll()
    math.randomseed(os.time())
    root = temporaryRoot()
    os.execute("mkdir -p '" .. root .. "'")
-   local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
+   local libraryPath = os.getenv("NUPP_NATIVE_V2_LIBRARY")
    if not libraryPath then
       local staged, problem = nativeStage.build(root, "out", {["native.files"] = true})
       if not staged then
          unavailable = tostring(problem)
          return
       end
-      libraryPath = root .. "/out/lib/nupp_native"
+      libraryPath = root .. "/out/lib/nupp_native_v2"
    end
    -- A generated program finds the library beside itself. This chunk is loaded
    -- from a string, so it has no beside; name the staged library outright, which
@@ -41,7 +41,7 @@ function M.beforeAll()
    local library = ("%q"):format(libraryPath)
    local source = stdlib.bootstrap({
       ["native.files"] = true, ["stdlib.io"] = true,
-   }):gsub('os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function() return library end)
+   }):gsub('os%.getenv%("NUPP_NATIVE_V2_LIBRARY"%)', function() return library end)
    previous = rawget(_G, "nupp")
    _G.nupp = nil
    assert(loadstring(source))()
@@ -542,15 +542,20 @@ function M.theProviderIsSelectedOnlyByReachingIt()
    test.equal(recorded, "native.files")
    local feature = assert(native.feature("native.files"))
    test.equal(feature.providerFeature, "files")
-   test.equal(feature.library, "nupp_native")
+   test.equal(feature.providerDriver, "native-rust")
+   test.equal(feature.provider, "nupp_native_v2")
+   test.equal(feature.library, "nupp_native_v2")
+   test.equal(feature.runtimeModule, "nupp.io.files")
+   test.equal(table.concat(feature.requires or {}, ","),
+      "native.path,stdlib.io,runtime.spanview,runtime.suspension,runtime.native_v2")
    -- The declarations belong to the module that calls them rather than to the
    -- bootstrap, so selecting the feature stages the provider and installs nothing.
-   assert(not stdlib.bootstrap({["native.files"] = true}):find("nuppFilesInfo", 1, true),
+   assert(not stdlib.bootstrap({["native.files"] = true}):find("nuppNativeV2FilesInfo", 1, true),
       "the files ABI is the module's, not the bootstrap's")
    local handle = assert(io.open("src/nupp/io/files.nupp", "rb"))
    local source = handle:read("*a")
    handle:close()
-   assert(source:find("nuppFilesInfo", 1, true),
+   assert(source:find("nuppNativeV2FilesInfo", 1, true),
       "the module declares the ABI it calls")
 end
 

@@ -50,9 +50,9 @@ MBEDTLS_SUFFIX=.tar.bz2
 MBEDTLS_MARKER=Makefile
 MBEDTLS_DIRECTORY='mbedtls-${MBEDTLS_VERSION}'
 
-# The platform layer: filesystem, processes, pipes, threads and an event loop,
-# on Linux, macOS and Windows. Node.js runs on it, which is the only reason to
-# trust its Windows half more than one written here and never run.
+# The remaining C network provider's sockets and event loop on Linux, macOS and
+# Windows. Node.js runs on it, which is the reason to trust its Windows half
+# more than a platform layer written here and rarely run.
 #
 # Built from a source list rather than through its own build system: libuv needs
 # autoconf or CMake, and it has no generated configuration header, so naming the

@@ -4,7 +4,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 CC=${NUPP_CC:-${CC:-cc}}
-PROVIDER=$($ROOT/scripts/toolchain native-rust gpu,http,process,uri,uuid)
+PROVIDER=$($ROOT/scripts/toolchain native-rust files,gpu,http,process,uri,uuid)
 DIRECTORY=$(dirname "$PROVIDER")
 TEMP=$(mktemp -d "${TMPDIR:-/tmp}/nupp-rust-abi.XXXXXX")
 trap 'rm -r "$TEMP"' EXIT HUP INT TERM

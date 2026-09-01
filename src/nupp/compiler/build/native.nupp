@@ -115,10 +115,11 @@ function stage.hostStub(
         return nil, "the compiler-owned Nupp stub needs compiler source; "
             .. "use a source checkout or name a prebuilt stub path"
     end
-    local featureNames = {}
+    local featureNames, included = {}, {}
     for _, feature in ipairs(native.features(effects)) do
-        if feature.host then
+        if feature.host and not included[feature.host] then
             featureNames[#featureNames + 1] = feature.host
+            included[feature.host] = true
         end
     end
     table.sort(featureNames)
@@ -156,10 +157,11 @@ function stage.linkHost(
     if not compilerRoot and (pack == nil or (pack as any).linkHost == nil) then
         return nil, "standalone native linking needs compiler source or an installed compiler pack"
     end
-    local featureNames = {}
+    local featureNames, included = {}, {}
     for _, feature in ipairs(native.features(effects)) do
-        if feature.host then
+        if feature.host and not included[feature.host] then
             featureNames[#featureNames + 1] = feature.host
+            included[feature.host] = true
         end
     end
     table.sort(featureNames)

@@ -612,12 +612,14 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         report:step("bundling " .. (target.name or target.kind))
         local runtimeModules = {}
         local requiredHostFeatures = {}
+        local includedHostFeatures: {[string]: boolean} = {}
         for _, feature in ipairs(nativeFeatures.features(resolvedEffects)) do
             if feature.runtimeModule then
                 runtimeModules[#runtimeModules + 1] = feature.runtimeModule
             end
-            if feature.host then
+            if feature.host and not includedHostFeatures[feature.host] then
                 requiredHostFeatures[#requiredHostFeatures + 1] = feature.host
+                includedHostFeatures[feature.host] = true
             end
         end
         table.sort(runtimeModules)

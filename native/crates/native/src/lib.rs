@@ -7,6 +7,8 @@ use std::ffi::c_char;
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(any(feature = "files", feature = "filesystem"))]
+mod files;
 #[cfg(feature = "gpu")]
 mod gpu;
 #[cfg(feature = "http")]
@@ -22,10 +24,27 @@ const FEATURE_GPU: u64 = 1 << 2;
 const FEATURE_URI: u64 = 1 << 3;
 const FEATURE_HTTP: u64 = 1 << 4;
 const FEATURE_PROCESS: u64 = 1 << 5;
+const FEATURE_FILESYSTEM: u64 = 1 << 6;
+const FEATURE_FILES: u64 = 1 << 7;
 
 fn bytes() -> &'static Mutex<Arena<Box<[u8]>>> {
     static BYTES: OnceLock<Mutex<Arena<Box<[u8]>>>> = OnceLock::new();
     BYTES.get_or_init(|| Mutex::new(Arena::new()))
+}
+
+pub(crate) fn store_bytes(value: Vec<u8>) -> Result<u64, i32> {
+    match bytes().lock() {
+        Ok(mut arena) => arena
+            .insert(value.into_boxed_slice())
+            .map(Handle::raw)
+            .map_err(|status| failed(status, "byte handle capacity is exhausted")),
+        Err(_) => Err(failed(Status::Internal, "byte handle store is poisoned")),
+    }
+}
+
+#[cfg(feature = "files")]
+pub(crate) fn remember_error(message: &str) {
+    set_last_error(message);
 }
 
 pub(crate) fn failed(status: Status, message: &str) -> i32 {
@@ -78,6 +97,16 @@ pub extern "C" fn nuppNativeV2Features() -> u64 {
         } else {
             0
         }
+        | if cfg!(feature = "filesystem") {
+            FEATURE_FILESYSTEM
+        } else {
+            0
+        }
+        | if cfg!(feature = "files") {
+            FEATURE_FILES
+        } else {
+            0
+        }
 }
 
 #[unsafe(no_mangle)]
@@ -101,18 +130,15 @@ pub unsafe extern "C" fn nuppNativeV2BytesCreate(
         return failed(Status::InvalidArgument, "byte handle output is null");
     }
     let value = match input(data, length) {
-        Ok(value) => value.to_vec().into_boxed_slice(),
+        Ok(value) => value.to_vec(),
         Err(status) => return status,
     };
-    let handle = match bytes().lock() {
-        Ok(mut arena) => match arena.insert(value) {
-            Ok(handle) => handle,
-            Err(status) => return failed(status, "byte handle capacity is exhausted"),
-        },
-        Err(_) => return failed(Status::Internal, "byte handle store is poisoned"),
+    let handle = match store_bytes(value) {
+        Ok(handle) => handle,
+        Err(status) => return status,
     };
     // SAFETY: the caller supplied writable storage for one u64.
-    unsafe { output.write(handle.raw()) };
+    unsafe { output.write(handle) };
     Status::Ok.code()
 }
 

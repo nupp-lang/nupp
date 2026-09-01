@@ -102,6 +102,14 @@ int main(int argc, char **argv) {
     for (index = 0; index < (int)(sizeof(libraries) / sizeof(libraries[0])); index += 1) {
         append(&cursor, resolved_libraries[index]);
     }
+#ifdef __APPLE__
+    append(&cursor, "-Wl,-force_load");
+    append(&cursor, path_join(root, "host/lib/libnupp_native_v2.a"));
+#else
+    append(&cursor, "-Wl,--whole-archive");
+    append(&cursor, path_join(root, "host/lib/libnupp_native_v2.a"));
+    append(&cursor, "-Wl,--no-whole-archive");
+#endif
     if (separator > 3) {
         append(&cursor, "-Wl,--whole-archive");
         for (index = 3; index < separator; index += 1) append(&cursor, argv[index]);

@@ -915,18 +915,23 @@ build_mbedtls() {
 # Which C a feature is. The names are the ones the compiler's feature registry
 # uses, so this file and that registry are the two halves of one list.
 provider_sources() {
-    # Common C ownership remains while the filesystem, network and TLS providers
-    # migrate. Clocks, XXH64 and processes are Rust providers, including
+    # Common C ownership remains while the network and TLS providers migrate.
+    # Files, clocks, XXH64 and processes are Rust providers, including
     # the digest a stamped host links statically for pre-Lua payload checking.
     printf '%s' "c/common.c"
-    case " $1 " in
-        *" files "*|*" native-files "*|*" filesystem "*) printf '%s' " c/files.c" ;;
-    esac
     for feature in $1; do
         case "$feature" in
-            files|native-files) printf '%s' " c/glob.c c/fslane.c" ;;
-            filesystem) ;;
-            process) die "process is a Rust-native provider feature" ;;
+            # A tracked compiler built before the ABI-v2 migration may still
+            # ask the legacy driver for these while rebuilding. They select no
+            # C source; the current compiler stages the Rust provider.
+            files|filesystem) ;;
+            # Host-only capability whose implementation is in the Rust archive.
+            native-files) ;;
+            # A tracked compiler built before the ABI-v2 migration may still
+            # include this retired feature in its legacy provider union while
+            # rebuilding itself. It selects no C source; the new compiler
+            # stages the Rust provider independently.
+            process) ;;
             # The host flag controls whether the process module is embedded;
             # its provider implementation is selected from the Rust archive.
             native-process) ;;
@@ -1140,7 +1145,10 @@ build_host() {
     sorted=$(printf '%s\n' $features | sort | tr '\n' ' ')
     rust_features=base
     case " $sorted " in
-        *" native-process "*|*" process "*) rust_features=base,process ;;
+        *" native-files "*|*" files "*|*" filesystem "*) rust_features="$rust_features,files" ;;
+    esac
+    case " $sorted " in
+        *" native-process "*|*" process "*) rust_features="$rust_features,process" ;;
     esac
     host_features=$features
     host_sorted=$sorted
@@ -1213,7 +1221,7 @@ build_host() {
                 ;;
             # Rust provider features select archive contents above. They are
             # not C host capabilities and add no provider source here.
-            base|process) ;;
+            base|files|filesystem|process) ;;
             *) die "unknown host feature $feature" ;;
         esac
     done
@@ -1268,11 +1276,24 @@ build_host() {
         cp "$luajit_prefix/lib/libluajit-5.1.a" "$out/libluajit.a" 2>/dev/null || true
     else
         mkdir -p "$out"
-        # shellcheck disable=SC2086
-        "$linker" -o "$out/nupp-host" \
-            $objects $libraries "$rust_base" "$uv_prefix/lib/libuv.a" \
-            "$luajit_prefix/lib/libluajit-5.1.a" $platform_libraries >&2
+        # The provider is reached through LuaJIT FFI, so no native relocation
+        # names its optional exports. Force the selected Rust archive into the
+        # host instead of letting the linker discard apparently unused modules.
+        if [ "$PLATFORM" = darwin ]; then
+            # shellcheck disable=SC2086
+            "$linker" -o "$out/nupp-host" \
+                $objects $libraries "-Wl,-force_load,$rust_base" \
+                "$uv_prefix/lib/libuv.a" "$luajit_prefix/lib/libluajit-5.1.a" \
+                $platform_libraries >&2
+        else
+            # shellcheck disable=SC2086
+            "$linker" -o "$out/nupp-host" \
+                $objects $libraries -Wl,--whole-archive "$rust_base" \
+                -Wl,--no-whole-archive "$uv_prefix/lib/libuv.a" \
+                "$luajit_prefix/lib/libluajit-5.1.a" $platform_libraries >&2
+        fi
     fi
+    cp "$rust_base" "$out/libnupp_native_v2.a"
     printf 'done\n' > "$out/.complete"
     release_lock
     HOST_OUT="$out"
@@ -1323,7 +1344,11 @@ $1"
                 ;;
         esac
     done
-    set -- "$@" "$rust_base" "$PREFIX/libuv/lib/libuv.a" "$PREFIX/luajit/lib/libluajit-5.1.a"
+    case "$PLATFORM" in
+        darwin) set -- "$@" "-Wl,-force_load,$rust_base" ;;
+        *) set -- "$@" -Wl,--whole-archive "$rust_base" -Wl,--no-whole-archive ;;
+    esac
+    set -- "$@" "$PREFIX/libuv/lib/libuv.a" "$PREFIX/luajit/lib/libluajit-5.1.a"
 
     if [ -n "$archives" ]; then
         case "$PLATFORM" in

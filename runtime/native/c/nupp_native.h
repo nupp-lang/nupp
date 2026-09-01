@@ -116,20 +116,4 @@ void nupp_text_free(NuppText *text);
 /* Whether `length` bytes at `data` are valid UTF-8. */
 bool nupp_is_utf8(const uint8_t *data, size_t length);
 
-/* --- what the filesystem answers ---------------------------------------- */
-
-#define NUPP_KIND_FILE 1u
-#define NUPP_KIND_DIRECTORY 2u
-#define NUPP_KIND_OTHER 3u
-#define NUPP_KIND_SYMLINK 4u
-
-/* What one resolved path is. Mirrors `NuppFileInfo` in the Lua binding, so the
- * field order and widths are part of the ABI rather than a private choice. */
-typedef struct {
-    uint32_t kind;
-    bool readOnly;
-    uint64_t size;
-    double modified;
-} NuppFileInfo;
-
 #endif /* NUPP_NATIVE_H */

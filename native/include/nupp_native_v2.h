@@ -35,6 +35,8 @@
 #define NUPP_NATIVE_V2_FEATURE_URI (UINT64_C(1) << 3)
 #define NUPP_NATIVE_V2_FEATURE_HTTP (UINT64_C(1) << 4)
 #define NUPP_NATIVE_V2_FEATURE_PROCESS (UINT64_C(1) << 5)
+#define NUPP_NATIVE_V2_FEATURE_FILESYSTEM (UINT64_C(1) << 6)
+#define NUPP_NATIVE_V2_FEATURE_FILES (UINT64_C(1) << 7)
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,6 +59,87 @@ NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2Xxh64Digest(
     const uint8_t *data, size_t length, uint8_t *output, size_t capacity);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TrailerDigest(
     const uint8_t *data, size_t length, uint8_t output[8]);
+
+/* Present when NUPP_NATIVE_V2_FEATURE_FILESYSTEM is set. Path values are
+ * length-delimited platform-native bytes and variable outputs are owned byte
+ * handles. NUPP_NATIVE_V2_FEATURE_FILES adds the bounded shared whole-file
+ * transfer lane. */
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+} NuppNativeV2FilesSlice;
+
+typedef struct {
+    uint32_t kind;
+    int32_t read_only;
+    uint64_t size;
+    double modified;
+} NuppNativeV2FilesInfo;
+
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesInfo(
+    NuppNativeV2FilesSlice path, int32_t follow,
+    NuppNativeV2FilesInfo *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesReadLink(
+    NuppNativeV2FilesSlice path, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesList(
+    NuppNativeV2FilesSlice path, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesGlob(
+    NuppNativeV2FilesSlice pattern, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesCreateTemporary(
+    NuppNativeV2FilesSlice directory, NuppNativeV2FilesSlice prefix,
+    NuppNativeV2FilesSlice suffix, int32_t as_directory, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesCurrentDirectory(
+    uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesCanonicalize(
+    NuppNativeV2FilesSlice path, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesUserFolder(
+    uint32_t kind, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesCreateSymlink(
+    NuppNativeV2FilesSlice target, NuppNativeV2FilesSlice link,
+    int32_t directory);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesSetReadOnly(
+    NuppNativeV2FilesSlice path, int32_t read_only);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesCreateDirectory(
+    NuppNativeV2FilesSlice path);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesRemove(
+    NuppNativeV2FilesSlice path, int32_t recursive);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesRename(
+    NuppNativeV2FilesSlice from, NuppNativeV2FilesSlice to);
+
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FileOpen(
+    NuppNativeV2FilesSlice path, uint32_t mode, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FileRead(
+    uint64_t file, uint8_t *output, size_t capacity, size_t *length);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FileWrite(
+    uint64_t file, const uint8_t *data, size_t length, size_t *written);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FileSeek(
+    uint64_t file, int64_t offset, uint32_t origin, int64_t *position);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FileSize(
+    uint64_t file, int64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FileFlush(uint64_t file);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FileRelease(uint64_t file);
+
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferSubmitRead(
+    NuppNativeV2FilesSlice path, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferSubmitWrite(
+    NuppNativeV2FilesSlice path, NuppNativeV2FilesSlice data,
+    uint32_t mode, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferSubmitCopy(
+    NuppNativeV2FilesSlice from, NuppNativeV2FilesSlice to,
+    uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferStatus(
+    uint64_t transfer, uint32_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferTakeBytes(
+    uint64_t transfer, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferCancel(
+    uint64_t transfer);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferRelease(
+    uint64_t transfer);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferPoll(size_t *ready);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferWait(
+    uint64_t timeout_ms, size_t *ready);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferPending(
+    size_t *pending);
 
 /* Present when NUPP_NATIVE_V2_FEATURE_UUID is set. Both outputs require a
  * capacity of at least 37 bytes and include their trailing NUL. */

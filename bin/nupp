@@ -179,9 +179,9 @@ build_native() {
     # optional stdlib facilities a program run by this launcher may select;
     # unlike a packaged build, `nupp run` loads this one development provider
     # rather than staging a target-specific union beside the program.
-    built=$("$ROOT/scripts/toolchain" native files,net,tls,filesystem) \
+    built=$("$ROOT/scripts/toolchain" native net,tls) \
         || return 1
-    rust_built=$("$ROOT/scripts/toolchain" native-rust base,http,process,uri,uuid) || return 1
+    rust_built=$("$ROOT/scripts/toolchain" native-rust base,files,http,process,uri,uuid) || return 1
     mkdir -p "$ROOT/build/lib"
     # Copied beside the destination and renamed onto it, never written in place.
     # A rename within one directory is atomic, so a command loading the library

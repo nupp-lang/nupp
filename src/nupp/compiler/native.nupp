@@ -98,7 +98,14 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
     },
     ["stdlib.derives"] = {name = "derives", globals = {}, runtimeModule = "nupp.derive", portableRuntime = true,},
-    ["stdlib.io"] = {name = "io", modules = {"nupp.io"},},
+    [
+        "stdlib.io"
+    ] = {
+        name = "io",
+        modules = {"nupp.io"},
+        runtimeModule = "nupp.io",
+        requires = {"stdlib.math", "runtime.spanview", "runtime.text_buffer"},
+    },
     -- LuaJIT's buffer, which the standard library builds strings with. Recorded so a
     -- target that selected a `text.buffer` provider installs it: nothing stages here,
     -- because on LuaJIT the module is the runtime's own and on a portable target it
@@ -117,11 +124,24 @@ local FEATURES: {[string]: native.Feature} = {
         -- The public module records the facility at the call site; its internal
         -- provider records it when the module graph is followed directly.
         modules = {"nupp.io.path", "nupp.io.path.provider"},
-        provider = "nupp_native",
+        provider = "nupp_native_v2",
+        providerDriver = "native-rust",
         providerFeature = "filesystem",
-        library = "nupp_native",
+        host = "native-files",
+        library = "nupp_native_v2",
         binary = true,
+        runtimeModule = "nupp.io.path.provider",
+        requires = {"runtime.path", "runtime.native_v2"},
     },
+    [
+        "runtime.path"
+    ] = {
+        name = "path_runtime",
+        runtimeModule = "nupp.io.path",
+        portableRuntime = true,
+        requires = {"runtime.pathtext"},
+    },
+    ["runtime.pathtext"] = {name = "pathtext", runtimeModule = "nupp.io.pathtext", portableRuntime = true,},
     [
         "native.uri"
     ] = {
@@ -149,14 +169,16 @@ local FEATURES: {[string]: native.Feature} = {
     ["native.files"] = {
         name = "files",
         modules = {"nupp.io.files"},
-        provider = "nupp_native",
+        provider = "nupp_native_v2",
+        providerDriver = "native-rust",
         providerFeature = "files",
         host = "native-files",
-        library = "nupp_native",
+        library = "nupp_native_v2",
         binary = true,
+        runtimeModule = "nupp.io.files",
         -- A file operation that waits performs `suspend`, so the runtime that
         -- answers it has to be in the target beside the program.
-        requires = {"runtime.suspension"},
+        requires = {"native.path", "stdlib.io", "runtime.spanview", "runtime.suspension", "runtime.native_v2",},
     },
     ["runtime.suspension"] = {
         -- Not a native library: a compiler-provided Nupp module a target needs its

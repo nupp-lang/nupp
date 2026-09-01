@@ -1321,7 +1321,7 @@ function M.subprocessPreservesEmptyArguments()
    assertEq(output, "2||tail", "an empty argv entry reaches the child process")
 end
 
-function M.nativeFacilitiesGroupByProviderAndDriver()
+function M.nativeFacilitiesSharingAProviderBuildAsOneUnion()
    local originalCapture, originalCopy = process.capture, fs.copyFile
    local originalCompilerRoot = compilerEnv.compilerRoot
    local calls, copies = {}, {}
@@ -1347,26 +1347,15 @@ function M.nativeFacilitiesGroupByProviderAndDriver()
    compilerEnv.compilerRoot = originalCompilerRoot
    assert(ok, outputs)
    assert(outputs, problem)
-   assertEq(#calls, 2, "independent providers are built separately")
-   assertEq(#copies, 2, "each provider stages one shared library")
-   local commands = "\n" .. table.concat(calls[1], "\n")
-      .. "\n" .. table.concat(calls[2], "\n") .. "\n"
-   assert(commands:find("\nnative\nfilesystem\n"),
-      "path selects the legacy provider and only its feature")
-   assert(commands:find("\nnative%-rust\nuuid\n"),
-      "UUID selects the Rust provider and only its feature")
-   local legacySource, rustSource
-   for _, copy in ipairs(copies) do
-      if copy[2]:find("out/lib/nupp_native_v2", 1, true) then
-         rustSource = copy[1]
-      elseif copy[2]:find("out/lib/nupp_native", 1, true) then
-         legacySource = copy[1]
-      end
-   end
-   assertEq(legacySource, "/built/libnupp_native.dylib",
-      "the legacy provider keeps its stable sidecar name")
-   assertEq(rustSource, "/built/libnupp_native_v2.dylib",
-      "the Rust provider has an independent stable sidecar name")
+   assertEq(#calls, 1, "one provider union is built once")
+   assertEq(#copies, 2, "the shared library and path runtime are staged")
+   local command = "\n" .. table.concat(calls[1], "\n") .. "\n"
+   assert(command:find("\nnative%-rust\nfilesystem,uuid\n"),
+      "path and UUID select one sorted Rust feature union")
+   assertEq(copies[1][1], "/built/libnupp_native_v2.dylib",
+      "the Rust provider union has one source artifact")
+   assert(copies[1][2]:find("out/lib/nupp_native_v2", 1, true),
+      "the Rust provider union keeps its stable sidecar name")
 end
 
 function M.nativeFacilityCanSelectItsProviderDriver()
@@ -2355,6 +2344,31 @@ print(tiny.tiny_add(2, 3))
    local code, text = process.capture({output})
    assertEq(code, 0, text)
    assertEq(text:match("[^\r\n]+"), "5", "the executable resolves FFI from its own symbols")
+   remove(dir)
+end
+
+function M.standaloneBinaryLinksRustFilesystemIntoItsOwnHost()
+   local dir = tempProject({
+      ["nupp.lua"] = [[return {include = {"src"}, build = {kind = "binary",
+   stub = "nupp", standalone = true, outDir = "out", output = "out/app",
+   entries = {"main"}}}]],
+      ["src/main.nupp"] = [[
+const files = require("nupp.io.files")
+assert(files.isFile("Cargo.toml"))
+local contents = assert(files.read("Cargo.toml"))
+assert(contents:find("[workspace]", 1, true))
+print("rust-files-ok")
+]],
+   })
+   assertEq(project.build(dir), 0)
+   local output = executableName(dir .. "/out/app")
+   assert(exists(output), "the standalone filesystem executable is emitted")
+   assert(not exists(dir .. "/out/lib/nupp_native_v2"),
+      "the standalone filesystem build retains no Rust sidecar")
+   local code, text = process.capture({output})
+   assertEq(code, 0, text)
+   assertEq(text:match("[^\r\n]+"), "rust-files-ok",
+      "the executable resolves Rust filesystem FFI from its own symbols")
    remove(dir)
 end
 

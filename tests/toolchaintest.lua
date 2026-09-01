@@ -379,6 +379,28 @@ function M.macOSHostLinkersCarryTheSecurityFramework()
       "the macOS compiler-pack host linker does not link CoreFoundation")
 end
 
+-- Rust provider exports are reached by name through LuaJIT FFI, so the native
+-- linker sees no relocation that would pull their object files from an archive.
+-- Every static-host route must both carry the selected archive and force-load
+-- it, including the relocatable compiler pack used by installed builds.
+function M.staticHostsForceLoadTheRustProvider()
+   local driver = read(ROOT .. "/scripts/toolchain")
+   local packer = read(ROOT .. "/scripts/compiler-pack")
+   local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
+   assert(driver:find('cp "$rust_base" "$out/libnupp_native_v2.a"', 1, true),
+      "a compiler-pack host does not retain its selected Rust provider")
+   assert(driver:find('-Wl,--whole-archive "$rust_base"', 1, true),
+      "a static host can discard Rust exports reached only through FFI")
+   assert(driver:find('-Wl,-force_load,$rust_base', 1, true),
+      "a macOS static host can discard Rust exports reached only through FFI")
+   assert(packer:find('copy_library "$host_dir/libnupp_native_v2.a"', 1, true),
+      "the compiler pack omits the Rust provider archive")
+   assert(packLinker:find('host/lib/libnupp_native_v2.a', 1, true),
+      "the compiler-pack linker omits the Rust provider archive")
+   assert(packLinker:find('append(&cursor, "-Wl,--whole-archive")', 1, true),
+      "the compiler-pack linker can discard Rust FFI exports")
+end
+
 -- Clang accepts --ld-path only while linking. Generated AOT compilation uses
 -- -Werror, so putting it among compile flags makes a valid installed pack fail
 -- before its linker can run.

@@ -5,35 +5,64 @@ module nupp.io.path.provider
 -- The default host implementation of the three environmental path questions.
 -- A portable backend preloads this module name with its own provider; path
 -- arithmetic never crosses this boundary.
-const native = require("nupp.runtime.native")
+const native = require("nupp.runtime.nativev2")
+
+cdef struct NuppNativeV2FilesystemSlice
+    data: cstring
+    length: uint64
+end
 
 native.ffi.cdef[[
-NuppBytes *nuppFilesCurrentDirectory(void);
-NuppBytes *nuppFilesCanonicalize(const uint8_t *, size_t);
+int32_t nuppNativeV2FilesCurrentDirectory(uint64_t *);
+int32_t nuppNativeV2FilesCanonicalize(
+    struct NuppNativeV2FilesystemSlice, uint64_t *);
 ]]
 
 local provider = {}
+local ffi = native.ffi
+local C = native.C
+const FILESYSTEM_FEATURE = 64
+local featureChecked = false
+
+local function requireFilesystem(): nil
+    if not featureChecked then
+        native.requireFeature(FILESYSTEM_FEATURE, "filesystem")
+        featureChecked = true
+    end
+end
+
+local function slice(text: string): any
+    requireFilesystem()
+    local value = ffi.new<NuppNativeV2FilesystemSlice>()
+    value.data = text
+    value.length = #text
+
+    return value
+end
+
+local function answered(status: integer, output: any): (string?, string?)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
+    end
+
+    return native.bytes(output[0]), nil
+end
 
 function provider.separator(): string
     return package.config:sub(1, 1)
 end
 
 function provider.currentDirectory(): (string?, string?)
-    local out = native.C.nuppFilesCurrentDirectory()
-    if out == nil then
-        return nil, native.error()
-    end
+    requireFilesystem()
+    local output = ffi.new("uint64_t[1]")
 
-    return native.bytes(out) as string, nil
+    return answered(C.nuppNativeV2FilesCurrentDirectory(output), output)
 end
 
 function provider.canonicalize(path: string): (string?, string?)
-    local out = native.C.nuppFilesCanonicalize(path, #path)
-    if out == nil then
-        return nil, native.error()
-    end
+    local output = ffi.new("uint64_t[1]")
 
-    return native.bytes(out) as string, nil
+    return answered(C.nuppNativeV2FilesCanonicalize(slice(path), output), output)
 end
 
 export = provider
