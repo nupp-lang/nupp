@@ -9,8 +9,13 @@ SOURCE="mandelbrot"
 OUT="$BENCH/build/preferred"
 OUT_X4="$BENCH/build/equal-width"
 
-./bin/nupp build
-./bin/nupp check "$BENCH/$SOURCE.nupp"
+# A normal launcher command rebuilds the compiler only after its sources
+# changed. Do not unconditionally build the compiler target here: a warm root
+# build still validates every compiler module and this runner is also called by
+# the WGPU benchmark after its shared preflight.
+if [ "${NUPP_MANDELBROT_PRECHECKED:-}" != 1 ]; then
+    ./bin/nupp check "$BENCH/$SOURCE.nupp"
+fi
 mkdir -p "$OUT" "$OUT_X4"
 
 case $(uname -s) in

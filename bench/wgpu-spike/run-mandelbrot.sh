@@ -8,7 +8,12 @@ BENCH="bench/wgpu-spike"
 BUILD="$BENCH/build/mandelbrot"
 LUAJIT=$("$ROOT/scripts/toolchain" luajit)/bin/luajit
 
-./bin/nupp build
+# `build --target typed` below does not rebuild this checkout's compiler first:
+# as a build command, it must be able to build another project's target without
+# mutating the compiler it runs. Check once here instead. The launcher rebuilds
+# the compiler when its sources changed, and otherwise this validates only the
+# benchmark source.
+./bin/nupp check bench/simd-mandelbrot/mandelbrot.nupp
 mkdir -p "$BUILD"
 
 (
@@ -27,7 +32,8 @@ export LUA_PATH LUA_CPATH
 # restore the typed GPU provider for the generated binding below.
 NUPP_NATIVE_V2_LIBRARY=$("$ROOT/scripts/toolchain" native-rust base,files,http,net,process,tls,uri,uuid)
 export NUPP_NATIVE_V2_LIBRARY
-MANDELBROT_RESULTS="$ROOT/$BUILD/expected.bin" bench/simd-mandelbrot/run.sh
+NUPP_MANDELBROT_PRECHECKED=1 \
+    MANDELBROT_RESULTS="$ROOT/$BUILD/expected.bin" bench/simd-mandelbrot/run.sh
 NUPP_NATIVE_V2_LIBRARY="$TYPED/lib/nupp_native_v2"
 export NUPP_NATIVE_V2_LIBRARY
 exec "$LUAJIT" "$BENCH/mandelbrot-api.lua" "$ROOT/$BUILD/expected.bin"
