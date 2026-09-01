@@ -506,4 +506,40 @@ mod tests {
         assert!(file.contains("before-") && file.ends_with(".tmp"));
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn path_case_follows_the_filesystem_without_losing_entry_spelling() {
+        let root = root("path-case");
+        let exact = root.join("MixedCase.txt");
+        let alternate = root.join("mixedcase.txt");
+        fs::write(&exact, b"exact").unwrap();
+
+        let folds_case = fs::metadata(&alternate).is_ok();
+        assert_eq!(info(&alternate, true).is_ok(), folds_case);
+        assert!(
+            list(&root)
+                .unwrap()
+                .iter()
+                .any(|entry| entry.name == "MixedCase.txt")
+        );
+
+        if folds_case {
+            assert_eq!(
+                canonicalize(&exact).unwrap(),
+                canonicalize(&alternate).unwrap()
+            );
+            assert_eq!(fs::read(&alternate).unwrap(), b"exact");
+        } else {
+            fs::write(&alternate, b"alternate").unwrap();
+            let entries = list(&root).unwrap();
+            assert!(entries.iter().any(|entry| entry.name == "MixedCase.txt"));
+            assert!(entries.iter().any(|entry| entry.name == "mixedcase.txt"));
+            assert_ne!(
+                canonicalize(&exact).unwrap(),
+                canonicalize(&alternate).unwrap()
+            );
+        }
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -620,6 +620,48 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_real_transfers_leave_no_requests_or_bytes_admitted() {
+        const TRANSFERS: usize = 32;
+
+        let root = root("concurrent-real");
+        let lane = FileLane::new();
+        let writes: Vec<_> = (0..TRANSFERS)
+            .map(|index| {
+                lane.submit_write(
+                    root.join(format!("value-{index}.bin")),
+                    format!("payload-{index}").into_bytes(),
+                    WriteMode::Atomic,
+                )
+                .unwrap()
+            })
+            .collect();
+        for transfer in &writes {
+            await_transfer(&lane, transfer);
+            assert_eq!(transfer.status(), TransferStatus::Ready);
+        }
+        drop(writes);
+
+        let reads: Vec<_> = (0..TRANSFERS)
+            .map(|index| {
+                lane.submit_read(root.join(format!("value-{index}.bin")))
+                    .unwrap()
+            })
+            .collect();
+        for (index, transfer) in reads.iter().enumerate() {
+            await_transfer(&lane, transfer);
+            assert_eq!(transfer.status(), TransferStatus::Ready);
+            let mut bytes = vec![0; transfer.data_len().unwrap()];
+            transfer.copy_data(&mut bytes).unwrap();
+            assert_eq!(bytes, format!("payload-{index}").as_bytes());
+        }
+        drop(reads);
+
+        assert_eq!(lane.pending(), 0);
+        assert_eq!(lane.admitted(), (0, 0));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn canceled_work_keeps_admission_until_the_worker_finishes() {
         let lane = FileLane::new();
         let barrier = Arc::new(Barrier::new(2));

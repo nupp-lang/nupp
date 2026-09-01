@@ -514,7 +514,7 @@ fn duplicate_stdout() -> Result<Stdio, String> {
 fn duplicate_stdout() -> Result<Stdio, String> {
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use windows_sys::Win32::Foundation::{
-        DuplicateHandle, DUPLICATE_SAME_ACCESS, INVALID_HANDLE_VALUE,
+        DUPLICATE_SAME_ACCESS, DuplicateHandle, INVALID_HANDLE_VALUE,
     };
     use windows_sys::Win32::System::Console::{GetStdHandle, STD_OUTPUT_HANDLE};
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
@@ -831,11 +831,13 @@ async fn supervise_child(
     state: Arc<Mutex<ChildState>>,
     pid: u32,
 ) {
+    let mut killed = false;
     let exit = loop {
         tokio::select! {
             result = child.wait() => break result,
             control = controls.recv() => match control {
                 Some(()) => {
+                    killed = true;
                     if let Err(error) = signal_child(&mut child, pid, force.load(Ordering::Acquire)) {
                         let mut child_state = state.lock().unwrap_or_else(|poison| poison.into_inner());
                         if child_state.exit.is_none() {
@@ -847,18 +849,20 @@ async fn supervise_child(
                     }
                 }
                 None => {
+                    killed = true;
                     let _ = child.start_kill();
                 }
             }
         }
     };
-    let value = match exit {
+    let mut value = match exit {
         Ok(status) => exit_from(status),
         Err(_) => Exit {
             code: 1,
             killed: false,
         },
     };
+    value.killed |= killed;
     state.lock().unwrap_or_else(|error| error.into_inner()).exit = Some(value);
     activity().notify();
 }
@@ -969,9 +973,24 @@ mod tests {
         .unwrap()
     }
 
+    #[cfg(unix)]
+    const OUTPUT_SCRIPT: &str = "printf process-output";
+    #[cfg(windows)]
+    const OUTPUT_SCRIPT: &str = "set /p \"=process-output\" <nul";
+
+    #[cfg(unix)]
+    const COPY_INPUT_SCRIPT: &str = "cat";
+    #[cfg(windows)]
+    const COPY_INPUT_SCRIPT: &str = "more";
+
+    #[cfg(unix)]
+    const LONG_RUNNING_SCRIPT: &str = "sleep 30";
+    #[cfg(windows)]
+    const LONG_RUNNING_SCRIPT: &str = "ping -n 31 127.0.0.1 >nul";
+
     #[test]
     fn output_is_bounded_and_eventually_ends() {
-        let spawned = shell("printf process-output");
+        let spawned = shell(OUTPUT_SCRIPT);
         let output = spawned.streams[1].as_ref().unwrap();
         let mut bytes = Vec::new();
         let mut scratch = [0_u8; 64];
@@ -988,15 +1007,31 @@ mod tests {
             }
         }
         assert_eq!(bytes, b"process-output");
+        assert_eq!(
+            wait_for_exit(&spawned.child),
+            Exit {
+                code: 0,
+                killed: false
+            }
+        );
+        spawned.child.reap().unwrap();
     }
 
     #[test]
     fn input_backpressure_allows_only_one_write_at_a_time() {
-        let spawned = shell("cat");
+        let spawned = shell(COPY_INPUT_SCRIPT);
         let input = spawned.streams[0].as_ref().unwrap();
         assert_eq!(input.try_write(b"one").unwrap(), Write::Accepted(3));
         assert_eq!(input.try_write(b"two").unwrap(), Write::WouldBlock);
         input.close();
+        assert_eq!(
+            wait_for_exit(&spawned.child),
+            Exit {
+                code: 0,
+                killed: false
+            }
+        );
+        spawned.child.reap().unwrap();
     }
 
     #[test]
@@ -1062,10 +1097,9 @@ mod tests {
         assert_eq!(unsafe { libc::kill(descendant.0, 0) }, 0);
     }
 
-    #[cfg(unix)]
     #[test]
     fn concurrent_children_cancel_and_reap_without_stranded_streams() {
-        let children: Vec<_> = (0..16).map(|_| shell("sleep 30")).collect();
+        let children: Vec<_> = (0..16).map(|_| shell(LONG_RUNNING_SCRIPT)).collect();
         for spawned in &children {
             spawned.child.kill(true).unwrap();
             for stream in spawned.streams.iter().flatten() {
@@ -1076,6 +1110,26 @@ mod tests {
             assert!(wait_for_exit(&spawned.child).killed);
             spawned.child.reap().unwrap();
         }
+    }
+
+    #[test]
+    fn concurrent_short_lived_children_reap_without_leaking_ownership() {
+        let uncollected_before = uncollected_total();
+        let children: Vec<_> = (0..32).map(|_| shell("exit 0")).collect();
+        for spawned in children {
+            assert_eq!(
+                wait_for_exit(&spawned.child),
+                Exit {
+                    code: 0,
+                    killed: false
+                }
+            );
+            spawned.child.reap().unwrap();
+            for stream in spawned.streams.iter().flatten() {
+                stream.close();
+            }
+        }
+        assert_eq!(uncollected_total(), uncollected_before);
     }
 
     #[test]
