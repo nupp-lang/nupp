@@ -141,13 +141,13 @@ compiler names and require their authenticated compiler packs to build and run
 a standalone C FFI plus AOT fixture. Cross-target jobs stamp all three public
 targets and execute each result on its matching runner.
 
-Those workflows are the platform gates; their presence is not evidence that a
-particular commit has completed them. The Rust-host cutover was exercised
-locally on macOS arm64, including the executable host, static application host,
-static and dynamic embedding SDKs, workers, an appended compiler payload, and
-byte-identical compiler fixpoint. Linux and Windows behavior remains subject to
-completed remote matrix and release runs. Do not infer a green runner result
-from a successful local macOS build.
+Those workflows are the platform gates; their presence alone is not evidence
+that a particular commit completed them. The Rust-host cutover is exercised on
+the retained Linux, macOS, and Windows runners, including the executable host,
+static application host, static and dynamic embedding SDKs, workers, appended
+compiler payloads, unpacked release artifacts, and byte-identical compiler and
+binary packaging fixpoints. The Windows gate also exercises the DirectX 12 WGPU
+adapter rather than relying only on the cross-platform software adapter.
 
 ## Migration breaks
 
