@@ -43908,11 +43908,15 @@ io . stderr : write (
 return 1
 end
 
-if project . build ( root , { target = targetName } ) ~= 0 then
+local built = { }
+if project . build ( root , { target = targetName , produced = built } ) ~= 0 then
 return 1
 end
-local outDir = target . outDir or "build"
-local produced = join ( root , target . output or join ( outDir , targetName ) )
+local produced = built . artifact
+if type ( produced ) ~= "string" then
+io . stderr : write ( "nupp: binary build produced no executable artifact\n" )
+return 1
+end
 local first , readErr = readFile ( produced )
 if not first then
 io . stderr : write ( "nupp: " .. tostring ( readErr ) .. "\n" )
