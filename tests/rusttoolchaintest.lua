@@ -151,6 +151,7 @@ printf '%%s\n' built > "$target/release/$artifact"
 printf '%%s\n' "$arguments" > "$NUPP_TEST_CARGO_RECORD"
 printf '%%s\n' "${NUPP_CC:-}" > "$NUPP_TEST_CARGO_CC_RECORD"
 printf '%%s\n' "${CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER:-}" > "$NUPP_TEST_CARGO_LINKER_RECORD"
+printf '%%s\n' "${CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER:-}" > "$NUPP_TEST_CARGO_GNULLVM_LINKER_RECORD"
 ]]
         ):format(version)
     )
@@ -175,6 +176,7 @@ local function environment(directory, version, identity)
         NUPP_TEST_CARGO_RECORD = directory .. "/cargo-arguments",
         NUPP_TEST_CARGO_CC_RECORD = directory .. "/cargo-cc",
         NUPP_TEST_CARGO_LINKER_RECORD = directory .. "/cargo-linker",
+        NUPP_TEST_CARGO_GNULLVM_LINKER_RECORD = directory .. "/cargo-gnullvm-linker",
         NUPP_TEST_RUST_LIBRARY = library,
         NUPP_TEST_RUST_HOST = host,
         PATH = "$PATH",
@@ -591,6 +593,7 @@ esac
     env.NUPP_CARGO = nil
     env.NUPP_RUSTC = nil
     env.NUPP_TEST_RUST_HOST = "nupp-host-rust.exe"
+    env.CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER = "poison-gnullvm-linker"
     env.PATH = directory .. ":$PATH"
 
     local status, output = run(env, "host-rust")
@@ -603,16 +606,80 @@ esac
         read(env.NUPP_TEST_CARGO_LINKER_RECORD):match("^" .. env.NUPP_CC:gsub("([^%w])", "%%%1") .. "\n$"),
         "Cargo did not link the Windows GNU artifact with Nupp's selected compiler"
     )
+    assert(read(env.NUPP_TEST_CARGO_GNULLVM_LINKER_RECORD) == "\n", "the GNU build also configured the gnullvm linker")
 end
 
-function M.windowsCiInstallsThePinnedGnuRustToolchain()
+-- LLVM-MinGW carries UCRT and compiler-rt rather than GCC's runtime archives.
+-- Its Rust host must therefore use Rust's matching gnullvm target instead of
+-- asking the LLVM linker for libgcc while compiling Cargo build scripts.
+function M.windowsCompilerPackSelectsThePinnedGnullvmRustToolchain()
+    local directory = temporary()
+    local env = environment(directory, "1.98.0", "x86_64-pc-windows-gnullvm")
+    local rustupRecord = directory .. "/rustup-toolchains"
+    executable(directory, "uname", [[#!/bin/sh
+printf '%s\n' MINGW64_NT
+]])
+    executable(
+        directory,
+        "rustup",
+        (
+            [[#!/bin/sh
+printf '%%s\n' "${RUSTUP_TOOLCHAIN:-}" >> %s
+[ "${1:-}" = which ] || exit 3
+case "${2:-}" in
+   cargo|rustc) printf '%%s/%%s\n' %s "$2" ;;
+   *) exit 4 ;;
+esac
+]]
+        ):format(quote(rustupRecord), quote(directory))
+    )
+    env.NUPP_CARGO = nil
+    env.NUPP_RUSTC = nil
+    env.NUPP_RUST_WINDOWS_ABI = "gnullvm"
+    env.NUPP_TEST_RUST_HOST = "nupp-host-rust.exe"
+    env.CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "poison-gnu-linker"
+    env.PATH = directory .. ":$PATH"
+
+    local status, output = run(env, "host-rust")
+
+    assert(status == 0, output)
+    local selected = read(rustupRecord)
+    local _, count = selected:gsub("1%.98%.0%-x86_64%-pc%-windows%-gnullvm\n", "")
+    assert(count == 2, "Cargo and rustc did not both select the pinned Windows gnullvm toolchain:\n" .. selected)
+    assert(read(env.NUPP_TEST_CARGO_LINKER_RECORD) == "\n", "the gnullvm build also configured the GNU linker")
+    assert(
+        read(env.NUPP_TEST_CARGO_GNULLVM_LINKER_RECORD):match("^" .. env.NUPP_CC:gsub("([^%w])", "%%%1") .. "\n$"),
+        "Cargo did not link the Windows gnullvm artifact with Nupp's selected compiler"
+    )
+end
+
+function M.gnullvmRustAbiIsRejectedOffWindows()
+    local directory = temporary()
+    local env = environment(directory)
+    env.NUPP_RUST_WINDOWS_ABI = "gnullvm"
+    local status, output = run(env, "host-rust")
+    assert(status ~= 0, output)
+    assert(output:find("NUPP_RUST_WINDOWS_ABI=gnullvm is only supported on Windows", 1, true), output)
+end
+
+function M.windowsCiInstallsMatchingRustToolchains()
     local compiler = read(ROOT .. "/.github/workflows/compiler.yml")
     local release = read(ROOT .. "/.github/workflows/release.yml")
-    local marker = 'rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal'
-    local compilerInstalls = countOccurrences(compiler, marker)
-    local releaseInstalls = countOccurrences(release, marker)
+    local pack = read(ROOT .. "/.github/scripts/build-compiler-pack-windows.sh")
+    local packJob = assert(release:match("\n  build%-compiler%-pack%-windows:(.-)\n  catalog:"))
+    local gnu = 'rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal'
+    local gnullvm = 'rustup toolchain install "${channel}-x86_64-pc-windows-gnullvm" --profile minimal'
+    local compilerInstalls = countOccurrences(compiler, gnu)
+    local releaseInstalls = countOccurrences(release, gnu)
     assert(compilerInstalls == 3, "the Windows compiler, DX12, and native measurement jobs do not provision GNU Rust")
-    assert(releaseInstalls == 2, "the Windows host and compiler-pack jobs do not provision GNU Rust")
+    assert(releaseInstalls == 1, "the ordinary Windows release host does not provision GNU Rust")
+    assert(countOccurrences(release, gnullvm) == 1, "the LLVM-MinGW compiler-pack job does not provision gnullvm Rust")
+    assert(packJob:find(gnullvm, 1, true), "the compiler-pack job provisions gnullvm in a different Windows job")
+    assert(not packJob:find(gnu, 1, true), "the compiler-pack job still provisions GNU Rust for LLVM-MinGW")
+    assert(
+        pack:find("NUPP_RUST_WINDOWS_ABI=gnullvm", 1, true),
+        "the LLVM-MinGW compiler-pack build does not select its provisioned Rust ABI"
+    )
 end
 
 function M.pagesCiInstallsThePinnedRustToolchain()

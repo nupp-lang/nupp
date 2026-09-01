@@ -54,6 +54,7 @@ features=lpeg,native-files,native-net,native-process,native-tls,workers
 export NUPP_TOOLCHAIN_DIR="$cache"
 export NUPP_CC="$toolchain/$cc"
 export NUPP_CXX="$toolchain/$cxx"
+export NUPP_RUST_WINDOWS_ABI=gnullvm
 export PATH="$toolchain/bin:$PATH"
 host_binary=$($ROOT/scripts/toolchain host "$features")
 host_dir=$(dirname "$host_binary")
