@@ -1630,13 +1630,28 @@ mod tests {
 
     fn wait_until(mut ready: impl FnMut() -> bool) {
         let deadline = Instant::now() + Duration::from_secs(5);
-        while !ready() {
+        loop {
+            if ready() {
+                return;
+            }
             assert!(Instant::now() < deadline, "network operation timed out");
             let seen = poll_activity();
-            if !ready() {
-                wait_activity_since(seen, Duration::from_millis(20));
+            if ready() {
+                return;
             }
+            wait_activity_since(seen, Duration::from_millis(20));
         }
+    }
+
+    #[test]
+    fn wait_until_returns_when_the_lost_wakeup_probe_succeeds() {
+        let mut probes = 0;
+        wait_until(|| {
+            probes += 1;
+            assert!(probes <= 2, "readiness was probed after it succeeded");
+            probes == 2
+        });
+        assert_eq!(probes, 2);
     }
 
     fn exclusive_network() -> MutexGuard<'static, ()> {
