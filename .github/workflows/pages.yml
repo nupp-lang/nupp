@@ -31,6 +31,16 @@ jobs:
           cache: npm
           cache-dependency-path: editors/playground/package-lock.json
 
+      # The docs build loads the native host. Install its exact toolchain before
+      # `cargo --version` is captured by scripts/toolchain: rustup's first-run
+      # progress otherwise becomes part of the captured version and aborts the
+      # build before the site can publish.
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$channel" --profile minimal
+
       - name: Set up Emscripten 6.0.8
         uses: emscripten-core/setup-emsdk@v15
         with:

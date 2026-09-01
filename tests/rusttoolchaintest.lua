@@ -378,6 +378,15 @@ function M.windowsCiInstallsThePinnedGnuRustToolchain()
     assert(releaseInstalls == 2, "the Windows host and compiler-pack jobs do not provision GNU Rust")
 end
 
+function M.pagesCiInstallsThePinnedRustToolchain()
+    local pages = read(ROOT .. "/.github/workflows/pages.yml")
+    local marker = 'rustup toolchain install "$channel" --profile minimal'
+    assert(
+        countOccurrences(pages, marker) == 1,
+        "the Pages build does not provision the exact Rust toolchain before building docs"
+    )
+end
+
 -- The broad suite remains the language gate. Native migration regressions need
 -- a smaller named boundary before it: the exact resource crates, C ABI, and
 -- production host artifacts on each retained runner. Tagged release jobs must
