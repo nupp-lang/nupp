@@ -1,0 +1,205 @@
+const http = require("nupp.io.http")
+const net = require("nupp.io.net")
+const time = require("nupp.time")
+const uri = require("nupp.io.uri")
+
+const SAMPLES = 9
+const WARMUPS = 2
+const NET_LATENCY_ROUNDS = 1000
+const NET_THROUGHPUT_CHUNKS = 256
+const HTTP_LATENCY_REQUESTS = 300
+const HTTP_THROUGHPUT_REQUESTS = 8
+const CHUNK_BYTES = 64 * 1024
+const LARGE_HTTP_BYTES = 4 * 1024 * 1024
+
+local function median(values: {number}): number
+    table.sort(values)
+
+    return values[math.ceil(#values / 2)] as number
+end
+
+local function readExactly(exclusive stream: net.Stream, wanted: integer): nil
+    local received: integer = 0
+    while received < wanted do
+        const chunk, why = stream:read(wanted - received)
+        if chunk == nil then
+            error(why or "network read failed")
+        end
+        if #chunk == 0 then
+            error("network peer ended before the expected bytes arrived")
+        end
+        received = received + (#chunk as integer)
+    end
+end
+
+local function networkLatency(): number
+    local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+    local client = assert(net.connect({host = "127.0.0.1", port = listener:port(), sendHighWater = CHUNK_BYTES}))
+    local served = assert(listener:accept())
+    assert(client:setNoDelay(true))
+    assert(served:setNoDelay(true))
+    local samples: {number} = {}
+    for sample = 1, SAMPLES + WARMUPS do
+        const started = time.now()
+        for _ = 1, NET_LATENCY_ROUNDS do
+            assert(client:write("q"))
+            readExactly(served, 1)
+            assert(served:write("r"))
+            readExactly(client, 1)
+        end
+        if sample > WARMUPS then
+            samples[#samples + 1] = time.now() - started
+        end
+    end
+    served:close()
+    client:close()
+    listener:close()
+
+    return median(samples) * 1000 / NET_LATENCY_ROUNDS
+end
+
+local function networkThroughput(): number
+    local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+    local client = assert(net.connect({host = "127.0.0.1", port = listener:port(), sendHighWater = CHUNK_BYTES}))
+    local served = assert(listener:accept())
+    const first = ("abcdefgh"):rep(CHUNK_BYTES / 8)
+    const second = ("hgfedcba"):rep(CHUNK_BYTES / 8)
+    local samples: {number} = {}
+    for sample = 1, SAMPLES + WARMUPS do
+        const started = time.now()
+        for chunk = 1, NET_THROUGHPUT_CHUNKS do
+            const payload = chunk % 2 == 0 and first or second
+            assert(client:write(payload))
+            readExactly(served, #payload as integer)
+        end
+        const elapsed = time.now() - started
+        if sample > WARMUPS then
+            samples[#samples + 1] = CHUNK_BYTES * NET_THROUGHPUT_CHUNKS / elapsed / 1048.576
+        end
+    end
+    served:close()
+    client:close()
+    listener:close()
+
+    return median(samples)
+end
+
+local function httpPort(): integer
+    const port = tonumber(os.getenv("NUPP_BENCH_HTTP_PORT") or "")
+    if port == nil then
+        error("NUPP_BENCH_HTTP_PORT is required")
+    end
+
+    return port as integer
+end
+
+local function httpLatency(port: integer): number
+    local client = new http.Client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    const target = assert(uri.newURI(("http://127.0.0.1:%d/small"):format(port)))
+    local samples: {number} = {}
+    for sample = 1, SAMPLES + WARMUPS do
+        const started = time.now()
+        for _ = 1, HTTP_LATENCY_REQUESTS do
+            local response = assert(client:send(new http.Request(url = target as any)))
+            local received: integer = 0
+            while true do
+                const chunk, why = response.body:read(CHUNK_BYTES)
+                if chunk == nil then
+                    error(why or "HTTP body read failed")
+                end
+                if #chunk == 0 then
+                    break
+                end
+                received = received + (#chunk as integer)
+            end
+            if received ~= 64 then
+                error("small HTTP response had the wrong length")
+            end
+            response:close()
+        end
+        if sample > WARMUPS then
+            samples[#samples + 1] = time.now() - started
+        end
+    end
+    client:close()
+
+    return median(samples) * 1000 / HTTP_LATENCY_REQUESTS
+end
+
+local function httpThroughput(port: integer): number
+    local client = new http.Client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    const target = assert(uri.newURI(("http://127.0.0.1:%d/large"):format(port)))
+    local samples: {number} = {}
+    for sample = 1, SAMPLES + WARMUPS do
+        const started = time.now()
+        for _ = 1, HTTP_THROUGHPUT_REQUESTS do
+            local response = assert(client:send(new http.Request(url = target as any)))
+            local received: integer = 0
+            while true do
+                const chunk, why = response.body:read(CHUNK_BYTES)
+                if chunk == nil then
+                    error(why or "HTTP body read failed")
+                end
+                if #chunk == 0 then
+                    break
+                end
+                received = received + (#chunk as integer)
+            end
+            if received ~= LARGE_HTTP_BYTES then
+                error("large HTTP response had the wrong length")
+            end
+            response:close()
+        end
+        const elapsed = time.now() - started
+        if sample > WARMUPS then
+            samples[#samples + 1] = LARGE_HTTP_BYTES * HTTP_THROUGHPUT_REQUESTS / elapsed / 1048.576
+        end
+    end
+    client:close()
+
+    return median(samples)
+end
+
+local function netSlowReader(): never
+    io.stdout:setvbuf("no")
+    local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+    local client = assert(net.connect({host = "127.0.0.1", port = listener:port(), sendHighWater = CHUNK_BYTES}))
+    local served = assert(listener:accept())
+    const payload = ("abcdefgh"):rep(CHUNK_BYTES / 8)
+    print("READY net-slow-reader")
+    while true do
+        assert(client:write(payload))
+    end
+    served:close()
+    client:close()
+    listener:close()
+    error("unreachable")
+end
+
+local function httpSlowReader(port: integer): nil
+    io.stdout:setvbuf("no")
+    local client = new http.Client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    local response = assert(
+        client:send(new http.Request(url = assert(uri.newURI(("http://127.0.0.1:%d/slow-reader"):format(port))) as any))
+    )
+    print("READY http-slow-reader")
+    time.sleep(30000)
+    response:close()
+    client:close()
+end
+
+const mode = arg[1] or "benchmark"
+if mode == "net-slow-reader" then
+    netSlowReader()
+elseif mode == "http-slow-reader" then
+    httpSlowReader(httpPort())
+elseif mode == "benchmark" then
+    const port = httpPort()
+    print(("native runtime benchmark: median of %d samples after %d warmups"):format(SAMPLES, WARMUPS))
+    print(("network round trip  %9.2f us/op  public stream ping-pong"):format(networkLatency()))
+    print(("network throughput  %9.2f MiB/s  64 KiB write/read chunks"):format(networkThroughput()))
+    print(("HTTP small request  %9.2f us/op  pooled request + 64 B body"):format(httpLatency(port)))
+    print(("HTTP body download  %9.2f MiB/s  pooled 4 MiB responses"):format(httpThroughput(port)))
+else
+    error("unknown benchmark mode: " .. mode)
+end

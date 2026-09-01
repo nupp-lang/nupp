@@ -134143,6 +134143,7 @@ requires = { "runtime.pathtext" } ,
 ] = {
 name = "uri" ,
 modules = { "nupp.io.uri" } ,
+runtimeModule = "nupp.io.uri" ,
 provider = "nupp_native_v2" ,
 providerDriver = "native-rust" ,
 providerFeature = "uri" ,
@@ -134294,7 +134295,7 @@ providerDriver = "native-rust" ,
 providerFeature = "http" ,
 library = "nupp_native_v2" ,
 binary = true ,
-requires = { "runtime.suspension" , "runtime.native_v2" , "native.uri" , "stdlib.io" } ,
+requires = { "runtime.suspension" , "runtime.native_v2" , "native.path" , "native.time" , "native.uri" , "stdlib.io" } ,
 } ,
 
 
@@ -184939,21 +184940,32 @@ local wanted = os . getenv ( "NUPP_NATIVE_V2_LIBRARY" )
 if wanted then
 return ffi . load ( wanted )
 end
+local source = debug . getinfo ( 1 , "S" ) . source
+local root = source : match ( "^@(.+)/[^/]+$" ) or "."
+local library = ffi . os == "Windows" and "/lib/nupp_native_v2.dll" or "/lib/nupp_native_v2"
+for _ , base in ipairs ( { root , root .. "/.." , root .. "/../.." } ) do
+local found , value = pcall ( ffi . load , base .. library )
+if found then
+return value
+end
+end
+
+
+
+
+
+
 local linked = pcall ( function ( ) 
 return ffi . C . nuppNativeV2AbiVersion
 end )
 if linked then
 return ffi . C
 end
-local source = debug . getinfo ( 1 , "S" ) . source
-local root = source : match ( "^@(.+)/[^/]+%.lua$" ) or "."
-local library = ffi . os == "Windows" and "/lib/nupp_native_v2.dll" or "/lib/nupp_native_v2"
-local found , value = pcall ( ffi . load , root .. library )
-if found then
-return value
-end
 
-return ffi . load ( root .. "/.." .. library )
+
+
+
+return ffi . load ( root .. library )
 end
 
 local function library ( ) 
@@ -233011,21 +233023,32 @@ local function open(): any
     if wanted then
         return ffi.load(wanted)
     end
+    local source = debug.getinfo(1, "S").source
+    local root = source:match("^@(.+)/[^/]+$") or "."
+    local library = ffi.os == "Windows" and "/lib/nupp_native_v2.dll" or "/lib/nupp_native_v2"
+    for _, base in ipairs({root, root .. "/..", root .. "/../.."}) do
+        local found, value = pcall(ffi.load, base .. library)
+        if found then
+            return value
+        end
+    end
+
+    -- A compiler-owned binary links the host implementations it needs, but its
+    -- selected provider may also contain sidecar-only facilities. Prefer that
+    -- exact-feature provider over the necessarily partial process namespace.
+    -- A standalone binary has no sidecar and falls through to its complete,
+    -- statically linked provider here.
     local linked = pcall(function(): any
         return ffi.C.nuppNativeV2AbiVersion
     end)
     if linked then
         return ffi.C
     end
-    local source = debug.getinfo(1, "S").source
-    local root = source:match("^@(.+)/[^/]+%.lua$") or "."
-    local library = ffi.os == "Windows" and "/lib/nupp_native_v2.dll" or "/lib/nupp_native_v2"
-    local found, value = pcall(ffi.load, root .. library)
-    if found then
-        return value
-    end
 
-    return ffi.load(root .. "/.." .. library)
+    -- Repeat the canonical location outside pcall so the loader's diagnostic is
+    -- retained when neither a packaged nor a statically linked provider exists.
+
+    return ffi.load(root .. library)
 end
 
 local function library(): any
