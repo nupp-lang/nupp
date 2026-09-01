@@ -265,9 +265,9 @@ end
 -- version remains usable, and the version check below refuses it after it moves.
 function M.rustupFallbackSelectsThePinnedToolchain()
    local driver = read(ROOT .. "/scripts/toolchain")
-   assert(driver:find('RUSTUP_TOOLCHAIN="$expected"', 1, true),
+   assert(driver:find("rustup_toolchain=$expected", 1, true),
       "the rustup fallback does not try rust-toolchain.toml's exact channel")
-   local exact = assert(driver:find('RUSTUP_TOOLCHAIN="$expected"', 1, true))
+   local exact = assert(driver:find('RUSTUP_TOOLCHAIN="$rustup_toolchain"', 1, true))
    local stable = assert(driver:find("RUSTUP_TOOLCHAIN=stable", exact, true))
    assert(exact < stable, "the moving stable alias is tried before the exact channel")
 end

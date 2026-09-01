@@ -404,18 +404,25 @@ select_rust_tools() {
     RUSTC=${NUPP_RUSTC:-rustc}
     expected=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' "$ROOT/rust-toolchain.toml")
     [ -n "$expected" ] || die "rust-toolchain.toml names no exact channel"
+    rustup_toolchain=$expected
+    [ "$PLATFORM" != windows ] \
+        || rustup_toolchain="$expected-x86_64-pc-windows-gnu"
     rustup_which() {
-        RUSTUP_TOOLCHAIN="$expected" RUSTUP_SKIP_UPDATE_CHECK=1 \
+        RUSTUP_TOOLCHAIN="$rustup_toolchain" RUSTUP_SKIP_UPDATE_CHECK=1 \
             rustup which "$1" 2>/dev/null \
-            || RUSTUP_TOOLCHAIN=stable RUSTUP_SKIP_UPDATE_CHECK=1 \
+            || { [ "$PLATFORM" != windows ] \
+                && RUSTUP_TOOLCHAIN=stable RUSTUP_SKIP_UPDATE_CHECK=1 \
                 rustup which "$1" 2>/dev/null
+            }
     }
-    if [ -z "${NUPP_CARGO:-}" ] && ! command -v "$CARGO" >/dev/null 2>&1 \
-        && command -v rustup >/dev/null 2>&1; then
+    if [ -z "${NUPP_CARGO:-}" ] && command -v rustup >/dev/null 2>&1 \
+        && { [ "$PLATFORM" = windows ] \
+            || ! command -v "$CARGO" >/dev/null 2>&1; }; then
         CARGO=$(rustup_which cargo || printf cargo)
     fi
-    if [ -z "${NUPP_RUSTC:-}" ] && ! command -v "$RUSTC" >/dev/null 2>&1 \
-        && command -v rustup >/dev/null 2>&1; then
+    if [ -z "${NUPP_RUSTC:-}" ] && command -v rustup >/dev/null 2>&1 \
+        && { [ "$PLATFORM" = windows ] \
+            || ! command -v "$RUSTC" >/dev/null 2>&1; }; then
         RUSTC=$(rustup_which rustc || printf rustc)
     fi
     command -v "$CARGO" >/dev/null 2>&1 \
@@ -441,7 +448,7 @@ select_rust_tools() {
     if [ "$PLATFORM" = windows ]; then
         case "$rust_host" in
             *-windows-gnu) ;;
-            *) die "Rust host $rust_host is not ABI-compatible with the pinned MinGW LuaJIT; use a windows-gnu Rust toolchain" ;;
+            *) die "Rust host $rust_host is not ABI-compatible with the pinned MinGW LuaJIT; install rustup toolchain $rustup_toolchain or name an equivalent windows-gnu toolchain" ;;
         esac
     fi
     RUST_TOOL_MATERIAL=$(printf '%s\n%s\n' "$cargo_version" "$rustc_verbose")
@@ -564,7 +571,8 @@ EOF
     if [ "$PLATFORM" = darwin ]; then
         set -- "$@" -- -C "link-arg=-Wl,-install_name,@rpath/$filename"
     fi
-    CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2
+    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$CC" \
+        CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_NATIVE_OUT" ] \
         || die "Cargo built nupp-native but did not write $RUST_NATIVE_OUT"
     [ -f "$RUST_NATIVE_STATIC_OUT" ] \
@@ -676,8 +684,9 @@ EOF
 $(host_export_arguments)
 EOF
     fi
-    NUPP_CC="$CC" NUPP_LUAJIT_PREFIX="$PREFIX/luajit" \
-        NUPP_LPEG_PREFIX="$host_lpeg_prefix" RUSTC="$RUSTC" "$@" >&2
+    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$CC" NUPP_CC="$CC" \
+        NUPP_LUAJIT_PREFIX="$PREFIX/luajit" NUPP_LPEG_PREFIX="$host_lpeg_prefix" \
+        RUSTC="$RUSTC" "$@" >&2
     [ -f "$expected" ] \
         || die "Cargo built nupp-native-host but did not write $expected"
     printf 'done\n' > "$out/.complete"
@@ -746,8 +755,9 @@ EOF
     case "$PLATFORM" in
         darwin) set -- "$@" -C 'link-arg=-Wl,-install_name,@rpath/libnupp.dylib' ;;
     esac
-    NUPP_CC="$CC" NUPP_LUAJIT_PREFIX="$luajit_prefix" \
-        NUPP_LPEG_PREFIX="$lpeg_prefix" RUSTC="$RUSTC" "$@" >&2
+    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$CC" NUPP_CC="$CC" \
+        NUPP_LUAJIT_PREFIX="$luajit_prefix" NUPP_LPEG_PREFIX="$lpeg_prefix" \
+        RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_EMBED_OUT" ] \
         || die "Cargo built nupp-native-host but did not write $RUST_EMBED_OUT"
     [ -f "$RUST_EMBED_DYNAMIC_OUT" ] \

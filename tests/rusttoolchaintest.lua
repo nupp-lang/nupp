@@ -23,6 +23,19 @@ local function read(path)
     return text
 end
 
+local function countOccurrences(text, needle)
+    local count = 0
+    local cursor = 1
+    while true do
+        local found = text:find(needle, cursor, true)
+        if not found then
+            return count
+        end
+        count = count + 1
+        cursor = found + #needle
+    end
+end
+
 local function write(path, text)
     local file = assert(io.open(path, "wb"))
     file:write(text)
@@ -134,6 +147,7 @@ esac
 printf '%%s\n' built > "$target/release/$artifact"
 printf '%%s\n' "$arguments" > "$NUPP_TEST_CARGO_RECORD"
 printf '%%s\n' "${NUPP_CC:-}" > "$NUPP_TEST_CARGO_CC_RECORD"
+printf '%%s\n' "${CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER:-}" > "$NUPP_TEST_CARGO_LINKER_RECORD"
 ]]
         ):format(version)
     )
@@ -157,6 +171,7 @@ local function environment(directory, version, identity)
         NUPP_RUST_VENDOR_DIR = directory .. "/vendor",
         NUPP_TEST_CARGO_RECORD = directory .. "/cargo-arguments",
         NUPP_TEST_CARGO_CC_RECORD = directory .. "/cargo-cc",
+        NUPP_TEST_CARGO_LINKER_RECORD = directory .. "/cargo-linker",
         NUPP_TEST_RUST_LIBRARY = library,
         NUPP_TEST_RUST_HOST = host,
         PATH = "$PATH",
@@ -308,8 +323,59 @@ function M.hostShimUsesTheResolvedLuaJitCompiler()
         "the Rust host build did not receive the compiler selected for LuaJIT"
     )
     local driver = read(DRIVER)
-    local _, forwards = driver:gsub('NUPP_CC="%$CC" NUPP_LUAJIT_PREFIX=', "")
+    local forwards = countOccurrences(driver, 'NUPP_CC="$CC"')
     assert(forwards == 2, "the application and embedding host builds do not both forward NUPP_CC")
+end
+
+-- The hosted Windows default is the MSVC Rust toolchain, while LuaJIT and the
+-- public static link are MinGW. Resolve the exact GNU-hosted toolchain through
+-- rustup even when its ordinary Cargo proxy is already on PATH.
+function M.windowsSelectsThePinnedGnuRustToolchain()
+    local directory = temporary()
+    local env = environment(directory, "1.98.0", "x86_64-pc-windows-gnu")
+    local rustupRecord = directory .. "/rustup-toolchains"
+    executable(directory, "uname", [[#!/bin/sh
+printf '%s\n' MINGW64_NT
+]])
+    executable(
+        directory,
+        "rustup",
+        (
+            [[#!/bin/sh
+printf '%%s\n' "${RUSTUP_TOOLCHAIN:-}" >> %s
+[ "${1:-}" = which ] || exit 3
+case "${2:-}" in
+   cargo|rustc) printf '%%s/%%s\n' %s "$2" ;;
+   *) exit 4 ;;
+esac
+]]
+        ):format(quote(rustupRecord), quote(directory))
+    )
+    env.NUPP_CARGO = nil
+    env.NUPP_RUSTC = nil
+    env.NUPP_TEST_RUST_HOST = "nupp-host-rust.exe"
+    env.PATH = directory .. ":$PATH"
+
+    local status, output = run(env, "host-rust")
+
+    assert(status == 0, output)
+    local selected = read(rustupRecord)
+    local _, count = selected:gsub("1%.98%.0%-x86_64%-pc%-windows%-gnu\n", "")
+    assert(count == 2, "Cargo and rustc did not both select the pinned Windows GNU toolchain:\n" .. selected)
+    assert(
+        read(env.NUPP_TEST_CARGO_LINKER_RECORD):match("^" .. env.NUPP_CC:gsub("([^%w])", "%%%1") .. "\n$"),
+        "Cargo did not link the Windows GNU artifact with Nupp's selected compiler"
+    )
+end
+
+function M.windowsCiInstallsThePinnedGnuRustToolchain()
+    local compiler = read(ROOT .. "/.github/workflows/compiler.yml")
+    local release = read(ROOT .. "/.github/workflows/release.yml")
+    local marker = 'rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal'
+    local compilerInstalls = countOccurrences(compiler, marker)
+    local releaseInstalls = countOccurrences(release, marker)
+    assert(compilerInstalls == 1, "the Windows compiler matrix does not provision GNU Rust exactly once")
+    assert(releaseInstalls == 2, "the Windows host and compiler-pack jobs do not provision GNU Rust")
 end
 
 -- Every Cargo package can end up in a provider for some feature, platform or

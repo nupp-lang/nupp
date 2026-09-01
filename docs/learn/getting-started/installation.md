@@ -28,14 +28,18 @@ the corresponding C++ names are probed beside each C compiler.
 Rustup reads the committed toolchain file automatically. `NUPP_RUSTC` and
 `NUPP_CARGO` may name an equivalent toolchain explicitly; the build refuses a
 different release so its content-addressed native artifacts remain reproducible.
+Windows uses the `x86_64-pc-windows-gnu` Rust toolchain because LuaJIT and the
+host's remaining protected C shims use the MinGW ABI. Install it with
+`rustup toolchain install 1.98.0-x86_64-pc-windows-gnu --profile minimal`; the
+build refuses the ABI-incompatible MSVC Rust host rather than mixing objects.
 
 Everything else is provisioned. `scripts/toolchain` fetches LuaJIT, LuaRocks
 and LPeg by pinned revision, refuses any archive whose SHA-256 is not the
 one written down, builds each with that compiler pair, and caches the result
 beside the repository so every worktree shares one build. Cargo resolves the
 Rust-native crates, including networking and TLS, through the committed
-lockfile. The toolchain driver builds Nupp's C host and Rust native
-providers and its binary hosts; `bin/nupp` runs it for what is missing and
+lockfile. The toolchain driver builds Nupp's Rust native providers, executable
+host, and embedding libraries; `bin/nupp` runs it for what is missing and
 nothing more.
 
 ### LuaJIT
@@ -106,8 +110,8 @@ next command rather than by the next person who remembers to build.
 ### Shared toolchain cache
 
 Downloaded sources and the classic toolchain components land beside the
-repository's common Git directory, so every worktree shares LuaJIT and the C
-host cache. Rust outputs default to the worktree's `build/rust` and
+repository's common Git directory, so every worktree shares LuaJIT and LPeg.
+Rust host and provider outputs default to the worktree's `build/rust` and
 the worktree helper seeds that content-validated cache from the originating
 checkout. `NUPP_TOOLCHAIN_DIR` moves the shared store; `NUPP_RUST_BUILD_DIR`
 moves Rust outputs:
