@@ -42,6 +42,10 @@ esac
 [ -f "$toolchain/$cc_relative" ] || die "no compiler at $toolchain/$cc_relative"
 [ -f "$toolchain/$ar_relative" ] || die "no archiver at $toolchain/$ar_relative"
 [ -f "$host_dir/libnupp-host.a" ] || die "no Rust application host under $host_dir"
+if [ "$platform" = windows ]; then
+    [ -f "$host_dir/libnupp-host-imports.a" ] \
+        || die "no Rust application import companion under $host_dir"
+fi
 
 pack="$output/$host/$target"
 [ ! -e "$pack" ] || die "pack output already exists at $pack"
@@ -49,6 +53,9 @@ mkdir -p "$pack/bin" "$pack/host/lib"
 cp -R "$toolchain" "$pack/toolchain"
 
 cp "$host_dir/libnupp-host.a" "$pack/host/lib/libnupp-host.a"
+if [ "$platform" = windows ]; then
+    cp "$host_dir/libnupp-host-imports.a" "$pack/host/lib/libnupp-host-imports.a"
+fi
 
 cc_define=$(printf '%s' "$cc_relative" | sed 's/[\\"]/\\&/g')
 build_cc=${NUPP_PACK_BUILD_CC:-$toolchain/$cc_relative}

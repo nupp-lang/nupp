@@ -66,6 +66,9 @@ int main(int argc, char **argv) {
     char *root;
     char *compiler;
     char *host;
+#ifdef _WIN32
+    char *host_imports;
+#endif
     int separator = 3;
     int index;
 
@@ -76,6 +79,9 @@ int main(int argc, char **argv) {
     root = pack_root(argv[0]);
     compiler = path_join(root, NUPP_PACK_CC_RELATIVE);
     host = path_join(root, "host/lib/libnupp-host.a");
+#ifdef _WIN32
+    host_imports = path_join(root, "host/lib/libnupp-host-imports.a");
+#endif
 
     command = calloc((size_t)argc + 40, sizeof(*command));
     if (command == NULL) fail("out of memory");
@@ -83,14 +89,20 @@ int main(int argc, char **argv) {
     append(&cursor, compiler);
     append(&cursor, "-o");
     append(&cursor, argv[2]);
+#ifndef _WIN32
     append(&cursor, "-Wl,--whole-archive");
     append(&cursor, host);
     append(&cursor, "-Wl,--no-whole-archive");
+#endif
     if (separator > 3) {
         append(&cursor, "-Wl,--whole-archive");
         for (index = 3; index < separator; index += 1) append(&cursor, argv[index]);
         append(&cursor, "-Wl,--no-whole-archive");
     }
+#ifdef _WIN32
+    /* Scan the host after force-loaded AOT archives introduce their refs. */
+    append(&cursor, host);
+#endif
     for (index = separator + 1; index < argc; index += 1) append(&cursor, argv[index]);
 #ifdef _WIN32
     append(&cursor, "-lpthread");
@@ -107,6 +119,10 @@ int main(int argc, char **argv) {
     append(&cursor, "-lcrypt32");
     /* Rust std implements child pipes through NtCreateNamedPipeFile. */
     append(&cursor, "-lntdll");
+    append(&cursor, "-lkernel32");
+    append(&cursor, "-lsecur32");
+    append(&cursor, "-lncrypt");
+    append(&cursor, host_imports);
     append(&cursor, "-Wl,--export-all-symbols");
 #elif defined(__APPLE__)
     append(&cursor, "-lm");
