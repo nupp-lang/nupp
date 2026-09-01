@@ -108,6 +108,27 @@ static int wait_for_eof(uint64_t stream) {
     return 1;
 }
 
+static int wait_for_stream_flag(uint64_t stream, uint32_t expected,
+        const char *message) {
+    size_t attempts;
+
+    for (attempts = 0; attempts != 100; ++attempts) {
+        uint32_t flags = 0;
+        uint64_t generation = 0;
+        int32_t status = nuppNativeV2NetPoll(&generation);
+        if (status != NUPP_NATIVE_V2_OK) return failed("network poll", status);
+        status = nuppNativeV2NetStreamState(stream, &flags);
+        if (status != NUPP_NATIVE_V2_OK) return failed("stream state", status);
+        if ((flags & expected) != 0) return 0;
+        if ((flags & (NUPP_NATIVE_V2_NET_STREAM_CLOSED
+                | NUPP_NATIVE_V2_NET_STREAM_WRITE_FAILED)) != 0) break;
+        status = nuppNativeV2NetWait(generation, 50, &generation);
+        if (status != NUPP_NATIVE_V2_OK) return failed("stream state wait", status);
+    }
+    fprintf(stderr, "%s\n", message);
+    return 1;
+}
+
 static int receive_datagram(uint64_t socket, uint8_t *bytes, size_t capacity,
         size_t expected, int32_t expected_truncated,
         NuppNativeV2NetAddress *address) {
@@ -422,12 +443,8 @@ int main(void) {
         return 1;
     }
     if (wait_for_eof(server) != 0) return 1;
-    status = nuppNativeV2NetStreamState(client, &flags);
-    if (status != NUPP_NATIVE_V2_OK) return failed("stream state", status);
-    if ((flags & NUPP_NATIVE_V2_NET_STREAM_WRITE_CLOSED) == 0) {
-        fprintf(stderr, "stream state missed the local half-close\n");
-        return 1;
-    }
+    if (wait_for_stream_flag(client, NUPP_NATIVE_V2_NET_STREAM_WRITE_CLOSED,
+            "stream state missed the local half-close") != 0) return 1;
     if (test_datagrams(listener) != 0) return 1;
     if (test_path_stream() != 0) return 1;
 
