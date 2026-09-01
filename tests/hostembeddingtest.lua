@@ -163,11 +163,17 @@ end
 function M.staticApplicationHostLinksAndRuns()
     local directory = temporary()
     local executable = directory .. "/nupp"
+    local linkArguments = "--"
+    local linkMap
     if jit.os == "Windows" then
         executable = executable .. ".exe"
+        linkMap = directory .. "/nupp.map"
+        linkArguments = "-- " .. quote("-Wl,-Map," .. linkMap)
     end
     local status, output = run(
-        ("cd %s && ./scripts/toolchain host-link %s %s --"):format(quote(ROOT), FEATURES, quote(executable))
+        (
+            "cd %s && ./scripts/toolchain host-link %s %s %s"
+        ):format(quote(ROOT), FEATURES, quote(executable), linkArguments)
     )
     assert(status == 0, output)
     local source = directory .. "/fixture.lua"
@@ -177,9 +183,69 @@ function M.staticApplicationHostLinksAndRuns()
 assert(__nuppHost.hostFeatures.lpeg)
 assert(__nuppHost.hostFeatures["native-net"])
 assert(require("lpeg").P("x"):match("x") == 2)
+local ffi = require("ffi")
+ffi.cdef([=[
+unsigned int nuppNativeV2AbiVersion(void);
+void *nupp_rust_worker_channel_new(void);
+]=])
+assert(ffi.C.nuppNativeV2AbiVersion() == 2)
+assert(ffi.C.nupp_rust_worker_channel_new ~= nil)
 ]]
     )
     status, output = run(quote(executable) .. " " .. quote(source))
+    if status ~= 0 and jit.os == "Windows" then
+        local function peImports(path)
+            local importStatus, importOutput = run("objdump -p " .. quote(path))
+            local imports = {}
+            for name in importOutput:gmatch("DLL Name:%s*([^\r\n]+)") do
+                imports[#imports + 1] = name
+            end
+            table.sort(imports)
+
+            return importStatus, table.concat(imports, ", ")
+        end
+
+        local importStatus, imports = peImports(executable)
+        local hostStatus, hostOutput = run(("cd %s && ./scripts/toolchain host %s"):format(quote(ROOT), FEATURES))
+        local knownHost = hostOutput:match("([^\r\n]+)%s*$")
+        local knownImportStatus, knownImports = peImports(knownHost or "")
+        local hostDirectory = knownHost and knownHost:gsub("[/\\][^/\\]+$", "") or ""
+        local archiveStatus, archiveOutput = run("ar t " .. quote(hostDirectory .. "/libnupp-host.a"))
+        local archiveImports = {}
+        for member in archiveOutput:gmatch("[^\r\n]+") do
+            if member:lower():find("dll", 1, true) then
+                archiveImports[#archiveImports + 1] = member
+            end
+        end
+        local selected = {}
+        local map = linkMap and io.open(linkMap, "rb")
+        if map then
+            local mapText = map:read("*a")
+            map:close()
+            for line in mapText:gmatch("[^\r\n]+") do
+                if line:find("libnupp-host-imports.a(", 1, true) then
+                    selected[#selected + 1] = line
+                end
+            end
+        end
+        output = (
+            "shell status %s; PE import scan status %s; imports: %s\n"
+            .. "known host status %s; import scan status %s; imports: %s\n"
+            .. "sanitized archive scan status %s; remaining DLL members: %s\n"
+            .. "selected companion members:\n%s\n%s"
+        ):format(
+            tostring(status),
+            tostring(importStatus),
+            imports,
+            tostring(hostStatus),
+            tostring(knownImportStatus),
+            knownImports,
+            tostring(archiveStatus),
+            table.concat(archiveImports, ", "),
+            table.concat(selected, "\n"),
+            output
+        )
+    end
     assert(status == 0, output)
 end
 

@@ -982,15 +982,21 @@ build_lpeg() {
 
 # A Rust staticlib flattens its dependency rlibs. On Windows GNU that includes
 # import thunk members from windows-targets, sometimes under the same archive
-# member name more than once. Application hosts are force-loaded because their
-# provider exports are reached only through LuaJIT FFI, so leave ordinary Rust
-# objects intact but remove the bundled import thunks and resolve them from the
-# explicit system import libraries at the final link.
+# member name more than once. Non-Windows application hosts are force-loaded
+# because provider exports are reached only through LuaJIT FFI. Windows keeps
+# those exports in one selected codegen unit and uses a sanitized archive with
+# an unmodified companion linked through ordinary archive
+# selection after MinGW's system import libraries: the latter then supplies
+# only Rust std imports which those libraries do not expose, without selecting
+# flattened duplicate thunks for symbols MinGW already owns.
 stage_application_archive() {
     source=$1
     destination=$2
+    imports_archive=${3:-}
     cp "$source" "$destination"
     [ "$PLATFORM" = windows ] || return 0
+    [ -n "$imports_archive" ] || die "the Windows application archive needs an import companion"
+    cp "$source" "$imports_archive"
 
     archive_tool=${AR:-ar}
     members="$destination.members.$$"
@@ -1000,7 +1006,9 @@ stage_application_archive() {
     while IFS= read -r member; do
         member=$(printf '%s' "$member" | tr -d '\r')
         case "$member" in
-            *.dlls[0-9]*.o) printf '%s\n' "$member" >> "$imports" ;;
+            *.dlls[0-9]*.o|*.dllh.o|*.dllt.o)
+                printf '%s\n' "$member" >> "$imports"
+                ;;
         esac
     done < "$members"
     if [ -s "$imports" ]; then
@@ -1016,7 +1024,7 @@ stage_application_archive() {
     while IFS= read -r member; do
         member=$(printf '%s' "$member" | tr -d '\r')
         case "$member" in
-            *.dlls[0-9]*.o)
+            *.dlls[0-9]*.o|*.dllh.o|*.dllt.o)
                 rm -f "$members" "$imports"
                 die "the staged Windows application archive retains import member $member"
                 ;;
@@ -1090,13 +1098,19 @@ build_host() {
     HOST_OUT=$out
 
     take_lock "host-$digest" "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && [ -f "$out/nupp-host" ] \
-        && [ -f "$out/libnupp-host.a" ] && { release_lock; return 0; }
+    if [ -f "$out/.complete" ] && [ -f "$out/nupp-host" ] \
+        && [ -f "$out/libnupp-host.a" ]; then
+        if [ "$PLATFORM" != windows ] || [ -f "$out/libnupp-host-imports.a" ]; then
+            release_lock
+            return 0
+        fi
+    fi
     note "staging the Rust application host"
     rm -rf "$out"
     mkdir -p "$out"
     cp "$rust_executable" "$out/nupp-host"
-    stage_application_archive "$rust_application" "$out/libnupp-host.a"
+    stage_application_archive \
+        "$rust_application" "$out/libnupp-host.a" "$out/libnupp-host-imports.a"
     chmod +x "$out/nupp-host" 2>/dev/null || true
     printf 'done\n' > "$out/.complete"
     release_lock
@@ -1105,8 +1119,9 @@ build_host() {
 
 # Relinks the Rust application host with application-owned static archives. The
 # archive list comes before `--`; everything after it is an ordinary trailing
-# linker argument. Both archives are force-loaded: the Rust host owns `main`
-# and provider exports, while FFI gives application archives no relocations.
+# linker argument. Application archives are force-loaded because FFI gives them
+# no relocations. The Rust host is force-loaded where safe; Windows selects its
+# one-codegen-unit export surfaces normally after the application archives.
 link_host() {
     features=${1:-}
     output=${2:-}
@@ -1135,6 +1150,7 @@ $1"
     set -- "$CC" -o "$output"
     case "$PLATFORM" in
         darwin) set -- "$@" "-Wl,-force_load,$host_out/libnupp-host.a" ;;
+        windows) ;;
         *) set -- "$@" -Wl,--whole-archive "$host_out/libnupp-host.a" -Wl,--no-whole-archive ;;
     esac
 
@@ -1158,6 +1174,11 @@ EOF
                 ;;
         esac
     fi
+    if [ "$PLATFORM" = windows ]; then
+        # Ordinary archives are one-pass. Application/AOT archives come first
+        # so every host and LuaJIT reference exists before this archive scan.
+        set -- "$@" "$host_out/libnupp-host.a"
+    fi
     while IFS= read -r flag; do
         set -- "$@" "$flag"
     done < "$flags_file"
@@ -1169,6 +1190,8 @@ EOF
         windows)
             set -- "$@" -lpthread -lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv
             set -- "$@" -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -lntdll
+            set -- "$@" -lkernel32 -lsecur32 -lncrypt
+            set -- "$@" "$host_out/libnupp-host-imports.a"
             set -- "$@" -Wl,--export-all-symbols
             ;;
         *)       set -- "$@" -lm -lpthread -ldl -Wl,-E ;;

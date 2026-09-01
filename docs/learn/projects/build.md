@@ -428,9 +428,11 @@ packs are not yet release artifacts.
 `cc` and `ar` tool records, optional `cxx` and `linkHost` records, and
 `compileFlags`/`linkFlags` arrays for its sysroot. Each tool record contains a
 pack-relative `path`, `sha256`, and `size`. `linkHost`, when present, accepts
-`FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...`; it owns one force-retained Rust
+`FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...`; it owns one retained Rust
 application-host archive containing the entry point, VM, exact-feature native
-provider, and platform SDK linkage.
+provider, and platform SDK linkage. Platforms force-load that archive where
+safe; Windows selects its one-codegen-unit export surfaces normally after the
+application archives so unused Rust and system import objects stay unlinked.
 `{pack}` inside a compile or link flag expands to the selected pack directory,
 so a sysroot remains relocatable after the archive is installed elsewhere.
 

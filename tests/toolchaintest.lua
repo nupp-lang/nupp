@@ -420,20 +420,36 @@ function M.macOSHostLinkersCarryTheSecurityFramework()
 end
 
 -- The Rust application archive now contains the exact-feature provider. Cargo
--- retains its named exports, and both static relink routes force-load that one
--- authoritative archive rather than assembling C objects and side archives.
-function M.staticHostsForceLoadTheRustApplicationArchive()
+-- retains its named exports. Windows selects one-codegen-unit Rust surfaces
+-- normally so it does not force-load flattened std/import objects; other hosts
+-- retain the authoritative archive directly.
+function M.staticHostsRetainTheRustApplicationArchive()
+    local cargo = read(ROOT .. "/Cargo.toml")
     local driver = read(ROOT .. "/scripts/toolchain")
     local packer = read(ROOT .. "/scripts/compiler-pack")
     local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
+    local companionCopy = assert(driver:find('cp "$source" "$imports_archive"', 1, true))
+    local sanitize = assert(driver:find('"$archive_tool" d "$destination" "@$imports_native"', 1, true))
+    local importMemberCase = "*.dlls[0-9]*.o|*.dllh.o|*.dllt.o"
+    local importMemberCases = 0
+    local importMemberPosition = 1
+    while true do
+        local position = driver:find(importMemberCase, importMemberPosition, true)
+        if not position then
+            break
+        end
+        importMemberCases = importMemberCases + 1
+        importMemberPosition = position + #importMemberCase
+    end
     assert(driver:find("-C link-dead-code", 1, true), "Cargo may discard exports reached only through LuaJIT FFI")
+    assert(companionCopy < sanitize, "the import companion is not preserved before archive sanitization")
     assert(
-        driver:find('stage_application_archive "$rust_application" "$out/libnupp-host.a"', 1, true),
+        driver:find('"$rust_application" "$out/libnupp-host.a" "$out/libnupp-host-imports.a"', 1, true),
         "the staged application host omits the sanitized Rust archive"
     )
     assert(
-        driver:find("*.dlls[0-9]*.o", 1, true),
-        "the Windows application archive retains Cargo-bundled import thunks"
+        importMemberCases == 2,
+        "the Windows application archive does not remove and verify the complete GNU import-member union"
     )
     assert(
         driver:find('"$archive_tool" d "$destination" "@$imports_native"', 1, true),
@@ -445,17 +461,75 @@ function M.staticHostsForceLoadTheRustApplicationArchive()
         "the staged Windows archive does not verify that every import member was removed"
     )
     assert(
-        driver:find('-Wl,--whole-archive "$host_out/libnupp-host.a"', 1, true),
-        "the ordinary static linker can discard the Rust application host"
+        driver:find('[ "$PLATFORM" != windows ] || [ -f "$out/libnupp-host-imports.a" ]', 1, true),
+        "a completed Windows host cache can omit its import companion"
+    )
+    assert(
+        cargo:find(
+            "[profile.release.package.nupp-native]\ncodegen-units = 1",
+            1,
+            true
+        ) and cargo:find("[profile.release.package.nupp-native-host]\ncodegen-units = 1", 1, true),
+        "the ordinary Windows host archive can split name-resolved Rust exports across codegen units"
+    )
+    local applications = assert(driver:find('if [ -n "$archives" ]; then', 1, true))
+    local windowsHost = assert(driver:find('set -- "$@" "$host_out/libnupp-host.a"', applications, true))
+    local systemImports = assert(
+        driver:find('-lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -lntdll', 1, true)
+    )
+    local hostImports = assert(driver:find('set -- "$@" "$host_out/libnupp-host-imports.a"', systemImports, true))
+    assert(
+        windowsHost < systemImports and systemImports < hostImports,
+        "the Windows import companion can preempt MinGW's canonical system imports"
+    )
+    assert(
+        driver:find('-lkernel32 -lsecur32 -lncrypt', systemImports, true),
+        "the import companion can preempt canonical kernel, security, or cryptography imports"
+    )
+    assert(
+        not driver:find('-Wl,--whole-archive "$host_out/libnupp-host-imports.a"', 1, true),
+        "the Windows application linker explicitly force-loads Rust std's import companion"
     )
     assert(packer:find('cp "$host_dir/libnupp-host.a"', 1, true), "the compiler pack omits the Rust application host")
+    assert(
+        packer:match(
+            'if %[%s*"%$platform" = windows %]; then%s+'
+            .. 'cp "%$host_dir/libnupp%-host%-imports%.a" "%$pack/host/lib/libnupp%-host%-imports%.a"%s+fi'
+        ),
+        "the compiler pack does not stage the import companion only on Windows"
+    )
     assert(
         packLinker:find('host/lib/libnupp-host.a', 1, true),
         "the compiler-pack linker omits the Rust application host"
     )
+    local packWhole = assert(packLinker:find('append(&cursor, "-Wl,--whole-archive")', 1, true))
+    local packApplications = assert(packLinker:find("if (separator > 3)", 1, true))
+    local packWindowsHost = assert(packLinker:find("append(&cursor, host);", packApplications, true))
+    local packSystemImports = assert(packLinker:find('append(&cursor, "-lntdll")', packWhole, true))
+    local packHostImports = assert(packLinker:find('append(&cursor, host_imports)', packSystemImports, true))
     assert(
-        packLinker:find('append(&cursor, "-Wl,--whole-archive")', 1, true),
-        "the compiler-pack linker can discard the Rust application host"
+        packWhole < packWindowsHost and packWindowsHost < packSystemImports,
+        "the Windows compiler-pack scans the host before force-loaded AOT archives"
+    )
+    assert(
+        packLinker:find(
+            'append(&cursor, "-lkernel32")',
+            packSystemImports,
+            true
+        ) and packLinker:find(
+            'append(&cursor, "-lsecur32")',
+            packSystemImports,
+            true
+        ) and packLinker:find('append(&cursor, "-lncrypt")', packSystemImports, true),
+        "the compiler-pack companion can preempt canonical Windows imports"
+    )
+    assert(
+        packLinker:find('host/lib/libnupp-host-imports.a', 1, true),
+        "the Windows compiler-pack linker omits Rust std's normally selected import thunks"
+    )
+    assert(
+        packWhole < packSystemImports and packSystemImports < packHostImports,
+        "the Windows compiler-pack import companion can preempt canonical system imports"
     )
 end
 

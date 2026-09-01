@@ -13,3 +13,13 @@ rust-version = "1.98"
 [profile.release]
 panic = "abort"
 strip = false
+
+# The Windows static application host is linked as an ordinary archive. Keep
+# each crate that owns name-resolved LuaJIT FFI exports in one codegen unit so
+# selecting its linked entry point retains the complete exported Rust surface
+# without force-loading Rust std and every flattened Windows import object.
+[profile.release.package.nupp-native]
+codegen-units = 1
+
+[profile.release.package.nupp-native-host]
+codegen-units = 1
