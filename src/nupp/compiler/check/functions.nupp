@@ -15,6 +15,7 @@ local relations = require("nupp.compiler.relations")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 local comptimeFunction = require("nupp.compiler.check.comptimefunction")
+local preferComptime = require("nupp.compiler.check.prefercomptime")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -1296,7 +1297,11 @@ function functions.install(c: state.Checker): state.StatHandlers
                 entry.definition.comptimeFunction = true
             end
         end
+        local diagnosticsBefore = #c.diags
         local ft = c.checkFuncbody(body)
+        if #c.diags == diagnosticsBefore then
+            preferComptime.check(c, stat, body, false)
+        end
         c.bindVar(nameTok.text, ft)
         local functionEntry = c.scope.vars[nameTok.text]
         if functionEntry then
@@ -1359,7 +1364,11 @@ function functions.install(c: state.Checker): state.StatHandlers
             fname.method and "method" or "function"
         ) or nil
         body.jitDefinition = earlyMemberDefinition or (fname.base and fname.base.definition or nil)
+        local diagnosticsBefore = #c.diags
         local ft = c.checkFuncbody(body, selfType)
+        if #c.diags == diagnosticsBefore then
+            preferComptime.check(c, stat, body, selfType ~= nil)
+        end
         if stat.exported and not fname.method and #fname == 1 and fname.base then
             c.bindVar(fname.base.text, ft, true, nil, "function", true)
         end

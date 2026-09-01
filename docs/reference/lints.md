@@ -61,6 +61,7 @@ Every lint has a name and a stable code.
 | `jit-loop-closure` | `NUPP2515` | performance | off |
 | `private-export-type` | `NUPP2516` | suspicious | warning |
 | `blocking-worker-drop` | `NUPP2517` | performance | off |
+| `prefer-comptime` | `NUPP2518` | performance | off |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
@@ -610,6 +611,61 @@ The task scope closes the worker scope through the installed suspension handler.
 Queued work is cancelled without invocation and running work drains
 cooperatively. The lint is off until a project enables the performance category
 or the lint by name.
+
+### `prefer-comptime`
+
+A no-input function can still repeat deterministic construction and iteration every
+time it is called. When the bounded comptime evaluator proves that meaningful work
+reduces to a materially smaller scalar literal, this lint suggests making that choice
+explicit while preserving the function's runtime API:
+
+::: code-group
+```nupp [src/prefer-comptime.nupp]
+function total(): integer
+    local values: {integer} = {10, 20, 30}
+    local sum: integer = 0
+    for index, value in ipairs(values) do
+        sum += index * value
+    end
+    return sum
+end
+```
+
+```text [nupp check output]
+src/prefer-comptime.nupp:1:10: warning: NUPP2518 prefer-comptime: this no-input function does closed deterministic work every time it is called
+ 1 | function total(): integer
+   |          ^~~~~
+help: evaluate the body with `comptime do`; it reduces to `140`
+```
+:::
+
+The offered fix wraps the existing body while preserving the function's API:
+
+```nupp
+function total(): integer
+    return comptime do
+        local values: {integer} = {10, 20, 30}
+        local sum: integer = 0
+        for index, value in ipairs(values) do
+            sum += index * value
+        end
+        return sum
+    end
+end
+```
+
+That compiles to:
+
+```lua
+function total()
+    return 140
+end
+```
+
+Functions with parameters, methods, runtime captures, unsupported or nondeterministic
+operations, table results, trivial literal bodies, and computations that do not become
+materially smaller are not reported. The lint is off until a project enables the
+performance category or the lint by name.
 
 ## Categories
 

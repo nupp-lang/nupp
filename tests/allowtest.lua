@@ -262,6 +262,23 @@ local lintFixtures = {
          "   print(parallel)",
          "end)"),
    },
+   NUPP2518 = {
+      reports = source(
+         "local m = {}",
+         "function m.total(): integer",
+         "   local values: {integer} = {10, 20, 30}",
+         "   local sum: integer = 0",
+         "   for index, value in ipairs(values) do sum += index * value end",
+         "   return sum",
+         "end",
+         "return m"),
+      quiet = source(
+         "local m = {}",
+         "function m.total(value: integer): integer",
+         "   return value * 2",
+         "end",
+         "return m"),
+   },
 }
 
 local M = {}

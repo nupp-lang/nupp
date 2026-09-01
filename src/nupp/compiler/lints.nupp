@@ -161,6 +161,13 @@ lints.all = {
         level = "off",
         summary = "a direct worker scope may block a handled host while dropping"
     ),
+    new lints.Lint(
+        name = "prefer-comptime",
+        code = "NUPP2518",
+        category = "performance",
+        level = "off",
+        summary = "a closed no-input function repeats work that comptime can erase"
+    ),
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is what

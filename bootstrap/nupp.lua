@@ -65844,6 +65844,7 @@ local relations = require ( "nupp.compiler.relations" )
 local cst = require ( "nupp.compiler.cst" )
 local state = require ( "nupp.compiler.check.state" )
 local comptimeFunction = require ( "nupp.compiler.check.comptimefunction" )
+local preferComptime = require ( "nupp.compiler.check.prefercomptime" )
 
 local isA = relations . isA
 local rawType = T . unwrapOwnership
@@ -67125,7 +67126,11 @@ if entry and entry . definition then
 entry . definition . comptimeFunction = true
 end
 end
+local diagnosticsBefore = # c . diags
 local ft = c . checkFuncbody ( body )
+if # c . diags == diagnosticsBefore then
+preferComptime . check ( c , stat , body , false )
+end
 c . bindVar ( nameTok . text , ft )
 local functionEntry = c . scope . vars [ nameTok . text ]
 if functionEntry then
@@ -67188,7 +67193,11 @@ memberTok ,
 fname . method and "method" or "function"
 ) or nil
 body . jitDefinition = earlyMemberDefinition or ( fname . base and fname . base . definition or nil )
+local diagnosticsBefore = # c . diags
 local ft = c . checkFuncbody ( body , selfType )
+if # c . diags == diagnosticsBefore then
+preferComptime . check ( c , stat , body , selfType ~= nil )
+end
 if stat . exported and not fname . method and # fname == 1 and fname . base then
 c . bindVar ( fname . base . text , ft , true , nil , "function" , true )
 end
@@ -72007,6 +72016,134 @@ end
 
 const __nuppExportValue= pragma ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.check.pragma"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.check.pragma"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.compiler.check.prefercomptime"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.compiler.cst" )
+local lints = require ( "nupp.compiler.lints" )
+local state = require ( "nupp.compiler.check.state" )
+
+local prefercomptime = { }
+
+local WORK = {
+call = true ,
+forinStmt = true ,
+fornumStmt = true ,
+methodCall = true ,
+repeatStmt = true ,
+tableExpr = true ,
+whileStmt = true ,
+}
+
+local function worthwhile ( node ) 
+local found = false
+local valid = true
+local function walk ( value ) 
+if not valid or not value or cst . isToken ( value ) then
+return
+end
+if value . kind == "comptimeExpr" then
+valid = false
+return
+end
+if WORK [ value . kind ] then
+found = true
+end
+if value . kind == "funcbody" or value . kind == "shortfn" or value . kind == "funcExpr" then
+return
+end
+for _ , child in ipairs ( value ) do
+walk ( child )
+end
+end
+
+walk ( node )
+
+return valid and found
+end
+
+local function evaluate ( c , body ) 
+local source = "comptime do\n" .. cst . textOf ( body . body ) .. "\nend"
+local comptime = require (
+"nupp.compiler.comptime"
+)
+local quoted , _ , failure , envelope = comptime . evaluateDirect ( body , body . body , { } , { } , c . comptimeFunctions )
+if failure or envelope or not quoted or quoted : sub ( 1 , 1 ) == "{" then
+return nil , source
+end
+
+return quoted , source
+end
+
+local function fix ( c , body ) 
+local block = body . body
+local first , last = cst . firstToken ( block ) , cst . lastToken ( block )
+local source = c . result and c . result . source
+if not first or not last or type ( source ) ~= "string" then
+return nil
+end
+local finish = last . offset + # last . text
+local original = source : sub ( first . offset , finish - 1 )
+local indent = string . rep ( " " , math . max ( first . col - 1 , 0 ) )
+local inner = indent .. "    "
+local normalized = original : gsub ( "\n" .. indent , "\n" )
+local replacement = "return comptime do\n" .. inner .. normalized : gsub (
+"\n" ,
+"\n" .. inner
+) .. "\n" .. indent .. "end"
+
+return {
+c . edits . fix ( "evaluate the body with `comptime do`" , {
+offset = first . offset ,
+length = finish - first . offset ,
+newText = replacement ,
+} )
+}
+end
+
+
+
+function prefercomptime . check ( c , declaration , body , receiver ) 
+local lint = lints . get ( "prefer-comptime" )
+if not lint or lints . level (
+lint ,
+c . lintConfig
+) == "off" or c . suppressed (
+lint . code
+) or declaration . comptimeFunction or receiver or body . generics or # (
+body . params or { }
+) ~= 0 or not worthwhile ( body . body ) then
+return
+end
+
+local quoted , candidate = evaluate ( c , body )
+if not quoted or not candidate or # candidate < # quoted + 32 then
+return
+end
+
+c . diag (
+lint . code ,
+declaration . name or body ,
+"this no-input function does closed deterministic work every time it is called" ,
+fix ( c , body ) ,
+{ help = ( "evaluate the body with `comptime do`; it reduces to `%s`" ) : format ( quoted ) }
+)
+end
+
+const __nuppExportValue= prefercomptime ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.check.prefercomptime"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.check.prefercomptime"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.check.privateexport"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -122670,6 +122807,13 @@ lints . all = { setmetatable({ name =
 "performance" ,  level =
 "off" ,  summary =
 "a direct worker scope may block a handled host while dropping" }, lints.Lint)
+, setmetatable({ name =
+
+"prefer-comptime" ,  code =
+"NUPP2518" ,  category =
+"performance" ,  level =
+"off" ,  summary =
+"a closed no-input function repeats work that comptime can erase" }, lints.Lint)
 ,
 }
 
