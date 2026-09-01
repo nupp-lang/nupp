@@ -378,6 +378,42 @@ function M.windowsCiInstallsThePinnedGnuRustToolchain()
     assert(releaseInstalls == 2, "the Windows host and compiler-pack jobs do not provision GNU Rust")
 end
 
+-- The broad suite remains the language gate. Native migration regressions need
+-- a smaller named boundary before it: the exact resource crates, C ABI, and
+-- production host artifacts on each retained runner. Tagged release jobs must
+-- repeat it because one GitHub workflow cannot depend on another workflow's
+-- result.
+function M.retainedPlatformsGateTheExactRustNativeArtifacts()
+    local compiler = read(ROOT .. "/.github/workflows/compiler.yml")
+    local release = read(ROOT .. "/.github/workflows/release.yml")
+    local gate = read(ROOT .. "/.github/scripts/test-rust-native-platform.sh")
+    local marker = ".github/scripts/test-rust-native-platform.sh"
+
+    assert(countOccurrences(compiler, marker) == 1, "the compiler matrix does not run one native artifact gate")
+    assert(countOccurrences(release, marker) == 2, "the Unix and Windows release builders do not both run the gate")
+    assert(gate:find("$channel-x86_64-pc-windows-gnu", 1, true), "the gate does not select Windows GNU Rust")
+    assert(
+        gate:find("lpeg,native-files,native-net,native-process,native-tls,workers", 1, true),
+        "the gate does not select the production host feature set"
+    )
+    for _, package in ipairs({
+        "nupp-native-files",
+        "nupp-native-process",
+        "nupp-native-net",
+        "nupp-native-tls",
+        "nupp-native-host",
+    }) do
+        assert(gate:find("--package " .. package, 1, true), "the gate omits " .. package)
+    end
+    for _, artifact in ipairs({"libnupp.a", "libnupp.dll.a", "libnupp.dylib", "libnupp.so", "nupp.dll"}) do
+        assert(gate:find(artifact, 1, true), "the gate does not name " .. artifact)
+    end
+    assert(gate:find("hostembeddingtest", 1, true), "the gate does not link every host artifact from C")
+    assert(compiler:find("./bin/nupp fixpoint", 1, true), "the retained compiler matrix has no fixpoint gate")
+    assert(release:find("shasum -a 256 -c SHA256SUMS", 1, true), "Unix packaging has no archive fixpoint")
+    assert(release:find("release archive checksum mismatch", 1, true), "Windows packaging has no archive fixpoint")
+end
+
 -- Every Cargo package can end up in a provider for some feature, platform or
 -- build mode. Releases copy host/notices without running Cargo, so the committed
 -- aggregate must cover the whole lock file rather than only this machine's

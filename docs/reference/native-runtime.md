@@ -130,7 +130,12 @@ matrix into a browser support promise.
 ### Verification ownership
 
 The compiler CI matrix runs the Nupp suite on Linux x86-64, macOS arm64, and
-Windows x86-64. Release jobs separately build, stamp, package, unpack, and run
+Windows x86-64. Before that broad suite, each runner executes the Rust resource
+stress and cancellation tests, crosses the aggregate C ABI, and links and runs
+the production executable host, static application archive, and static and
+dynamic embedding SDKs. Release builders repeat that artifact gate on the
+runner whose output they package because a separate compiler workflow cannot
+be a dependency of a tagged release. They then stamp, package, unpack, and run
 the matching compiler hosts. Linux and Windows jobs also poison ambient native
 compiler names and require their authenticated compiler packs to build and run
 a standalone C FFI plus AOT fixture. Cross-target jobs stamp all three public

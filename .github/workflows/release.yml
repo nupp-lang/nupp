@@ -83,7 +83,7 @@ jobs:
             upload_artifact: nupp-macos-arm64
             platform: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -95,6 +95,13 @@ jobs:
       - name: Build pinned host dependencies
         shell: bash
         run: ./scripts/toolchain --all
+
+      # A tag must prove the exact Rust artifacts on the same runner that will
+      # package them. The compiler matrix is a separate workflow and cannot be
+      # a dependency of the publishing job.
+      - name: Gate the Rust-native platform artifacts
+        shell: bash
+        run: .github/scripts/test-rust-native-platform.sh
 
       - name: Import the macOS Developer ID certificate
         if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
@@ -262,7 +269,7 @@ jobs:
     name: Windows x86-64
     needs: build-unix
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -275,6 +282,13 @@ jobs:
         run: |
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      # The public catalog target keeps its established MSVC spelling, but the
+      # host and its static C consumers are one MinGW ABI. Exercise that exact
+      # GNU Rust artifact set before it is stamped or packaged.
+      - name: Gate the Rust-native platform artifacts
+        shell: bash
+        run: .github/scripts/test-rust-native-platform.sh
 
       - name: Download the platform-independent payload
         uses: actions/download-artifact@v4

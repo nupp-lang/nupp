@@ -278,15 +278,13 @@ jobs:
         shell: bash
         run: ./bin/nupp check
 
-      # Keep the platform-independent network core portable independently of
-      # the Nupp facade and ABI smoke tests that exercise it below.
-      - name: Test the Rust network provider
+      # Name the Rust-native release boundary before the broad suite. This runs
+      # each resource owner's stress/cancellation tests, the aggregate C ABI
+      # smoke, and C consumers of the executable, static application archive,
+      # and static/dynamic embedding SDKs on the retained platform itself.
+      - name: Gate the Rust-native platform artifacts
         shell: bash
-        run: cargo test --locked --package nupp-native-net
-
-      - name: Test the Rust TLS provider
-        shell: bash
-        run: cargo test --locked --package nupp-native-tls
+        run: .github/scripts/test-rust-native-platform.sh
 
       # Fail close to provisioning, and name the last case if the Windows
       # loader or native networking layer terminates the test process. Exercise
