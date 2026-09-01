@@ -4,7 +4,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 cd "$root"
-icd=${NUPP_GPU_ICD:?NUPP_GPU_ICD must name CI's software Vulkan ICD manifest}
+icd=${NUPP_GPU_ICD:?NUPP_GPU_ICD must name the CI-provided Vulkan ICD manifest}
 [ -f "$icd" ] || { printf 'missing Vulkan ICD manifest: %s\n' "$icd" >&2; exit 1; }
 luajit=$($root/scripts/toolchain luajit)/bin/luajit
 bench=$root/bench/wgpu-spike
@@ -26,7 +26,7 @@ cargo test -p nupp-native-gpu adapter_compute_round_trip_when_available \
 )
 
 typed=$bench/build/typed
-export LUA_PATH="$typed/?.lua;$typed/?/init.lua;$root/.rocks/share/lua/5.1/?.lua;$root/.rocks/share/lua/5.1/?/init.lua;;"
+export LUA_PATH="$typed/?.lua;$typed/?/init.lua;$root/build/?.lua;$root/.rocks/share/lua/5.1/?.lua;$root/.rocks/share/lua/5.1/?/init.lua;;"
 export LUA_CPATH="$root/.rocks/lib/lua/5.1/?.so;;"
 export NUPP_NATIVE_V2_LIBRARY="$typed/lib/nupp_native_v2"
 export GEMM_M=64 GEMM_N=64 GEMM_K=64

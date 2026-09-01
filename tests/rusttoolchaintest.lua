@@ -116,6 +116,9 @@ esac
         (
             [[#!/bin/sh
 if [ "${1:-}" = --version ]; then
+   if [ -n "${NUPP_TEST_RUST_TOOL_CHATTER:-}" ]; then
+      printf '%%s\n' 'info: syncing pinned Cargo proxy' >&2
+   fi
    printf '%%s\n' 'cargo %s (fake)'
    exit 0
 fi
@@ -265,6 +268,211 @@ function M.anUnpinnedToolchainIsRejected()
     assert(io.open(env.NUPP_TEST_CARGO_RECORD, "rb") == nil, "the unpinned Cargo was allowed to build")
 end
 
+-- A fresh rustup proxy reports installation and synchronization progress on
+-- stderr before printing the requested version on stdout. That progress is a
+-- useful build diagnostic, but it is not part of Cargo's tool identity.
+function M.rustupProxyProgressDoesNotChangeThePinnedVersion()
+    local directory = temporary()
+    local env = environment(directory)
+    env.NUPP_TEST_RUST_TOOL_CHATTER = "1"
+    local status, output = run(env, "native-rust")
+
+    assert(status == 0, output)
+    assert(output:find("info: syncing pinned Cargo proxy", 1, true), output)
+    assert(not output:find("Cargo is info:", 1, true), output)
+end
+
+-- Even on Unix, an ambient cargo/rustc can be rustup proxies rather than the
+-- pinned binaries themselves. Resolve both through the exact channel once and
+-- never execute those ambient proxies while inspecting or building.
+function M.unixSelectsPinnedRustupToolsBeforeAmbientProxies()
+    local directory = temporary()
+    local env = environment(directory)
+    local exactCargo = env.NUPP_CARGO
+    local exactRustc = env.NUPP_RUSTC
+    local proxy = directory .. "/proxy"
+    local proxyRecord = directory .. "/ambient-proxy"
+    local rustupRecord = directory .. "/rustup-toolchains"
+    assert(os.execute("mkdir -p " .. quote(proxy)) == 0)
+    executable(proxy, "uname", [[#!/bin/sh
+printf '%s\n' Linux
+]])
+    executable(
+        proxy,
+        "cargo",
+        (
+            "#!/bin/sh\nprintf 'cargo\\n' >> %s\nprintf 'info: syncing ambient Cargo proxy\\n'\nexit 91\n"
+        ):format(quote(proxyRecord))
+    )
+    executable(
+        proxy,
+        "rustc",
+        (
+            "#!/bin/sh\nprintf 'rustc\\n' >> %s\nprintf 'info: syncing ambient rustc proxy\\n'\nexit 92\n"
+        ):format(quote(proxyRecord))
+    )
+    executable(
+        proxy,
+        "rustup",
+        (
+            [[#!/bin/sh
+printf '%%s\n' "${RUSTUP_TOOLCHAIN:-}" >> %s
+[ "${1:-}" = which ] || exit 3
+case "${2:-}" in
+   cargo) printf '%%s\n' %s ;;
+   rustc) printf '%%s\n' %s ;;
+   *) exit 4 ;;
+esac
+]]
+        ):format(quote(rustupRecord), quote(exactCargo), quote(exactRustc))
+    )
+    env.NUPP_CARGO = nil
+    env.NUPP_RUSTC = nil
+    env.NUPP_TEST_RUST_LIBRARY = "libnupp_native_v2.so"
+    env.PATH = proxy .. ":$PATH"
+
+    local status, output = run(env, "native-rust")
+
+    assert(status == 0, output)
+    assert(io.open(proxyRecord, "rb") == nil, "an ambient Rust proxy was executed")
+    local selected = read(rustupRecord)
+    local _, count = selected:gsub("1%.98%.0\n", "")
+    assert(count == 2, "Cargo and rustc did not both select the pinned Unix toolchain:\n" .. selected)
+end
+
+function M.gpuConformanceIsValidPosixShell()
+    for _, name in ipairs({"measure-gpu-provider.sh", "test-gpu-conformance.sh", "test-gpu-conformance-windows.sh",}) do
+        local script = ROOT .. "/.github/scripts/" .. name
+        assert(os.execute("sh -n " .. quote(script)) == 0, name .. " is not valid POSIX shell")
+    end
+    local workflow = read(ROOT .. "/.github/workflows/compiler.yml")
+    local linux = read(ROOT .. "/.github/scripts/test-gpu-conformance.sh")
+    local windows = read(ROOT .. "/.github/scripts/test-gpu-conformance-windows.sh")
+    local gemm = read(ROOT .. "/bench/wgpu-spike/gemm-api.lua")
+    assert(workflow:find("GPU conformance / Windows DX12", 1, true), "the compiler matrix has no Windows GPU gate")
+    assert(windows:find("WGPU_BACKEND=dx12", 1, true), "Windows GPU conformance does not force DX12")
+    assert(windows:find('cygpath -m "$root"', 1, true), "Windows GPU conformance passes POSIX paths to LuaJIT")
+    assert(windows:find("$lua_root/build/?.lua", 1, true), "Windows GPU conformance omits compiled Nupp modules")
+    assert(linux:find("$root/build/?.lua", 1, true), "Linux GPU conformance omits compiled Nupp modules")
+    assert(windows:find("NUPP_REQUIRE_GPU=1", 1, true), "Windows GPU conformance allows adapter absence")
+    assert(windows:find("gemm-api.lua", 1, true), "Windows GPU conformance does not cross the public Nupp API")
+    assert(gemm:find('require("nupp.time")', 1, true), "GPU conformance uses a platform-specific benchmark clock")
+end
+
+function M.gpuProviderMeasurementsCompareExactFeatureUnions()
+    local workflow = read(ROOT .. "/.github/workflows/compiler.yml")
+    local measure = read(ROOT .. "/.github/scripts/measure-gpu-provider.sh")
+
+    assert(measure:find("base,files,http,net,process,tls,uri,uuid", 1, true))
+    assert(measure:find("base,files,gpu,http,net,process,tls,uri,uuid", 1, true))
+    assert(measure:find('"$exact_root/non-gpu"', 1, true), "the non-GPU cold build has no isolated target")
+    assert(measure:find('"$exact_root/gpu"', 1, true), "the GPU cold build has no isolated target")
+    assert(not measure:find("${RUNNER_TEMP", 1, true), "Git Bash receives a native Windows temporary path")
+    assert(measure:find("warm_ms", 1, true), "warm exact-feature lookup time is not recorded")
+    assert(measure:find("dynamic_bytes", 1, true), "dynamic provider size is not recorded")
+    assert(measure:find("static_bytes", 1, true), "static provider size is not recorded")
+    assert(measure:find("observations, not", 1, true), "hosted GPU timings look like acceptance thresholds")
+    assert(workflow:find("build/ci-gpu-provider vulkan", 1, true))
+    assert(workflow:find("build/ci-gpu-provider dx12", 1, true))
+    assert(workflow:find("gpu-provider-linux-vulkan-${{ github.sha }}", 1, true))
+    assert(workflow:find("gpu-provider-windows-dx12-${{ github.sha }}", 1, true))
+end
+
+function M.nativeRuntimeMeasurementsArePortableAndNonThresholded()
+    local workflow = read(ROOT .. "/.github/workflows/compiler.yml")
+    local measure = read(ROOT .. "/.github/scripts/measure-native-runtime.sh")
+    local benchmark = read(ROOT .. "/bench/native-runtime/src/main.nupp")
+    local peer = read(ROOT .. "/bench/native-runtime/server.mjs")
+    local resources = read(ROOT .. "/bench/native-runtime/resource.sh")
+    local windowsResources = read(ROOT .. "/bench/native-runtime/resource-windows.ps1")
+
+    assert(os.execute("sh -n " .. quote(ROOT .. "/.github/scripts/measure-native-runtime.sh")) == 0)
+    assert(os.execute("sh -n " .. quote(ROOT .. "/bench/native-runtime/resource.sh")) == 0)
+    assert(os.execute("sh -n " .. quote(ROOT .. "/bench/native-runtime/run.sh")) == 0)
+    assert(workflow:find("Native runtime measurements / ${{ matrix.name }}", 1, true))
+    assert(workflow:find("native-runtime-${{ matrix.artifact }}-${{ github.sha }}", 1, true))
+    assert(measure:find("./bin/nupp build", 1, true), "clean measurement runners do not stage root modules")
+    assert(measure:find("bench/native-runtime/run.sh", 1, true))
+    assert(measure:find("bench/native-runtime/resource.sh", 1, true))
+    assert(measure:find("features=base,filesystem,http,net,uri", 1, true))
+    assert(measure:find('benchmark.exe', 1, true), "Windows benchmark size does not resolve the executable suffix")
+    assert(measure:find("observations, not", 1, true), "hosted-runner timings are not identified as observations")
+    assert(resources:find('Windows:*|*:MINGW*|*:MSYS*|*:CYGWIN*', 1, true), "Windows runner detection is incomplete")
+    assert(not resources:find("ps -W", 1, true), "the sampler still infers a native PID from MSYS process state")
+    assert(resources:find("resource-windows.ps1", 1, true), "Windows does not dispatch to its native sampler")
+    assert(resources:find('cygpath -w "$benchmark"', 1, true), "the Windows sampler does not receive a native path")
+    assert(windowsResources:find("Start-Process @parameters", 1, true), "PowerShell does not own the benchmark child")
+    assert(
+        windowsResources:find(
+            "RedirectStandardOutput = $Output",
+            1,
+            true
+        ) and windowsResources:find("RedirectStandardError = $ErrorOutput", 1, true),
+        "the Windows benchmark output is not retained for readiness and diagnostics"
+    )
+    assert(windowsResources:find("$Process.WorkingSet64", 1, true), "Windows RSS is not sampled")
+    assert(
+        windowsResources:find("$stdout = [string](Read-ChildText -Path $Output)", 1, true),
+        "empty Windows child output collapses to null before diagnostics"
+    )
+    assert(
+        windowsResources:find("$reportedPid -ne [long]$Process.Id", 1, true),
+        "the benchmark PID is not checked against the retained Windows process"
+    )
+    assert(not windowsResources:find("Get-Process", 1, true), "the Windows sampler still rediscovers its child by PID")
+    assert(
+        windowsResources:find(
+            "finally",
+            1,
+            true
+        ) and windowsResources:find(
+            "Stop-Benchmark -Process $process",
+            1,
+            true
+        ) and windowsResources:find(
+            "$Process.Kill()",
+            1,
+            true
+        ) and windowsResources:find("$Process.WaitForExit()", 1, true),
+        "the Windows benchmark child is not cleaned up on failure"
+    )
+    assert(windowsResources:find("$sampleCount -eq 0", 1, true), "a Windows load run can succeed without an RSS sample")
+    assert(windowsResources:find('"load peak_rss_kib=$peak"', 1, true), "the Windows load result format drifted")
+    assert(windowsResources:find('"$Mode second=$second rss_kib=$rss"', 1, true), "the Windows probe format drifted")
+    assert(
+        benchmark:find("unsigned long __stdcall GetCurrentProcessId(void);", 1, true),
+        "the Windows benchmark does not declare the Win32 PID API"
+    )
+    assert(benchmark:find('ffi.load("kernel32")', 1, true), "the Windows benchmark does not load the PID API")
+    assert(not benchmark:find("ffi.C._getpid", 1, true), "the Windows benchmark still reads an MSYS C-runtime PID")
+    assert(benchmark:find("int getpid(void);", 1, true), "the Unix benchmark does not read its native PID")
+    assert(benchmark:find("NUPP_BENCH_PID %d", 1, true), "the benchmark does not report a machine-readable PID")
+    assert(resources:find("benchmark_pid()", 1, true), "the resource harness does not require the PID report")
+    assert(resources:find('native_pid=$(benchmark_pid "$output" "$BENCH_PID"', 1, true))
+    assert(countOccurrences(resources, 'rss=$(rss_kib "$native_pid")') == 2, "Unix load and probes do not sample RSS")
+    assert(not resources:find('rss=$(rss_kib "$BENCH_PID")', 1, true), "the shell lifecycle PID is still sampled")
+    assert(resources:find('while kill -0 "$BENCH_PID" 2>/dev/null; do', 1, true))
+    assert(resources:find('elif kill -0 "$BENCH_PID" 2>/dev/null; then', 1, true))
+    assert(
+        not resources:find("native_process_running", 1, true),
+        "the Win32 RSS identity is still used as the Git Bash lifecycle identity"
+    )
+    assert(
+        resources:find("invalid RSS sample", 1, true),
+        "missing or non-numeric RSS samples do not fail the measurement"
+    )
+    assert(
+        not resources:find('rss_kib "$BENCH_PID" 2>/dev/null || true', 1, true),
+        "load measurement still hides RSS sampler failures"
+    )
+    assert(resources:find('if [ "$samples" -eq 0 ]', 1, true), "a load run can succeed without an RSS sample")
+    assert(resources:find("measure net-slow-reader", 1, true), "the raw network slow-reader resource probe is absent")
+    assert(resources:find("measure net-slow-writer", 1, true), "the raw network slow-writer resource probe is absent")
+    assert(resources:find("measure http-slow-writer", 1, true), "the HTTP slow-writer resource probe is absent")
+    assert(benchmark:find("NUPP_BENCH_NET_PORT", 1, true), "the raw slow writer has no external peer")
+    assert(peer:find("createTcpServer", 1, true), "the raw slow-writer peer is absent")
+end
+
 function M.featuresAndToolIdentityChangeTheArtifactKey()
     local directory = temporary()
     local env = environment(directory)
@@ -374,7 +582,7 @@ function M.windowsCiInstallsThePinnedGnuRustToolchain()
     local marker = 'rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal'
     local compilerInstalls = countOccurrences(compiler, marker)
     local releaseInstalls = countOccurrences(release, marker)
-    assert(compilerInstalls == 1, "the Windows compiler matrix does not provision GNU Rust exactly once")
+    assert(compilerInstalls == 3, "the Windows compiler, DX12, and native measurement jobs do not provision GNU Rust")
     assert(releaseInstalls == 2, "the Windows host and compiler-pack jobs do not provision GNU Rust")
 end
 
@@ -395,11 +603,20 @@ end
 function M.retainedPlatformsGateTheExactRustNativeArtifacts()
     local compiler = read(ROOT .. "/.github/workflows/compiler.yml")
     local release = read(ROOT .. "/.github/workflows/release.yml")
+    local windowsRelease = assert(release:match("\n  build%-windows:(.-)\n  build%-compiler%-pack%-linux:"))
     local gate = read(ROOT .. "/.github/scripts/test-rust-native-platform.sh")
     local marker = ".github/scripts/test-rust-native-platform.sh"
 
     assert(countOccurrences(compiler, marker) == 1, "the compiler matrix does not run one native artifact gate")
     assert(countOccurrences(release, marker) == 2, "the Unix and Windows release builders do not both run the gate")
+    assert(
+        countOccurrences(windowsRelease, 'NUPP_TEST_BASH=$(cygpath -w "$bash_path")') == 1,
+        "the Windows release gate does not pass Git Bash to its test harness"
+    )
+    assert(
+        countOccurrences(windowsRelease, 'NUPP_TEST_SH=$(cygpath -w "$sh_path")') == 1,
+        "the Windows release gate does not pass sh.exe to its test harness"
+    )
     assert(gate:find("$channel-x86_64-pc-windows-gnu", 1, true), "the gate does not select Windows GNU Rust")
     assert(
         gate:find("lpeg,native-files,native-net,native-process,native-tls,workers", 1, true),
@@ -419,6 +636,10 @@ function M.retainedPlatformsGateTheExactRustNativeArtifacts()
     end
     assert(gate:find("hostembeddingtest", 1, true), "the gate does not link every host artifact from C")
     assert(compiler:find("./bin/nupp fixpoint", 1, true), "the retained compiler matrix has no fixpoint gate")
+    assert(
+        countOccurrences(release, "./bin/nupp fixpoint --binary") == 2,
+        "the retained release matrix does not verify binary packaging fixpoints"
+    )
     assert(release:find("shasum -a 256 -c SHA256SUMS", 1, true), "Unix packaging has no archive fixpoint")
     assert(release:find("release archive checksum mismatch", 1, true), "Windows packaging has no archive fixpoint")
 end

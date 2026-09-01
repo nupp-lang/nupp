@@ -416,8 +416,14 @@ impl FileLane {
         self.shared.public_requests.fetch_add(1, Ordering::AcqRel);
         executor.spawn_blocking(move || {
             let mut admission = admission;
-            let settled = task.settle(work(&mut admission));
+            let answer = work(&mut admission);
+            // Ready/failed is the public completion barrier. Release in-flight
+            // capacity before publishing it so a caller may submit replacement
+            // work immediately after observing a terminal status. Cancellation
+            // remains different: it is published by `Transfer::cancel` while
+            // the blocking operation may still own this guard.
             drop(admission);
+            let settled = task.settle(answer);
             if settled {
                 lane.settled.fetch_add(1, Ordering::AcqRel);
                 lane.activity.notify();
@@ -659,6 +665,27 @@ mod tests {
         assert_eq!(lane.pending(), 0);
         assert_eq!(lane.admitted(), (0, 0));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn terminal_status_is_an_admission_release_barrier() {
+        const TRANSFERS: usize = 512;
+
+        let lane = FileLane::new();
+        for index in 0..TRANSFERS {
+            let charge = index % 31 + 1;
+            let admission = lane.admit(charge).unwrap();
+            let transfer = lane.spawn(admission, |_admission| Ok(None)).unwrap();
+            await_transfer(&lane, &transfer);
+            assert_eq!(transfer.status(), TransferStatus::Ready);
+            assert_eq!(
+                lane.admitted(),
+                (0, 0),
+                "terminal transfer {index} retained its admission"
+            );
+            drop(transfer);
+        }
+        assert_eq!(lane.pending(), 0);
     }
 
     #[test]

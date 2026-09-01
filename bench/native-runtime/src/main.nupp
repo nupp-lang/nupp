@@ -12,6 +12,36 @@ const HTTP_THROUGHPUT_REQUESTS = 8
 const CHUNK_BYTES = 64 * 1024
 const LARGE_HTTP_BYTES = 4 * 1024 * 1024
 
+-- The operating-system PID, not the process identity assigned by a shell or
+-- C runtime. Under MSYS, `_getpid` returns an MSYS identity while Get-Process
+-- requires the Win32 PID returned by GetCurrentProcessId.
+local function nativeProcessId(): integer
+    const ffi = require("ffi")
+    local declared: boolean
+    local read: boolean
+    local pid: any
+    if package.config:sub(1, 1) == "\\" then
+        -- DWORD is `unsigned long` in the Windows API. Keep __stdcall for the
+        -- 32-bit ABI; LuaJIT treats it as a no-op on Win64.
+        declared = pcall(ffi.cdef, "unsigned long __stdcall GetCurrentProcessId(void);")
+        read, pid = pcall(function(): integer
+            const kernel32 = ffi.load("kernel32")
+
+            return kernel32.GetCurrentProcessId() as integer
+        end)
+    else
+        declared = pcall(ffi.cdef, "int getpid(void);")
+        read, pid = pcall(function(): integer
+            return ffi.C.getpid() as integer
+        end)
+    end
+    if not declared or not read or type(pid) ~= "number" or pid < 1 then
+        error("native runtime benchmark could not read its process ID")
+    end
+
+    return pid as integer
+end
+
 local function median(values: {number}): number
     table.sort(values)
 
@@ -88,6 +118,15 @@ local function httpPort(): integer
     const port = tonumber(os.getenv("NUPP_BENCH_HTTP_PORT") or "")
     if port == nil then
         error("NUPP_BENCH_HTTP_PORT is required")
+    end
+
+    return port as integer
+end
+
+local function netPort(): integer
+    const port = tonumber(os.getenv("NUPP_BENCH_NET_PORT") or "")
+    if port == nil then
+        error("NUPP_BENCH_NET_PORT is required")
     end
 
     return port as integer
@@ -176,6 +215,25 @@ local function netSlowReader(): never
     error("unreachable")
 end
 
+local function netSlowWriter(port: integer): never
+    io.stdout:setvbuf("no")
+    local stream = assert(net.connect({host = "127.0.0.1", port = port, receiveHighWater = CHUNK_BYTES}))
+    local reader = net.asReader(stream)
+    print("READY net-slow-writer")
+    while true do
+        const chunk, why = reader:read(CHUNK_BYTES)
+        if chunk == nil then
+            error(why or "slow network writer failed")
+        end
+        if #chunk == 0 then
+            error("slow network writer ended before the resource sample completed")
+        end
+    end
+    reader:close()
+    stream:close()
+    error("unreachable")
+end
+
 local function httpSlowReader(port: integer): nil
     io.stdout:setvbuf("no")
     local client = new http.Client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
@@ -188,11 +246,38 @@ local function httpSlowReader(port: integer): nil
     client:close()
 end
 
+local function httpSlowWriter(port: integer): nil
+    io.stdout:setvbuf("no")
+    local client = new http.Client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    local response = assert(
+        client:send(new http.Request(url = assert(uri.newURI(("http://127.0.0.1:%d/slow-writer"):format(port))) as any))
+    )
+    print("READY http-slow-writer")
+    while true do
+        const chunk, why = response.body:read(CHUNK_BYTES)
+        if chunk == nil then
+            error(why or "slow HTTP writer failed")
+        end
+        if #chunk == 0 then
+            break
+        end
+    end
+    response:close()
+    client:close()
+end
+
+io.stdout:setvbuf("no")
+print(("NUPP_BENCH_PID %d"):format(nativeProcessId()))
+
 const mode = arg[1] or "benchmark"
 if mode == "net-slow-reader" then
     netSlowReader()
+elseif mode == "net-slow-writer" then
+    netSlowWriter(netPort())
 elseif mode == "http-slow-reader" then
     httpSlowReader(httpPort())
+elseif mode == "http-slow-writer" then
+    httpSlowWriter(httpPort())
 elseif mode == "benchmark" then
     const port = httpPort()
     print(("native runtime benchmark: median of %d samples after %d warmups"):format(SAMPLES, WARMUPS))

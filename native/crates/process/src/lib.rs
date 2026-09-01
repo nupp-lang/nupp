@@ -659,11 +659,11 @@ const F_SETNOSIGPIPE: libc::c_int = 73;
 const F_SETNOSIGPIPE: libc::c_int = 14;
 
 #[cfg(unix)]
-fn prepare_input(descriptor: std::os::fd::RawFd) -> io::Result<()> {
+fn prepare_input(_descriptor: std::os::fd::RawFd) -> io::Result<()> {
     #[cfg(any(target_os = "macos", target_os = "ios", target_os = "netbsd"))]
     {
         // SAFETY: fcntl operates only on this provider-owned descriptor.
-        if unsafe { libc::fcntl(descriptor, F_SETNOSIGPIPE, 1) } < 0 {
+        if unsafe { libc::fcntl(_descriptor, F_SETNOSIGPIPE, 1) } < 0 {
             return Err(io::Error::last_os_error());
         }
     }
@@ -732,7 +732,10 @@ unsafe fn restore_signal_mask(previous: &libc::sigset_t) -> io::Result<()> {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "netbsd")))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "ios", target_os = "netbsd"))
+))]
 unsafe fn consume_sigpipe(set: &libc::sigset_t) -> io::Result<()> {
     let timeout = libc::timespec {
         tv_sec: 0,
@@ -942,6 +945,13 @@ pub fn wait_ready(
 mod tests {
     use super::*;
 
+    fn child_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static CHILD_TESTS: Mutex<()> = Mutex::new(());
+        CHILD_TESTS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
     fn wait_for_exit(child: &ChildProcess) -> Exit {
         let deadline = Instant::now() + Duration::from_secs(2);
         while child.poll_exit().is_none() && Instant::now() < deadline {
@@ -976,7 +986,7 @@ mod tests {
     #[cfg(unix)]
     const OUTPUT_SCRIPT: &str = "printf process-output";
     #[cfg(windows)]
-    const OUTPUT_SCRIPT: &str = "set /p \"=process-output\" <nul";
+    const OUTPUT_SCRIPT: &str = "<nul set /p =process-output&exit /b 0";
 
     #[cfg(unix)]
     const COPY_INPUT_SCRIPT: &str = "cat";
@@ -990,6 +1000,7 @@ mod tests {
 
     #[test]
     fn output_is_bounded_and_eventually_ends() {
+        let _guard = child_test_guard();
         let spawned = shell(OUTPUT_SCRIPT);
         let output = spawned.streams[1].as_ref().unwrap();
         let mut bytes = Vec::new();
@@ -1019,6 +1030,7 @@ mod tests {
 
     #[test]
     fn input_backpressure_allows_only_one_write_at_a_time() {
+        let _guard = child_test_guard();
         let spawned = shell(COPY_INPUT_SCRIPT);
         let input = spawned.streams[0].as_ref().unwrap();
         assert_eq!(input.try_write(b"one").unwrap(), Write::Accepted(3));
@@ -1061,6 +1073,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn kill_targets_the_direct_child_not_its_descendants() {
+        let _guard = child_test_guard();
+
         struct Descendant(libc::pid_t);
 
         impl Drop for Descendant {
@@ -1099,6 +1113,7 @@ mod tests {
 
     #[test]
     fn concurrent_children_cancel_and_reap_without_stranded_streams() {
+        let _guard = child_test_guard();
         let children: Vec<_> = (0..16).map(|_| shell(LONG_RUNNING_SCRIPT)).collect();
         for spawned in &children {
             spawned.child.kill(true).unwrap();
@@ -1114,6 +1129,7 @@ mod tests {
 
     #[test]
     fn concurrent_short_lived_children_reap_without_leaking_ownership() {
+        let _guard = child_test_guard();
         let uncollected_before = uncollected_total();
         let children: Vec<_> = (0..32).map(|_| shell("exit 0")).collect();
         for spawned in children {
@@ -1134,6 +1150,7 @@ mod tests {
 
     #[test]
     fn child_is_reaped_by_the_executor() {
+        let _guard = child_test_guard();
         let spawned = shell("exit 7");
         assert_eq!(
             wait_for_exit(&spawned.child),

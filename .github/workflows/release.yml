@@ -103,6 +103,15 @@ jobs:
         shell: bash
         run: .github/scripts/test-rust-native-platform.sh
 
+      - name: Verify the binary packaging fixpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
+          NUPP_LUAROCKS=$(./scripts/toolchain luarocks)/bin/luarocks
+          export NUPP_TOOLCHAIN_PREFIX NUPP_LUAROCKS
+          ./bin/nupp fixpoint --binary
+
       - name: Import the macOS Developer ID certificate
         if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
         env:
@@ -288,7 +297,23 @@ jobs:
       # GNU Rust artifact set before it is stamped or packaged.
       - name: Gate the Rust-native platform artifacts
         shell: bash
-        run: .github/scripts/test-rust-native-platform.sh
+        run: |
+          set -euo pipefail
+          bash_path=$(command -v bash)
+          sh_path=$(dirname "$bash_path")/sh.exe
+          test -f "$sh_path"
+          NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
+          NUPP_TEST_SH=$(cygpath -w "$sh_path") \
+          .github/scripts/test-rust-native-platform.sh
+
+      - name: Verify the binary packaging fixpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
+          NUPP_LUAROCKS=$(./scripts/toolchain luarocks)/bin/luarocks
+          export NUPP_TOOLCHAIN_PREFIX NUPP_LUAROCKS
+          ./bin/nupp fixpoint --binary
 
       - name: Download the platform-independent payload
         uses: actions/download-artifact@v4

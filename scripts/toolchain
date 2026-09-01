@@ -408,20 +408,12 @@ select_rust_tools() {
         || rustup_toolchain="$expected-x86_64-pc-windows-gnu"
     rustup_which() {
         RUSTUP_TOOLCHAIN="$rustup_toolchain" RUSTUP_SKIP_UPDATE_CHECK=1 \
-            rustup which "$1" 2>/dev/null \
-            || { [ "$PLATFORM" != windows ] \
-                && RUSTUP_TOOLCHAIN=stable RUSTUP_SKIP_UPDATE_CHECK=1 \
-                rustup which "$1" 2>/dev/null
-            }
+            rustup which "$1" 2>/dev/null
     }
-    if [ -z "${NUPP_CARGO:-}" ] && command -v rustup >/dev/null 2>&1 \
-        && { [ "$PLATFORM" = windows ] \
-            || ! command -v "$CARGO" >/dev/null 2>&1; }; then
+    if [ -z "${NUPP_CARGO:-}" ] && command -v rustup >/dev/null 2>&1; then
         CARGO=$(rustup_which cargo || printf cargo)
     fi
-    if [ -z "${NUPP_RUSTC:-}" ] && command -v rustup >/dev/null 2>&1 \
-        && { [ "$PLATFORM" = windows ] \
-            || ! command -v "$RUSTC" >/dev/null 2>&1; }; then
+    if [ -z "${NUPP_RUSTC:-}" ] && command -v rustup >/dev/null 2>&1; then
         RUSTC=$(rustup_which rustc || printf rustc)
     fi
     command -v "$CARGO" >/dev/null 2>&1 \
@@ -429,9 +421,12 @@ select_rust_tools() {
     command -v "$RUSTC" >/dev/null 2>&1 \
         || die "no rustc found. Install the toolchain pinned by rust-toolchain.toml or name it with NUPP_RUSTC"
 
-    cargo_version=$("$CARGO" --version 2>&1) \
+    # Resolve rustup's proxy once above, then execute the exact tool binary.
+    # Running an ambient proxy here can synchronize a channel and mix its
+    # progress into the version identity or select a different host ABI.
+    cargo_version=$("$CARGO" --version) \
         || die "cannot run Cargo named by NUPP_CARGO"
-    rustc_version=$("$RUSTC" --version 2>&1) \
+    rustc_version=$("$RUSTC" --version) \
         || die "cannot run rustc named by NUPP_RUSTC"
     case "$cargo_version" in
         "cargo $expected "*) ;;
@@ -441,7 +436,7 @@ select_rust_tools() {
         "rustc $expected "*) ;;
         *) die "rustc is $rustc_version; rust-toolchain.toml requires rustc $expected" ;;
     esac
-    rustc_verbose=$("$RUSTC" -vV 2>&1) \
+    rustc_verbose=$("$RUSTC" -vV) \
         || die "cannot inspect rustc named by NUPP_RUSTC"
     rust_host=$(printf '%s\n' "$rustc_verbose" | sed -n 's/^host: //p')
     if [ "$PLATFORM" = windows ]; then

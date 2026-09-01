@@ -61,6 +61,21 @@ jobs:
         continue-on-error: true
         run: .github/scripts/test-gpu-conformance.sh
 
+      - name: Measure exact-feature Vulkan provider artifacts
+        if: steps.gpu_conformance.outcome == 'success'
+        run: >-
+          .github/scripts/measure-gpu-provider.sh
+          build/ci-gpu-provider vulkan
+
+      - name: Upload Vulkan provider measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-provider-linux-vulkan-${{ github.sha }}
+          path: build/ci-gpu-provider
+          if-no-files-found: warn
+          retention-days: 90
+
       # A failed conformance step would otherwise skip actions/cache's post
       # save the toolchain for every diagnostic commit. Preserve the expensive
       # compiler build before turning the captured outcome back
@@ -81,6 +96,61 @@ jobs:
       - name: Report GPU conformance failure
         if: steps.gpu_conformance.outcome == 'failure'
         run: exit 1
+
+  gpu-conformance-windows:
+    name: GPU conformance / Windows DX12
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the provisioned GPU toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            .nupp-cache/toolchain
+            build/rust
+          key: >-
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
+            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
+            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
+          restore-keys: |
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the ABI-compatible Windows Rust toolchain
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      - name: Provision the pinned toolchain
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      # Adapter absence is a failure: Vulkan cannot silently substitute for
+      # the retained Windows DX12 contract.
+      - name: Run exact DX12 dispatch and readback
+        id: gpu_conformance
+        shell: bash
+        run: .github/scripts/test-gpu-conformance-windows.sh
+
+      - name: Measure exact-feature DX12 provider artifacts
+        if: steps.gpu_conformance.outcome == 'success'
+        shell: bash
+        run: >-
+          .github/scripts/measure-gpu-provider.sh
+          build/ci-gpu-provider dx12
+
+      - name: Upload DX12 provider measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-provider-windows-dx12-${{ github.sha }}
+          path: build/ci-gpu-provider
+          if-no-files-found: warn
+          retention-days: 90
 
   portable-compiler:
     name: Portable compiler on official Lua 5.1.5
@@ -121,6 +191,66 @@ jobs:
       - name: Run the portable compiler in the six-library host
         shell: bash
         run: .github/scripts/test-portable-compiler.sh
+
+  native-runtime-measurements:
+    name: Native runtime measurements / ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+            timeout: 30
+            artifact: linux-x64
+          - name: Windows x64
+            os: windows-2022
+            timeout: 45
+            artifact: windows-x64
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      # Cache pinned source archives and host tools, but not the task-local
+      # Cargo target whose empty first build is one of the measurements.
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-native-measure-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-native-measure-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the ABI-compatible Windows Rust toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      - name: Provision the pinned toolchain
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      # Hosted-runner timings are measurements, never absolute acceptance
+      # thresholds. Correctness failures still fail the script; variation in a
+      # valid latency, throughput, RSS, build-time, or size result does not.
+      - name: Measure public native runtime and exact-feature artifacts
+        shell: bash
+        run: .github/scripts/measure-native-runtime.sh build/ci-native-runtime
+
+      - name: Upload native runtime measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: >-
+            native-runtime-${{ matrix.artifact }}-${{ github.sha }}
+          path: build/ci-native-runtime
+          if-no-files-found: warn
+          retention-days: 90
 
   compiler:
     name: ${{ matrix.name }} / LuaJIT ${{ matrix.luajit }}
@@ -363,7 +493,7 @@ jobs:
           name: >-
             reification-${{ matrix.benchmark_artifact }}-${{ github.sha }}
           path: build/ci-benchmarks
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
 
       # The AOT lane body is written in compiler vector extensions, and what a

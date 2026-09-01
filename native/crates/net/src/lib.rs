@@ -1636,7 +1636,7 @@ mod tests {
 
     fn connected_pair() -> (Arc<Stream>, Arc<Stream>) {
         let listener = listen_tcp("127.0.0.1", 0, 8, false).unwrap();
-        let connect = connect_tcp("localhost", listener.port(), Duration::from_secs(2)).unwrap();
+        let connect = connect_tcp("127.0.0.1", listener.port(), Duration::from_secs(2)).unwrap();
         let mut client = None;
         let mut server = None;
         wait_until(|| {
@@ -2015,10 +2015,16 @@ mod tests {
     #[cfg(not(unix))]
     #[test]
     fn path_endpoints_are_explicitly_unsupported() {
-        assert!(listen_path("local", 8).unwrap_err().contains("unavailable"));
+        assert!(
+            listen_path("local", 8)
+                .err()
+                .expect("path listening unexpectedly succeeded")
+                .contains("unavailable")
+        );
         assert!(
             connect_path("local", Duration::from_secs(1))
-                .unwrap_err()
+                .err()
+                .expect("path connection unexpectedly succeeded")
                 .contains("unavailable")
         );
     }
