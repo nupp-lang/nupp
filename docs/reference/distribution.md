@@ -202,9 +202,9 @@ window and own an event loop before step 6; Nupp's own does none of that.
 
 ## Host source acquisition
 
-The compiler-owned toolchain builds pinned LuaJIT, LuaRocks, LPeg, luautf8,
-libuv and mbedTLS sources rather than committing
-generated native artifacts or source archives. An ordinary cold build downloads
+The compiler-owned toolchain builds pinned LuaJIT, LuaRocks, LPeg and luautf8
+sources rather than committing generated native artifacts or source archives.
+An ordinary cold build downloads
 the exact upstream files and verifies their SHA-256 digests before extraction
 or compilation. A verified source already in the toolchain cache is reused
 before any download.
@@ -228,8 +228,6 @@ LuaJIT-1edc3e52b67eaf6ce5f809be8e17d6862594b8bc.tar.gz
 luarocks-3.13.0.tar.gz
 lpeg-1.1.0.tar.gz
 luautf8-0.2.1.tar.gz
-libuv-1.52.1.tar.gz
-mbedtls-3.6.2.tar.bz2
 ```
 
 Every supplied archive is checked against the same committed digest as a
@@ -251,7 +249,7 @@ for Rust-native builds:
 ./scripts/toolchain rust-vendor /opt/nupp-rust-sources
 NUPP_RUST_VENDOR_DIR=/opt/nupp-rust-sources \
 NUPP_HOST_OFFLINE=1 \
-./scripts/toolchain native-rust http,uri
+./scripts/toolchain native-rust http,net,tls,uri
 ```
 
 An offline Rust build without `NUPP_RUST_VENDOR_DIR` fails before Cargo runs.
@@ -289,10 +287,9 @@ Release CI uses a Developer ID identity and notarizes the final stamped bytes.
 
 ## Third-party notices
 
-The compiler-owned stub links LuaJIT and libuv and, where the features are on,
-LPeg and luautf8. The legacy TLS provider may additionally link mbedTLS.
-A stamped binary or provider is a distribution
-of what it links, so the notices ship in
+The compiler-owned stub links LuaJIT, its selected LPeg and luautf8 modules, and
+one feature-selected Rust provider archive. A stamped binary or provider is a
+distribution of what it links, so the notices ship in
 [`host/NOTICE.md`](https://github.com/nupp-lang/nupp/blob/main/host/NOTICE.md)
 and `host/notices/`. C-source notices are carried as they arrive in the pinned
 sources, byte for byte. The generated Rust notice covers every third-party
@@ -401,10 +398,9 @@ A distributed binary is deliberately none of these things.
   Nupp's compiler payload detects two native modules, and its compiler-owned
   host links exactly those features: LPeg, which backs direct LPeg patterns and every
   general `nupp.peg` matcher; and `luautf8`, which Lunamark's entity table uses.
-  The host links libuv beneath its remaining C network and event operations;
-  libuv is not a Lua module and has no separate feature to detect. Filesystem
-  operations, clocks, payload trailer verification and child processes come
-  from the feature-selected Rust native archive linked into the same host.
+  Filesystem and network operations, TLS, clocks, payload trailer verification
+  and child processes come from the feature-selected Rust native archive linked
+  into the host.
   The official `re.lua` module remains ordinary Lua in the payload. Another
   payload selects whatever its own code and bundled dependencies need; the
   format has no opinion.

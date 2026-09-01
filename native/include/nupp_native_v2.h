@@ -38,6 +38,7 @@
 #define NUPP_NATIVE_V2_FEATURE_FILESYSTEM (UINT64_C(1) << 6)
 #define NUPP_NATIVE_V2_FEATURE_FILES (UINT64_C(1) << 7)
 #define NUPP_NATIVE_V2_FEATURE_NET (UINT64_C(1) << 8)
+#define NUPP_NATIVE_V2_FEATURE_TLS (UINT64_C(1) << 9)
 
 #ifdef __cplusplus
 extern "C" {
@@ -164,11 +165,32 @@ typedef struct {
 } NuppNativeV2NetConnectOptions;
 
 typedef struct {
+    NuppNativeV2NetSlice path;
+    uint32_t backlog;
+} NuppNativeV2NetPathListenOptions;
+
+typedef struct {
+    NuppNativeV2NetSlice path;
+    uint64_t timeout_ms;
+} NuppNativeV2NetPathConnectOptions;
+
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    int32_t reuse_port;
+} NuppNativeV2NetDatagramOptions;
+
+typedef struct {
     uint8_t address[16];
     uint16_t port;
     uint8_t family;
 } NuppNativeV2NetAddress;
 
+#define NUPP_NATIVE_V2_NET_ADDRESS_NONE 0u
+#define NUPP_NATIVE_V2_NET_ADDRESS_V4 4u
+#define NUPP_NATIVE_V2_NET_ADDRESS_V6 6u
+#define NUPP_NATIVE_V2_NET_LISTENER_TCP 0u
+#define NUPP_NATIVE_V2_NET_LISTENER_PATH 1u
 #define NUPP_NATIVE_V2_NET_ACCEPTED 0u
 #define NUPP_NATIVE_V2_NET_PENDING 1u
 #define NUPP_NATIVE_V2_NET_READ_DATA 0u
@@ -178,6 +200,11 @@ typedef struct {
 #define NUPP_NATIVE_V2_NET_CONNECT_PENDING 0u
 #define NUPP_NATIVE_V2_NET_CONNECT_READY 1u
 #define NUPP_NATIVE_V2_NET_CONNECT_FAILED 2u
+#define NUPP_NATIVE_V2_NET_DATAGRAM_MESSAGE 0u
+#define NUPP_NATIVE_V2_NET_DATAGRAM_PENDING 1u
+#define NUPP_NATIVE_V2_NET_DATAGRAM_SENT 0u
+#define NUPP_NATIVE_V2_NET_DATAGRAM_SEND_PENDING 1u
+#define NUPP_NATIVE_V2_NET_DATAGRAM_SEND_CLOSED 2u
 #define NUPP_NATIVE_V2_NET_STREAM_READ_EOF (UINT32_C(1) << 0)
 #define NUPP_NATIVE_V2_NET_STREAM_WRITE_CLOSED (UINT32_C(1) << 1)
 #define NUPP_NATIVE_V2_NET_STREAM_CLOSED (UINT32_C(1) << 2)
@@ -187,14 +214,20 @@ typedef struct {
 
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetListenerCreate(
     const NuppNativeV2NetListenOptions *options, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetPathListenerCreate(
+    const NuppNativeV2NetPathListenOptions *options, uint64_t *output);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetListenerPort(
     uint64_t listener, uint16_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetListenerKind(
+    uint64_t listener, uint32_t *output);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetListenerAccept(
     uint64_t listener, uint32_t *state, uint64_t *stream);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetListenerRelease(
     uint64_t listener);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetConnectCreate(
     const NuppNativeV2NetConnectOptions *options, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetPathConnectCreate(
+    const NuppNativeV2NetPathConnectOptions *options, uint64_t *output);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetConnectPoll(
     uint64_t connect, uint32_t *state, uint64_t *stream);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetConnectCancel(
@@ -223,11 +256,88 @@ NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamSetNoDelay(
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamSetKeepAlive(
     uint64_t stream, int32_t enabled, uint32_t delay_seconds);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamRelease(uint64_t stream);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetAddressParse(
+    NuppNativeV2NetSlice host, uint16_t port,
+    NuppNativeV2NetAddress *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetAddressText(
+    const NuppNativeV2NetAddress *address, uint8_t *output,
+    size_t capacity, size_t *length);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetDatagramCreate(
+    const NuppNativeV2NetDatagramOptions *options, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetDatagramPort(
+    uint64_t datagram, uint16_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetDatagramReceive(
+    uint64_t datagram, uint8_t *output, size_t capacity,
+    uint32_t *state, size_t *length, NuppNativeV2NetAddress *address,
+    int32_t *truncated);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetDatagramSend(
+    uint64_t datagram, const NuppNativeV2NetAddress *address,
+    const uint8_t *data, size_t length, uint32_t *state, size_t *sent);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetDatagramSetBroadcast(
+    uint64_t datagram, int32_t enabled);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetDatagramSetMulticastTtl(
+    uint64_t datagram, uint32_t ttl);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetDatagramSetMulticastLoop(
+    uint64_t datagram, int32_t enabled);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetDatagramMembership(
+    uint64_t datagram, NuppNativeV2NetSlice group,
+    NuppNativeV2NetSlice interface_address, uint32_t interface_index,
+    uint8_t interface_kind, int32_t join);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetDatagramRelease(
+    uint64_t datagram);
 /* Poll snapshots a monotonic activity generation. Recheck resource state
  * before waiting from that generation so no readiness edge can be lost. */
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetPoll(uint64_t *generation);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetWait(
     uint64_t generation, uint64_t timeout_ms, uint64_t *output_generation);
+
+/* Present when NUPP_NATIVE_V2_FEATURE_TLS is set. Creating a session consumes
+ * its Rust network stream handle on both success and failure. Protocols are a
+ * sequence of nonempty names separated and terminated by NUL bytes. */
+typedef struct {
+    NuppNativeV2NetSlice hostname;
+    NuppNativeV2NetSlice certificate;
+    NuppNativeV2NetSlice private_key;
+    NuppNativeV2NetSlice authority;
+    NuppNativeV2NetSlice protocols;
+    int32_t authority_present;
+    int32_t server;
+    int32_t verify;
+} NuppNativeV2TlsOptions;
+
+#define NUPP_NATIVE_V2_TLS_HANDSHAKE_PENDING 0u
+#define NUPP_NATIVE_V2_TLS_HANDSHAKE_READY 1u
+#define NUPP_NATIVE_V2_TLS_READ_DATA 0u
+#define NUPP_NATIVE_V2_TLS_READ_PENDING 1u
+#define NUPP_NATIVE_V2_TLS_READ_EOF 2u
+#define NUPP_NATIVE_V2_TLS_WRITE_ACCEPTED 0u
+#define NUPP_NATIVE_V2_TLS_WRITE_PENDING 1u
+#define NUPP_NATIVE_V2_TLS_WRITE_CLOSED 2u
+
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsCreate(
+    uint64_t stream, const NuppNativeV2TlsOptions *options, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsHandshake(
+    uint64_t session, uint32_t *state);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsRead(
+    uint64_t session, uint8_t *output, size_t capacity,
+    uint32_t *state, size_t *length);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsWrite(
+    uint64_t session, const uint8_t *data, size_t length,
+    uint32_t *state, size_t *accepted);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsFlushed(
+    uint64_t session, int32_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsCloseNotify(
+    uint64_t session, int32_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsConnected(
+    uint64_t session, int32_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsVerified(
+    uint64_t session, int32_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsResumed(
+    uint64_t session, int32_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsProtocol(
+    uint64_t session, uint8_t *output, size_t capacity,
+    size_t *length, int32_t *present);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TlsRelease(uint64_t session);
 
 /* Present when NUPP_NATIVE_V2_FEATURE_UUID is set. Both outputs require a
  * capacity of at least 37 bytes and include their trailing NUL. */

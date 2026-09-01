@@ -179,9 +179,9 @@ build_native() {
     # optional stdlib facilities a program run by this launcher may select;
     # unlike a packaged build, `nupp run` loads this one development provider
     # rather than staging a target-specific union beside the program.
-    built=$("$ROOT/scripts/toolchain" native net,tls) \
+    built=$("$ROOT/scripts/toolchain" native) \
         || return 1
-    rust_built=$("$ROOT/scripts/toolchain" native-rust base,files,http,process,uri,uuid) || return 1
+    rust_built=$("$ROOT/scripts/toolchain" native-rust base,files,http,net,process,tls,uri,uuid) || return 1
     mkdir -p "$ROOT/build/lib"
     # Copied beside the destination and renamed onto it, never written in place.
     # A rename within one directory is atomic, so a command loading the library
@@ -419,17 +419,21 @@ done
 native_is_current() {
     [ -f "$NUPP_NATIVE_LIBRARY" ] || return 1
     [ -f "$NUPP_NATIVE_V2_LIBRARY" ] || return 1
+    # The launcher owns the broad development feature union passed to both
+    # provider builds, so changing that union invalidates its staged copies.
+    [ ! "$ROOT/bin/nupp" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
+    [ ! "$ROOT/bin/nupp" -nt "$NUPP_NATIVE_V2_LIBRARY" ] || return 1
     [ -z "$(find "$ROOT/runtime" "$ROOT/native" "$ROOT/Cargo.toml" "$ROOT/Cargo.lock" -type f \
         \( -name '*.rs' -o -name '*.c' -o -name '*.h' -o -name '*.toml' -o -name 'Cargo.lock' \) \
-        -newer "$NUPP_NATIVE_LIBRARY" 2>/dev/null | head -n 1)" ]
-    [ ! "$ROOT/scripts/toolchain" -nt "$NUPP_NATIVE_LIBRARY" ]
-    [ ! "$ROOT/scripts/toolchain.pins" -nt "$NUPP_NATIVE_LIBRARY" ]
+        -newer "$NUPP_NATIVE_LIBRARY" 2>/dev/null | head -n 1)" ] || return 1
+    [ ! "$ROOT/scripts/toolchain" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
+    [ ! "$ROOT/scripts/toolchain.pins" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
     [ -z "$(find "$ROOT/runtime" "$ROOT/native" "$ROOT/Cargo.toml" "$ROOT/Cargo.lock" -type f \
         \( -name '*.rs' -o -name '*.c' -o -name '*.h' -o -name '*.toml' -o -name 'Cargo.lock' \) \
-        -newer "$NUPP_NATIVE_V2_LIBRARY" 2>/dev/null | head -n 1)" ]
-    [ ! "$ROOT/scripts/toolchain" -nt "$NUPP_NATIVE_V2_LIBRARY" ]
-    [ ! "$ROOT/scripts/toolchain.pins" -nt "$NUPP_NATIVE_V2_LIBRARY" ]
-    [ ! "$ROOT/rust-toolchain.toml" -nt "$NUPP_NATIVE_V2_LIBRARY" ]
+        -newer "$NUPP_NATIVE_V2_LIBRARY" 2>/dev/null | head -n 1)" ] || return 1
+    [ ! "$ROOT/scripts/toolchain" -nt "$NUPP_NATIVE_V2_LIBRARY" ] || return 1
+    [ ! "$ROOT/scripts/toolchain.pins" -nt "$NUPP_NATIVE_V2_LIBRARY" ] || return 1
+    [ ! "$ROOT/rust-toolchain.toml" -nt "$NUPP_NATIVE_V2_LIBRARY" ] || return 1
     [ ! "$ROOT/.cargo/config.toml" -nt "$NUPP_NATIVE_V2_LIBRARY" ]
 }
 

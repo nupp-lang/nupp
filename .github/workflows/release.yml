@@ -92,7 +92,7 @@ jobs:
       # starting a sealed worker through `bin/nupp` -- which is a LuaJIT launcher. A
       # build of the compiler therefore needs the same interpreter the compiler matrix
       # builds, whatever interpreter drives the build itself.
-      - name: Build LuaJIT and simdjson
+      - name: Build pinned host dependencies
         shell: bash
         run: ./scripts/toolchain --all
 
@@ -520,7 +520,7 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Build LuaJIT and simdjson
+      - name: Build pinned host dependencies
         shell: bash
         run: ./scripts/toolchain --all
 

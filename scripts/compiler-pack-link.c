@@ -64,10 +64,6 @@ int main(int argc, char **argv) {
     static const char *libraries[] = {
         "host/lib/liblpeg.a",
         "host/lib/liblua-utf8.a",
-        "host/lib/libmbedtls.a",
-        "host/lib/libmbedx509.a",
-        "host/lib/libmbedcrypto.a",
-        "host/lib/libuv.a",
         "host/lib/libluajit.a",
     };
     const char **command;

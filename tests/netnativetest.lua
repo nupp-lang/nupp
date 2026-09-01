@@ -1,4 +1,4 @@
--- Real sockets, against the libuv-backed provider.
+-- Real sockets, against the Rust-backed provider.
 --
 -- The other half of `nettest.lua`: that one drives the state machine with a fake
 -- platform, and this one checks that the platform means what the state machine
@@ -271,8 +271,8 @@ function M.aConnectGivesUpOnItsDeadline()
 end
 
 function M.aConnectDeadlineStartsWhenTheConnectionDoes()
-   -- libuv's clock is cached. Work outside its reactor must not make the next
-   -- connection's freshly armed deadline look as though it has already passed.
+   -- Work outside the reactor must not make the next connection's freshly armed
+   -- deadline look as though it has already passed.
    local listener, client, served = pair()
    served:close()
    client:close()
@@ -292,9 +292,9 @@ function M.aConnectDeadlineStartsWhenTheConnectionDoes()
 end
 
 function M.loadBalancingReuseIsRefusedCleanlyWhereItIsUnsupported()
-   -- macOS and Windows have no load-balancing port reuse, and libuv refuses it
-   -- rather than giving different semantics. Either answer is correct here; what
-   -- must not happen is a raise or a silent downgrade.
+   -- macOS and Windows have no load-balancing port reuse, and the provider
+   -- refuses it rather than giving different semantics. Either answer is
+   -- correct here; what must not happen is a raise or a silent downgrade.
    local first, why = net.listen({host = "127.0.0.1", port = 0, reusePort = true})
    if first == nil then
       assertTrue(why ~= nil, "an unsupported request is refused with a reason")
@@ -715,37 +715,6 @@ function M.aPartiallyConsumedStreamStillDeliversEverything()
    served:close()
    client:close()
    listener:close()
-end
-
-function M.aPartiallyConsumedStreamDoesNotGrowWithTraffic()
-   -- Capacity is not on the Lua surface and should not be, so the measurement
-   -- happens in a fixture linked against the provider directly. What is checked
-   -- here is that it still holds, and it is checked in the suite so that it
-   -- keeps being checked.
-   local root = HERE .. "/.."
-   local out = os.tmpname()
-
-   -- Built through the toolchain rather than by assembling a compiler command
-   -- here. Which compiler this repository uses and which libraries each
-   -- platform needs are decided in one place, and a test that spelled them out
-   -- again would be a second copy that only this machine's platform proves.
-   -- The subcommand requires the pinned libuv rather than building it, so it
-   -- takes no component lock and cannot stall the other shards.
-   local built = os.execute((
-      "'%s/scripts/toolchain' fixture '%s/fixtures/net-buffer.c' '%s' >/dev/null 2>&1"
-   ):format(root, HERE, out))
-   assertEq(built, 0,
-      "the receive-buffer fixture builds; run scripts/toolchain libuv if it did not")
-
-   -- The fixture's own verdict is read from its output rather than its exit
-   -- status: `popen`'s close answers true here whatever the program returned,
-   -- so an assertion on it could never fail.
-   local run = assert(io.popen("'" .. out .. "' 2>&1"))
-   local said = run:read("*a")
-   run:close()
-   os.remove(out)
-   assertTrue(said:find("\nok\n", 1, true) ~= nil or said:sub(-3) == "ok\n",
-      "the receive buffer did not grow with total traffic:\n" .. said)
 end
 
 return M

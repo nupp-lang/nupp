@@ -16,8 +16,6 @@ notices remain complete in one place.
 | [LuaJIT](https://luajit.org/) | `1edc3e52b67eaf6ce5f809be8e17d6862594b8bc` | MIT | [notices/LuaJIT-COPYRIGHT.txt](notices/LuaJIT-COPYRIGHT.txt) |
 | [LPeg](https://www.inf.puc-rio.br/~roberto/lpeg/) | `1.1.0` | MIT | [notices/LPeg-LICENSE.txt](notices/LPeg-LICENSE.txt) |
 | [luautf8](https://github.com/starwing/luautf8) | `0.2.1` | MIT | [notices/luautf8-LICENSE.txt](notices/luautf8-LICENSE.txt) |
-| [libuv](https://libuv.org/) | `1.52.1` | MIT | [notices/libuv-LICENSE.txt](notices/libuv-LICENSE.txt) |
-| [mbedTLS](https://www.trustedfirmware.org/projects/mbed-tls/) | `3.6.2` | Apache-2.0 or GPL-2.0-or-later | [notices/mbedtls-LICENSE.txt](notices/mbedtls-LICENSE.txt) |
 | [Lunajson](https://github.com/grafi-tt/lunajson) | `1.2.3` | MIT | [notices/lunajson-LICENSE.txt](notices/lunajson-LICENSE.txt) |
 | Rust dependency graph | `Cargo.lock` | Mixed permissive licenses | [notices/Rust-dependencies.html](notices/Rust-dependencies.html) |
 
@@ -31,10 +29,10 @@ notice inside HTML, so that check verifies the identifying copyright, grant and
 warranty terms in both copies. Bumping a pin without updating the notice beside
 it therefore stops the build rather than shipping the wrong text.
 
-LuaJIT and libuv are in every compiler host. LPeg and `luautf8` are selected
-host features; mbedTLS belongs to the legacy native TLS provider. A build that
-selects none of those does not distribute them; the notices stay here because
-each binary's features are decided independently.
+LuaJIT is in every compiler host. LPeg and `luautf8` are selected host features,
+and the locked Rust graph supplies feature-selected native providers including
+networking and TLS. A build that selects none of those does not distribute them;
+the notices stay here because each binary's features are decided independently.
 Lunajson's decoder and encoder are vendored into the portable compiler runtime.
 
 The Rust notice deliberately covers every third-party package in `Cargo.lock`,

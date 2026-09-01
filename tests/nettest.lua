@@ -1,12 +1,13 @@
 -- The platform-neutral socket state machine.
 --
 -- Driven by a fake backend, on purpose: what is checked here is the policy above
--- the libuv-backed provider -- the three-state read, the bounded send queue, what
+-- the Rust-backed provider -- the three-state read, the bounded send queue, what
 -- a direction view's close does -- so the test supplies the platform and the
 -- module supplies the behaviour. `netnativetest.lua` is the other half, where
 -- real sockets check that the provider means what this one assumes.
 local net = require("nupp.io.net")
 local io_ = require("nupp.io")
+local native = require("nupp.compiler.native")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -475,6 +476,23 @@ function M.portsAreChecked()
    assertEq(also, false, "and so is a negative one")
    local datagram = pcall(function() return net.bind({host = "0.0.0.0", port = 70000}) end)
    assertEq(datagram, false, "on a datagram socket too")
+end
+
+function M.netAndTlsSelectTheUnifiedRustProvider()
+   local netFeature = assert(native.feature("native.net"))
+   assertEq(netFeature.provider, "nupp_native_v2", "network provider")
+   assertEq(netFeature.providerDriver, "native-rust", "network provider driver")
+   assertEq(netFeature.providerFeature, "net", "network provider feature")
+   assertEq(netFeature.library, "nupp_native_v2", "network provider library")
+   local tlsFeature = assert(native.feature("native.tls"))
+   assertEq(tlsFeature.provider, "nupp_native_v2", "TLS provider")
+   assertEq(tlsFeature.providerDriver, "native-rust", "TLS provider driver")
+   assertEq(tlsFeature.providerFeature, "tls", "TLS provider feature")
+   assertEq(tlsFeature.library, "nupp_native_v2", "TLS provider library")
+   local expanded = native.expand({["native.tls"] = true})
+   assertTrue(expanded["native.net"], "TLS omitted its Rust transport")
+   assertTrue(expanded["runtime.native_v2"], "networking omitted the ABI-v2 runtime")
+   assertTrue(not expanded["runtime.native"], "networking retained the legacy C ABI runtime")
 end
 
 return M

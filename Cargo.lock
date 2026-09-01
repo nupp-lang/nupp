@@ -944,6 +944,7 @@ dependencies = [
  "nupp-native-platform",
  "nupp-native-process",
  "nupp-native-runtime",
+ "nupp-native-tls",
  "url",
 ]
 
@@ -1027,6 +1028,16 @@ version = "0.1.0"
 dependencies = [
  "nupp-native-abi",
  "tokio",
+]
+
+[[package]]
+name = "nupp-native-tls"
+version = "0.1.0"
+dependencies = [
+ "nupp-native-net",
+ "ring",
+ "rustls",
+ "rustls-native-certs",
 ]
 
 [[package]]

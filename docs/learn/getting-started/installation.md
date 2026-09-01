@@ -30,11 +30,11 @@ Rustup reads the committed toolchain file automatically. `NUPP_RUSTC` and
 different release so its content-addressed native artifacts remain reproducible.
 
 Everything else is provisioned. `scripts/toolchain` fetches LuaJIT, LuaRocks,
-LPeg, luautf8, libuv and mbedTLS by pinned revision,
-refuses any archive whose SHA-256 is not the one written down, builds each with
-that compiler pair, and caches the result beside the repository so every
-worktree shares one build. Cargo resolves the Rust-native crates through the
-committed lockfile. The toolchain driver builds Nupp's C and Rust native
+LPeg and luautf8 by pinned revision, refuses any archive whose SHA-256 is not the
+one written down, builds each with that compiler pair, and caches the result
+beside the repository so every worktree shares one build. Cargo resolves the
+Rust-native crates, including networking and TLS, through the committed
+lockfile. The toolchain driver builds Nupp's C host and Rust native
 providers and its binary hosts; `bin/nupp` runs it for what is missing and
 nothing more.
 
@@ -106,8 +106,8 @@ next command rather than by the next person who remembers to build.
 ### Shared toolchain cache
 
 Downloaded sources and the classic toolchain components land beside the
-repository's common Git directory, so every worktree shares LuaJIT, libuv, and
-the C provider cache. Rust outputs default to the worktree's `build/rust` and
+repository's common Git directory, so every worktree shares LuaJIT and the C
+host cache. Rust outputs default to the worktree's `build/rust` and
 the worktree helper seeds that content-validated cache from the originating
 checkout. `NUPP_TOOLCHAIN_DIR` moves the shared store; `NUPP_RUST_BUILD_DIR`
 moves Rust outputs:
@@ -182,8 +182,7 @@ alongside:
 | Carried | How | For |
 | --- | --- | --- |
 | `LuaJIT` | linked into the stub | running anything |
-| libuv | linked into the stub | networking and remaining C event loops |
-| Rust native provider | linked into the stub | filesystem, clocks, payload checks, and child processes |
+| Rust native provider | linked into the stub | filesystem, networking, TLS, clocks, payload checks, and child processes |
 | Vendored JSON codec | in the payload | JSON, `--json`, and the LSP |
 | LPeg 1.1 | detected and linked | general PEG and direct LPeg patterns |
 | LPeg `re.lua` | in the payload | runtime textual grammars |

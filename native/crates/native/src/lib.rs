@@ -17,6 +17,8 @@ mod http;
 mod net;
 #[cfg(feature = "process")]
 mod process;
+#[cfg(feature = "tls")]
+mod tls;
 #[cfg(feature = "uri")]
 mod uri;
 
@@ -29,6 +31,7 @@ const FEATURE_PROCESS: u64 = 1 << 5;
 const FEATURE_FILESYSTEM: u64 = 1 << 6;
 const FEATURE_FILES: u64 = 1 << 7;
 const FEATURE_NET: u64 = 1 << 8;
+const FEATURE_TLS: u64 = 1 << 9;
 
 fn bytes() -> &'static Mutex<Arena<Box<[u8]>>> {
     static BYTES: OnceLock<Mutex<Arena<Box<[u8]>>>> = OnceLock::new();
@@ -112,6 +115,11 @@ pub extern "C" fn nuppNativeV2Features() -> u64 {
         }
         | if cfg!(feature = "net") {
             FEATURE_NET
+        } else {
+            0
+        }
+        | if cfg!(feature = "tls") {
+            FEATURE_TLS
         } else {
             0
         }

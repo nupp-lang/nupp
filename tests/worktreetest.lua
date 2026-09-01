@@ -122,7 +122,9 @@ function M.launcherBuildsTheProviderThroughTheToolchainDriver()
    -- A driver that records what it was asked for and answers with a file it
    -- made, which is the whole of the contract the launcher relies on.
    write(root .. "/scripts/toolchain", [[#!/bin/sh
-printf '%s\n' "$*" > "$NUPP_TEST_RECORD"
+case "${1:-}" in
+   native|native-rust) printf '%s\n' "$*" >> "$NUPP_TEST_RECORD" ;;
+esac
 printf 'built\n' > "$NUPP_TEST_BUILT"
 printf '%s\n' "$NUPP_TEST_BUILT"
 ]])
@@ -138,13 +140,14 @@ exit 0
    local environment = ("PATH=%s:$PATH NUPP_TEST_RECORD=%s NUPP_TEST_BUILT=%s ")
       :format(quote(fake), quote(record), quote(built))
    assert(os.execute(environment .. quote(root .. "/bin/nupp") .. " clean") == 0)
-   local asked = read(record):match("^%s*(.-)%s*$")
-   assert(asked:find("native", 1, true),
-      "the launcher did not ask the driver for the native provider: " .. asked)
-   assert(asked:find("files", 1, true),
-      "the launcher did not ask for the file provider stage 0 needs: " .. asked)
+   local asked = read(record)
+   assert(asked == "native\n"
+      .. "native-rust base,files,http,net,process,tls,uri,uuid\n",
+      "the launcher requested the wrong development providers: " .. asked)
    assert(read(root .. "/build/lib/libnupp_native_dev.dylib") == "built\n",
-      "the launcher did not install what the driver named")
+      "the launcher did not install the compatibility provider")
+   assert(read(root .. "/build/lib/libnupp_native_v2_dev.dylib") == "built\n",
+      "the launcher did not install the Rust provider")
    os.execute("rm -rf " .. quote(root))
 end
 

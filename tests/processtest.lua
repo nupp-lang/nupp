@@ -1,7 +1,7 @@
 -- S5: the platform-neutral process state machine.
 --
 -- Driven by a fake backend, on purpose. What is being checked here is the lifecycle,
--- the draining and the deadlines -- the policy above the libuv-backed provider -- so
+-- the draining and the deadlines -- the policy above the Rust-backed provider -- so
 -- the test supplies the platform and the module supplies the behaviour.
 local process = require("nupp.io.process")
 local suspension = require("nupp.suspension")

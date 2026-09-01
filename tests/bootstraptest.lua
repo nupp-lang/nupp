@@ -89,6 +89,8 @@ local function plantedTree()
    plant("build/nupp/compiler/main.lua", 'print("BUILT")\n')
    for _, name in ipairs({
       "libnupp_native_dev.dylib", "libnupp_native_dev.so", "nupp_native_dev.dll",
+      "libnupp_native_v2_dev.dylib", "libnupp_native_v2_dev.so",
+      "nupp_native_v2_dev.dll",
    }) do
       plant("build/lib/" .. name, "")
    end

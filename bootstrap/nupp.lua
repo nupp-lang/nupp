@@ -134147,15 +134147,15 @@ name = "net" ,
 
 
 
-
 module = "nupp.io.net" ,
 runtimeModule = "nupp.io.net" ,
-provider = "nupp_native" ,
+provider = "nupp_native_v2" ,
+providerDriver = "native-rust" ,
 providerFeature = "net" ,
 host = "native-net" ,
-library = "nupp_native" ,
+library = "nupp_native_v2" ,
 binary = true ,
-requires = { "runtime.suspension" } ,
+requires = { "runtime.suspension" , "runtime.native_v2" } ,
 } ,
 [ "native.tls" ] = {
 name = "tls" ,
@@ -134164,12 +134164,13 @@ name = "tls" ,
 
 module = "nupp.io.tls" ,
 runtimeModule = "nupp.io.tls" ,
-provider = "nupp_native" ,
+provider = "nupp_native_v2" ,
+providerDriver = "native-rust" ,
 providerFeature = "tls" ,
 host = "native-tls" ,
-library = "nupp_native" ,
+library = "nupp_native_v2" ,
 binary = true ,
-requires = { "native.net" , "runtime.suspension" } ,
+requires = { "native.net" , "runtime.suspension" , "runtime.native_v2" } ,
 } ,
 [ "native.process" ] = {
 name = "process" ,
@@ -173677,20 +173678,12 @@ end
 
 
 
-
-function net . streamHandle ( source ) 
-return source . _handle
+function net . takeStreamHandle ( source ) 
+if source . _closed then
+error ( "nupp: the connection is closed" , 2 )
 end
+source . _closed = true
 
-
-
-
-
-
-
-
-
-function net . datagramHandle ( source ) 
 return source . _handle
 end
 
@@ -173710,25 +173703,6 @@ end
 
 
 
-
-
-
-
-
-
-
-function net . flushStream ( handle ) 
-const chosen = backend
-if chosen == nil then
-return false , "nupp.io.net has no backend installed"
-end
-
-return drain ( chosen , handle )
-end
-
-
-
-
 function net . useBackend ( chosen ) 
 backend = chosen
 end
@@ -173742,95 +173716,116 @@ end
 
 
 
-const native = require ( "nupp.runtime.native" )
+const native = require ( "nupp.runtime.nativev2" )
 
 native . ffi . cdef [[
-typedef struct NuppNetLoop NuppNetLoop;
-typedef struct NuppNetListener NuppNetListener;
-typedef struct NuppNetStream NuppNetStream;
-typedef struct NuppNetConnect NuppNetConnect;
-typedef struct NuppNetDatagram NuppNetDatagram;
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+} NuppNativeV2NetSlice;
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    uint32_t backlog;
+    int32_t reuse_port;
+} NuppNativeV2NetListenOptions;
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    uint64_t timeout_ms;
+} NuppNativeV2NetConnectOptions;
+typedef struct {
+    NuppNativeV2NetSlice path;
+    uint32_t backlog;
+} NuppNativeV2NetPathListenOptions;
+typedef struct {
+    NuppNativeV2NetSlice path;
+    uint64_t timeout_ms;
+} NuppNativeV2NetPathConnectOptions;
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    int32_t reuse_port;
+} NuppNativeV2NetDatagramOptions;
+typedef struct {
+    uint8_t address[16];
+    uint16_t port;
+    uint8_t family;
+} NuppNativeV2NetAddress;
 
-NuppNetLoop *nuppNetLoopCreate(void);
-int32_t nuppNetLoopRun(NuppNetLoop *, int32_t);
-void nuppNetLoopDestroy(NuppNetLoop *);
-
-NuppNetListener *nuppNetListen(NuppNetLoop *, const uint8_t *, size_t, uint16_t, int32_t, bool);
-NuppNetListener *nuppNetListenPath(NuppNetLoop *, const uint8_t *, size_t, int32_t);
-NuppNetConnect *nuppNetConnectPath(NuppNetLoop *, const uint8_t *, size_t, int32_t);
-int32_t nuppNetListenerPort(NuppNetListener *);
-NuppNetStream *nuppNetAccept(NuppNetListener *, int32_t *);
-uint8_t nuppNetListenerClose(NuppNetListener *);
-void nuppNetListenerDestroy(NuppNetListener *);
-
-NuppNetConnect *nuppNetConnectBegin(NuppNetLoop *, const uint8_t *, size_t, uint16_t, int32_t);
-int32_t nuppNetConnectPoll(NuppNetConnect *, NuppNetStream **);
-void nuppNetConnectDestroy(NuppNetConnect *);
-
-intptr_t nuppNetTryRead(NuppNetStream *, uint8_t *, size_t);
-intptr_t nuppNetTryWrite(NuppNetStream *, const uint8_t *, size_t);
-size_t nuppNetPending(NuppNetStream *);
-uint8_t nuppNetShutdownWrite(NuppNetStream *);
-uint8_t nuppNetCloseStream(NuppNetStream *);
-void nuppNetStreamDestroy(NuppNetStream *);
-bool nuppNetStreamEnded(NuppNetStream *);
-bool nuppNetStreamFailed(NuppNetStream *);
-bool nuppNetStreamShuttingDown(NuppNetStream *);
-bool nuppNetStreamPeer(NuppNetStream *, char *, size_t, int32_t *);
-bool nuppNetStreamLocal(NuppNetStream *, char *, size_t, int32_t *);
-uint8_t nuppNetStreamNoDelay(NuppNetStream *, bool);
-uint8_t nuppNetStreamKeepAlive(NuppNetStream *, bool, uint32_t);
-uint8_t nuppNetDatagramBroadcast(NuppNetDatagram *, bool);
-uint8_t nuppNetDatagramMulticastTtl(NuppNetDatagram *, int32_t);
-uint8_t nuppNetDatagramMulticastLoop(NuppNetDatagram *, bool);
-uint8_t nuppNetDatagramMembership(NuppNetDatagram *, const uint8_t *, size_t, const uint8_t *, size_t, bool);
-
-NuppNetDatagram *nuppNetBindDatagram(NuppNetLoop *, const uint8_t *, size_t, uint16_t, bool);
-int32_t nuppNetDatagramPort(NuppNetDatagram *);
-intptr_t nuppNetDatagramReceive(NuppNetDatagram *, uint8_t *, size_t, int32_t *, uint8_t *, char *, size_t, int32_t *);
-uint8_t nuppNetDatagramSend(NuppNetDatagram *, const uint8_t *, size_t, uint16_t, const uint8_t *, size_t);
-uint8_t nuppNetDatagramClose(NuppNetDatagram *);
-void nuppNetDatagramDestroy(NuppNetDatagram *);
+int32_t nuppNativeV2NetListenerCreate(const NuppNativeV2NetListenOptions *, uint64_t *);
+int32_t nuppNativeV2NetPathListenerCreate(const NuppNativeV2NetPathListenOptions *, uint64_t *);
+int32_t nuppNativeV2NetListenerPort(uint64_t, uint16_t *);
+int32_t nuppNativeV2NetListenerKind(uint64_t, uint32_t *);
+int32_t nuppNativeV2NetListenerAccept(uint64_t, uint32_t *, uint64_t *);
+int32_t nuppNativeV2NetListenerRelease(uint64_t);
+int32_t nuppNativeV2NetConnectCreate(const NuppNativeV2NetConnectOptions *, uint64_t *);
+int32_t nuppNativeV2NetPathConnectCreate(const NuppNativeV2NetPathConnectOptions *, uint64_t *);
+int32_t nuppNativeV2NetConnectPoll(uint64_t, uint32_t *, uint64_t *);
+int32_t nuppNativeV2NetConnectRelease(uint64_t);
+int32_t nuppNativeV2NetStreamRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2NetStreamWrite(uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2NetStreamPendingWrite(uint64_t, size_t *);
+int32_t nuppNativeV2NetStreamState(uint64_t, uint32_t *);
+int32_t nuppNativeV2NetStreamShutdownWrite(uint64_t);
+int32_t nuppNativeV2NetStreamLocalAddress(uint64_t, NuppNativeV2NetAddress *);
+int32_t nuppNativeV2NetStreamPeerAddress(uint64_t, NuppNativeV2NetAddress *);
+int32_t nuppNativeV2NetStreamSetNoDelay(uint64_t, int32_t);
+int32_t nuppNativeV2NetStreamSetKeepAlive(uint64_t, int32_t, uint32_t);
+int32_t nuppNativeV2NetStreamRelease(uint64_t);
+int32_t nuppNativeV2NetAddressParse(NuppNativeV2NetSlice, uint16_t, NuppNativeV2NetAddress *);
+int32_t nuppNativeV2NetAddressText(const NuppNativeV2NetAddress *, uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2NetDatagramCreate(const NuppNativeV2NetDatagramOptions *, uint64_t *);
+int32_t nuppNativeV2NetDatagramPort(uint64_t, uint16_t *);
+int32_t nuppNativeV2NetDatagramReceive(
+    uint64_t, uint8_t *, size_t, uint32_t *, size_t *, NuppNativeV2NetAddress *, int32_t *);
+int32_t nuppNativeV2NetDatagramSend(
+    uint64_t, const NuppNativeV2NetAddress *, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2NetDatagramSetBroadcast(uint64_t, int32_t);
+int32_t nuppNativeV2NetDatagramSetMulticastTtl(uint64_t, uint32_t);
+int32_t nuppNativeV2NetDatagramSetMulticastLoop(uint64_t, int32_t);
+int32_t nuppNativeV2NetDatagramMembership(
+    uint64_t, NuppNativeV2NetSlice, NuppNativeV2NetSlice, uint32_t, uint8_t, int32_t);
+int32_t nuppNativeV2NetDatagramRelease(uint64_t);
+int32_t nuppNativeV2NetPoll(uint64_t *);
+int32_t nuppNativeV2NetWait(uint64_t, uint64_t, uint64_t *);
 ]]
 
 const C = native . C
+const NET_FEATURE = 256
+const PENDING = 1
+const READ_EOF = 2
+const CONNECT_READY = 1
+const CONNECT_FAILED = 2
+const LISTENER_PATH = 1
+const DATAGRAM_MESSAGE = 0
+const DATAGRAM_SENT = 0
+const STREAM_READ_EOF = 1
+const STREAM_SHUTTING_DOWN = 8
+const STREAM_READ_FAILED = 16
+const STREAM_WRITE_FAILED = 32
 
+local featureChecked = false
+local scratch = nil
+
+local function requireNet ( ) 
+if not featureChecked then
+native . requireFeature ( NET_FEATURE , "network support" )
+featureChecked = true
+end
+end
+
+local function slice ( text ) 
+local value = native . ffi . new ( "NuppNativeV2NetSlice" )
+value . data = text
+value . length = # text
+
+return value
+end
 
 local function reason ( prefix ) 
-local said = native . error ( )
-if said == nil or said == "" then
-said = "native network operation failed"
+return prefix .. ": " .. ( native . ffi . string ( C . nuppNativeV2LastError ( ) ) )
 end
-
-return prefix .. ": " .. said
-end
-
-
-
-
-
-
-
-
-local reactor = nil
-
-
-local function lane ( ) 
-if reactor == nil then
-const made = C . nuppNetLoopCreate ( )
-if made == nil then
-error ( reason ( "nupp: could not create the network reactor" ) , 0 )
-end
-reactor = made
-end
-
-return reactor
-end
-
-
-
-
-local scratch = nil
 
 local function readBuffer ( ) 
 if scratch == nil then
@@ -173840,14 +173835,38 @@ end
 return scratch
 end
 
-
 local function nativeBackend ( ) 
-const accepted = native . ffi . new ( "int32_t[1]" )
-const connected = native . ffi . new ( "NuppNetStream *[1]" )
-const arrived = native . ffi . new ( "int32_t[1]" )
-const truncated = native . ffi . new ( "uint8_t[1]" )
-const peerPort = native . ffi . new ( "int32_t[1]" )
-const peerHost = native . ffi . new ( "char[?]" , HOST_SIZE )
+const state = native . ffi . new ( "uint32_t[1]" )
+const flags = native . ffi . new ( "uint32_t[1]" )
+const handle = native . ffi . new ( "uint64_t[1]" )
+const count = native . ffi . new ( "size_t[1]" )
+const portOutput = native . ffi . new ( "uint16_t[1]" )
+const scalar = native . ffi . new ( "int32_t[1]" )
+const addressOutput = native . ffi . new ( "NuppNativeV2NetAddress[1]" )
+const hostOutput = native . ffi . new ( "uint8_t[?]" , HOST_SIZE )
+const generation = native . ffi . new ( "uint64_t[1]" )
+const nextGeneration = native . ffi . new ( "uint64_t[1]" )
+local generationReady = false
+
+local function streamFlags ( stream ) 
+if C . nuppNativeV2NetStreamState ( stream , flags ) ~= 0 then
+return STREAM_READ_FAILED | STREAM_WRITE_FAILED
+end
+
+return tonumber ( flags [ 0 ] )
+end
+
+local function textAddress ( value ) 
+if value [ 0 ] . family == 0 then
+return nil
+end
+const status = C . nuppNativeV2NetAddressText ( value , hostOutput , HOST_SIZE , count )
+if status ~= 0 then
+return nil
+end
+
+return ffiString ( hostOutput , tonumber ( count [ 0 ] ) ) , tonumber ( value [ 0 ] . port )
+end
 
 return setmetatable({ listen =
 function (
@@ -173857,119 +173876,146 @@ port ,
 backlog ,
 reusePort
 ) 
-const handle = C . nuppNetListen ( lane ( ) , host , # host , port , backlog , reusePort )
-if handle == nil then
+requireNet ( )
+local options = native . ffi . new ( "NuppNativeV2NetListenOptions" )
+options . host = slice ( host )
+options . port = port
+options . backlog = backlog
+options . reuse_port = reusePort and 1 or 0
+if C . nuppNativeV2NetListenerCreate ( options , handle ) ~= 0 then
 return nil , reason ( "nupp: could not listen" )
 end
 
-return handle
+return handle [ 0 ]
 end ,  listenPath =
 
 function ( self , path , backlog ) 
-const handle = C . nuppNetListenPath ( lane ( ) , path , # path , backlog )
-if handle == nil then
+requireNet ( )
+local options = native . ffi . new ( "NuppNativeV2NetPathListenOptions" )
+options . path = slice ( path )
+options . backlog = backlog
+if C . nuppNativeV2NetPathListenerCreate ( options , handle ) ~= 0 then
 return nil , reason ( "nupp: could not listen" )
 end
 
-return handle
-end ,  connectPath =
-
-function ( self , path , timeoutMs ) 
-const request = C . nuppNetConnectPath ( lane ( ) , path , # path , timeoutMs )
-if request == nil then
-return nil , reason ( "nupp: could not connect" )
-end
-
-return request
+return handle [ 0 ]
 end ,  listenerPort =
 
 function ( self , listener ) 
-return tonumber ( C . nuppNetListenerPort ( listener ) )
+if C . nuppNativeV2NetListenerKind ( listener , state ) ~= 0 or state [ 0 ] == LISTENER_PATH then
+return - 1
+end
+if C . nuppNativeV2NetListenerPort ( listener , portOutput ) ~= 0 then
+return - 1
+end
+
+return tonumber ( portOutput [ 0 ] )
 end ,  accept =
 
 function ( self , listener ) 
-const handle = C . nuppNetAccept ( listener , accepted )
-if handle ~= nil then
-return handle
+if C . nuppNativeV2NetListenerAccept ( listener , state , handle ) ~= 0 then
+return nil , reason ( "nupp: could not accept" )
 end
-if accepted [ 0 ] == 0 then
+if state [ 0 ] == PENDING then
 return nil
 end
 
-return nil , reason ( "nupp: could not accept" )
+return handle [ 0 ]
 end ,  closeListener =
 
 function ( self , listener ) 
-C . nuppNetListenerClose ( listener )
-C . nuppNetListenerDestroy ( listener )
+C . nuppNativeV2NetListenerRelease ( listener )
 end ,  connect =
 
 function ( self , host , port , timeoutMs ) 
-const request = C . nuppNetConnectBegin ( lane ( ) , host , # host , port , timeoutMs )
-if request == nil then
+requireNet ( )
+local options = native . ffi . new ( "NuppNativeV2NetConnectOptions" )
+options . host = slice ( host )
+options . port = port
+options . timeout_ms = timeoutMs
+if C . nuppNativeV2NetConnectCreate ( options , handle ) ~= 0 then
 return nil , reason ( "nupp: could not connect" )
 end
 
-return request
+return handle [ 0 ]
+end ,  connectPath =
+
+function ( self , path , timeoutMs ) 
+requireNet ( )
+local options = native . ffi . new ( "NuppNativeV2NetPathConnectOptions" )
+options . path = slice ( path )
+options . timeout_ms = timeoutMs
+if C . nuppNativeV2NetPathConnectCreate ( options , handle ) ~= 0 then
+return nil , reason ( "nupp: could not connect" )
+end
+
+return handle [ 0 ]
 end ,  connectPoll =
 
 function ( self , request ) 
-const state = tonumber ( C . nuppNetConnectPoll ( request , connected ) )
-if state == 0 then
-return nil
-end
-if state < 0 then
+if C . nuppNativeV2NetConnectPoll ( request , state , handle ) ~= 0 then
 return nil , reason ( "nupp: could not connect" )
 end
+if state [ 0 ] == CONNECT_FAILED then
+return nil , reason ( "nupp: could not connect" )
+end
+if state [ 0 ] ~= CONNECT_READY then
+return nil
+end
 
-return connected [ 0 ]
+return handle [ 0 ]
 end ,  closeConnect =
 
 function ( self , request ) 
-C . nuppNetConnectDestroy ( request )
+C . nuppNativeV2NetConnectRelease ( request )
 end ,  read =
 
 function ( self , stream , wanted ) 
 const taking = wanted < READ_SIZE and wanted or READ_SIZE
 const into = readBuffer ( )
-const got = tonumber ( C . nuppNetTryRead ( stream , into , taking ) )
-if got < 0 then
+if C . nuppNativeV2NetStreamRead ( stream , into , taking , state , count ) ~= 0 then
 return nil , reason ( "nupp: could not read" )
 end
-if got == 0 then
+if state [ 0 ] == PENDING or state [ 0 ] == READ_EOF then
 return ""
 end
 
-return ffiString ( into , got )
+return ffiString ( into , tonumber ( count [ 0 ] ) )
 end ,  ended =
 
 function ( self , stream ) 
-return C . nuppNetStreamEnded ( stream )
+return streamFlags ( stream ) & STREAM_READ_EOF ~= 0
 end ,  write =
 
 function ( self , stream , bytes ) 
-const took = tonumber ( C . nuppNetTryWrite ( stream , bytes , # bytes ) )
-if took < 0 then
+if C . nuppNativeV2NetStreamWrite ( stream , bytes , # bytes , state , count ) ~= 0 then
 return nil , reason ( "nupp: could not write" )
 end
+if state [ 0 ] == 2 then
+return nil , "nupp: could not write: the connection is closed"
+end
 
-return took
+return tonumber ( count [ 0 ] )
 end ,  pending =
 
 function ( self , stream ) 
-return tonumber ( C . nuppNetPending ( stream ) )
+if C . nuppNativeV2NetStreamPendingWrite ( stream , count ) ~= 0 then
+return 0
+end
+
+return tonumber ( count [ 0 ] )
 end ,  writeFailed =
 
 function ( self , stream ) 
-return C . nuppNetStreamFailed ( stream )
+return streamFlags ( stream ) & STREAM_WRITE_FAILED ~= 0
 end ,  shuttingDown =
 
 function ( self , stream ) 
-return C . nuppNetStreamShuttingDown ( stream )
+return streamFlags ( stream ) & STREAM_SHUTTING_DOWN ~= 0
 end ,  shutdownWrite =
 
 function ( self , stream ) 
-if C . nuppNetShutdownWrite ( stream ) == 0 then
+if C . nuppNativeV2NetStreamShutdownWrite ( stream ) ~= 0 then
 return false , reason ( "nupp: could not end the sending half" )
 end
 
@@ -173977,24 +174023,23 @@ return true
 end ,  address =
 
 function ( self , stream , peer ) 
-const found = peer and C . nuppNetStreamPeer (
+const status = peer and C . nuppNativeV2NetStreamPeerAddress (
 stream ,
-peerHost ,
-HOST_SIZE ,
-peerPort
-) or C . nuppNetStreamLocal ( stream , peerHost , HOST_SIZE , peerPort )
-if not ( found ) then
+addressOutput
+) or C . nuppNativeV2NetStreamLocalAddress ( stream , addressOutput )
+if status ~= 0 then
+return nil
+end
+const host , port = textAddress ( addressOutput )
+if host == nil or port == nil then
 return nil
 end
 
-return {
-host = native . ffi . string ( peerHost ) ,
-port = tonumber ( peerPort [ 0 ] )
-}
+return { host = host , port = port }
 end ,  noDelay =
 
 function ( self , stream , enable ) 
-if C . nuppNetStreamNoDelay ( stream , enable ) == 0 then
+if C . nuppNativeV2NetStreamSetNoDelay ( stream , enable and 1 or 0 ) ~= 0 then
 return false , reason ( "nupp: could not set the delay option" )
 end
 
@@ -174002,7 +174047,7 @@ return true
 end ,  keepAlive =
 
 function ( self , stream , enable , delaySeconds ) 
-if C . nuppNetStreamKeepAlive ( stream , enable , delaySeconds ) == 0 then
+if C . nuppNativeV2NetStreamSetKeepAlive ( stream , enable and 1 or 0 , delaySeconds ) ~= 0 then
 return false , reason ( "nupp: could not set the keepalive option" )
 end
 
@@ -174010,7 +174055,7 @@ return true
 end ,  broadcast =
 
 function ( self , socket , enable ) 
-if C . nuppNetDatagramBroadcast ( socket , enable ) == 0 then
+if C . nuppNativeV2NetDatagramSetBroadcast ( socket , enable and 1 or 0 ) ~= 0 then
 return false , reason ( "nupp: could not set the broadcast option" )
 end
 
@@ -174018,7 +174063,7 @@ return true
 end ,  multicastTtl =
 
 function ( self , socket , ttl ) 
-if C . nuppNetDatagramMulticastTtl ( socket , ttl ) == 0 then
+if C . nuppNativeV2NetDatagramSetMulticastTtl ( socket , ttl ) ~= 0 then
 return false , reason ( "nupp: could not set the multicast hop limit" )
 end
 
@@ -174026,7 +174071,7 @@ return true
 end ,  multicastLoop =
 
 function ( self , socket , enable ) 
-if C . nuppNetDatagramMulticastLoop ( socket , enable ) == 0 then
+if C . nuppNativeV2NetDatagramSetMulticastLoop ( socket , enable and 1 or 0 ) ~= 0 then
 return false , reason ( "nupp: could not set the multicast loop option" )
 end
 
@@ -174040,8 +174085,15 @@ group ,
 interfaceAddress ,
 join
 ) 
-const done = C . nuppNetDatagramMembership ( socket , group , # group , interfaceAddress , # interfaceAddress , join )
-if done == 0 then
+const interfaceKind = interfaceAddress == "" and 0 or 4
+if C . nuppNativeV2NetDatagramMembership (
+socket ,
+slice ( group ) ,
+slice ( interfaceAddress ) ,
+0 ,
+interfaceKind ,
+join and 1 or 0
+) ~= 0 then
 return false , reason ( "nupp: could not change the multicast group" )
 end
 
@@ -174049,21 +174101,28 @@ return true
 end ,  closeStream =
 
 function ( self , stream ) 
-C . nuppNetCloseStream ( stream )
-C . nuppNetStreamDestroy ( stream )
+C . nuppNativeV2NetStreamRelease ( stream )
 end ,  bindDatagram =
 
 function ( self , host , port , reusePort ) 
-const handle = C . nuppNetBindDatagram ( lane ( ) , host , # host , port , reusePort )
-if handle == nil then
+requireNet ( )
+local options = native . ffi . new ( "NuppNativeV2NetDatagramOptions" )
+options . host = slice ( host )
+options . port = port
+options . reuse_port = reusePort and 1 or 0
+if C . nuppNativeV2NetDatagramCreate ( options , handle ) ~= 0 then
 return nil , reason ( "nupp: could not bind" )
 end
 
-return handle
+return handle [ 0 ]
 end ,  datagramPort =
 
 function ( self , socket ) 
-return tonumber ( C . nuppNetDatagramPort ( socket ) )
+if C . nuppNativeV2NetDatagramPort ( socket , portOutput ) ~= 0 then
+return - 1
+end
+
+return tonumber ( portOutput [ 0 ] )
 end ,  receive =
 
 function (
@@ -174073,20 +174132,19 @@ maximum
 ) 
 const taking = maximum < READ_SIZE and maximum or READ_SIZE
 const into = readBuffer ( )
-const landed = tonumber (
-C . nuppNetDatagramReceive ( socket , into , taking , arrived , truncated , peerHost , HOST_SIZE , peerPort )
-)
-if arrived [ 0 ] == 0 then
-return nil
-end
-if arrived [ 0 ] < 0 or landed < 0 then
+if C . nuppNativeV2NetDatagramReceive ( socket , into , taking , state , count , addressOutput , scalar ) ~= 0 then
 return nil , nil , nil , nil , reason ( "nupp: could not receive" )
 end
+if state [ 0 ] ~= DATAGRAM_MESSAGE then
+return nil
+end
+const landed = tonumber ( count [ 0 ] )
+const host , port = textAddress ( addressOutput )
+if host == nil or port == nil then
+return nil , nil , nil , nil , "nupp: could not read the datagram peer"
+end
 
-return ffiString (
-into ,
-landed
-) , native . ffi . string ( peerHost ) , tonumber ( peerPort [ 0 ] ) , truncated [ 0 ] ~= 0
+return ffiString ( into , landed ) , host , port , scalar [ 0 ] ~= 0
 end ,  sendTo =
 
 function (
@@ -174096,22 +174154,33 @@ host ,
 port ,
 bytes
 ) 
-if C . nuppNetDatagramSend ( socket , host , # host , port , bytes , # bytes ) == 0 then
+if C . nuppNativeV2NetAddressParse ( slice ( host ) , port , addressOutput ) ~= 0 then
+return false , reason ( "nupp: could not address the datagram" )
+end
+if C . nuppNativeV2NetDatagramSend ( socket , addressOutput , bytes , # bytes , state , count ) ~= 0 then
 return false , reason ( "nupp: could not send" )
 end
 
-return true
+return state [ 0 ] == DATAGRAM_SENT
 end ,  closeDatagram =
 
 function ( self , socket ) 
-C . nuppNetDatagramClose ( socket )
-C . nuppNetDatagramDestroy ( socket )
+C . nuppNativeV2NetDatagramRelease ( socket )
 end ,  run =
 
 function ( self , timeoutMs ) 
-if reactor ~= nil then
-C . nuppNetLoopRun ( reactor , timeoutMs )
+requireNet ( )
+if timeoutMs == 0 or not generationReady then
+if C . nuppNativeV2NetPoll ( generation ) == 0 then
+generationReady = true
 end
+
+return
+end
+if C . nuppNativeV2NetWait ( generation [ 0 ] , timeoutMs , nextGeneration ) ~= 0 then
+return
+end
+generation [ 0 ] = nextGeneration [ 0 ]
 end }, net.Backend)
 
 end
@@ -177276,32 +177345,7 @@ const __nuppExportValue= process ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.io.process"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.process"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.io.tls"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT27={}; const function __nuppT24(...) return {n=select("#",...),...} end; const __nuppT28,__nuppT29,__nuppT30,__nuppT31,__nuppT32,__nuppT33,__nuppT34,__nuppT35=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT25(value) return value end; const function __nuppT26(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT33({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT34(v.primary) for _,reason in __nuppT35(v.suppressed) do text=text.."\ncleanup: "..__nuppT34(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT26={}; const function __nuppT23(...) return {n=select("#",...),...} end; const __nuppT27,__nuppT28,__nuppT29,__nuppT30,__nuppT31,__nuppT32,__nuppT33,__nuppT34=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT24(value) return value end; const function __nuppT25(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT32({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT33(v.primary) for _,reason in __nuppT34(v.suppressed) do text=text.."\ncleanup: "..__nuppT33(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -177396,23 +177440,6 @@ local tls = { }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 tls.Backend = {} tls.Backend.__index = tls.Backend
 
 
@@ -177462,23 +177489,7 @@ tls.Backend = {} tls.Backend.__index = tls.Backend
 
 
 
-
-
-
-
-
-
-
-
-
 const READ_SIZE = 65536
-
-
-
-
-
-
-const WOULD_BLOCK = - 1
 
 local backend = nil
 
@@ -177566,21 +177577,7 @@ end
 
 
 
-
 tls.Session = {} tls.Session.__index = tls.Session
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -177666,21 +177663,6 @@ end
 
 
 
-function tls.Session:isKernelOffloaded() 
-if self . _closed or not self . _ready then
-return false
-end
-
-return self . _backend : kernelOffloaded ( self . _session )
-end
-
-
-
-
-
-
-
-
 
 
 function tls.Session:step() 
@@ -177750,9 +177732,6 @@ function tls.Session:read(count)
 if self . _closed then
 return nil , "the session is closed"
 end
-if not self : isConnected ( ) then
-return nil , "the connection underneath was closed first"
-end
 if not self . _ready then
 return nil , "the handshake has not finished"
 end
@@ -177815,15 +177794,15 @@ end
 const landed = # chunk
 if landed > 0 then
 const input = span . fromString ( chunk )
-do local __nuppT36=0; local  __nuppT42 ; local __nuppT43=false ; const __nuppT37,__nuppT38,__nuppT39=__nuppT29(function() do const __nuppT44= destination : reserveWrite ( offset or 0 , landed ) ; __nuppT42= __nuppT44 ; __nuppT36=1;  __nuppT43=true;  const lease=__nuppT42;
+do local __nuppT35=0; local  __nuppT41 ; local __nuppT42=false ; const __nuppT36,__nuppT37,__nuppT38=__nuppT28(function() do const __nuppT43= destination : reserveWrite ( offset or 0 , landed ) ; __nuppT41= __nuppT43 ; __nuppT35=1;  __nuppT42=true;  const lease=__nuppT41;
 do
-do local __nuppT45=0; local  __nuppT51 ; local __nuppT52=false ; const __nuppT46,__nuppT47,__nuppT48=__nuppT29(function() do const __nuppT53= lease : span ( ) ; __nuppT51= __nuppT53 ; __nuppT45=1;  __nuppT52=true;  const output=__nuppT51;
+do local __nuppT44=0; local  __nuppT50 ; local __nuppT51=false ; const __nuppT45,__nuppT46,__nuppT47=__nuppT28(function() do const __nuppT52= lease : span ( ) ; __nuppT50= __nuppT52 ; __nuppT44=1;  __nuppT51=true;  const output=__nuppT50;
 for index = 1 , landed do
 output :set( index , input :get( index ) )
 end
-do __nuppT52=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT25); const __nuppT49={}; local __nuppT50=0; if __nuppT45>=1 and __nuppT52 then  const __nuppT54,__nuppT55=__nuppT28(__nuppCleanup1,__nuppT51);  if not __nuppT54 then __nuppT50=__nuppT50+1; __nuppT49[__nuppT50]=__nuppT55 end; end; if not __nuppT46 then if __nuppT50>0 then __nuppT30(__nuppT26(__nuppT47,__nuppT49,1),0) else __nuppT30(__nuppT47,0) end end; if __nuppT50>0 then if __nuppT50>1 then __nuppT30(__nuppT26(__nuppT49[1],__nuppT49,2),0) else __nuppT30(__nuppT49[1],0) end end; if __nuppT47=="return" then  return "return",__nuppT48  end; end
+do __nuppT51=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT24); const __nuppT48={}; local __nuppT49=0; if __nuppT44>=1 and __nuppT51 then  const __nuppT53,__nuppT54=__nuppT27(__nuppCleanup1,__nuppT50);  if not __nuppT53 then __nuppT49=__nuppT49+1; __nuppT48[__nuppT49]=__nuppT54 end; end; if not __nuppT45 then if __nuppT49>0 then __nuppT29(__nuppT25(__nuppT46,__nuppT48,1),0) else __nuppT29(__nuppT46,0) end end; if __nuppT49>0 then if __nuppT49>1 then __nuppT29(__nuppT25(__nuppT48[1],__nuppT48,2),0) else __nuppT29(__nuppT48[1],0) end end; if __nuppT46=="return" then  return "return",__nuppT47  end; end
 end
-do (function(__nuppT56,...)  __nuppT43=false;  return __nuppT56:commit(...)  end)( lease , landed ) end end; return "normal" end,__nuppT25); const __nuppT40={}; local __nuppT41=0; if __nuppT36>=1 and __nuppT43 then  const __nuppT57,__nuppT58=__nuppT28(__nuppCleanup2,__nuppT42);  if not __nuppT57 then __nuppT41=__nuppT41+1; __nuppT40[__nuppT41]=__nuppT58 end; end; if not __nuppT37 then if __nuppT41>0 then __nuppT30(__nuppT26(__nuppT38,__nuppT40,1),0) else __nuppT30(__nuppT38,0) end end; if __nuppT41>0 then if __nuppT41>1 then __nuppT30(__nuppT26(__nuppT40[1],__nuppT40,2),0) else __nuppT30(__nuppT40[1],0) end end; if __nuppT38=="return" then  return __nuppT31(__nuppT39,1,__nuppT39.n)  end; end
+do (function(__nuppT55,...)  __nuppT42=false;  return __nuppT55:commit(...)  end)( lease , landed ) end end; return "normal" end,__nuppT24); const __nuppT39={}; local __nuppT40=0; if __nuppT35>=1 and __nuppT42 then  const __nuppT56,__nuppT57=__nuppT27(__nuppCleanup2,__nuppT41);  if not __nuppT56 then __nuppT40=__nuppT40+1; __nuppT39[__nuppT40]=__nuppT57 end; end; if not __nuppT36 then if __nuppT40>0 then __nuppT29(__nuppT25(__nuppT37,__nuppT39,1),0) else __nuppT29(__nuppT37,0) end end; if __nuppT40>0 then if __nuppT40>1 then __nuppT29(__nuppT25(__nuppT39[1],__nuppT39,2),0) else __nuppT29(__nuppT39[1],0) end end; if __nuppT37=="return" then  return __nuppT30(__nuppT38,1,__nuppT38.n)  end; end
 end
 
 return landed
@@ -177916,10 +177895,25 @@ if not self : isConnected ( ) then
 return false , "the connection underneath was closed first"
 end
 
-return net . flushStream ( self . _handle )
+local complete = false
+local failure = nil
+await ( "nupp.io.tls flush" , function ( ) 
+const done , why = self . _backend : flushed ( self . _session )
+if why ~= nil then
+failure = why
+
+return true
+end
+complete = done
+
+return done
+end )
+if failure ~= nil then
+return false , failure
 end
 
-
+return complete
+end
 
 
 
@@ -177934,248 +177928,10 @@ if self . _ready and self : isConnected ( ) then
 
 
 
-local _ , _drained = net . flushStream ( self . _handle )
-self . _backend : closeNotify ( self . _session )
-local _ , _sent = net . flushStream ( self . _handle )
-end
-self . _closed = true
-self . _backend : destroy ( self . _session )
-end
-
-
-
-
-
-
-
-
-tls.DatagramSession = {} tls.DatagramSession.__index = tls.DatagramSession
-
-
-
-
-
-
-
-
-
-
-
-function tls.DatagramSession:isConnected() 
-if self . _closed then
-return false
-end
-
-return self . _backend : connected ( self . _session )
-end
-
-
-function tls.DatagramSession:isReady() 
-return self . _ready
-end
-
-
-function tls.DatagramSession:isReleased() 
-return self . _closed
-end
-
-
-function tls.DatagramSession:isEnded() 
-return self . _ended
-end
-
-
-function tls.DatagramSession:peer() 
-if self . _closed then
-return nil
-end
-const host , port = self . _backend : peer ( self . _session )
-if host == nil or port == nil then
-return nil
-end
-
-return { host = host , port = port }
-end
-
-
-function tls.DatagramSession:protocol() 
-if self . _closed or not self . _ready then
-return nil
-end
-
-return self . _backend : protocol ( self . _session )
-end
-
-
-function tls.DatagramSession:isVerified() 
-if self . _closed or not self . _ready then
-return false
-end
-
-return self . _backend : verified ( self . _session )
-end
-
-
-function tls.DatagramSession:isResumed() 
-if self . _closed or not self . _ready then
-return false
-end
-const resumed = self . _backend . resumed
-
-return resumed ~= nil and resumed ( self . _backend , self . _session ) or false
-end
-
-
-function tls.DatagramSession:step() 
-if self . _closed then
-return nil , "the session is closed"
-end
-if self . _ready then
-return true
-end
-const done , why = self . _backend : handshake ( self . _session )
-if done == nil then
-return nil , why
-end
-if done then
-self . _ready = true
-end
-
-return self . _ready
-end
-
-
-function tls.DatagramSession:handshake() 
-if self . _closed then
-return false , "the session is closed"
-end
-if not self : isConnected ( ) then
-return false , "the datagram socket underneath was closed first"
-end
-if self . _ready then
-return true
-end
-local failure = nil
-await ( "nupp.io.tls DTLS handshake" , function ( ) 
-const done , why = self : step ( )
-if done == nil then
-failure = why or "the handshake failed"
-
-return true
-end
-
-return done or false
-end )
-if failure ~= nil then
-return false , failure
-end
-
-return true
-end
-
-
-
-
-
-
-
-
-
-
-function tls.DatagramSession:receive(maximum) 
-if self . _closed then
-return nil , "the session is closed"
-end
-if not self : isConnected ( ) then
-return nil , "the datagram socket underneath was closed first"
-end
-if not self . _ready then
-return nil , "the handshake has not finished"
-end
-const wanted = positive ( maximum , "tls.DatagramSession receive maximum" , 2 )
-local message = nil
-local failure = nil
-await ( "nupp.io.tls DTLS receive" , function ( ) 
-const got , why = self . _backend : read ( self . _session , READ_SIZE )
-if why ~= nil then
-failure = why
-
-return true
-end
-if got == nil then
-return false
-end
-message = got
-if # got == 0 then
-self . _ended = true
-end
-
-return true
-end )
-if failure ~= nil then
-return nil , failure
-end
-const whole = message or ""
-if # whole > wanted then
-return nil , "the datagram is larger than the receive maximum"
-end
-
-return whole
-end
-
-
-function tls.DatagramSession:send(bytes) 
-if self . _closed then
-return false , "the session is closed"
-end
-if # bytes == 0 then
-return false , "DTLS does not send an empty application datagram"
-end
-if not self : isConnected ( ) then
-return false , "the datagram socket underneath was closed first"
-end
-if not self . _ready then
-return false , "the handshake has not finished"
-end
-local took = nil
-local failure = nil
-await ( "nupp.io.tls DTLS send" , function ( ) 
-const moved , why = self . _backend : write ( self . _session , bytes )
-if why ~= nil then
-failure = why
-
-return true
-end
-if moved == nil then
-return false
-end
-took = moved
-
-return true
-end )
-if failure ~= nil then
-return false , failure
-end
-if took ~= # bytes then
-return false , "the DTLS provider did not take one whole datagram"
-end
-
-return true
-end
-
-
-function tls.DatagramSession:close() 
-if self . _closed then
-return
-end
-if self . _ready and self : isConnected ( ) then
-
-
-
-
-
-for _ = 1 , 8 do
-if self . _backend : closeNotify ( self . _session ) then
+local _ , _drained = self : flush ( )
+while true do
+const sent , why = self . _backend : closeNotify ( self . _session )
+if sent or why ~= nil then
 break
 end
 net . pump ( 1 )
@@ -178199,32 +177955,22 @@ const verify = options . verify ~= false
 if verify and ( options . hostname == nil or options . hostname == "" ) then
 error ( "nupp: tls.client needs a hostname to verify the peer against" , 2 )
 end
+const protocols = packProtocols ( options . protocols , 2 )
 const session , why = chosen : wrap (
-net . streamHandle ( stream ) ,
+net . takeStreamHandle ( stream ) ,
 false ,
-false ,
-"" ,
-0 ,
 options . hostname or "" ,
 "" ,
 "" ,
 options . authority ,
-packProtocols ( options . protocols , 2 ) ,
-verify ,
-options . kernelOffload == true
+protocols ,
+verify
 )
 if session == nil then
 return nil , why
 end
 
-return setmetatable({ _backend =
-chosen ,  _session =
-session ,  _handle =
-net . streamHandle ( stream ) ,  _closed =
-false ,  _ready =
-false ,  _ended =
-false }, tls.Session)
-
+return setmetatable({ _backend =  chosen ,  _session =  session ,  _closed =  false ,  _ready =  false ,  _ended =  false }, tls.Session)
 end
 
 
@@ -178235,86 +177981,32 @@ end
 
 function tls . server ( stream , options ) 
 const chosen = platform ( )
+const protocols = packProtocols ( options . protocols , 2 )
 const session , why = chosen : wrap (
-net . streamHandle ( stream ) ,
-false ,
+net . takeStreamHandle ( stream ) ,
 true ,
-"" ,
-0 ,
 "" ,
 options . certificate ,
 options . privateKey ,
-options . authority ,
-packProtocols ( options . protocols , 2 ) ,
-options . verify == true ,
-options . kernelOffload == true
-)
-if session == nil then
-return nil , why
-end
-
-return setmetatable({ _backend =
-chosen ,  _session =
-session ,  _handle =
-net . streamHandle ( stream ) ,  _closed =
-false ,  _ready =
-false ,  _ended =
-false }, tls.Session)
-
-end
-
-
-
-
-
-
-
-
-
-
-function tls . dtlsClient (
-socket ,
-peer ,
-options
-) 
-const chosen = platform ( )
-const verify = options . verify ~= false
-if verify and ( options . hostname == nil or options . hostname == "" ) then
-error ( "nupp: tls.dtlsClient needs a hostname to verify the peer against" , 2 )
-end
-if peer . port < 1 or peer . port > 65535 or math . floor ( peer . port ) ~= peer . port then
-error ( "nupp: tls.dtlsClient peer port must be 1 through 65535" , 2 )
-end
-if options . kernelOffload == true then
-error ( "nupp: kernel TLS offload does not apply to DTLS" , 2 )
-end
-const session , why = chosen : wrap (
-net . datagramHandle ( socket ) ,
-true ,
-false ,
-peer . host ,
-peer . port ,
-options . hostname or "" ,
-"" ,
-"" ,
-options . authority ,
-packProtocols ( options . protocols , 2 ) ,
-verify ,
+nil ,
+protocols ,
 false
 )
 if session == nil then
 return nil , why
 end
 
-return setmetatable({ _backend =
-chosen ,  _session =
-session ,  _closed =
-false ,  _ready =
-false ,  _ended =
-false }, tls.DatagramSession)
-
+return setmetatable({ _backend =  chosen ,  _session =  session ,  _closed =  false ,  _ready =  false ,  _ended =  false }, tls.Session)
 end
 
+const native = require ( "nupp.runtime.nativev2" )
+
+pcall(__nuppFfi.cdef, "struct NuppNativeV2TlsSlice { const char * data; uint64_t length; };") const NuppNativeV2TlsSlice = __nuppFfi.typeof("struct NuppNativeV2TlsSlice")
+
+
+
+
+pcall(__nuppFfi.cdef, "struct NuppNativeV2TlsOptions { struct NuppNativeV2TlsSlice hostname; struct NuppNativeV2TlsSlice certificate; struct NuppNativeV2TlsSlice private_key; struct NuppNativeV2TlsSlice authority; struct NuppNativeV2TlsSlice protocols; int32_t authority_present; int32_t server; int32_t verify; };") const NuppNativeV2TlsOptions = __nuppFfi.typeof("struct NuppNativeV2TlsOptions")
 
 
 
@@ -178324,242 +178016,197 @@ end
 
 
 
-
-
-function tls . dtlsServer (
-socket ,
-options
-) 
-if options . kernelOffload == true then
-error ( "nupp: kernel TLS offload does not apply to DTLS" , 2 )
-end
-const chosen = platform ( )
-const session , why = chosen : wrap (
-net . datagramHandle ( socket ) ,
-true ,
-true ,
-"" ,
-0 ,
-"" ,
-options . certificate ,
-options . privateKey ,
-options . authority ,
-packProtocols ( options . protocols , 2 ) ,
-options . verify == true ,
-false
-)
-if session == nil then
-return nil , why
-end
-
-return setmetatable({ _backend =
-chosen ,  _session =
-session ,  _closed =
-false ,  _ready =
-false ,  _ended =
-false }, tls.DatagramSession)
-
-end
-
-
-
-
-
-
-
-
-function tls . kernelOffloadSupported ( ) 
-const chosen = backend
-
-return chosen ~= nil and chosen : kernelSupported ( )
-end
-
-
-
-
-function tls . useBackend ( chosen ) 
-backend = chosen
-end
-
-const native = require ( "nupp.runtime.native" )
 
 native . ffi . cdef [[
-typedef struct NuppTls NuppTls;
-typedef struct NuppNetStream NuppNetStream;
-typedef struct NuppNetDatagram NuppNetDatagram;
-
-NuppTls *nuppTlsWrap(void *, bool, bool, const uint8_t *, size_t, int32_t,
-    const uint8_t *, size_t,
-    const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *, size_t,
-    const uint8_t *, size_t, bool, bool);
-const char *nuppTlsAlpn(NuppTls *);
-int32_t nuppTlsHandshake(NuppTls *);
-uint32_t nuppTlsVerifyResult(NuppTls *);
-bool nuppTlsResumed(NuppTls *);
-bool nuppTlsConnected(NuppTls *);
-bool nuppTlsKernelOffloaded(NuppTls *);
-bool nuppTlsKernelSupported(void);
-uint8_t nuppTlsPeer(NuppTls *, char *, size_t, int32_t *);
-intptr_t nuppTlsRead(NuppTls *, uint8_t *, size_t);
-intptr_t nuppTlsWrite(NuppTls *, const uint8_t *, size_t);
-uint8_t nuppTlsCloseNotify(NuppTls *);
-void nuppTlsDestroy(NuppTls *);
-
-bool nuppNetStreamClosed(NuppNetStream *);
-void nuppNetStreamRetain(NuppNetStream *);
-void nuppNetStreamRelease(NuppNetStream *);
+int32_t nuppNativeV2TlsCreate(
+    uint64_t, const struct NuppNativeV2TlsOptions *, uint64_t *);
+int32_t nuppNativeV2TlsHandshake(uint64_t, uint32_t *);
+int32_t nuppNativeV2TlsRead(
+    uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2TlsWrite(
+    uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2TlsFlushed(uint64_t, int32_t *);
+int32_t nuppNativeV2TlsCloseNotify(uint64_t, int32_t *);
+int32_t nuppNativeV2TlsConnected(uint64_t, int32_t *);
+int32_t nuppNativeV2TlsVerified(uint64_t, int32_t *);
+int32_t nuppNativeV2TlsResumed(uint64_t, int32_t *);
+int32_t nuppNativeV2TlsProtocol(
+    uint64_t, uint8_t *, size_t, size_t *, int32_t *);
+int32_t nuppNativeV2TlsRelease(uint64_t);
 ]]
 
+local ffi = native . ffi
 const C = native . C
+const TLS_FEATURE = 512
+const TLS_READY = 1
+const TLS_READ_PENDING = 1
+const TLS_READ_EOF = 2
+const TLS_WRITE_PENDING = 1
+const TLS_WRITE_CLOSED = 2
+const PROTOCOL_SIZE = 256
 
-local function reason ( prefix ) 
-local said = native . error ( )
-if said == nil or said == "" then
-said = "native tls operation failed"
-end
-
-return prefix .. ": " .. said
-end
-
+local featureChecked = false
 local scratch = nil
+
+local function requireTls ( ) 
+if not featureChecked then
+native . requireFeature ( TLS_FEATURE , "TLS" )
+featureChecked = true
+end
+end
+
+local function slice ( text ) 
+local value = __nuppFfi.new(NuppNativeV2TlsSlice )
+value . data = text
+value . length = # text
+
+return value
+end
+
+local function lastError ( prefix ) 
+return prefix .. ": " .. ( ffi . string ( C . nuppNativeV2LastError ( ) ) )
+end
 
 local function readBuffer ( ) 
 if scratch == nil then
-scratch = native . ffi . new ( "uint8_t[?]" , READ_SIZE )
+scratch = ffi . new ( "uint8_t[?]" , READ_SIZE )
 end
 
 return scratch
 end
 
 local function nativeBackend ( ) 
-const peerHostBuffer = native . ffi . new ( "char[64]" )
-const peerPortBuffer = native . ffi . new ( "int32_t[1]" )
+const scalar = ffi . new ( "int32_t[1]" )
+const state = ffi . new ( "uint32_t[1]" )
+const length = ffi . new ( "size_t[1]" )
+const handleOutput = ffi . new ( "uint64_t[1]" )
+const protocolBuffer = ffi . new ( "uint8_t[?]" , PROTOCOL_SIZE )
+const present = ffi . new ( "int32_t[1]" )
 
 return setmetatable({ wrap =
 function (
 self ,
 handle ,
-datagram ,
 server ,
-peerHost ,
-peerPort ,
 hostname ,
 certificate ,
 privateKey ,
 authority ,
 protocols ,
-verify ,
-kernelOffload
+verify
 ) 
-const authorityLength = authority ~= nil and # authority or 0
-const session = C . nuppTlsWrap (
-handle ,
-datagram ,
-server ,
-peerHost ,
-# peerHost ,
-peerPort ,
-hostname ,
-# hostname ,
-certificate ,
-# certificate ,
-privateKey ,
-# privateKey ,
-authority ,
-authorityLength ,
-protocols ,
-# protocols ,
-verify ,
-kernelOffload
-)
-if session == nil then
-return nil , reason ( "nupp: could not start the session" )
+requireTls ( )
+local options = __nuppFfi.new(NuppNativeV2TlsOptions )
+options . hostname = slice ( hostname )
+options . certificate = slice ( certificate )
+options . private_key = slice ( privateKey )
+options . authority = slice ( authority or "" )
+options . protocols = slice ( protocols )
+options . authority_present = authority ~= nil and 1 or 0
+options . server = server and 1 or 0
+options . verify = verify and 1 or 0
+const status = C . nuppNativeV2TlsCreate ( handle , options , handleOutput )
+if status ~= 0 then
+return nil , lastError ( "nupp: could not start the session" )
 end
 
-return session
+return handleOutput [ 0 ]
 end ,  handshake =
 
 function ( self , session ) 
-const state = tonumber ( C . nuppTlsHandshake ( session ) )
-if state < 0 then
-return nil , reason ( "nupp: the handshake failed" )
+const status = C . nuppNativeV2TlsHandshake ( session , state )
+if status ~= 0 then
+return nil , lastError ( "nupp: the handshake failed" )
 end
 
-return state == 1
+return state [ 0 ] == TLS_READY
 end ,  verified =
 
 function ( self , session ) 
-return tonumber ( C . nuppTlsVerifyResult ( session ) ) == 0
+if C . nuppNativeV2TlsVerified ( session , scalar ) ~= 0 then
+return false
+end
+
+return scalar [ 0 ] ~= 0
 end ,  resumed =
 
 function ( self , session ) 
-return C . nuppTlsResumed ( session )
+if C . nuppNativeV2TlsResumed ( session , scalar ) ~= 0 then
+return false
+end
+
+return scalar [ 0 ] ~= 0
 end ,  read =
 
 function ( self , session , wanted ) 
 const taking = wanted < READ_SIZE and wanted or READ_SIZE
 const into = readBuffer ( )
-const got = tonumber ( C . nuppTlsRead ( session , into , taking ) )
-if got == WOULD_BLOCK then
+const status = C . nuppNativeV2TlsRead ( session , into , taking , state , length )
+if status ~= 0 then
+return nil , lastError ( "nupp: could not read" )
+end
+if state [ 0 ] == TLS_READ_PENDING then
 return nil
 end
-if got < 0 then
-return nil , reason ( "nupp: could not read" )
-end
-if got == 0 then
+if state [ 0 ] == TLS_READ_EOF then
 return ""
 end
 
-return ffiString ( into , got )
+return ffiString ( into , tonumber ( length [ 0 ] ) )
 end ,  write =
 
 function ( self , session , bytes ) 
-const took = tonumber ( C . nuppTlsWrite ( session , bytes , # bytes ) )
-if took == WOULD_BLOCK then
+const status = C . nuppNativeV2TlsWrite ( session , bytes , # bytes , state , length )
+if status ~= 0 then
+return nil , lastError ( "nupp: could not write" )
+end
+if state [ 0 ] == TLS_WRITE_PENDING then
 return nil
 end
-if took < 0 then
-return nil , reason ( "nupp: could not write" )
+if state [ 0 ] == TLS_WRITE_CLOSED then
+return nil , "nupp: could not write: the connection is closed"
 end
 
-return took
+return tonumber ( length [ 0 ] )
+end ,  flushed =
+
+function ( self , session ) 
+const status = C . nuppNativeV2TlsFlushed ( session , scalar )
+if status ~= 0 then
+return false , lastError ( "nupp: could not flush" )
+end
+
+return scalar [ 0 ] ~= 0
 end ,  closeNotify =
 
 function ( self , session ) 
-return C . nuppTlsCloseNotify ( session ) ~= 0
+const status = C . nuppNativeV2TlsCloseNotify ( session , scalar )
+if status ~= 0 then
+return false , lastError ( "nupp: could not send close_notify" )
+end
+
+return scalar [ 0 ] ~= 0
 end ,  destroy =
 
 function ( self , session ) 
-C . nuppTlsDestroy ( session )
+C . nuppNativeV2TlsRelease ( session )
 end ,  connected =
 
 function ( self , session ) 
-return C . nuppTlsConnected ( session )
+if C . nuppNativeV2TlsConnected ( session , scalar ) ~= 0 then
+return false
+end
+
+return scalar [ 0 ] ~= 0
 end ,  protocol =
 
 function ( self , session ) 
-const chosen = C . nuppTlsAlpn ( session )
-if chosen == nil then
+const status = C . nuppNativeV2TlsProtocol ( session , protocolBuffer , PROTOCOL_SIZE , length , present )
+if status ~= 0 or present [ 0 ] == 0 then
 return nil
 end
 
-return native . ffi . string ( chosen )
-end ,  kernelOffloaded =
-
-function ( self , session ) 
-return C . nuppTlsKernelOffloaded ( session )
-end ,  kernelSupported =
-
-function ( self ) 
-return C . nuppTlsKernelSupported ( )
-end ,  peer =
-
-function ( self , session ) 
-if C . nuppTlsPeer ( session , peerHostBuffer , 64 , peerPortBuffer ) == 0 then
-return nil
-end
-
-return native . ffi . string ( peerHostBuffer ) , tonumber ( peerPortBuffer [ 0 ] )
+return ffiString ( protocolBuffer , tonumber ( length [ 0 ] ) )
 end }, tls.Backend)
 
 end
@@ -193318,10 +192965,10 @@ local runtimeBackend = require ( "nupp.runtime.backend" )
 local seam = { moduleName = "nupp.runtime.seam.tls" , suiteModuleName = "nupp.runtime.seam.tlssuite" , }
 local CONTRACT = common . contract ( "host.tls" , {
 globalName = "__nuppTls" ,
-requiredFunctions = { "client" , "dtlsClient" , "dtlsServer" , "kernelOffloadSupported" , "server" , "useBackend" , } ,
+requiredFunctions = { "client" , "server" , } ,
 
 
-requiredValues = { "Backend" , "DatagramSession" , "Session" , } ,
+requiredValues = { "Backend" , "Session" , } ,
 suiteModule = seam . suiteModuleName ,
 } )
 
@@ -222773,29 +222420,21 @@ end
 -- Driving the loop
 ----------------------------------------------------------------------------
 
---- The platform handle behind a connection.
+--- Transfers a connection's native ownership to a layering module.
 ---
---- For a module that layers over a connection rather than uses one:
---- [](nupp.io.tls) needs the handle to encrypt over, and getting it any other
---- way would mean either that module reaching into this one's private state or
---- this one growing an opinion about TLS. Ordinary code has no use for it and
---- can do nothing with what it answers.
---- @param source the connection to look behind
---- @return its platform handle
+--- The source is terminal after this call, but its handle is deliberately not
+--- released: the new Rust-native owner consumes and eventually releases it.
+--- Ordinary code has no use for the opaque value this answers.
+--- @param source the connection to transfer
+--- @return its Rust-native stream handle
+--- @raises when the connection was already closed or transferred
 --- @export
-function net.streamHandle(borrows source: net.Stream): any
-    return source._handle
-end
+function net.takeStreamHandle(takes source: net.Stream): any
+    if source._closed then
+        error("nupp: the connection is closed", 2)
+    end
+    source._closed = true
 
---- The platform handle behind a datagram socket.
----
---- The message-oriented counterpart to `streamHandle`, for DTLS. It exposes
---- no ownership: the datagram socket stays the caller's to close after the
---- encrypted session layered over it has been closed.
---- @param source the datagram socket to look behind
---- @return its platform handle
---- @export
-function net.datagramHandle(borrows source: net.Datagram): any
     return source._handle
 end
 
@@ -222810,25 +222449,6 @@ function net.pump(timeoutMs: integer): nil
     if chosen ~= nil then
         chosen:run(timeoutMs)
     end
-end
-
---- Waits until nothing written to a connection is still held by the platform.
----
---- For a module that layers over a connection: [](nupp.io.tls) writes encrypted
---- records through the same queue and has to know they left before the
---- connection can be released, and it holds the handle rather than the
---- connection for the reason [](nupp.io.tls) records.
---- @param handle the platform handle behind a connection
---- @return whether everything left
---- @return why it did not, when unsuccessful
---- @export
-function net.flushStream(handle: any): (boolean, string?)
-    const chosen = backend
-    if chosen == nil then
-        return false, "nupp.io.net has no backend installed"
-    end
-
-    return drain(chosen, handle)
 end
 
 --- Installs the platform this module runs on.
@@ -222847,95 +222467,116 @@ end
 --- Written here rather than in a module of its own because a module could not
 --- name `Backend` without the two requiring each other, and a resolved cycle
 --- answers `any` without reporting one.
-const native = require("nupp.runtime.native")
+const native = require("nupp.runtime.nativev2")
 
 native.ffi.cdef[[
-typedef struct NuppNetLoop NuppNetLoop;
-typedef struct NuppNetListener NuppNetListener;
-typedef struct NuppNetStream NuppNetStream;
-typedef struct NuppNetConnect NuppNetConnect;
-typedef struct NuppNetDatagram NuppNetDatagram;
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+} NuppNativeV2NetSlice;
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    uint32_t backlog;
+    int32_t reuse_port;
+} NuppNativeV2NetListenOptions;
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    uint64_t timeout_ms;
+} NuppNativeV2NetConnectOptions;
+typedef struct {
+    NuppNativeV2NetSlice path;
+    uint32_t backlog;
+} NuppNativeV2NetPathListenOptions;
+typedef struct {
+    NuppNativeV2NetSlice path;
+    uint64_t timeout_ms;
+} NuppNativeV2NetPathConnectOptions;
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    int32_t reuse_port;
+} NuppNativeV2NetDatagramOptions;
+typedef struct {
+    uint8_t address[16];
+    uint16_t port;
+    uint8_t family;
+} NuppNativeV2NetAddress;
 
-NuppNetLoop *nuppNetLoopCreate(void);
-int32_t nuppNetLoopRun(NuppNetLoop *, int32_t);
-void nuppNetLoopDestroy(NuppNetLoop *);
-
-NuppNetListener *nuppNetListen(NuppNetLoop *, const uint8_t *, size_t, uint16_t, int32_t, bool);
-NuppNetListener *nuppNetListenPath(NuppNetLoop *, const uint8_t *, size_t, int32_t);
-NuppNetConnect *nuppNetConnectPath(NuppNetLoop *, const uint8_t *, size_t, int32_t);
-int32_t nuppNetListenerPort(NuppNetListener *);
-NuppNetStream *nuppNetAccept(NuppNetListener *, int32_t *);
-uint8_t nuppNetListenerClose(NuppNetListener *);
-void nuppNetListenerDestroy(NuppNetListener *);
-
-NuppNetConnect *nuppNetConnectBegin(NuppNetLoop *, const uint8_t *, size_t, uint16_t, int32_t);
-int32_t nuppNetConnectPoll(NuppNetConnect *, NuppNetStream **);
-void nuppNetConnectDestroy(NuppNetConnect *);
-
-intptr_t nuppNetTryRead(NuppNetStream *, uint8_t *, size_t);
-intptr_t nuppNetTryWrite(NuppNetStream *, const uint8_t *, size_t);
-size_t nuppNetPending(NuppNetStream *);
-uint8_t nuppNetShutdownWrite(NuppNetStream *);
-uint8_t nuppNetCloseStream(NuppNetStream *);
-void nuppNetStreamDestroy(NuppNetStream *);
-bool nuppNetStreamEnded(NuppNetStream *);
-bool nuppNetStreamFailed(NuppNetStream *);
-bool nuppNetStreamShuttingDown(NuppNetStream *);
-bool nuppNetStreamPeer(NuppNetStream *, char *, size_t, int32_t *);
-bool nuppNetStreamLocal(NuppNetStream *, char *, size_t, int32_t *);
-uint8_t nuppNetStreamNoDelay(NuppNetStream *, bool);
-uint8_t nuppNetStreamKeepAlive(NuppNetStream *, bool, uint32_t);
-uint8_t nuppNetDatagramBroadcast(NuppNetDatagram *, bool);
-uint8_t nuppNetDatagramMulticastTtl(NuppNetDatagram *, int32_t);
-uint8_t nuppNetDatagramMulticastLoop(NuppNetDatagram *, bool);
-uint8_t nuppNetDatagramMembership(NuppNetDatagram *, const uint8_t *, size_t, const uint8_t *, size_t, bool);
-
-NuppNetDatagram *nuppNetBindDatagram(NuppNetLoop *, const uint8_t *, size_t, uint16_t, bool);
-int32_t nuppNetDatagramPort(NuppNetDatagram *);
-intptr_t nuppNetDatagramReceive(NuppNetDatagram *, uint8_t *, size_t, int32_t *, uint8_t *, char *, size_t, int32_t *);
-uint8_t nuppNetDatagramSend(NuppNetDatagram *, const uint8_t *, size_t, uint16_t, const uint8_t *, size_t);
-uint8_t nuppNetDatagramClose(NuppNetDatagram *);
-void nuppNetDatagramDestroy(NuppNetDatagram *);
+int32_t nuppNativeV2NetListenerCreate(const NuppNativeV2NetListenOptions *, uint64_t *);
+int32_t nuppNativeV2NetPathListenerCreate(const NuppNativeV2NetPathListenOptions *, uint64_t *);
+int32_t nuppNativeV2NetListenerPort(uint64_t, uint16_t *);
+int32_t nuppNativeV2NetListenerKind(uint64_t, uint32_t *);
+int32_t nuppNativeV2NetListenerAccept(uint64_t, uint32_t *, uint64_t *);
+int32_t nuppNativeV2NetListenerRelease(uint64_t);
+int32_t nuppNativeV2NetConnectCreate(const NuppNativeV2NetConnectOptions *, uint64_t *);
+int32_t nuppNativeV2NetPathConnectCreate(const NuppNativeV2NetPathConnectOptions *, uint64_t *);
+int32_t nuppNativeV2NetConnectPoll(uint64_t, uint32_t *, uint64_t *);
+int32_t nuppNativeV2NetConnectRelease(uint64_t);
+int32_t nuppNativeV2NetStreamRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2NetStreamWrite(uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2NetStreamPendingWrite(uint64_t, size_t *);
+int32_t nuppNativeV2NetStreamState(uint64_t, uint32_t *);
+int32_t nuppNativeV2NetStreamShutdownWrite(uint64_t);
+int32_t nuppNativeV2NetStreamLocalAddress(uint64_t, NuppNativeV2NetAddress *);
+int32_t nuppNativeV2NetStreamPeerAddress(uint64_t, NuppNativeV2NetAddress *);
+int32_t nuppNativeV2NetStreamSetNoDelay(uint64_t, int32_t);
+int32_t nuppNativeV2NetStreamSetKeepAlive(uint64_t, int32_t, uint32_t);
+int32_t nuppNativeV2NetStreamRelease(uint64_t);
+int32_t nuppNativeV2NetAddressParse(NuppNativeV2NetSlice, uint16_t, NuppNativeV2NetAddress *);
+int32_t nuppNativeV2NetAddressText(const NuppNativeV2NetAddress *, uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2NetDatagramCreate(const NuppNativeV2NetDatagramOptions *, uint64_t *);
+int32_t nuppNativeV2NetDatagramPort(uint64_t, uint16_t *);
+int32_t nuppNativeV2NetDatagramReceive(
+    uint64_t, uint8_t *, size_t, uint32_t *, size_t *, NuppNativeV2NetAddress *, int32_t *);
+int32_t nuppNativeV2NetDatagramSend(
+    uint64_t, const NuppNativeV2NetAddress *, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2NetDatagramSetBroadcast(uint64_t, int32_t);
+int32_t nuppNativeV2NetDatagramSetMulticastTtl(uint64_t, uint32_t);
+int32_t nuppNativeV2NetDatagramSetMulticastLoop(uint64_t, int32_t);
+int32_t nuppNativeV2NetDatagramMembership(
+    uint64_t, NuppNativeV2NetSlice, NuppNativeV2NetSlice, uint32_t, uint8_t, int32_t);
+int32_t nuppNativeV2NetDatagramRelease(uint64_t);
+int32_t nuppNativeV2NetPoll(uint64_t *);
+int32_t nuppNativeV2NetWait(uint64_t, uint64_t, uint64_t *);
 ]]
 
 const C = native.C
+const NET_FEATURE = 256
+const PENDING = 1
+const READ_EOF = 2
+const CONNECT_READY = 1
+const CONNECT_FAILED = 2
+const LISTENER_PATH = 1
+const DATAGRAM_MESSAGE = 0
+const DATAGRAM_SENT = 0
+const STREAM_READ_EOF = 1
+const STREAM_SHUTTING_DOWN = 8
+const STREAM_READ_FAILED = 16
+const STREAM_WRITE_FAILED = 32
 
---- Puts what the provider said behind what this side was trying to do.
-local function reason(prefix: string): string
-    local said = native.error()
-    if said == nil or said == "" then
-        said = "native network operation failed"
-    end
-
-    return prefix .. ": " .. said
-end
-
---- This lane's reactor, made when something first needs one.
----
---- One per lane and never shared, because a libuv loop is not thread-safe and a
---- worker lane is a thread. Module state is lane state, so this local is already
---- the right scope. It lives as long as the lane does: a reactor with no
---- listener and no connection costs one idle loop, and tearing one down between
---- connections would cost every later one its setup.
-local reactor: any = nil
-
---- @raises when the reactor cannot be created
-local function lane(): any
-    if reactor == nil then
-        const made = C.nuppNetLoopCreate()
-        if made == nil then
-            error(reason("nupp: could not create the network reactor"), 0)
-        end
-        reactor = made
-    end
-
-    return reactor
-end
-
---- Scratch for one read, reused, because a socket read is the hot path and a
---- fresh allocation per read would be the allocation this module exists to
---- avoid.
+local featureChecked = false
 local scratch: any = nil
+
+local function requireNet(): nil
+    if not featureChecked then
+        native.requireFeature(NET_FEATURE, "network support")
+        featureChecked = true
+    end
+end
+
+local function slice(text: string): any
+    local value = native.ffi.new("NuppNativeV2NetSlice")
+    value.data = text
+    value.length = #text
+
+    return value
+end
+
+local function reason(prefix: string): string
+    return prefix .. ": " .. (native.ffi.string(C.nuppNativeV2LastError()) as string)
+end
 
 local function readBuffer(): any
     if scratch == nil then
@@ -222945,14 +222586,38 @@ local function readBuffer(): any
     return scratch
 end
 
---- @raises when the reactor cannot be created
 local function nativeBackend(): net.Backend
-    const accepted = native.ffi.new("int32_t[1]")
-    const connected = native.ffi.new("NuppNetStream *[1]")
-    const arrived = native.ffi.new("int32_t[1]")
-    const truncated = native.ffi.new("uint8_t[1]")
-    const peerPort = native.ffi.new("int32_t[1]")
-    const peerHost = native.ffi.new("char[?]", HOST_SIZE)
+    const state = native.ffi.new("uint32_t[1]")
+    const flags = native.ffi.new("uint32_t[1]")
+    const handle = native.ffi.new("uint64_t[1]")
+    const count = native.ffi.new("size_t[1]")
+    const portOutput = native.ffi.new("uint16_t[1]")
+    const scalar = native.ffi.new("int32_t[1]")
+    const addressOutput = native.ffi.new("NuppNativeV2NetAddress[1]")
+    const hostOutput = native.ffi.new("uint8_t[?]", HOST_SIZE)
+    const generation = native.ffi.new("uint64_t[1]")
+    const nextGeneration = native.ffi.new("uint64_t[1]")
+    local generationReady = false
+
+    local function streamFlags(stream: any): integer
+        if C.nuppNativeV2NetStreamState(stream, flags) ~= 0 then
+            return STREAM_READ_FAILED | STREAM_WRITE_FAILED
+        end
+
+        return tonumber(flags[0]) as integer
+    end
+
+    local function textAddress(value: any): (string?, integer?)
+        if value[0].family == 0 then
+            return nil
+        end
+        const status = C.nuppNativeV2NetAddressText(value, hostOutput, HOST_SIZE, count)
+        if status ~= 0 then
+            return nil
+        end
+
+        return ffiString(hostOutput, tonumber(count[0]) as integer), tonumber(value[0].port) as integer
+    end
 
     return new net.Backend(
         listen = function(
@@ -222962,119 +222627,146 @@ local function nativeBackend(): net.Backend
             backlog: integer,
             reusePort: boolean
         ): (any?, string?)
-            const handle = C.nuppNetListen(lane(), host, #host, port, backlog, reusePort)
-            if handle == nil then
+            requireNet()
+            local options = native.ffi.new("NuppNativeV2NetListenOptions")
+            options.host = slice(host)
+            options.port = port
+            options.backlog = backlog
+            options.reuse_port = reusePort and 1 or 0
+            if C.nuppNativeV2NetListenerCreate(options, handle) ~= 0 then
                 return nil, reason("nupp: could not listen")
             end
 
-            return handle
+            return handle[0]
         end,
 
         listenPath = function(self: net.Backend, path: string, backlog: integer): (any?, string?)
-            const handle = C.nuppNetListenPath(lane(), path, #path, backlog)
-            if handle == nil then
+            requireNet()
+            local options = native.ffi.new("NuppNativeV2NetPathListenOptions")
+            options.path = slice(path)
+            options.backlog = backlog
+            if C.nuppNativeV2NetPathListenerCreate(options, handle) ~= 0 then
                 return nil, reason("nupp: could not listen")
             end
 
-            return handle
-        end,
-
-        connectPath = function(self: net.Backend, path: string, timeoutMs: integer): (any?, string?)
-            const request = C.nuppNetConnectPath(lane(), path, #path, timeoutMs)
-            if request == nil then
-                return nil, reason("nupp: could not connect")
-            end
-
-            return request
+            return handle[0]
         end,
 
         listenerPort = function(self: net.Backend, listener: any): integer
-            return tonumber(C.nuppNetListenerPort(listener)) as integer
+            if C.nuppNativeV2NetListenerKind(listener, state) ~= 0 or state[0] == LISTENER_PATH then
+                return -1
+            end
+            if C.nuppNativeV2NetListenerPort(listener, portOutput) ~= 0 then
+                return -1
+            end
+
+            return tonumber(portOutput[0]) as integer
         end,
 
         accept = function(self: net.Backend, listener: any): (any?, string?)
-            const handle = C.nuppNetAccept(listener, accepted)
-            if handle ~= nil then
-                return handle
+            if C.nuppNativeV2NetListenerAccept(listener, state, handle) ~= 0 then
+                return nil, reason("nupp: could not accept")
             end
-            if accepted[0] == 0 then
+            if state[0] == PENDING then
                 return nil
             end
 
-            return nil, reason("nupp: could not accept")
+            return handle[0]
         end,
 
         closeListener = function(self: net.Backend, listener: any): nil
-            C.nuppNetListenerClose(listener)
-            C.nuppNetListenerDestroy(listener)
+            C.nuppNativeV2NetListenerRelease(listener)
         end,
 
         connect = function(self: net.Backend, host: string, port: integer, timeoutMs: integer): (any?, string?)
-            const request = C.nuppNetConnectBegin(lane(), host, #host, port, timeoutMs)
-            if request == nil then
+            requireNet()
+            local options = native.ffi.new("NuppNativeV2NetConnectOptions")
+            options.host = slice(host)
+            options.port = port
+            options.timeout_ms = timeoutMs
+            if C.nuppNativeV2NetConnectCreate(options, handle) ~= 0 then
                 return nil, reason("nupp: could not connect")
             end
 
-            return request
+            return handle[0]
+        end,
+
+        connectPath = function(self: net.Backend, path: string, timeoutMs: integer): (any?, string?)
+            requireNet()
+            local options = native.ffi.new("NuppNativeV2NetPathConnectOptions")
+            options.path = slice(path)
+            options.timeout_ms = timeoutMs
+            if C.nuppNativeV2NetPathConnectCreate(options, handle) ~= 0 then
+                return nil, reason("nupp: could not connect")
+            end
+
+            return handle[0]
         end,
 
         connectPoll = function(self: net.Backend, request: any): (any?, string?)
-            const state = tonumber(C.nuppNetConnectPoll(request, connected)) as integer
-            if state == 0 then
-                return nil
-            end
-            if state < 0 then
+            if C.nuppNativeV2NetConnectPoll(request, state, handle) ~= 0 then
                 return nil, reason("nupp: could not connect")
             end
+            if state[0] == CONNECT_FAILED then
+                return nil, reason("nupp: could not connect")
+            end
+            if state[0] ~= CONNECT_READY then
+                return nil
+            end
 
-            return connected[0]
+            return handle[0]
         end,
 
         closeConnect = function(self: net.Backend, request: any): nil
-            C.nuppNetConnectDestroy(request)
+            C.nuppNativeV2NetConnectRelease(request)
         end,
 
         read = function(self: net.Backend, stream: any, wanted: integer): (string?, string?)
             const taking = wanted < READ_SIZE and wanted or READ_SIZE
             const into = readBuffer()
-            const got = tonumber(C.nuppNetTryRead(stream, into, taking)) as integer
-            if got < 0 then
+            if C.nuppNativeV2NetStreamRead(stream, into, taking, state, count) ~= 0 then
                 return nil, reason("nupp: could not read")
             end
-            if got == 0 then
+            if state[0] == PENDING or state[0] == READ_EOF then
                 return ""
             end
 
-            return ffiString(into, got)
+            return ffiString(into, tonumber(count[0]) as integer)
         end,
 
         ended = function(self: net.Backend, stream: any): boolean
-            return C.nuppNetStreamEnded(stream) as boolean
+            return streamFlags(stream) & STREAM_READ_EOF ~= 0
         end,
 
         write = function(self: net.Backend, stream: any, bytes: string): (integer?, string?)
-            const took = tonumber(C.nuppNetTryWrite(stream, bytes, #bytes)) as integer
-            if took < 0 then
+            if C.nuppNativeV2NetStreamWrite(stream, bytes, #bytes, state, count) ~= 0 then
                 return nil, reason("nupp: could not write")
             end
+            if state[0] == 2 then
+                return nil, "nupp: could not write: the connection is closed"
+            end
 
-            return took
+            return tonumber(count[0]) as integer
         end,
 
         pending = function(self: net.Backend, stream: any): integer
-            return tonumber(C.nuppNetPending(stream)) as integer
+            if C.nuppNativeV2NetStreamPendingWrite(stream, count) ~= 0 then
+                return 0
+            end
+
+            return tonumber(count[0]) as integer
         end,
 
         writeFailed = function(self: net.Backend, stream: any): boolean
-            return C.nuppNetStreamFailed(stream) as boolean
+            return streamFlags(stream) & STREAM_WRITE_FAILED ~= 0
         end,
 
         shuttingDown = function(self: net.Backend, stream: any): boolean
-            return C.nuppNetStreamShuttingDown(stream) as boolean
+            return streamFlags(stream) & STREAM_SHUTTING_DOWN ~= 0
         end,
 
         shutdownWrite = function(self: net.Backend, stream: any): (boolean, string?)
-            if C.nuppNetShutdownWrite(stream) == 0 then
+            if C.nuppNativeV2NetStreamShutdownWrite(stream) ~= 0 then
                 return false, reason("nupp: could not end the sending half")
             end
 
@@ -223082,24 +222774,23 @@ local function nativeBackend(): net.Backend
         end,
 
         address = function(self: net.Backend, stream: any, peer: boolean): net.Address?
-            const found = peer and C.nuppNetStreamPeer(
+            const status = peer and C.nuppNativeV2NetStreamPeerAddress(
                 stream,
-                peerHost,
-                HOST_SIZE,
-                peerPort
-            ) or C.nuppNetStreamLocal(stream, peerHost, HOST_SIZE, peerPort)
-            if not (found as boolean) then
+                addressOutput
+            ) or C.nuppNativeV2NetStreamLocalAddress(stream, addressOutput)
+            if status ~= 0 then
+                return nil
+            end
+            const host, port = textAddress(addressOutput)
+            if host == nil or port == nil then
                 return nil
             end
 
-            return {
-                host = native.ffi.string(peerHost) as string,
-                port = tonumber(peerPort[0]) as integer
-            } as net.Address
+            return {host = host, port = port} as net.Address
         end,
 
         noDelay = function(self: net.Backend, stream: any, enable: boolean): (boolean, string?)
-            if C.nuppNetStreamNoDelay(stream, enable) == 0 then
+            if C.nuppNativeV2NetStreamSetNoDelay(stream, enable and 1 or 0) ~= 0 then
                 return false, reason("nupp: could not set the delay option")
             end
 
@@ -223107,7 +222798,7 @@ local function nativeBackend(): net.Backend
         end,
 
         keepAlive = function(self: net.Backend, stream: any, enable: boolean, delaySeconds: integer): (boolean, string?)
-            if C.nuppNetStreamKeepAlive(stream, enable, delaySeconds) == 0 then
+            if C.nuppNativeV2NetStreamSetKeepAlive(stream, enable and 1 or 0, delaySeconds) ~= 0 then
                 return false, reason("nupp: could not set the keepalive option")
             end
 
@@ -223115,7 +222806,7 @@ local function nativeBackend(): net.Backend
         end,
 
         broadcast = function(self: net.Backend, socket: any, enable: boolean): (boolean, string?)
-            if C.nuppNetDatagramBroadcast(socket, enable) == 0 then
+            if C.nuppNativeV2NetDatagramSetBroadcast(socket, enable and 1 or 0) ~= 0 then
                 return false, reason("nupp: could not set the broadcast option")
             end
 
@@ -223123,7 +222814,7 @@ local function nativeBackend(): net.Backend
         end,
 
         multicastTtl = function(self: net.Backend, socket: any, ttl: integer): (boolean, string?)
-            if C.nuppNetDatagramMulticastTtl(socket, ttl) == 0 then
+            if C.nuppNativeV2NetDatagramSetMulticastTtl(socket, ttl) ~= 0 then
                 return false, reason("nupp: could not set the multicast hop limit")
             end
 
@@ -223131,7 +222822,7 @@ local function nativeBackend(): net.Backend
         end,
 
         multicastLoop = function(self: net.Backend, socket: any, enable: boolean): (boolean, string?)
-            if C.nuppNetDatagramMulticastLoop(socket, enable) == 0 then
+            if C.nuppNativeV2NetDatagramSetMulticastLoop(socket, enable and 1 or 0) ~= 0 then
                 return false, reason("nupp: could not set the multicast loop option")
             end
 
@@ -223145,8 +222836,15 @@ local function nativeBackend(): net.Backend
             interfaceAddress: string,
             join: boolean
         ): (boolean, string?)
-            const done = C.nuppNetDatagramMembership(socket, group, #group, interfaceAddress, #interfaceAddress, join)
-            if done == 0 then
+            const interfaceKind = interfaceAddress == "" and 0 or 4
+            if C.nuppNativeV2NetDatagramMembership(
+                socket,
+                slice(group),
+                slice(interfaceAddress),
+                0,
+                interfaceKind,
+                join and 1 or 0
+            ) ~= 0 then
                 return false, reason("nupp: could not change the multicast group")
             end
 
@@ -223154,21 +222852,28 @@ local function nativeBackend(): net.Backend
         end,
 
         closeStream = function(self: net.Backend, stream: any): nil
-            C.nuppNetCloseStream(stream)
-            C.nuppNetStreamDestroy(stream)
+            C.nuppNativeV2NetStreamRelease(stream)
         end,
 
         bindDatagram = function(self: net.Backend, host: string, port: integer, reusePort: boolean): (any?, string?)
-            const handle = C.nuppNetBindDatagram(lane(), host, #host, port, reusePort)
-            if handle == nil then
+            requireNet()
+            local options = native.ffi.new("NuppNativeV2NetDatagramOptions")
+            options.host = slice(host)
+            options.port = port
+            options.reuse_port = reusePort and 1 or 0
+            if C.nuppNativeV2NetDatagramCreate(options, handle) ~= 0 then
                 return nil, reason("nupp: could not bind")
             end
 
-            return handle
+            return handle[0]
         end,
 
         datagramPort = function(self: net.Backend, socket: any): integer
-            return tonumber(C.nuppNetDatagramPort(socket)) as integer
+            if C.nuppNativeV2NetDatagramPort(socket, portOutput) ~= 0 then
+                return -1
+            end
+
+            return tonumber(portOutput[0]) as integer
         end,
 
         receive = function(
@@ -223178,20 +222883,19 @@ local function nativeBackend(): net.Backend
         ): (string?, string?, integer?, boolean?, string?)
             const taking = maximum < READ_SIZE and maximum or READ_SIZE
             const into = readBuffer()
-            const landed = tonumber(
-                C.nuppNetDatagramReceive(socket, into, taking, arrived, truncated, peerHost, HOST_SIZE, peerPort)
-            ) as integer
-            if arrived[0] == 0 then
-                return nil
-            end
-            if arrived[0] < 0 or landed < 0 then
+            if C.nuppNativeV2NetDatagramReceive(socket, into, taking, state, count, addressOutput, scalar) ~= 0 then
                 return nil, nil, nil, nil, reason("nupp: could not receive")
             end
+            if state[0] ~= DATAGRAM_MESSAGE then
+                return nil
+            end
+            const landed = tonumber(count[0]) as integer
+            const host, port = textAddress(addressOutput)
+            if host == nil or port == nil then
+                return nil, nil, nil, nil, "nupp: could not read the datagram peer"
+            end
 
-            return ffiString(
-                into,
-                landed
-            ), native.ffi.string(peerHost) as string, tonumber(peerPort[0]) as integer, truncated[0] ~= 0
+            return ffiString(into, landed), host, port, scalar[0] ~= 0
         end,
 
         sendTo = function(
@@ -223201,22 +222905,33 @@ local function nativeBackend(): net.Backend
             port: integer,
             bytes: string
         ): (boolean, string?)
-            if C.nuppNetDatagramSend(socket, host, #host, port, bytes, #bytes) == 0 then
+            if C.nuppNativeV2NetAddressParse(slice(host), port, addressOutput) ~= 0 then
+                return false, reason("nupp: could not address the datagram")
+            end
+            if C.nuppNativeV2NetDatagramSend(socket, addressOutput, bytes, #bytes, state, count) ~= 0 then
                 return false, reason("nupp: could not send")
             end
 
-            return true
+            return state[0] == DATAGRAM_SENT
         end,
 
         closeDatagram = function(self: net.Backend, socket: any): nil
-            C.nuppNetDatagramClose(socket)
-            C.nuppNetDatagramDestroy(socket)
+            C.nuppNativeV2NetDatagramRelease(socket)
         end,
 
         run = function(self: net.Backend, timeoutMs: integer): nil
-            if reactor ~= nil then
-                C.nuppNetLoopRun(reactor, timeoutMs)
+            requireNet()
+            if timeoutMs == 0 or not generationReady then
+                if C.nuppNativeV2NetPoll(generation) == 0 then
+                    generationReady = true
+                end
+
+                return
             end
+            if C.nuppNativeV2NetWait(generation[0], timeoutMs, nextGeneration) ~= 0 then
+                return
+            end
+            generation[0] = nextGeneration[0]
         end
     )
 end
@@ -226379,7 +226094,8 @@ export = process
 module nupp.io.tls
 
 --[[
-`nupp.io.tls` encrypts a connection [](nupp.io.net) already opened.
+`nupp.io.tls` takes ownership of a connection [](nupp.io.net) already opened
+and turns it into an encrypted connection.
 
 ```nupp
 local function fetch(): string
@@ -226391,7 +226107,6 @@ local function fetch(): string
     assert(session:write("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n"))
     const body = assert(session:read(1024))
     session:close()
-    stream:close()
 
     return body
 end
@@ -226409,40 +226124,15 @@ A session reads and writes through the same `Reader` and `Writer` contracts a
 plain connection does, so a parser written against byte I/O reads an encrypted
 connection without knowing it has one.
 
-DTLS sessions instead preserve message boundaries. `dtlsClient` names its peer
-when it is opened; `dtlsServer` learns the first peer to send a ClientHello,
-answers mbedTLS's stateless cookie challenge, and binds that session to the
-verified address. One datagram socket may hold several established sessions;
-records for their other peers stay queued.
+The session owns the connection. There is no plaintext handle alongside it and
+no second reactor polling the same socket. Closing the session sends
+`close_notify`, drains it, and closes the transport.
 
-On Linux, a stream session opened with `kernelOffload = true` restricts the
-handshake to TLS 1.2 and asks the kernel to take over record encryption once it
-finishes, installing the negotiated AES-GCM keys as both `TLS_TX` and `TLS_RX`.
-Offload engages when the platform allows it. A handoff that cannot begin -- the
-tls ULP absent, ciphertext already buffered in this process, a cipher the
-kernel does not take, or a system with no kernel TLS at all -- falls back to
-user-space records and the handshake still succeeds, so `isKernelOffloaded()`
-is the answer to whether the kernel actually took over, and a caller counting
-on `sendfile` avoiding a user-space encryption pass must check it rather than
-assume the request was honored. Only a handoff that fails after a key direction
-has reached the kernel fails the handshake, because a record layer partly
-installed there cannot soundly return to user space.
-
-The session does not own the connection. It borrows one, encrypts over it, and
-is closed first; the connection is closed by whoever owns it, which is what
-keeps one socket under exactly one cleanup obligation.
-
-Successful client sessions are cached for resumption in bounded native process
-state, keyed by host, peer port, offered application protocols and trust
-material. The serialized session carries the verified end-entity certificate.
-The cache is process-wide rather than Lua-state-local, so reconnecting on a
-different worker lane can still resume; it is not persistent across processes.
-
-Servers likewise share session-ID stores and ticket keys between lanes when
-their certificate, private key, trust and protocol configuration match. Ticket
-keys rotate after one day. Resumption never sends application data before the
-handshake: TLS 1.3 early data is deliberately not enabled because accepting it
-requires an application-level replay policy.
+Compatible client and server configurations are cached in bounded native
+process state so Rustls can reuse its resumption state across sessions and
+worker lanes. It is not persistent across processes. Resumption never sends
+application data before the handshake: TLS 1.3 early data is deliberately not
+enabled because accepting it requires an application-level replay policy.
 ]]
 
 local net = require("nupp.io.net")
@@ -226473,14 +226163,8 @@ type tls.ClientOptions = {
     --- Application protocols to offer, in decreasing preference order, such as
     --- `{"h2", "http/1.1"}`. The server chooses from these, so the order is a
     --- preference and not a demand.
-    protocols: {string}?,
+    protocols: {string}?
 
-    --- Whether Linux should take over record encryption after the handshake.
-    --- Requesting it restricts negotiation to TLS 1.2 on Linux. A handoff the
-    --- platform cannot begin -- another system, a kernel without the tls ULP,
-    --- a cipher it does not take -- falls back to user-space records, and
-    --- `isKernelOffloaded()` says which happened.
-    kernelOffload: boolean?
 }
 
 --- How a server session is opened.
@@ -226491,25 +226175,14 @@ type tls.ServerOptions = {
     --- The private key for it, as PEM.
     privateKey: string,
 
-    --- Certificates to trust for client certificates, as PEM.
-    authority: string?,
-
-    --- Whether a client certificate is required. Off by default, which is what
-    --- almost every server wants.
-    verify: boolean?,
-
     --- Application protocols this server speaks, in decreasing preference
     --- order. The server picks, so this order is the one that decides.
     ---
     --- A server that names protocols and shares none with a client refuses the
     --- handshake rather than continuing without one, which is what makes naming
     --- them a commitment rather than a hint.
-    protocols: {string}?,
+    protocols: {string}?
 
-    --- Whether Linux should take over record encryption after the handshake,
-    --- exactly as on a client session: a handoff that cannot begin falls back
-    --- to user-space records, reported by `isKernelOffloaded()`.
-    kernelOffload: boolean?
 }
 
 --- The smallest set of operations a platform has to answer for this module.
@@ -226518,17 +226191,13 @@ record tls.Backend
     wrap: function(
         self: tls.Backend,
         handle: any,
-        datagram: boolean,
         server: boolean,
-        peerHost: string,
-        peerPort: integer,
         hostname: string,
         certificate: string,
         privateKey: string,
         authority: string?,
         protocols: string,
-        verify: boolean,
-        kernelOffload: boolean
+        verify: boolean
     ): (any?, string?)
 
     --- Drives the handshake as far as it goes. Answers true when finished,
@@ -226548,11 +226217,14 @@ record tls.Backend
     --- Writes plaintext, answering how much was taken.
     write: function(self: tls.Backend, session: any, bytes: string): (integer?, string?)
 
-    --- Sends `close_notify`, answering whether the alert left this process.
-    --- False when the socket could not take it yet, so a caller may retry.
-    closeNotify: function(self: tls.Backend, session: any): boolean
+    --- Whether every encrypted record written so far has left this process.
+    flushed: function(self: tls.Backend, session: any): (boolean, string?)
 
-    --- Releases the session, and not the connection under it.
+    --- Sends `close_notify`, answering whether the alert left this process.
+    --- False with no reason means the socket could not take it yet.
+    closeNotify: function(self: tls.Backend, session: any): (boolean, string?)
+
+    --- Releases the session and the connection it owns.
     destroy: function(self: tls.Backend, session: any): nil
 
     --- Whether the connection underneath is still open.
@@ -226561,24 +226233,9 @@ record tls.Backend
     --- The application protocol both sides agreed on, or nil for none.
     protocol: function(self: tls.Backend, session: any): string?
 
-    --- Whether Linux owns both record directions for this session.
-    kernelOffloaded: function(self: tls.Backend, session: any): boolean
-
-    --- Whether this backend was built for Linux kernel TLS.
-    kernelSupported: function(self: tls.Backend): boolean
-
-    --- The peer a datagram session is bound to, once known.
-    peer: function(self: tls.Backend, session: any): (string?, integer?)
 end
 
 const READ_SIZE = 65536
-
---- What the provider answers for "nothing yet", as against a failure.
----
---- Distinct values on purpose: one means come back and the other means stop,
---- and a binding that could not tell them apart would retry a permanent failure
---- until something else gave up.
-const WOULD_BLOCK = -1
 
 local backend: tls.Backend? = nil
 
@@ -226663,26 +226320,12 @@ end
 
 --- An encrypted connection.
 ---
---- Borrows the connection it encrypts over rather than owning it: closing a
---- session sends `close_notify` and releases the encryption, and the socket
---- goes on being the connection's to close.
+--- Owns the connection it encrypts over. Closing the session sends
+--- `close_notify`, drains it, and closes the socket.
 --- @export
 record tls.Session is nupp.io.Reader, nupp.io.Writer
     private _backend: tls.Backend
     private _session: any
-
-    --- The connection's platform handle, not the connection.
-    ---
-    --- Deliberately the handle: holding the owner and casting it back to ask a
-    --- question would produce an owned value the affine layer closes at the end
-    --- of the scope that made it, which releases a socket underneath whoever
-    --- actually owns it. The handle answers the same question and owns nothing.
-    ---
-    --- This is a runtime guard and not a proof. The affine layer cannot prove
-    --- the ordering across a module boundary the way it does within one, so a
-    --- session outliving its connection is caught here rather than at the point
-    --- it was written. See NEP 25 for what that costs.
-    private readonly _handle: any
 
     private _closed: boolean
     private _ready: boolean
@@ -226757,21 +226400,6 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
         const resumed = self._backend.resumed
 
         return resumed ~= nil and resumed(self._backend, self._session) or false
-    end
-
-    --- Whether Linux owns both transmit and receive record processing.
-    ---
-    --- False before the handshake, for ordinary user-space TLS sessions, and
-    --- for a `kernelOffload` request that fell back. The option is a request
-    --- and this is the fact, so a caller relying on `sendfile` avoiding a
-    --- user-space encryption pass checks here rather than trusting the
-    --- request.
-    function isKernelOffloaded(self): boolean
-        if self._closed or not self._ready then
-            return false
-        end
-
-        return self._backend:kernelOffloaded(self._session)
     end
 
     --- Drives the handshake one pass, without suspending.
@@ -226849,9 +226477,6 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
     function read(self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the session is closed"
-        end
-        if not self:isConnected() then
-            return nil, "the connection underneath was closed first"
         end
         if not self._ready then
             return nil, "the handshake has not finished"
@@ -227016,13 +226641,28 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
             return false, "the connection underneath was closed first"
         end
 
-        return net.flushStream(self._handle)
+        local complete = false
+        local failure: string? = nil
+        await("nupp.io.tls flush", function(): boolean
+            const done, why = self._backend:flushed(self._session)
+            if why ~= nil then
+                failure = why
+
+                return true
+            end
+            complete = done
+
+            return done
+        end)
+        if failure ~= nil then
+            return false, failure
+        end
+
+        return complete
     end
 
-    --- Sends `close_notify` and releases the encryption.
-    ---
-    --- Terminal, and idempotent. The connection underneath is untouched: it was
-    --- borrowed, and closing it is the job of whatever owns it.
+    --- Sends `close_notify`, drains it, and closes the owned connection.
+    --- Terminal and idempotent.
     function close(takes self): nil
         if self._closed then
             return
@@ -227034,248 +226674,10 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
             -- still queued, and a peer that never receives it sees a stream
             -- that stopped rather than one that ended -- which is exactly the
             -- truncation a `close_notify` exists to rule out.
-            local _, _drained = net.flushStream(self._handle)
-            self._backend:closeNotify(self._session)
-            local _, _sent = net.flushStream(self._handle)
-        end
-        self._closed = true
-        self._backend:destroy(self._session)
-    end
-end
-
---- One encrypted datagram peer.
----
---- Unlike `Session`, this is deliberately not a `Reader` or `Writer`: each
---- `send` is one application datagram and each `receive` returns one. Treating
---- it as a byte stream would erase the boundary DTLS authenticates.
---- @export
-record tls.DatagramSession is nupp.Closeable
-    private _backend: tls.Backend
-    private _session: any
-    private _closed: boolean
-    private _ready: boolean
-    private _ended: boolean
-
-    --- Whether the datagram socket underneath is still open.
-    ---
-    --- False once this session is released: closing frees the native session,
-    --- so the question has to be answered from this record's own state rather
-    --- than asked of memory that has been given back.
-    function isConnected(self): boolean
-        if self._closed then
-            return false
-        end
-
-        return self._backend:connected(self._session)
-    end
-
-    --- Whether the handshake has finished.
-    function isReady(self): boolean
-        return self._ready
-    end
-
-    --- Whether this session has been released.
-    function isReleased(self): boolean
-        return self._closed
-    end
-
-    --- Whether the peer sent `close_notify`.
-    function isEnded(self): boolean
-        return self._ended
-    end
-
-    --- The peer address, once a server has received its first ClientHello.
-    function peer(self): net.Address?
-        if self._closed then
-            return nil
-        end
-        const host, port = self._backend:peer(self._session)
-        if host == nil or port == nil then
-            return nil
-        end
-
-        return {host = host, port = port} as net.Address
-    end
-
-    --- The application protocol both peers agreed on, or nil for none.
-    function protocol(self): string?
-        if self._closed or not self._ready then
-            return nil
-        end
-
-        return self._backend:protocol(self._session)
-    end
-
-    --- Whether the peer certificate satisfied the requested verification.
-    function isVerified(self): boolean
-        if self._closed or not self._ready then
-            return false
-        end
-
-        return self._backend:verified(self._session)
-    end
-
-    --- Whether this client reused cached session key material.
-    function isResumed(self): boolean
-        if self._closed or not self._ready then
-            return false
-        end
-        const resumed = self._backend.resumed
-
-        return resumed ~= nil and resumed(self._backend, self._session) or false
-    end
-
-    --- Advances the cookie exchange or handshake without suspending.
-    function step(self): (boolean?, string?)
-        if self._closed then
-            return nil, "the session is closed"
-        end
-        if self._ready then
-            return true
-        end
-        const done, why = self._backend:handshake(self._session)
-        if done == nil then
-            return nil, why
-        end
-        if done then
-            self._ready = true
-        end
-
-        return self._ready
-    end
-
-    --- Drives the cookie exchange and handshake to completion.
-    function handshake(self): (boolean, string?)
-        if self._closed then
-            return false, "the session is closed"
-        end
-        if not self:isConnected() then
-            return false, "the datagram socket underneath was closed first"
-        end
-        if self._ready then
-            return true
-        end
-        local failure: string? = nil
-        await("nupp.io.tls DTLS handshake", function(): boolean
-            const done, why = self:step()
-            if done == nil then
-                failure = why or "the handshake failed"
-
-                return true
-            end
-
-            return done or false
-        end)
-        if failure ~= nil then
-            return false, failure
-        end
-
-        return true
-    end
-
-    --- Receives one authenticated application datagram, whole.
-    ---
-    --- The datagram is read at its own size rather than at `maximum`, because
-    --- DTLS authenticates it as one message and the provider keeps the rest of
-    --- a partially read record for the next call -- which would hand a later
-    --- receive the tail of this message as though a peer had sent it. One
-    --- larger than `maximum` is therefore consumed and reported as a failure
-    --- rather than split or silently truncated.
-    --- @raises when maximum is not a positive integer
-    function receive(self, maximum: integer): (string?, string?)
-        if self._closed then
-            return nil, "the session is closed"
-        end
-        if not self:isConnected() then
-            return nil, "the datagram socket underneath was closed first"
-        end
-        if not self._ready then
-            return nil, "the handshake has not finished"
-        end
-        const wanted = positive(maximum, "tls.DatagramSession receive maximum", 2)
-        local message: string? = nil
-        local failure: string? = nil
-        await("nupp.io.tls DTLS receive", function(): boolean
-            const got, why = self._backend:read(self._session, READ_SIZE)
-            if why ~= nil then
-                failure = why
-
-                return true
-            end
-            if got == nil then
-                return false
-            end
-            message = got
-            if #got == 0 then
-                self._ended = true
-            end
-
-            return true
-        end)
-        if failure ~= nil then
-            return nil, failure
-        end
-        const whole = message or ""
-        if #whole > wanted then
-            return nil, "the datagram is larger than the receive maximum"
-        end
-
-        return whole
-    end
-
-    --- Sends one authenticated application datagram.
-    function send(exclusive self, bytes: string): (boolean, string?)
-        if self._closed then
-            return false, "the session is closed"
-        end
-        if #bytes == 0 then
-            return false, "DTLS does not send an empty application datagram"
-        end
-        if not self:isConnected() then
-            return false, "the datagram socket underneath was closed first"
-        end
-        if not self._ready then
-            return false, "the handshake has not finished"
-        end
-        local took: integer? = nil
-        local failure: string? = nil
-        await("nupp.io.tls DTLS send", function(): boolean
-            const moved, why = self._backend:write(self._session, bytes)
-            if why ~= nil then
-                failure = why
-
-                return true
-            end
-            if moved == nil then
-                return false
-            end
-            took = moved
-
-            return true
-        end)
-        if failure ~= nil then
-            return false, failure
-        end
-        if took ~= #bytes then
-            return false, "the DTLS provider did not take one whole datagram"
-        end
-
-        return true
-    end
-
-    --- Sends `close_notify` and releases the session, not its socket.
-    function close(takes self): nil
-        if self._closed then
-            return
-        end
-        if self._ready and self:isConnected() then
-            -- A datagram is refused rather than queued when the socket's
-            -- buffer is full, and the provider then still holds the alert. A
-            -- few driven retries give the buffer time to drain; a bounded few,
-            -- because a close is not allowed to wait on a peer forever, and a
-            -- lost close_notify is a loss DTLS peers already have to survive.
-            for _ = 1, 8 do
-                if self._backend:closeNotify(self._session) then
+            local _, _drained = self:flush()
+            while true do
+                const sent, why = self._backend:closeNotify(self._session)
+                if sent or why ~= nil then
                     break
                 end
                 net.pump(1)
@@ -227287,379 +226689,270 @@ record tls.DatagramSession is nupp.Closeable
 end
 
 --- Encrypts a connection as the client.
---- @param stream the connection to encrypt over, which this borrows
+--- @param stream the connection to adopt; it is consumed even when setup fails
 --- @param options what to expect of the peer
 --- @return the session, which the caller owns and must close
 --- @return why it could not be made, when unsuccessful
 --- @raises when verification is asked for without a name to verify against
 --- @export
-function tls.client(borrows stream: net.Stream, options: tls.ClientOptions): (affine(tls.Session)?, string?)
+function tls.client(takes stream: net.Stream, options: tls.ClientOptions): (affine(tls.Session)?, string?)
     const chosen = platform()
     const verify = options.verify ~= false
     if verify and (options.hostname == nil or options.hostname == "") then
         error("nupp: tls.client needs a hostname to verify the peer against", 2)
     end
+    const protocols = packProtocols(options.protocols, 2)
     const session, why = chosen:wrap(
-        net.streamHandle(stream),
+        net.takeStreamHandle(stream),
         false,
-        false,
-        "",
-        0,
         options.hostname or "",
         "",
         "",
         options.authority,
-        packProtocols(options.protocols, 2),
-        verify,
-        options.kernelOffload == true
+        protocols,
+        verify
     )
     if session == nil then
         return nil, why
     end
 
-    return new tls.Session(
-        _backend = chosen,
-        _session = session,
-        _handle = net.streamHandle(stream),
-        _closed = false,
-        _ready = false,
-        _ended = false
-    )
+    return new tls.Session(_backend = chosen, _session = session, _closed = false, _ready = false, _ended = false)
 end
 
 --- Encrypts a connection as the server.
---- @param stream the connection to encrypt over, which this borrows
+--- @param stream the connection to adopt; it is consumed even when setup fails
 --- @param options the certificate to present and what to ask of the client
 --- @return the session, which the caller owns and must close
 --- @return why it could not be made, when unsuccessful
 --- @export
-function tls.server(borrows stream: net.Stream, options: tls.ServerOptions): (affine(tls.Session)?, string?)
+function tls.server(takes stream: net.Stream, options: tls.ServerOptions): (affine(tls.Session)?, string?)
     const chosen = platform()
+    const protocols = packProtocols(options.protocols, 2)
     const session, why = chosen:wrap(
-        net.streamHandle(stream),
-        false,
+        net.takeStreamHandle(stream),
         true,
-        "",
-        0,
         "",
         options.certificate,
         options.privateKey,
-        options.authority,
-        packProtocols(options.protocols, 2),
-        options.verify == true,
-        options.kernelOffload == true
-    )
-    if session == nil then
-        return nil, why
-    end
-
-    return new tls.Session(
-        _backend = chosen,
-        _session = session,
-        _handle = net.streamHandle(stream),
-        _closed = false,
-        _ready = false,
-        _ended = false
-    )
-end
-
---- Opens a DTLS client session over a bound datagram socket.
---- @param socket the datagram socket to encrypt over, which this borrows
---- @param peer where encrypted datagrams are sent
---- @param options what to expect of the peer
---- @return the session, which the caller owns and must close
---- @return why it could not be made, when unsuccessful
---- @raises when verification has no hostname, the peer port is invalid, or kernel
----     offload is requested
---- @export
-function tls.dtlsClient(
-    borrows socket: net.Datagram,
-    peer: net.Address,
-    options: tls.ClientOptions
-): (affine(tls.DatagramSession)?, string?)
-    const chosen = platform()
-    const verify = options.verify ~= false
-    if verify and (options.hostname == nil or options.hostname == "") then
-        error("nupp: tls.dtlsClient needs a hostname to verify the peer against", 2)
-    end
-    if peer.port < 1 or peer.port > 65535 or math.floor(peer.port) ~= peer.port then
-        error("nupp: tls.dtlsClient peer port must be 1 through 65535", 2)
-    end
-    if options.kernelOffload == true then
-        error("nupp: kernel TLS offload does not apply to DTLS", 2)
-    end
-    const session, why = chosen:wrap(
-        net.datagramHandle(socket),
-        true,
-        false,
-        peer.host,
-        peer.port,
-        options.hostname or "",
-        "",
-        "",
-        options.authority,
-        packProtocols(options.protocols, 2),
-        verify,
+        nil,
+        protocols,
         false
     )
     if session == nil then
         return nil, why
     end
 
-    return new tls.DatagramSession(
-        _backend = chosen,
-        _session = session,
-        _closed = false,
-        _ready = false,
-        _ended = false
-    )
+    return new tls.Session(_backend = chosen, _session = session, _closed = false, _ready = false, _ended = false)
 end
 
---- Opens a DTLS server session which learns one peer from its ClientHello.
----
---- The first address is challenged with a stateless cookie before the
---- expensive handshake continues. Once learned, records from other peers stay
---- on the socket for their own sessions.
---- @param socket the datagram socket to encrypt over, which this borrows
---- @param options the certificate to present and what to ask of the client
---- @return the session, which the caller owns and must close
---- @return why it could not be made, when unsuccessful
---- @raises when kernel offload is requested
---- @export
-function tls.dtlsServer(
-    borrows socket: net.Datagram,
-    options: tls.ServerOptions
-): (affine(tls.DatagramSession)?, string?)
-    if options.kernelOffload == true then
-        error("nupp: kernel TLS offload does not apply to DTLS", 2)
-    end
-    const chosen = platform()
-    const session, why = chosen:wrap(
-        net.datagramHandle(socket),
-        true,
-        true,
-        "",
-        0,
-        "",
-        options.certificate,
-        options.privateKey,
-        options.authority,
-        packProtocols(options.protocols, 2),
-        options.verify == true,
-        false
-    )
-    if session == nil then
-        return nil, why
-    end
+const native = require("nupp.runtime.nativev2")
 
-    return new tls.DatagramSession(
-        _backend = chosen,
-        _session = session,
-        _closed = false,
-        _ready = false,
-        _ended = false
-    )
+cdef struct NuppNativeV2TlsSlice
+    data: cstring
+    length: uint64
 end
 
---- Whether this native host can request Linux kernel TLS offload.
----
---- True identifies the platform, not a guarantee that the running kernel can
---- take the handoff: a requested session that cannot engage falls back to
---- user-space records, and `isKernelOffloaded()` on the established session
---- answers what actually happened.
---- @export
-function tls.kernelOffloadSupported(): boolean
-    const chosen = backend
-
-    return chosen ~= nil and chosen:kernelSupported()
+cdef struct NuppNativeV2TlsOptions
+    hostname: NuppNativeV2TlsSlice
+    certificate: NuppNativeV2TlsSlice
+    private_key: NuppNativeV2TlsSlice
+    authority: NuppNativeV2TlsSlice
+    protocols: NuppNativeV2TlsSlice
+    authority_present: int32
+    server: int32
+    verify: int32
 end
-
---- Installs the platform this module runs on.
---- @param chosen what answers the operations above
---- @export
-function tls.useBackend(chosen: tls.Backend): nil
-    backend = chosen
-end
-
-const native = require("nupp.runtime.native")
 
 native.ffi.cdef[[
-typedef struct NuppTls NuppTls;
-typedef struct NuppNetStream NuppNetStream;
-typedef struct NuppNetDatagram NuppNetDatagram;
-
-NuppTls *nuppTlsWrap(void *, bool, bool, const uint8_t *, size_t, int32_t,
-    const uint8_t *, size_t,
-    const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *, size_t,
-    const uint8_t *, size_t, bool, bool);
-const char *nuppTlsAlpn(NuppTls *);
-int32_t nuppTlsHandshake(NuppTls *);
-uint32_t nuppTlsVerifyResult(NuppTls *);
-bool nuppTlsResumed(NuppTls *);
-bool nuppTlsConnected(NuppTls *);
-bool nuppTlsKernelOffloaded(NuppTls *);
-bool nuppTlsKernelSupported(void);
-uint8_t nuppTlsPeer(NuppTls *, char *, size_t, int32_t *);
-intptr_t nuppTlsRead(NuppTls *, uint8_t *, size_t);
-intptr_t nuppTlsWrite(NuppTls *, const uint8_t *, size_t);
-uint8_t nuppTlsCloseNotify(NuppTls *);
-void nuppTlsDestroy(NuppTls *);
-
-bool nuppNetStreamClosed(NuppNetStream *);
-void nuppNetStreamRetain(NuppNetStream *);
-void nuppNetStreamRelease(NuppNetStream *);
+int32_t nuppNativeV2TlsCreate(
+    uint64_t, const struct NuppNativeV2TlsOptions *, uint64_t *);
+int32_t nuppNativeV2TlsHandshake(uint64_t, uint32_t *);
+int32_t nuppNativeV2TlsRead(
+    uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2TlsWrite(
+    uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2TlsFlushed(uint64_t, int32_t *);
+int32_t nuppNativeV2TlsCloseNotify(uint64_t, int32_t *);
+int32_t nuppNativeV2TlsConnected(uint64_t, int32_t *);
+int32_t nuppNativeV2TlsVerified(uint64_t, int32_t *);
+int32_t nuppNativeV2TlsResumed(uint64_t, int32_t *);
+int32_t nuppNativeV2TlsProtocol(
+    uint64_t, uint8_t *, size_t, size_t *, int32_t *);
+int32_t nuppNativeV2TlsRelease(uint64_t);
 ]]
 
+local ffi = native.ffi
 const C = native.C
+const TLS_FEATURE = 512
+const TLS_READY = 1
+const TLS_READ_PENDING = 1
+const TLS_READ_EOF = 2
+const TLS_WRITE_PENDING = 1
+const TLS_WRITE_CLOSED = 2
+const PROTOCOL_SIZE = 256
 
-local function reason(prefix: string): string
-    local said = native.error()
-    if said == nil or said == "" then
-        said = "native tls operation failed"
+local featureChecked = false
+local scratch: any = nil
+
+local function requireTls(): nil
+    if not featureChecked then
+        native.requireFeature(TLS_FEATURE, "TLS")
+        featureChecked = true
     end
-
-    return prefix .. ": " .. said
 end
 
-local scratch: any = nil
+local function slice(text: string): any
+    local value = ffi.new<NuppNativeV2TlsSlice>()
+    value.data = text
+    value.length = #text
+
+    return value
+end
+
+local function lastError(prefix: string): string
+    return prefix .. ": " .. (ffi.string(C.nuppNativeV2LastError()) as string)
+end
 
 local function readBuffer(): any
     if scratch == nil then
-        scratch = native.ffi.new("uint8_t[?]", READ_SIZE)
+        scratch = ffi.new("uint8_t[?]", READ_SIZE)
     end
 
     return scratch
 end
 
 local function nativeBackend(): tls.Backend
-    const peerHostBuffer = native.ffi.new("char[64]")
-    const peerPortBuffer = native.ffi.new("int32_t[1]")
+    const scalar = ffi.new("int32_t[1]")
+    const state = ffi.new("uint32_t[1]")
+    const length = ffi.new("size_t[1]")
+    const handleOutput = ffi.new("uint64_t[1]")
+    const protocolBuffer = ffi.new("uint8_t[?]", PROTOCOL_SIZE)
+    const present = ffi.new("int32_t[1]")
 
     return new tls.Backend(
         wrap = function(
             self: tls.Backend,
             handle: any,
-            datagram: boolean,
             server: boolean,
-            peerHost: string,
-            peerPort: integer,
             hostname: string,
             certificate: string,
             privateKey: string,
             authority: string?,
             protocols: string,
-            verify: boolean,
-            kernelOffload: boolean
+            verify: boolean
         ): (any?, string?)
-            const authorityLength = authority ~= nil and #authority or 0
-            const session = C.nuppTlsWrap(
-                handle,
-                datagram,
-                server,
-                peerHost,
-                #peerHost,
-                peerPort,
-                hostname,
-                #hostname,
-                certificate,
-                #certificate,
-                privateKey,
-                #privateKey,
-                authority,
-                authorityLength,
-                protocols,
-                #protocols,
-                verify,
-                kernelOffload
-            )
-            if session == nil then
-                return nil, reason("nupp: could not start the session")
+            requireTls()
+            local options = ffi.new<NuppNativeV2TlsOptions>()
+            options.hostname = slice(hostname)
+            options.certificate = slice(certificate)
+            options.private_key = slice(privateKey)
+            options.authority = slice(authority or "")
+            options.protocols = slice(protocols)
+            options.authority_present = authority ~= nil and 1 or 0
+            options.server = server and 1 or 0
+            options.verify = verify and 1 or 0
+            const status = C.nuppNativeV2TlsCreate(handle, options, handleOutput)
+            if status ~= 0 then
+                return nil, lastError("nupp: could not start the session")
             end
 
-            return session
+            return handleOutput[0]
         end,
 
         handshake = function(self: tls.Backend, session: any): (boolean?, string?)
-            const state = tonumber(C.nuppTlsHandshake(session)) as integer
-            if state < 0 then
-                return nil, reason("nupp: the handshake failed")
+            const status = C.nuppNativeV2TlsHandshake(session, state)
+            if status ~= 0 then
+                return nil, lastError("nupp: the handshake failed")
             end
 
-            return state == 1
+            return state[0] == TLS_READY
         end,
 
         verified = function(self: tls.Backend, session: any): boolean
-            return tonumber(C.nuppTlsVerifyResult(session)) == 0
+            if C.nuppNativeV2TlsVerified(session, scalar) ~= 0 then
+                return false
+            end
+
+            return scalar[0] ~= 0
         end,
 
         resumed = function(self: tls.Backend, session: any): boolean
-            return C.nuppTlsResumed(session) as boolean
+            if C.nuppNativeV2TlsResumed(session, scalar) ~= 0 then
+                return false
+            end
+
+            return scalar[0] ~= 0
         end,
 
         read = function(self: tls.Backend, session: any, wanted: integer): (string?, string?)
             const taking = wanted < READ_SIZE and wanted or READ_SIZE
             const into = readBuffer()
-            const got = tonumber(C.nuppTlsRead(session, into, taking)) as integer
-            if got == WOULD_BLOCK then
+            const status = C.nuppNativeV2TlsRead(session, into, taking, state, length)
+            if status ~= 0 then
+                return nil, lastError("nupp: could not read")
+            end
+            if state[0] == TLS_READ_PENDING then
                 return nil
             end
-            if got < 0 then
-                return nil, reason("nupp: could not read")
-            end
-            if got == 0 then
+            if state[0] == TLS_READ_EOF then
                 return ""
             end
 
-            return ffiString(into, got)
+            return ffiString(into, tonumber(length[0]) as integer)
         end,
 
         write = function(self: tls.Backend, session: any, bytes: string): (integer?, string?)
-            const took = tonumber(C.nuppTlsWrite(session, bytes, #bytes)) as integer
-            if took == WOULD_BLOCK then
+            const status = C.nuppNativeV2TlsWrite(session, bytes, #bytes, state, length)
+            if status ~= 0 then
+                return nil, lastError("nupp: could not write")
+            end
+            if state[0] == TLS_WRITE_PENDING then
                 return nil
             end
-            if took < 0 then
-                return nil, reason("nupp: could not write")
+            if state[0] == TLS_WRITE_CLOSED then
+                return nil, "nupp: could not write: the connection is closed"
             end
 
-            return took
+            return tonumber(length[0]) as integer
         end,
 
-        closeNotify = function(self: tls.Backend, session: any): boolean
-            return C.nuppTlsCloseNotify(session) ~= 0
+        flushed = function(self: tls.Backend, session: any): (boolean, string?)
+            const status = C.nuppNativeV2TlsFlushed(session, scalar)
+            if status ~= 0 then
+                return false, lastError("nupp: could not flush")
+            end
+
+            return scalar[0] ~= 0
+        end,
+
+        closeNotify = function(self: tls.Backend, session: any): (boolean, string?)
+            const status = C.nuppNativeV2TlsCloseNotify(session, scalar)
+            if status ~= 0 then
+                return false, lastError("nupp: could not send close_notify")
+            end
+
+            return scalar[0] ~= 0
         end,
 
         destroy = function(self: tls.Backend, session: any): nil
-            C.nuppTlsDestroy(session)
+            C.nuppNativeV2TlsRelease(session)
         end,
 
         connected = function(self: tls.Backend, session: any): boolean
-            return C.nuppTlsConnected(session) as boolean
+            if C.nuppNativeV2TlsConnected(session, scalar) ~= 0 then
+                return false
+            end
+
+            return scalar[0] ~= 0
         end,
 
         protocol = function(self: tls.Backend, session: any): string?
-            const chosen = C.nuppTlsAlpn(session)
-            if chosen == nil then
+            const status = C.nuppNativeV2TlsProtocol(session, protocolBuffer, PROTOCOL_SIZE, length, present)
+            if status ~= 0 or present[0] == 0 then
                 return nil
             end
 
-            return native.ffi.string(chosen) as string
-        end,
-
-        kernelOffloaded = function(self: tls.Backend, session: any): boolean
-            return C.nuppTlsKernelOffloaded(session) as boolean
-        end,
-
-        kernelSupported = function(self: tls.Backend): boolean
-            return C.nuppTlsKernelSupported() as boolean
-        end,
-
-        peer = function(self: tls.Backend, session: any): (string?, integer?)
-            if C.nuppTlsPeer(session, peerHostBuffer, 64, peerPortBuffer) == 0 then
-                return nil
-            end
-
-            return native.ffi.string(peerHostBuffer) as string, tonumber(peerPortBuffer[0]) as integer
+            return ffiString(protocolBuffer, tonumber(length[0]) as integer)
         end
     )
 end
@@ -233817,7 +233110,7 @@ end
 --- Where the opened library is kept, which is not this module.
 ---
 --- LuaJIT collects an `ffi.load` handle like anything else, and closing it
---- closes the library. Native functions and libuv callbacks live in that
+--- closes the library. Native functions and callbacks live in that
 --- mapping, so the provider handle must remain reachable for as long as any
 --- module using those functions can run.
 ---
@@ -241827,10 +241120,10 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.tls", suiteModuleName = "nupp.runtime.seam.tlssuite",}
 local CONTRACT = common.contract("host.tls", {
     globalName = "__nuppTls",
-    requiredFunctions = {"client", "dtlsClient", "dtlsServer", "kernelOffloadSupported", "server", "useBackend",},
+    requiredFunctions = {"client", "server",},
     -- ClientOptions and ServerOptions are type aliases, which erase; only the
     -- records are runtime members a loaded module can answer for.
-    requiredValues = {"Backend", "DatagramSession", "Session",},
+    requiredValues = {"Backend", "Session",},
     suiteModule = seam.suiteModuleName,
 })
 

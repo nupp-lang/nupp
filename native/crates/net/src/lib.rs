@@ -1,4 +1,4 @@
-//! Bounded asynchronous TCP transport for the native runtime.
+//! Bounded asynchronous stream and datagram transport for the native runtime.
 //!
 //! Tokio owns name resolution and socket I/O on Nupp's shared native executor.
 //! The caller owns opaque Rust objects and polls their state synchronously; no
@@ -10,16 +10,22 @@ use socket2::{Domain, Protocol, SockAddr, SockRef, Socket, TcpKeepalive, Type};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
-use tokio::net::{TcpListener as TokioTcpListener, TcpStream as TokioTcpStream};
+use tokio::net::{
+    TcpListener as TokioTcpListener, TcpStream as TokioTcpStream, UdpSocket as TokioUdpSocket,
+};
+#[cfg(unix)]
+use tokio::net::{UnixListener as TokioUnixListener, UnixStream as TokioUnixStream};
 use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
 pub const READ_CHUNK: usize = 64 * 1024;
 pub const RECEIVE_HIGH_WATER: usize = 1024 * 1024;
 pub const ACCEPT_QUEUE_MAX: usize = 1024;
+pub const DATAGRAM_QUEUE_MAX: usize = 256;
+pub const DATAGRAM_MAX: usize = 65_536;
 const DEFAULT_BACKLOG: u32 = 128;
 
 struct Activity {
@@ -132,23 +138,88 @@ struct StreamState {
 }
 
 struct StreamShared {
-    socket: Mutex<Option<Arc<TokioTcpStream>>>,
-    local: SocketAddr,
-    peer: SocketAddr,
+    socket: Mutex<Option<Arc<SocketKind>>>,
+    local: Option<SocketAddr>,
+    peer: Option<SocketAddr>,
     state: Mutex<StreamState>,
     read_space: Notify,
     cancel: CancellationToken,
 }
 
 /// One connected TCP byte stream.
-pub struct TcpStream {
+pub struct Stream {
     shared: Arc<StreamShared>,
 }
 
-impl TcpStream {
-    fn from_tokio(socket: TokioTcpStream) -> Result<Arc<Self>, String> {
+pub type TcpStream = Stream;
+
+enum SocketKind {
+    Tcp(Arc<TokioTcpStream>),
+    #[cfg(unix)]
+    Unix(Arc<TokioUnixStream>),
+}
+
+impl SocketKind {
+    async fn readable(&self) -> io::Result<()> {
+        match self {
+            Self::Tcp(socket) => socket.readable().await,
+            #[cfg(unix)]
+            Self::Unix(socket) => socket.readable().await,
+        }
+    }
+
+    async fn writable(&self) -> io::Result<()> {
+        match self {
+            Self::Tcp(socket) => socket.writable().await,
+            #[cfg(unix)]
+            Self::Unix(socket) => socket.writable().await,
+        }
+    }
+
+    fn try_read(&self, bytes: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Tcp(socket) => socket.try_read(bytes),
+            #[cfg(unix)]
+            Self::Unix(socket) => socket.try_read(bytes),
+        }
+    }
+
+    fn try_write(&self, bytes: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Tcp(socket) => socket.try_write(bytes),
+            #[cfg(unix)]
+            Self::Unix(socket) => socket.try_write(bytes),
+        }
+    }
+
+    fn shutdown_write(&self) -> io::Result<()> {
+        match self {
+            Self::Tcp(socket) => SockRef::from(socket.as_ref()).shutdown(std::net::Shutdown::Write),
+            #[cfg(unix)]
+            Self::Unix(socket) => {
+                SockRef::from(socket.as_ref()).shutdown(std::net::Shutdown::Write)
+            }
+        }
+    }
+}
+
+impl Stream {
+    fn from_tcp(socket: TokioTcpStream) -> Result<Arc<Self>, String> {
         let local = socket.local_addr().map_err(|error| error.to_string())?;
         let peer = socket.peer_addr().map_err(|error| error.to_string())?;
+        Self::from_socket(SocketKind::Tcp(Arc::new(socket)), Some(local), Some(peer))
+    }
+
+    #[cfg(unix)]
+    fn from_unix(socket: TokioUnixStream) -> Result<Arc<Self>, String> {
+        Self::from_socket(SocketKind::Unix(Arc::new(socket)), None, None)
+    }
+
+    fn from_socket(
+        socket: SocketKind,
+        local: Option<SocketAddr>,
+        peer: Option<SocketAddr>,
+    ) -> Result<Arc<Self>, String> {
         let socket = Arc::new(socket);
         let (writer, receiver) = mpsc::unbounded_channel();
         let shared = Arc::new(StreamShared {
@@ -299,6 +370,16 @@ impl TcpStream {
     }
 
     pub fn local_addr(&self) -> Result<SocketAddr, String> {
+        self.local_address()?
+            .ok_or_else(|| "the local stream has no internet address".to_owned())
+    }
+
+    pub fn peer_addr(&self) -> Result<SocketAddr, String> {
+        self.peer_address()?
+            .ok_or_else(|| "the local stream has no internet address".to_owned())
+    }
+
+    pub fn local_address(&self) -> Result<Option<SocketAddr>, String> {
         if self.snapshot().closed {
             Err("the network stream is closed".to_owned())
         } else {
@@ -306,7 +387,7 @@ impl TcpStream {
         }
     }
 
-    pub fn peer_addr(&self) -> Result<SocketAddr, String> {
+    pub fn peer_address(&self) -> Result<Option<SocketAddr>, String> {
         if self.snapshot().closed {
             Err("the network stream is closed".to_owned())
         } else {
@@ -315,11 +396,11 @@ impl TcpStream {
     }
 
     pub fn set_no_delay(&self, enabled: bool) -> Result<(), String> {
-        self.with_socket(|socket| socket.set_nodelay(enabled))
+        self.with_tcp(|socket| socket.set_nodelay(enabled))
     }
 
     pub fn set_keep_alive(&self, enabled: bool, delay: Duration) -> Result<(), String> {
-        self.with_socket(|socket| {
+        self.with_tcp(|socket| {
             let socket = SockRef::from(socket.as_ref());
             socket.set_keepalive(enabled)?;
             if enabled {
@@ -329,7 +410,7 @@ impl TcpStream {
         })
     }
 
-    fn with_socket<T>(
+    fn with_tcp<T>(
         &self,
         operation: impl FnOnce(&Arc<TokioTcpStream>) -> io::Result<T>,
     ) -> Result<T, String> {
@@ -340,7 +421,11 @@ impl TcpStream {
             .unwrap_or_else(|error| error.into_inner())
             .clone()
             .ok_or_else(|| "the network stream is closed".to_owned())?;
-        operation(&socket).map_err(|error| error.to_string())
+        match socket.as_ref() {
+            SocketKind::Tcp(socket) => operation(socket).map_err(|error| error.to_string()),
+            #[cfg(unix)]
+            SocketKind::Unix(_) => Err("the local connection has no such option".to_owned()),
+        }
     }
 
     pub fn close(&self) {
@@ -366,15 +451,46 @@ impl TcpStream {
             .take();
         activity().notify();
     }
+
+    /// Ends the sending half, keeps the read half alive long enough for the
+    /// peer to finish, and then releases the socket. TLS uses this after its
+    /// authenticated close alert has drained so unread peer records cannot turn
+    /// a clean close into a TCP reset.
+    pub fn close_gracefully(self: &Arc<Self>, timeout: Duration) {
+        if self.shutdown_write().is_err() {
+            self.close();
+            return;
+        }
+        let stream = Arc::clone(self);
+        let Ok(runtime) = nupp_native_runtime::executor() else {
+            stream.close();
+            return;
+        };
+        runtime.spawn(async move {
+            let deadline = tokio::time::Instant::now() + timeout;
+            loop {
+                let snapshot = stream.snapshot();
+                if snapshot.closed || snapshot.read_eof || snapshot.read_failed {
+                    break;
+                }
+                let now = tokio::time::Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                tokio::time::sleep((deadline - now).min(Duration::from_millis(5))).await;
+            }
+            stream.close();
+        });
+    }
 }
 
-impl Drop for TcpStream {
+impl Drop for Stream {
     fn drop(&mut self) {
         self.close();
     }
 }
 
-async fn read_stream(socket: Arc<TokioTcpStream>, shared: Arc<StreamShared>) {
+async fn read_stream(socket: Arc<SocketKind>, shared: Arc<StreamShared>) {
     let mut scratch = vec![0_u8; READ_CHUNK];
     loop {
         let allowance = {
@@ -444,7 +560,7 @@ fn finish_read(shared: &StreamShared, error: Option<String>, eof: bool) {
 }
 
 async fn write_stream(
-    socket: Arc<TokioTcpStream>,
+    socket: Arc<SocketKind>,
     mut receiver: mpsc::UnboundedReceiver<WriteCommand>,
     shared: Arc<StreamShared>,
 ) {
@@ -464,7 +580,7 @@ async fn write_stream(
                 activity().notify();
             }
             WriteCommand::Shutdown => {
-                let result = SockRef::from(socket.as_ref()).shutdown(std::net::Shutdown::Write);
+                let result = socket.shutdown_write();
                 let mut state = shared
                     .state
                     .lock()
@@ -483,7 +599,7 @@ async fn write_stream(
 }
 
 async fn write_all(
-    socket: &TokioTcpStream,
+    socket: &SocketKind,
     cancel: &CancellationToken,
     bytes: &[u8],
 ) -> io::Result<()> {
@@ -520,7 +636,7 @@ fn fail_writer(shared: &StreamShared, error: io::Error) {
 }
 
 struct ListenerState {
-    queue: AcceptQueue<Arc<TcpStream>>,
+    queue: AcceptQueue<Arc<Stream>>,
     error: Option<String>,
     closed: bool,
 }
@@ -557,29 +673,39 @@ impl<T> AcceptQueue<T> {
     fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
         self.entries.drain(..)
     }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
 }
 
 struct ListenerShared {
     state: Mutex<ListenerState>,
     queue_space: Notify,
     cancel: CancellationToken,
-    local: SocketAddr,
+    local: Option<SocketAddr>,
 }
 
-pub struct TcpListener {
+pub struct Listener {
     shared: Arc<ListenerShared>,
 }
 
-impl TcpListener {
+pub type TcpListener = Listener;
+
+impl Listener {
     pub fn port(&self) -> u16 {
-        self.shared.local.port()
+        self.shared.local.map_or(0, |address| address.port())
     }
 
-    pub fn local_addr(&self) -> SocketAddr {
+    pub fn local_addr(&self) -> Option<SocketAddr> {
         self.shared.local
     }
 
-    pub fn try_accept(&self) -> Result<Option<Arc<TcpStream>>, String> {
+    pub fn is_path(&self) -> bool {
+        self.shared.local.is_none()
+    }
+
+    pub fn try_accept(&self) -> Result<Option<Arc<Stream>>, String> {
         let mut state = self
             .shared
             .state
@@ -631,7 +757,7 @@ impl TcpListener {
     }
 }
 
-impl Drop for TcpListener {
+impl Drop for Listener {
     fn drop(&mut self) {
         self.close();
     }
@@ -642,7 +768,7 @@ pub fn listen_tcp(
     port: u16,
     backlog: u32,
     reuse_port: bool,
-) -> Result<Arc<TcpListener>, String> {
+) -> Result<Arc<Listener>, String> {
     let host: IpAddr = host
         .parse()
         .map_err(|_| format!("{host} is not an address to bind"))?;
@@ -690,13 +816,61 @@ pub fn listen_tcp(
         }),
         queue_space: Notify::new(),
         cancel: CancellationToken::new(),
-        local,
+        local: Some(local),
     });
-    runtime.spawn(accept_connections(listener, Arc::clone(&shared)));
-    Ok(Arc::new(TcpListener { shared }))
+    runtime.spawn(accept_tcp_connections(listener, Arc::clone(&shared)));
+    Ok(Arc::new(Listener { shared }))
 }
 
-async fn accept_connections(listener: TokioTcpListener, shared: Arc<ListenerShared>) {
+#[cfg(unix)]
+pub fn listen_path(path: &str, backlog: u32) -> Result<Arc<Listener>, String> {
+    if path.is_empty() {
+        return Err("listening needs a path".to_owned());
+    }
+    let backlog = if backlog == 0 {
+        DEFAULT_BACKLOG
+    } else {
+        backlog
+    };
+    let backlog = i32::try_from(backlog).map_err(|_| "the listen backlog is too large")?;
+    let socket =
+        Socket::new(Domain::UNIX, Type::STREAM, None).map_err(|error| error.to_string())?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|error| error.to_string())?;
+    let address = SockAddr::unix(path).map_err(|error| error.to_string())?;
+    socket.bind(&address).map_err(|error| error.to_string())?;
+    socket.listen(backlog).map_err(|error| error.to_string())?;
+    let standard: std::os::unix::net::UnixListener = socket.into();
+    let runtime = nupp_native_runtime::executor().map_err(str::to_owned)?;
+    let listener = {
+        let _guard = runtime.enter();
+        TokioUnixListener::from_std(standard).map_err(|error| error.to_string())?
+    };
+    let shared = new_listener_shared(None);
+    runtime.spawn(accept_unix_connections(listener, Arc::clone(&shared)));
+    Ok(Arc::new(Listener { shared }))
+}
+
+#[cfg(not(unix))]
+pub fn listen_path(_path: &str, _backlog: u32) -> Result<Arc<Listener>, String> {
+    Err("path network endpoints are unavailable on this platform".to_owned())
+}
+
+fn new_listener_shared(local: Option<SocketAddr>) -> Arc<ListenerShared> {
+    Arc::new(ListenerShared {
+        state: Mutex::new(ListenerState {
+            queue: AcceptQueue::new(ACCEPT_QUEUE_MAX),
+            error: None,
+            closed: false,
+        }),
+        queue_space: Notify::new(),
+        cancel: CancellationToken::new(),
+        local,
+    })
+}
+
+async fn wait_for_accept_space(shared: &ListenerShared) -> bool {
     loop {
         let has_room = {
             let state = shared
@@ -704,39 +878,85 @@ async fn accept_connections(listener: TokioTcpListener, shared: Arc<ListenerShar
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             if state.closed {
-                return;
+                return false;
             }
             state.queue.len() < ACCEPT_QUEUE_MAX
         };
-        if !has_room {
-            tokio::select! {
-                _ = shared.queue_space.notified() => continue,
-                _ = shared.cancel.cancelled() => return,
-            }
+        if has_room {
+            return true;
+        }
+        tokio::select! {
+            _ = shared.queue_space.notified() => {}
+            _ = shared.cancel.cancelled() => return false,
+        }
+    }
+}
+
+fn enqueue_accepted(shared: &ListenerShared, stream: Arc<Stream>) -> bool {
+    let mut state = shared
+        .state
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if state.closed {
+        drop(state);
+        stream.close();
+        return false;
+    }
+    if let Err(stream) = state.queue.push(stream) {
+        drop(state);
+        stream.close();
+        return true;
+    }
+    drop(state);
+    activity().notify();
+    true
+}
+
+async fn accept_tcp_connections(listener: TokioTcpListener, shared: Arc<ListenerShared>) {
+    loop {
+        if !wait_for_accept_space(&shared).await {
+            return;
         }
         let accepted = tokio::select! {
             accepted = listener.accept() => accepted,
             _ = shared.cancel.cancelled() => return,
         };
         match accepted {
-            Ok((socket, _)) => match TcpStream::from_tokio(socket) {
+            Ok((socket, _)) => match Stream::from_tcp(socket) {
                 Ok(stream) => {
-                    let mut state = shared
-                        .state
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner());
-                    if state.closed {
-                        drop(state);
-                        stream.close();
+                    if !enqueue_accepted(&shared, stream) {
                         return;
                     }
-                    if let Err(stream) = state.queue.push(stream) {
-                        drop(state);
-                        stream.close();
-                        continue;
+                }
+                Err(error) => {
+                    set_listener_error(&shared, error);
+                    return;
+                }
+            },
+            Err(error) => {
+                set_listener_error(&shared, error.to_string());
+                return;
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+async fn accept_unix_connections(listener: TokioUnixListener, shared: Arc<ListenerShared>) {
+    loop {
+        if !wait_for_accept_space(&shared).await {
+            return;
+        }
+        let accepted = tokio::select! {
+            accepted = listener.accept() => accepted,
+            _ = shared.cancel.cancelled() => return,
+        };
+        match accepted {
+            Ok((socket, _)) => match Stream::from_unix(socket) {
+                Ok(stream) => {
+                    if !enqueue_accepted(&shared, stream) {
+                        return;
                     }
-                    drop(state);
-                    activity().notify();
                 }
                 Err(error) => {
                     set_listener_error(&shared, error);
@@ -765,7 +985,7 @@ fn set_listener_error(shared: &ListenerShared, error: String) {
 
 enum ConnectState {
     Pending,
-    Connected(Option<Arc<TcpStream>>),
+    Connected(Option<Arc<Stream>>),
     Failed(String),
 }
 
@@ -776,15 +996,17 @@ struct ConnectShared {
 
 pub enum ConnectPoll {
     Pending,
-    Connected(Arc<TcpStream>),
+    Connected(Arc<Stream>),
     Failed(String),
 }
 
-pub struct TcpConnect {
+pub struct Connect {
     shared: Arc<ConnectShared>,
 }
 
-impl TcpConnect {
+pub type TcpConnect = Connect;
+
+impl Connect {
     pub fn poll(&self) -> ConnectPoll {
         let mut state = self
             .shared
@@ -838,13 +1060,13 @@ impl TcpConnect {
     }
 }
 
-impl Drop for TcpConnect {
+impl Drop for Connect {
     fn drop(&mut self) {
         self.cancel();
     }
 }
 
-pub fn connect_tcp(host: &str, port: u16, timeout: Duration) -> Result<Arc<TcpConnect>, String> {
+pub fn connect_tcp(host: &str, port: u16, timeout: Duration) -> Result<Arc<Connect>, String> {
     if host.is_empty() {
         return Err("connecting needs a host".to_owned());
     }
@@ -859,7 +1081,7 @@ pub fn connect_tcp(host: &str, port: u16, timeout: Duration) -> Result<Arc<TcpCo
         timeout,
         Arc::clone(&shared),
     ));
-    Ok(Arc::new(TcpConnect { shared }))
+    Ok(Arc::new(Connect { shared }))
 }
 
 async fn resolve_and_connect(
@@ -879,9 +1101,65 @@ async fn resolve_and_connect(
         _ = shared.cancel.cancelled() => return,
     };
     let result = match result {
-        Ok(socket) => TcpStream::from_tokio(socket),
+        Ok(socket) => Stream::from_tcp(socket),
         Err(error) => Err(error),
     };
+    let mut state = shared
+        .state
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if !matches!(*state, ConnectState::Pending) {
+        if let Ok(stream) = result {
+            drop(state);
+            stream.close();
+        }
+        return;
+    }
+    *state = match result {
+        Ok(stream) => ConnectState::Connected(Some(stream)),
+        Err(error) => ConnectState::Failed(error),
+    };
+    drop(state);
+    activity().notify();
+}
+
+#[cfg(unix)]
+pub fn connect_path(path: &str, timeout: Duration) -> Result<Arc<Connect>, String> {
+    if path.is_empty() {
+        return Err("connecting needs a path".to_owned());
+    }
+    let runtime = nupp_native_runtime::executor().map_err(str::to_owned)?;
+    let shared = Arc::new(ConnectShared {
+        state: Mutex::new(ConnectState::Pending),
+        cancel: CancellationToken::new(),
+    });
+    runtime.spawn(resolve_path_connect(
+        path.to_owned(),
+        timeout,
+        Arc::clone(&shared),
+    ));
+    Ok(Arc::new(Connect { shared }))
+}
+
+#[cfg(not(unix))]
+pub fn connect_path(_path: &str, _timeout: Duration) -> Result<Arc<Connect>, String> {
+    Err("path network endpoints are unavailable on this platform".to_owned())
+}
+
+#[cfg(unix)]
+async fn resolve_path_connect(path: String, timeout: Duration, shared: Arc<ConnectShared>) {
+    let result = tokio::select! {
+        result = before_connect_deadline(timeout, TokioUnixStream::connect(path)) => result,
+        _ = shared.cancel.cancelled() => return,
+    };
+    let result = match result {
+        Ok(socket) => Stream::from_unix(socket),
+        Err(error) => Err(error),
+    };
+    finish_connect(&shared, result);
+}
+
+fn finish_connect(shared: &ConnectShared, result: Result<Arc<Stream>, String>) {
     let mut state = shared
         .state
         .lock()
@@ -936,9 +1214,405 @@ where
     }))
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DatagramMessage {
+    pub bytes: Vec<u8>,
+    pub address: SocketAddr,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DatagramRead {
+    Message(DatagramMessage),
+    Pending,
+    Failed(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DatagramWrite {
+    Sent(usize),
+    Pending,
+    Closed,
+    Failed(String),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MulticastInterface {
+    Default,
+    V4(Ipv4Addr),
+    V6(u32),
+}
+
+struct QueuedDatagram {
+    bytes: Vec<u8>,
+    address: SocketAddr,
+}
+
+struct DatagramState {
+    queue: AcceptQueue<QueuedDatagram>,
+    error: Option<String>,
+    closed: bool,
+}
+
+struct DatagramShared {
+    socket: Mutex<Option<Arc<TokioUdpSocket>>>,
+    control: Mutex<Option<Arc<std::net::UdpSocket>>>,
+    local: SocketAddr,
+    state: Mutex<DatagramState>,
+    queue_space: Notify,
+    cancel: CancellationToken,
+}
+
+/// One bound UDP socket with a bounded message queue.
+pub struct Datagram {
+    shared: Arc<DatagramShared>,
+}
+
+impl Datagram {
+    pub fn port(&self) -> u16 {
+        self.shared.local.port()
+    }
+
+    pub fn local_addr(&self) -> Result<SocketAddr, String> {
+        if self.is_closed() {
+            Err("the datagram socket is closed".to_owned())
+        } else {
+            Ok(self.shared.local)
+        }
+    }
+
+    pub fn queued(&self) -> usize {
+        self.shared
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .queue
+            .len()
+    }
+
+    pub fn try_receive(&self, maximum: usize) -> DatagramRead {
+        if maximum == 0 {
+            return DatagramRead::Failed(
+                "a datagram receive needs room for at least one byte".to_owned(),
+            );
+        }
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if state.closed {
+            return DatagramRead::Failed("the datagram socket is closed".to_owned());
+        }
+        if let Some(message) = state.queue.pop() {
+            drop(state);
+            self.shared.queue_space.notify_one();
+            let taking = maximum.min(message.bytes.len());
+            return DatagramRead::Message(DatagramMessage {
+                bytes: message.bytes[..taking].to_vec(),
+                address: message.address,
+                truncated: taking < message.bytes.len(),
+            });
+        }
+        if let Some(error) = &state.error {
+            DatagramRead::Failed(error.clone())
+        } else {
+            DatagramRead::Pending
+        }
+    }
+
+    pub fn try_send_to(&self, address: SocketAddr, bytes: &[u8]) -> DatagramWrite {
+        let socket = match self.control_socket() {
+            Ok(socket) => socket,
+            Err(_) => return DatagramWrite::Closed,
+        };
+        match socket.send_to(bytes, address) {
+            Ok(sent) if sent == bytes.len() => DatagramWrite::Sent(sent),
+            Ok(sent) => DatagramWrite::Failed(format!(
+                "the datagram socket sent {sent} of {} bytes",
+                bytes.len()
+            )),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => DatagramWrite::Pending,
+            Err(error) => DatagramWrite::Failed(error.to_string()),
+        }
+    }
+
+    pub fn set_broadcast(&self, enabled: bool) -> Result<(), String> {
+        self.with_control(|socket| SockRef::from(socket.as_ref()).set_broadcast(enabled))
+    }
+
+    pub fn set_multicast_ttl(&self, ttl: u32) -> Result<(), String> {
+        if !(1..=255).contains(&ttl) {
+            return Err("a multicast hop limit must be 1 through 255".to_owned());
+        }
+        self.with_control(|socket| {
+            let socket = SockRef::from(socket.as_ref());
+            match self.shared.local.ip() {
+                IpAddr::V4(_) => socket.set_multicast_ttl_v4(ttl),
+                IpAddr::V6(_) => socket.set_multicast_hops_v6(ttl),
+            }
+        })
+    }
+
+    pub fn set_multicast_loop(&self, enabled: bool) -> Result<(), String> {
+        self.with_control(|socket| {
+            let socket = SockRef::from(socket.as_ref());
+            match self.shared.local.ip() {
+                IpAddr::V4(_) => socket.set_multicast_loop_v4(enabled),
+                IpAddr::V6(_) => socket.set_multicast_loop_v6(enabled),
+            }
+        })
+    }
+
+    pub fn join_multicast(
+        &self,
+        group: IpAddr,
+        interface: MulticastInterface,
+    ) -> Result<(), String> {
+        self.membership(group, interface, true)
+    }
+
+    pub fn leave_multicast(
+        &self,
+        group: IpAddr,
+        interface: MulticastInterface,
+    ) -> Result<(), String> {
+        self.membership(group, interface, false)
+    }
+
+    fn membership(
+        &self,
+        group: IpAddr,
+        interface: MulticastInterface,
+        join: bool,
+    ) -> Result<(), String> {
+        if !group.is_multicast() {
+            return Err("the multicast group is not a multicast address".to_owned());
+        }
+        self.with_control(|socket| {
+            let socket = SockRef::from(socket.as_ref());
+            match (group, interface) {
+                (IpAddr::V4(group), MulticastInterface::Default) => {
+                    membership_v4(&socket, group, Ipv4Addr::UNSPECIFIED, join)
+                }
+                (IpAddr::V4(group), MulticastInterface::V4(interface)) => {
+                    membership_v4(&socket, group, interface, join)
+                }
+                (IpAddr::V6(group), MulticastInterface::Default) => {
+                    membership_v6(&socket, group, 0, join)
+                }
+                (IpAddr::V6(group), MulticastInterface::V6(interface)) => {
+                    membership_v6(&socket, group, interface, join)
+                }
+                _ => Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "the multicast interface does not match the group family",
+                )),
+            }
+        })
+    }
+
+    fn control_socket(&self) -> Result<Arc<std::net::UdpSocket>, String> {
+        self.shared
+            .control
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+            .ok_or_else(|| "the datagram socket is closed".to_owned())
+    }
+
+    fn with_control<T>(
+        &self,
+        operation: impl FnOnce(&Arc<std::net::UdpSocket>) -> io::Result<T>,
+    ) -> Result<T, String> {
+        let socket = self.control_socket()?;
+        operation(&socket).map_err(|error| error.to_string())
+    }
+
+    fn is_closed(&self) -> bool {
+        self.shared
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .closed
+    }
+
+    pub fn close(&self) {
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if state.closed {
+            return;
+        }
+        state.closed = true;
+        state.queue.clear();
+        drop(state);
+        self.shared.cancel.cancel();
+        self.shared.queue_space.notify_waiters();
+        self.shared
+            .socket
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        self.shared
+            .control
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        activity().notify();
+    }
+}
+
+impl Drop for Datagram {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+fn membership_v4(
+    socket: &SockRef<'_>,
+    group: Ipv4Addr,
+    interface: Ipv4Addr,
+    join: bool,
+) -> io::Result<()> {
+    if join {
+        socket.join_multicast_v4(&group, &interface)
+    } else {
+        socket.leave_multicast_v4(&group, &interface)
+    }
+}
+
+fn membership_v6(
+    socket: &SockRef<'_>,
+    group: Ipv6Addr,
+    interface: u32,
+    join: bool,
+) -> io::Result<()> {
+    if join {
+        socket.join_multicast_v6(&group, interface)
+    } else {
+        socket.leave_multicast_v6(&group, interface)
+    }
+}
+
+pub fn bind_datagram(host: &str, port: u16, reuse_port: bool) -> Result<Arc<Datagram>, String> {
+    let host: IpAddr = host
+        .parse()
+        .map_err(|_| format!("{host} is not an address to bind"))?;
+    let address = SocketAddr::new(host, port);
+    let domain = if address.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let socket =
+        Socket::new(domain, Type::DGRAM, Some(Protocol::UDP)).map_err(|error| error.to_string())?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|error| error.to_string())?;
+    if reuse_port {
+        #[cfg(target_os = "linux")]
+        socket
+            .set_reuse_port(true)
+            .map_err(|error| error.to_string())?;
+        #[cfg(not(target_os = "linux"))]
+        return Err("load-balancing port reuse is unavailable on this platform".to_owned());
+    }
+    socket
+        .bind(&SockAddr::from(address))
+        .map_err(|error| error.to_string())?;
+    let standard: std::net::UdpSocket = socket.into();
+    let local = standard.local_addr().map_err(|error| error.to_string())?;
+    let control = Arc::new(standard.try_clone().map_err(|error| error.to_string())?);
+    let runtime = nupp_native_runtime::executor().map_err(str::to_owned)?;
+    let socket = {
+        let _guard = runtime.enter();
+        TokioUdpSocket::from_std(standard).map_err(|error| error.to_string())?
+    };
+    let socket = Arc::new(socket);
+    let shared = Arc::new(DatagramShared {
+        socket: Mutex::new(Some(Arc::clone(&socket))),
+        control: Mutex::new(Some(control)),
+        local,
+        state: Mutex::new(DatagramState {
+            queue: AcceptQueue::new(DATAGRAM_QUEUE_MAX),
+            error: None,
+            closed: false,
+        }),
+        queue_space: Notify::new(),
+        cancel: CancellationToken::new(),
+    });
+    runtime.spawn(receive_datagrams(socket, Arc::clone(&shared)));
+    Ok(Arc::new(Datagram { shared }))
+}
+
+async fn receive_datagrams(socket: Arc<TokioUdpSocket>, shared: Arc<DatagramShared>) {
+    let mut bytes = vec![0_u8; DATAGRAM_MAX];
+    loop {
+        let has_room = {
+            let state = shared
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if state.closed {
+                return;
+            }
+            state.queue.len() < DATAGRAM_QUEUE_MAX
+        };
+        if !has_room {
+            tokio::select! {
+                _ = shared.queue_space.notified() => continue,
+                _ = shared.cancel.cancelled() => return,
+            }
+        }
+        let received = tokio::select! {
+            received = socket.recv_from(&mut bytes) => received,
+            _ = shared.cancel.cancelled() => return,
+        };
+        match received {
+            Ok((length, address)) => {
+                let mut state = shared
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if state.closed {
+                    return;
+                }
+                if state.queue.len() == DATAGRAM_QUEUE_MAX {
+                    continue;
+                }
+                let message = QueuedDatagram {
+                    bytes: bytes[..length].to_vec(),
+                    address,
+                };
+                if state.queue.push(message).is_err() {
+                    continue;
+                }
+                drop(state);
+                activity().notify();
+            }
+            Err(error) => {
+                let mut state = shared
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                if !state.closed {
+                    state.error = Some(error.to_string());
+                }
+                drop(state);
+                activity().notify();
+                return;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::MutexGuard;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Instant;
 
@@ -953,7 +1627,12 @@ mod tests {
         }
     }
 
-    fn connected_pair() -> (Arc<TcpStream>, Arc<TcpStream>) {
+    fn exclusive_network() -> MutexGuard<'static, ()> {
+        static NETWORK: Mutex<()> = Mutex::new(());
+        NETWORK.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn connected_pair() -> (Arc<Stream>, Arc<Stream>) {
         let listener = listen_tcp("127.0.0.1", 0, 8, false).unwrap();
         let connect = connect_tcp("localhost", listener.port(), Duration::from_secs(2)).unwrap();
         let mut client = None;
@@ -976,6 +1655,7 @@ mod tests {
 
     #[test]
     fn listener_connect_and_stream_round_trip() {
+        let _network = exclusive_network();
         let (client, server) = connected_pair();
         assert!(client.local_addr().unwrap().ip().is_loopback());
         assert!(client.peer_addr().unwrap().ip().is_loopback());
@@ -999,6 +1679,7 @@ mod tests {
 
     #[test]
     fn ipv6_listener_and_connect_round_trip_when_loopback_is_available() {
+        let _network = exclusive_network();
         let listener = match listen_tcp("::1", 0, 8, false) {
             Ok(listener) => listener,
             Err(error) if ipv6_loopback_unavailable(&error) => return,
@@ -1046,6 +1727,7 @@ mod tests {
 
     #[test]
     fn receive_buffer_never_crosses_high_water() {
+        let _network = exclusive_network();
         let (client, server) = connected_pair();
         let payload = vec![0x5a; RECEIVE_HIGH_WATER + READ_CHUNK * 4];
         assert_eq!(client.try_write(&payload), Write::Accepted(payload.len()));
@@ -1062,6 +1744,7 @@ mod tests {
 
     #[test]
     fn shutdown_write_preserves_the_read_half() {
+        let _network = exclusive_network();
         let (client, server) = connected_pair();
         assert_eq!(client.try_write(b"request"), Write::Accepted(7));
         client.shutdown_write().unwrap();
@@ -1092,6 +1775,7 @@ mod tests {
 
     #[test]
     fn socket_options_are_applied_to_open_streams() {
+        let _network = exclusive_network();
         let (client, _) = connected_pair();
         client.set_no_delay(true).unwrap();
         client
@@ -1188,6 +1872,188 @@ mod tests {
         assert_eq!(queue.pop(), Some(0));
         queue.push(ACCEPT_QUEUE_MAX).unwrap();
         assert_eq!(queue.len(), ACCEPT_QUEUE_MAX);
+    }
+
+    #[test]
+    fn datagram_queue_refuses_entries_past_its_bound() {
+        let mut queue = AcceptQueue::new(DATAGRAM_QUEUE_MAX);
+        for entry in 0..DATAGRAM_QUEUE_MAX {
+            queue.push(entry).unwrap();
+        }
+        assert_eq!(queue.len(), DATAGRAM_QUEUE_MAX);
+        assert_eq!(queue.push(DATAGRAM_QUEUE_MAX), Err(DATAGRAM_QUEUE_MAX));
+        assert_eq!(queue.pop(), Some(0));
+        queue.push(DATAGRAM_QUEUE_MAX).unwrap();
+        assert_eq!(queue.len(), DATAGRAM_QUEUE_MAX);
+    }
+
+    #[cfg(unix)]
+    fn socket_path(label: &str) -> std::path::PathBuf {
+        static NEXT_PATH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = NEXT_PATH.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "nupp-rust-net-{label}-{}-{sequence}.sock",
+            std::process::id()
+        ))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_path_stream_round_trip_and_half_close() {
+        let _network = exclusive_network();
+        let path = socket_path("stream");
+        let _ = std::fs::remove_file(&path);
+        let listener = listen_path(path.to_str().unwrap(), 8).unwrap();
+        assert!(listener.is_path());
+        assert_eq!(listener.port(), 0);
+        let connect = connect_path(path.to_str().unwrap(), Duration::from_secs(2)).unwrap();
+        let mut client = None;
+        let mut server = None;
+        wait_until(|| {
+            if client.is_none() {
+                match connect.poll() {
+                    ConnectPoll::Pending => {}
+                    ConnectPoll::Connected(stream) => client = Some(stream),
+                    ConnectPoll::Failed(error) => panic!("path connect failed: {error}"),
+                }
+            }
+            if server.is_none() {
+                server = listener.try_accept().unwrap();
+            }
+            client.is_some() && server.is_some()
+        });
+        let client = client.unwrap();
+        let server = server.unwrap();
+        assert_eq!(client.local_address().unwrap(), None);
+        assert_eq!(server.peer_address().unwrap(), None);
+        assert!(client.set_no_delay(true).is_err());
+        assert_eq!(client.try_write(b"local"), Write::Accepted(5));
+        let mut arrived = None;
+        wait_until(|| match server.try_read(64) {
+            Read::Data(bytes) => {
+                arrived = Some(bytes);
+                true
+            }
+            Read::Pending => false,
+            other => panic!("unexpected path read: {other:?}"),
+        });
+        assert_eq!(arrived.unwrap(), b"local");
+        client.shutdown_write().unwrap();
+        wait_until(|| matches!(server.try_read(1), Read::Eof));
+        assert_eq!(server.try_write(b"reply"), Write::Accepted(5));
+        let mut reply = None;
+        wait_until(|| match client.try_read(64) {
+            Read::Data(bytes) => {
+                reply = Some(bytes);
+                true
+            }
+            Read::Pending => false,
+            other => panic!("unexpected path reply: {other:?}"),
+        });
+        assert_eq!(reply.unwrap(), b"reply");
+        server.close();
+        client.close();
+        listener.close();
+        assert!(path.exists(), "closing must not unlink a caller-owned path");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn absent_unix_path_connect_reports_failure() {
+        let _network = exclusive_network();
+        let path = socket_path("absent");
+        let _ = std::fs::remove_file(&path);
+        let connect = connect_path(path.to_str().unwrap(), Duration::from_secs(1)).unwrap();
+        wait_until(|| connect.ready());
+        assert!(matches!(connect.poll(), ConnectPoll::Failed(_)));
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn path_endpoints_are_explicitly_unsupported() {
+        assert!(listen_path("local", 8).unwrap_err().contains("unavailable"));
+        assert!(
+            connect_path("local", Duration::from_secs(1))
+                .unwrap_err()
+                .contains("unavailable")
+        );
+    }
+
+    fn datagram_pair() -> (Arc<Datagram>, Arc<Datagram>) {
+        let first = bind_datagram("127.0.0.1", 0, false).unwrap();
+        let second = bind_datagram("127.0.0.1", 0, false).unwrap();
+        assert_ne!(first.port(), second.port());
+        (first, second)
+    }
+
+    #[test]
+    fn udp_preserves_empty_messages_boundaries_and_truncation() {
+        let _network = exclusive_network();
+        let (first, second) = datagram_pair();
+        let destination = second.local_addr().unwrap();
+        assert_eq!(first.try_send_to(destination, b""), DatagramWrite::Sent(0));
+        assert_eq!(
+            first.try_send_to(destination, b"whole"),
+            DatagramWrite::Sent(5)
+        );
+        assert_eq!(
+            first.try_send_to(destination, &vec![b'x'; 600]),
+            DatagramWrite::Sent(600)
+        );
+        let mut messages = Vec::new();
+        wait_until(|| {
+            match second.try_receive(if messages.len() == 2 { 100 } else { 64 }) {
+                DatagramRead::Message(message) => messages.push(message),
+                DatagramRead::Pending => {}
+                DatagramRead::Failed(error) => panic!("UDP receive failed: {error}"),
+            }
+            messages.len() == 3
+        });
+        assert!(messages[0].bytes.is_empty());
+        assert!(!messages[0].truncated);
+        assert_eq!(messages[1].bytes, b"whole");
+        assert!(!messages[1].truncated);
+        assert_eq!(messages[2].bytes, vec![b'x'; 100]);
+        assert!(messages[2].truncated);
+        assert_eq!(messages[0].address.port(), first.port());
+    }
+
+    #[test]
+    fn udp_options_validate_family_and_closed_state() {
+        let _network = exclusive_network();
+        let socket = bind_datagram("0.0.0.0", 0, false).unwrap();
+        socket.set_broadcast(true).unwrap();
+        socket.set_multicast_ttl(1).unwrap();
+        socket.set_multicast_loop(false).unwrap();
+        assert!(socket.set_multicast_ttl(0).is_err());
+        assert!(
+            socket
+                .join_multicast(
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                    MulticastInterface::Default,
+                )
+                .is_err()
+        );
+        assert!(
+            socket
+                .join_multicast(
+                    IpAddr::V4(Ipv4Addr::new(239, 255, 42, 99)),
+                    MulticastInterface::V6(0),
+                )
+                .is_err()
+        );
+        socket.close();
+        socket.close();
+        assert_eq!(
+            socket.try_receive(64),
+            DatagramRead::Failed("the datagram socket is closed".to_owned())
+        );
+        assert_eq!(
+            socket.try_send_to(SocketAddr::from(([127, 0, 0, 1], 9)), b"x"),
+            DatagramWrite::Closed
+        );
+        assert!(socket.set_broadcast(false).is_err());
     }
 
     #[test]

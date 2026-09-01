@@ -41,28 +41,6 @@ LUAUTF8_URL='https://github.com/starwing/luautf8/archive/refs/tags/${LUAUTF8_VER
 LUAUTF8_MARKER=lutf8lib.c
 LUAUTF8_DIRECTORY='luautf8-${LUAUTF8_VERSION}'
 
-# The long-term-support line, and the release tarball rather than the GitHub
-# archive: only the release carries the framework the build reads.
-MBEDTLS_VERSION=3.6.2
-MBEDTLS_SHA256=8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca
-MBEDTLS_URL='https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${MBEDTLS_VERSION}/mbedtls-${MBEDTLS_VERSION}.tar.bz2'
-MBEDTLS_SUFFIX=.tar.bz2
-MBEDTLS_MARKER=Makefile
-MBEDTLS_DIRECTORY='mbedtls-${MBEDTLS_VERSION}'
-
-# The remaining C network provider's sockets and event loop on Linux, macOS and
-# Windows. Node.js runs on it, which is the reason to trust its Windows half
-# more than a platform layer written here and rarely run.
-#
-# Built from a source list rather than through its own build system: libuv needs
-# autoconf or CMake, and it has no generated configuration header, so naming the
-# files it compiles on each platform is cheaper than asking for either.
-LIBUV_VERSION=1.52.1
-LIBUV_SHA256=478baf2599bfbc882c355288c9cb6f92e0e7dda435fa04031fa5b607cf3f414c
-LIBUV_URL='https://github.com/libuv/libuv/archive/refs/tags/v${LIBUV_VERSION}.tar.gz'
-LIBUV_MARKER=include/uv.h
-LIBUV_DIRECTORY='libuv-${LIBUV_VERSION}'
-
 # The headless GPU conformance device. CI builds this exact Vulkan ICD rather
 # than accepting whichever physical adapter a hosted runner happens to expose.
 SWIFTSHADER_REV=694585a05946e1ed49b6bd577ca6537cbb57f025

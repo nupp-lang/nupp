@@ -62,7 +62,7 @@ end
 --- Where the opened library is kept, which is not this module.
 ---
 --- LuaJIT collects an `ffi.load` handle like anything else, and closing it
---- closes the library. Native functions and libuv callbacks live in that
+--- closes the library. Native functions and callbacks live in that
 --- mapping, so the provider handle must remain reachable for as long as any
 --- module using those functions can run.
 ---

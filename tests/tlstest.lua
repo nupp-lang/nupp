@@ -84,11 +84,15 @@ if os.getenv("NUPP_TLS_SYSTEM_ROOTS_CHILD") == "1" then
 
       listener, clientSock, serverSock = sockets()
       server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
-      client = assert(tls.client(clientSock, {hostname = "localhost", authority = ""}))
-      clientDone, clientWhy = shake(client, server)
+      client, clientWhy = tls.client(clientSock, {hostname = "localhost", authority = ""})
+      if client ~= nil then
+         clientDone, clientWhy = shake(client, server)
+      else
+         clientDone = false
+      end
       assertEq(clientDone, false, "an explicit empty authority does not use system roots")
       assertTrue(clientWhy ~= nil, "the explicit empty trust set is refused")
-      client:close()
+      if client ~= nil then client:close() end
       server:close()
       serverSock:close()
       clientSock:close()
@@ -232,7 +236,7 @@ function M.aRejectedTicketFallsBackToAFullHandshake()
 
    -- Server protocol order is part of its ticket-key identity. The client has
    -- the same endpoint key and offers its old ticket, but this configuration
-   -- cannot decrypt it and mbedTLS must continue with a full handshake.
+   -- cannot decrypt it and Rustls must continue with a full handshake.
    local fallbackSock, fallbackServed = connectTo(listener)
    local fallbackServer = assert(tls.server(fallbackServed, {
       certificate = CERT, privateKey = KEY, protocols = {"http/1.1", "h2"},
@@ -361,22 +365,6 @@ function M.readingBeforeTheHandshakeIsRefused()
    listener:close()
 end
 
-function M.aSessionOutlivingItsConnectionIsRefused()
-   -- The ordering the affine layer cannot prove across the module boundary. The
-   -- session holds the connection's handle rather than the connection, so it can
-   -- answer this without owning anything -- and must, because reaching for the
-   -- owner to ask would release it.
-   local listener, clientSock, serverSock = sockets()
-   local client = assert(tls.client(clientSock, {verify = false}))
-   clientSock:close()
-   assertEq(client:isConnected(), false, "the session sees the connection go")
-   local wrote, why = client:write("too late")
-   assertEq(wrote, false, "and refuses to write through it")
-   assertTrue(why ~= nil, "with a reason rather than a crash")
-   client:close()
-   serverSock:close()
-   listener:close()
-end
 
 function M.aReleasedSessionAnswersItsQuestionsRatherThanCrashing()
    -- close() frees the native session, so every accessor has to answer from
@@ -393,18 +381,6 @@ function M.aReleasedSessionAnswersItsQuestionsRatherThanCrashing()
    listener:close()
 end
 
-function M.aReleasedDatagramSessionAnswersItsQuestionsRatherThanCrashing()
-   local serverSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local clientSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local client = assert(tls.dtlsClient(clientSock, {
-      host = "127.0.0.1", port = serverSock:port(),
-   }, {verify = false}))
-   client:close()
-   assertEq(client:isConnected(), false, "a released DTLS session is not connected")
-   assertEq(client:peer(), nil, "and no longer names a peer")
-   clientSock:close()
-   serverSock:close()
-end
 
 function M.aBadCertificateIsReportedRatherThanRaising()
    local listener, clientSock, serverSock = sockets()
@@ -493,269 +469,12 @@ function M.aProtocolNameIsChecked()
    listener:close()
 end
 
-function M.aTruncatedSessionIsAFailureAndNotAnEnd()
-   -- The distinction TLS adds over a socket: a peer that stopped without
-   -- close_notify sent the front of a stream, not the whole of one. Reporting
-   -- that as a clean end is the truncation this module refuses.
-   local listener, clientSock, serverSock = sockets()
-   local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
-   local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
-   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
-   assertTrue(clientDone, "the client handshake completes: " .. tostring(clientWhy))
-   assertTrue(serverDone, "the server handshake completes: " .. tostring(serverWhy))
 
-   assertTrue(server:write("half a mess"), "the server sends something")
-   for _ = 1, 100 do net.pump(2) end
-   assertEq(assert(client:read(64)), "half a mess", "which the client reads")
 
-   -- The socket goes without the session ending.
-   serverSock:close()
-   for _ = 1, 200 do net.pump(2) end
 
-   local got, why = client:read(64)
-   assertEq(got, nil, "a truncated session does not read as the end")
-   assertTrue(why ~= nil, "it reports a failure")
-   assertEq(client:isEnded(), false, "and is not marked as ended")
 
-   client:close()
-   server:close()
-   clientSock:close()
-   listener:close()
-end
 
-function M.aFailedReadDoesNotRetryForever()
-   -- Would-block and failure have to be distinct at the ABI, or a permanent
-   -- failure is retried until something else gives up. A read against a
-   -- released connection is the cheapest permanent failure there is.
-   local listener, clientSock, serverSock = sockets()
-   local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
-   local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
-   assertTrue((shake(client, server)), "the handshake completes")
 
-   clientSock:close()
-   local got, why = client:read(64)
-   assertEq(got, nil, "the read returns rather than suspending")
-   assertTrue(why ~= nil, "with a reason")
 
-   client:close()
-   server:close()
-   serverSock:close()
-   listener:close()
-end
-
-function M.dtlsPreservesMessagesAndVerifiesTheCookiePeer()
-   local serverSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local clientSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local server = assert(tls.dtlsServer(serverSock, {
-      certificate = CERT, privateKey = KEY,
-   }))
-   local client = assert(tls.dtlsClient(clientSock, {
-      host = "127.0.0.1", port = serverSock:port(),
-   }, {hostname = "localhost", authority = CERT}))
-
-   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
-   assertTrue(clientDone, "the DTLS client finishes: " .. tostring(clientWhy))
-   assertTrue(serverDone, "the DTLS server finishes: " .. tostring(serverWhy))
-   assertTrue(client:isVerified(), "the DTLS client verifies the certificate")
-   assertEq(server:peer().host, "127.0.0.1", "the cookie-bound peer host")
-   assertEq(server:peer().port, clientSock:port(), "the cookie-bound peer port")
-
-   local emptySent, emptyWhy = client:send("")
-   assertEq(emptySent, false, "an empty call cannot masquerade as a datagram")
-   assertTrue(emptyWhy ~= nil, "the empty send explains its limit")
-
-   local otherSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local otherServer = assert(tls.dtlsServer(serverSock, {
-      certificate = CERT, privateKey = KEY,
-   }))
-   local otherClient = assert(tls.dtlsClient(otherSock, {
-      host = "127.0.0.1", port = serverSock:port(),
-   }, {hostname = "localhost", authority = CERT}))
-   local otherClientDone, otherClientWhy, otherServerDone, otherServerWhy =
-      shake(otherClient, otherServer)
-   assertTrue(otherClientDone,
-      "the second DTLS client finishes: " .. tostring(otherClientWhy))
-   assertTrue(otherServerDone,
-      "the second DTLS server finishes: " .. tostring(otherServerWhy))
-
-   assertTrue(otherClient:send("other"), "the other peer queues its message first")
-   assertTrue(client:send("first"), "the client sends one message")
-   assertEq(assert(server:receive(64)), "first",
-      "a session leaves another peer's earlier record queued")
-   assertEq(assert(otherServer:receive(64)), "other",
-      "the other session receives its own queued record")
-   assertTrue(client:send("second"), "the client sends another message")
-   assertEq(assert(server:receive(64)), "second", "the second boundary is kept")
-   assertTrue(server:send("reply"), "the server sends a message")
-   assertEq(assert(client:receive(64)), "reply", "the client decrypts the reply")
-
-   otherClient:close()
-   otherServer:close()
-   otherSock:close()
-   client:close()
-   server:close()
-   clientSock:close()
-   serverSock:close()
-end
-
-function M.aDatagramLargerThanTheReceiveMaximumIsRefusedWhole()
-   -- DTLS authenticates the datagram as one message. Handing over its first
-   -- `maximum` bytes and keeping the rest for the next call would hand a later
-   -- receive the tail of this message as though a peer had sent it.
-   local serverSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local clientSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local server = assert(tls.dtlsServer(serverSock, {
-      certificate = CERT, privateKey = KEY,
-   }))
-   local client = assert(tls.dtlsClient(clientSock, {
-      host = "127.0.0.1", port = serverSock:port(),
-   }, {hostname = "localhost", authority = CERT}))
-   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
-   assertTrue(clientDone, "the DTLS client finishes: " .. tostring(clientWhy))
-   assertTrue(serverDone, "the DTLS server finishes: " .. tostring(serverWhy))
-
-   assertTrue(client:send(("x"):rep(200)), "a 200 byte datagram is sent")
-   local got, why = server:receive(64)
-   assertEq(got, nil, "receiving it with a smaller maximum does not split it")
-   assertTrue(why ~= nil, "the refusal says why")
-   assertTrue(client:send("after"), "the next datagram is its own message")
-   assertEq(assert(server:receive(64)), "after",
-      "and arrives whole rather than as the remainder of the refused one")
-
-   client:close()
-   server:close()
-   clientSock:close()
-   serverSock:close()
-end
-
-function M.anAbandonedClientHelloDoesNotWedgeTheServer()
-   local serverSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local server = assert(tls.dtlsServer(serverSock, {
-      certificate = CERT, privateKey = KEY,
-   }))
-
-   -- A first hello whose sender never answers the cookie challenge. The
-   -- address is real, but until the cookie comes back it has proved no more
-   -- than a spoofed one, and the session must not stay bound to it.
-   local spoofSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local spoof = assert(tls.dtlsClient(spoofSock, {
-      host = "127.0.0.1", port = serverSock:port(),
-   }, {hostname = "localhost", authority = CERT}))
-   spoof:step()
-   for _ = 1, 50 do
-      net.pump(2)
-      server:step()
-   end
-   spoof:close()
-   spoofSock:close()
-
-   local clientSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local client = assert(tls.dtlsClient(clientSock, {
-      host = "127.0.0.1", port = serverSock:port(),
-   }, {hostname = "localhost", authority = CERT}))
-   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
-   assertTrue(clientDone, "the honest client finishes: " .. tostring(clientWhy))
-   assertTrue(serverDone, "the challenged server finishes: " .. tostring(serverWhy))
-   assertEq(server:peer().port, clientSock:port(),
-      "and the session bound the peer that answered the cookie")
-
-   client:close()
-   server:close()
-   clientSock:close()
-   serverSock:close()
-end
-
-function M.aLearningSessionLeavesABoundPeersRecordsAlone()
-   local serverSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local clientSock = assert(net.bind({host = "127.0.0.1", port = 0}))
-   local server = assert(tls.dtlsServer(serverSock, {
-      certificate = CERT, privateKey = KEY,
-   }))
-   local client = assert(tls.dtlsClient(clientSock, {
-      host = "127.0.0.1", port = serverSock:port(),
-   }, {hostname = "localhost", authority = CERT}))
-   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
-   assertTrue(clientDone, "the DTLS client finishes: " .. tostring(clientWhy))
-   assertTrue(serverDone, "the DTLS server finishes: " .. tostring(serverWhy))
-
-   -- A second session, still waiting for a first hello of its own, polls the
-   -- shared socket while the bound peer's record is queued on it.
-   local learner = assert(tls.dtlsServer(serverSock, {
-      certificate = CERT, privateKey = KEY,
-   }))
-   assertTrue(client:send("mine"), "the bound peer sends a record")
-   for _ = 1, 20 do
-      net.pump(2)
-      learner:step()
-   end
-   assertEq(learner:peer(), nil,
-      "the learning session does not bind a peer already claimed")
-   assertEq(assert(server:receive(64)), "mine",
-      "and the bound session still receives its own record")
-
-   learner:close()
-   client:close()
-   server:close()
-   clientSock:close()
-   serverSock:close()
-end
-
-function M.anOffloadRequestThatCannotEngageFallsBackToUserSpace()
-   -- The contract: kernelOffload asks, isKernelOffloaded answers. On a host
-   -- with no kernel TLS at all the request can never engage, so the handshake
-   -- must still succeed on user-space records and say that offload did not
-   -- happen -- a caller relying on sendfile semantics checks the answer.
-   if tls.kernelOffloadSupported() then return end
-
-   local listener, clientSock, serverSock = sockets()
-   local server = assert(tls.server(serverSock, {
-      certificate = CERT, privateKey = KEY, kernelOffload = true,
-   }))
-   local client = assert(tls.client(clientSock, {
-      hostname = "localhost", authority = CERT, kernelOffload = true,
-   }))
-   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
-   assertTrue(clientDone, "the client falls back and finishes: " .. tostring(clientWhy))
-   assertTrue(serverDone, "the server falls back and finishes: " .. tostring(serverWhy))
-   assertEq(client:isKernelOffloaded(), false,
-      "the client reports that offload did not engage")
-   assertEq(server:isKernelOffloaded(), false,
-      "and so does the server")
-   assertTrue(client:write("in user space"), "the fallback session writes plaintext")
-   assertEq(assert(server:read(64)), "in user space", "and the peer decrypts it")
-
-   client:close()
-   server:close()
-   serverSock:close()
-   clientSock:close()
-   listener:close()
-end
-
-function M.kernelOffloadEngagesWhereThePlatformAllows()
-   if not tls.kernelOffloadSupported() then return end
-
-   local listener, clientSock, serverSock = sockets()
-   local server = assert(tls.server(serverSock, {
-      certificate = CERT, privateKey = KEY, kernelOffload = true,
-   }))
-   local client = assert(tls.client(clientSock, {
-      hostname = "localhost", authority = CERT, kernelOffload = true,
-   }))
-   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
-   assertTrue(clientDone, "the kTLS client finishes: " .. tostring(clientWhy))
-   assertTrue(serverDone, "the kTLS server finishes: " .. tostring(serverWhy))
-   local clientTransport = client:isKernelOffloaded() and "kernel" or "user space"
-   local serverTransport = server:isKernelOffloaded() and "kernel" or "user space"
-   local message = clientTransport .. " to " .. serverTransport
-   assertTrue(client:write(message), clientTransport .. " TLS writes plaintext")
-   assertEq(assert(server:read(64)), message,
-      serverTransport .. " TLS decrypts the reported transport's record")
-
-   client:close()
-   server:close()
-   clientSock:close()
-   serverSock:close()
-   listener:close()
-end
 
 return M

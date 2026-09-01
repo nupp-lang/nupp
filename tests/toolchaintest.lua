@@ -145,7 +145,7 @@ end
 function M.everyPinHasAVersionAndADigest()
    local recorded = pins()
    for _, component in ipairs({
-      "LUAJIT", "LUAROCKS", "LPEG", "LUAUTF8", "MBEDTLS", "LIBUV",
+      "LUAJIT", "LUAROCKS", "LPEG", "LUAUTF8",
    }) do
       local marker = component == "LUAJIT" and "REV" or "VERSION"
       assert(recorded[component .. "_" .. marker],
@@ -163,7 +163,6 @@ end
 function M.everyPinnedSourceHasANotice()
    for _, notice in ipairs({
       "LuaJIT-COPYRIGHT.txt", "LPeg-LICENSE.txt", "luautf8-LICENSE.txt",
-      "mbedtls-LICENSE.txt", "libuv-LICENSE.txt",
    }) do
       assert(io.open(ROOT .. "/host/notices/" .. notice, "rb"),
          "host/notices/" .. notice .. " is missing")
@@ -351,27 +350,27 @@ function M.windowsHostLinkersCarryPthread()
       "the Windows compiler-pack host linker does not link pthread")
 end
 
--- Native TLS reads the Windows ROOT stores through CryptoAPI. Every route that
+-- Rustls reads the Windows ROOT stores through CryptoAPI. Every route that
 -- links a host must therefore carry crypt32: the ordinary host, an installed
 -- compiler pack's application host, and the relocatable pack linker.
 function M.windowsHostLinkersCarryCryptoApi()
    local driver = read(ROOT .. "/scripts/toolchain")
    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
    local _, ordinary = driver:gsub("%-lcrypt32", "")
-   assert(ordinary >= 4,
+   assert(ordinary >= 2,
       "not every Windows toolchain linker carries crypt32")
    assert(packLinker:match('append%(&cursor, "%-lcrypt32"%);'),
       "the Windows compiler-pack host linker does not link crypt32")
 end
 
 -- The same host routes carry the two macOS frameworks used to copy the
--- platform's trust anchors into mbedTLS.
+-- platform's trust anchors into Rustls.
 function M.macOSHostLinkersCarryTheSecurityFramework()
    local driver = read(ROOT .. "/scripts/toolchain")
    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
    local _, security = driver:gsub("%-framework Security", "")
    local _, foundation = driver:gsub("%-framework CoreFoundation", "")
-   assert(security >= 4 and foundation >= 4,
+   assert(security >= 2 and foundation >= 2,
       "not every macOS toolchain linker carries the trust-store frameworks")
    assert(packLinker:match('append%(&cursor, "Security"%);'),
       "the macOS compiler-pack host linker does not link Security.framework")
@@ -399,6 +398,24 @@ function M.staticHostsForceLoadTheRustProvider()
       "the compiler-pack linker omits the Rust provider archive")
    assert(packLinker:find('append(&cursor, "-Wl,--whole-archive")', 1, true),
       "the compiler-pack linker can discard Rust FFI exports")
+end
+
+function M.networkAndTlsAreRustOnlyToolchainFeatures()
+   local driver = read(ROOT .. "/scripts/toolchain")
+   local packer = read(ROOT .. "/scripts/compiler-pack")
+   local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
+   assert(driver:find('rust_features="$rust_features,net"', 1, true),
+      "a network host does not select the Rust net crate")
+   assert(driver:find('rust_features="$rust_features,tls"', 1, true),
+      "a TLS host does not select the Rust TLS crate")
+   for _, obsolete in ipairs({"libuv", "mbedtls"}) do
+      assert(not driver:lower():find(obsolete, 1, true),
+         "the toolchain still provisions " .. obsolete)
+      assert(not packer:lower():find(obsolete, 1, true),
+         "compiler packs still copy " .. obsolete)
+      assert(not packLinker:lower():find(obsolete, 1, true),
+         "compiler packs still link " .. obsolete)
+   end
 end
 
 -- Clang accepts --ld-path only while linking. Generated AOT compilation uses

@@ -33,6 +33,15 @@ _Static_assert(offsetof(NuppNativeV2FilesInfo, size) == 8,
     "filesystem info size has an unexpected offset");
 _Static_assert(offsetof(NuppNativeV2FilesInfo, modified) == 16,
     "filesystem info modification time has an unexpected offset");
+_Static_assert(offsetof(NuppNativeV2TlsOptions, certificate)
+        == sizeof(NuppNativeV2NetSlice),
+    "TLS certificate slice has an unexpected offset");
+_Static_assert(offsetof(NuppNativeV2TlsOptions, authority_present)
+        == 5 * sizeof(NuppNativeV2NetSlice),
+    "TLS authority-present flag has an unexpected offset");
+_Static_assert(offsetof(NuppNativeV2TlsOptions, verify)
+        == 5 * sizeof(NuppNativeV2NetSlice) + 2 * sizeof(int32_t),
+    "TLS verify flag has an unexpected offset");
 
 static int failed(const char *operation, int32_t status) {
     fprintf(stderr, "%s: status %d: %s\n", operation, status,
@@ -72,12 +81,14 @@ int main(void) {
             | NUPP_NATIVE_V2_FEATURE_URI | NUPP_NATIVE_V2_FEATURE_HTTP
             | NUPP_NATIVE_V2_FEATURE_PROCESS
             | NUPP_NATIVE_V2_FEATURE_FILESYSTEM
-            | NUPP_NATIVE_V2_FEATURE_FILES))
+            | NUPP_NATIVE_V2_FEATURE_FILES | NUPP_NATIVE_V2_FEATURE_NET
+            | NUPP_NATIVE_V2_FEATURE_TLS))
         != (NUPP_NATIVE_V2_FEATURE_BASE | NUPP_NATIVE_V2_FEATURE_UUID
             | NUPP_NATIVE_V2_FEATURE_GPU | NUPP_NATIVE_V2_FEATURE_URI
             | NUPP_NATIVE_V2_FEATURE_HTTP | NUPP_NATIVE_V2_FEATURE_PROCESS
             | NUPP_NATIVE_V2_FEATURE_FILESYSTEM
-            | NUPP_NATIVE_V2_FEATURE_FILES)) {
+            | NUPP_NATIVE_V2_FEATURE_FILES | NUPP_NATIVE_V2_FEATURE_NET
+            | NUPP_NATIVE_V2_FEATURE_TLS)) {
         fprintf(stderr, "a requested Rust-native feature bit is absent\n");
         return 1;
     }
@@ -86,6 +97,16 @@ int main(void) {
         if (nuppNativeV2ProcessPollExit(0, &process_exit)
             != NUPP_NATIVE_V2_STALE_HANDLE) {
             fprintf(stderr, "invalid process handle was accepted\n");
+            return 1;
+        }
+    }
+    {
+        int32_t connected = 0;
+        if (nuppNativeV2TlsConnected(0, &connected)
+                != NUPP_NATIVE_V2_STALE_HANDLE
+            || nuppNativeV2TlsConnected(0, NULL)
+                != NUPP_NATIVE_V2_INVALID_ARGUMENT) {
+            fprintf(stderr, "invalid TLS handle or output was accepted\n");
             return 1;
         }
     }

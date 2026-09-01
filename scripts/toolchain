@@ -35,13 +35,12 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks lpeg lpeg-source luautf8 libuv mbedtls
+Components: luajit luarocks lpeg lpeg-source luautf8
             swiftshader
             native FEATURES, native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
             host-link FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...
-            fixture SOURCE OUTPUT
 
 Prints the install prefix of each component named, building it first when it is
 not already cached. --all builds every component and prints nothing. --prefix
@@ -141,7 +140,7 @@ else
 fi
 sha256() { sha256_stdin < "$1"; }
 
-# The digest of the C this repository compiles itself, in a fixed order. The
+# The digest of the C host and compatibility provider, in a fixed order. The
 # build directories below are keyed on it as well as on their feature list,
 # because a cache keyed on the request alone answers an edited source tree with
 # the artifact built from the source it replaced -- and mtimes cannot see that
@@ -157,7 +156,7 @@ sources_digest() {
 }
 
 # Rust inputs have their own content key. Keeping this separate from the C
-# digest means editing a crate does not rebuild LuaJIT or the legacy provider,
+# digest means editing a crate does not rebuild LuaJIT or the C host,
 # while every workspace or lock-file change does rebuild the Rust artifact.
 rust_sources_digest() {
     {
@@ -882,41 +881,14 @@ build_swiftshader() {
     release_lock
 }
 
-build_mbedtls() {
-    out="$PREFIX/mbedtls"
-    take_lock mbedtls "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
-
-    directory="mbedtls-$MBEDTLS_VERSION"
-    url="https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MBEDTLS_VERSION/mbedtls-$MBEDTLS_VERSION.tar.bz2"
-    tree=$(source_tree "$directory" "$url" "$MBEDTLS_SHA256" "$MBEDTLS_MARKER" .tar.bz2)
-    verify_notice "$tree/LICENSE" mbedtls-LICENSE.txt
-
-    note "building mbedTLS with $CC"
-    rm -rf "$out"
-    mkdir -p "$out"
-    # `make lib` and nothing else: the programs and the test suite are most of
-    # the build and none of what is linked. `-fPIC` because this ends up inside
-    # a shared library.
-    "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
-    "$MAKE" -C "$tree" -j"${NUPP_TOOLCHAIN_JOBS:-4}" lib CC="$CC" CFLAGS="-O2 -fPIC" >&2
-    mkdir -p "$out/include" "$out/lib"
-    cp -R "$tree/include/mbedtls" "$out/include/mbedtls"
-    cp -R "$tree/include/psa" "$out/include/psa"
-    cp "$tree/library/libmbedcrypto.a" "$out/lib/libmbedcrypto.a"
-    cp "$tree/library/libmbedx509.a" "$out/lib/libmbedx509.a"
-    cp "$tree/library/libmbedtls.a" "$out/lib/libmbedtls.a"
-    printf 'done\n' > "$out/.complete"
-    release_lock
-}
-
 # --- the compiler's own native code -------------------------------------
 
 # Which C a feature is. The names are the ones the compiler's feature registry
 # uses, so this file and that registry are the two halves of one list.
 provider_sources() {
-    # Common C ownership remains while the network and TLS providers migrate.
-    # Files, clocks, XXH64 and processes are Rust providers, including
+    # Common C ownership remains for tracked compilers that still request the
+    # compatibility provider. Files, clocks, networking, TLS and processes are
+    # Rust providers, including
     # the digest a stamped host links statically for pre-Lua payload checking.
     printf '%s' "c/common.c"
     for feature in $1; do
@@ -935,8 +907,9 @@ provider_sources() {
             # The host flag controls whether the process module is embedded;
             # its provider implementation is selected from the Rust archive.
             native-process) ;;
-            net|native-net)    printf '%s' " c/net.c" ;;
-            tls|native-tls)    printf '%s' " c/tls.c" ;;
+            # Tracked compilers may still request the old provider names while
+            # rebuilding. Current compilers stage these through ABI v2.
+            net|native-net|tls|native-tls) ;;
             # Host-only features select no provider source of their own.
             json|lpeg|lua-utf8|workers) ;;
             *) die "unknown native feature $feature" ;;
@@ -970,90 +943,6 @@ write_vmdef() {
     done
 }
 
-# What libuv compiles, per platform. Taken from its CMakeLists, which is the
-# only place the answer is written down.
-libuv_sources() {
-    printf '%s' "src/fs-poll.c src/idna.c src/inet.c src/random.c src/strscpy.c"
-    printf '%s' " src/strtok.c src/thread-common.c src/threadpool.c src/timer.c"
-    printf '%s' " src/uv-common.c src/uv-data-getter-setters.c src/version.c"
-    case "$PLATFORM" in
-        windows)
-            printf '%s' " src/win/async.c src/win/core.c src/win/detect-wakeup.c"
-            printf '%s' " src/win/dl.c src/win/error.c src/win/fs-event.c src/win/fs.c"
-            printf '%s' " src/win/getaddrinfo.c src/win/getnameinfo.c src/win/handle.c"
-            printf '%s' " src/win/loop-watcher.c src/win/pipe.c src/win/poll.c"
-            printf '%s' " src/win/process-stdio.c src/win/process.c src/win/signal.c"
-            printf '%s' " src/win/snprintf.c src/win/stream.c src/win/tcp.c"
-            printf '%s' " src/win/thread.c src/win/tty.c src/win/udp.c src/win/util.c"
-            printf '%s' " src/win/winapi.c src/win/winsock.c"
-            ;;
-        *)
-            printf '%s' " src/unix/async.c src/unix/core.c src/unix/dl.c src/unix/fs.c"
-            printf '%s' " src/unix/getaddrinfo.c src/unix/getnameinfo.c"
-            printf '%s' " src/unix/loop-watcher.c src/unix/loop.c src/unix/pipe.c"
-            printf '%s' " src/unix/poll.c src/unix/process.c"
-            printf '%s' " src/unix/random-devurandom.c src/unix/signal.c"
-            printf '%s' " src/unix/stream.c src/unix/tcp.c src/unix/thread.c"
-            printf '%s' " src/unix/tty.c src/unix/udp.c src/unix/proctitle.c"
-            case "$PLATFORM" in
-                darwin)
-                    printf '%s' " src/unix/bsd-ifaddrs.c src/unix/kqueue.c"
-                    printf '%s' " src/unix/darwin.c src/unix/darwin-proctitle.c"
-                    printf '%s' " src/unix/fsevents.c src/unix/random-getentropy.c"
-                    ;;
-                *)
-                    printf '%s' " src/unix/linux.c src/unix/procfs-exepath.c"
-                    printf '%s' " src/unix/random-getrandom.c"
-                    printf '%s' " src/unix/random-sysctl-linux.c"
-                    ;;
-            esac
-            ;;
-    esac
-}
-
-build_libuv() {
-    out="$PREFIX/libuv"
-    take_lock libuv "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
-
-    directory="libuv-$LIBUV_VERSION"
-    url="https://github.com/libuv/libuv/archive/refs/tags/v$LIBUV_VERSION.tar.gz"
-    tree=$(source_tree "$directory" "$url" "$LIBUV_SHA256" "$LIBUV_MARKER")
-    verify_notice "$tree/LICENSE" libuv-LICENSE.txt
-
-    note "building libuv with $CC"
-    rm -rf "$out"
-    mkdir -p "$out/lib/objects" "$out/include"
-    cp -R "$tree/include/." "$out/include/"
-
-    defines="-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE"
-    warnings=""
-    case "$PLATFORM" in
-        darwin) defines="$defines -D_DARWIN_UNLIMITED_SELECT=1 -D_DARWIN_USE_64_BIT_INODE=1" ;;
-        windows)
-            defines="$defines -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0602"
-            # libuv 1.52.1 passes a const char ** to an internal char ** helper.
-            # Clang warns; GCC 14 promotes the constraint warning to an error.
-            warnings="-Wno-error=incompatible-pointer-types"
-            ;;
-        *) defines="$defines -D_GNU_SOURCE" ;;
-    esac
-
-    objects=""
-    for source in $(libuv_sources); do
-        object="$out/lib/objects/$(printf '%s' "$source" | tr '/' '_').o"
-        # shellcheck disable=SC2086
-        "$CC" -c -O2 -fPIC $defines $warnings \
-            -I"$tree/include" -I"$tree/src" \
-            -o "$object" "$tree/$source" >&2
-        objects="$objects $object"
-    done
-    # shellcheck disable=SC2086
-    ar rcs "$out/lib/libuv.a" $objects
-    printf 'done\n' > "$out/.complete"
-    release_lock
-}
-
 # --- the native provider -------------------------------------------------
 
 # Builds the provider as a shared library for one set of features, and answers
@@ -1080,30 +969,15 @@ build_native_library() {
     rm -rf "$out"
     mkdir -p "$out/objects"
 
-    uv_prefix=$(build_libuv; printf '%s' "$PREFIX/libuv")
-    libraries="$uv_prefix/lib/libuv.a"
-    uvInclude="-I$uv_prefix/include"
-    tlsInclude=""
+    libraries=""
     linker=$CC
-    for feature in $sorted; do
-        case "$feature" in
-            tls)
-                tls_prefix=$(build_mbedtls; printf '%s' "$PREFIX/mbedtls")
-                tlsInclude="-I$tls_prefix/include"
-                # The order matters: ssl needs x509, which needs crypto.
-                libraries="$libraries $tls_prefix/lib/libmbedtls.a"
-                libraries="$libraries $tls_prefix/lib/libmbedx509.a"
-                libraries="$libraries $tls_prefix/lib/libmbedcrypto.a"
-                ;;
-        esac
-    done
 
     objects=""
     for source in $providerSources; do
         object="$out/objects/$(basename "$source" .c).o"
         # shellcheck disable=SC2086
         "$CC" -c -std=gnu11 -O2 -fPIC -DNDEBUG -Wall -Wextra \
-            -I"$ROOT/runtime/native/c" -I"$include" $uvInclude $tlsInclude \
+            -I"$ROOT/runtime/native/c" -I"$include" \
             -o "$object" "$ROOT/runtime/native/$source" >&2
         objects="$objects $object"
     done
@@ -1112,13 +986,12 @@ build_native_library() {
         darwin)
             shared="-dynamiclib"
             name="libnupp_native.dylib"
-            extra="-undefined dynamic_lookup -framework CoreFoundation -framework Security"
+            extra="-undefined dynamic_lookup"
             ;;
         windows)
             shared="-shared"
             name="nupp_native.dll"
-            extra="-lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv"
-            extra="$extra -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32"
+            extra=""
             ;;
         *)       shared="-shared"; name="libnupp_native.so"; extra="-lpthread -ldl" ;;
     esac
@@ -1150,6 +1023,12 @@ build_host() {
     case " $sorted " in
         *" native-process "*|*" process "*) rust_features="$rust_features,process" ;;
     esac
+    case " $sorted " in
+        *" native-net "*|*" net "*) rust_features="$rust_features,net" ;;
+    esac
+    case " $sorted " in
+        *" native-tls "*|*" tls "*) rust_features="$rust_features,tls" ;;
+    esac
     host_features=$features
     host_sorted=$sorted
     build_rust_native "$rust_features"
@@ -1175,14 +1054,11 @@ build_host() {
     mkdir -p "$out/objects"
     write_vmdef "$out/objects/vmdef.c"
 
-    uv_prefix=$(build_libuv; printf '%s' "$PREFIX/libuv")
-    uvInclude="-I$uv_prefix/include"
     defines="-DNUPP_FEATURE_LPEG=0 -DNUPP_FEATURE_LUA_UTF8=0"
     defines="$defines -DNUPP_FEATURE_WORKERS=0 -DNUPP_FEATURE_NATIVE_FILES=0"
     defines="$defines -DNUPP_FEATURE_NATIVE_NET=0 -DNUPP_FEATURE_NATIVE_TLS=0"
     defines="$defines -DNUPP_FEATURE_NATIVE_PROCESS=0"
     libraries=""
-    tlsInclude=""
     linker=$CC
     for feature in $sorted; do
         case "$feature" in
@@ -1207,21 +1083,15 @@ build_host() {
                     | sed 's/-DNUPP_FEATURE_NATIVE_NET=0/-DNUPP_FEATURE_NATIVE_NET=1/')
                 ;;
             native-tls)
-                tls_prefix=$(build_mbedtls; printf '%s' "$PREFIX/mbedtls")
-                tlsInclude="-I$tls_prefix/include"
                 defines=$(printf '%s' "$defines" \
                     | sed 's/-DNUPP_FEATURE_NATIVE_TLS=0/-DNUPP_FEATURE_NATIVE_TLS=1/')
-                # The order matters: ssl needs x509, which needs crypto.
-                libraries="$libraries $tls_prefix/lib/libmbedtls.a"
-                libraries="$libraries $tls_prefix/lib/libmbedx509.a"
-                libraries="$libraries $tls_prefix/lib/libmbedcrypto.a"
                 ;;
             native-process)
                 defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_NATIVE_PROCESS=0/-DNUPP_FEATURE_NATIVE_PROCESS=1/')
                 ;;
             # Rust provider features select archive contents above. They are
             # not C host capabilities and add no provider source here.
-            base|files|filesystem|process) ;;
+            base|files|filesystem|net|process|tls) ;;
             *) die "unknown host feature $feature" ;;
         esac
     done
@@ -1243,7 +1113,7 @@ build_host() {
         "$CC" -c -std=gnu11 -O2 -DNDEBUG -Wall -Wextra $defines \
             -I"$ROOT/host/c" -I"$ROOT/host/include" -I"$ROOT/runtime/native/c" \
             -I"$ROOT/native/include" \
-            -I"$include" $uvInclude $tlsInclude -o "$object" "$full" >&2
+            -I"$include" -o "$object" "$full" >&2
         objects="$objects $object"
     done
     platform_libraries="-lm -lpthread"
@@ -1283,14 +1153,14 @@ build_host() {
             # shellcheck disable=SC2086
             "$linker" -o "$out/nupp-host" \
                 $objects $libraries "-Wl,-force_load,$rust_base" \
-                "$uv_prefix/lib/libuv.a" "$luajit_prefix/lib/libluajit-5.1.a" \
+                "$luajit_prefix/lib/libluajit-5.1.a" \
                 $platform_libraries >&2
         else
             # shellcheck disable=SC2086
             "$linker" -o "$out/nupp-host" \
                 $objects $libraries -Wl,--whole-archive "$rust_base" \
-                -Wl,--no-whole-archive "$uv_prefix/lib/libuv.a" \
-                "$luajit_prefix/lib/libluajit-5.1.a" $platform_libraries >&2
+                -Wl,--no-whole-archive "$luajit_prefix/lib/libluajit-5.1.a" \
+                $platform_libraries >&2
         fi
     fi
     cp "$rust_base" "$out/libnupp_native_v2.a"
@@ -1337,18 +1207,13 @@ $1"
         case "$feature" in
             lpeg)       set -- "$@" "$PREFIX/lpeg/lib/liblpeg.a" ;;
             lua-utf8)   set -- "$@" "$PREFIX/luautf8/lib/liblua-utf8.a" ;;
-            native-tls)
-                set -- "$@" "$PREFIX/mbedtls/lib/libmbedtls.a"
-                set -- "$@" "$PREFIX/mbedtls/lib/libmbedx509.a"
-                set -- "$@" "$PREFIX/mbedtls/lib/libmbedcrypto.a"
-                ;;
         esac
     done
     case "$PLATFORM" in
         darwin) set -- "$@" "-Wl,-force_load,$rust_base" ;;
         *) set -- "$@" -Wl,--whole-archive "$rust_base" -Wl,--no-whole-archive ;;
     esac
-    set -- "$@" "$PREFIX/libuv/lib/libuv.a" "$PREFIX/luajit/lib/libluajit-5.1.a"
+    set -- "$@" "$PREFIX/luajit/lib/libluajit-5.1.a"
 
     if [ -n "$archives" ]; then
         case "$PLATFORM" in
@@ -1390,66 +1255,17 @@ EOF
     native_path "$output"
 }
 
-# --- provider fixtures ------------------------------------------------------
-
-# Builds one C program against the native provider and answers where it landed.
-#
-# A test that wants to observe something the Lua surface deliberately does not
-# expose has to link the provider directly, and assembling that command in the
-# test would mean a second copy of which compiler this repository uses and which
-# libraries each platform needs. Both live here, so this does too.
-build_fixture() {
-    source=$1
-    output=$2
-    [ -n "$source" ] && [ -n "$output" ] || die "fixture needs a source and an output"
-    [ -f "$source" ] || die "no such fixture: $source"
-
-    # Required, never built. Building here would take the component lock, and
-    # where the cache key has moved it would rebuild libuv while holding it --
-    # which, with the suite running in parallel shards, stalls every shard that
-    # needs the toolchain. A caller that has not provisioned it is told so.
-    uv_prefix="$PREFIX/libuv"
-    [ -f "$uv_prefix/.complete" ] \
-        || die "the pinned libuv is not built; run scripts/toolchain libuv"
-
-    case "$PLATFORM" in
-        darwin)
-            fixture_libraries="-lm -lpthread -framework CoreFoundation -framework Security"
-            ;;
-        windows)
-            fixture_libraries="-lpsapi -luser32 -ladvapi32 -liphlpapi"
-            fixture_libraries="$fixture_libraries -luserenv -lws2_32"
-            fixture_libraries="$fixture_libraries -ldbghelp -lole32"
-            fixture_libraries="$fixture_libraries -lshell32 -lbcrypt -lcrypt32"
-            ;;
-        *)       fixture_libraries="-lm -lpthread -ldl" ;;
-    esac
-
-    # shellcheck disable=SC2086
-    "$CC" -std=gnu11 -O1 -Wall -Wextra \
-        -I"$ROOT/runtime/native/c" -I"$uv_prefix/include" \
-        -o "$output" \
-        "$ROOT/runtime/native/c/net.c" "$ROOT/runtime/native/c/common.c" \
-        "$source" "$uv_prefix/lib/libuv.a" $fixture_libraries >&2
-}
-
 # --- entry ------------------------------------------------------------------
 
 [ "$#" -ge 1 ] || usage
 
 case "$1" in
     --prefix) native_path "$PREFIX"; exit 0 ;;
-    fixture)
-        build_fixture "${2:-}" "${3:-}"
-        native_path "${3:-}"
-        exit 0
-        ;;
     --all)
         build_luajit
         build_luarocks
         build_lpeg
         build_luautf8
-        build_libuv
         exit 0
         ;;
     native)
@@ -1499,8 +1315,6 @@ for component in "$@"; do
         lpeg)     build_lpeg;     native_path "$PREFIX/lpeg" ;;
         lpeg-source) native_path "$(lpeg_source)" ;;
         luautf8)  build_luautf8;  native_path "$PREFIX/luautf8" ;;
-        libuv)    build_libuv;    native_path "$PREFIX/libuv" ;;
-        mbedtls)  build_mbedtls;  native_path "$PREFIX/mbedtls" ;;
         swiftshader) build_swiftshader; cat "$PREFIX/swiftshader/.icd" ;;
         *) note "unknown component $component"; usage ;;
     esac

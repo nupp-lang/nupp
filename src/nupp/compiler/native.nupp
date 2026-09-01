@@ -216,31 +216,32 @@ local FEATURES: {[string]: native.Feature} = {
     ["native.net"] = {
         name = "net",
         -- The public surface, and only that: listening, connecting, and the
-        -- connections either produces. The reactor and the platform handles
-        -- reach Nupp through the module's own binding, because a global a
-        -- program can name is a global a program will use.
+        -- connections either produces. Rust owns every platform handle behind
+        -- the ABI-v2 resource boundary.
         module = "nupp.io.net",
         runtimeModule = "nupp.io.net",
-        provider = "nupp_native",
+        provider = "nupp_native_v2",
+        providerDriver = "native-rust",
         providerFeature = "net",
         host = "native-net",
-        library = "nupp_native",
+        library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.suspension"},
+        requires = {"runtime.suspension", "runtime.native_v2"},
     },
     ["native.tls"] = {
         name = "tls",
-        -- Encryption over a connection the socket facility already opened, and
-        -- nothing else: this feature carries mbedTLS, which is why a program
-        -- that only wants a plain socket must not select it.
+        -- Rustls encrypts a stream the Rust network provider already owns. TLS
+        -- therefore extends that same resource boundary instead of borrowing a
+        -- descriptor from a second native stack.
         module = "nupp.io.tls",
         runtimeModule = "nupp.io.tls",
-        provider = "nupp_native",
+        provider = "nupp_native_v2",
+        providerDriver = "native-rust",
         providerFeature = "tls",
         host = "native-tls",
-        library = "nupp_native",
+        library = "nupp_native_v2",
         binary = true,
-        requires = {"native.net", "runtime.suspension"},
+        requires = {"native.net", "runtime.suspension", "runtime.native_v2"},
     },
     ["native.process"] = {
         name = "process",

@@ -67,7 +67,7 @@ jobs:
           version: 6.0.8
           actions-cache-folder: emsdk-cache
 
-      - name: Build LuaJIT and native dependencies
+      - name: Build pinned host dependencies
         run: ./scripts/toolchain --all
 
       - name: Install playground dependencies

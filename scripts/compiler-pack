@@ -61,10 +61,6 @@ copy_library() {
 
 copy_library "$prefix/lpeg/lib/liblpeg.a" liblpeg.a
 copy_library "$prefix/luautf8/lib/liblua-utf8.a" liblua-utf8.a
-copy_library "$prefix/mbedtls/lib/libmbedtls.a" libmbedtls.a
-copy_library "$prefix/mbedtls/lib/libmbedx509.a" libmbedx509.a
-copy_library "$prefix/mbedtls/lib/libmbedcrypto.a" libmbedcrypto.a
-copy_library "$prefix/libuv/lib/libuv.a" libuv.a
 copy_library "$prefix/luajit/lib/libluajit-5.1.a" libluajit.a
 copy_library "$host_dir/libnupp_native_v2.a" libnupp_native_v2.a
 

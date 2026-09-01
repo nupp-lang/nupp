@@ -264,9 +264,11 @@ parser, and UUID uses the Rust-native provider. SHA-256 stages no native
 artifact at all: it is [`nupp.data.digest`](../../src/nupp/data/digest.nupp),
 written in Nupp and compiled ahead of time where the target's [`aot`
 policy](../performance/ahead-of-time/build-and-artifacts.md) asks for that.
-The Rust facilities share the versioned `build/lib/nupp_native_v2` sidecar;
-remaining C facilities share `build/lib/nupp_native`. Each is built with the
-union of its selected features. Pure facilities such as buffers, checksums and `nupp.math` emit
+The Rust facilities share the versioned `build/lib/nupp_native_v2` sidecar.
+The compatibility `build/lib/nupp_native` sidecar remains available for
+generated or external C interop, but implements no standard-library facility.
+Each provider is built with the union of its selected features. Pure facilities
+such as buffers, checksums and `nupp.math` emit
 their Lua adapters but stage no native artifact. At `-O1` and above the build
 recomputes these effects from the post-folding tree, so a use found only in a
 constant-dead branch or loop is removed with that code.
