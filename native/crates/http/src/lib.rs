@@ -437,7 +437,17 @@ fn proxy_with_options(
 }
 
 unsafe fn build_client(options: &NuppHttpClientOptions, insecure: bool) -> Result<Client, String> {
-    let mut builder = Client::builder()
+    unsafe { configure_client(Client::builder(), options, insecure) }?
+        .build()
+        .map_err(|error| error.to_string())
+}
+
+unsafe fn configure_client(
+    builder: reqwest::ClientBuilder,
+    options: &NuppHttpClientOptions,
+    insecure: bool,
+) -> Result<reqwest::ClientBuilder, String> {
+    let mut builder = builder
         .connect_timeout(Duration::from_millis(options.connect_timeout_ms))
         .pool_max_idle_per_host(options.max_connections_per_host as usize)
         .danger_accept_invalid_certs(insecure)
@@ -472,7 +482,34 @@ unsafe fn build_client(options: &NuppHttpClientOptions, insecure: bool) -> Resul
         }
         _ => return Err("proxy mode is not valid".to_owned()),
     }
-    builder.build().map_err(|error| error.to_string())
+    Ok(builder)
+}
+
+fn client_from_parts(
+    options: &NuppHttpClientOptions,
+    secure: Client,
+    insecure: Option<Client>,
+) -> *mut NuppHttpClient {
+    let max_pending = (options.max_pending_requests as usize).max(1);
+    Box::into_raw(Box::new(NuppHttpClient {
+        inner: Arc::new(ClientState {
+            secure,
+            insecure,
+            ready: Mutex::new(VecDeque::with_capacity(max_pending)),
+            activity: Activity {
+                generation: Mutex::new(0),
+                changed: Condvar::new(),
+            },
+            closed: AtomicBool::new(false),
+            active: AtomicUsize::new(0),
+            max_pending,
+            next_id: AtomicU64::new(1),
+            transfers: Mutex::new(HashMap::new()),
+            total: Arc::new(Semaphore::new(options.max_connections as usize)),
+            per_host_limit: options.max_connections_per_host as usize,
+            per_host: Mutex::new(HashMap::new()),
+        }),
+    }))
 }
 
 fn pack_headers(headers: &HeaderMap) -> Result<Box<[u8]>, String> {
@@ -938,26 +975,7 @@ pub unsafe fn nuppHttpClientCreate(options: *const NuppHttpClientOptions) -> *mu
     } else {
         None
     };
-    let max_pending = (options.max_pending_requests as usize).max(1);
-    Box::into_raw(Box::new(NuppHttpClient {
-        inner: Arc::new(ClientState {
-            secure,
-            insecure,
-            ready: Mutex::new(VecDeque::with_capacity(max_pending)),
-            activity: Activity {
-                generation: Mutex::new(0),
-                changed: Condvar::new(),
-            },
-            closed: AtomicBool::new(false),
-            active: AtomicUsize::new(0),
-            max_pending,
-            next_id: AtomicU64::new(1),
-            transfers: Mutex::new(HashMap::new()),
-            total: Arc::new(Semaphore::new(options.max_connections as usize)),
-            per_host_limit: options.max_connections_per_host as usize,
-            per_host: Mutex::new(HashMap::new()),
-        }),
-    }))
+    client_from_parts(options, secure, insecure)
 }
 
 pub unsafe fn nuppHttpClientDestroy(client: *mut NuppHttpClient) {
@@ -1408,9 +1426,157 @@ pub unsafe fn nuppHttpClientPending(client: *const NuppHttpClient) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reqwest::dns::{Addrs, Name, Resolve, Resolving};
+    use std::future::Future;
     use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::net::{SocketAddr, TcpListener};
+    use std::sync::atomic::AtomicBool;
+    use std::task::{Context, Poll};
     use std::thread;
+    use std::time::Instant;
+    use tower_layer::Layer;
+    use tower_service::Service;
+
+    #[derive(Default)]
+    struct GateState {
+        entered: bool,
+        active: usize,
+    }
+
+    struct TestGate {
+        state: Mutex<GateState>,
+        changed: Condvar,
+        open: AtomicBool,
+        opened: tokio::sync::Notify,
+    }
+
+    impl TestGate {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                state: Mutex::new(GateState::default()),
+                changed: Condvar::new(),
+                open: AtomicBool::new(false),
+                opened: tokio::sync::Notify::new(),
+            })
+        }
+
+        fn enter(self: &Arc<Self>) -> GateGuard {
+            let mut state = self.state.lock().unwrap();
+            state.entered = true;
+            state.active += 1;
+            self.changed.notify_all();
+            drop(state);
+            GateGuard(Arc::clone(self))
+        }
+
+        fn wait_until(&self, condition: impl Fn(&GateState) -> bool, what: &str) {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut state = self.state.lock().unwrap();
+            while !condition(&state) {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(!remaining.is_zero(), "timed out waiting for {what}");
+                let waited = self.changed.wait_timeout(state, remaining).unwrap();
+                state = waited.0;
+                assert!(!waited.1.timed_out(), "timed out waiting for {what}");
+            }
+        }
+
+        fn wait_entered(&self) {
+            self.wait_until(|state| state.entered && state.active == 1, "the phase gate");
+        }
+
+        fn wait_retired(&self) {
+            self.wait_until(|state| state.active == 0, "the cancelled connector future");
+        }
+
+        fn release(&self) {
+            self.open.store(true, Ordering::Release);
+            self.opened.notify_waiters();
+        }
+
+        async fn wait_open(&self) {
+            while !self.open.load(Ordering::Acquire) {
+                let opened = self.opened.notified();
+                if self.open.load(Ordering::Acquire) {
+                    break;
+                }
+                opened.await;
+            }
+        }
+    }
+
+    struct GateGuard(Arc<TestGate>);
+
+    impl Drop for GateGuard {
+        fn drop(&mut self) {
+            let mut state = self.0.state.lock().unwrap();
+            state.active -= 1;
+            self.0.changed.notify_all();
+        }
+    }
+
+    struct GatedResolver {
+        gate: Arc<TestGate>,
+        address: SocketAddr,
+    }
+
+    impl Resolve for GatedResolver {
+        fn resolve(&self, _name: Name) -> Resolving {
+            let gate = Arc::clone(&self.gate);
+            let address = self.address;
+            Box::pin(async move {
+                let _guard = gate.enter();
+                gate.wait_open().await;
+                Ok(Box::new([address].into_iter()) as Addrs)
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct GateLayer(Arc<TestGate>);
+
+    impl<S> Layer<S> for GateLayer {
+        type Service = GateService<S>;
+
+        fn layer(&self, inner: S) -> Self::Service {
+            GateService {
+                inner,
+                gate: Arc::clone(&self.0),
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct GateService<S> {
+        inner: S,
+        gate: Arc<TestGate>,
+    }
+
+    impl<S, Request> Service<Request> for GateService<S>
+    where
+        S: Service<Request>,
+        S::Future: Send + 'static,
+        S::Response: 'static,
+        S::Error: 'static,
+    {
+        type Response = S::Response;
+        type Error = S::Error;
+        type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+        fn poll_ready(&mut self, context: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            self.inner.poll_ready(context)
+        }
+
+        fn call(&mut self, request: Request) -> Self::Future {
+            let future = self.inner.call(request);
+            let gate = Arc::clone(&self.gate);
+            Box::pin(async move {
+                let _guard = gate.enter();
+                gate.wait_open().await;
+                future.await
+            })
+        }
+    }
 
     fn empty_slice() -> NuppHttpSlice {
         NuppHttpSlice {
@@ -1456,6 +1622,76 @@ mod tests {
             max_bytes: 1024,
             insecure: 0,
         }
+    }
+
+    unsafe fn client_with_builder(
+        options: &NuppHttpClientOptions,
+        builder: reqwest::ClientBuilder,
+    ) -> *mut NuppHttpClient {
+        install_tls_provider();
+        runtime().unwrap();
+        let secure = unsafe { configure_client(builder, options, false) }
+            .unwrap()
+            .build()
+            .unwrap();
+        client_from_parts(options, secure, None)
+    }
+
+    unsafe fn assert_terminal(inner: &Arc<ClientState>, transfer: *const Transfer) {
+        assert_eq!(inner.active.load(Ordering::Acquire), 0);
+        assert!(
+            inner.transfers.lock().unwrap().is_empty(),
+            "terminal transfers leave the client registry"
+        );
+
+        let mut head = NuppHttpResponseHead {
+            status: 0,
+            version: 0,
+            url: ptr::null(),
+            url_length: 0,
+            headers: ptr::null(),
+            headers_length: 0,
+        };
+        assert_eq!(
+            unsafe { nuppHttpTransferPollHeaders(transfer, &mut head) },
+            HEAD_FAILED
+        );
+        let mut error = [0; 128];
+        let mut length = 0;
+        assert!(unsafe {
+            nuppHttpTransferErrorCopy(transfer, error.as_mut_ptr(), error.len(), &mut length)
+        });
+        assert_eq!(&error[..length], b"the request was cancelled");
+
+        let mut ready = [NuppHttpReady {
+            transfer: ptr::null(),
+            tokens: 0,
+        }];
+        let mut more = false;
+        let observer = NuppHttpClient {
+            inner: Arc::clone(inner),
+        };
+        assert_eq!(
+            unsafe { poll_ready(&observer, ready.as_mut_ptr(), 1, &mut more) },
+            1
+        );
+        assert_eq!(ready[0].transfer, transfer);
+        assert_eq!(ready[0].tokens, TOKEN_BODY | TOKEN_FAILED);
+        assert!(!more);
+        unsafe { nuppHttpReadyRelease(ready[0].transfer) };
+    }
+
+    unsafe fn assert_cancelled(client: *mut NuppHttpClient, transfer: *const Transfer) {
+        let inner = unsafe { Arc::clone(&(*client).inner) };
+        unsafe { nuppHttpTransferCancel(transfer) };
+        unsafe { assert_terminal(&inner, transfer) };
+    }
+
+    unsafe fn assert_client_closed(client: *mut NuppHttpClient, transfer: *const Transfer) {
+        let inner = unsafe { Arc::clone(&(*client).inner) };
+        unsafe { nuppHttpClientDestroy(client) };
+        assert!(inner.closed.load(Ordering::Acquire));
+        unsafe { assert_terminal(&inner, transfer) };
     }
 
     unsafe fn wait(client: *mut NuppHttpClient) {
@@ -1643,6 +1879,59 @@ mod tests {
             assert!(nuppHttpClientSend(client, &descriptor).is_null());
             assert_eq!(nuppHttpClientPending(client), 0);
             nuppHttpClientDestroy(client);
+        }
+    }
+
+    #[test]
+    fn cancellation_during_dns_retires_the_worker_and_reports_terminal_readiness() {
+        let gate = TestGate::new();
+        let resolver: Arc<dyn Resolve> = Arc::new(GatedResolver {
+            gate: Arc::clone(&gate),
+            address: "127.0.0.1:9".parse().unwrap(),
+        });
+        let options = options();
+        // SAFETY: descriptors and handles remain live until explicitly destroyed.
+        unsafe {
+            let client = client_with_builder(
+                &options,
+                Client::builder().dns_resolver(Arc::clone(&resolver)),
+            );
+            let descriptor = request(b"http://cancel-dns.test/");
+            let transfer = nuppHttpClientSend(client, &descriptor);
+            assert!(!transfer.is_null());
+            gate.wait_entered();
+            assert_eq!(nuppHttpClientPending(client), 1);
+
+            assert_cancelled(client, transfer);
+            gate.wait_retired();
+            gate.release();
+            nuppHttpTransferDestroy(transfer);
+            nuppHttpClientDestroy(client);
+        }
+    }
+
+    #[test]
+    fn client_close_at_connect_attempt_retires_the_worker_and_reports_terminal_readiness() {
+        let gate = TestGate::new();
+        let options = options();
+        // An IP-literal URL bypasses DNS, so entering this connector layer is
+        // exactly the boundary at which Reqwest is about to poll TCP connect.
+        // SAFETY: descriptors and handles remain live until explicitly destroyed.
+        unsafe {
+            let client = client_with_builder(
+                &options,
+                Client::builder().connector_layer(GateLayer(Arc::clone(&gate))),
+            );
+            let descriptor = request(b"http://127.0.0.1:9/");
+            let transfer = nuppHttpClientSend(client, &descriptor);
+            assert!(!transfer.is_null());
+            gate.wait_entered();
+            assert_eq!(nuppHttpClientPending(client), 1);
+
+            assert_client_closed(client, transfer);
+            gate.wait_retired();
+            gate.release();
+            nuppHttpTransferDestroy(transfer);
         }
     }
 }

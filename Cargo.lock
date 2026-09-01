@@ -993,6 +993,8 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tower-layer",
+ "tower-service",
  "url",
 ]
 

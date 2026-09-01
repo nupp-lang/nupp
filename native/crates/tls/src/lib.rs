@@ -531,19 +531,23 @@ impl Session {
     }
 
     pub fn close(&self) {
-        let explicitly_closed = if let Ok(mut state) = self.state.lock() {
+        let close_immediately = if let Ok(mut state) = self.state.lock() {
             if state.closed {
                 return;
             }
             state.closed = true;
+            // `close` is the cancellation/release operation. Only a caller
+            // that already queued close_notify selected authenticated graceful
+            // shutdown; an ordinary close must retire handshake and transport
+            // work immediately.
+            !state.close_notify_sent
+        } else {
             true
-        } else {
-            false
         };
-        if explicitly_closed {
-            self.stream.close_gracefully(Duration::from_secs(1));
-        } else {
+        if close_immediately {
             self.stream.close();
+        } else {
+            self.stream.close_gracefully(Duration::from_secs(1));
         }
     }
 
@@ -694,8 +698,10 @@ fn validate_protocols(protocols: &[Vec<u8>]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nupp_native_net::{ConnectPoll, connect_tcp, listen_tcp, wait_activity};
-    use std::time::Duration;
+    use nupp_native_net::{
+        ConnectPoll, connect_tcp, listen_tcp, poll_activity, wait_activity, wait_activity_since,
+    };
+    use std::time::{Duration, Instant};
 
     const CERTIFICATE: &[u8] = include_bytes!("../../../../tests/data/localhost-cert.pem");
     const PRIVATE_KEY: &[u8] = include_bytes!("../../../../tests/data/localhost-key.pem");
@@ -786,6 +792,41 @@ mod tests {
             wait_activity(Duration::from_millis(1));
         }
         Read::Failed("the TLS read did not finish".to_owned())
+    }
+
+    fn wait_until(mut condition: impl FnMut() -> bool, what: &str) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if condition() {
+                return;
+            }
+            let seen = poll_activity();
+            if condition() {
+                return;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(!remaining.is_zero(), "timed out waiting for {what}");
+            wait_activity_since(seen, remaining);
+        }
+    }
+
+    fn assert_cancelled(session: &Session, peer: &Session) {
+        session.close();
+        let snapshot = session.stream.snapshot();
+        assert!(
+            snapshot.closed,
+            "cancellation closes the transport immediately"
+        );
+        assert_eq!(snapshot.pending_write, 0);
+        assert!(!session.is_connected());
+        assert_eq!(
+            session.handshake().unwrap_err(),
+            "the TLS session is closed"
+        );
+
+        peer.close();
+        assert!(peer.stream.snapshot().closed);
+        assert_eq!(peer.pending_write(), 0);
     }
 
     #[test]
@@ -912,6 +953,48 @@ mod tests {
         assert!(!client.snapshot().closed);
         listener.close();
         client.close();
+    }
+
+    #[test]
+    fn cancellation_retires_every_meaningful_handshake_phase() {
+        let listener = listen_tcp("127.0.0.1", 0, 16, false).unwrap();
+
+        // Before either endpoint has emitted a handshake flight.
+        let (client, server) = sessions(&listener, &[], &[], "", false);
+        assert_cancelled(&client, &server);
+
+        // After the client has emitted ClientHello and is awaiting the server.
+        let (client, server) = sessions(&listener, &[], &[], "", false);
+        assert!(!client.handshake().unwrap());
+        assert_cancelled(&client, &server);
+
+        // After the server has consumed ClientHello and emitted its response.
+        let (client, server) = sessions(&listener, &[], &[], "", false);
+        assert!(!client.handshake().unwrap());
+        wait_until(
+            || server.stream.snapshot().buffered_read != 0,
+            "the client handshake flight",
+        );
+        assert!(!server.handshake().unwrap());
+        assert_cancelled(&client, &server);
+
+        // After the client has authenticated the server flight and emitted its
+        // Finished, while the server still has to consume that final flight.
+        let (client, server) = sessions(&listener, &[], &[], "", false);
+        assert!(!client.handshake().unwrap());
+        wait_until(
+            || server.stream.snapshot().buffered_read != 0,
+            "the client handshake flight",
+        );
+        assert!(!server.handshake().unwrap());
+        wait_until(
+            || client.stream.snapshot().buffered_read != 0,
+            "the server handshake flight",
+        );
+        assert!(client.handshake().unwrap());
+        assert_cancelled(&client, &server);
+
+        listener.close();
     }
 
     #[test]

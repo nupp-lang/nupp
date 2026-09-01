@@ -18,3 +18,7 @@ tokio = { version = "1", features = ["fs", "io-util", "net", "rt-multi-thread", 
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io", "rt"] }
 url = "2.5"
+
+[dev-dependencies]
+tower-layer = "0.3"
+tower-service = "0.3"
