@@ -24,6 +24,7 @@ local width = tonumber(os.getenv("MANDELBROT_WIDTH") or 1024)
 local height = tonumber(os.getenv("MANDELBROT_HEIGHT") or 768)
 local maxIterations = tonumber(os.getenv("MANDELBROT_ITERATIONS") or 256)
 local count = width * height
+assert(count % 64 == 0, "Mandelbrot GPU workgroups require a pixel count divisible by 64")
 
 local points = ffi.new("KsPoint[?]", count)
 local cell = ffi.new("float[1]")

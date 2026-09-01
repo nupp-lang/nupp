@@ -357,6 +357,9 @@ struct BindingEntry {
     readonly: Vec<Option<BufferSlot>>,
     writable: Vec<Option<BufferSlot>>,
     uniform: Option<wgpu::Buffer>,
+    readonly_group: Option<wgpu::BindGroup>,
+    writable_group: Option<wgpu::BindGroup>,
+    uniform_group: Option<wgpu::BindGroup>,
 }
 
 #[derive(Clone, Default)]
@@ -615,6 +618,9 @@ impl GpuContext {
             readonly: vec![None; kernel_entry.readonly_bindings as usize],
             writable: vec![None; kernel_entry.writable_bindings as usize],
             uniform,
+            readonly_group: None,
+            writable_group: None,
+            uniform_group: None,
         };
         self.resources.insert_binding(binding)
     }
@@ -692,55 +698,86 @@ impl GpuContext {
             offset,
             size,
         });
+        if writable {
+            entry.writable_group = None;
+        } else {
+            entry.readonly_group = None;
+        }
         Ok(())
     }
 
     pub fn dispatch(
-        &self,
+        &mut self,
         bindings: BindingHandle,
         work_items: [u32; 3],
         uniforms: &[u8],
     ) -> Result<(), GpuError> {
-        let binding = self.resources.binding(bindings)?;
-        let kernel = self.resources.kernel(binding.kernel)?;
-        if uniforms.len() as u64 != kernel.uniform_size {
+        let (kernel_handle, need_readonly, need_writable, need_uniform) = {
+            let binding = self.resources.binding(bindings)?;
+            (
+                binding.kernel,
+                binding.readonly_group.is_none(),
+                binding.writable_group.is_none(),
+                binding.uniform_group.is_none(),
+            )
+        };
+        let kernel = self.resources.kernel(kernel_handle)?;
+        let uniform_size = kernel.uniform_size;
+        let workgroup_size = kernel.workgroup_size;
+        let pipeline = kernel.pipeline.clone();
+        let readonly_layout = kernel.readonly_layout.clone();
+        let writable_layout = kernel.writable_layout.clone();
+        let uniform_layout = kernel.uniform_layout.clone();
+        if uniforms.len() as u64 != uniform_size {
             return Err(GpuError::InvalidArgument(format!(
                 "GPU dispatch supplied {} uniform bytes, but the kernel requires {}",
                 uniforms.len(),
-                kernel.uniform_size
+                uniform_size
             )));
         }
         require_copy_alignment("uniform size", uniforms.len() as u64)?;
-        let readonly_group =
-            self.make_storage_group(kernel.readonly_layout.as_ref(), &binding.readonly, false)?;
-        let writable_group =
-            self.make_storage_group(kernel.writable_layout.as_ref(), &binding.writable, true)?;
-        let uniform_group = if let (Some(layout), Some(buffer)) =
-            (kernel.uniform_layout.as_ref(), binding.uniform.as_ref())
-        {
-            self.queue.write_buffer(buffer, 0, uniforms);
-            Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Nupp uniform bind group"),
-                layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer,
-                        offset: 0,
-                        size: NonZeroU64::new(kernel.uniform_size),
-                    }),
-                }],
-            }))
+        let binding = self.resources.binding(bindings)?;
+        self.validate_storage_slots(&binding.readonly, false)?;
+        self.validate_storage_slots(&binding.writable, true)?;
+        let readonly_group = if need_readonly {
+            self.make_storage_group(readonly_layout.as_ref(), &binding.readonly, false)?
         } else {
             None
         };
+        let writable_group = if need_writable {
+            self.make_storage_group(writable_layout.as_ref(), &binding.writable, true)?
+        } else {
+            None
+        };
+        let uniform_group = if need_uniform {
+            self.make_uniform_group(
+                uniform_layout.as_ref(),
+                binding.uniform.as_ref(),
+                uniform_size,
+            )?
+        } else {
+            None
+        };
+        let binding = self.resources.binding_mut(bindings)?;
+        if need_readonly {
+            binding.readonly_group = readonly_group;
+        }
+        if need_writable {
+            binding.writable_group = writable_group;
+        }
+        if need_uniform {
+            binding.uniform_group = uniform_group;
+        }
+        if let Some(buffer) = binding.uniform.as_ref() {
+            self.queue.write_buffer(buffer, 0, uniforms);
+        }
         if work_items.contains(&0) {
             return Ok(());
         }
         let groups = [
-            work_items[0].div_ceil(kernel.workgroup_size[0]),
-            work_items[1].div_ceil(kernel.workgroup_size[1]),
-            work_items[2].div_ceil(kernel.workgroup_size[2]),
+            work_items[0].div_ceil(workgroup_size[0]),
+            work_items[1].div_ceil(workgroup_size[1]),
+            work_items[2].div_ceil(workgroup_size[2]),
         ];
         let limits = self.device.limits();
         if groups[0] > limits.max_compute_workgroups_per_dimension
@@ -762,14 +799,14 @@ impl GpuContext {
                 label: Some("Nupp compute pass"),
                 timestamp_writes: None,
             });
-            pass.set_pipeline(&kernel.pipeline);
-            if let Some(group) = readonly_group.as_ref() {
+            pass.set_pipeline(&pipeline);
+            if let Some(group) = binding.readonly_group.as_ref() {
                 pass.set_bind_group(0, group, &[]);
             }
-            if let Some(group) = writable_group.as_ref() {
+            if let Some(group) = binding.writable_group.as_ref() {
                 pass.set_bind_group(1, group, &[]);
             }
-            if let Some(group) = uniform_group.as_ref() {
+            if let Some(group) = binding.uniform_group.as_ref() {
                 pass.set_bind_group(2, group, &[]);
             }
             pass.dispatch_workgroups(groups[0], groups[1], groups[2]);
@@ -825,6 +862,49 @@ impl GpuContext {
                 entries: &entries,
             },
         )))
+    }
+
+    fn validate_storage_slots(
+        &self,
+        slots: &[Option<BufferSlot>],
+        writable: bool,
+    ) -> Result<(), GpuError> {
+        for (slot, value) in slots.iter().enumerate() {
+            let value = value.ok_or(GpuError::MissingBinding {
+                writable,
+                slot: slot as u32,
+            })?;
+            self.resources.buffer(value.buffer)?;
+        }
+        Ok(())
+    }
+
+    fn make_uniform_group(
+        &self,
+        layout: Option<&wgpu::BindGroupLayout>,
+        buffer: Option<&wgpu::Buffer>,
+        uniform_size: u64,
+    ) -> Result<Option<wgpu::BindGroup>, GpuError> {
+        match (layout, buffer) {
+            (Some(layout), Some(buffer)) => Ok(Some(self.device.create_bind_group(
+                &wgpu::BindGroupDescriptor {
+                    label: Some("Nupp uniform bind group"),
+                    layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer,
+                            offset: 0,
+                            size: NonZeroU64::new(uniform_size),
+                        }),
+                    }],
+                },
+            ))),
+            (None, None) => Ok(None),
+            _ => Err(GpuError::Internal(
+                "GPU kernel uniform layout and binding disagree",
+            )),
+        }
     }
 
     pub fn queue_download(
@@ -1191,11 +1271,12 @@ mod tests {
         let bindings = gpu.create_bindings(kernel).unwrap();
         gpu.set_write_buffer(bindings, 0, buffer, 0, 16).unwrap();
         gpu.dispatch(bindings, [4, 1, 1], &[]).unwrap();
+        gpu.dispatch(bindings, [4, 1, 1], &[]).unwrap();
         gpu.queue_download(buffer, 0, 16).unwrap();
         gpu.synchronize().unwrap();
         assert_eq!(
             gpu.read_download(buffer, 0, 16).unwrap(),
-            [2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 5, 0, 0, 0]
+            [3, 0, 0, 0, 4, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]
         );
         gpu.release_bindings(bindings).unwrap();
         gpu.release_kernel(kernel).unwrap();
