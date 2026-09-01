@@ -149,6 +149,14 @@ function M.dynamicSdkLinksAndRunsFromC()
     status, output = run(environment .. quote(executable) .. " " .. quote(fixture(directory)))
     assert(status == 0, output)
     assert(output:find("game.answer(41) = 42", 1, true), output)
+    if jit.os == "OSX" then
+        status, output = run("otool -L " .. quote(library .. "/libnupp.dylib"))
+        assert(status == 0, output)
+        assert(
+            not output:lower():find("luajit", 1, true),
+            "the staged embedding library retains a LuaJIT cache dependency:\n" .. output
+        )
+    end
 end
 
 function M.staticApplicationHostLinksAndRuns()

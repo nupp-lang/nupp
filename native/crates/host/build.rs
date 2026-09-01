@@ -36,6 +36,19 @@ fn main() {
     // The shim refers to LuaJIT, so keep its archive before LuaJIT on linkers
     // that resolve static archives in a single left-to-right pass.
     println!("cargo:rustc-link-lib=static=luajit-5.1");
+    if target().contains("apple") {
+        // Darwin's linker can still prefer a sibling dylib for a `static=`
+        // native library when one rustc invocation emits both a staticlib and
+        // a cdylib. Force the pinned archive into linked outputs, then discard
+        // the unused dylib load command so the embedding SDK does not retain a
+        // content-cache path at runtime. The `rustc-link-lib` line above still
+        // makes Cargo bundle LuaJIT into the staticlib output.
+        println!(
+            "cargo:rustc-link-arg=-Wl,-force_load,{}",
+            library.join("libluajit-5.1.a").display()
+        );
+        println!("cargo:rustc-link-arg=-Wl,-dead_strip_dylibs");
+    }
     if env::var_os("CARGO_FEATURE_LPEG").is_some() {
         let prefix = PathBuf::from(
             env::var_os("NUPP_LPEG_PREFIX")
