@@ -705,9 +705,19 @@ local function countUses(value: any, uses: {[string]: integer}): nil
     end
 end
 
-local function removeDead(statements: {scalarIR.Statement}, state: optimize.State): {scalarIR.Statement}
+--- Drops pure unused declarations in one sequential region. `extraUses` is
+--- another value evaluated after that region, such as a workgroup's dispatch
+--- expression; it prevents a prelude declaration used there from looking dead.
+local function removeDead(
+    statements: {scalarIR.Statement},
+    state: optimize.State,
+    extraUses: scalarIR.Expr?
+): {scalarIR.Statement}
     local uses: {[string]: integer} = {}
     countUses(statements, uses)
+    if extraUses ~= nil then
+        countUses(extraUses as scalarIR.Expr, uses)
+    end
     local kept: {scalarIR.Statement} = {}
     for _, statement in ipairs(statements) do
         if statement.op == "if" then
@@ -732,6 +742,71 @@ local function removeDead(statements: {scalarIR.Statement}, state: optimize.Stat
     end
 
     return kept
+end
+
+--- Folds only the expression rule that preserves every structural GPU proof.
+--- Other scalar folds can canonicalize, for example, `localIndex - stride`
+--- into an addition with a wrapped constant. That is algebraically valid but
+--- no longer matches the scratch-bound proof the verifier records.
+local function foldWorkgroupExpression(node: scalarIR.Expr, state: optimize.State): scalarIR.Expr
+    effects.expression(tostring(node.op))
+    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
+        return foldWorkgroupExpression(child, state)
+    end)
+    if node.op == "numeric_cast" then
+        local replacement, ruleID = fold.apply(node, state.foldContext)
+        if replacement ~= nil and ruleID == "convert.numeric-cast.constant" then
+            countRule(state, ruleID as string)
+            state.changed = true
+            return replacement as scalarIR.Expr
+        end
+    end
+
+    return node
+end
+
+local function foldWorkgroupStatements(statements: {scalarIR.Statement}, state: optimize.State): nil
+    local function rewrite(child: scalarIR.Expr): scalarIR.Expr
+        return foldWorkgroupExpression(child, state)
+    end
+
+    for _, statement in ipairs(statements) do
+        effects.statement(tostring(statement.op))
+        visit.statementExpressions(statement, rewrite)
+        if statement.op == "if" then
+            for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                foldWorkgroupStatements(clause.body, state)
+            end
+            foldWorkgroupStatements((statement as scalarIR.If).elseBody or {}, state)
+        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+            foldWorkgroupStatements((statement as any).body as {scalarIR.Statement}, state)
+        end
+    end
+end
+
+--- Optimises phase bodies without treating their enclosing controller as an
+--- ordinary sequential block. A phase completes in every lane before the next
+--- controller statement, so no value proof may cross its boundary.
+local optimizePhaseBodies: function({scalarIR.Statement}, optimize.State): nil
+
+optimizePhaseBodies = function(statements: {scalarIR.Statement}, state: optimize.State): nil
+    for _, statement in ipairs(statements) do
+        if statement.op == "phase" then
+            local phase = statement as scalarIR.Phase
+            -- Keep the phase's structural control and memory proof shapes.
+            -- In particular, do not propagate or apply the general scalar
+            -- folder here; those rewrites have no phase-proof contract yet.
+            foldWorkgroupStatements(phase.body, state)
+            phase.body = removeDead(phase.body, state)
+        elseif statement.op == "if" then
+            for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                optimizePhaseBodies(clause.body, state)
+            end
+            optimizePhaseBodies((statement as scalarIR.If).elseBody or {}, state)
+        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+            optimizePhaseBodies((statement as any).body as {scalarIR.Statement}, state)
+        end
+    end
 end
 
 local function markHelperUses(value: any, used: {[string]: boolean}, helpers: {[string]: scalarIR.Helper}): nil
@@ -814,9 +889,18 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
             loop.statements = optimizeBlock(loop.statements, state)
             loop.statements = removeDead(loop.statements, state)
         elseif program.workgroup ~= nil then
-            -- Phase boundaries are scheduling semantics, not ordinary control
-            -- statements. Preserve the verified controller until phase-aware
-            -- rewrites can prove they neither remove nor cross a barrier.
+            local workgroup = program.workgroup as scalarIR.Workgroup
+            -- The prelude runs before dispatch and has ordinary sequential
+            -- semantics. Its declarations may feed the dispatch expression,
+            -- so account for that use when removing dead declarations.
+            foldWorkgroupStatements(workgroup.prelude, state)
+            workgroup.groups = foldWorkgroupExpression(workgroup.groups, state)
+            workgroup.prelude = removeDead(workgroup.prelude, state, workgroup.groups)
+
+            -- A phase boundary is a scheduling boundary, not an ordinary
+            -- nested block. Optimise each callback in isolation and preserve
+            -- every controller statement and phase node verbatim.
+            optimizePhaseBodies(workgroup.statements, state)
         else
             propagateBlock(program.body or {}, {}, mutated, state)
             program.body = optimizeBlock(program.body or {}, state)

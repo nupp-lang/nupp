@@ -80,6 +80,86 @@ function M.foldsConstantsAndRemovesDeadPureDeclarations()
    assert(ir.maxStack == nil, "derived stack state must be recomputed by verification")
 end
 
+function M.optimizesWorkgroupRegionsWithoutCrossingPhaseBoundaries()
+   local groups = {
+      op = "u32_div",
+      left = {
+         op = "numeric_cast",
+         value = {op = "span_count", span = "points", type = "f64"},
+         type = "u32",
+      },
+      right = {
+         op = "numeric_cast", value = constant(64), type = "u32",
+      },
+      type = "u32",
+   }
+   local ir = {
+      helpers = {},
+      maxStack = 19,
+      workgroup = {
+         prelude = {{
+            op = "let", name = "groups", cName = "groups_1", type = "u32", value = groups,
+         }},
+         groups = groups,
+         statements = {
+            {
+               op = "let", name = "controller", cName = "controller_1", type = "u32",
+               value = integer(7, "u32"),
+            },
+            {
+               op = "phase",
+               body = {
+                  {
+                     op = "let", name = "width", cName = "width_1", type = "u32",
+                     value = {op = "numeric_cast", value = constant(64), type = "u32"},
+                  },
+                  {
+                     op = "let", name = "unused", cName = "unused_1", type = "u32",
+                     value = {
+                        op = "u32_mul", left = named("width", "u32"), right = integer(2, "u32"), type = "u32",
+                     },
+                  },
+               },
+            },
+            {
+               op = "phase",
+               body = {{
+                  op = "shared_store", shared = "scratch", index = integer(0, "u32"),
+                  value = {op = "local", name = "controller", cName = "controller_1", type = "u32"},
+               }},
+            },
+            {
+               op = "phase",
+               body = {{
+                  op = "shared_store", shared = "scratch", index = integer(1, "u32"),
+                  value = {
+                     op = "shared_load", shared = "scratch",
+                     index = {
+                        op = "u32_sub", left = {op = "local_index", type = "u32"},
+                        right = integer(1, "u32"), type = "u32",
+                     },
+                     type = "u32",
+                  },
+               }},
+            },
+         },
+      },
+   }
+
+   local stats = optimize.program(ir)
+   assert(ruleCount(stats, "convert.numeric-cast.constant") >= 2)
+   assert(ir.workgroup.groups.right.op == "constant_i32")
+   assert(#ir.workgroup.prelude == 0, "the copied dispatch local is dead")
+   assert(ir.workgroup.statements[1].op == "let", "controller code stays outside phase rewrites")
+   assert(ir.workgroup.statements[2].op == "phase" and #ir.workgroup.statements[2].body == 0,
+      "a phase remains even when its private work simplifies away")
+   local store = ir.workgroup.statements[3].body[1]
+   assert(store.op == "shared_store" and store.value.op == "local" and store.value.cName == "controller_1",
+      "controller constants do not propagate across a phase boundary")
+   local indexed = ir.workgroup.statements[4].body[1].value.index
+   assert(indexed.op == "u32_sub", "phase cleanup preserves scratch-bounds proof shapes")
+end
+
 function M.selectsAStaticBranchWithoutLeakingItsScope()
    local ir = program({
       {

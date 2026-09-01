@@ -21769,9 +21769,19 @@ end
 end
 end
 
-local function removeDead ( statements , state ) 
+
+
+
+local function removeDead (
+statements ,
+state ,
+extraUses
+) 
 local uses = { }
 countUses ( statements , uses )
+if extraUses ~= nil then
+countUses ( extraUses , uses )
+end
 local kept = { }
 for _ , statement in ipairs ( statements ) do
 if statement . op == "if" then
@@ -21796,6 +21806,71 @@ end
 end
 
 return kept
+end
+
+
+
+
+
+local function foldWorkgroupExpression ( node , state ) 
+effects . expression ( tostring ( node . op ) )
+visit . expressionChildren ( node , function ( child ) 
+return foldWorkgroupExpression ( child , state )
+end )
+if node . op == "numeric_cast" then
+local replacement , ruleID = fold . apply ( node , state . foldContext )
+if replacement ~= nil and ruleID == "convert.numeric-cast.constant" then
+countRule ( state , ruleID )
+state . changed = true
+return replacement
+end
+end
+
+return node
+end
+
+local function foldWorkgroupStatements ( statements , state ) 
+local function rewrite ( child ) 
+return foldWorkgroupExpression ( child , state )
+end
+
+for _ , statement in ipairs ( statements ) do
+effects . statement ( tostring ( statement . op ) )
+visit . statementExpressions ( statement , rewrite )
+if statement . op == "if" then
+for _ , clause in ipairs ( ( statement ) . clauses ) do
+foldWorkgroupStatements ( clause . body , state )
+end
+foldWorkgroupStatements ( ( statement ) . elseBody or { } , state )
+elseif statement . op == "fornum" or statement . op == "while" or statement . op == "block" then
+foldWorkgroupStatements ( ( statement ) . body , state )
+end
+end
+end
+
+
+
+
+local optimizePhaseBodies
+
+optimizePhaseBodies = function ( statements , state ) 
+for _ , statement in ipairs ( statements ) do
+if statement . op == "phase" then
+local phase = statement
+
+
+
+foldWorkgroupStatements ( phase . body , state )
+phase . body = removeDead ( phase . body , state )
+elseif statement . op == "if" then
+for _ , clause in ipairs ( ( statement ) . clauses ) do
+optimizePhaseBodies ( clause . body , state )
+end
+optimizePhaseBodies ( ( statement ) . elseBody or { } , state )
+elseif statement . op == "fornum" or statement . op == "while" or statement . op == "block" then
+optimizePhaseBodies ( ( statement ) . body , state )
+end
+end
 end
 
 local function markHelperUses ( value , used , helpers ) 
@@ -21878,9 +21953,18 @@ propagateBlock ( loop . statements , { } , mutated , state )
 loop . statements = optimizeBlock ( loop . statements , state )
 loop . statements = removeDead ( loop . statements , state )
 elseif program . workgroup ~= nil then
+local workgroup = program . workgroup
 
 
 
+foldWorkgroupStatements ( workgroup . prelude , state )
+workgroup . groups = foldWorkgroupExpression ( workgroup . groups , state )
+workgroup . prelude = removeDead ( workgroup . prelude , state , workgroup . groups )
+
+
+
+
+optimizePhaseBodies ( workgroup . statements , state )
 else
 propagateBlock ( program . body or { } , { } , mutated , state )
 program . body = optimizeBlock ( program . body or { } , state )
