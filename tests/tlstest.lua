@@ -365,6 +365,47 @@ function M.readingBeforeTheHandshakeIsRefused()
    listener:close()
 end
 
+function M.closingDuringAHandshakeIsImmediateAndTerminal()
+   local listener, clientSock, serverSock = sockets()
+   local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+   local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+
+   local done, why = client:step()
+   assertEq(done, false, "one client pass leaves the handshake pending")
+   assertEq(why, nil, "a pending handshake has not failed")
+   client:close()
+   assertEq(client:isReleased(), true, "closing releases the pending session")
+   assertEq(client:isConnected(), false, "the closed session is terminal")
+   local after, closedWhy = client:step()
+   assertEq(after, nil, "a closed handshake cannot be driven again")
+   assertTrue(closedWhy ~= nil, "the terminal result says why")
+
+   server:close()
+   serverSock:close()
+   clientSock:close()
+   listener:close()
+end
+
+function M.aPeerCloseDuringHandshakeBecomesAFailure()
+   local listener, clientSock, serverSock = sockets()
+   local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+   assertEq(client:step(), false, "the client emits its first handshake flight")
+   serverSock:close()
+
+   local done, why
+   for _ = 1, 200 do
+      done, why = client:step()
+      if done == nil then break end
+      net.pump(2)
+   end
+   assertEq(done, nil, "transport closure fails the pending handshake")
+   assertTrue(why ~= nil, "the failed handshake reports its terminal reason")
+
+   client:close()
+   clientSock:close()
+   listener:close()
+end
+
 
 function M.aReleasedSessionAnswersItsQuestionsRatherThanCrashing()
    -- close() frees the native session, so every accessor has to answer from

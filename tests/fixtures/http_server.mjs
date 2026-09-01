@@ -56,6 +56,19 @@ const server = createServer((req, res) => {
       res.on("close", () => clearTimeout(timer));
       return;
     }
+    if (req.url === "/slow-body") {
+      // Commit the response head, then leave its body pending. This separates
+      // cancellation while reading a body from cancellation while waiting for
+      // a response at all.
+      res.writeHead(200, {
+        "Content-Length": 14,
+        "Content-Type": "application/octet-stream",
+      });
+      res.flushHeaders();
+      const timer = setTimeout(() => res.end("late response\n"), 30000);
+      res.on("close", () => clearTimeout(timer));
+      return;
+    }
 
     let body;
     if (req.url === "/authorization") {
@@ -81,6 +94,15 @@ const server = createServer((req, res) => {
     req.on("error", () => {});
     req.resume();
     send(res, 413, undefined, { Connection: "close" });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/slow-upload") {
+    // Deliberately do not consume the request. A streaming client eventually
+    // reaches transport backpressure, leaving cancellation responsible for
+    // closing both its reader loop and native transfer.
+    const timer = setTimeout(() => send(res, 200), 30000);
+    res.on("close", () => clearTimeout(timer));
     return;
   }
 

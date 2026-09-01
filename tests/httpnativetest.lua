@@ -282,6 +282,52 @@ function M.aCancelledPlainRequestReleasesItsTransfer()
    client:close()
 end
 
+function M.aCancelledStreamingUploadReleasesItsReaderAndTransfer()
+   local client = ready()
+   local calls = 0
+   local total = 64 * 1024 * 1024
+   local reader = {
+      readInto = function(_self, destination, offset, count)
+         calls = calls + 1
+         local length = math.min(count, 64 * 1024)
+         destination:setString(string.rep("u", length), offset)
+         return length
+      end,
+      read = function() error("readInto is the upload path") end,
+      close = function() return true end,
+   }
+   local value = suspension.race({
+      function()
+         return client:send({
+            url = endpoint("/slow-upload"), method = "POST",
+            body = http.reader(reader, total),
+         })
+      end,
+      function() return "settled first" end,
+   })
+   test.equal(value, "settled first")
+   test.equal(next(client._native._byHandle), nil,
+      "the cancelled upload left no live native transfer")
+   assert(calls * 64 * 1024 < total,
+      "the cancelled upload stopped before consuming its reader")
+   client:close()
+end
+
+function M.closingAResponseCancelsItsPendingBody()
+   local client = ready()
+   local response, reason = client:send({url = endpoint("/slow-body")})
+   assert(response, reason)
+   local value = suspension.race({
+      function() return response.body:read(64) end,
+      function() return "settled first" end,
+   })
+   test.equal(value, "settled first")
+   response:close()
+   test.equal(next(client._native._byHandle), nil,
+      "closing the response retired its pending body transfer")
+   client:close()
+end
+
 function M.genericReadersAndLargeDownloadsStayProgressive()
    local client = ready()
    local payload = string.rep("reader-", 8192)
