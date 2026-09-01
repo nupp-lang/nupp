@@ -381,13 +381,15 @@ end
 local function writeAll(chosen: net.Backend, handle: any, highWater: integer, bytes: string): (boolean, string?)
     -- Built once. The wait does not vary with the piece being sent, and a
     -- closure built per iteration is what stops this loop compiling.
+    local waitingBelow = highWater
     const hasRoom = function(): boolean
-        return chosen:pending(handle) < highWater
+        return chosen:pending(handle) < waitingBelow
     end
     local at = 1
     while at <= #bytes do
         local room = highWater - chosen:pending(handle)
         if room < 1 then
+            waitingBelow = highWater
             await("nupp.io.net write", hasRoom)
             room = highWater - chosen:pending(handle)
             if room < 1 then
@@ -399,7 +401,18 @@ local function writeAll(chosen: net.Backend, handle: any, highWater: integer, by
         if took == nil then
             return false, why
         end
-        at = at + took
+        if took < 1 then
+            -- A backend may impose a stricter structural bound than the
+            -- caller-selected policy. Wait for its observed queue to retire
+            -- instead of spinning while it reports no acceptance.
+            waitingBelow = chosen:pending(handle)
+            if waitingBelow < 1 then
+                return false, "the network writer accepted no bytes without applying backpressure"
+            end
+            await("nupp.io.net write", hasRoom)
+        else
+            at = at + took
+        end
     end
 
     return true

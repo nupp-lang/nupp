@@ -353,6 +353,7 @@ fn take_ready(state: &mut State, limit: usize) -> Vec<Handle> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Barrier, mpsc};
 
     fn handle(value: u64) -> Handle {
         Handle::from_raw((1_u64 << 32) | value)
@@ -406,6 +407,67 @@ mod tests {
         lane.retire(handle(1)).unwrap();
         assert!(lane.poll(1).unwrap().is_empty());
         assert_eq!(lane.pending(), Ok(0));
+    }
+
+    #[test]
+    fn completion_wakes_a_waiter_without_losing_readiness() {
+        let lane = Arc::new(NativeLane::new(1).unwrap());
+        lane.register(handle(1)).unwrap();
+        let waiter = Arc::clone(&lane);
+        let (started, begin) = mpsc::channel();
+        let waiting = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            waiter.wait(1, Duration::from_secs(2)).unwrap()
+        });
+        begin.recv().unwrap();
+        lane.complete(handle(1)).unwrap();
+        assert_eq!(waiting.join().unwrap(), vec![handle(1)]);
+        lane.retire(handle(1)).unwrap();
+    }
+
+    #[test]
+    fn retirement_racing_completion_never_leaves_stale_readiness() {
+        for generation in 1..=128 {
+            let lane = Arc::new(NativeLane::new(1).unwrap());
+            let operation = Handle::from_raw((generation << 32) | 1);
+            lane.register(operation).unwrap();
+            let barrier = Arc::new(Barrier::new(3));
+
+            let completing = Arc::clone(&lane);
+            let complete_barrier = Arc::clone(&barrier);
+            let complete = std::thread::spawn(move || {
+                complete_barrier.wait();
+                completing.complete(operation)
+            });
+            let retiring = Arc::clone(&lane);
+            let retire_barrier = Arc::clone(&barrier);
+            let retire = std::thread::spawn(move || {
+                retire_barrier.wait();
+                retiring.retire(operation)
+            });
+            barrier.wait();
+
+            let completed = complete.join().unwrap();
+            assert!(matches!(completed, Ok(()) | Err(LaneError::Unknown)));
+            retire.join().unwrap().unwrap();
+            assert!(lane.poll(1).unwrap().is_empty());
+            assert_eq!(lane.pending(), Ok(0));
+        }
+    }
+
+    #[test]
+    fn shutdown_wakes_waiters_before_the_lane_is_retired() {
+        let lane = Arc::new(NativeLane::new(1).unwrap());
+        let waiter = Arc::clone(&lane);
+        let (started, begin) = mpsc::channel();
+        let waiting = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            waiter.wait(1, Duration::from_secs(2)).unwrap()
+        });
+        begin.recv().unwrap();
+        assert!(lane.begin_shutdown().unwrap().is_empty());
+        assert!(waiting.join().unwrap().is_empty());
+        lane.finish_shutdown().unwrap();
     }
 
     #[test]

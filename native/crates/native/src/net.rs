@@ -5,6 +5,7 @@ use nupp_native_net as transport;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ptr;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::{self, ThreadId};
 use std::time::Duration;
 
 const ACCEPTED: u32 = 0;
@@ -86,9 +87,45 @@ enum Resource {
     Datagram(Arc<transport::Datagram>),
 }
 
-fn resources() -> &'static Mutex<Arena<Resource>> {
-    static RESOURCES: OnceLock<Mutex<Arena<Resource>>> = OnceLock::new();
+struct ResourceEntry {
+    owner: ThreadId,
+    value: Resource,
+}
+
+impl ResourceEntry {
+    fn new(value: Resource) -> Self {
+        Self {
+            owner: thread::current().id(),
+            value,
+        }
+    }
+
+    fn value(&self) -> Result<&Resource, i32> {
+        if self.owner != thread::current().id() {
+            Err(super::failed(
+                Status::InvalidArgument,
+                "network handle belongs to another runtime lane",
+            ))
+        } else {
+            Ok(&self.value)
+        }
+    }
+}
+
+fn resources() -> &'static Mutex<Arena<ResourceEntry>> {
+    static RESOURCES: OnceLock<Mutex<Arena<ResourceEntry>>> = OnceLock::new();
     RESOURCES.get_or_init(|| Mutex::new(Arena::new()))
+}
+
+fn lookup<'a>(
+    arena: &'a Arena<ResourceEntry>,
+    handle: Handle,
+    stale: &str,
+) -> Result<&'a Resource, i32> {
+    let entry = arena
+        .get(handle)
+        .map_err(|status| super::failed(status, stale))?;
+    entry.value()
 }
 
 unsafe fn text<'a>(slice: NetSlice, what: &str) -> Result<&'a str, i32> {
@@ -113,7 +150,7 @@ fn listener(raw: u64) -> Result<(Handle, Arc<transport::Listener>), i32> {
     let arena = resources()
         .lock()
         .map_err(|_| super::failed(Status::Internal, "network resource store is poisoned"))?;
-    match arena.get(handle) {
+    match lookup(&arena, handle, "network listener handle is stale") {
         Ok(Resource::Listener(value)) => Ok((handle, Arc::clone(value))),
         Ok(Resource::Connect(_)) => Err(super::failed(
             Status::InvalidArgument,
@@ -127,7 +164,7 @@ fn listener(raw: u64) -> Result<(Handle, Arc<transport::Listener>), i32> {
             Status::InvalidArgument,
             "network listener handle names a datagram",
         )),
-        Err(status) => Err(super::failed(status, "network listener handle is stale")),
+        Err(status) => Err(status),
     }
 }
 
@@ -136,7 +173,7 @@ fn connect(raw: u64) -> Result<(Handle, Arc<transport::Connect>), i32> {
     let arena = resources()
         .lock()
         .map_err(|_| super::failed(Status::Internal, "network resource store is poisoned"))?;
-    match arena.get(handle) {
+    match lookup(&arena, handle, "network connect handle is stale") {
         Ok(Resource::Connect(value)) => Ok((handle, Arc::clone(value))),
         Ok(Resource::Listener(_)) => Err(super::failed(
             Status::InvalidArgument,
@@ -150,7 +187,7 @@ fn connect(raw: u64) -> Result<(Handle, Arc<transport::Connect>), i32> {
             Status::InvalidArgument,
             "network connect handle names a datagram",
         )),
-        Err(status) => Err(super::failed(status, "network connect handle is stale")),
+        Err(status) => Err(status),
     }
 }
 
@@ -159,7 +196,7 @@ fn stream(raw: u64) -> Result<(Handle, Arc<transport::Stream>), i32> {
     let arena = resources()
         .lock()
         .map_err(|_| super::failed(Status::Internal, "network resource store is poisoned"))?;
-    match arena.get(handle) {
+    match lookup(&arena, handle, "network stream handle is stale") {
         Ok(Resource::Stream(value)) => Ok((handle, Arc::clone(value))),
         Ok(Resource::Listener(_)) => Err(super::failed(
             Status::InvalidArgument,
@@ -173,7 +210,7 @@ fn stream(raw: u64) -> Result<(Handle, Arc<transport::Stream>), i32> {
             Status::InvalidArgument,
             "network stream handle names a datagram",
         )),
-        Err(status) => Err(super::failed(status, "network stream handle is stale")),
+        Err(status) => Err(status),
     }
 }
 
@@ -182,7 +219,7 @@ fn datagram(raw: u64) -> Result<(Handle, Arc<transport::Datagram>), i32> {
     let arena = resources()
         .lock()
         .map_err(|_| super::failed(Status::Internal, "network resource store is poisoned"))?;
-    match arena.get(handle) {
+    match lookup(&arena, handle, "network datagram handle is stale") {
         Ok(Resource::Datagram(value)) => Ok((handle, Arc::clone(value))),
         Ok(Resource::Listener(_)) => Err(super::failed(
             Status::InvalidArgument,
@@ -196,7 +233,7 @@ fn datagram(raw: u64) -> Result<(Handle, Arc<transport::Datagram>), i32> {
             Status::InvalidArgument,
             "network datagram handle names a stream",
         )),
-        Err(status) => Err(super::failed(status, "network datagram handle is stale")),
+        Err(status) => Err(status),
     }
 }
 
@@ -207,7 +244,7 @@ pub(crate) fn take_stream(raw: u64) -> Result<Arc<transport::Stream>, i32> {
     let mut arena = resources()
         .lock()
         .map_err(|_| super::failed(Status::Internal, "network resource store is poisoned"))?;
-    match arena.get(handle) {
+    match lookup(&arena, handle, "network stream handle is stale") {
         Ok(Resource::Stream(_)) => {}
         Ok(Resource::Listener(_)) => {
             return Err(super::failed(
@@ -227,12 +264,13 @@ pub(crate) fn take_stream(raw: u64) -> Result<Arc<transport::Stream>, i32> {
                 "network stream handle names a datagram",
             ));
         }
-        Err(status) => {
-            return Err(super::failed(status, "network stream handle is stale"));
-        }
+        Err(status) => return Err(status),
     }
     match arena.remove(handle) {
-        Ok(Resource::Stream(value)) => Ok(value),
+        Ok(ResourceEntry {
+            value: Resource::Stream(value),
+            ..
+        }) => Ok(value),
         Ok(_) => unreachable!("resource kind changed while the arena was locked"),
         Err(status) => Err(super::failed(status, "network stream handle is stale")),
     }
@@ -243,7 +281,7 @@ fn insert(resource: Resource, output: *mut u64, what: &str) -> i32 {
         return super::failed(Status::InvalidArgument, what);
     }
     let handle = match resources().lock() {
-        Ok(mut arena) => match arena.insert(resource) {
+        Ok(mut arena) => match arena.insert(ResourceEntry::new(resource)) {
             Ok(handle) => handle,
             Err(status) => {
                 return super::failed(status, "network handle capacity is exhausted");
@@ -403,7 +441,7 @@ pub unsafe extern "C" fn nuppNativeV2NetListenerAccept(
     let (kind, handle) = match accepted {
         Some(stream) => {
             let handle = match resources().lock() {
-                Ok(mut arena) => match arena.insert(Resource::Stream(stream)) {
+                Ok(mut arena) => match arena.insert(ResourceEntry::new(Resource::Stream(stream))) {
                     Ok(handle) => handle.raw(),
                     Err(status) => {
                         return super::failed(status, "network handle capacity is exhausted");
@@ -537,7 +575,7 @@ pub unsafe extern "C" fn nuppNativeV2NetConnectPoll(
         transport::ConnectPoll::Pending => (CONNECT_PENDING, 0),
         transport::ConnectPoll::Connected(stream) => {
             let handle = match resources().lock() {
-                Ok(mut arena) => match arena.insert(Resource::Stream(stream)) {
+                Ok(mut arena) => match arena.insert(ResourceEntry::new(Resource::Stream(stream))) {
                     Ok(handle) => handle.raw(),
                     Err(status) => {
                         return super::failed(status, "network handle capacity is exhausted");
@@ -1278,10 +1316,26 @@ mod tests {
         let handle = resources()
             .lock()
             .unwrap()
-            .insert(Resource::Listener(listener))
+            .insert(ResourceEntry::new(Resource::Listener(listener)))
             .unwrap();
         assert!(stream(handle.raw()).is_err());
         let _ = resources().lock().unwrap().remove(handle).unwrap();
         assert!(self::listener(handle.raw()).is_err());
+    }
+
+    #[test]
+    fn handles_cannot_cross_runtime_lanes() {
+        let listener = transport::listen_tcp("127.0.0.1", 0, 1, false).unwrap();
+        let handle = resources()
+            .lock()
+            .unwrap()
+            .insert(ResourceEntry::new(Resource::Listener(listener)))
+            .unwrap();
+        let raw = handle.raw();
+        let status = std::thread::spawn(move || nuppNativeV2NetListenerRelease(raw))
+            .join()
+            .unwrap();
+        assert_eq!(status, Status::InvalidArgument.code());
+        assert_eq!(nuppNativeV2NetListenerRelease(raw), Status::Ok.code());
     }
 }

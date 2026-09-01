@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 
 pub const READ_CHUNK: usize = 64 * 1024;
 pub const RECEIVE_HIGH_WATER: usize = 1024 * 1024;
+pub const SEND_HIGH_WATER: usize = 1024 * 1024;
 pub const ACCEPT_QUEUE_MAX: usize = 1024;
 pub const DATAGRAM_QUEUE_MAX: usize = 256;
 pub const DATAGRAM_MAX: usize = 65_536;
@@ -120,11 +121,6 @@ pub struct StreamSnapshot {
     pub failed: bool,
 }
 
-enum WriteCommand {
-    Bytes(Vec<u8>),
-    Shutdown,
-}
-
 struct StreamState {
     bytes: VecDeque<u8>,
     pending_write: usize,
@@ -134,7 +130,7 @@ struct StreamState {
     closed: bool,
     read_error: Option<String>,
     write_error: Option<String>,
-    writer: Option<mpsc::UnboundedSender<WriteCommand>>,
+    writer: Option<mpsc::Sender<Vec<u8>>>,
 }
 
 struct StreamShared {
@@ -221,7 +217,11 @@ impl Stream {
         peer: Option<SocketAddr>,
     ) -> Result<Arc<Self>, String> {
         let socket = Arc::new(socket);
-        let (writer, receiver) = mpsc::unbounded_channel();
+        // A non-empty command accounts for at least one byte, so the byte
+        // high-water also bounds the number of queued commands. Tokio's
+        // bounded channel makes that invariant structural instead of relying
+        // on every facade caller to impose its own limit.
+        let (writer, receiver) = mpsc::channel(SEND_HIGH_WATER);
         let shared = Arc::new(StreamShared {
             socket: Mutex::new(Some(Arc::clone(&socket))),
             local,
@@ -276,11 +276,11 @@ impl Stream {
         }
     }
 
-    /// Queues all of `bytes` for an ordered write.
+    /// Queues an ordered prefix of `bytes` for writing.
     ///
-    /// The Nupp layer applies its per-connection high-water mark before calling
-    /// this operation. This layer accounts exactly for bytes accepted but not
-    /// yet handed to the kernel.
+    /// The transport accepts at most its per-connection high-water mark. It
+    /// accounts exactly for bytes accepted but not yet handed to the kernel,
+    /// independently of any limit the Nupp layer applies.
     pub fn try_write(&self, bytes: &[u8]) -> Write {
         let mut state = self
             .shared
@@ -299,18 +299,28 @@ impl Stream {
         let Some(writer) = state.writer.as_ref().cloned() else {
             return Write::Closed;
         };
-        let count = bytes.len();
-        state.pending_write = match state.pending_write.checked_add(count) {
-            Some(total) => total,
-            None => return Write::Failed("the network write queue is too large".to_owned()),
-        };
-        if writer.send(WriteCommand::Bytes(bytes.to_vec())).is_err() {
-            state.pending_write -= count;
-            state.writer.take();
-            state.write_closed = true;
-            return Write::Closed;
+        let room = SEND_HIGH_WATER.saturating_sub(state.pending_write);
+        if room == 0 {
+            return Write::Pending;
         }
-        Write::Accepted(count)
+        let count = room.min(bytes.len());
+        state.pending_write += count;
+        match writer.try_send(bytes[..count].to_vec()) {
+            Ok(()) => Write::Accepted(count),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                // The command bound is no smaller than the byte bound, so a
+                // full channel can only be transient while its byte accounting
+                // is being retired by the executor.
+                state.pending_write -= count;
+                Write::Pending
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                state.pending_write -= count;
+                state.writer.take();
+                state.write_closed = true;
+                Write::Closed
+            }
+        }
     }
 
     pub fn pending_write(&self) -> usize {
@@ -360,11 +370,10 @@ impl Stream {
             return Ok(());
         };
         state.shutting_down = true;
-        if writer.send(WriteCommand::Shutdown).is_err() {
-            state.shutting_down = false;
-            state.write_closed = true;
-            return Err("the network writer has ended".to_owned());
-        }
+        // Closing the last sender lets the writer drain every accepted byte,
+        // then perform the socket half-close. This cannot be blocked by a full
+        // command queue and preserves write ordering.
+        drop(writer);
         activity().notify();
         Ok(())
     }
@@ -561,41 +570,34 @@ fn finish_read(shared: &StreamShared, error: Option<String>, eof: bool) {
 
 async fn write_stream(
     socket: Arc<SocketKind>,
-    mut receiver: mpsc::UnboundedReceiver<WriteCommand>,
+    mut receiver: mpsc::Receiver<Vec<u8>>,
     shared: Arc<StreamShared>,
 ) {
-    while let Some(command) = receiver.recv().await {
-        match command {
-            WriteCommand::Bytes(bytes) => {
-                if let Err(error) = write_all(&socket, &shared.cancel, &bytes).await {
-                    fail_writer(&shared, error);
-                    return;
-                }
-                let mut state = shared
-                    .state
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner());
-                state.pending_write = state.pending_write.saturating_sub(bytes.len());
-                drop(state);
-                activity().notify();
-            }
-            WriteCommand::Shutdown => {
-                let result = socket.shutdown_write();
-                let mut state = shared
-                    .state
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner());
-                state.shutting_down = false;
-                state.write_closed = true;
-                if let Err(error) = result {
-                    state.write_error = Some(error.to_string());
-                }
-                drop(state);
-                activity().notify();
-                return;
-            }
+    while let Some(bytes) = receiver.recv().await {
+        if let Err(error) = write_all(&socket, &shared.cancel, &bytes).await {
+            fail_writer(&shared, error);
+            return;
         }
+        let mut state = shared
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        state.pending_write = state.pending_write.saturating_sub(bytes.len());
+        drop(state);
+        activity().notify();
     }
+    let result = socket.shutdown_write();
+    let mut state = shared
+        .state
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    state.shutting_down = false;
+    state.write_closed = true;
+    if let Err(error) = result {
+        state.write_error = Some(error.to_string());
+    }
+    drop(state);
+    activity().notify();
 }
 
 async fn write_all(
@@ -1730,7 +1732,17 @@ mod tests {
         let _network = exclusive_network();
         let (client, server) = connected_pair();
         let payload = vec![0x5a; RECEIVE_HIGH_WATER + READ_CHUNK * 4];
-        assert_eq!(client.try_write(&payload), Write::Accepted(payload.len()));
+        let mut written = 0;
+        while written != payload.len() {
+            match client.try_write(&payload[written..]) {
+                Write::Accepted(count) => written += count,
+                Write::Pending => {
+                    let seen = poll_activity();
+                    wait_activity_since(seen, Duration::from_millis(20));
+                }
+                other => panic!("unexpected write result: {other:?}"),
+            }
+        }
         wait_until(|| server.snapshot().buffered_read == RECEIVE_HIGH_WATER);
         assert_eq!(server.snapshot().buffered_read, RECEIVE_HIGH_WATER);
         std::thread::sleep(Duration::from_millis(50));
@@ -1740,6 +1752,15 @@ mod tests {
         );
         wait_until(|| server.snapshot().buffered_read == RECEIVE_HIGH_WATER);
         assert_eq!(server.snapshot().buffered_read, RECEIVE_HIGH_WATER);
+    }
+
+    #[test]
+    fn send_queue_accepts_no_more_than_its_high_water() {
+        let _network = exclusive_network();
+        let (client, _server) = connected_pair();
+        let payload = vec![0x5a; SEND_HIGH_WATER + READ_CHUNK];
+        assert_eq!(client.try_write(&payload), Write::Accepted(SEND_HIGH_WATER));
+        assert!(client.pending_write() <= SEND_HIGH_WATER);
     }
 
     #[test]
@@ -1793,6 +1814,28 @@ mod tests {
         assert!(
             matches!(connect.poll(), ConnectPoll::Failed(error) if error.contains("cancelled"))
         );
+    }
+
+    #[test]
+    fn rapid_connect_cancellation_always_retires_the_request() {
+        for _ in 0..128 {
+            let connect = connect_tcp("localhost", 9, Duration::from_secs(30)).unwrap();
+            connect.cancel();
+            assert!(connect.ready());
+            assert!(matches!(connect.poll(), ConnectPoll::Failed(_)));
+        }
+    }
+
+    #[test]
+    fn closing_a_listener_drains_queued_connections() {
+        let _network = exclusive_network();
+        let listener = listen_tcp("127.0.0.1", 0, 8, false).unwrap();
+        let peer = std::net::TcpStream::connect(("127.0.0.1", listener.port())).unwrap();
+        wait_until(|| listener.queued() == 1);
+        listener.close();
+        assert_eq!(listener.queued(), 0);
+        assert!(listener.try_accept().is_err());
+        drop(peer);
     }
 
     #[test]
@@ -2054,6 +2097,24 @@ mod tests {
             DatagramWrite::Closed
         );
         assert!(socket.set_broadcast(false).is_err());
+    }
+
+    #[test]
+    fn udp_close_racing_receive_leaves_no_queued_messages() {
+        let _network = exclusive_network();
+        let receiver = bind_datagram("127.0.0.1", 0, false).unwrap();
+        let destination = receiver.local_addr().unwrap();
+        let sender = std::thread::spawn(move || {
+            let socket = std::net::UdpSocket::bind(("127.0.0.1", 0)).unwrap();
+            for _ in 0..1024 {
+                let _ = socket.send_to(b"close-race", destination);
+            }
+        });
+        wait_until(|| receiver.queued() != 0);
+        receiver.close();
+        sender.join().unwrap();
+        assert_eq!(receiver.queued(), 0);
+        assert!(matches!(receiver.try_receive(64), DatagramRead::Failed(_)));
     }
 
     #[test]

@@ -103,6 +103,11 @@ local function fakeBackend(script)
    end
 
    function self:write(stream, bytes)
+      if script.backpressureOnce and not state.backpressured then
+         state.backpressured = true
+         state.pending = script.backendPending or 1
+         return 0
+      end
       state.written[#state.written + 1] = bytes
       -- A fake peer that never drains is how the high-water path is exercised.
       state.pending = state.pending + (script.drains == false and #bytes or 0)
@@ -227,6 +232,21 @@ function M.writeLargerThanTheBoundStillProceeds()
    assertTrue(stream:write("0123456789"), "a value larger than the bound is written")
    assertEq(table.concat(state.written), "0123456789", "in pieces, all of them")
    assertTrue(#state.written > 1, "and it really was more than one piece")
+   stream:close()
+end
+
+function M.aBackendMayApplyAStricterSendBound()
+   -- The Rust transport owns a structural ceiling even when the caller chooses
+   -- a larger policy bound. Zero acceptance means wait for the observed native
+   -- queue to retire, not spin while it remains below the caller's bound.
+   local backend, state = fakeBackend({
+      backpressureOnce = true, backendPending = 4, drainsOnRun = true,
+   })
+   net.useBackend(backend)
+   local stream = assert(net.connect({host = "example", port = 80, sendHighWater = 16}))
+   assertTrue(stream:write("payload"), "the write resumes after native backpressure")
+   assertEq(table.concat(state.written), "payload", "and accepts every byte exactly once")
+   assertTrue(state.runs > 0, "native backpressure drove the reactor rather than spinning")
    stream:close()
 end
 
