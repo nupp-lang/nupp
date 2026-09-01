@@ -164,7 +164,7 @@ jobs:
           # One universal compiler-owned host per platform. It is a raw immutable
           # catalog artifact; end-user archives carry the stamped compiler below.
           catalog_host=$(./scripts/toolchain host \
-            lpeg,lua-utf8,native-files,native-net,native-process,native-tls,workers)
+            lpeg,native-files,native-net,native-process,native-tls,workers)
           stub="nupp-host-${{ matrix.platform }}"
           cp "$catalog_host" "release/$stub"
           chmod +x "release/$stub"
@@ -281,7 +281,7 @@ jobs:
         run: |
           set -euo pipefail
           host=$(./scripts/toolchain host \
-            lpeg,lua-utf8,native-files,native-net,native-process,native-tls,workers)
+            lpeg,native-files,native-net,native-process,native-tls,workers)
           mkdir -p build/release-host/release
           cp "$host" build/release-host/release/nupp-host.exe
 

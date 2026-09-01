@@ -33,7 +33,7 @@ if test ! -f "$toolchain/bin/ranlib.exe" && test -f "$toolchain/bin/llvm-ranlib.
   cp "$toolchain/bin/llvm-ranlib.exe" "$toolchain/bin/ranlib.exe"
 fi
 
-features=lpeg,lua-utf8,native-files,native-net,native-process,native-tls,workers
+features=lpeg,native-files,native-net,native-process,native-tls,workers
 export NUPP_TOOLCHAIN_DIR="$cache"
 export NUPP_CC="$toolchain/$cc"
 export NUPP_CXX="$toolchain/$cxx"

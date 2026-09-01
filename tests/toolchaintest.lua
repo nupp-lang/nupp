@@ -392,6 +392,21 @@ function M.networkAndTlsAreRustOnlyToolchainFeatures()
    end
 end
 
+-- Release and compiler-pack jobs exercise a feature list outside the ordinary
+-- toolchain driver. A removed host feature left there fails only after a clean
+-- Linux or Windows release runner has provisioned the entire toolchain.
+function M.releaseJobsRequestOnlyCurrentHostFeatures()
+   for _, path in ipairs({
+      ".github/scripts/build-compiler-pack-linux.sh",
+      ".github/scripts/build-compiler-pack-windows.sh",
+      ".github/workflows/release.yml",
+   }) do
+      local text = read(ROOT .. "/" .. path)
+      assert(not text:find("lua-utf8", 1, true),
+         path .. " still requests the removed lua-utf8 host feature")
+   end
+end
+
 -- Clang accepts --ld-path only while linking. Generated AOT compilation uses
 -- -Werror, so putting it among compile flags makes a valid installed pack fail
 -- before its linker can run.
