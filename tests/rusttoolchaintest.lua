@@ -133,6 +133,7 @@ case "$package" in
 esac
 printf '%%s\n' built > "$target/release/$artifact"
 printf '%%s\n' "$arguments" > "$NUPP_TEST_CARGO_RECORD"
+printf '%%s\n' "${NUPP_CC:-}" > "$NUPP_TEST_CARGO_CC_RECORD"
 ]]
         ):format(version)
     )
@@ -155,6 +156,7 @@ local function environment(directory, version, identity)
         NUPP_RUSTC = rustc,
         NUPP_RUST_VENDOR_DIR = directory .. "/vendor",
         NUPP_TEST_CARGO_RECORD = directory .. "/cargo-arguments",
+        NUPP_TEST_CARGO_CC_RECORD = directory .. "/cargo-cc",
         NUPP_TEST_RUST_LIBRARY = library,
         NUPP_TEST_RUST_HOST = host,
         PATH = "$PATH",
@@ -227,9 +229,14 @@ function M.hostBuildSelectsThePinnedWorkspaceBinary()
     assert(not arguments:find("--offline", 1, true), arguments)
     assert(arguments:find(directory .. "/build/rust/host-binary/", 1, true), arguments)
     assert(arguments:find("-C link-dead-code", 1, true), arguments)
-    assert(arguments:find("-Wl,-export_dynamic", 1, true)
-        or arguments:find("-Wl,-E", 1, true)
-        or arguments:find("-Wl,--export-all-symbols", 1, true), arguments)
+    assert(
+        arguments:find(
+            "-Wl,-export_dynamic",
+            1,
+            true
+        ) or arguments:find("-Wl,-E", 1, true) or arguments:find("-Wl,--export-all-symbols", 1, true),
+        arguments
+    )
     assert(output:find(host, 1, true), output)
 end
 
@@ -266,10 +273,8 @@ end
 
 function M.legacyProviderUpgradeBridgeIsGone()
     local driver = read(DRIVER)
-    assert(not driver:find("provider_sources", 1, true),
-        "the ABI-v1 feature selector remains in the toolchain")
-    assert(not driver:match("\n    native%)"),
-        "the ABI-v1 provider command remains in the toolchain")
+    assert(not driver:find("provider_sources", 1, true), "the ABI-v1 feature selector remains in the toolchain")
+    assert(not driver:match("\n    native%)"), "the ABI-v1 provider command remains in the toolchain")
 end
 
 function M.hostArtifactFollowsTheLuaJitCompilerIdentity()
@@ -284,6 +289,27 @@ function M.hostArtifactFollowsTheLuaJitCompilerIdentity()
     local secondStatus, secondOutput = run(env, "host-rust")
     assert(secondStatus == 0, secondOutput)
     assert(answer(firstOutput) ~= answer(secondOutput), "two LuaJIT compiler identities shared one Rust host")
+end
+
+-- The driver can select its compiler through the compatibility alias or by
+-- probing PATH. Cargo does not inherit the driver's private shell variable, so
+-- pass the resolved answer explicitly to the host crate's C-shim build script.
+function M.hostShimUsesTheResolvedLuaJitCompiler()
+    local directory = temporary()
+    local env = environment(directory)
+    local compiler = env.NUPP_CC
+    env.NUPP_CC = nil
+    env.NUPP_NATIVE_CC = compiler
+    local status, output = run(env, "host-rust")
+
+    assert(status == 0, output)
+    assert(
+        read(env.NUPP_TEST_CARGO_CC_RECORD):match("^" .. compiler:gsub("([^%w])", "%%%1") .. "\n$"),
+        "the Rust host build did not receive the compiler selected for LuaJIT"
+    )
+    local driver = read(DRIVER)
+    local _, forwards = driver:gsub('NUPP_CC="%$CC" NUPP_LUAJIT_PREFIX=', "")
+    assert(forwards == 2, "the application and embedding host builds do not both forward NUPP_CC")
 end
 
 -- Every Cargo package can end up in a provider for some feature, platform or
@@ -330,14 +356,14 @@ function M.everyLockedRustDependencyHasACommittedNotice()
         seenCount = seenCount + 1
     end
 
-    assert(seenCount == expectedCount,
-        ("Rust notice covers %d of %d locked packages"):format(seenCount, expectedCount))
+    assert(seenCount == expectedCount, ("Rust notice covers %d of %d locked packages"):format(seenCount, expectedCount))
     for marker in pairs(expected) do
         assert(seen[marker], "Rust notice omits locked package " .. marker)
     end
-    assert(read(ROOT .. "/host/NOTICE.md"):find(
-        "notices/Rust-dependencies.html", 1, true),
-        "the release notice does not point readers to the Rust aggregate")
+    assert(
+        read(ROOT .. "/host/NOTICE.md"):find("notices/Rust-dependencies.html", 1, true),
+        "the release notice does not point readers to the Rust aggregate"
+    )
 end
 
 return M

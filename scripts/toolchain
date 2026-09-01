@@ -676,8 +676,8 @@ EOF
 $(host_export_arguments)
 EOF
     fi
-    NUPP_LUAJIT_PREFIX="$PREFIX/luajit" NUPP_LPEG_PREFIX="$host_lpeg_prefix" \
-        RUSTC="$RUSTC" "$@" >&2
+    NUPP_CC="$CC" NUPP_LUAJIT_PREFIX="$PREFIX/luajit" \
+        NUPP_LPEG_PREFIX="$host_lpeg_prefix" RUSTC="$RUSTC" "$@" >&2
     [ -f "$expected" ] \
         || die "Cargo built nupp-native-host but did not write $expected"
     printf 'done\n' > "$out/.complete"
@@ -746,8 +746,8 @@ EOF
     case "$PLATFORM" in
         darwin) set -- "$@" -C 'link-arg=-Wl,-install_name,@rpath/libnupp.dylib' ;;
     esac
-    NUPP_LUAJIT_PREFIX="$luajit_prefix" NUPP_LPEG_PREFIX="$lpeg_prefix" \
-        RUSTC="$RUSTC" "$@" >&2
+    NUPP_CC="$CC" NUPP_LUAJIT_PREFIX="$luajit_prefix" \
+        NUPP_LPEG_PREFIX="$lpeg_prefix" RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_EMBED_OUT" ] \
         || die "Cargo built nupp-native-host but did not write $RUST_EMBED_OUT"
     [ -f "$RUST_EMBED_DYNAMIC_OUT" ] \
