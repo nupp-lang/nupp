@@ -998,14 +998,28 @@ stage_application_archive() {
     "$archive_tool" t "$destination" > "$members"
     : > "$imports"
     while IFS= read -r member; do
+        member=$(printf '%s' "$member" | tr -d '\r')
         case "$member" in
             *.dlls[0-9]*.o) printf '%s\n' "$member" >> "$imports" ;;
         esac
     done < "$members"
     while IFS= read -r member; do
-        [ -z "$member" ] || "$archive_tool" d "$destination" "$member"
+        # GNU ar needs an explicit instance when an archive contains the same
+        # import-member name more than once. Each recorded occurrence removes
+        # the current first instance until none remain.
+        [ -z "$member" ] || "$archive_tool" dN 1 "$destination" "$member"
     done < "$imports"
     "$archive_tool" s "$destination"
+    "$archive_tool" t "$destination" > "$members"
+    while IFS= read -r member; do
+        member=$(printf '%s' "$member" | tr -d '\r')
+        case "$member" in
+            *.dlls[0-9]*.o)
+                rm -f "$members" "$imports"
+                die "the staged Windows application archive retains import member $member"
+                ;;
+        esac
+    done < "$members"
     rm -f "$members" "$imports"
 }
 
