@@ -108,7 +108,8 @@ jobs:
         run: |
           set -euo pipefail
           NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
-          NUPP_LUAROCKS=$(./scripts/toolchain luarocks)/bin/luarocks
+          luarocks_dir=$(./scripts/toolchain luarocks)
+          NUPP_LUAROCKS=$(cat "$luarocks_dir/.executable")
           export NUPP_TOOLCHAIN_PREFIX NUPP_LUAROCKS
           ./bin/nupp fixpoint --binary
 
@@ -143,7 +144,8 @@ jobs:
         run: |
           set -euo pipefail
           NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
-          NUPP_LUAROCKS=$(./scripts/toolchain luarocks)/bin/luarocks
+          luarocks_dir=$(./scripts/toolchain luarocks)
+          NUPP_LUAROCKS=$(cat "$luarocks_dir/.executable")
           export NUPP_TOOLCHAIN_PREFIX NUPP_LUAROCKS
           # The stub runs the compiler, which reads its own doc comments
           # through nupp.peg, so it carries LPeg.
@@ -304,7 +306,8 @@ jobs:
         run: |
           set -euo pipefail
           NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
-          NUPP_LUAROCKS=$(./scripts/toolchain luarocks)/bin/luarocks
+          luarocks_dir=$(./scripts/toolchain luarocks)
+          NUPP_LUAROCKS=$(cat "$luarocks_dir/.executable")
           export NUPP_TOOLCHAIN_PREFIX NUPP_LUAROCKS
           ./bin/nupp fixpoint --binary
 
