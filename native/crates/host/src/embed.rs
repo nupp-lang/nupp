@@ -1042,6 +1042,22 @@ return {
                 ),
                 STATUS_INVALID_ARGUMENT
             );
+            let mut error = ptr::null_mut();
+            assert_eq!(
+                nupp_runtime_register_aot_builders(
+                    runtime,
+                    c"malformed".as_ptr(),
+                    Some(empty_module),
+                    &mut error,
+                ),
+                STATUS_RUNTIME
+            );
+            assert!(!error.is_null());
+            nupp_error_free(error);
+            assert_eq!(
+                nupp_runtime_add_feature(runtime, c"after-error".as_ptr(), ptr::null_mut()),
+                STATUS_OK
+            );
             nupp_runtime_free(runtime);
         }
     }

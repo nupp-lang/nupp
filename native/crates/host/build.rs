@@ -91,6 +91,14 @@ fn compile_shim(manifest: &Path, prefix: &Path, target: &str) {
         .arg("-std=c11")
         .arg("-O2")
         .arg("-fPIC")
+        // The shims are the type firewall between two independently compiled
+        // ABIs. Refuse implicit or mismatched declarations instead of allowing
+        // a pointer-width/signature mistake to survive into the static archive.
+        .arg("-Wall")
+        .arg("-Wextra")
+        .arg("-Werror=implicit-function-declaration")
+        .arg("-Werror=incompatible-pointer-types")
+        .arg("-Werror=return-type")
         .arg(format!("-I{include}"))
         .arg("-o")
         .arg(&object)
@@ -107,6 +115,11 @@ fn compile_shim(manifest: &Path, prefix: &Path, target: &str) {
         .arg("-std=c11")
         .arg("-O2")
         .arg("-fPIC")
+        .arg("-Wall")
+        .arg("-Wextra")
+        .arg("-Werror=implicit-function-declaration")
+        .arg("-Werror=incompatible-pointer-types")
+        .arg("-Werror=return-type")
         .arg(format!("-I{include}"))
         .arg("-o")
         .arg(&worker_object)

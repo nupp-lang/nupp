@@ -8,6 +8,34 @@
 #include <lua.h>
 #include <lualib.h>
 
+/* Rust/LuaJIT boundary contract.
+ *
+ * Stack: every exported nupp_lua_* entry records and restores the caller's
+ * top in protect(). Helper stack effects are therefore private even on error.
+ *
+ * Ownership and lifetime: Rust borrows all input buffers for one synchronous
+ * call. Lua copies strings before return. Context structs live on the Rust
+ * caller's C ABI stack and are exposed only as lightuserdata while cpcall is
+ * active. Successful component, export, and result references transfer one
+ * Lua registry owner to Rust; release_reference transfers it back exactly once.
+ *
+ * Longjmp: no function below this comment may be called directly from Rust
+ * unless it is an exported wrapper using protect(). The outer lua_cpcall
+ * catches allocation failures while constructing the inner call; the inner
+ * lua_pcall catches helper, metamethod, chunk, and callback errors. Error value
+ * conversion also happens in that protected C frame. No Lua longjmp can cross
+ * a Rust frame.
+ *
+ * Callbacks: lua_CFunction values supplied by an embedder use the C callback
+ * ABI, must not unwind, and must obey Lua's stack-result convention. They are
+ * always installed or invoked below the protected C frame; worker openers are
+ * C functions in worker_shim.c and never enter Lua from Rust.
+ *
+ * Thread affinity: a lua_State and every registry reference are confined to
+ * the creating/attaching thread. Rust's Lua wrapper is !Send + !Sync and owns
+ * that invariant; this shim deliberately adds no locks or cross-thread access.
+ */
+
 typedef struct NuppLuaBytes {
     const char *data;
     size_t length;
@@ -368,6 +396,27 @@ static int set_worker_context(lua_State *state) {
     return 0;
 }
 
+static int clear_worker_context(lua_State *state) {
+    /* Raw writes make teardown independent of a hostile globals metatable. All
+     * names are copied/interned while the outer protected frame is live. */
+    lua_pushliteral(state, "__nuppWorkerHost");
+    lua_pushnil(state);
+    lua_rawset(state, LUA_GLOBALSINDEX);
+    lua_pushliteral(state, "__nuppWorkerIn");
+    lua_pushnil(state);
+    lua_rawset(state, LUA_GLOBALSINDEX);
+    lua_pushliteral(state, "__nuppWorkerOut");
+    lua_pushnil(state);
+    lua_rawset(state, LUA_GLOBALSINDEX);
+    lua_pushliteral(state, "__nuppWorkerTasks");
+    lua_pushnil(state);
+    lua_rawset(state, LUA_GLOBALSINDEX);
+    lua_pushliteral(state, "__nuppWorkerEntry");
+    lua_pushnil(state);
+    lua_rawset(state, LUA_GLOBALSINDEX);
+    return 0;
+}
+
 static int install_component(lua_State *state) {
     ComponentCall *context = (ComponentCall *)lua_touserdata(state, 1);
     int status;
@@ -564,6 +613,8 @@ static int protected_dispatch(lua_State *state) {
     ProtectedDispatch *dispatch =
         (ProtectedDispatch *)lua_touserdata(state, 1);
     int status;
+    /* The dispatch/context pointers remain live until this synchronous pcall
+     * returns. All Lua allocation begins only after the outer cpcall exists. */
     lua_pushcfunction(state, dispatch->function);
     lua_pushlightuserdata(state, dispatch->call);
     status = lua_pcall(state, 1, 0, 0);
@@ -582,6 +633,8 @@ static int protect(lua_State *state, lua_CFunction function,
      * closure first. Any allocation failure or metamethod error below returns
      * here instead of longjmping through the Rust caller. */
     outer_status = lua_cpcall(state, protected_dispatch, &dispatch);
+    /* lua_settop can only shrink to the previously valid top here. LuaJIT's
+     * macro does not allocate or invoke a metamethod while discarding values. */
     lua_settop(state, base);
     return outer_status != 0 ? outer_status : call->status;
 }
@@ -679,6 +732,12 @@ int nupp_lua_set_worker_context(lua_State *state, const void *inbox,
         {error, error_capacity, 0}, inbox, outbox, tasks
     };
     return protect(state, set_worker_context, &context.call);
+}
+
+int nupp_lua_clear_worker_context(lua_State *state, char *error,
+    size_t error_capacity) {
+    ProtectedCall call = {error, error_capacity, 0};
+    return protect(state, clear_worker_context, &call);
 }
 
 int nupp_lua_install_component(lua_State *state, const char *chunk,

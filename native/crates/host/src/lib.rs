@@ -536,6 +536,16 @@ impl HostRuntime {
             return Err(HostError::PendingDuringShutdown(pending));
         }
 
+        // An attached runtime does not close its caller's Lua state, so its C
+        // worker module may remain reachable after this HostRuntime is gone.
+        // Clear every non-owning lightuserdata before dropping the Rust owners;
+        // owned states take the same path to keep teardown ordering uniform.
+        if self.worker_host.is_some()
+            && let Some(lua) = self.lua.as_ref()
+        {
+            lua.clear_worker_context().map_err(HostError::Lua)?;
+        }
+
         // No native completion can now enqueue back to this state. Closing Lua
         // before the lane's terminal transition keeps the ownership order
         // explicit and makes a future provider drain the only place to wait.
@@ -673,6 +683,23 @@ return {
     }
 
     #[test]
+    fn component_descriptor_metamethod_errors_leave_the_state_reusable() {
+        let mut runtime = runtime();
+        let error = runtime
+            .load_component(
+                br#"-- NUPP-COMPONENT 1
+return setmetatable({}, {__index=function() error('descriptor trap') end})"#,
+                "=descriptor-trap",
+            )
+            .expect_err("descriptor lookup must remain protected");
+        assert!(error.to_string().contains("descriptor trap"), "{error}");
+        runtime
+            .run_buffer(b"assert(6 * 7 == 42)", "=after-descriptor-trap", &[])
+            .expect("state remains usable after descriptor metamethod failure");
+        runtime.shutdown().expect("shutdown");
+    }
+
+    #[test]
     fn close_contains_lua_finalizer_errors() {
         let mut runtime = runtime();
         runtime
@@ -753,12 +780,22 @@ return {
         let mut owner = HostRuntime::owned(true, None).unwrap();
         let state = owner.lua_state();
         let mut attached = unsafe { HostRuntime::attach(state, false) }.unwrap();
+        attached.enable_workers(b"return nil").unwrap();
         attached
             .run_buffer(b"attached_value=21", "=attached", &[])
             .unwrap();
         attached.shutdown().unwrap();
         owner
-            .run_buffer(b"assert(attached_value * 2 == 42)", "=owner", &[])
+            .run_buffer(
+                br#"
+assert(attached_value * 2 == 42)
+local workers = require("nupp.workers.native")
+local worker, problem = workers.workerSpawn(nil, nil)
+assert(worker == nil and problem:find("stamped Nupp payload", 1, true))
+"#,
+                "=owner",
+                &[],
+            )
             .unwrap();
         owner.shutdown().unwrap();
     }

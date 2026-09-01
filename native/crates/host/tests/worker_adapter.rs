@@ -73,6 +73,60 @@ workers.channelDestroy(channel)
 }
 
 #[test]
+fn malformed_adapter_values_fail_without_consuming_live_owners() {
+    let mut runtime = runtime(b"return nil");
+    run(
+        &runtime,
+        br#"
+local workers = require("nupp.workers.native")
+local bytes = require("nupp.mem.sharedbytes.native")
+
+local channel = assert(workers.channelCreate())
+assert(not workers.channelPush(nil, "header", "body"))
+assert(not workers.channelPush(channel, {}, "body"))
+assert(not workers.channelPushBufferTask(
+    channel, 1, "jobs", "run", 1, "frame", {"not-a-pointer"}
+))
+assert(not workers.channelPushBufferTask(
+    channel, 1, "jobs", "run", 1, "frame", {false, 1, 1}
+))
+assert(workers.channelCount(channel) == 0)
+assert(workers.channelPop(nil, 0) == nil)
+assert(workers.channelDictRegister(channel, {}) == nil)
+assert(workers.channelDictAddress(nil, 1) == nil)
+
+assert(bytes.text({}, 1, 1) == nil)
+assert(bytes.pointer({}) == nil)
+assert(bytes.length({}) == nil)
+local accepted, problem = bytes.builderAppend({}, "data")
+assert(not accepted and problem == nil)
+local region, readProblem = bytes.readFile("/definitely/not/a/nupp/file")
+assert(region == nil and type(readProblem) == "string")
+
+do
+    local first = assert(bytes.fromString("first"))
+    local second = assert(bytes.fromString("second"))
+    assert(bytes.accounted() == 11)
+end
+collectgarbage("collect")
+collectgarbage("collect")
+assert(bytes.accounted() == 0)
+
+do
+    local builder = assert(bytes.builderNew())
+    assert(bytes.builderAppend(builder, "discarded"))
+end
+collectgarbage("collect")
+collectgarbage("collect")
+
+workers.channelClose(channel)
+workers.channelDestroy(channel)
+"#,
+    );
+    runtime.shutdown().expect("shutdown");
+}
+
+#[test]
 fn cancellation_crosses_the_lua_worker_boundary_without_parent_state_entry() {
     let payload = br#"
 local workers = require("nupp.workers.native")

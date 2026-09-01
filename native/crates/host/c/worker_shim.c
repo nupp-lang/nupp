@@ -1,8 +1,34 @@
 /* Lua stack adapter for Rust-owned workers and shared bytes.
  *
- * Every callback remains C so LuaJIT can raise or allocate without crossing a
- * Rust frame. The callbacks copy primitive stack values into opaque Rust
- * owners; Rust never receives lua_State and never enters the parent state.
+ * Stack and longjmp: every lua_* operation is executed by a Lua C callback,
+ * never by Rust. The callback's caller has a Lua protected frame (host chunks
+ * use lua_shim.c and worker chunks use the same host runner), so allocation or
+ * metamethod failure may longjmp through this C frame but never through Rust.
+ * Rust is called only after input conversion and returns before another Lua
+ * operation. The functions below never retain lua_State or a Lua stack pointer.
+ *
+ * Rust callback ABI: every nupp_rust_* export catches Rust panics and returns a
+ * conservative C value. Rust panic unwinding therefore cannot enter this file;
+ * conversely, no Lua operation occurs while a Rust frame is active. Extern
+ * signatures below must exactly match the repr(C) Rust declarations.
+ *
+ * Ownership and lifetime:
+ * - channel/worker/account/builder pointers transfer one Rust Arc/Box owner to
+ *   Lua lightuserdata or userdata and are destroyed/joined/finalized once;
+ * - message pointers transfer from channel_pop until message_destroy; returned
+ *   byte pointers are borrowed only until that destroy and copied immediately;
+ * - region pointers carry one Arc owner per Lua handle; data pointers remain
+ *   immutable and valid while the handle is live;
+ * - a builder reservation pointer is exclusive until one commit, during which
+ *   every operation that could reallocate is rejected;
+ * - Lua string and attachment-array pointers are borrowed for one synchronous
+ *   Rust call, which copies or takes ownership before returning.
+ *
+ * Thread affinity: each callback runs on its lua_State's owner thread. Channels,
+ * region Arcs, and task mutexes are the only cross-thread values. Host and task
+ * lightuserdata remain backed by Rust owners for the full lifetime of the Lua
+ * state that can read them. Parent and worker states are never entered across
+ * lanes.
  */
 
 #include <math.h>
@@ -37,6 +63,8 @@ typedef struct RawAttachment {
     size_t length;
 } RawAttachment;
 
+/* These functions are Rust panic firewalls as well as ownership adapters. Do
+ * not add a direct Rust export here unless its body uses ffi_value/ffi_void. */
 extern void *nupp_rust_worker_channel_new(void);
 extern void nupp_rust_worker_channel_destroy(const void *channel);
 extern void nupp_rust_worker_channel_close(const void *channel);
@@ -115,6 +143,9 @@ typedef struct RegionAccount { void *owner; } RegionAccount;
 static int account_gc(lua_State *state) {
     RegionAccount *account = lua_touserdata(state, 1);
     if (account != NULL && account->owner != NULL) {
+        /* Clear after the Rust call so normal finalization transfers the Box
+         * exactly once. A caught Rust panic leaks rather than exposing a stale
+         * freed pointer or unwinding through Lua. */
         nupp_rust_region_account_destroy(account->owner);
         account->owner = NULL;
     }
@@ -159,6 +190,8 @@ static void account_discharge(lua_State *state, void *block) {
 static int region_handle_gc(lua_State *state) {
     RegionHandle *handle = lua_touserdata(state, 1);
     if (handle != NULL && handle->block != NULL) {
+        /* Finalizers are idempotent: the Arc owner is released once and the Lua
+         * userdata is cleared before it can be observed by another finalizer. */
         account_discharge(state, handle->block);
         nupp_rust_region_release(handle->block);
         handle->block = NULL;
@@ -261,10 +294,12 @@ static int push_string_reply(lua_State *state) {
  * here and cloned by Rust only if the frame forms. */
 static size_t read_attachments(lua_State *state, int index,
     RawAttachment *out) {
-    size_t triples, position;
+    size_t entries, triples, position;
     if (lua_isnoneornil(state, index)) return 0;
     if (lua_type(state, index) != LUA_TTABLE) return (size_t)-1;
-    triples = lua_objlen(state, index) / 3;
+    entries = lua_objlen(state, index);
+    if (entries % 3 != 0) return (size_t)-1;
+    triples = entries / 3;
     if (triples > MAX_ATTACHMENTS) return (size_t)-1;
     for (position = 0; position < triples; ++position) {
         void *block = NULL;
@@ -408,6 +443,8 @@ static int channel_pop(lua_State *state) {
         for (index = 0; index < 7; ++index) lua_pushnil(state);
         return 7;
     }
+    /* `message` remains the unique transferred Box owner until every borrowed
+     * byte has been copied into Lua and every attachment has been taken. */
     kind = nupp_rust_worker_message_kind(message);
     if (kind == MESSAGE_BYTES) {
         push_message_bytes(state, message, 0);
@@ -468,6 +505,8 @@ static void *global_pointer(lua_State *state, const char *name) {
 
 static int worker_spawn(lua_State *state) {
     char error[4096] = {0};
+    /* Host and channels remain owned by HostRuntime/Lua until the returned
+     * worker is joined. Rust clones channel Arcs before this callback returns. */
     void *worker = nupp_rust_worker_spawn(
         global_pointer(state, "__nuppWorkerHost"),
         lua_touserdata(state, 1), lua_touserdata(state, 2),
@@ -617,6 +656,9 @@ static int region_length(lua_State *state) {
 static int builder_gc(lua_State *state) {
     BuilderHandle *handle = lua_touserdata(state, 1);
     if (handle != NULL && handle->builder != NULL) {
+        /* Rust owns all reservation storage. Destruction invalidates a borrowed
+         * reservation pointer, which Lua cannot use safely after dropping the
+         * builder handle; clearing makes repeated finalization harmless. */
         nupp_rust_region_builder_destroy(handle->builder);
         handle->builder = NULL;
     }

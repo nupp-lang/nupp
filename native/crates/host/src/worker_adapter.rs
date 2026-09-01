@@ -5,6 +5,9 @@
 //! Channels, messages, dictionaries, attachments, regions, task state, worker
 //! threads, payload lifetime, cancellation, and teardown are owned here.
 
+#![deny(unsafe_op_in_unsafe_fn)]
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 use crate::{
     CancellationToken, HostRuntime, SharedBytes, SharedBytesBuilder, Worker, WorkerEvent,
     WorkerJob, WorkerLimits,
@@ -13,6 +16,7 @@ use std::collections::{HashMap, VecDeque};
 use std::ffi::{c_char, c_int, c_void};
 use std::fmt::Write as _;
 use std::mem::ManuallyDrop;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::ptr;
 use std::slice;
@@ -24,6 +28,25 @@ const MAX_BYTES: usize = 256 * 1024 * 1024;
 const MAX_DICTIONARY: usize = 256;
 const MAX_ATTACHMENTS: usize = 255;
 const ACCOUNT_STEP_BYTES: usize = 1 << 20;
+
+fn ffi_value<T>(fallback: T, body: impl FnOnce() -> T) -> T {
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(value) => value,
+        Err(payload) => {
+            // A user-supplied panic payload may itself panic from Drop. Leak it
+            // on this exceptional path so even that destructor cannot unwind
+            // through the Lua/C callback ABI.
+            std::mem::forget(payload);
+            fallback
+        }
+    }
+}
+
+fn ffi_void(body: impl FnOnce()) {
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(body)) {
+        std::mem::forget(payload);
+    }
+}
 
 pub(crate) struct WorkersHost {
     payload: SharedBytes,
@@ -136,8 +159,9 @@ enum Attachment {
     },
 }
 
-// A moved allocation is exclusively owned by the message while it crosses a
-// channel. malloc storage may be freed on either lane.
+// SAFETY: a moved allocation is exclusively owned by the message while it
+// crosses a channel. malloc storage is thread-independent and may be freed on
+// either lane; region attachments use Arc and are Send through that owner.
 unsafe impl Send for Attachment {}
 
 impl Drop for Attachment {
@@ -145,6 +169,8 @@ impl Drop for Attachment {
         if let Self::Moved { pointer, .. } = self
             && !pointer.is_null()
         {
+            // SAFETY: a moved attachment is an exclusive malloc owner. The
+            // pointer is cleared immediately so no later Drop can free it twice.
             unsafe { free(*pointer) };
             *pointer = ptr::null_mut();
         }
@@ -245,6 +271,8 @@ fn borrowed_arc<T>(pointer: *const T) -> Option<ManuallyDrop<Arc<T>>> {
     if pointer.is_null() {
         None
     } else {
+        // SAFETY: each C pointer passed here originated in `Arc::into_raw` and
+        // C retains that strong owner. `ManuallyDrop` makes this a borrow only.
         Some(ManuallyDrop::new(unsafe { Arc::from_raw(pointer) }))
     }
 }
@@ -255,6 +283,8 @@ unsafe fn bytes<'a>(data: *const u8, length: usize) -> Option<&'a [u8]> {
     } else if length == 0 {
         Some(&[])
     } else {
+        // SAFETY: the caller proves `data` addresses `length` readable bytes for
+        // the returned borrow and keeps them live for that borrow's duration.
         Some(unsafe { slice::from_raw_parts(data, length) })
     }
 }
@@ -264,6 +294,8 @@ fn write_error(buffer: *mut c_char, capacity: usize, message: &str) {
         return;
     }
     let count = message.len().min(capacity - 1);
+    // SAFETY: C provides `capacity` writable bytes at non-null `buffer`; source
+    // and destination do not overlap and the final byte is reserved for NUL.
     unsafe {
         ptr::copy_nonoverlapping(message.as_ptr().cast(), buffer, count);
         *buffer.add(count) = 0;
@@ -277,6 +309,8 @@ fn attachments(raw: *const RawAttachment, count: usize) -> Option<Vec<Option<Att
     let raw = if count == 0 {
         &[][..]
     } else {
+        // SAFETY: the C shim owns a stack array of at least `count` elements and
+        // keeps it live and immutable until this synchronous conversion returns.
         unsafe { slice::from_raw_parts(raw, count) }
     };
     let mut answer = Vec::with_capacity(count);
@@ -308,39 +342,51 @@ fn attachments(raw: *const RawAttachment, count: usize) -> Option<Vec<Option<Att
 
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn nupp_rust_worker_channel_new() -> *const AdapterChannel {
-    Arc::into_raw(Arc::new(AdapterChannel::new()))
+    ffi_value(ptr::null(), || {
+        Arc::into_raw(Arc::new(AdapterChannel::new()))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_destroy(channel: *const AdapterChannel) {
-    if !channel.is_null() {
-        drop(unsafe { Arc::from_raw(channel) });
-    }
+    ffi_void(|| {
+        if !channel.is_null() {
+            // SAFETY: C transfers exactly one strong owner created by
+            // `channel_new`; the lightuserdata must not be destroyed twice.
+            drop(unsafe { Arc::from_raw(channel) });
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_close(channel: *const AdapterChannel) {
-    if let Some(channel) = borrowed_arc(channel) {
-        channel.close();
-    }
+    ffi_void(|| {
+        if let Some(channel) = borrowed_arc(channel) {
+            channel.close();
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_count(
     channel: *const AdapterChannel,
 ) -> usize {
-    borrowed_arc(channel)
-        .map(|channel| lock(&channel.queue).messages.len())
-        .unwrap_or(0)
+    ffi_value(0, || {
+        borrowed_arc(channel)
+            .map(|channel| lock(&channel.queue).messages.len())
+            .unwrap_or(0)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_closed(
     channel: *const AdapterChannel,
 ) -> c_int {
-    borrowed_arc(channel)
-        .is_none_or(|channel| lock(&channel.queue).closed)
-        .into()
+    ffi_value(1, || {
+        borrowed_arc(channel)
+            .is_none_or(|channel| lock(&channel.queue).closed)
+            .into()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -358,32 +404,38 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_push(
     raw_attachments: *const RawAttachment,
     attachment_count: usize,
 ) -> c_int {
-    let Some(channel) = borrowed_arc(channel) else {
-        return 0;
-    };
-    let Some(first) = (unsafe { bytes(first, first_length) }) else {
-        return 0;
-    };
-    let Some(second) = (unsafe { bytes(second, second_length) }) else {
-        return 0;
-    };
-    let Some(value) = (unsafe { bytes(value, value_length) }) else {
-        return 0;
-    };
-    let Some(attachments) = attachments(raw_attachments, attachment_count) else {
-        return 0;
-    };
-    channel
-        .try_push(Box::new(AdapterMessage {
-            kind,
-            id,
-            number,
-            first: first.to_vec(),
-            second: second.to_vec(),
-            value: value.to_vec(),
-            attachments,
-        }))
-        .into()
+    ffi_value(0, || {
+        let Some(channel) = borrowed_arc(channel) else {
+            return 0;
+        };
+        // SAFETY: C keeps each Lua string live and immutable until this call
+        // returns; the function copies every slice before returning to C.
+        let Some(first) = (unsafe { bytes(first, first_length) }) else {
+            return 0;
+        };
+        // SAFETY: same synchronous Lua-string borrow as `first`.
+        let Some(second) = (unsafe { bytes(second, second_length) }) else {
+            return 0;
+        };
+        // SAFETY: same synchronous Lua-string borrow as `first`.
+        let Some(value) = (unsafe { bytes(value, value_length) }) else {
+            return 0;
+        };
+        let Some(attachments) = attachments(raw_attachments, attachment_count) else {
+            return 0;
+        };
+        channel
+            .try_push(Box::new(AdapterMessage {
+                kind,
+                id,
+                number,
+                first: first.to_vec(),
+                second: second.to_vec(),
+                value: value.to_vec(),
+                attachments,
+            }))
+            .into()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -391,36 +443,51 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_pop(
     channel: *const AdapterChannel,
     timeout_ms: i32,
 ) -> *mut AdapterMessage {
-    borrowed_arc(channel)
-        .and_then(|channel| channel.pop(timeout_ms))
-        .map(Box::into_raw)
-        .unwrap_or(ptr::null_mut())
+    ffi_value(ptr::null_mut(), || {
+        borrowed_arc(channel)
+            .and_then(|channel| channel.pop(timeout_ms))
+            .map(Box::into_raw)
+            .unwrap_or(ptr::null_mut())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_destroy(message: *mut AdapterMessage) {
-    if !message.is_null() {
-        drop(unsafe { Box::from_raw(message) });
-    }
+    ffi_void(|| {
+        if !message.is_null() {
+            // SAFETY: `channel_pop` transfers one Box owner to C; C calls this
+            // once after copying all borrowed message bytes and attachments.
+            drop(unsafe { Box::from_raw(message) });
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_kind(
     message: *const AdapterMessage,
 ) -> c_int {
-    unsafe { message.as_ref() }.map_or(0, |message| message.kind)
+    ffi_value(0, || {
+        // SAFETY: C retains the transferred message owner through this getter.
+        unsafe { message.as_ref() }.map_or(0, |message| message.kind)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_id(message: *const AdapterMessage) -> i64 {
-    unsafe { message.as_ref() }.map_or(0, |message| message.id)
+    ffi_value(0, || {
+        // SAFETY: C retains the transferred message owner through this getter.
+        unsafe { message.as_ref() }.map_or(0, |message| message.id)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_number(
     message: *const AdapterMessage,
 ) -> f64 {
-    unsafe { message.as_ref() }.map_or(0.0, |message| message.number)
+    ffi_value(0.0, || {
+        // SAFETY: C retains the transferred message owner through this getter.
+        unsafe { message.as_ref() }.map_or(0.0, |message| message.number)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -429,25 +496,33 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_message_bytes(
     which: c_int,
     length: *mut usize,
 ) -> *const u8 {
-    let Some(message) = (unsafe { message.as_ref() }) else {
-        return ptr::null();
-    };
-    let value = match which {
-        0 => &message.first,
-        1 => &message.second,
-        _ => &message.value,
-    };
-    if !length.is_null() {
-        unsafe { *length = value.len() };
-    }
-    value.as_ptr()
+    ffi_value(ptr::null(), || {
+        // SAFETY: C retains the message until after it copies the returned
+        // slice, so the selected Vec cannot move or be freed during this call.
+        let Some(message) = (unsafe { message.as_ref() }) else {
+            return ptr::null();
+        };
+        let value = match which {
+            0 => &message.first,
+            1 => &message.second,
+            _ => &message.value,
+        };
+        if !length.is_null() {
+            // SAFETY: non-null `length` points to C stack storage for this call.
+            unsafe { *length = value.len() };
+        }
+        value.as_ptr()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_attachment_count(
     message: *const AdapterMessage,
 ) -> usize {
-    unsafe { message.as_ref() }.map_or(0, |message| message.attachments.len())
+    ffi_value(0, || {
+        // SAFETY: C retains the transferred message owner through this getter.
+        unsafe { message.as_ref() }.map_or(0, |message| message.attachments.len())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -456,54 +531,64 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_message_take_attachment(
     index: usize,
     out: *mut RawAttachment,
 ) -> c_int {
-    let Some(message) = (unsafe { message.as_mut() }) else {
-        return 0;
-    };
-    let Some(slot) = message.attachments.get_mut(index) else {
-        return 0;
-    };
-    let Some(attachment) = slot.take() else {
-        return 0;
-    };
-    let attachment = ManuallyDrop::new(attachment);
-    let raw = match &*attachment {
-        Attachment::Region {
-            region,
-            first,
-            length,
-        } => RawAttachment {
-            kind: 0,
-            block: Arc::into_raw(unsafe { ptr::read(region) })
-                .cast_mut()
-                .cast(),
-            first: *first,
-            length: *length,
-        },
-        Attachment::Moved {
-            pointer,
-            count,
-            layout,
-        } => RawAttachment {
-            kind: 1,
-            block: *pointer,
-            first: *count,
-            length: *layout,
-        },
-    };
-    if out.is_null() {
-        release_raw_attachment(raw);
-        return 0;
-    }
-    unsafe { out.write(raw) };
-    1
+    ffi_value(0, || {
+        // SAFETY: C retains exclusive ownership of the message and serializes
+        // attachment extraction before destroying it.
+        let Some(message) = (unsafe { message.as_mut() }) else {
+            return 0;
+        };
+        let Some(slot) = message.attachments.get_mut(index) else {
+            return 0;
+        };
+        let Some(attachment) = slot.take() else {
+            return 0;
+        };
+        let attachment = ManuallyDrop::new(attachment);
+        let raw = match &*attachment {
+            Attachment::Region {
+                region,
+                first,
+                length,
+            } => RawAttachment {
+                kind: 0,
+                // SAFETY: `attachment` is ManuallyDrop and uniquely consumed;
+                // reading its Arc transfers that strong owner to the C handle.
+                block: Arc::into_raw(unsafe { ptr::read(region) })
+                    .cast_mut()
+                    .cast(),
+                first: *first,
+                length: *length,
+            },
+            Attachment::Moved {
+                pointer,
+                count,
+                layout,
+            } => RawAttachment {
+                kind: 1,
+                block: *pointer,
+                first: *count,
+                length: *layout,
+            },
+        };
+        if out.is_null() {
+            release_raw_attachment(raw);
+            return 0;
+        }
+        // SAFETY: non-null `out` is writable C stack storage for one RawAttachment.
+        unsafe { out.write(raw) };
+        1
+    })
 }
 
 fn release_raw_attachment(raw: RawAttachment) {
     if raw.kind == 0 {
         if !raw.block.is_null() {
+            // SAFETY: a region raw attachment carries exactly one Arc strong
+            // owner transferred from `message_take_attachment`.
             drop(unsafe { Arc::from_raw(raw.block.cast::<Region>()) });
         }
     } else if !raw.block.is_null() {
+        // SAFETY: a moved raw attachment exclusively owns this malloc pointer.
         unsafe { free(raw.block) };
     }
 }
@@ -514,33 +599,39 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_dict_register(
     address: *const u8,
     length: usize,
 ) -> usize {
-    let Some(channel) = borrowed_arc(channel) else {
-        return 0;
-    };
-    let Some(address) = (unsafe { bytes(address, length) }) else {
-        return 0;
-    };
-    if address.is_empty() {
-        return 0;
-    }
-    let mut dictionary = lock(&channel.dictionary);
-    if let Some(index) = dictionary.iter().position(|known| known == address) {
-        return index + 1;
-    }
-    if dictionary.len() >= MAX_DICTIONARY {
-        return 0;
-    }
-    dictionary.push(address.to_vec());
-    dictionary.len()
+    ffi_value(0, || {
+        let Some(channel) = borrowed_arc(channel) else {
+            return 0;
+        };
+        // SAFETY: C borrows a Lua string for this synchronous call; Rust copies
+        // it before returning and retains no pointer into the Lua heap.
+        let Some(address) = (unsafe { bytes(address, length) }) else {
+            return 0;
+        };
+        if address.is_empty() {
+            return 0;
+        }
+        let mut dictionary = lock(&channel.dictionary);
+        if let Some(index) = dictionary.iter().position(|known| known == address) {
+            return index + 1;
+        }
+        if dictionary.len() >= MAX_DICTIONARY {
+            return 0;
+        }
+        dictionary.push(address.to_vec());
+        dictionary.len()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_dict_count(
     channel: *const AdapterChannel,
 ) -> usize {
-    borrowed_arc(channel)
-        .map(|channel| lock(&channel.dictionary).len())
-        .unwrap_or(0)
+    ffi_value(0, || {
+        borrowed_arc(channel)
+            .map(|channel| lock(&channel.dictionary).len())
+            .unwrap_or(0)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -549,17 +640,23 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_dict_address(
     index: usize,
     length: *mut usize,
 ) -> *const u8 {
-    let Some(channel) = borrowed_arc(channel) else {
-        return ptr::null();
-    };
-    let dictionary = lock(&channel.dictionary);
-    let Some(address) = index.checked_sub(1).and_then(|index| dictionary.get(index)) else {
-        return ptr::null();
-    };
-    if !length.is_null() {
-        unsafe { *length = address.len() };
-    }
-    address.as_ptr()
+    ffi_value(ptr::null(), || {
+        let Some(channel) = borrowed_arc(channel) else {
+            return ptr::null();
+        };
+        let dictionary = lock(&channel.dictionary);
+        let Some(address) = index.checked_sub(1).and_then(|index| dictionary.get(index)) else {
+            return ptr::null();
+        };
+        if !length.is_null() {
+            // SAFETY: non-null `length` points to writable C stack storage.
+            unsafe { *length = address.len() };
+        }
+        // The Vec's allocation is stable: dictionary entries are append-only
+        // and the C shim copies these bytes before any channel call can destroy
+        // the final Arc owner on this Lua state's thread.
+        address.as_ptr()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -567,12 +664,16 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_new(
     data: *const u8,
     length: usize,
 ) -> *const Region {
-    let Some(data) = (unsafe { bytes(data, length) }) else {
-        return ptr::null();
-    };
-    Arc::into_raw(Arc::new(Region {
-        bytes: SharedBytes::new(data.to_vec()),
-    }))
+    ffi_value(ptr::null(), || {
+        // SAFETY: C keeps the Lua string live for this call; the bytes are copied
+        // into Rust ownership before the function returns.
+        let Some(data) = (unsafe { bytes(data, length) }) else {
+            return ptr::null();
+        };
+        Arc::into_raw(Arc::new(Region {
+            bytes: SharedBytes::new(data.to_vec()),
+        }))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -582,60 +683,84 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_read_file(
     error: *mut c_char,
     error_capacity: usize,
 ) -> *const Region {
-    let Some(path) = (unsafe { bytes(path, length) }) else {
-        write_error(error, error_capacity, "a file path is required");
-        return ptr::null();
-    };
-    let path = path_from_bytes(path);
-    match std::fs::read(&path) {
-        Ok(data) => Arc::into_raw(Arc::new(Region {
-            bytes: SharedBytes::new(data),
-        })),
-        Err(problem) => {
-            let mut message = String::new();
-            let _ = write!(message, "cannot read {}: {problem}", path.display());
-            write_error(error, error_capacity, &message);
-            ptr::null()
+    ffi_value(ptr::null(), || {
+        // SAFETY: C keeps the Lua path string live until this call returns; the
+        // platform path conversion takes owned/copied storage as necessary.
+        let Some(path) = (unsafe { bytes(path, length) }) else {
+            write_error(error, error_capacity, "a file path is required");
+            return ptr::null();
+        };
+        let path = path_from_bytes(path);
+        match std::fs::read(&path) {
+            Ok(data) => Arc::into_raw(Arc::new(Region {
+                bytes: SharedBytes::new(data),
+            })),
+            Err(problem) => {
+                let mut message = String::new();
+                let _ = write!(message, "cannot read {}: {problem}", path.display());
+                write_error(error, error_capacity, &message);
+                ptr::null()
+            }
         }
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_retain(region: *const Region) {
-    if !region.is_null() {
-        unsafe { Arc::increment_strong_count(region) };
-    }
+    ffi_void(|| {
+        if !region.is_null() {
+            // SAFETY: the pointer names a live Arc allocation held by the source
+            // Lua region handle; this creates the destination handle's owner.
+            unsafe { Arc::increment_strong_count(region) };
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_release(region: *const Region) {
-    if !region.is_null() {
-        drop(unsafe { Arc::from_raw(region) });
-    }
+    ffi_void(|| {
+        if !region.is_null() {
+            // SAFETY: each C region handle transfers exactly one Arc strong
+            // owner here and clears its pointer before it can be released again.
+            drop(unsafe { Arc::from_raw(region) });
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_data(region: *const Region) -> *const u8 {
-    unsafe { region.as_ref() }
-        .map(|region| region.bytes.as_slice().as_ptr())
-        .unwrap_or(ptr::null())
+    ffi_value(ptr::null(), || {
+        // SAFETY: the Lua region handle retains a strong Arc owner while C
+        // obtains this immutable pointer; SharedBytes never reallocates it.
+        unsafe { region.as_ref() }
+            .map(|region| region.bytes.as_slice().as_ptr())
+            .unwrap_or(ptr::null())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_length(region: *const Region) -> usize {
-    unsafe { region.as_ref() }.map_or(0, |region| region.bytes.len())
+    ffi_value(0, || {
+        // SAFETY: the Lua region handle retains a strong Arc owner through call.
+        unsafe { region.as_ref() }.map_or(0, |region| region.bytes.len())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn nupp_rust_region_account_new() -> *mut AdapterAccount {
-    Box::into_raw(Box::new(AdapterAccount::default()))
+    ffi_value(ptr::null_mut(), || {
+        Box::into_raw(Box::new(AdapterAccount::default()))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_account_destroy(account: *mut AdapterAccount) {
-    if !account.is_null() {
-        drop(unsafe { Box::from_raw(account) });
-    }
+    ffi_void(|| {
+        if !account.is_null() {
+            // SAFETY: registry userdata owns this Box and calls its finalizer once.
+            drop(unsafe { Box::from_raw(account) });
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -643,27 +768,32 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_account_charge(
     account: *mut AdapterAccount,
     region: *const Region,
 ) -> usize {
-    let Some(account) = (unsafe { account.as_mut() }) else {
-        return 0;
-    };
-    let Some(region) = (unsafe { region.as_ref() }) else {
-        return 0;
-    };
-    let key = region as *const Region as usize;
-    if let Some((count, _)) = account.blocks.get_mut(&key) {
-        *count = count.saturating_add(1);
-        return 0;
-    }
-    let length = region.bytes.len();
-    account.blocks.insert(key, (1, length));
-    account.charged = account.charged.saturating_add(length);
-    account.debt = account.debt.saturating_add(length);
-    if account.debt < ACCOUNT_STEP_BYTES {
-        return 0;
-    }
-    let step = account.debt >> 10;
-    account.debt = 0;
-    step
+    ffi_value(0, || {
+        // SAFETY: the state registry exclusively owns and serializes this
+        // account on one Lua thread for the duration of the callback.
+        let Some(account) = (unsafe { account.as_mut() }) else {
+            return 0;
+        };
+        // SAFETY: the region handle retains a strong Arc owner during charging.
+        let Some(region) = (unsafe { region.as_ref() }) else {
+            return 0;
+        };
+        let key = region as *const Region as usize;
+        if let Some((count, _)) = account.blocks.get_mut(&key) {
+            *count = count.saturating_add(1);
+            return 0;
+        }
+        let length = region.bytes.len();
+        account.blocks.insert(key, (1, length));
+        account.charged = account.charged.saturating_add(length);
+        account.debt = account.debt.saturating_add(length);
+        if account.debt < ACCOUNT_STEP_BYTES {
+            return 0;
+        }
+        let step = account.debt >> 10;
+        account.debt = 0;
+        step
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -671,45 +801,57 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_account_discharge(
     account: *mut AdapterAccount,
     region: *const Region,
 ) {
-    let Some(account) = (unsafe { account.as_mut() }) else {
-        return;
-    };
-    let Some(region) = (unsafe { region.as_ref() }) else {
-        return;
-    };
-    let key = region as *const Region as usize;
-    let Some((count, length)) = account.blocks.get_mut(&key) else {
-        return;
-    };
-    if *count > 1 {
-        *count -= 1;
-        return;
-    }
-    let length = *length;
-    account.blocks.remove(&key);
-    account.charged = account.charged.saturating_sub(length);
-    account.debt = account.debt.saturating_sub(length);
+    ffi_void(|| {
+        // SAFETY: the registry owns this account and the state serializes it.
+        let Some(account) = (unsafe { account.as_mut() }) else {
+            return;
+        };
+        // SAFETY: the region handle is still live while its charge is removed.
+        let Some(region) = (unsafe { region.as_ref() }) else {
+            return;
+        };
+        let key = region as *const Region as usize;
+        let Some((count, length)) = account.blocks.get_mut(&key) else {
+            return;
+        };
+        if *count > 1 {
+            *count -= 1;
+            return;
+        }
+        let length = *length;
+        account.blocks.remove(&key);
+        account.charged = account.charged.saturating_sub(length);
+        account.debt = account.debt.saturating_sub(length);
+    });
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_accounted(
     account: *const AdapterAccount,
 ) -> usize {
-    unsafe { account.as_ref() }.map_or(0, |account| account.charged)
+    ffi_value(0, || {
+        // SAFETY: registry userdata keeps the account live through this callback.
+        unsafe { account.as_ref() }.map_or(0, |account| account.charged)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn nupp_rust_region_builder_new() -> *mut AdapterBuilder {
-    Box::into_raw(Box::new(AdapterBuilder {
-        builder: Some(SharedBytesBuilder::default()),
-    }))
+    ffi_value(ptr::null_mut(), || {
+        Box::into_raw(Box::new(AdapterBuilder {
+            builder: Some(SharedBytesBuilder::default()),
+        }))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_builder_destroy(builder: *mut AdapterBuilder) {
-    if !builder.is_null() {
-        drop(unsafe { Box::from_raw(builder) });
-    }
+    ffi_void(|| {
+        if !builder.is_null() {
+            // SAFETY: builder userdata owns this Box and finalizes it once.
+            drop(unsafe { Box::from_raw(builder) });
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -718,17 +860,21 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_builder_append(
     data: *const u8,
     length: usize,
 ) -> c_int {
-    let Some(builder) = (unsafe { builder.as_mut() }) else {
-        return 0;
-    };
-    let Some(data) = (unsafe { bytes(data, length) }) else {
-        return 0;
-    };
-    builder
-        .builder
-        .as_mut()
-        .is_some_and(|builder| builder.append(data).is_ok())
-        .into()
+    ffi_value(0, || {
+        // SAFETY: Lua userdata exclusively owns and serializes this builder.
+        let Some(builder) = (unsafe { builder.as_mut() }) else {
+            return 0;
+        };
+        // SAFETY: C keeps the Lua string live through this synchronous append.
+        let Some(data) = (unsafe { bytes(data, length) }) else {
+            return 0;
+        };
+        builder
+            .builder
+            .as_mut()
+            .is_some_and(|builder| builder.append(data).is_ok())
+            .into()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -736,15 +882,20 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_builder_reserve(
     builder: *mut AdapterBuilder,
     count: usize,
 ) -> *mut u8 {
-    let Some(builder) = (unsafe { builder.as_mut() }) else {
-        return ptr::null_mut();
-    };
-    builder
-        .builder
-        .as_mut()
-        .and_then(|builder| builder.reserve(count).ok())
-        .map(|bytes| bytes.as_mut_ptr())
-        .unwrap_or(ptr::null_mut())
+    ffi_value(ptr::null_mut(), || {
+        // SAFETY: Lua userdata exclusively owns and serializes this builder.
+        let Some(builder) = (unsafe { builder.as_mut() }) else {
+            return ptr::null_mut();
+        };
+        // The returned pointer is borrowed until one matching commit. The
+        // builder rejects append/reserve/freeze while that reservation is open.
+        builder
+            .builder
+            .as_mut()
+            .and_then(|builder| builder.reserve(count).ok())
+            .map(|bytes| bytes.as_mut_ptr())
+            .unwrap_or(ptr::null_mut())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -752,43 +903,52 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_builder_commit(
     builder: *mut AdapterBuilder,
     written: usize,
 ) -> c_int {
-    unsafe { builder.as_mut() }
-        .and_then(|builder| builder.builder.as_mut())
-        .is_some_and(|builder| builder.commit(written).is_ok())
-        .into()
+    ffi_value(0, || {
+        // SAFETY: Lua userdata exclusively owns and serializes this builder.
+        unsafe { builder.as_mut() }
+            .and_then(|builder| builder.builder.as_mut())
+            .is_some_and(|builder| builder.commit(written).is_ok())
+            .into()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_builder_open(
     builder: *const AdapterBuilder,
 ) -> c_int {
-    unsafe { builder.as_ref() }
-        .and_then(|builder| builder.builder.as_ref())
-        .is_some_and(SharedBytesBuilder::reservation_open)
-        .into()
+    ffi_value(0, || {
+        // SAFETY: Lua userdata keeps the builder live through this callback.
+        unsafe { builder.as_ref() }
+            .and_then(|builder| builder.builder.as_ref())
+            .is_some_and(SharedBytesBuilder::reservation_open)
+            .into()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_builder_freeze(
     builder: *mut AdapterBuilder,
 ) -> *const Region {
-    let Some(builder) = (unsafe { builder.as_mut() }) else {
-        return ptr::null();
-    };
-    if builder
-        .builder
-        .as_ref()
-        .is_some_and(SharedBytesBuilder::reservation_open)
-    {
-        return ptr::null();
-    }
-    let Some(owned) = builder.builder.take() else {
-        return ptr::null();
-    };
-    match owned.freeze() {
-        Ok(bytes) => Arc::into_raw(Arc::new(Region { bytes })),
-        Err(_) => ptr::null(),
-    }
+    ffi_value(ptr::null(), || {
+        // SAFETY: Lua userdata exclusively owns and serializes this builder.
+        let Some(builder) = (unsafe { builder.as_mut() }) else {
+            return ptr::null();
+        };
+        if builder
+            .builder
+            .as_ref()
+            .is_some_and(SharedBytesBuilder::reservation_open)
+        {
+            return ptr::null();
+        }
+        let Some(owned) = builder.builder.take() else {
+            return ptr::null();
+        };
+        match owned.freeze() {
+            Ok(bytes) => Arc::into_raw(Arc::new(Region { bytes })),
+            Err(_) => ptr::null(),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -799,78 +959,82 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
     error: *mut c_char,
     error_capacity: usize,
 ) -> *mut AdapterWorker {
-    let Some(host) = (unsafe { host.as_ref() }) else {
-        write_error(
-            error,
-            error_capacity,
-            "workers require a stamped Nupp payload",
+    ffi_value(ptr::null_mut(), || {
+        // SAFETY: the parent HostRuntime owns WorkersHost for as long as its Lua
+        // state can invoke workerSpawn, and parent-state access is thread-affine.
+        let Some(host) = (unsafe { host.as_ref() }) else {
+            write_error(
+                error,
+                error_capacity,
+                "workers require a stamped Nupp payload",
+            );
+            return ptr::null_mut();
+        };
+        let Some(inbox) = borrowed_arc(inbox) else {
+            write_error(error, error_capacity, "worker channels are missing");
+            return ptr::null_mut();
+        };
+        let Some(outbox) = borrowed_arc(outbox) else {
+            write_error(error, error_capacity, "worker channels are missing");
+            return ptr::null_mut();
+        };
+        let inbox = Arc::clone(&inbox);
+        let outbox = Arc::clone(&outbox);
+        let tasks = Arc::new(AdapterTasks::new());
+        let payload = host.payload.clone();
+        let executable = host.executable.clone();
+        let thread_inbox = Arc::clone(&inbox);
+        let thread_outbox = Arc::clone(&outbox);
+        let thread_tasks = Arc::clone(&tasks);
+        let worker = Worker::spawn(
+            "nupp.worker.scheduler",
+            WorkerLimits {
+                messages: 1,
+                bytes: payload.len().saturating_add(1).max(1),
+            },
+            move || {
+                let mut runtime = HostRuntime::owned(true, executable.as_deref())
+                    .map_err(|problem| problem.to_string())?;
+                runtime
+                    .enable_workers(payload.as_slice())
+                    .map_err(|problem| problem.to_string())?;
+                runtime
+                    .set_worker_context(
+                        Arc::as_ptr(&thread_inbox).cast(),
+                        Arc::as_ptr(&thread_outbox).cast(),
+                        Arc::as_ptr(&thread_tasks).cast(),
+                    )
+                    .map_err(|problem| problem.to_string())?;
+                Ok(move |job: WorkerJob, _cancel: CancellationToken| {
+                    let answer = runtime
+                        .run_buffer(job.bytes.as_slice(), "=nupp-worker", &[])
+                        .map(|()| SharedBytes::default())
+                        .map_err(|problem| problem.to_string());
+                    thread_inbox.close();
+                    thread_outbox.close();
+                    answer
+                })
+            },
         );
-        return ptr::null_mut();
-    };
-    let Some(inbox) = borrowed_arc(inbox) else {
-        write_error(error, error_capacity, "worker channels are missing");
-        return ptr::null_mut();
-    };
-    let Some(outbox) = borrowed_arc(outbox) else {
-        write_error(error, error_capacity, "worker channels are missing");
-        return ptr::null_mut();
-    };
-    let inbox = Arc::clone(&inbox);
-    let outbox = Arc::clone(&outbox);
-    let tasks = Arc::new(AdapterTasks::new());
-    let payload = host.payload.clone();
-    let executable = host.executable.clone();
-    let thread_inbox = Arc::clone(&inbox);
-    let thread_outbox = Arc::clone(&outbox);
-    let thread_tasks = Arc::clone(&tasks);
-    let worker = Worker::spawn(
-        "nupp.worker.scheduler",
-        WorkerLimits {
-            messages: 1,
-            bytes: payload.len().saturating_add(1).max(1),
-        },
-        move || {
-            let mut runtime = HostRuntime::owned(true, executable.as_deref())
-                .map_err(|problem| problem.to_string())?;
-            runtime
-                .enable_workers(payload.as_slice())
-                .map_err(|problem| problem.to_string())?;
-            runtime
-                .set_worker_context(
-                    Arc::as_ptr(&thread_inbox).cast(),
-                    Arc::as_ptr(&thread_outbox).cast(),
-                    Arc::as_ptr(&thread_tasks).cast(),
-                )
-                .map_err(|problem| problem.to_string())?;
-            Ok(move |job: WorkerJob, _cancel: CancellationToken| {
-                let answer = runtime
-                    .run_buffer(job.bytes.as_slice(), "=nupp-worker", &[])
-                    .map(|()| SharedBytes::default())
-                    .map_err(|problem| problem.to_string());
-                thread_inbox.close();
-                thread_outbox.close();
-                answer
-            })
-        },
-    );
-    let mut worker = match worker {
-        Ok(worker) => worker,
-        Err(problem) => {
+        let mut worker = match worker {
+            Ok(worker) => worker,
+            Err(problem) => {
+                write_error(error, error_capacity, &problem.to_string());
+                return ptr::null_mut();
+            }
+        };
+        if let Err(problem) = worker.submit(1, host.payload.clone(), None) {
+            let _ = worker.shutdown();
             write_error(error, error_capacity, &problem.to_string());
             return ptr::null_mut();
         }
-    };
-    if let Err(problem) = worker.submit(1, host.payload.clone(), None) {
-        let _ = worker.shutdown();
-        write_error(error, error_capacity, &problem.to_string());
-        return ptr::null_mut();
-    }
-    Box::into_raw(Box::new(AdapterWorker {
-        worker,
-        tasks,
-        inbox,
-        outbox,
-    }))
+        Box::into_raw(Box::new(AdapterWorker {
+            worker,
+            tasks,
+            inbox,
+            outbox,
+        }))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -879,31 +1043,35 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_join(
     error: *mut c_char,
     error_capacity: usize,
 ) -> c_int {
-    if worker.is_null() {
-        write_error(error, error_capacity, "worker handle is missing");
-        return 1;
-    }
-    let mut worker = unsafe { Box::from_raw(worker) };
-    let event = worker.worker.poll(None);
-    let (status, problem) = match event {
-        Ok(Some(WorkerEvent::Completed { .. })) => (0, None),
-        Ok(Some(WorkerEvent::Failed { error, .. })) => (1, Some(error)),
-        Ok(Some(WorkerEvent::Cancelled { .. })) => {
-            (1, Some("worker scheduler was cancelled".to_owned()))
+    ffi_value(1, || {
+        if worker.is_null() {
+            write_error(error, error_capacity, "worker handle is missing");
+            return 1;
         }
-        Ok(None) => (
-            1,
-            Some("worker scheduler ended without a result".to_owned()),
-        ),
-        Err(problem) => (1, Some(problem.to_string())),
-    };
-    worker.inbox.close();
-    worker.outbox.close();
-    let shutdown = worker.worker.shutdown();
-    if let Some(problem) = problem.or_else(|| shutdown.err().map(|error| error.to_string())) {
-        write_error(error, error_capacity, &problem);
-    }
-    status
+        // SAFETY: workerJoin consumes the one Box owner returned by workerSpawn;
+        // the Lua scheduler removes the handle after this call and never joins twice.
+        let mut worker = unsafe { Box::from_raw(worker) };
+        let event = worker.worker.poll(None);
+        let (status, problem) = match event {
+            Ok(Some(WorkerEvent::Completed { .. })) => (0, None),
+            Ok(Some(WorkerEvent::Failed { error, .. })) => (1, Some(error)),
+            Ok(Some(WorkerEvent::Cancelled { .. })) => {
+                (1, Some("worker scheduler was cancelled".to_owned()))
+            }
+            Ok(None) => (
+                1,
+                Some("worker scheduler ended without a result".to_owned()),
+            ),
+            Err(problem) => (1, Some(problem.to_string())),
+        };
+        worker.inbox.close();
+        worker.outbox.close();
+        let shutdown = worker.worker.shutdown();
+        if let Some(problem) = problem.or_else(|| shutdown.err().map(|error| error.to_string())) {
+            write_error(error, error_capacity, &problem);
+        }
+        status
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -913,24 +1081,27 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_create(
     has_deadline: c_int,
     deadline_ms: f64,
 ) -> c_int {
-    let Some(worker) = (unsafe { worker.as_ref() }) else {
-        return 0;
-    };
-    if id < 1 {
-        return 0;
-    }
-    let mut state = lock(&worker.tasks.state);
-    if state.tasks.contains_key(&id) {
-        return 0;
-    }
-    state.tasks.insert(
-        id,
-        AdapterTask {
-            deadline_ms: (has_deadline != 0 && deadline_ms.is_finite()).then_some(deadline_ms),
-            status: AdapterTaskStatus::Queued,
-        },
-    );
-    1
+    ffi_value(0, || {
+        // SAFETY: the Lua worker handle retains the AdapterWorker Box until join.
+        let Some(worker) = (unsafe { worker.as_ref() }) else {
+            return 0;
+        };
+        if id < 1 {
+            return 0;
+        }
+        let mut state = lock(&worker.tasks.state);
+        if state.tasks.contains_key(&id) {
+            return 0;
+        }
+        state.tasks.insert(
+            id,
+            AdapterTask {
+                deadline_ms: (has_deadline != 0 && deadline_ms.is_finite()).then_some(deadline_ms),
+                status: AdapterTaskStatus::Queued,
+            },
+        );
+        1
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -938,24 +1109,27 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_cancel(
     worker: *const AdapterWorker,
     id: i64,
 ) -> c_int {
-    let Some(worker) = (unsafe { worker.as_ref() }) else {
-        return 0;
-    };
-    let mut state = lock(&worker.tasks.state);
-    let Some(task) = state.tasks.get_mut(&id) else {
-        return 0;
-    };
-    match task.status {
-        AdapterTaskStatus::Queued => {
-            task.status = AdapterTaskStatus::Cancelled;
-            1
+    ffi_value(0, || {
+        // SAFETY: the Lua worker handle retains the AdapterWorker Box until join.
+        let Some(worker) = (unsafe { worker.as_ref() }) else {
+            return 0;
+        };
+        let mut state = lock(&worker.tasks.state);
+        let Some(task) = state.tasks.get_mut(&id) else {
+            return 0;
+        };
+        match task.status {
+            AdapterTaskStatus::Queued => {
+                task.status = AdapterTaskStatus::Cancelled;
+                1
+            }
+            AdapterTaskStatus::Running => {
+                task.status = AdapterTaskStatus::CancellationRequested;
+                2
+            }
+            _ => 0,
         }
-        AdapterTaskStatus::Running => {
-            task.status = AdapterTaskStatus::CancellationRequested;
-            2
-        }
-        _ => 0,
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -964,26 +1138,31 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_start(
     id: i64,
     deadline: *mut c_int,
 ) -> c_int {
-    let Some(tasks) = (unsafe { tasks.as_ref() }) else {
-        return 0;
-    };
-    let mut state = lock(&tasks.state);
-    let Some(task) = state.tasks.get_mut(&id) else {
-        return 0;
-    };
-    if task.status != AdapterTaskStatus::Queued {
-        return 0;
-    }
-    if AdapterTasks::expired(task) {
-        task.status = AdapterTaskStatus::Cancelled;
-        if !deadline.is_null() {
-            unsafe { *deadline = 1 };
+    ffi_value(0, || {
+        // SAFETY: the isolated worker closure holds this Arc for the entire lifetime
+        // of the worker Lua state and serializes callbacks on that lane.
+        let Some(tasks) = (unsafe { tasks.as_ref() }) else {
+            return 0;
+        };
+        let mut state = lock(&tasks.state);
+        let Some(task) = state.tasks.get_mut(&id) else {
+            return 0;
+        };
+        if task.status != AdapterTaskStatus::Queued {
+            return 0;
         }
-        return 0;
-    }
-    task.status = AdapterTaskStatus::Running;
-    state.current = Some(id);
-    1
+        if AdapterTasks::expired(task) {
+            task.status = AdapterTaskStatus::Cancelled;
+            if !deadline.is_null() {
+                // SAFETY: C provides a writable stack `int` for this synchronous call.
+                unsafe { *deadline = 1 };
+            }
+            return 0;
+        }
+        task.status = AdapterTaskStatus::Running;
+        state.current = Some(id);
+        1
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -991,29 +1170,34 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_checkpoint(
     tasks: *const AdapterTasks,
     deadline: *mut c_int,
 ) -> c_int {
-    let Some(tasks) = (unsafe { tasks.as_ref() }) else {
-        return 0;
-    };
-    let mut state = lock(&tasks.state);
-    let Some(id) = state.current else {
-        return 0;
-    };
-    let Some(task) = state.tasks.get_mut(&id) else {
-        return 0;
-    };
-    let expired = AdapterTasks::expired(task);
-    let cancelled = expired
-        || matches!(
-            task.status,
-            AdapterTaskStatus::CancellationRequested | AdapterTaskStatus::Cancelled
-        );
-    if cancelled && task.status == AdapterTaskStatus::Running {
-        task.status = AdapterTaskStatus::CancellationRequested;
-    }
-    if expired && !deadline.is_null() {
-        unsafe { *deadline = 1 };
-    }
-    cancelled.into()
+    ffi_value(0, || {
+        // SAFETY: the isolated worker closure retains this tasks Arc and invokes the
+        // callback only on its Lua state's owner thread.
+        let Some(tasks) = (unsafe { tasks.as_ref() }) else {
+            return 0;
+        };
+        let mut state = lock(&tasks.state);
+        let Some(id) = state.current else {
+            return 0;
+        };
+        let Some(task) = state.tasks.get_mut(&id) else {
+            return 0;
+        };
+        let expired = AdapterTasks::expired(task);
+        let cancelled = expired
+            || matches!(
+                task.status,
+                AdapterTaskStatus::CancellationRequested | AdapterTaskStatus::Cancelled
+            );
+        if cancelled && task.status == AdapterTaskStatus::Running {
+            task.status = AdapterTaskStatus::CancellationRequested;
+        }
+        if expired && !deadline.is_null() {
+            // SAFETY: C provides a writable stack `int` for this synchronous call.
+            unsafe { *deadline = 1 };
+        }
+        cancelled.into()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1022,27 +1206,32 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_finish(
     id: i64,
     deadline: *mut c_int,
 ) -> c_int {
-    let Some(tasks) = (unsafe { tasks.as_ref() }) else {
-        return 0;
-    };
-    let mut state = lock(&tasks.state);
-    let Some(task) = state.tasks.get_mut(&id) else {
-        return 0;
-    };
-    let expired = AdapterTasks::expired(task);
-    let cancelled = expired
-        || matches!(
-            task.status,
-            AdapterTaskStatus::CancellationRequested | AdapterTaskStatus::Cancelled
-        );
-    task.status = AdapterTaskStatus::Done;
-    if state.current == Some(id) {
-        state.current = None;
-    }
-    if expired && !deadline.is_null() {
-        unsafe { *deadline = 1 };
-    }
-    cancelled.into()
+    ffi_value(0, || {
+        // SAFETY: the isolated worker closure retains this tasks Arc and serializes
+        // mutation on its Lua state's owner thread.
+        let Some(tasks) = (unsafe { tasks.as_ref() }) else {
+            return 0;
+        };
+        let mut state = lock(&tasks.state);
+        let Some(task) = state.tasks.get_mut(&id) else {
+            return 0;
+        };
+        let expired = AdapterTasks::expired(task);
+        let cancelled = expired
+            || matches!(
+                task.status,
+                AdapterTaskStatus::CancellationRequested | AdapterTaskStatus::Cancelled
+            );
+        task.status = AdapterTaskStatus::Done;
+        if state.current == Some(id) {
+            state.current = None;
+        }
+        if expired && !deadline.is_null() {
+            // SAFETY: C provides a writable stack `int` for this synchronous call.
+            unsafe { *deadline = 1 };
+        }
+        cancelled.into()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1050,9 +1239,13 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_release(
     worker: *const AdapterWorker,
     id: i64,
 ) {
-    if let Some(worker) = unsafe { worker.as_ref() } {
-        lock(&worker.tasks.state).tasks.remove(&id);
-    }
+    ffi_void(|| {
+        // SAFETY: the Lua worker handle retains this Box until join and calls
+        // task operations serially from the parent state.
+        if let Some(worker) = unsafe { worker.as_ref() } {
+            lock(&worker.tasks.state).tasks.remove(&id);
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -1060,19 +1253,24 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_status(
     worker: *const AdapterWorker,
     id: i64,
 ) -> c_int {
-    unsafe { worker.as_ref() }
-        .and_then(|worker| {
-            lock(&worker.tasks.state)
-                .tasks
-                .get(&id)
-                .map(|task| task.status as c_int)
-        })
-        .unwrap_or(0)
+    ffi_value(0, || {
+        // SAFETY: the Lua worker handle retains this Box until join.
+        unsafe { worker.as_ref() }
+            .and_then(|worker| {
+                lock(&worker.tasks.state)
+                    .tasks
+                    .get(&id)
+                    .map(|task| task.status as c_int)
+            })
+            .unwrap_or(0)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn nupp_rust_worker_parallelism() -> usize {
-    std::thread::available_parallelism().map_or(1, usize::from)
+    ffi_value(1, || {
+        std::thread::available_parallelism().map_or(1, usize::from)
+    })
 }
 
 #[cfg(unix)]
@@ -1091,8 +1289,15 @@ unsafe extern "C" {
 }
 
 #[cfg(test)]
+#[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rust_panic_firewall_returns_conservative_values() {
+        assert_eq!(ffi_value(17, || panic!("value boundary fixture")), 17);
+        ffi_void(|| panic!("void boundary fixture"));
+    }
 
     #[test]
     fn channel_is_bounded_fifo_and_drains_after_close() {
