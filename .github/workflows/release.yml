@@ -462,7 +462,7 @@ jobs:
         shell: bash
         run: |
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnullvm" --profile minimal
 
       - name: Download the base Windows compiler
         uses: actions/download-artifact@v4

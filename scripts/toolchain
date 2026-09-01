@@ -47,6 +47,7 @@ prints the root the components are installed under without building anything.
 Environment:
   NUPP_CC, NUPP_CXX          the compiler pair. Probed when unset.
   NUPP_CARGO, NUPP_RUSTC     the pinned Rust toolchain. Probed when unset.
+  NUPP_RUST_WINDOWS_ABI      GNU (default) or gnullvm for LLVM-MinGW.
   NUPP_TOOLCHAIN_DIR         where to install. Defaults to the repository cache.
   NUPP_RUST_BUILD_DIR        Rust outputs. Defaults to build/rust.
   NUPP_RUST_VENDOR_DIR       cargo-vendor directory required by offline Rust builds.
@@ -101,6 +102,16 @@ case "$PLATFORM" in
         [ -n "$CXX" ] || CXX=$(probe clang++ c++ g++) \
             || die "no C++ compiler found. Name one with NUPP_CXX"
         ;;
+esac
+
+RUST_WINDOWS_ABI=${NUPP_RUST_WINDOWS_ABI:-gnu}
+case "$RUST_WINDOWS_ABI" in
+    gnu) ;;
+    gnullvm)
+        [ "$PLATFORM" = windows ] \
+            || die "NUPP_RUST_WINDOWS_ABI=gnullvm is only supported on Windows"
+        ;;
+    *) die "NUPP_RUST_WINDOWS_ABI must be gnu or gnullvm" ;;
 esac
 
 command -v "$CC" >/dev/null 2>&1 || die "NUPP_CC names $CC, which is not on PATH"
@@ -405,7 +416,7 @@ select_rust_tools() {
     [ -n "$expected" ] || die "rust-toolchain.toml names no exact channel"
     rustup_toolchain=$expected
     [ "$PLATFORM" != windows ] \
-        || rustup_toolchain="$expected-x86_64-pc-windows-gnu"
+        || rustup_toolchain="$expected-x86_64-pc-windows-$RUST_WINDOWS_ABI"
     rustup_which() {
         RUSTUP_TOOLCHAIN="$rustup_toolchain" RUSTUP_SKIP_UPDATE_CHECK=1 \
             rustup which "$1" 2>/dev/null
@@ -440,9 +451,19 @@ select_rust_tools() {
         || die "cannot inspect rustc named by NUPP_RUSTC"
     rust_host=$(printf '%s\n' "$rustc_verbose" | sed -n 's/^host: //p')
     if [ "$PLATFORM" = windows ]; then
-        case "$rust_host" in
-            *-windows-gnu) ;;
-            *) die "Rust host $rust_host is not ABI-compatible with the pinned MinGW LuaJIT; install rustup toolchain $rustup_toolchain or name an equivalent windows-gnu toolchain" ;;
+        case "$RUST_WINDOWS_ABI:$rust_host" in
+            gnu:x86_64-pc-windows-gnu|gnullvm:x86_64-pc-windows-gnullvm) ;;
+            *) die "Rust host $rust_host does not match NUPP_RUST_WINDOWS_ABI=$RUST_WINDOWS_ABI; install rustup toolchain $rustup_toolchain or name an equivalent toolchain" ;;
+        esac
+        case "$RUST_WINDOWS_ABI" in
+            gnu)
+                unset CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER
+                export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$CC"
+                ;;
+            gnullvm)
+                unset CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER
+                export CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER="$CC"
+                ;;
         esac
     fi
     RUST_TOOL_MATERIAL=$(printf '%s\n%s\n' "$cargo_version" "$rustc_verbose")
@@ -565,8 +586,7 @@ EOF
     if [ "$PLATFORM" = darwin ]; then
         set -- "$@" -- -C "link-arg=-Wl,-install_name,@rpath/$filename"
     fi
-    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$CC" \
-        CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2
+    CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_NATIVE_OUT" ] \
         || die "Cargo built nupp-native but did not write $RUST_NATIVE_OUT"
     [ -f "$RUST_NATIVE_STATIC_OUT" ] \
@@ -620,8 +640,10 @@ embedding_library_filename() {
 
 build_rust_host() {
     host_kind=${1:-binary}
-    select_host_features "${2:-}"
+    # Reject a mismatched Windows Rust/MinGW family before provisioning the C
+    # dependencies whose archives that Rust host would be unable to consume.
     select_rust_tools
+    select_host_features "${2:-}"
     rust_environment=$(rust_environment_material)
     digest=$({
         printf '%s|%s|%s|%s|%s\n' \
@@ -678,7 +700,7 @@ EOF
 $(host_export_arguments)
 EOF
     fi
-    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$CC" NUPP_CC="$CC" \
+    NUPP_CC="$CC" \
         NUPP_LUAJIT_PREFIX="$PREFIX/luajit" NUPP_LPEG_PREFIX="$host_lpeg_prefix" \
         RUSTC="$RUSTC" "$@" >&2
     [ -f "$expected" ] \
@@ -749,7 +771,7 @@ EOF
     case "$PLATFORM" in
         darwin) set -- "$@" -C 'link-arg=-Wl,-install_name,@rpath/libnupp.dylib' ;;
     esac
-    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$CC" NUPP_CC="$CC" \
+    NUPP_CC="$CC" \
         NUPP_LUAJIT_PREFIX="$luajit_prefix" NUPP_LPEG_PREFIX="$lpeg_prefix" \
         RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_EMBED_OUT" ] \
