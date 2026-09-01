@@ -6,6 +6,7 @@
 //! operations that may fail remain beneath the protected C shim so LuaJIT
 //! cannot unwind through Rust.
 
+mod embed;
 mod lua;
 mod mcode;
 mod payload;
@@ -165,6 +166,8 @@ impl HostRuntime {
             .map_err(|error| HostError::Lane(error.to_string()))?;
         let lua = Lua::new(open_libraries).map_err(HostError::Lua)?;
         lua.install_host_record().map_err(HostError::Lua)?;
+        lua.install_compiled_features(open_libraries)
+            .map_err(HostError::Lua)?;
         if let Some(executable) = executable {
             lua.set_executable(&path_bytes(executable))
                 .map_err(HostError::Lua)?;
@@ -183,6 +186,8 @@ impl HostRuntime {
             .map_err(|error| HostError::Lane(error.to_string()))?;
         let lua = unsafe { Lua::attach(state, open_libraries) }.map_err(HostError::Lua)?;
         lua.install_host_record().map_err(HostError::Lua)?;
+        lua.install_compiled_features(open_libraries)
+            .map_err(HostError::Lua)?;
         Ok(Self::from_lua(lane, lua))
     }
 
@@ -255,6 +260,38 @@ impl HostRuntime {
         self.lua()?
             .add_resource(&path, bytes)
             .map_err(HostError::Lua)
+    }
+
+    pub fn preload(&mut self, module: &str, opener: LuaFunction) -> Result<(), HostError> {
+        if self.frozen {
+            return Err(HostError::Lua(
+                "Nupp host modules freeze when the first component loads".to_owned(),
+            ));
+        }
+        let module = CString::new(module).map_err(|_| HostError::InvalidChunkName)?;
+        self.lua()?
+            .preload_c(&module, opener)
+            .map_err(HostError::Lua)
+    }
+
+    pub fn register_aot_builders(
+        &mut self,
+        key: &str,
+        registrar: LuaFunction,
+    ) -> Result<(), HostError> {
+        if self.frozen {
+            return Err(HostError::Lua(
+                "AOT builders must be registered before a component is loaded".to_owned(),
+            ));
+        }
+        let key = CString::new(key).map_err(|_| HostError::InvalidChunkName)?;
+        self.lua()?
+            .register_aot_builders(&key, registrar)
+            .map_err(HostError::Lua)
+    }
+
+    pub fn poll(&self) -> Result<(), HostError> {
+        self.lua().map(drop)
     }
 
     pub fn load_component(&mut self, bytes: &[u8], name: &str) -> Result<Component, HostError> {

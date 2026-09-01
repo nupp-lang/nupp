@@ -7,6 +7,7 @@ const LUAJIT_PREFIX_ENV: &str = "NUPP_LUAJIT_PREFIX";
 
 fn main() {
     println!("cargo:rerun-if-env-changed={LUAJIT_PREFIX_ENV}");
+    println!("cargo:rerun-if-env-changed=NUPP_LPEG_PREFIX");
     println!("cargo:rerun-if-env-changed=NUPP_CC");
     println!("cargo:rerun-if-env-changed=CC");
     println!("cargo:rerun-if-env-changed=AR");
@@ -34,6 +35,17 @@ fn main() {
     // The shim refers to LuaJIT, so keep its archive before LuaJIT on linkers
     // that resolve static archives in a single left-to-right pass.
     println!("cargo:rustc-link-lib=static=luajit-5.1");
+    if env::var_os("CARGO_FEATURE_LPEG").is_some() {
+        let prefix = PathBuf::from(
+            env::var_os("NUPP_LPEG_PREFIX")
+                .expect("the lpeg host feature requires NUPP_LPEG_PREFIX"),
+        );
+        println!(
+            "cargo:rustc-link-search=native={}",
+            prefix.join("lib").display()
+        );
+        println!("cargo:rustc-link-lib=static=lpeg");
+    }
 
     let vmdef = lua_module(&prefix, "vmdef");
     let zone = lua_module(&prefix, "zone");

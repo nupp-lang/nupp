@@ -616,6 +616,58 @@ EOF
     release_lock
 }
 
+build_rust_embedding() {
+    luajit_prefix=$1
+    embedding_features=${2:-}
+    lpeg_prefix=${3:-}
+    select_rust_tools
+    rust_environment=$(rust_environment_material)
+    digest=$({
+        printf '%s|%s|%s|%s|%s\n' \
+            nupp-native-embedding "$embedding_features" "$RUST_TOOL_MATERIAL" \
+            "$(rust_sources_digest)" "$KEY"
+        printf '%s\n' "$rust_environment"
+    } | sha256_stdin | cut -c1-16)
+    out="$RUST_BUILD_ROOT/embedding/$digest"
+    RUST_EMBED_OUT="$out/target/release/libnupp_native_host.a"
+
+    take_lock "rust-embedding-$digest" "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && [ -f "$RUST_EMBED_OUT" ] \
+        && { release_lock; return 0; }
+
+    note "building the Rust embedding library with $RUSTC"
+    rm -rf "$out"
+    mkdir -p "$out"
+    set -- "$CARGO" build \
+        --manifest-path "$ROOT/Cargo.toml" \
+        --package nupp-native-host \
+        --lib \
+        --release \
+        --locked \
+        --no-default-features \
+        --target-dir "$out/target"
+    if offline; then
+        set -- "$@" --offline
+    fi
+    if [ -n "$embedding_features" ]; then
+        set -- "$@" --features "$embedding_features"
+    fi
+    vendor_arguments=$(rust_vendor_arguments)
+    if [ -n "$vendor_arguments" ]; then
+        while IFS= read -r config; do
+            set -- "$@" --config "$config"
+        done <<EOF
+$vendor_arguments
+EOF
+    fi
+    NUPP_LUAJIT_PREFIX="$luajit_prefix" NUPP_LPEG_PREFIX="$lpeg_prefix" \
+        RUSTC="$RUSTC" "$@" >&2
+    [ -f "$RUST_EMBED_OUT" ] \
+        || die "Cargo built nupp-native-host but did not write $RUST_EMBED_OUT"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
 shared_flags() {
     case "$PLATFORM" in
         darwin)  printf '%s' "-bundle -undefined dynamic_lookup" ;;
@@ -929,6 +981,52 @@ build_host() {
     luajit_prefix=$(build_luajit; printf '%s' "$PREFIX/luajit")
     include=$(cat "$PREFIX/luajit/.include")
 
+    if [ "$kind" = library ]; then
+        host_out=$out
+        host_digest=$digest
+        embedding_features=""
+        lpeg_prefix=""
+        case " $sorted " in
+            *" lpeg "*)
+                lpeg_prefix=$(build_lpeg; printf '%s' "$PREFIX/lpeg")
+                embedding_features=lpeg
+                ;;
+        esac
+        case " $sorted " in
+            *" native-files "*) embedding_features="$embedding_features,native-files" ;;
+        esac
+        case " $sorted " in
+            *" native-net "*) embedding_features="$embedding_features,native-net" ;;
+        esac
+        case " $sorted " in
+            *" native-process "*) embedding_features="$embedding_features,native-process" ;;
+        esac
+        case " $sorted " in
+            *" native-tls "*) embedding_features="$embedding_features,native-tls" ;;
+        esac
+        embedding_features=$(printf '%s' "$embedding_features" | sed 's/^,//')
+        build_rust_embedding "$luajit_prefix" "$embedding_features" "$lpeg_prefix"
+        rust_embedding=$RUST_EMBED_OUT
+        out=$host_out
+        digest=$host_digest
+        HOST_OUT=$out
+
+        take_lock "host-$digest" "$out/.complete" || return 0
+        [ -f "$out/.complete" ] && { release_lock; return 0; }
+        note "staging the Rust embedding library"
+        rm -rf "$out"
+        mkdir -p "$out"
+        cp "$rust_embedding" "$out/libnupp.a"
+        cp "$rust_base" "$out/libnupp_native_v2.a"
+        # Kept as an SDK link input for applications which use LuaJIT's public
+        # C API directly. The Rust static library already carries its own VM.
+        cp "$luajit_prefix/lib/libluajit-5.1.a" "$out/libluajit.a" 2>/dev/null || true
+        printf 'done\n' > "$out/.complete"
+        release_lock
+        HOST_OUT=$out
+        return 0
+    fi
+
     take_lock "host-$digest" "$out/.complete" || return 0
     [ -f "$out/.complete" ] && { release_lock; return 0; }
 
@@ -976,7 +1074,7 @@ build_host() {
 
     "$CC" -c -O2 -o "$out/objects/vmdef.o" "$out/objects/vmdef.c" >&2
     objects="$out/objects/vmdef.o"
-    hostSources="host/c/runtime.c host/c/payload.c host/c/hostpath.c host/c/embed.c"
+    hostSources="host/c/runtime.c host/c/payload.c host/c/hostpath.c"
     hostSources="$hostSources host/c/workers.c host/c/sharedbytes.c host/c/mcode.c"
     if [ "$kind" = stub ]; then
         hostSources="$hostSources host/c/main.c"
@@ -1007,19 +1105,7 @@ build_host() {
         *)       platform_libraries="-lm -lpthread -ldl -Wl,-E" ;;
     esac
 
-    if [ "$kind" = library ]; then
-        # An embedding application gets one archive. Merge the Rust base members
-        # into it so payload verification cannot acquire a hidden second link
-        # input merely because the implementation crossed languages.
-        mkdir -p "$out/rust-objects"
-        (cd "$out/rust-objects" && ar x "$rust_base")
-        for object in "$out"/rust-objects/*.o; do
-            objects="$objects $object"
-        done
-        # shellcheck disable=SC2086
-        ar rcs "$out/libnupp.a" $objects
-        cp "$luajit_prefix/lib/libluajit-5.1.a" "$out/libluajit.a" 2>/dev/null || true
-    else
+    if [ "$kind" != library ]; then
         mkdir -p "$out"
         # The provider is reached through LuaJIT FFI, so no native relocation
         # names its optional exports. Force the selected Rust archive into the

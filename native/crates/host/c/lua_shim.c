@@ -46,6 +46,12 @@ typedef struct PreloadCall {
     const char *name;
 } PreloadCall;
 
+typedef struct CFunctionCall {
+    ProtectedCall call;
+    const char *name;
+    lua_CFunction function;
+} CFunctionCall;
+
 typedef struct FeatureCall {
     ProtectedCall call;
     const char *name;
@@ -228,6 +234,49 @@ static int preload_module(lua_State *state) {
     }
     lua_pushvalue(state, -3);
     lua_setfield(state, -2, context->module);
+    return 0;
+}
+
+static int preload_c_function(lua_State *state) {
+    CFunctionCall *context = (CFunctionCall *)lua_touserdata(state, 1);
+    lua_getfield(state, LUA_GLOBALSINDEX, "package");
+    lua_getfield(state, -1, "preload");
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        fail_call(&context->call,
+            "pinned LuaJIT did not install package.preload");
+        return 0;
+    }
+    lua_pushcclosure(state, context->function, 0);
+    lua_setfield(state, -2, context->name);
+    return 0;
+}
+
+static int register_aot_builders(lua_State *state) {
+    CFunctionCall *context = (CFunctionCall *)lua_touserdata(state, 1);
+    int status;
+    lua_getfield(state, LUA_GLOBALSINDEX, "__nuppAotBuilderModules");
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        lua_createtable(state, 0, 4);
+        lua_pushvalue(state, -1);
+        lua_setfield(state, LUA_GLOBALSINDEX, "__nuppAotBuilderModules");
+    }
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        fail_call(&context->call, "the Nupp AOT builder table is invalid");
+        return 0;
+    }
+    lua_pushcclosure(state, context->function, 0);
+    status = lua_pcall(state, 0, 1, 0);
+    if (status != 0) {
+        capture_error(state, &context->call, status);
+        return 0;
+    }
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        fail_call(&context->call,
+            "an AOT builder registrar must return a table");
+        return 0;
+    }
+    lua_setfield(state, -2, context->name);
     return 0;
 }
 
@@ -535,6 +584,22 @@ int nupp_lua_preload(lua_State *state, const char *module,
         {error, error_capacity, 0}, module, source, source_length, name
     };
     return protect(state, preload_module, &context.call);
+}
+
+int nupp_lua_preload_c(lua_State *state, const char *module,
+    lua_CFunction opener, char *error, size_t error_capacity) {
+    CFunctionCall context = {
+        {error, error_capacity, 0}, module, opener
+    };
+    return protect(state, preload_c_function, &context.call);
+}
+
+int nupp_lua_register_aot_builders(lua_State *state, const char *key,
+    lua_CFunction registrar, char *error, size_t error_capacity) {
+    CFunctionCall context = {
+        {error, error_capacity, 0}, key, registrar
+    };
+    return protect(state, register_aot_builders, &context.call);
 }
 
 int nupp_lua_verify_compatibility(lua_State *state, char *error,

@@ -8,6 +8,7 @@ build = "build.rs"
 [lib]
 name = "nupp_native_host"
 path = "src/lib.rs"
+crate-type = ["rlib", "staticlib"]
 
 [[bin]]
 name = "nupp-host-rust"
@@ -19,3 +20,11 @@ nupp-native-runtime = { path = "../runtime" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[features]
+default = []
+lpeg = []
+native-files = []
+native-net = []
+native-process = []
+native-tls = []

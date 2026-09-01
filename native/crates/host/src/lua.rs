@@ -93,6 +93,20 @@ unsafe extern "C" {
         error: *mut c_char,
         error_capacity: usize,
     ) -> c_int;
+    fn nupp_lua_preload_c(
+        state: *mut LuaState,
+        module: *const c_char,
+        opener: LuaFunction,
+        error: *mut c_char,
+        error_capacity: usize,
+    ) -> c_int;
+    fn nupp_lua_register_aot_builders(
+        state: *mut LuaState,
+        key: *const c_char,
+        registrar: LuaFunction,
+        error: *mut c_char,
+        error_capacity: usize,
+    ) -> c_int;
     fn nupp_lua_verify_compatibility(
         state: *mut LuaState,
         error: *mut c_char,
@@ -173,6 +187,11 @@ unsafe extern "C" {
     ) -> c_int;
 }
 
+#[cfg(feature = "lpeg")]
+unsafe extern "C" {
+    fn luaopen_lpeg(state: *mut LuaState) -> c_int;
+}
+
 pub(crate) struct Lua {
     state: NonNull<LuaState>,
     owned: bool,
@@ -213,12 +232,12 @@ impl Lua {
             owned: false,
             _thread_affine: PhantomData,
         };
-        lua.protected(|error, capacity| unsafe {
-            nupp_lua_verify_compatibility(lua.state.as_ptr(), error, capacity)
-        })?;
         if open_libraries {
             lua.open_libraries()?;
         }
+        lua.protected(|error, capacity| unsafe {
+            nupp_lua_verify_compatibility(lua.state.as_ptr(), error, capacity)
+        })?;
         Ok(lua)
     }
 
@@ -238,6 +257,26 @@ impl Lua {
         self.protected(|error, capacity| unsafe {
             nupp_lua_install_host_record(self.state.as_ptr(), error, capacity)
         })
+    }
+
+    pub(crate) fn install_compiled_features(&self, open_libraries: bool) -> Result<(), String> {
+        #[cfg(feature = "lpeg")]
+        {
+            self.add_feature(c"lpeg")?;
+            if open_libraries {
+                self.preload_c(c"lpeg", luaopen_lpeg)?;
+            }
+        }
+        #[cfg(feature = "native-files")]
+        self.add_feature(c"native-files")?;
+        #[cfg(feature = "native-net")]
+        self.add_feature(c"native-net")?;
+        #[cfg(feature = "native-process")]
+        self.add_feature(c"native-process")?;
+        #[cfg(feature = "native-tls")]
+        self.add_feature(c"native-tls")?;
+        let _ = open_libraries;
+        Ok(())
     }
 
     pub(crate) fn set_executable(&self, executable: &[u8]) -> Result<(), String> {
@@ -287,6 +326,34 @@ impl Lua {
     pub(crate) fn add_feature(&self, name: &CStr) -> Result<(), String> {
         self.protected(|error, capacity| unsafe {
             nupp_lua_add_feature(self.state.as_ptr(), name.as_ptr(), error, capacity)
+        })
+    }
+
+    pub(crate) fn preload_c(&self, module: &CStr, opener: LuaFunction) -> Result<(), String> {
+        self.protected(|error, capacity| unsafe {
+            nupp_lua_preload_c(
+                self.state.as_ptr(),
+                module.as_ptr(),
+                opener,
+                error,
+                capacity,
+            )
+        })
+    }
+
+    pub(crate) fn register_aot_builders(
+        &self,
+        key: &CStr,
+        registrar: LuaFunction,
+    ) -> Result<(), String> {
+        self.protected(|error, capacity| unsafe {
+            nupp_lua_register_aot_builders(
+                self.state.as_ptr(),
+                key.as_ptr(),
+                registrar,
+                error,
+                capacity,
+            )
         })
     }
 
