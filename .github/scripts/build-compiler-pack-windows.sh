@@ -12,10 +12,27 @@ archive="$work/$LLVM_MINGW_ARCHIVE"
 extracted="$work/extracted"
 stage="$work/stage"
 cache="$work/nupp-toolchain-cache"
+source_dir=${NUPP_HOST_SOURCE_DIR:-}
+offline=${NUPP_HOST_OFFLINE:-}
+
+offline_enabled() {
+  case "$offline" in
+    1|true|yes|on|TRUE|YES|ON) return 0 ;;
+    ""|0|false|no|off|FALSE|NO|OFF) return 1 ;;
+    *) echo "NUPP_HOST_OFFLINE must name a boolean value" >&2; exit 2 ;;
+  esac
+}
 
 rm -rf "$work"
 mkdir -p "$extracted" "$stage"
-curl -fsSL "$LLVM_MINGW_URL" -o "$archive"
+if [[ -n "$source_dir" && -f "$source_dir/$LLVM_MINGW_ARCHIVE" ]]; then
+  cp "$source_dir/$LLVM_MINGW_ARCHIVE" "$archive"
+elif offline_enabled; then
+  echo "offline compiler-pack build needs $LLVM_MINGW_ARCHIVE in NUPP_HOST_SOURCE_DIR" >&2
+  exit 1
+else
+  curl -fsSL "$LLVM_MINGW_URL" -o "$archive"
+fi
 test "$(wc -c < "$archive" | tr -d ' ')" = "$LLVM_MINGW_SIZE"
 printf '%s  %s\n' "$LLVM_MINGW_SHA256" "$archive" | sha256sum -c -
 unzip -q "$archive" -d "$extracted"

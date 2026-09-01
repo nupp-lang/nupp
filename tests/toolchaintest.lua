@@ -425,6 +425,24 @@ function M.releaseJobsRequestOnlyCurrentHostFeatures()
    end
 end
 
+-- The large LLVM compiler-pack inputs are independently pinned, but release
+-- builders must admit the same pre-fetched source directory as the rest of the
+-- native toolchain when a release is reconstructed without a network.
+function M.compilerPackBuildersAdmitPinnedOfflineSources()
+   for _, path in ipairs({
+      ".github/scripts/build-compiler-pack-linux.sh",
+      ".github/scripts/build-compiler-pack-windows.sh",
+   }) do
+      local source = read(ROOT .. "/" .. path)
+      assert(source:find("NUPP_HOST_SOURCE_DIR", 1, true),
+         path .. " cannot read pre-fetched inputs")
+      assert(source:find("NUPP_HOST_OFFLINE", 1, true),
+         path .. " cannot forbid downloads")
+      assert(source:find("offline compiler-pack build needs", 1, true),
+         path .. " does not diagnose a missing offline input")
+   end
+end
+
 -- Clang accepts --ld-path only while linking. Generated AOT compilation uses
 -- -Werror, so putting it among compile flags makes a valid installed pack fail
 -- before its linker can run.

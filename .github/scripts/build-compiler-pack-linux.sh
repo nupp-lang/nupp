@@ -13,13 +13,37 @@ extracted="$work/extracted"
 toolchain="$work/toolchain"
 stage="$work/stage"
 cache="$work/nupp-toolchain-cache"
+source_dir=${NUPP_HOST_SOURCE_DIR:-}
+offline=${NUPP_HOST_OFFLINE:-}
+
+offline_enabled() {
+  case "$offline" in
+    1|true|yes|on|TRUE|YES|ON) return 0 ;;
+    ""|0|false|no|off|FALSE|NO|OFF) return 1 ;;
+    *) echo "NUPP_HOST_OFFLINE must name a boolean value" >&2; exit 2 ;;
+  esac
+}
+
+source_input() {
+  name=$1
+  url=$2
+  destination=$3
+  if [[ -n "$source_dir" && -f "$source_dir/$name" ]]; then
+    cp "$source_dir/$name" "$destination"
+  elif offline_enabled; then
+    echo "offline compiler-pack build needs $name in NUPP_HOST_SOURCE_DIR" >&2
+    exit 1
+  else
+    curl -fsSL "$url" -o "$destination"
+  fi
+}
 
 rm -rf "$work"
 mkdir -p "$extracted" "$toolchain/bin" "$toolchain/lib" "$stage"
-curl -fsSL "$LLVM_LINUX_URL" -o "$archive"
+source_input "$LLVM_LINUX_ARCHIVE" "$LLVM_LINUX_URL" "$archive"
 test "$(wc -c < "$archive" | tr -d ' ')" = "$LLVM_LINUX_SIZE"
 printf '%s  %s\n' "$LLVM_LINUX_SHA256" "$archive" | sha256sum -c -
-curl -fsSL "$LLVM_LICENSE_URL" -o "$llvm_license"
+source_input "LLVM-${LLVM_VERSION}-LICENSE.TXT" "$LLVM_LICENSE_URL" "$llvm_license"
 test "$(wc -c < "$llvm_license" | tr -d ' ')" = "$LLVM_LICENSE_SIZE"
 printf '%s  %s\n' "$LLVM_LICENSE_SHA256" "$llvm_license" | sha256sum -c -
 tar -xJf "$archive" -C "$extracted"
