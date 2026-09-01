@@ -492,7 +492,6 @@ function M.netAndTlsSelectTheUnifiedRustProvider()
    local expanded = native.expand({["native.tls"] = true})
    assertTrue(expanded["native.net"], "TLS omitted its Rust transport")
    assertTrue(expanded["runtime.native_v2"], "networking omitted the ABI-v2 runtime")
-   assertTrue(not expanded["runtime.native"], "networking retained the legacy C ABI runtime")
 end
 
 return M

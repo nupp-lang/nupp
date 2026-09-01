@@ -3,7 +3,6 @@
 -- Run from the repository root after building the compiler. Pass --mapped as
 -- the third argument to include the new identity-mapped result path; omit it
 -- when comparing with a compiler that predates that feature:
---   NUPP_NATIVE_LIBRARY="$PWD/build/lib/libnupp_native_dev.dylib" \
 --   LUA_PATH="$PWD/build/?.lua;$PWD/.rocks/share/lua/5.1/?.lua;;" \
 --   LUA_CPATH="$PWD/.rocks/lib/lua/5.1/?.so;;" \
 --   luajit bench/ownership-checker.lua 15 1000 [--mapped]

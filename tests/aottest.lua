@@ -253,8 +253,7 @@ function M.gpuTargetBindsACompilerGeneratedTypedObject()
    reportsGpu([[
 local span = require("nupp.mem.span")
 local gpu = require("nupp.gpu")
-local native = require("nupp.runtime.native")
-local ffi = native.ffi
+local ffi = require("ffi")
 
 @aot(target = "gpu")
 local function scale(
@@ -307,8 +306,7 @@ end
 function M.gpuBuffersExposeCheckedTensorLayouts()
    reportsGpu([[
 local gpu = require("nupp.gpu")
-local native = require("nupp.runtime.native")
-local ffi = native.ffi
+local ffi = require("ffi")
 
 local context = gpu.open()
 local tensor = context:tensor(ffi.typeof<float>(), {4, 8})

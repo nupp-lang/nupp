@@ -258,7 +258,7 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem build/lib
-          dumpbin /dependents build/lib/nupp_native.dll
+          dumpbin /dependents build/lib/nupp_native_v2_dev.dll
 
       - name: Install the development rocks
         shell: bash

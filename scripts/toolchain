@@ -37,7 +37,7 @@ usage: scripts/toolchain COMPONENT...
 
 Components: luajit luarocks lpeg lpeg-source luautf8
             swiftshader
-            native FEATURES, native-rust FEATURES
+            native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
             host-link FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...
@@ -140,14 +140,12 @@ else
 fi
 sha256() { sha256_stdin < "$1"; }
 
-# The digest of the C host and compatibility provider, in a fixed order. The
-# build directories below are keyed on it as well as on their feature list,
-# because a cache keyed on the request alone answers an edited source tree with
-# the artifact built from the source it replaced -- and mtimes cannot see that
-# either, since the artifact is copied into place and looks newer than the edit
-# that should have rebuilt it.
+# The digest of the C host, in a fixed order. Host build directories are keyed
+# on it as well as on their feature list, because a cache keyed on the request
+# alone answers an edited source tree with the artifact built from the source
+# it replaced.
 sources_digest() {
-    (cd "$ROOT" && find runtime/native host/c host/include \
+    (cd "$ROOT" && find host/c host/include \
         -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null) \
         | LC_ALL=C sort | while IFS= read -r file; do
             printf '%s ' "$file"
@@ -881,42 +879,6 @@ build_swiftshader() {
     release_lock
 }
 
-# --- the compiler's own native code -------------------------------------
-
-# Which C a feature is. The names are the ones the compiler's feature registry
-# uses, so this file and that registry are the two halves of one list.
-provider_sources() {
-    # Common C ownership remains for tracked compilers that still request the
-    # compatibility provider. Files, clocks, networking, TLS and processes are
-    # Rust providers, including
-    # the digest a stamped host links statically for pre-Lua payload checking.
-    printf '%s' "c/common.c"
-    for feature in $1; do
-        case "$feature" in
-            # A tracked compiler built before the ABI-v2 migration may still
-            # ask the legacy driver for these while rebuilding. They select no
-            # C source; the current compiler stages the Rust provider.
-            files|filesystem) ;;
-            # Host-only capability whose implementation is in the Rust archive.
-            native-files) ;;
-            # A tracked compiler built before the ABI-v2 migration may still
-            # include this retired feature in its legacy provider union while
-            # rebuilding itself. It selects no C source; the new compiler
-            # stages the Rust provider independently.
-            process) ;;
-            # The host flag controls whether the process module is embedded;
-            # its provider implementation is selected from the Rust archive.
-            native-process) ;;
-            # Tracked compilers may still request the old provider names while
-            # rebuilding. Current compilers stage these through ABI v2.
-            net|native-net|tls|native-tls) ;;
-            # Host-only features select no provider source of their own.
-            json|lpeg|lua-utf8|workers) ;;
-            *) die "unknown native feature $feature" ;;
-        esac
-    done
-}
-
 # The pinned LuaJIT's own `jit/*.lua` modules the host needs, as C arrays. A
 # host carrying an interpreter has to carry what its `jit` library reads: there
 # is no directory beside a single-file program to find it in.
@@ -941,65 +903,6 @@ write_vmdef() {
                 "$module" "$(wc -c < "$staged" | tr -d ' ')"
         } >> "$1"
     done
-}
-
-# --- the native provider -------------------------------------------------
-
-# Builds the provider as a shared library for one set of features, and answers
-# where it landed. This is what a program loads beside itself when it uses a
-# native facility, and what `bin/nupp` loads to list its own sources.
-build_native_library() {
-    features=$(printf '%s' "${1:-}" | tr ',' ' ')
-    sorted=$(printf '%s\n' $features | sort | tr '\n' ' ')
-    # Resolve the list before entering the loop below. `for source in $(...)`
-    # runs the producer in a subshell, so `die` used to stop only that subshell:
-    # the driver printed the unknown-feature error, compiled the partial list,
-    # and returned a provider path with success. An assignment has the command
-    # substitution's status, and `set -e` therefore stops the driver here.
-    providerSources=$(provider_sources "$sorted")
-    digest=$(printf '%s|%s' "$sorted" "$(sources_digest)" | sha256_stdin | cut -c1-16)
-    out="$PREFIX/native/$digest"
-    include=$(luajit_include)
-    NATIVE_OUT="$out"
-
-    take_lock "native-$digest" "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
-
-    note "building the native provider with $CC"
-    rm -rf "$out"
-    mkdir -p "$out/objects"
-
-    libraries=""
-    linker=$CC
-
-    objects=""
-    for source in $providerSources; do
-        object="$out/objects/$(basename "$source" .c).o"
-        # shellcheck disable=SC2086
-        "$CC" -c -std=gnu11 -O2 -fPIC -DNDEBUG -Wall -Wextra \
-            -I"$ROOT/runtime/native/c" -I"$include" \
-            -o "$object" "$ROOT/runtime/native/$source" >&2
-        objects="$objects $object"
-    done
-
-    case "$PLATFORM" in
-        darwin)
-            shared="-dynamiclib"
-            name="libnupp_native.dylib"
-            extra="-undefined dynamic_lookup"
-            ;;
-        windows)
-            shared="-shared"
-            name="nupp_native.dll"
-            extra=""
-            ;;
-        *)       shared="-shared"; name="libnupp_native.so"; extra="-lpthread -ldl" ;;
-    esac
-    # shellcheck disable=SC2086
-    "$linker" $shared -o "$out/$name" $objects $libraries $extra >&2
-    printf '%s\n' "$name" > "$out/.filename"
-    printf 'done\n' > "$out/.complete"
-    release_lock
 }
 
 # --- the host ------------------------------------------------------------
@@ -1103,15 +1006,12 @@ build_host() {
     if [ "$kind" = stub ]; then
         hostSources="$hostSources host/c/main.c"
     fi
-    for source in $hostSources $(provider_sources "$sorted"); do
-        case "$source" in
-            host/*) full="$ROOT/$source" ;;
-            *)      full="$ROOT/runtime/native/$source" ;;
-        esac
+    for source in $hostSources; do
+        full="$ROOT/$source"
         object="$out/objects/$(printf '%s' "$source" | tr '/' '_').o"
         # shellcheck disable=SC2086
         "$CC" -c -std=gnu11 -O2 -DNDEBUG -Wall -Wextra $defines \
-            -I"$ROOT/host/c" -I"$ROOT/host/include" -I"$ROOT/runtime/native/c" \
+            -I"$ROOT/host/c" -I"$ROOT/host/include" \
             -I"$ROOT/native/include" \
             -I"$include" -o "$object" "$full" >&2
         objects="$objects $object"
@@ -1266,11 +1166,6 @@ case "$1" in
         build_luarocks
         build_lpeg
         build_luautf8
-        exit 0
-        ;;
-    native)
-        build_native_library "${2:-}"
-        native_path "$NATIVE_OUT/$(cat "$NATIVE_OUT/.filename")"
         exit 0
         ;;
     native-rust)

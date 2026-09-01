@@ -200,7 +200,6 @@ local RESOURCES = {
    },
    {source = "src/nupp/data/utf8.nupp", output = "nupp/compiler/nupp/data/utf8.nupp"},
    {source = "src/nupp/data/base64.nupp", output = "nupp/compiler/nupp/data/base64.nupp"},
-   {source = "src/nupp/runtime/native.nupp", output = "nupp/compiler/nupp/runtime/native.nupp"},
    {source = "src/nupp/runtime/nativev2.nupp", output = "nupp/compiler/nupp/runtime/nativev2.nupp"},
    {source = "src/nupp/data/init.nupp", output = "nupp/compiler/nupp/data/init.nupp"},
    {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},

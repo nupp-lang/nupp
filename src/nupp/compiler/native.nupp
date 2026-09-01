@@ -197,7 +197,6 @@ local FEATURES: {[string]: native.Feature} = {
         requires = {"runtime.suspension"},
         portableRuntime = true,
     },
-    ["runtime.native"] = {name = "native_runtime", runtimeModule = "nupp.runtime.native",},
     ["runtime.native_v2"] = {name = "native_runtime_v2", runtimeModule = "nupp.runtime.nativev2",},
     [
         "native.time"

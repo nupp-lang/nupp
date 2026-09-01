@@ -37,7 +37,7 @@ binds buffers in parameter order, and dispatches scalar uniforms separately:
 ```nupp
 local gpu = require("nupp.gpu")
 local kernels = require("kernels")
-local ffi = require("nupp.runtime.native").ffi
+local ffi = require("ffi")
 local span = require("nupp.mem.span")
 
 local context = gpu.open()

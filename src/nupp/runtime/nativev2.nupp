@@ -3,11 +3,7 @@
 module nupp.runtime.nativev2
 
 --[[
-The independent loader for the versioned Rust-native provider.
-
-It deliberately does not share `nupp.runtime.native`'s global or fall back to
-its `nupp_native` handle. A process may carry both providers during migration;
-mixing their symbols would also mix their ownership models.
+The loader for the versioned Rust-native provider.
 ]]
 
 local ffi = require("ffi")

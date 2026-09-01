@@ -37,7 +37,7 @@ function M.beforeAll()
    end
    -- A generated program finds the library beside itself. This chunk is loaded
    -- from a string, so it has no beside; name the staged library outright, which
-   -- is the same substitution the NUPP_NATIVE_LIBRARY override performs.
+   -- is the same substitution the NUPP_NATIVE_V2_LIBRARY override performs.
    local library = ("%q"):format(libraryPath)
    local source = stdlib.bootstrap({
       ["native.files"] = true, ["stdlib.io"] = true,

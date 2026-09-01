@@ -64,7 +64,6 @@ local MODULES = {
     ["nupp.ml"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.ml.safetensors"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.ml.tokenizer"] = selected("runtime", "data.json"),
-    ["nupp.runtime.native"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.runtime.nativev2"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.owners"] = {kind = "common"},
     ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},

@@ -1,6 +1,6 @@
 local gpu = require("nupp.gpu")
 local generated = require("mandelbrot")
-local ffi = require("nupp.runtime.native").ffi
+local ffi = require("ffi")
 
 local function prepare(borrows context: gpu.Context): nil
     local points = context:buffer(ffi.typeof<generated.Point>(), 16)

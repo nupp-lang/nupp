@@ -239,11 +239,7 @@ function M.thePrefixFollowsTheToolchain()
    assert(again == one, "the same toolchain answered two prefixes")
 end
 
--- Feature validation belongs to the driver's status, not merely its text. A
--- failing `provider_sources` once ran inside the expansion of a `for` loop, so
--- it exited only that subshell; the parent compiled the partial source list and
--- returned a provider path with success.
-function M.anUnknownNativeFeatureStopsTheDriver()
+function M.legacyNativeProviderComponentIsAbsent()
    local directory = temporary()
    local compiler = fakeCompiler(directory, "fake-cc", "fake")
    local status, output = run({
@@ -251,29 +247,16 @@ function M.anUnknownNativeFeatureStopsTheDriver()
       NUPP_CC = compiler,
       NUPP_CXX = compiler,
       PATH = "$PATH",
-   }, "native files,bogus")
+   }, "native files")
 
-   assert(status ~= 0, "an unknown native feature returned success:\n" .. output)
-   assert(output:find("unknown native feature bogus", 1, true),
-      "the refusal does not name the unknown feature:\n" .. output)
-end
-
-function M.migratedRustFeaturesAreNotBuildableInLegacyC()
-   local directory = temporary()
-   local compiler = fakeCompiler(directory, "fake-cc", "fake")
-   for _, feature in ipairs({"gpu", "http", "uri", "uuid"}) do
-      local status, output = run({
-         NUPP_TOOLCHAIN_DIR = directory .. "/cache",
-         NUPP_CC = compiler,
-         NUPP_CXX = compiler,
-         PATH = "$PATH",
-      }, "native " .. feature)
-
-      assert(status ~= 0,
-         "the removed C " .. feature .. " provider returned success:\n" .. output)
-      assert(output:find("unknown native feature " .. feature, 1, true),
-         "the refusal does not establish the Rust-only provider boundary:\n" .. output)
-   end
+   assert(status ~= 0, "the removed native provider returned success:\n" .. output)
+   assert(output:find("unknown component native", 1, true),
+      "the refusal does not name the removed component:\n" .. output)
+   local driver = read(ROOT .. "/scripts/toolchain")
+   assert(not driver:find("build_native_library", 1, true),
+      "the legacy provider builder remains in the toolchain")
+   assert(not driver:find("provider_sources", 1, true),
+      "the legacy provider feature registry remains in the toolchain")
 end
 
 -- The fallback exists for installations where rustup itself is on PATH but

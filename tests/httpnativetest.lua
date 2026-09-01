@@ -11,7 +11,7 @@ local M = {}
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local root, http, buffers, process, files, port, server
-local priorPreload, priorLoaded, priorV2Preload, priorV2Loaded, unavailable
+local priorPreload, priorLoaded, unavailable
 
 local function startProcess(options)
    return process.Process.__nuppCtor1(options)
@@ -67,9 +67,8 @@ function M.beforeAll()
    root = temporaryRoot()
    os.execute("mkdir -p '" .. root .. "'")
 
-   local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
-   local rustLibraryPath = os.getenv("NUPP_NATIVE_V2_LIBRARY")
-   if not libraryPath or not rustLibraryPath then
+   local libraryPath = os.getenv("NUPP_NATIVE_V2_LIBRARY")
+   if not libraryPath then
       local staged, problem = nativeStage.build(root, "out", {
          ["native.http"] = true,
          ["native.process"] = true,
@@ -82,8 +81,7 @@ function M.beforeAll()
          unavailable = tostring(problem)
          return
       end
-      libraryPath = root .. "/out/lib/nupp_native"
-      rustLibraryPath = root .. "/out/lib/nupp_native_v2"
+      libraryPath = root .. "/out/lib/nupp_native_v2"
    end
 
    local effects = native.expand({
@@ -91,12 +89,9 @@ function M.beforeAll()
       ["native.process"] = true,
       ["native.files"] = true,
    })
-   priorPreload = package.preload["nupp.runtime.native"]
-   priorLoaded = package.loaded["nupp.runtime.native"]
-   priorV2Preload = package.preload["nupp.runtime.nativev2"]
-   priorV2Loaded = package.loaded["nupp.runtime.nativev2"]
-   preloadProvider("nupp.runtime.native", "NUPP_NATIVE_LIBRARY", libraryPath)
-   preloadProvider("nupp.runtime.nativev2", "NUPP_NATIVE_V2_LIBRARY", rustLibraryPath)
+   priorPreload = package.preload["nupp.runtime.nativev2"]
+   priorLoaded = package.loaded["nupp.runtime.nativev2"]
+   preloadProvider("nupp.runtime.nativev2", "NUPP_NATIVE_V2_LIBRARY", libraryPath)
    assert(loadstring(stdlib.bootstrap(effects)))()
    process = require("nupp.io.process")
    http = require("nupp.io.http")
@@ -107,10 +102,8 @@ end
 
 function M.afterAll()
    if server then server:close() end
-   package.preload["nupp.runtime.native"] = priorPreload
-   package.loaded["nupp.runtime.native"] = priorLoaded
-   package.preload["nupp.runtime.nativev2"] = priorV2Preload
-   package.loaded["nupp.runtime.nativev2"] = priorV2Loaded
+   package.preload["nupp.runtime.nativev2"] = priorPreload
+   package.loaded["nupp.runtime.nativev2"] = priorLoaded
    if root then
       os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
       os.execute("rm -rf '" .. root .. "'")

@@ -151,37 +151,31 @@ launcher_notice() {
 # library under a later `nupp run` with a narrower union.
 case "$(uname -s 2>/dev/null)" in
     MINGW*|MSYS*|CYGWIN*)
-        NATIVE_FILENAME=nupp_native_dev.dll
         RUST_NATIVE_FILENAME=nupp_native_v2_dev.dll
         ;;
     Darwin*)
-        NATIVE_FILENAME=libnupp_native_dev.dylib
         RUST_NATIVE_FILENAME=libnupp_native_v2_dev.dylib
         ;;
     *)
-        NATIVE_FILENAME=libnupp_native_dev.so
         RUST_NATIVE_FILENAME=libnupp_native_v2_dev.so
         ;;
 esac
-export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/$NATIVE_FILENAME"
 export NUPP_NATIVE_V2_LIBRARY="$LUA_ROOT/build/lib/$RUST_NATIVE_FILENAME"
 
-# This makes the C and Rust toolchains prerequisites for building Nupp itself,
-# rather than only for a target that asked for a native facility. Stage 0
-# reaches both providers while listing the sources it is about to compile, so
-# there is no ordering in which the compiler builds them for itself first.
+# This makes the Rust provider a prerequisite for building Nupp itself, rather
+# than only for a target that asked for a native facility. Stage 0 reaches it
+# while listing the sources it is about to compile, so there is no ordering in
+# which the compiler builds it for itself first.
 #
 # `scripts/toolchain` decides where the build lands and how it is cached, which
 # is why nothing here names a directory: the answer is keyed by the compiler
 # this machine has, and shared by every worktree of this checkout.
-build_native() {
+build_native_v2() {
     # `files` because stage 0 lists its own sources through it. The rest are
     # optional stdlib facilities a program run by this launcher may select;
     # unlike a packaged build, `nupp run` loads this one development provider
     # rather than staging a target-specific union beside the program.
-    built=$("$ROOT/scripts/toolchain" native) \
-        || return 1
-    rust_built=$("$ROOT/scripts/toolchain" native-rust base,files,http,net,process,tls,uri,uuid) || return 1
+    built=$("$ROOT/scripts/toolchain" native-rust base,files,http,net,process,tls,uri,uuid) || return 1
     mkdir -p "$ROOT/build/lib"
     # Copied beside the destination and renamed onto it, never written in place.
     # A rename within one directory is atomic, so a command loading the library
@@ -189,19 +183,17 @@ build_native() {
     # leaves a window in which the file is neither: half a shared library, which
     # the loader does not report as a bad file -- on macOS the kernel refuses the
     # image and kills the process outright, some way from the cause.
-    staged="$NUPP_NATIVE_LIBRARY.$$"
-    rust_staged="$NUPP_NATIVE_V2_LIBRARY.$$"
-    if ! cp "$built" "$staged" || ! cp "$rust_built" "$rust_staged"; then
-        rm -f "$staged" "$rust_staged"
-        echo "nupp: could not stage the native providers" >&2
+    staged="$NUPP_NATIVE_V2_LIBRARY.$$"
+    if ! cp "$built" "$staged"; then
+        rm -f "$staged"
+        echo "nupp: could not stage the Rust native provider" >&2
         return 1
     fi
-    if mv -f "$staged" "$NUPP_NATIVE_LIBRARY" \
-        && mv -f "$rust_staged" "$NUPP_NATIVE_V2_LIBRARY"; then
+    if mv -f "$staged" "$NUPP_NATIVE_V2_LIBRARY"; then
         return 0
     fi
-    rm -f "$staged" "$rust_staged"
-    echo "nupp: could not install the native providers" >&2
+    rm -f "$staged"
+    echo "nupp: could not install the Rust native provider" >&2
     return 1
 }
 
@@ -416,18 +408,11 @@ done
 # artifact has not seen that edit. Without this an edit to the provider was
 # picked up by whoever next deleted the library by hand, and everything in
 # between tested the one before it.
-native_is_current() {
-    [ -f "$NUPP_NATIVE_LIBRARY" ] || return 1
+native_v2_is_current() {
     [ -f "$NUPP_NATIVE_V2_LIBRARY" ] || return 1
-    # The launcher owns the broad development feature union passed to both
-    # provider builds, so changing that union invalidates its staged copies.
-    [ ! "$ROOT/bin/nupp" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
+    # The launcher owns the broad development feature union, so changing that
+    # union invalidates its staged copy.
     [ ! "$ROOT/bin/nupp" -nt "$NUPP_NATIVE_V2_LIBRARY" ] || return 1
-    [ -z "$(find "$ROOT/runtime" "$ROOT/native" "$ROOT/Cargo.toml" "$ROOT/Cargo.lock" -type f \
-        \( -name '*.rs' -o -name '*.c' -o -name '*.h' -o -name '*.toml' -o -name 'Cargo.lock' \) \
-        -newer "$NUPP_NATIVE_LIBRARY" 2>/dev/null | head -n 1)" ] || return 1
-    [ ! "$ROOT/scripts/toolchain" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
-    [ ! "$ROOT/scripts/toolchain.pins" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
     [ -z "$(find "$ROOT/runtime" "$ROOT/native" "$ROOT/Cargo.toml" "$ROOT/Cargo.lock" -type f \
         \( -name '*.rs' -o -name '*.c' -o -name '*.h' -o -name '*.toml' -o -name 'Cargo.lock' \) \
         -newer "$NUPP_NATIVE_V2_LIBRARY" 2>/dev/null | head -n 1)" ] || return 1
@@ -437,8 +422,8 @@ native_is_current() {
     [ ! "$ROOT/.cargo/config.toml" -nt "$NUPP_NATIVE_V2_LIBRARY" ]
 }
 
-if [ "$needs_native" = yes ] && ! native_is_current; then
-    build_native || exit 1
+if [ "$needs_native" = yes ] && ! native_v2_is_current; then
+    build_native_v2 || exit 1
 fi
 
 if [ "$rebuild" = yes ] && ! built_is_current; then

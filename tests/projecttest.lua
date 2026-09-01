@@ -1172,7 +1172,7 @@ return platform
       "the compiler-owned path implementation is materialized into the application")
    assert(read(dir .. "/out/nupp/runtime/provider/browserpath.lua"),
       "the browser backend supplies only the path environment")
-   assert(not exists(dir .. "/out/nupp/runtime/native.lua"),
+   assert(not exists(dir .. "/out/nupp/runtime/nativev2.lua"),
       "portable path arithmetic does not carry the native binding")
    assert(not exists(dir .. "/out/nupp/data.lua"),
       "the native data implementation is not compiled behind a projected facade")
@@ -1329,10 +1329,7 @@ function M.nativeFacilitiesSharingAProviderBuildAsOneUnion()
    -- writes; anything before that is progress.
    process.capture = function(argv)
       calls[#calls + 1] = argv
-      if table.concat(argv, "\n"):find("native%-rust") then
-         return 0, "/built/libnupp_native_v2.dylib\n"
-      end
-      return 0, "building the native provider\n/built/libnupp_native.dylib\n"
+      return 0, "/built/libnupp_native_v2.dylib\n"
    end
    fs.copyFile = function(source, destination)
       copies[#copies + 1] = {source, destination}

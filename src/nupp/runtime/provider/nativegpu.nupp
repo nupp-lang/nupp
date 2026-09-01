@@ -11,7 +11,7 @@ is live. Uploads, dispatches, and downloads only enqueue commands;
 ```nupp
 local gpu = require("nupp.gpu")
 local kernels = require("kernels")
-local ffi = require("nupp.runtime.native").ffi
+local ffi = require("nupp.runtime.nativev2").ffi
 
 local context = gpu.open()
 local input = context:buffer(ffi.typeof<float>(), 1024)

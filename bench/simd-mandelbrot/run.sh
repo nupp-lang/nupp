@@ -15,13 +15,11 @@ mkdir -p "$OUT" "$OUT_X4"
 
 case $(uname -s) in
     Darwin)
-        NATIVE="$ROOT/build/lib/libnupp_native_dev.dylib"
         SUFFIX="dylib"
         SHARED_FLAGS="-dynamiclib"
         MATH_LIB=""
         ;;
     Linux)
-        NATIVE="$ROOT/build/lib/libnupp_native_dev.so"
         SUFFIX="so"
         SHARED_FLAGS="-shared"
         MATH_LIB="-lm"
@@ -34,8 +32,7 @@ esac
 
 LUA_PATH="$ROOT/.rocks/share/lua/5.1/?.lua;$ROOT/.rocks/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
 LUA_CPATH="$ROOT/.rocks/lib/lua/5.1/?.so;${LUA_CPATH:-;}"
-NUPP_NATIVE_LIBRARY="$NATIVE"
-export LUA_PATH LUA_CPATH NUPP_NATIVE_LIBRARY
+export LUA_PATH LUA_CPATH
 
 luajit "$BENCH/compile.lua" "$BENCH/$SOURCE.nupp" "$OUT"
 NUPP_AOT_BENCH_GANG_BYTES=16 \

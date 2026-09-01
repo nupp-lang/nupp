@@ -260,18 +260,12 @@ function M.featuresAndToolIdentityChangeTheArtifactKey()
     assert(answer(thirdOutput) ~= answer(fourthOutput), "two codegen configurations shared one artifact")
 end
 
--- A checkout can have a working compiler from immediately before a provider
--- migration. That compiler still asks the legacy driver for `process` while it
--- compiles the new registry, so rejecting the retired feature strands the
--- checkout before either the new compiler or its Rust provider can be staged.
-function M.legacyProcessSelectionRemainsAnUpgradeNoOp()
+function M.legacyProviderUpgradeBridgeIsGone()
     local driver = read(DRIVER)
-    local providerSources = assert(driver:match("provider_sources%(%) {(.-)\n}"),
-        "the native provider source selector is missing")
-    assert(providerSources:find("process%) *;;"),
-        "a pre-migration compiler can still pass process to the legacy driver")
-    assert(not providerSources:find("process%) *die"),
-        "the upgrade bridge must not reject a retired process selection")
+    assert(not driver:find("provider_sources", 1, true),
+        "the ABI-v1 feature selector remains in the toolchain")
+    assert(not driver:match("\n    native%)"),
+        "the ABI-v1 provider command remains in the toolchain")
 end
 
 function M.hostArtifactFollowsTheLuaJitCompilerIdentity()

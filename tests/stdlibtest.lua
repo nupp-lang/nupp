@@ -251,7 +251,7 @@ function M.standardSurfaceRequiresExactPortableSeams()
       "nupp.browser.crypto", "nupp.browser.storage", "nupp.data.json",
       "nupp.data.serde", "nupp.data.utf8", "nupp.io.files",
       "nupp.io.http", "nupp.io.process", "nupp.io.path", "nupp.io.uri",
-      "nupp.mem", "nupp.runtime.native", "nupp.simd", "nupp.time", "nupp.wasm",
+      "nupp.mem", "nupp.runtime.nativev2", "nupp.simd", "nupp.time", "nupp.wasm",
       "nupp.test", "nupp.workers",
    }) do
       assert(classified[name], "public standard module is classified: " .. name)

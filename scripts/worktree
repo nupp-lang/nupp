@@ -54,7 +54,7 @@ if [ -f "$ORIGIN_STAMP" ]; then
     fi
 fi
 ORIGIN_SOURCE_CHANGES=$(git -C "$ROOT" status --porcelain --untracked-files=normal -- \
-    src nupp.lua runtime/native native Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml)
+    src nupp.lua native Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml)
 if [ "$ORIGIN_HEAD" = "$TASK_HEAD" ] && [ -f "$ORIGIN_STAMP" ] \
     && [ -f "$ORIGIN_BUILT" ] && [ -z "$NEWER_SOURCE" ] \
     && [ -z "$ORIGIN_SOURCE_CHANGES" ]; then

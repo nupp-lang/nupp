@@ -153,7 +153,6 @@ function M.timeSelectsTheRustBaseProvider()
    assertEq(feature.providerFeature, "base", "time provider feature")
    local expanded = native.expand({["native.time"] = true})
    assertTrue(expanded["runtime.native_v2"], "time omitted the Rust ABI runtime")
-   assertTrue(not expanded["runtime.native"], "time retained the legacy C ABI runtime")
 end
 
 return M
