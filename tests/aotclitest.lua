@@ -881,6 +881,55 @@ return {map = map}
     assert(spirvDecorationCount(module, 11) >= 3, "workgroup kernel lost invocation builtins")
 end
 
+function M.gpuTargetLoadsReadonlyStructOnce()
+    local dir = project({
+        ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        [
+            "fields.nupp"
+        ] = [[
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
+
+local struct Pair
+    left: float
+    right: float
+end
+
+@aot(target = "gpu")
+local function addPairs(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<Pair>
+): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#output), nupp.math.u32.wrap(4))
+    gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
+        phases:run(function(localIndex: uint32)
+            local index = nupp.math.u32.add(
+                nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)),
+                localIndex
+            )
+            local inputCursor = index
+            local outputCursor = index
+            if inputCursor < #input then
+                if outputCursor < #output then
+                    local pair = input[inputCursor + 1]
+                    output[outputCursor + 1] = nupp.math.f32.add(
+                        nupp.math.f32.narrow(pair.left),
+                        nupp.math.f32.narrow(pair.right)
+                    )
+                end
+            end
+        end)
+    end)
+end
+return {addPairs = addPairs}
+]],
+    })
+    local module, code = run(dir, "--emit spirv fields.nupp")
+    test.equal(code, 0, module)
+    test.equal(module:sub(1, 4), "\3\2#\7")
+    test.equal(spirvOpcodeCount(module, 65), 7, "repeated struct fields rebuilt a storage address")
+end
+
 function M.gpuTargetEmitsDeterministicInclusiveScan()
     local dir = project({
         ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,

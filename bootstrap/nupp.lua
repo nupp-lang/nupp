@@ -26285,6 +26285,14 @@ instruction ( functions , OP . Label , { mainLabel } )
 
 local localPointers = { }
 local references = { }
+
+
+
+
+local readonlyReferences = { }
+
+local readonlyReferenceValues = { }
+
 local function valueType ( type_ ) 
 if type_ : match ( "^ref:" ) then
 error ( "SPIR-V references do not have value types" , 0 )
@@ -26470,10 +26478,23 @@ return converted , expected
 end
 return loaded , storedType
 elseif op == "field_load" then
-local object = expression ( value . object )
 local fieldIndex = assert ( assert ( layoutFields [ value . layout ] ) [ value . field ] )
 local storedKey = physical ( value . type , value . sourceType )
 local storedType = scalarType ( storedKey )
+local referenceName = value . object . op == "local" and ( value . object . cName or value . object . name ) or nil
+local loaded
+if referenceName ~= nil and readonlyReferences [ referenceName ] == true then
+local whole = readonlyReferenceValues [ referenceName ]
+if whole == nil then
+local object , objectType = expression ( value . object )
+whole = id ( )
+instruction ( functions , OP . Load , { objectType , whole , object } )
+readonlyReferenceValues [ referenceName ] = whole
+end
+loaded = id ( )
+instruction ( functions , OP . CompositeExtract , { storedType , loaded , whole , fieldIndex } )
+else
+local object = expression ( value . object )
 local member = constant ( u32Type , fieldIndex )
 local pointer = id ( )
 instruction ( functions , OP . AccessChain , {
@@ -26482,8 +26503,9 @@ pointer ,
 object ,
 member
 } )
-local loaded = id ( )
+loaded = id ( )
 instruction ( functions , OP . Load , { storedType , loaded , pointer } )
+end
 local expected = valueType ( value . type )
 if storedType ~= expected then
 local converted = id ( )
@@ -26702,6 +26724,8 @@ local op = statement . op
 if op == "let" then
 if statement . type : match ( "^ref:" ) then
 references [ statement . cName ] = bufferPointer ( statement . value )
+readonlyReferences [ statement . cName ] = statement . value . mutable ~= true
+readonlyReferenceValues [ statement . cName ] = nil
 else
 local value = expression ( statement . value )
 instruction ( functions , OP . Store , { assert ( localPointers [ statement . cName ] ) , value } )
@@ -26769,11 +26793,14 @@ indexId
 local value = expression ( statement . value )
 instruction ( functions , OP . Store , { pointer , value } )
 elseif op == "phase" then
+readonlyReferenceValues = { }
 statements ( statement . body )
 if not terminated then
 workgroupBarrier ( )
 end
+readonlyReferenceValues = { }
 elseif op == "if" then
+readonlyReferenceValues = { }
 local merge = id ( )
 for index , clause in ipairs ( statement . clauses ) do
 local yes = id ( )
@@ -26798,7 +26825,9 @@ end
 end
 instruction ( functions , OP . Label , { merge } )
 terminated = false
+readonlyReferenceValues = { }
 elseif op == "while" then
+readonlyReferenceValues = { }
 local header , body , continuing , merge = id ( ) , id ( ) , id ( ) , id ( )
 instruction ( functions , OP . Branch , { header } )
 instruction ( functions , OP . Label , { header } )
@@ -26819,6 +26848,7 @@ instruction ( functions , OP . Label , { continuing } )
 instruction ( functions , OP . Branch , { header } )
 instruction ( functions , OP . Label , { merge } )
 terminated = false
+readonlyReferenceValues = { }
 elseif op == "break" then
 instruction ( functions , OP . Branch , { assert ( currentBreak [ # currentBreak ] ) } )
 terminated = true
