@@ -358,6 +358,14 @@ function M.windowsHostLinkersCarryPthread()
     )
 end
 
+function M.windowsCompilerPackLinksItsToolchainRuntimeStatically()
+    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
+    assert(
+        packLinker:match('#ifdef _WIN32%s+/%*.-%*/%s+append%(&cursor, "%-static"%);'),
+        "the Windows compiler-pack output can depend on LLVM-MinGW runtime DLLs"
+    )
+end
+
 -- Rustls reads the Windows root stores through CryptoAPI, and Rust std builds
 -- child pipes with ntdll. Cargo records executable dependencies; both static
 -- C-link routes record them themselves.

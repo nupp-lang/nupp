@@ -100,6 +100,13 @@ int main(int argc, char **argv) {
         append(&cursor, "-Wl,--no-whole-archive");
     }
 #ifdef _WIN32
+    /*
+     * LLVM-MinGW otherwise selects its shared libunwind and pthread runtimes.
+     * A standalone Nupp binary must not depend on DLLs beside the compiler
+     * pack that created it, so select the pack's static runtime closure.
+     * Windows system libraries remain imports as usual.
+     */
+    append(&cursor, "-static");
     /* Scan the host after force-loaded AOT archives introduce their refs. */
     append(&cursor, host);
 #endif

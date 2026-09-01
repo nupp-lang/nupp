@@ -493,9 +493,22 @@ jobs:
           & "$env:GITHUB_WORKSPACE\release\package\nupp.exe" build --format json |
             Set-Content "$env:GITHUB_WORKSPACE\release\compiler-pack-windows-result.json"
           if ($LASTEXITCODE -ne 0) { throw "installed compiler-pack build failed" }
+          $packRoot = "release/package/lib/nupp/compiler-packs/" +
+            "x86_64-pc-windows-msvc/x86_64-pc-windows-msvc"
+          $imports = & "$packRoot/toolchain/bin/llvm-readobj.exe" `
+            --coff-imports build/pack-smoke.exe
+          if ($LASTEXITCODE -ne 0) { throw "could not inspect compiler-pack output imports" }
+          $imports | Write-Output
+          $importText = $imports -join "`n"
+          foreach ($runtime in @("libunwind.dll", "libc++.dll", "libwinpthread-1.dll")) {
+            if ($importText -match [regex]::Escape($runtime)) {
+              throw "standalone compiler-pack output imports $runtime"
+            }
+          }
           $answer = & build/pack-smoke.exe
-          if ($LASTEXITCODE -ne 0 -or $answer -ne "15") {
-            throw "standalone compiler-pack output failed: $answer"
+          $status = $LASTEXITCODE
+          if ($status -ne 0 -or $answer -ne "15") {
+            throw "standalone compiler-pack output failed (exit $status): $answer"
           }
           if ((Test-Path build/lib/tiny.dll) -or (Test-Path build/lib/default_aot.dll)) {
             throw "standalone compiler-pack output retained a native sidecar"
