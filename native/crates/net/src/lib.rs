@@ -1093,9 +1093,13 @@ async fn resolve_and_connect(
     shared: Arc<ConnectShared>,
 ) {
     let operation = async {
-        let addresses = tokio::net::lookup_host((host.as_str(), port))
-            .await?
-            .collect::<Vec<_>>();
+        let addresses = if let Some(address) = numeric_address(&host, port) {
+            vec![address]
+        } else {
+            tokio::net::lookup_host((host.as_str(), port))
+                .await?
+                .collect::<Vec<_>>()
+        };
         connect_sequential(addresses, TokioTcpStream::connect).await
     };
     let result = tokio::select! {
@@ -1123,6 +1127,12 @@ async fn resolve_and_connect(
     };
     drop(state);
     activity().notify();
+}
+
+fn numeric_address(host: &str, port: u16) -> Option<SocketAddr> {
+    host.parse::<IpAddr>()
+        .ok()
+        .map(|address| SocketAddr::new(address, port))
 }
 
 #[cfg(unix)]
@@ -1866,6 +1876,19 @@ mod tests {
         assert_eq!(result.unwrap(), second);
         assert!(succeeded.load(Ordering::Relaxed));
         assert_eq!(*attempted.lock().unwrap(), vec![first, second]);
+    }
+
+    #[test]
+    fn numeric_addresses_do_not_need_name_resolution() {
+        assert_eq!(
+            numeric_address("127.0.0.1", 1234),
+            Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 1234))
+        );
+        assert_eq!(
+            numeric_address("::1", 4321),
+            Some(SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 4321))
+        );
+        assert_eq!(numeric_address("localhost", 80), None);
     }
 
     #[test]

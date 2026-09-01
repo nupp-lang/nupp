@@ -436,6 +436,15 @@ function M.staticHostsForceLoadTheRustApplicationArchive()
         "the Windows application archive retains Cargo-bundled import thunks"
     )
     assert(
+        driver:find('"$archive_tool" dN 1 "$destination" "$member"', 1, true),
+        "duplicate Windows import members are not deleted by exact instance"
+    )
+    assert(driver:find("tr -d '\\r'", 1, true), "Windows archive listings are not normalized before member matching")
+    assert(
+        driver:find('die "the staged Windows application archive retains import member $member"', 1, true),
+        "the staged Windows archive does not verify that every import member was removed"
+    )
+    assert(
         driver:find('-Wl,--whole-archive "$host_out/libnupp-host.a"', 1, true),
         "the ordinary static linker can discard the Rust application host"
     )
