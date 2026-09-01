@@ -256,11 +256,9 @@ jobs:
     name: ${{ matrix.name }} / LuaJIT ${{ matrix.luajit }}
     runs-on: ${{ matrix.os }}
     # A timeout is here to end a hang, so it has to sit above the work rather
-    # than across it. Windows ran 24m48s and 29m36s on its green runs and was
-    # killed at exactly 30 on a slower runner, which reads as a cancelled job
-    # and is really a suite that was still going. A killed job also skips its
-    # post steps, so it never saved the caches above and would have missed
-    # every time.
+    # than across it. The Rust-native artifact gate precedes the broad suite;
+    # a cold runner must have time for both. A killed job also skips its post
+    # steps, so it never saves the cache and would miss again next time.
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
@@ -268,17 +266,17 @@ jobs:
         include:
           - name: Linux x64
             os: ubuntu-24.04
-            timeout: 40
+            timeout: 55
             luajit: 2.1 rolling
             benchmark_artifact: linux-x64-luajit-2.1
           - name: macOS arm64
             os: macos-15
-            timeout: 30
+            timeout: 50
             luajit: 2.1 rolling
             benchmark_artifact: macos-arm64-luajit-2.1
           - name: Windows x64
             os: windows-2022
-            timeout: 45
+            timeout: 65
             luajit: 2.1 rolling
             benchmark_artifact: windows-x64-luajit-2.1
     steps:
