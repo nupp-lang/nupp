@@ -169,6 +169,24 @@ function M.everyPinnedSourceHasANotice()
    end
 end
 
+-- GPU conformance uses the distribution-provided Lavapipe ICD. Keeping a
+-- source-built software adapter here would make WGPU's test dependency the
+-- largest remaining C++ build in the ordinary Nupp toolchain.
+function M.softwareVulkanIsProvidedByCi()
+   local driver = read(ROOT .. "/scripts/toolchain")
+   local pinsFile = read(ROOT .. "/scripts/toolchain.pins")
+   local workflow = read(ROOT .. "/.github/workflows/compiler.yml")
+   local conformance = read(ROOT .. "/.github/scripts/test-gpu-conformance.sh")
+   assert(not driver:find("swiftshader", 1, true),
+      "the toolchain still source-builds SwiftShader")
+   assert(not pinsFile:find("SWIFTSHADER", 1, true),
+      "the removed SwiftShader source pin remains")
+   assert(workflow:find("mesa-vulkan-drivers", 1, true),
+      "GPU CI does not install a maintained software Vulkan adapter")
+   assert(conformance:find("NUPP_GPU_ICD", 1, true),
+      "GPU conformance does not require CI to name its ICD")
+end
+
 -- A mirror that served something else is refused rather than compiled, and the
 -- message says both digests so the reader can tell a stale pin from a bad
 -- download.

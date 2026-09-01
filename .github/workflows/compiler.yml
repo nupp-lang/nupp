@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   gpu-conformance:
-    name: GPU conformance / pinned SwiftShader Vulkan
+    name: GPU conformance / CI Lavapipe Vulkan
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -45,15 +45,16 @@ jobs:
           restore-keys: |
             nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Install the Vulkan loader
+      - name: Install the software Vulkan adapter
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan1
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+          icd=$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -type f | head -n 1)
+          test -n "$icd"
+          printf 'NUPP_GPU_ICD=%s\n' "$icd" >> "$GITHUB_ENV"
 
-      - name: Provision the compiler and software Vulkan adapter
-        run: |
-          ./scripts/toolchain --all
-          ./scripts/toolchain swiftshader
+      - name: Provision the compiler
+        run: ./scripts/toolchain --all
 
       - name: Run exact GPU dispatch and readback
         id: gpu_conformance
@@ -61,8 +62,8 @@ jobs:
         run: .github/scripts/test-gpu-conformance.sh
 
       # A failed conformance step would otherwise skip actions/cache's post
-      # save and rebuild SwiftShader for every diagnostic commit. Preserve the
-      # expensive pinned toolchain before turning the captured outcome back
+      # save the toolchain for every diagnostic commit. Preserve the expensive
+      # compiler build before turning the captured outcome back
       # into the job's verdict.
       - name: Save a failed conformance toolchain
         if: steps.gpu_conformance.outcome == 'failure'

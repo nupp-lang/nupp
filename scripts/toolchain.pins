@@ -33,11 +33,3 @@ LPEG_SHA256=4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a
 LPEG_URL='https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-${LPEG_VERSION}.tar.gz'
 LPEG_MARKER=lptree.c
 LPEG_DIRECTORY='lpeg-${LPEG_VERSION}'
-
-# The headless GPU conformance device. CI builds this exact Vulkan ICD rather
-# than accepting whichever physical adapter a hosted runner happens to expose.
-SWIFTSHADER_REV=694585a05946e1ed49b6bd577ca6537cbb57f025
-SWIFTSHADER_SHA256=96d0072058c4d9535ded472e4f12ce79976287d4ee9dce2915566ec4648e560e
-SWIFTSHADER_URL='https://github.com/google/swiftshader/archive/${SWIFTSHADER_REV}.tar.gz'
-SWIFTSHADER_MARKER=CMakeLists.txt
-SWIFTSHADER_DIRECTORY='swiftshader-${SWIFTSHADER_REV}'
