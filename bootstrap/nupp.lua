@@ -21772,6 +21772,7 @@ end
 
 
 
+
 local function removeDead (
 statements ,
 state ,
@@ -21780,7 +21781,9 @@ extraUses
 local uses = { }
 countUses ( statements , uses )
 if extraUses ~= nil then
-countUses ( extraUses , uses )
+for _ , value in ipairs ( extraUses ) do
+countUses ( value , uses )
+end
 end
 local kept = { }
 for _ , statement in ipairs ( statements ) do
@@ -21959,7 +21962,11 @@ local workgroup = program . workgroup
 
 foldWorkgroupStatements ( workgroup . prelude , state )
 workgroup . groups = foldWorkgroupExpression ( workgroup . groups , state )
-workgroup . prelude = removeDead ( workgroup . prelude , state , workgroup . groups )
+workgroup . prelude = removeDead ( workgroup . prelude , state , {
+workgroup . groups ,
+workgroup . shared ,
+workgroup . statements ,
+} )
 
 
 

@@ -705,18 +705,21 @@ local function countUses(value: any, uses: {[string]: integer}): nil
     end
 end
 
---- Drops pure unused declarations in one sequential region. `extraUses` is
---- another value evaluated after that region, such as a workgroup's dispatch
---- expression; it prevents a prelude declaration used there from looking dead.
+--- Drops pure unused declarations in one sequential region. `extraUses` holds
+--- values evaluated after that region; it prevents a workgroup prelude
+--- declaration used by dispatch, scratch initialization, or its controller
+--- from looking dead.
 local function removeDead(
     statements: {scalarIR.Statement},
     state: optimize.State,
-    extraUses: scalarIR.Expr?
+    extraUses: {any}?
 ): {scalarIR.Statement}
     local uses: {[string]: integer} = {}
     countUses(statements, uses)
     if extraUses ~= nil then
-        countUses(extraUses as scalarIR.Expr, uses)
+        for _, value in ipairs(extraUses as {any}) do
+            countUses(value, uses)
+        end
     end
     local kept: {scalarIR.Statement} = {}
     for _, statement in ipairs(statements) do
@@ -891,11 +894,15 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
         elseif program.workgroup ~= nil then
             local workgroup = program.workgroup as scalarIR.Workgroup
             -- The prelude runs before dispatch and has ordinary sequential
-            -- semantics. Its declarations may feed the dispatch expression,
-            -- so account for that use when removing dead declarations.
+            -- semantics. Its declarations may feed any later part of the
+            -- workgroup, so account for all of those uses before removing one.
             foldWorkgroupStatements(workgroup.prelude, state)
             workgroup.groups = foldWorkgroupExpression(workgroup.groups, state)
-            workgroup.prelude = removeDead(workgroup.prelude, state, workgroup.groups)
+            workgroup.prelude = removeDead(workgroup.prelude, state, {
+                workgroup.groups,
+                workgroup.shared,
+                workgroup.statements,
+            })
 
             -- A phase boundary is a scheduling boundary, not an ordinary
             -- nested block. Optimise each callback in isolation and preserve
