@@ -2,10 +2,13 @@
 //!
 //! The host owns one LuaJIT state and one native lane on the creating thread.
 //! Native work never enters Lua; shutdown closes and drains the lane before it
-//! closes LuaJIT. Components, worker states, embedding exports, and appended
-//! payload discovery deliberately remain outside this first proof.
+//! closes LuaJIT. Appended payload discovery is owned here; components, worker
+//! states, and embedding exports deliberately remain outside this first proof.
 
 mod lua;
+mod payload;
+
+pub use payload::{Error as PayloadError, Payload, read as read_payload};
 
 use lua::Lua;
 use nupp_native_runtime::NativeLane;

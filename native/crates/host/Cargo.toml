@@ -14,4 +14,5 @@ name = "nupp-host-rust"
 path = "src/main.rs"
 
 [dependencies]
+nupp-native-platform = { path = "../platform" }
 nupp-native-runtime = { path = "../runtime" }
