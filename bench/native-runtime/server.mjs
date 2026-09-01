@@ -1,15 +1,7 @@
-import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createServer as createTcpServer } from "node:net";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
-
-const httpPortFile = process.argv[2];
-const netPortFile = process.argv[3];
-if (!httpPortFile || !netPortFile) {
-  console.error("usage: node server.mjs HTTP_PORT_FILE NET_PORT_FILE");
-  process.exit(2);
-}
 
 const small = Buffer.alloc(64, 0x61);
 const large = Buffer.alloc(4 * 1024 * 1024, 0x62);
@@ -83,9 +75,28 @@ const server = createServer((req, res) => {
 });
 
 server.on("clientError", (_error, socket) => socket.destroy());
+let httpPort;
+let tcpPort;
+let ready = false;
+function reportReady() {
+  if (!ready && httpPort !== undefined && tcpPort !== undefined) {
+    ready = true;
+    process.stdout.write(`READY ${httpPort} ${tcpPort}\n`);
+  }
+}
+
+function listenFailed(kind, error) {
+  console.error(`native runtime peer: ${kind} listen failed: ${error.stack ?? error}`);
+  if (server.listening) server.close();
+  if (tcpServer.listening) tcpServer.close();
+  process.exitCode = 1;
+}
+
+server.once("error", (error) => listenFailed("HTTP", error));
 server.listen(0, "127.0.0.1", () => {
   const address = server.address();
-  writeFileSync(httpPortFile, String(address.port), "ascii");
+  httpPort = address.port;
+  reportReady();
 });
 
 const tcpServer = createTcpServer((socket) => {
@@ -104,7 +115,9 @@ const tcpServer = createTcpServer((socket) => {
   })();
 });
 
+tcpServer.once("error", (error) => listenFailed("TCP", error));
 tcpServer.listen(0, "127.0.0.1", () => {
   const address = tcpServer.address();
-  writeFileSync(netPortFile, String(address.port), "ascii");
+  tcpPort = address.port;
+  reportReady();
 });
