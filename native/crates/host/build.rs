@@ -14,6 +14,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../../../scripts/toolchain");
     println!("cargo:rerun-if-changed=../../../scripts/toolchain.pins");
     println!("cargo:rerun-if-changed=c/lua_shim.c");
+    println!("cargo:rerun-if-changed=c/worker_shim.c");
 
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets it"));
     let repository = manifest
@@ -74,6 +75,7 @@ fn compile_shim(manifest: &Path, prefix: &Path, target: &str) {
     assert!(!include.is_empty(), "{} is empty", include_file.display());
     let output = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo sets it"));
     let object = output.join("lua_shim.o");
+    let worker_object = output.join("worker_shim.o");
     let archive = output.join("libnupp_lua_shim.a");
     let compiler = env::var_os("NUPP_CC")
         .or_else(|| env::var_os("CC"))
@@ -100,11 +102,25 @@ fn compile_shim(manifest: &Path, prefix: &Path, target: &str) {
         "the LuaJIT protection shim did not compile"
     );
 
+    let status = Command::new(&compiler)
+        .arg("-c")
+        .arg("-std=c11")
+        .arg("-O2")
+        .arg("-fPIC")
+        .arg(format!("-I{include}"))
+        .arg("-o")
+        .arg(&worker_object)
+        .arg(manifest.join("c/worker_shim.c"))
+        .status()
+        .unwrap_or_else(|error| panic!("cannot run {:?}: {error}", compiler));
+    assert!(status.success(), "the worker Lua shim did not compile");
+
     let archiver = env::var_os("AR").unwrap_or_else(|| "ar".into());
     let status = Command::new(&archiver)
         .arg("rcs")
         .arg(&archive)
         .arg(&object)
+        .arg(&worker_object)
         .status()
         .unwrap_or_else(|error| panic!("cannot run {:?}: {error}", archiver));
     assert!(

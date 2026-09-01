@@ -93,6 +93,10 @@ pub struct SharedBytesBuilder {
 }
 
 impl SharedBytesBuilder {
+    pub fn reservation_open(&self) -> bool {
+        self.reserved.is_some()
+    }
+
     pub fn append(&mut self, bytes: &[u8]) -> Result<(), BuilderError> {
         if self.reserved.is_some() {
             return Err(BuilderError::ReservationOpen);

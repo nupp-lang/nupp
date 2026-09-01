@@ -4,7 +4,7 @@
 //! invoke a metamethod, or turn a Lua error into text runs in `lua_shim.c`
 //! beneath `lua_cpcall`, so LuaJIT cannot longjmp across a Rust frame.
 
-use std::ffi::{CStr, CString, c_char, c_int};
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -182,6 +182,20 @@ unsafe extern "C" {
         data: *mut c_char,
         capacity: usize,
         value: *mut RawLuaValue,
+        error: *mut c_char,
+        error_capacity: usize,
+    ) -> c_int;
+    fn nupp_lua_install_worker_modules(
+        state: *mut LuaState,
+        host: *const c_void,
+        error: *mut c_char,
+        error_capacity: usize,
+    ) -> c_int;
+    fn nupp_lua_set_worker_context(
+        state: *mut LuaState,
+        inbox: *const c_void,
+        outbox: *const c_void,
+        tasks: *const c_void,
         error: *mut c_char,
         error_capacity: usize,
     ) -> c_int;
@@ -367,6 +381,23 @@ impl Lua {
                 error,
                 capacity,
             )
+        })
+    }
+
+    pub(crate) fn install_worker_modules(&self, host: *const c_void) -> Result<(), String> {
+        self.protected(|error, capacity| unsafe {
+            nupp_lua_install_worker_modules(self.state.as_ptr(), host, error, capacity)
+        })
+    }
+
+    pub(crate) fn set_worker_context(
+        &self,
+        inbox: *const c_void,
+        outbox: *const c_void,
+        tasks: *const c_void,
+    ) -> Result<(), String> {
+        self.protected(|error, capacity| unsafe {
+            nupp_lua_set_worker_context(self.state.as_ptr(), inbox, outbox, tasks, error, capacity)
         })
     }
 

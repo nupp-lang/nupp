@@ -11,6 +11,7 @@ mod lua;
 mod mcode;
 mod payload;
 mod sharedbytes;
+mod worker_adapter;
 mod workers;
 
 pub use payload::{Error as PayloadError, Payload, read as read_payload};
@@ -123,6 +124,7 @@ pub struct HostRuntime {
     next_handle: u64,
     handles: HashMap<u64, i32>,
     frozen: bool,
+    worker_host: Option<Box<worker_adapter::WorkersHost>>,
     // Neither the raw LuaJIT state nor the lane-facing scheduler contract may
     // move to or be observed from another thread.
     _thread_affine: PhantomData<Rc<()>>,
@@ -203,6 +205,7 @@ impl HostRuntime {
             next_handle: 1,
             handles: HashMap::new(),
             frozen: false,
+            worker_host: None,
             _thread_affine: PhantomData,
         }
     }
@@ -292,6 +295,41 @@ impl HostRuntime {
 
     pub fn poll(&self) -> Result<(), HostError> {
         self.lua().map(drop)
+    }
+
+    /// Installs the Rust-owned native worker and shared-byte adapters for one
+    /// stamped payload. The payload is copied once and shared by every isolated
+    /// worker state created by this runtime.
+    pub fn enable_workers(&mut self, payload: &[u8]) -> Result<(), HostError> {
+        self.lua()?;
+        if self.frozen {
+            return Err(HostError::Lua(
+                "Nupp host features freeze when the first component loads".to_owned(),
+            ));
+        }
+        if self.worker_host.is_some() {
+            return Err(HostError::Lua(
+                "the Nupp worker adapter is already installed".to_owned(),
+            ));
+        }
+        let host = Box::new(worker_adapter::WorkersHost::new(payload, None));
+        let context = (&*host as *const worker_adapter::WorkersHost).cast();
+        self.worker_host = Some(host);
+        self.lua()?
+            .install_worker_modules(context)
+            .map_err(HostError::Lua)?;
+        self.add_feature("workers")
+    }
+
+    pub(crate) fn set_worker_context(
+        &self,
+        inbox: *const std::ffi::c_void,
+        outbox: *const std::ffi::c_void,
+        tasks: *const std::ffi::c_void,
+    ) -> Result<(), HostError> {
+        self.lua()?
+            .set_worker_context(inbox, outbox, tasks)
+            .map_err(HostError::Lua)
     }
 
     pub fn load_component(&mut self, bytes: &[u8], name: &str) -> Result<Component, HostError> {
@@ -496,6 +534,7 @@ impl HostRuntime {
         // before the lane's terminal transition keeps the ownership order
         // explicit and makes a future provider drain the only place to wait.
         drop(self.lua.take());
+        self.worker_host = None;
         self.lane
             .finish_shutdown()
             .map_err(|error| HostError::Lane(error.to_string()))?;

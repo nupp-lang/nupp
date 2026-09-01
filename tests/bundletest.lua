@@ -70,6 +70,32 @@ local function run(dir, argv)
    return out, status == 0
 end
 
+local RUST_HOST
+
+local function rustHost()
+   if RUST_HOST then return RUST_HOST end
+   local root = HERE .. "/.."
+   local output, ok = run(root, "'" .. root .. "/scripts/toolchain' host-rust")
+   assert(ok, "the Rust host builds: " .. output)
+   RUST_HOST = output:match("([^\n]+)\n?$")
+   assert(RUST_HOST and readFile(RUST_HOST), "the Rust host path is reported: " .. output)
+   return RUST_HOST
+end
+
+local function stampRustHost(dir, payload)
+   local suffix = package.config:sub(1, 1) == "\\" and ".exe" or ""
+   local output = dir .. "/build/app-rust" .. suffix
+   local written, problem = packaging.stampFile(
+      output,
+      assert(readFile(rustHost())),
+      assert(readFile(payload)),
+      nil,
+      0
+   )
+   assert(written, "the Rust host accepts the Nupp payload: " .. tostring(problem))
+   return "./build/app-rust" .. suffix
+end
+
 local MANIFEST = [[
 return {
    include = { "src" },
@@ -488,6 +514,14 @@ export function total(takes values: heap.Array<int32>): integer
 
     return sum
 end
+
+const workers = require("nupp.workers")
+
+export function nested(shards: integer): integer
+    with scope = workers.scope() do
+        return shards
+    end
+end
 ]],
       ["src/main.nupp"] = [[
 const capture = require("capture")
@@ -562,6 +596,13 @@ with scope = workers.scope() do
     )
 end
 print(capture.run(40))
+
+local nestedOk, nestedProblem = pcall(function(): nil
+    with scope = workers.scope() do
+        scope:spawn(4, jobs.nested):await()
+    end
+end)
+print(not nestedOk, tostring(nestedProblem):find("another worker scope", 1, true) ~= nil)
 
 
 local ok, problem = pcall(function(): nil
@@ -651,8 +692,14 @@ end
    local executable = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
    local output, ranOk = run(dir, executable)
    assert(ranOk, "the native worker binary runs: " .. output)
-   assert(output == "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion\n84\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\ntrue\ttrue\ntrue\n",
+   local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\ntrue\ttrue\ntrue\n"
+   assert(output == expected,
       "results, records, captures, and failures cross structured cleanup: " .. output)
+   local rustExecutable = stampRustHost(dir, dir .. "/build/app.payload.lua")
+   local rustOutput, rustRanOk = run(dir, rustExecutable)
+   assert(rustRanOk, "the Rust worker host runs the Nupp payload: " .. rustOutput)
+   assert(rustOutput == expected,
+      "the Rust host preserves structured worker and shared-byte results: " .. rustOutput)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -661,6 +708,7 @@ function M.taskScopesOwnAndCancelWorkerTasks()
       ["nupp.lua"] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
    kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
+   payloadOutput = "build/app.payload.lua",
 }}}}
 ]],
       ["src/jobs.nupp"] = [[
@@ -791,6 +839,13 @@ end
       and output:sub(-#tail) == tail
       and output:find("cancelled: its deadline passed", 1, true) ~= nil,
       "running, queued, and deadline cancellation share one task identity: " .. output)
+   local rustExecutable = stampRustHost(dir, dir .. "/build/app.payload.lua")
+   local rustOutput, rustRanOk = run(dir, rustExecutable)
+   assert(rustRanOk, "the Rust worker host runs task cancellation: " .. rustOutput)
+   assert(rustOutput:sub(1, #head) == head
+      and rustOutput:sub(-#tail) == tail
+      and rustOutput:find("cancelled: its deadline passed", 1, true) ~= nil,
+      "Rust-owned workers preserve queued, running, and deadline cancellation: " .. rustOutput)
    os.execute("rm -rf '" .. dir .. "'")
 end
 

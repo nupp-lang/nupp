@@ -12,10 +12,12 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let executable = std::env::current_exe()?;
+    HostRuntime::reserve_worker_mcode();
     let mut runtime = HostRuntime::new(&executable)?;
     let mut arguments = std::env::args_os().skip(1);
     if let Some(payload) = read_payload(&executable)? {
         let forwarded = arguments.map(os_bytes).collect::<Vec<_>>();
+        runtime.enable_workers(payload.bytes())?;
         runtime.run_buffer(
             payload.bytes(),
             &format!("@{}", executable.display()),

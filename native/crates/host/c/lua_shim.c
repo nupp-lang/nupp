@@ -64,6 +64,18 @@ typedef struct ResourceCall {
     size_t length;
 } ResourceCall;
 
+typedef struct WorkerModulesCall {
+    ProtectedCall call;
+    const void *host;
+} WorkerModulesCall;
+
+typedef struct WorkerContextCall {
+    ProtectedCall call;
+    const void *inbox;
+    const void *outbox;
+    const void *tasks;
+} WorkerContextCall;
+
 typedef struct ComponentCall {
     ProtectedCall call;
     const char *chunk;
@@ -319,6 +331,40 @@ static int add_resource(lua_State *state) {
     }
     lua_pushlstring(state, context->data, context->length);
     lua_setfield(state, -2, context->path);
+    return 0;
+}
+
+extern int nupp_luaopen_workers(lua_State *state);
+extern int nupp_luaopen_sharedbytes(lua_State *state);
+
+static void preload_opener(lua_State *state, const char *name,
+    lua_CFunction opener) {
+    lua_getfield(state, LUA_GLOBALSINDEX, "package");
+    lua_getfield(state, -1, "preload");
+    lua_pushcclosure(state, opener, 0);
+    lua_setfield(state, -2, name);
+    lua_pop(state, 2);
+}
+
+static int install_worker_modules(lua_State *state) {
+    WorkerModulesCall *context = (WorkerModulesCall *)lua_touserdata(state, 1);
+    preload_opener(state, "nupp.workers.native", nupp_luaopen_workers);
+    preload_opener(state, "nupp.mem.sharedbytes.native", nupp_luaopen_sharedbytes);
+    lua_pushlightuserdata(state, (void *)context->host);
+    lua_setfield(state, LUA_GLOBALSINDEX, "__nuppWorkerHost");
+    return 0;
+}
+
+static int set_worker_context(lua_State *state) {
+    WorkerContextCall *context = (WorkerContextCall *)lua_touserdata(state, 1);
+    lua_pushlightuserdata(state, (void *)context->inbox);
+    lua_setfield(state, LUA_GLOBALSINDEX, "__nuppWorkerIn");
+    lua_pushlightuserdata(state, (void *)context->outbox);
+    lua_setfield(state, LUA_GLOBALSINDEX, "__nuppWorkerOut");
+    lua_pushlightuserdata(state, (void *)context->tasks);
+    lua_setfield(state, LUA_GLOBALSINDEX, "__nuppWorkerTasks");
+    lua_pushliteral(state, "nupp.workers");
+    lua_setfield(state, LUA_GLOBALSINDEX, "__nuppWorkerEntry");
     return 0;
 }
 
@@ -618,6 +664,21 @@ int nupp_lua_add_resource(lua_State *state, const char *path,
     const char *data, size_t length, char *error, size_t error_capacity) {
     ResourceCall context = {{error, error_capacity, 0}, path, data, length};
     return protect(state, add_resource, &context.call);
+}
+
+int nupp_lua_install_worker_modules(lua_State *state, const void *host,
+    char *error, size_t error_capacity) {
+    WorkerModulesCall context = {{error, error_capacity, 0}, host};
+    return protect(state, install_worker_modules, &context.call);
+}
+
+int nupp_lua_set_worker_context(lua_State *state, const void *inbox,
+    const void *outbox, const void *tasks, char *error,
+    size_t error_capacity) {
+    WorkerContextCall context = {
+        {error, error_capacity, 0}, inbox, outbox, tasks
+    };
+    return protect(state, set_worker_context, &context.call);
 }
 
 int nupp_lua_install_component(lua_State *state, const char *chunk,
