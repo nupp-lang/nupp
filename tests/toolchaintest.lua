@@ -317,43 +317,35 @@ function M.windowsDefaultsToTheGnuCompilerPair()
    assert(automatic ~= msvc, "Windows selected the MSVC-targeting clang pair")
 end
 
--- The host runtime uses pthread ownership checks on every platform. MinGW GCC
--- links its runtime implicitly, while llvm-mingw's Clang requires the archive
--- to be named. Both the ordinary host linker and the relocatable pack linker
--- must carry it, or release-pack construction and installed standalone builds
--- fail at different stages with the same unresolved pthread symbols.
+-- Cargo owns the ordinary Rust executable's platform closure. The two static
+-- relink routes still invoke a C linker and must spell that closure explicitly.
 function M.windowsHostLinkersCarryPthread()
    local driver = read(ROOT .. "/scripts/toolchain")
    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
-   assert(driver:match('windows%)%s+platform_libraries="%-lpthread '),
-      "the Windows host build does not link pthread")
    assert(driver:match('windows%)%s+set %-%- "?%$@"? %-lpthread '),
       "the Windows application host linker does not link pthread")
    assert(packLinker:match('#ifdef _WIN32%s+append%(&cursor, "%-lpthread"%);'),
       "the Windows compiler-pack host linker does not link pthread")
 end
 
--- Rustls reads the Windows ROOT stores through CryptoAPI. Every route that
--- links a host must therefore carry crypt32: the ordinary host, an installed
--- compiler pack's application host, and the relocatable pack linker.
+-- Rustls reads the Windows root stores through CryptoAPI. Cargo records the
+-- executable dependency; both static C-link routes record it themselves.
 function M.windowsHostLinkersCarryCryptoApi()
    local driver = read(ROOT .. "/scripts/toolchain")
    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
-   local _, ordinary = driver:gsub("%-lcrypt32", "")
-   assert(ordinary >= 2,
-      "not every Windows toolchain linker carries crypt32")
+   assert(driver:find("-lcrypt32", 1, true),
+      "the application host linker does not carry crypt32")
    assert(packLinker:match('append%(&cursor, "%-lcrypt32"%);'),
       "the Windows compiler-pack host linker does not link crypt32")
 end
 
--- The same host routes carry the two macOS frameworks used to copy the
--- platform's trust anchors into Rustls.
+-- The same static routes carry the macOS trust-store frameworks.
 function M.macOSHostLinkersCarryTheSecurityFramework()
    local driver = read(ROOT .. "/scripts/toolchain")
    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
    local _, security = driver:gsub("%-framework Security", "")
    local _, foundation = driver:gsub("%-framework CoreFoundation", "")
-   assert(security >= 2 and foundation >= 2,
+   assert(security >= 1 and foundation >= 1,
       "not every macOS toolchain linker carries the trust-store frameworks")
    assert(packLinker:match('append%(&cursor, "Security"%);'),
       "the macOS compiler-pack host linker does not link Security.framework")
@@ -361,35 +353,34 @@ function M.macOSHostLinkersCarryTheSecurityFramework()
       "the macOS compiler-pack host linker does not link CoreFoundation")
 end
 
--- Rust provider exports are reached by name through LuaJIT FFI, so the native
--- linker sees no relocation that would pull their object files from an archive.
--- Every static-host route must both carry the selected archive and force-load
--- it, including the relocatable compiler pack used by installed builds.
-function M.staticHostsForceLoadTheRustProvider()
+-- The Rust application archive now contains the exact-feature provider. Cargo
+-- retains its named exports, and both static relink routes force-load that one
+-- authoritative archive rather than assembling C objects and side archives.
+function M.staticHostsForceLoadTheRustApplicationArchive()
    local driver = read(ROOT .. "/scripts/toolchain")
    local packer = read(ROOT .. "/scripts/compiler-pack")
    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
-   assert(driver:find('cp "$rust_base" "$out/libnupp_native_v2.a"', 1, true),
-      "a compiler-pack host does not retain its selected Rust provider")
-   assert(driver:find('-Wl,--whole-archive "$rust_base"', 1, true),
-      "a static host can discard Rust exports reached only through FFI")
-   assert(driver:find('-Wl,-force_load,$rust_base', 1, true),
-      "a macOS static host can discard Rust exports reached only through FFI")
-   assert(packer:find('copy_library "$host_dir/libnupp_native_v2.a"', 1, true),
-      "the compiler pack omits the Rust provider archive")
-   assert(packLinker:find('host/lib/libnupp_native_v2.a', 1, true),
-      "the compiler-pack linker omits the Rust provider archive")
+   assert(driver:find("-C link-dead-code", 1, true),
+      "Cargo may discard exports reached only through LuaJIT FFI")
+   assert(driver:find('cp "$rust_application" "$out/libnupp-host.a"', 1, true),
+      "the staged application host omits the Rust archive")
+   assert(driver:find('-Wl,--whole-archive "$host_out/libnupp-host.a"', 1, true),
+      "the ordinary static linker can discard the Rust application host")
+   assert(packer:find('cp "$host_dir/libnupp-host.a"', 1, true),
+      "the compiler pack omits the Rust application host")
+   assert(packLinker:find('host/lib/libnupp-host.a', 1, true),
+      "the compiler-pack linker omits the Rust application host")
    assert(packLinker:find('append(&cursor, "-Wl,--whole-archive")', 1, true),
-      "the compiler-pack linker can discard Rust FFI exports")
+      "the compiler-pack linker can discard the Rust application host")
 end
 
 function M.networkAndTlsAreRustOnlyToolchainFeatures()
    local driver = read(ROOT .. "/scripts/toolchain")
    local packer = read(ROOT .. "/scripts/compiler-pack")
    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
-   assert(driver:find('rust_features="$rust_features,net"', 1, true),
+   assert(driver:find('host_cargo_features="$host_cargo_features,native-net"', 1, true),
       "a network host does not select the Rust net crate")
-   assert(driver:find('rust_features="$rust_features,tls"', 1, true),
+   assert(driver:find('host_cargo_features="$host_cargo_features,native-tls"', 1, true),
       "a TLS host does not select the Rust TLS crate")
    for _, obsolete in ipairs({"libuv", "mbedtls"}) do
       assert(not driver:lower():find(obsolete, 1, true),

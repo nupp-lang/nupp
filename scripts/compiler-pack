@@ -13,9 +13,9 @@ usage() {
 usage: scripts/compiler-pack HOST TARGET VERSION PLATFORM TOOLCHAIN CC AR HOST_DIR PREFIX OUTPUT
 
 PLATFORM is linux or windows. TOOLCHAIN is a relocatable input tree; CC and AR
-are paths beneath it. HOST_DIR is the directory containing the full-feature
-host's objects, and PREFIX is the scripts/toolchain prefix that owns its static
-libraries. OUTPUT must not already contain HOST/TARGET.
+are paths beneath it. HOST_DIR contains the full-feature Rust application host
+archive. PREFIX is retained for invocation compatibility. OUTPUT must not
+already contain HOST/TARGET.
 USAGE
     exit 2
 }
@@ -41,27 +41,14 @@ esac
 [ -d "$toolchain" ] || die "no toolchain tree at $toolchain"
 [ -f "$toolchain/$cc_relative" ] || die "no compiler at $toolchain/$cc_relative"
 [ -f "$toolchain/$ar_relative" ] || die "no archiver at $toolchain/$ar_relative"
-[ -d "$host_dir/objects" ] || die "no host objects under $host_dir"
+[ -f "$host_dir/libnupp-host.a" ] || die "no Rust application host under $host_dir"
 
 pack="$output/$host/$target"
 [ ! -e "$pack" ] || die "pack output already exists at $pack"
 mkdir -p "$pack/bin" "$pack/host/lib"
 cp -R "$toolchain" "$pack/toolchain"
 
-set -- "$host_dir"/objects/*.o
-[ -f "$1" ] || die "the full-feature host has no objects"
-"$toolchain/$ar_relative" rcs "$pack/host/lib/libnupp-host.a" "$@"
-
-copy_library() {
-    source=$1
-    name=$2
-    [ -f "$source" ] || die "no required host library at $source"
-    cp "$source" "$pack/host/lib/$name"
-}
-
-copy_library "$prefix/lpeg/lib/liblpeg.a" liblpeg.a
-copy_library "$prefix/luajit/lib/libluajit-5.1.a" libluajit.a
-copy_library "$host_dir/libnupp_native_v2.a" libnupp_native_v2.a
+cp "$host_dir/libnupp-host.a" "$pack/host/lib/libnupp-host.a"
 
 cc_define=$(printf '%s' "$cc_relative" | sed 's/[\\"]/\\&/g')
 build_cc=${NUPP_PACK_BUILD_CC:-$toolchain/$cc_relative}

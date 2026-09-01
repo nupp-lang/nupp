@@ -61,16 +61,11 @@ static void append(const char ***cursor, const char *value) {
 }
 
 int main(int argc, char **argv) {
-    static const char *libraries[] = {
-        "host/lib/liblpeg.a",
-        "host/lib/libluajit.a",
-    };
     const char **command;
     const char **cursor;
     char *root;
     char *compiler;
     char *host;
-    char *resolved_libraries[sizeof(libraries) / sizeof(libraries[0])];
     int separator = 3;
     int index;
 
@@ -81,9 +76,6 @@ int main(int argc, char **argv) {
     root = pack_root(argv[0]);
     compiler = path_join(root, NUPP_PACK_CC_RELATIVE);
     host = path_join(root, "host/lib/libnupp-host.a");
-    for (index = 0; index < (int)(sizeof(libraries) / sizeof(libraries[0])); index += 1) {
-        resolved_libraries[index] = path_join(root, libraries[index]);
-    }
 
     command = calloc((size_t)argc + 40, sizeof(*command));
     if (command == NULL) fail("out of memory");
@@ -94,17 +86,6 @@ int main(int argc, char **argv) {
     append(&cursor, "-Wl,--whole-archive");
     append(&cursor, host);
     append(&cursor, "-Wl,--no-whole-archive");
-    for (index = 0; index < (int)(sizeof(libraries) / sizeof(libraries[0])); index += 1) {
-        append(&cursor, resolved_libraries[index]);
-    }
-#ifdef __APPLE__
-    append(&cursor, "-Wl,-force_load");
-    append(&cursor, path_join(root, "host/lib/libnupp_native_v2.a"));
-#else
-    append(&cursor, "-Wl,--whole-archive");
-    append(&cursor, path_join(root, "host/lib/libnupp_native_v2.a"));
-    append(&cursor, "-Wl,--no-whole-archive");
-#endif
     if (separator > 3) {
         append(&cursor, "-Wl,--whole-archive");
         for (index = 3; index < separator; index += 1) append(&cursor, argv[index]);

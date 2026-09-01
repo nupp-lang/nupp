@@ -360,6 +360,9 @@ HOST_OUT=""
 NATIVE_OUT=""
 RUST_NATIVE_OUT=""
 RUST_HOST_OUT=""
+RUST_HOST_STATIC_OUT=""
+RUST_EMBED_DYNAMIC_OUT=""
+RUST_EMBED_IMPORT_OUT=""
 release_lock() { [ -n "$LOCK" ] && rm -rf "$LOCK"; LOCK=""; return 0; }
 
 take_lock() {
@@ -570,34 +573,89 @@ EOF
     release_lock
 }
 
+select_host_features() {
+    host_feature_words=$(printf '%s' "${1:-}" | tr ',' ' ')
+    host_feature_words=$(printf '%s\n' $host_feature_words | LC_ALL=C sort -u | tr '\n' ' ')
+    host_cargo_features=""
+    host_lpeg_prefix=""
+    for feature in $host_feature_words; do
+        case "$feature" in
+            lpeg)
+                host_lpeg_prefix=$(build_lpeg; printf '%s' "$PREFIX/lpeg")
+                host_cargo_features="$host_cargo_features,lpeg"
+                ;;
+            workers) host_cargo_features="$host_cargo_features,workers" ;;
+            native-files|files|filesystem)
+                host_cargo_features="$host_cargo_features,native-files"
+                ;;
+            native-net|net) host_cargo_features="$host_cargo_features,native-net" ;;
+            native-tls|tls) host_cargo_features="$host_cargo_features,native-tls" ;;
+            native-process|process)
+                host_cargo_features="$host_cargo_features,native-process"
+                ;;
+            base) ;;
+            *) die "unknown host feature $feature" ;;
+        esac
+    done
+    host_cargo_features=$(normalize_rust_features "${host_cargo_features#,}")
+}
+
+host_export_arguments() {
+    case "$PLATFORM" in
+        darwin) printf '%s\n' '-C' 'link-arg=-Wl,-export_dynamic' ;;
+        windows) printf '%s\n' '-C' 'link-arg=-Wl,--export-all-symbols' ;;
+        *) printf '%s\n' '-C' 'link-arg=-Wl,-E' ;;
+    esac
+}
+
+embedding_library_filename() {
+    case "$PLATFORM" in
+        darwin) printf '%s\n' libnupp.dylib ;;
+        windows) printf '%s\n' nupp.dll ;;
+        *) printf '%s\n' libnupp.so ;;
+    esac
+}
+
 build_rust_host() {
+    host_kind=${1:-binary}
+    select_host_features "${2:-}"
     select_rust_tools
     rust_environment=$(rust_environment_material)
     digest=$({
-        printf '%s|%s|%s|%s\n' \
-            nupp-native-host "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY"
+        printf '%s|%s|%s|%s|%s\n' \
+            nupp-native-host "$host_kind" "$host_cargo_features" \
+            "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)|$KEY"
         printf '%s\n' "$rust_environment"
     } | sha256_stdin | cut -c1-16)
-    out="$RUST_BUILD_ROOT/host/$digest"
+    out="$RUST_BUILD_ROOT/host-$host_kind/$digest"
     executable=nupp-host-rust
     [ "$PLATFORM" = windows ] && executable=nupp-host-rust.exe
     RUST_HOST_OUT="$out/target/release/$executable"
+    RUST_HOST_STATIC_OUT="$out/target/release/libnupp_native_host.a"
 
-    take_lock "rust-host-$digest" "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && [ -f "$RUST_HOST_OUT" ] \
+    expected=$RUST_HOST_OUT
+    [ "$host_kind" = application ] && expected=$RUST_HOST_STATIC_OUT
+    take_lock "rust-host-$host_kind-$digest" "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && [ -f "$expected" ] \
         && { release_lock; return 0; }
 
-    note "building the Rust host with $RUSTC"
+    note "building the Rust $host_kind host with $RUSTC"
     rm -rf "$out"
     mkdir -p "$out"
-    set -- "$CARGO" build \
+    set -- "$CARGO" rustc \
         --manifest-path "$ROOT/Cargo.toml" \
         --package nupp-native-host \
-        --bin nupp-host-rust \
         --release \
         --locked \
         --no-default-features \
         --target-dir "$out/target"
+    if [ "$host_kind" = application ]; then
+        host_cargo_features=$(normalize_rust_features \
+            "${host_cargo_features:+$host_cargo_features,}application-entry")
+        set -- "$@" --lib
+    else
+        set -- "$@" --bin nupp-host-rust
+    fi
     if offline; then
         set -- "$@" --offline
     fi
@@ -609,9 +667,19 @@ build_rust_host() {
 $vendor_arguments
 EOF
     fi
-    RUSTC="$RUSTC" "$@" >&2
-    [ -f "$RUST_HOST_OUT" ] \
-        || die "Cargo built nupp-native-host but did not write $RUST_HOST_OUT"
+    [ -z "$host_cargo_features" ] || set -- "$@" --features "$host_cargo_features"
+    set -- "$@" -- -C link-dead-code
+    if [ "$host_kind" != application ]; then
+        while IFS= read -r argument; do
+            set -- "$@" "$argument"
+        done <<EOF
+$(host_export_arguments)
+EOF
+    fi
+    NUPP_LUAJIT_PREFIX="$PREFIX/luajit" NUPP_LPEG_PREFIX="$host_lpeg_prefix" \
+        RUSTC="$RUSTC" "$@" >&2
+    [ -f "$expected" ] \
+        || die "Cargo built nupp-native-host but did not write $expected"
     printf 'done\n' > "$out/.complete"
     release_lock
 }
@@ -630,15 +698,29 @@ build_rust_embedding() {
     } | sha256_stdin | cut -c1-16)
     out="$RUST_BUILD_ROOT/embedding/$digest"
     RUST_EMBED_OUT="$out/target/release/libnupp_native_host.a"
+    case "$PLATFORM" in
+        darwin) cargo_dynamic=libnupp_native_host.dylib ;;
+        windows)
+            cargo_dynamic=nupp_native_host.dll
+            RUST_EMBED_IMPORT_OUT="$out/target/release/libnupp_native_host.dll.a"
+            ;;
+        *) cargo_dynamic=libnupp_native_host.so ;;
+    esac
+    RUST_EMBED_DYNAMIC_OUT="$out/target/release/$cargo_dynamic"
 
     take_lock "rust-embedding-$digest" "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && [ -f "$RUST_EMBED_OUT" ] \
-        && { release_lock; return 0; }
+    if [ -f "$out/.complete" ] && [ -f "$RUST_EMBED_OUT" ] \
+        && [ -f "$RUST_EMBED_DYNAMIC_OUT" ]; then
+        [ "$PLATFORM" != windows ] || [ -f "$RUST_EMBED_IMPORT_OUT" ] \
+            || die "the cached Windows embedding SDK has no import library"
+        release_lock
+        return 0
+    fi
 
     note "building the Rust embedding library with $RUSTC"
     rm -rf "$out"
     mkdir -p "$out"
-    set -- "$CARGO" build \
+    set -- "$CARGO" rustc \
         --manifest-path "$ROOT/Cargo.toml" \
         --package nupp-native-host \
         --lib \
@@ -660,10 +742,18 @@ build_rust_embedding() {
 $vendor_arguments
 EOF
     fi
+    set -- "$@" -- -C link-dead-code
+    case "$PLATFORM" in
+        darwin) set -- "$@" -C 'link-arg=-Wl,-install_name,@rpath/libnupp.dylib' ;;
+    esac
     NUPP_LUAJIT_PREFIX="$luajit_prefix" NUPP_LPEG_PREFIX="$lpeg_prefix" \
         RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_EMBED_OUT" ] \
         || die "Cargo built nupp-native-host but did not write $RUST_EMBED_OUT"
+    [ -f "$RUST_EMBED_DYNAMIC_OUT" ] \
+        || die "Cargo built nupp-native-host but did not write $RUST_EMBED_DYNAMIC_OUT"
+    [ "$PLATFORM" != windows ] || [ -f "$RUST_EMBED_IMPORT_OUT" ] \
+        || die "Cargo built nupp-native-host but did not write $RUST_EMBED_IMPORT_OUT"
     printf 'done\n' > "$out/.complete"
     release_lock
 }
@@ -911,229 +1001,90 @@ build_swiftshader() {
     release_lock
 }
 
-# The pinned LuaJIT's own `jit/*.lua` modules the host needs, as C arrays. A
-# host carrying an interpreter has to carry what its `jit` library reads: there
-# is no directory beside a single-file program to find it in.
-#
-# `vmdef` is what the bytecode reader loads. `zone` is what the profiler loads,
-# and `nupp.profile.zone` requires it outright -- on a Unix host the
-# interpreter's compiled-in prefix finds it anyway, so only a stamped binary on
-# Windows, which searches `<exedir>\lua\?.lua` and is not beside the staged
-# interpreter, ever went without. Every Nupp worker in that binary failed on
-# `module 'jit.zone' not found`, and took the suites in its lane down as unrun.
-write_vmdef() {
-    luajit_prefix=$(build_luajit; printf '%s' "$PREFIX/luajit")
-    : > "$1"
-    for module in vmdef zone; do
-        staged=$(find "$luajit_prefix/share" -name "$module.lua" | head -n 1)
-        [ -n "$staged" ] || die "the staged LuaJIT has no jit/$module.lua"
-        {
-            printf '/* Generated from the pinned LuaJIT jit/%s.lua. */\n' "$module"
-            printf 'const unsigned char nupp_host_%s[] = {\n' "$module"
-            od -An -v -tu1 "$staged" | sed 's/[0-9][0-9]*/&,/g'
-            printf '};\nconst unsigned int nupp_host_%s_length = %su;\n' \
-                "$module" "$(wc -c < "$staged" | tr -d ' ')"
-        } >> "$1"
-    done
-}
-
 # --- the host ------------------------------------------------------------
 
-# Builds the stub, or the library an embedding application links, for one set of
-# features. Answers where it landed.
-#
-# The features are the compiler's host feature names, comma-separated. They
-# decide which C is compiled and which staged library is linked.
+# Stages the Rust executable and static application entry, or the Rust embedding
+# SDK, for one exact compiler-selected feature set.
 build_host() {
     kind=$1
-    # This helper assigns shell-global scratch names (`out`, `digest`, `sorted`).
-    # Build the mandatory static base before deriving the host's own values so
-    # the provider cannot replace the host cache path underneath this function.
-    features=$(printf '%s' "${2:-}" | tr ',' ' ')
-    sorted=$(printf '%s\n' $features | sort | tr '\n' ' ')
-    rust_features=base
-    case " $sorted " in
-        *" native-files "*|*" files "*|*" filesystem "*) rust_features="$rust_features,files" ;;
-    esac
-    case " $sorted " in
-        *" native-process "*|*" process "*) rust_features="$rust_features,process" ;;
-    esac
-    case " $sorted " in
-        *" native-net "*|*" net "*) rust_features="$rust_features,net" ;;
-    esac
-    case " $sorted " in
-        *" native-tls "*|*" tls "*) rust_features="$rust_features,tls" ;;
-    esac
-    host_features=$features
-    host_sorted=$sorted
-    build_rust_native "$rust_features"
-    rust_base=$RUST_NATIVE_STATIC_OUT
-    # build_rust_native uses the driver's shell-global scratch names. Restore
-    # the host feature set before it contributes to the cache key or selects C.
-    features=$host_features
-    sorted=$host_sorted
+    features=${2:-}
+    select_host_features "$features"
+    selected_cargo_features=$host_cargo_features
+    selected_lpeg_prefix=$host_lpeg_prefix
     digest=$(printf '%s|%s|%s|%s' \
-        "$kind" "$sorted" "$(sources_digest)" "$(rust_sources_digest)" \
+        "$kind" "$selected_cargo_features" "$(sources_digest)" "$(rust_sources_digest)" \
         | sha256_stdin | cut -c1-16)
     out="$PREFIX/host/$digest"
     HOST_OUT="$out"
-
+    stage_out=$out
+    stage_digest=$digest
     luajit_prefix=$(build_luajit; printf '%s' "$PREFIX/luajit")
-    include=$(cat "$PREFIX/luajit/.include")
 
     if [ "$kind" = library ]; then
-        host_out=$out
-        host_digest=$digest
-        embedding_features=""
-        lpeg_prefix=""
-        case " $sorted " in
-            *" lpeg "*)
-                lpeg_prefix=$(build_lpeg; printf '%s' "$PREFIX/lpeg")
-                embedding_features=lpeg
-                ;;
-        esac
-        case " $sorted " in
-            *" native-files "*) embedding_features="$embedding_features,native-files" ;;
-        esac
-        case " $sorted " in
-            *" native-net "*) embedding_features="$embedding_features,native-net" ;;
-        esac
-        case " $sorted " in
-            *" native-process "*) embedding_features="$embedding_features,native-process" ;;
-        esac
-        case " $sorted " in
-            *" native-tls "*) embedding_features="$embedding_features,native-tls" ;;
-        esac
-        embedding_features=$(printf '%s' "$embedding_features" | sed 's/^,//')
-        build_rust_embedding "$luajit_prefix" "$embedding_features" "$lpeg_prefix"
+        build_rust_embedding "$luajit_prefix" "$selected_cargo_features" "$selected_lpeg_prefix"
         rust_embedding=$RUST_EMBED_OUT
-        out=$host_out
-        digest=$host_digest
+        rust_dynamic=$RUST_EMBED_DYNAMIC_OUT
+        dynamic_name=$(embedding_library_filename)
+        out=$stage_out
+        digest=$stage_digest
         HOST_OUT=$out
 
         take_lock "host-$digest" "$out/.complete" || return 0
-        [ -f "$out/.complete" ] && { release_lock; return 0; }
-        note "staging the Rust embedding library"
+        [ -f "$out/.complete" ] && [ -f "$out/libnupp.a" ] \
+            && [ -f "$out/$dynamic_name" ] && { release_lock; return 0; }
+        note "staging the Rust embedding SDK"
         rm -rf "$out"
         mkdir -p "$out"
         cp "$rust_embedding" "$out/libnupp.a"
-        cp "$rust_base" "$out/libnupp_native_v2.a"
-        # Kept as an SDK link input for applications which use LuaJIT's public
-        # C API directly. The Rust static library already carries its own VM.
-        cp "$luajit_prefix/lib/libluajit-5.1.a" "$out/libluajit.a" 2>/dev/null || true
+        cp "$rust_dynamic" "$out/$dynamic_name"
+        if [ "$PLATFORM" = windows ]; then
+            cp "$RUST_EMBED_IMPORT_OUT" "$out/libnupp.dll.a"
+        fi
+        cp "$ROOT/host/include/nupp.h" "$out/nupp.h"
+        {
+            printf '{\n  "schemaVersion": 1,\n'
+            printf '  "features": "%s",\n' "$selected_cargo_features"
+            printf '  "header": "nupp.h",\n'
+            printf '  "static": "libnupp.a",\n'
+            if [ "$PLATFORM" = windows ]; then
+                printf '  "dynamic": "%s",\n' "$dynamic_name"
+                printf '  "import": "libnupp.dll.a"\n}\n'
+            else
+                printf '  "dynamic": "%s"\n}\n' "$dynamic_name"
+            fi
+        } > "$out/link.json"
         printf 'done\n' > "$out/.complete"
         release_lock
         HOST_OUT=$out
         return 0
     fi
 
+    build_rust_host binary "$features"
+    rust_executable=$RUST_HOST_OUT
+    build_rust_host application "$features"
+    rust_application=$RUST_HOST_STATIC_OUT
+    out=$stage_out
+    digest=$stage_digest
+    HOST_OUT=$out
+
     take_lock "host-$digest" "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
-
-    note "building the $kind host with $CC"
+    [ -f "$out/.complete" ] && [ -f "$out/nupp-host" ] \
+        && [ -f "$out/libnupp-host.a" ] && { release_lock; return 0; }
+    note "staging the Rust application host"
     rm -rf "$out"
-    mkdir -p "$out/objects"
-    write_vmdef "$out/objects/vmdef.c"
-
-    defines="-DNUPP_FEATURE_LPEG=0"
-    defines="$defines -DNUPP_FEATURE_WORKERS=0 -DNUPP_FEATURE_NATIVE_FILES=0"
-    defines="$defines -DNUPP_FEATURE_NATIVE_NET=0 -DNUPP_FEATURE_NATIVE_TLS=0"
-    defines="$defines -DNUPP_FEATURE_NATIVE_PROCESS=0"
-    libraries=""
-    linker=$CC
-    for feature in $sorted; do
-        case "$feature" in
-            lpeg)
-                lpeg_prefix=$(build_lpeg; printf '%s' "$PREFIX/lpeg")
-                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_LPEG=0/-DNUPP_FEATURE_LPEG=1/')
-                libraries="$libraries $lpeg_prefix/lib/liblpeg.a"
-                ;;
-            workers)
-                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_WORKERS=0/-DNUPP_FEATURE_WORKERS=1/')
-                ;;
-            native-files)
-                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_NATIVE_FILES=0/-DNUPP_FEATURE_NATIVE_FILES=1/')
-                ;;
-            native-net)
-                defines=$(printf '%s' "$defines" \
-                    | sed 's/-DNUPP_FEATURE_NATIVE_NET=0/-DNUPP_FEATURE_NATIVE_NET=1/')
-                ;;
-            native-tls)
-                defines=$(printf '%s' "$defines" \
-                    | sed 's/-DNUPP_FEATURE_NATIVE_TLS=0/-DNUPP_FEATURE_NATIVE_TLS=1/')
-                ;;
-            native-process)
-                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_NATIVE_PROCESS=0/-DNUPP_FEATURE_NATIVE_PROCESS=1/')
-                ;;
-            # Rust provider features select archive contents above. They are
-            # not C host capabilities and add no provider source here.
-            base|files|filesystem|net|process|tls) ;;
-            *) die "unknown host feature $feature" ;;
-        esac
-    done
-
-    "$CC" -c -O2 -o "$out/objects/vmdef.o" "$out/objects/vmdef.c" >&2
-    objects="$out/objects/vmdef.o"
-    hostSources="host/c/runtime.c host/c/payload.c host/c/hostpath.c"
-    hostSources="$hostSources host/c/workers.c host/c/sharedbytes.c host/c/mcode.c"
-    if [ "$kind" = stub ]; then
-        hostSources="$hostSources host/c/main.c"
-    fi
-    for source in $hostSources; do
-        full="$ROOT/$source"
-        object="$out/objects/$(printf '%s' "$source" | tr '/' '_').o"
-        # shellcheck disable=SC2086
-        "$CC" -c -std=gnu11 -O2 -DNDEBUG -Wall -Wextra $defines \
-            -I"$ROOT/host/c" -I"$ROOT/host/include" \
-            -I"$ROOT/native/include" \
-            -I"$include" -o "$object" "$full" >&2
-        objects="$objects $object"
-    done
-    platform_libraries="-lm -lpthread"
-    case "$PLATFORM" in
-        darwin)
-            platform_libraries="-lm -lpthread -framework CoreFoundation"
-            platform_libraries="$platform_libraries -framework Security -Wl,-export_dynamic"
-            ;;
-        windows)
-            platform_libraries="-lpthread -lpsapi -luser32 -ladvapi32 -liphlpapi"
-            platform_libraries="$platform_libraries -luserenv -lws2_32"
-            platform_libraries="$platform_libraries -ldbghelp -lole32"
-            platform_libraries="$platform_libraries -lshell32 -lbcrypt -lcrypt32"
-            platform_libraries="$platform_libraries -Wl,--export-all-symbols"
-            ;;
-        *)       platform_libraries="-lm -lpthread -ldl -Wl,-E" ;;
-    esac
-
-    if [ "$kind" != library ]; then
-        mkdir -p "$out"
-        # The provider is reached through LuaJIT FFI, so no native relocation
-        # names its optional exports. Force the selected Rust archive into the
-        # host instead of letting the linker discard apparently unused modules.
-        if [ "$PLATFORM" = darwin ]; then
-            # shellcheck disable=SC2086
-            "$linker" -o "$out/nupp-host" \
-                $objects $libraries "-Wl,-force_load,$rust_base" \
-                "$luajit_prefix/lib/libluajit-5.1.a" \
-                $platform_libraries >&2
-        else
-            # shellcheck disable=SC2086
-            "$linker" -o "$out/nupp-host" \
-                $objects $libraries -Wl,--whole-archive "$rust_base" \
-                -Wl,--no-whole-archive "$luajit_prefix/lib/libluajit-5.1.a" \
-                $platform_libraries >&2
-        fi
-    fi
-    cp "$rust_base" "$out/libnupp_native_v2.a"
+    mkdir -p "$out"
+    cp "$rust_executable" "$out/nupp-host"
+    cp "$rust_application" "$out/libnupp-host.a"
+    chmod +x "$out/nupp-host" 2>/dev/null || true
     printf 'done\n' > "$out/.complete"
     release_lock
     HOST_OUT="$out"
 }
 
-# Relinks the cached host objects with application-owned static archives. The
+# Relinks the Rust application host with application-owned static archives. The
 # archive list comes before `--`; everything after it is an ordinary trailing
-# linker argument. FFI reaches symbols by name rather than by a C reference, so
-# application archives are force-loaded instead of left to archive extraction.
+# linker argument. Both archives are force-loaded: the Rust host owns `main`
+# and provider exports, while FFI gives application archives no relocations.
 link_host() {
     features=${1:-}
     output=${2:-}
@@ -1142,7 +1093,6 @@ link_host() {
 
     build_host stub "$features"
     host_out=$HOST_OUT
-    rust_base=$RUST_NATIVE_STATIC_OUT
     archives=""
     while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
         archives="$archives
@@ -1161,19 +1111,10 @@ $1"
     # Construct argv with `set --` so cache and project paths containing spaces
     # remain one linker argument.
     set -- "$CC" -o "$output"
-    for object in "$host_out"/objects/*.o; do
-        set -- "$@" "$object"
-    done
-    for feature in $(printf '%s' "$features" | tr ',' ' '); do
-        case "$feature" in
-            lpeg)       set -- "$@" "$PREFIX/lpeg/lib/liblpeg.a" ;;
-        esac
-    done
     case "$PLATFORM" in
-        darwin) set -- "$@" "-Wl,-force_load,$rust_base" ;;
-        *) set -- "$@" -Wl,--whole-archive "$rust_base" -Wl,--no-whole-archive ;;
+        darwin) set -- "$@" "-Wl,-force_load,$host_out/libnupp-host.a" ;;
+        *) set -- "$@" -Wl,--whole-archive "$host_out/libnupp-host.a" -Wl,--no-whole-archive ;;
     esac
-    set -- "$@" "$PREFIX/luajit/lib/libluajit-5.1.a"
 
     if [ -n "$archives" ]; then
         case "$PLATFORM" in
@@ -1243,7 +1184,7 @@ case "$1" in
         exit 0
         ;;
     host-rust)
-        build_rust_host
+        build_rust_host binary "${2:-}"
         native_path "$RUST_HOST_OUT"
         exit 0
         ;;

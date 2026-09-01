@@ -225,7 +225,11 @@ function M.hostBuildSelectsThePinnedWorkspaceBinary()
     assert(arguments:find("--bin nupp-host-rust", 1, true), arguments)
     assert(arguments:find("--locked", 1, true), arguments)
     assert(not arguments:find("--offline", 1, true), arguments)
-    assert(arguments:find(directory .. "/build/rust/host/", 1, true), arguments)
+    assert(arguments:find(directory .. "/build/rust/host-binary/", 1, true), arguments)
+    assert(arguments:find("-C link-dead-code", 1, true), arguments)
+    assert(arguments:find("-Wl,-export_dynamic", 1, true)
+        or arguments:find("-Wl,-E", 1, true)
+        or arguments:find("-Wl,--export-all-symbols", 1, true), arguments)
     assert(output:find(host, 1, true), output)
 end
 

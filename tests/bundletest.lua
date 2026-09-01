@@ -75,7 +75,7 @@ local RUST_HOST
 local function rustHost()
    if RUST_HOST then return RUST_HOST end
    local root = HERE .. "/.."
-   local output, ok = run(root, "'" .. root .. "/scripts/toolchain' host-rust")
+   local output, ok = run(root, "'" .. root .. "/scripts/toolchain' host-rust workers")
    assert(ok, "the Rust host builds: " .. output)
    RUST_HOST = output:match("([^\n]+)\n?$")
    assert(RUST_HOST and readFile(RUST_HOST), "the Rust host path is reported: " .. output)

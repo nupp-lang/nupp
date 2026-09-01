@@ -81,21 +81,23 @@ module, public exports, layout target, required host features, modules, and
 resources. It is application data, not a shared library and not a stable C ABI
 for Nupp records or closures.
 
-Build `libnupp` and the C host from the repository root:
+Build the Rust-owned `libnupp` SDK from the repository root:
 
 ```bash
-./scripts/toolchain host-library \
-  lpeg,native-files,native-net,native-process,native-tls,workers
-cc -std=c11 -Ihost/include host/examples/embed.c \
-  -Lbuild/host/release -lnupp -o build/embed-nupp
+SDK=$(./scripts/toolchain host-library \
+  lpeg,native-files,native-net,native-process,native-tls,workers)
+cc -std=c11 -I"$SDK" host/examples/embed.c \
+  -L"$SDK" -lnupp -Wl,-rpath,"$SDK" -o build/embed-nupp
 ```
 
-The dynamic library is `build/host/release/libnupp.dylib` on macOS,
-`build/host/release/libnupp.so` on Linux, and `nupp.dll` on Windows. Put that
-directory on the platform's dynamic-library search path, then run the host:
+The same SDK directory contains `libnupp.dylib` on macOS, `libnupp.so` on
+Linux, or `nupp.dll` plus `libnupp.dll.a` on Windows. `link.json` names the
+header, static library, dynamic library, exact features, and Windows import
+library when present. Put the directory on the platform's dynamic-library
+search path, then run the host:
 
 ```bash
-DYLD_LIBRARY_PATH=build/host/release \
+DYLD_LIBRARY_PATH="$SDK" \
   build/embed-nupp host/examples/component/build/component.nuppc
 ```
 
@@ -104,8 +106,10 @@ game.answer(41) = 42
 ```
 
 Use `LD_LIBRARY_PATH` instead of `DYLD_LIBRARY_PATH` on Linux. Static linking
-uses `libnupp.a` and also requires the platform libraries needed by the
-runtime and the selected native providers.
+uses `libnupp.a`, which contains the pinned LuaJIT VM, the Rust host, and the
+exact-feature Rust native provider. A static application may still need the
+ordinary platform libraries named by its C linker; the SDK does not require
+separate LuaJIT, LPeg, or provider archives.
 
 ## Runtime ownership
 

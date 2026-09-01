@@ -6,6 +6,8 @@
 //! operations that may fail remain beneath the protected C shim so LuaJIT
 //! cannot unwind through Rust.
 
+#[doc(hidden)]
+pub mod cli;
 mod embed;
 mod lua;
 mod mcode;
@@ -164,6 +166,10 @@ impl HostRuntime {
     }
 
     pub fn owned(open_libraries: bool, executable: Option<&Path>) -> Result<Self, HostError> {
+        // This call links the selected provider crate into every host. The
+        // production build retains dead code and exports dynamic symbols so
+        // LuaJIT FFI can resolve the provider's remaining C ABI by name.
+        let _ = nupp_native_v2::nuppNativeV2AbiVersion();
         let lane = NativeLane::new(HOST_LANE_CAPACITY)
             .map_err(|error| HostError::Lane(error.to_string()))?;
         let lua = Lua::new(open_libraries).map_err(HostError::Lua)?;

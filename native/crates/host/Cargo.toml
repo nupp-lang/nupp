@@ -8,13 +8,14 @@ build = "build.rs"
 [lib]
 name = "nupp_native_host"
 path = "src/lib.rs"
-crate-type = ["rlib", "staticlib"]
+crate-type = ["rlib", "staticlib", "cdylib"]
 
 [[bin]]
 name = "nupp-host-rust"
 path = "src/main.rs"
 
 [dependencies]
+nupp-native = { path = "../native", default-features = false, features = ["base"] }
 nupp-native-platform = { path = "../platform" }
 nupp-native-runtime = { path = "../runtime" }
 
@@ -23,8 +24,10 @@ libc = "0.2"
 
 [features]
 default = []
+application-entry = []
 lpeg = []
-native-files = []
-native-net = []
-native-process = []
-native-tls = []
+native-files = ["nupp-native/files"]
+native-net = ["nupp-native/net"]
+native-process = ["nupp-native/process"]
+native-tls = ["nupp-native/tls"]
+workers = []
