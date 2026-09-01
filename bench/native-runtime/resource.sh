@@ -1,7 +1,15 @@
 #!/bin/sh
 set -eu
 
-cd "$(dirname "$0")"
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+
+# Native feature runtimes are compiler-owned artifacts.  The complete
+# measurement wrapper builds them before entering this project, but this
+# command is also a documented direct entry point and must establish the same
+# prerequisite on a clean checkout.
+(cd "$ROOT" && ./bin/nupp build --target compiler --progress=never)
+
+cd "$ROOT/bench/native-runtime"
 
 ../../bin/nupp build --progress=never
 

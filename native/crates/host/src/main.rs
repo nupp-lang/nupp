@@ -1,3 +1,3 @@
 fn main() {
-    std::process::exit(nupp_native_host::cli::run_environment());
+    std::process::exit(nupp::cli::run_environment());
 }

@@ -20,6 +20,14 @@ case "$(uname -s 2>/dev/null || printf unknown)" in
         rust_toolchain=$channel-x86_64-pc-windows-gnu
         NUPP_CC=${NUPP_CC:-gcc}
         export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$NUPP_CC
+        if [ -z "${NUPP_TEST_BASH:-}" ] || [ -z "${NUPP_TEST_SH:-}" ]; then
+            bash_path=$(command -v bash)
+            sh_path=$(dirname "$bash_path")/sh.exe
+            [ -f "$sh_path" ]
+            NUPP_TEST_BASH=${NUPP_TEST_BASH:-$(cygpath -w "$bash_path")}
+            NUPP_TEST_SH=${NUPP_TEST_SH:-$(cygpath -w "$sh_path")}
+        fi
+        export NUPP_TEST_BASH NUPP_TEST_SH
         ;;
     *) NUPP_CC=${NUPP_CC:-${CC:-cc}} ;;
 esac

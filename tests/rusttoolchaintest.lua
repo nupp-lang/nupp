@@ -398,6 +398,10 @@ function M.nativeRuntimeMeasurementsArePortableAndNonThresholded()
     assert(measure:find('benchmark.exe', 1, true), "Windows benchmark size does not resolve the executable suffix")
     assert(measure:find("observations, not", 1, true), "hosted-runner timings are not identified as observations")
     assert(resources:find('Windows:*|*:MINGW*|*:MSYS*|*:CYGWIN*', 1, true), "Windows runner detection is incomplete")
+    assert(
+        resources:find('./bin/nupp build --target compiler --progress=never', 1, true),
+        "the direct resource entry point does not stage compiler-owned runtimes"
+    )
     assert(not resources:find("ps -W", 1, true), "the sampler still infers a native PID from MSYS process state")
     assert(resources:find("resource-windows.ps1", 1, true), "Windows does not dispatch to its native sampler")
     assert(resources:find('cygpath -w "$benchmark"', 1, true), "the Windows sampler does not receive a native path")
@@ -414,6 +418,22 @@ function M.nativeRuntimeMeasurementsArePortableAndNonThresholded()
     assert(
         windowsResources:find("$stdout = [string](Read-ChildText -Path $Output)", 1, true),
         "empty Windows child output collapses to null before diagnostics"
+    )
+    assert(
+        windowsResources:find("$processHandle = $process.Handle", 1, true),
+        "Windows does not retain its exact child process handle while the benchmark is live"
+    )
+    assert(
+        windowsResources:find("WaitForSingleObject(process, Infinite)", 1, true),
+        "Windows does not wait on the retained native process handle"
+    )
+    assert(
+        windowsResources:find("GetExitCodeProcess(process, out exitCode)", 1, true),
+        "Windows does not read status from the retained native process handle"
+    )
+    assert(
+        windowsResources:find("WaitForExitCode($processHandle)", 1, true),
+        "Windows accepts an empty PowerShell Process.ExitCode as success"
     )
     assert(
         windowsResources:find("$reportedPid -ne [long]$Process.Id", 1, true),
@@ -603,19 +623,18 @@ end
 function M.retainedPlatformsGateTheExactRustNativeArtifacts()
     local compiler = read(ROOT .. "/.github/workflows/compiler.yml")
     local release = read(ROOT .. "/.github/workflows/release.yml")
-    local windowsRelease = assert(release:match("\n  build%-windows:(.-)\n  build%-compiler%-pack%-linux:"))
     local gate = read(ROOT .. "/.github/scripts/test-rust-native-platform.sh")
     local marker = ".github/scripts/test-rust-native-platform.sh"
 
     assert(countOccurrences(compiler, marker) == 1, "the compiler matrix does not run one native artifact gate")
     assert(countOccurrences(release, marker) == 2, "the Unix and Windows release builders do not both run the gate")
     assert(
-        countOccurrences(windowsRelease, 'NUPP_TEST_BASH=$(cygpath -w "$bash_path")') == 1,
-        "the Windows release gate does not pass Git Bash to its test harness"
+        gate:find('NUPP_TEST_BASH=${NUPP_TEST_BASH:-$(cygpath -w "$bash_path")}', 1, true),
+        "the Windows native gate does not provide Git Bash to its test harness"
     )
     assert(
-        countOccurrences(windowsRelease, 'NUPP_TEST_SH=$(cygpath -w "$sh_path")') == 1,
-        "the Windows release gate does not pass sh.exe to its test harness"
+        gate:find('NUPP_TEST_SH=${NUPP_TEST_SH:-$(cygpath -w "$sh_path")}', 1, true),
+        "the Windows native gate does not provide sh.exe to its test harness"
     )
     assert(gate:find("$channel-x86_64-pc-windows-gnu", 1, true), "the gate does not select Windows GNU Rust")
     assert(
