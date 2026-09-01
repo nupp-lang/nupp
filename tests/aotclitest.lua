@@ -275,6 +275,18 @@ return {doubled = doubled}
     assert(not summary:find("refused", 1, true), "a working GPU kernel is not treated as a refusal: " .. summary)
 end
 
+function M.mandelbrotGpuBenchmarkUsesTheCpuFmaRecurrence()
+    for _, path in ipairs({"../bench/simd-mandelbrot/mandelbrot.nupp", "../bench/wgpu-spike/typed/mandelbrot.nupp",}) do
+        local handle = assert(io.open(HERE .. "/" .. path, "rb"))
+        local source = handle:read("*a")
+        handle:close()
+        assert(
+            source:find("zy = nupp.math.f32.fma(doubledZx, zy, cy)", 1, true),
+            path .. " must use the explicitly fused binary32 recurrence"
+        )
+    end
+end
+
 function M.gpuTargetEmitsWebGpuIntegerArtifact()
     local dir = project({
         [

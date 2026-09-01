@@ -37,10 +37,7 @@ local function mandelbrot(
         local ySquared = nupp.math.f32.mul(cy, cy)
         local cardioidSquare = nupp.math.f32.mul(cardioidX, cardioidX)
         local q = nupp.math.f32.add(cardioidSquare, ySquared)
-        local cardioidMetric = nupp.math.f32.mul(
-            q,
-            nupp.math.f32.add(q, cardioidX)
-        )
+        local cardioidMetric = nupp.math.f32.mul(q, nupp.math.f32.add(q, cardioidX))
         local cardioidLimit = nupp.math.f32.mul(0.25, ySquared)
         local inside: int32 = 0
         if cardioidMetric <= cardioidLimit then
@@ -67,8 +64,7 @@ local function mandelbrot(
                 break
             end
             local doubledZx = nupp.math.f32.mul(zx, 2.0)
-            local product = nupp.math.f32.mul(doubledZx, zy)
-            zy = nupp.math.f32.add(product, cy)
+            zy = nupp.math.f32.fma(doubledZx, zy, cy)
             zx = nupp.math.f32.add(nupp.math.f32.sub(zxSquared, zySquared), cx)
             zxSquared = nupp.math.f32.mul(zx, zx)
             zySquared = nupp.math.f32.mul(zy, zy)
