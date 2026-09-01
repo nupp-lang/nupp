@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 #[cfg(not(unix))]
@@ -23,6 +23,8 @@ use tokio_util::sync::CancellationToken;
 const READ_CHUNK: usize = 64 * 1024;
 const RECEIVE_HIGH_WATER: usize = 1024 * 1024;
 const WRITE_LIMIT: usize = 64 * 1024;
+const INPUT_QUEUE_CAPACITY: usize = 1;
+const CONTROL_QUEUE_CAPACITY: usize = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StdioMode {
@@ -119,7 +121,7 @@ struct Output {
 }
 
 struct InputState {
-    sender: Option<mpsc::UnboundedSender<Vec<u8>>>,
+    sender: Option<mpsc::Sender<Vec<u8>>>,
     writable: bool,
     closed: bool,
     error: Option<String>,
@@ -139,7 +141,7 @@ pub struct ProcessStream {
 }
 
 impl ProcessStream {
-    fn input(sender: mpsc::UnboundedSender<Vec<u8>>) -> Arc<Self> {
+    fn input(sender: mpsc::Sender<Vec<u8>>) -> Arc<Self> {
         Arc::new(Self {
             kind: StreamKind::Input(Input {
                 state: Mutex::new(InputState {
@@ -253,9 +255,16 @@ impl ProcessStream {
         let Some(sender) = state.sender.as_ref() else {
             return Ok(Write::Gone);
         };
-        if sender.send(bytes[..count].to_vec()).is_err() {
-            state.error = Some("the child closed its input".to_owned());
-            return Ok(Write::Gone);
+        match sender.try_send(bytes[..count].to_vec()) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                state.writable = false;
+                return Ok(Write::WouldBlock);
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                state.error = Some("the child closed its input".to_owned());
+                return Ok(Write::Gone);
+            }
         }
         state.writable = false;
         Ok(Write::Accepted(count))
@@ -296,8 +305,23 @@ impl Drop for ProcessStream {
     }
 }
 
-enum Control {
-    Kill { force: bool },
+struct KillControl {
+    wake: mpsc::Sender<()>,
+    force: Arc<AtomicBool>,
+}
+
+impl KillControl {
+    fn request(&self, force: bool) -> Result<(), String> {
+        if force {
+            self.force.store(true, Ordering::Release);
+        }
+        match self.wake.try_send(()) {
+            Ok(()) | Err(mpsc::error::TrySendError::Full(())) => Ok(()),
+            Err(mpsc::error::TrySendError::Closed(())) => {
+                Err("the child has already ended".to_owned())
+            }
+        }
+    }
 }
 
 struct ChildState {
@@ -308,7 +332,7 @@ struct ChildState {
 pub struct ChildProcess {
     pid: u32,
     state: Arc<Mutex<ChildState>>,
-    control: mpsc::UnboundedSender<Control>,
+    control: KillControl,
 }
 
 impl ChildProcess {
@@ -327,9 +351,7 @@ impl ChildProcess {
         if self.poll_exit().is_some() {
             return Ok(());
         }
-        self.control
-            .send(Control::Kill { force })
-            .map_err(|_| "the child has already ended".to_owned())
+        self.control.request(force)
     }
 
     pub fn reap(&self) -> Result<(), String> {
@@ -346,7 +368,7 @@ impl Drop for ChildProcess {
     fn drop(&mut self) {
         let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         if state.exit.is_none() && !state.released {
-            let _ = self.control.send(Control::Kill { force: true });
+            let _ = self.control.request(true);
             UNCOLLECTED.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -400,19 +422,23 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned, String> {
         .id()
         .ok_or_else(|| "the child has no process identifier".to_owned())?;
 
-    let (control, receiver) = mpsc::unbounded_channel();
+    let (control, receiver) = mpsc::channel(CONTROL_QUEUE_CAPACITY);
+    let force = Arc::new(AtomicBool::new(false));
     let child_state = Arc::new(ChildProcess {
         pid,
         state: Arc::new(Mutex::new(ChildState {
             exit: None,
             released: false,
         })),
-        control,
+        control: KillControl {
+            wake: control,
+            force: Arc::clone(&force),
+        },
     });
 
     let mut streams: [Option<Arc<ProcessStream>>; 3] = [None, None, None];
     if let Some(stdin) = child.stdin.take() {
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = mpsc::channel(INPUT_QUEUE_CAPACITY);
         let stream = ProcessStream::input(sender);
         runtime.spawn(write_input(stdin, receiver, Arc::clone(&stream)));
         streams[0] = Some(stream);
@@ -441,6 +467,7 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned, String> {
     runtime.spawn(supervise_child(
         child,
         receiver,
+        force,
         Arc::clone(&child_state.state),
         pid,
     ));
@@ -485,10 +512,41 @@ fn duplicate_stdout() -> Result<Stdio, String> {
 
 #[cfg(windows)]
 fn duplicate_stdout() -> Result<Stdio, String> {
-    // Rust's stable process API does not expose a cross-platform duplicate of
-    // the parent's stdout handle. Keep a coherent fallback until the Windows
-    // provider supplies its explicit DuplicateHandle implementation.
-    Ok(Stdio::inherit())
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::{
+        DuplicateHandle, DUPLICATE_SAME_ACCESS, INVALID_HANDLE_VALUE,
+    };
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_OUTPUT_HANDLE};
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    // `Stdio::inherit()` would select the child's stderr destination here, not
+    // its stdout destination. Duplicate the parent's stdout as inheritable so
+    // stderr="stdout" keeps its literal meaning when stdout is inherited.
+    let source = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+    if source.is_null() || source == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    let process = unsafe { GetCurrentProcess() };
+    let mut duplicate = std::ptr::null_mut();
+    // SAFETY: both process handles are the current pseudo-handle, `source` was
+    // returned by GetStdHandle, and `duplicate` receives one newly owned handle.
+    let succeeded = unsafe {
+        DuplicateHandle(
+            process,
+            source,
+            process,
+            &mut duplicate,
+            0,
+            1,
+            DUPLICATE_SAME_ACCESS,
+        )
+    };
+    if succeeded == 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    // SAFETY: DuplicateHandle returned a new owned handle exactly once.
+    let owned = unsafe { OwnedHandle::from_raw_handle(duplicate) };
+    Ok(Stdio::from(owned))
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -499,7 +557,7 @@ fn duplicate_stdout() -> Result<Stdio, String> {
 #[cfg(not(unix))]
 async fn write_input(
     mut stdin: tokio::process::ChildStdin,
-    mut receiver: mpsc::UnboundedReceiver<Vec<u8>>,
+    mut receiver: mpsc::Receiver<Vec<u8>>,
     stream: Arc<ProcessStream>,
 ) {
     while let Some(bytes) = receiver.recv().await {
@@ -529,7 +587,7 @@ async fn write_input(
 #[cfg(unix)]
 async fn write_input(
     stdin: tokio::process::ChildStdin,
-    mut receiver: mpsc::UnboundedReceiver<Vec<u8>>,
+    mut receiver: mpsc::Receiver<Vec<u8>>,
     stream: Arc<ProcessStream>,
 ) {
     use std::os::fd::AsRawFd;
@@ -768,7 +826,8 @@ fn finish_output_source(output: &Output, error: Option<String>) {
 
 async fn supervise_child(
     mut child: tokio::process::Child,
-    mut controls: mpsc::UnboundedReceiver<Control>,
+    mut controls: mpsc::Receiver<()>,
+    force: Arc<AtomicBool>,
     state: Arc<Mutex<ChildState>>,
     pid: u32,
 ) {
@@ -776,8 +835,8 @@ async fn supervise_child(
         tokio::select! {
             result = child.wait() => break result,
             control = controls.recv() => match control {
-                Some(Control::Kill { force }) => {
-                    if let Err(error) = signal_child(&mut child, pid, force) {
+                Some(()) => {
+                    if let Err(error) = signal_child(&mut child, pid, force.load(Ordering::Acquire)) {
                         let mut child_state = state.lock().unwrap_or_else(|poison| poison.into_inner());
                         if child_state.exit.is_none() {
                             child_state.exit = Some(Exit { code: 1, killed: true });
@@ -879,6 +938,14 @@ pub fn wait_ready(
 mod tests {
     use super::*;
 
+    fn wait_for_exit(child: &ChildProcess) -> Exit {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while child.poll_exit().is_none() && Instant::now() < deadline {
+            activity().wait(activity().generation(), Duration::from_millis(10));
+        }
+        child.poll_exit().expect("child did not exit")
+    }
+
     fn shell(script: &str) -> Spawned {
         #[cfg(unix)]
         let args = vec![
@@ -933,18 +1000,93 @@ mod tests {
     }
 
     #[test]
+    fn bounded_kill_wake_preserves_force_escalation() {
+        let (wake, mut receiver) = mpsc::channel(CONTROL_QUEUE_CAPACITY);
+        let force = Arc::new(AtomicBool::new(false));
+        let control = KillControl {
+            wake,
+            force: Arc::clone(&force),
+        };
+        control.request(false).unwrap();
+        control.request(true).unwrap();
+        assert!(force.load(Ordering::Acquire));
+        assert_eq!(receiver.try_recv(), Ok(()));
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn inherited_stdout_can_be_duplicated_for_stderr() {
+        duplicate_stdout().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_targets_the_direct_child_not_its_descendants() {
+        struct Descendant(libc::pid_t);
+
+        impl Drop for Descendant {
+            fn drop(&mut self) {
+                // SAFETY: the test retained only this numeric child pid.
+                let _ = unsafe { libc::kill(self.0, libc::SIGKILL) };
+            }
+        }
+
+        let spawned = shell("trap '' HUP; sleep 30 & echo $!; wait");
+        let output = spawned.streams[1].as_ref().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut bytes = Vec::new();
+        let mut scratch = [0_u8; 32];
+        while !bytes.contains(&b'\n') && Instant::now() < deadline {
+            match output.try_read(&mut scratch).unwrap() {
+                Read::Data(count) => bytes.extend_from_slice(&scratch[..count]),
+                Read::WouldBlock => {
+                    wait_ready(None, &[Arc::clone(output)], Duration::from_millis(50));
+                }
+                Read::Gone => break,
+            }
+        }
+        let pid = std::str::from_utf8(&bytes)
+            .unwrap()
+            .trim()
+            .parse::<libc::pid_t>()
+            .unwrap();
+        let descendant = Descendant(pid);
+        spawned.child.kill(true).unwrap();
+        assert!(wait_for_exit(&spawned.child).killed);
+        spawned.child.reap().unwrap();
+        // SAFETY: signal zero checks existence without changing the process.
+        assert_eq!(unsafe { libc::kill(descendant.0, 0) }, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn concurrent_children_cancel_and_reap_without_stranded_streams() {
+        let children: Vec<_> = (0..16).map(|_| shell("sleep 30")).collect();
+        for spawned in &children {
+            spawned.child.kill(true).unwrap();
+            for stream in spawned.streams.iter().flatten() {
+                stream.close();
+            }
+        }
+        for spawned in children {
+            assert!(wait_for_exit(&spawned.child).killed);
+            spawned.child.reap().unwrap();
+        }
+    }
+
+    #[test]
     fn child_is_reaped_by_the_executor() {
         let spawned = shell("exit 7");
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while spawned.child.poll_exit().is_none() && Instant::now() < deadline {
-            activity().wait(activity().generation(), Duration::from_millis(10));
-        }
         assert_eq!(
-            spawned.child.poll_exit(),
-            Some(Exit {
+            wait_for_exit(&spawned.child),
+            Exit {
                 code: 7,
                 killed: false
-            })
+            }
         );
         spawned.child.reap().unwrap();
     }

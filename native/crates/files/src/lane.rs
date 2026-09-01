@@ -648,6 +648,36 @@ mod tests {
     }
 
     #[test]
+    fn repeated_cancellation_releases_every_admission() {
+        let lane = FileLane::new();
+        for index in 0..32 {
+            let barrier = Arc::new(Barrier::new(2));
+            let worker_barrier = Arc::clone(&barrier);
+            let charge = index + 1;
+            let admission = lane.admit(charge).unwrap();
+            let transfer = lane
+                .spawn(admission, move |_admission| {
+                    worker_barrier.wait();
+                    Ok(None)
+                })
+                .unwrap();
+            assert!(transfer.cancel());
+            drop(transfer);
+            barrier.wait();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while lane.admitted() != (0, 0) {
+                assert!(
+                    Instant::now() < deadline,
+                    "canceled worker {index} did not release admission"
+                );
+                std::thread::yield_now();
+            }
+        }
+        assert_eq!(lane.pending(), 0);
+        assert_eq!(lane.poll(), 0, "canceled transfers are not completions");
+    }
+
+    #[test]
     fn request_and_byte_limits_are_enforced() {
         let lane = FileLane::new();
         let mut held = Vec::new();

@@ -920,7 +920,8 @@ record process.Process
         return self.exit as process.Exit
     end
 
-    --- Asks it to end; `force` insists. Answers whether the request was made.
+    --- Asks the direct child to end; `force` insists. Descendants keep their
+    --- ordinary operating-system lifetime. Answers whether the request was made.
     function kill(self, force: boolean?): (boolean, string?)
         if self.exit ~= nil then
             return true

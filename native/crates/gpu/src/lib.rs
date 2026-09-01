@@ -359,6 +359,28 @@ struct BindingEntry {
     uniform: Option<wgpu::Buffer>,
 }
 
+#[derive(Clone, Default)]
+struct DeviceErrorQueue {
+    messages: Arc<Mutex<Vec<String>>>,
+}
+
+impl DeviceErrorQueue {
+    fn record(&self, message: String) {
+        self.messages
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(message);
+    }
+
+    fn take(&self) -> Vec<String> {
+        let mut messages = self
+            .messages
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::mem::take(&mut *messages)
+    }
+}
+
 pub struct GpuContext {
     _instance: wgpu::Instance,
     adapter: wgpu::Adapter,
@@ -366,7 +388,7 @@ pub struct GpuContext {
     queue: wgpu::Queue,
     resources: Resources<BufferEntry, KernelEntry, BindingEntry>,
     pending_downloads: Vec<BufferHandle>,
-    device_errors: Arc<Mutex<Vec<String>>>,
+    device_errors: DeviceErrorQueue,
 }
 
 impl GpuContext {
@@ -390,18 +412,14 @@ impl GpuContext {
         };
         let (device, queue) = pollster::block_on(adapter.request_device(&descriptor))
             .map_err(|error| GpuError::DeviceRequest(error.to_string()))?;
-        let device_errors = Arc::new(Mutex::new(Vec::new()));
-        let uncaptured = Arc::clone(&device_errors);
+        let device_errors = DeviceErrorQueue::default();
+        let uncaptured = device_errors.clone();
         device.on_uncaptured_error(Arc::new(move |error| {
-            if let Ok(mut messages) = uncaptured.lock() {
-                messages.push(error.to_string());
-            }
+            uncaptured.record(error.to_string());
         }));
-        let lost = Arc::clone(&device_errors);
+        let lost = device_errors.clone();
         device.set_device_lost_callback(move |reason, message| {
-            if let Ok(mut messages) = lost.lock() {
-                messages.push(format!("device lost ({reason:?}): {message}"));
-            }
+            lost.record(format!("device lost ({reason:?}): {message}"));
         });
         Ok(Self {
             _instance: instance,
@@ -428,10 +446,7 @@ impl GpuContext {
     }
 
     pub fn take_device_errors(&self) -> Vec<String> {
-        match self.device_errors.lock() {
-            Ok(mut errors) => std::mem::take(&mut *errors),
-            Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
-        }
+        self.device_errors.take()
     }
 
     pub fn create_buffer(&mut self, size: u64) -> Result<BufferHandle, GpuError> {
@@ -1069,6 +1084,38 @@ fn validate_kernel_descriptor(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_faults_are_buffered_and_drained_once() {
+        let errors = DeviceErrorQueue::default();
+        let first = errors.clone();
+        let second = errors.clone();
+        std::thread::scope(|scope| {
+            scope.spawn(move || first.record("uncaptured validation error".to_owned()));
+            scope.spawn(move || second.record("device lost".to_owned()));
+        });
+        let mut drained = errors.take();
+        drained.sort();
+        assert_eq!(drained, ["device lost", "uncaptured validation error"]);
+        assert!(errors.take().is_empty());
+    }
+
+    #[test]
+    fn device_faults_survive_a_poisoned_callback_queue() {
+        let errors = DeviceErrorQueue::default();
+        let poisoned = errors.clone();
+        assert!(std::thread::spawn(move || {
+            let _guard = poisoned.messages.lock().unwrap();
+            panic!("simulated callback failure");
+        })
+        .join()
+        .is_err());
+        errors.record("device lost after callback failure".to_owned());
+        assert_eq!(
+            errors.take(),
+            ["device lost after callback failure".to_owned()]
+        );
+    }
 
     #[test]
     fn resource_tables_reject_wrong_and_stale_handles() {
