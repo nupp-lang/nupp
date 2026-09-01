@@ -163,17 +163,11 @@ end
 function M.staticApplicationHostLinksAndRuns()
     local directory = temporary()
     local executable = directory .. "/nupp"
-    local linkArguments = "--"
-    local linkMap
     if jit.os == "Windows" then
         executable = executable .. ".exe"
-        linkMap = directory .. "/nupp.map"
-        linkArguments = "-- " .. quote("-Wl,-Map," .. linkMap)
     end
     local status, output = run(
-        (
-            "cd %s && ./scripts/toolchain host-link %s %s %s"
-        ):format(quote(ROOT), FEATURES, quote(executable), linkArguments)
+        ("cd %s && ./scripts/toolchain host-link %s %s %s"):format(quote(ROOT), FEATURES, quote(executable), "--")
     )
     assert(status == 0, output)
     local source = directory .. "/fixture.lua"
@@ -217,22 +211,10 @@ assert(ffi.C.nupp_rust_worker_channel_new ~= nil)
                 archiveImports[#archiveImports + 1] = member
             end
         end
-        local selected = {}
-        local map = linkMap and io.open(linkMap, "rb")
-        if map then
-            local mapText = map:read("*a")
-            map:close()
-            for line in mapText:gmatch("[^\r\n]+") do
-                if line:find("libnupp-host-imports.a(", 1, true) then
-                    selected[#selected + 1] = line
-                end
-            end
-        end
         output = (
             "shell status %s; PE import scan status %s; imports: %s\n"
             .. "known host status %s; import scan status %s; imports: %s\n"
-            .. "sanitized archive scan status %s; remaining DLL members: %s\n"
-            .. "selected companion members:\n%s\n%s"
+            .. "sanitized archive scan status %s; remaining DLL members: %s\n%s"
         ):format(
             tostring(status),
             tostring(importStatus),
@@ -242,7 +224,6 @@ assert(ffi.C.nupp_rust_worker_channel_new ~= nil)
             knownImports,
             tostring(archiveStatus),
             table.concat(archiveImports, ", "),
-            table.concat(selected, "\n"),
             output
         )
     end
