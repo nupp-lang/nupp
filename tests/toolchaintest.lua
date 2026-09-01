@@ -436,8 +436,8 @@ function M.staticHostsForceLoadTheRustApplicationArchive()
         "the Windows application archive retains Cargo-bundled import thunks"
     )
     assert(
-        driver:find('"$archive_tool" dN 1 "$destination" "$member"', 1, true),
-        "duplicate Windows import members are not deleted by exact instance"
+        driver:find('"$archive_tool" d "$destination" "@$imports_native"', 1, true),
+        "Windows import members are not removed in one response-file rewrite"
     )
     assert(driver:find("tr -d '\\r'", 1, true), "Windows archive listings are not normalized before member matching")
     assert(

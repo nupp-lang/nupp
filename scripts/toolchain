@@ -1003,12 +1003,14 @@ stage_application_archive() {
             *.dlls[0-9]*.o) printf '%s\n' "$member" >> "$imports" ;;
         esac
     done < "$members"
-    while IFS= read -r member; do
-        # GNU ar needs an explicit instance when an archive contains the same
-        # import-member name more than once. Each recorded occurrence removes
-        # the current first instance until none remain.
-        [ -z "$member" ] || "$archive_tool" dN 1 "$destination" "$member"
-    done < "$imports"
+    if [ -s "$imports" ]; then
+        # GNU ar processes every response-file argument in memory and writes
+        # the archive once. Repeated names in this list therefore remove each
+        # duplicate instance without rewriting the large Rust staticlib once
+        # per member.
+        imports_native=$(native_path "$imports")
+        "$archive_tool" d "$destination" "@$imports_native"
+    fi
     "$archive_tool" s "$destination"
     "$archive_tool" t "$destination" > "$members"
     while IFS= read -r member; do
