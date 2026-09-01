@@ -1200,7 +1200,16 @@ function spirv.program(
     end
 
     local function workgroupBarrier(): nil
-        instruction(functions, OP.ControlBarrier, {constant(u32Type, 2), constant(u32Type, 2), constant(u32Type, 264)})
+        -- A phase boundary synchronizes workgroup scratch, not storage buffers.
+        -- A scratch-free controller has no workgroup-visible state, so the
+        -- barrier only serializes otherwise independent lanes.
+        if workgroup ~= nil and #(workgroup as scalarIR.Workgroup).shared > 0 then
+            instruction(functions, OP.ControlBarrier, {
+                constant(u32Type, 2),
+                constant(u32Type, 2),
+                constant(u32Type, 264)
+            })
+        end
     end
 
     local statements: function({any}): nil

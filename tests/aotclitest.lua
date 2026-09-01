@@ -847,6 +847,40 @@ return {reduce = reduce}
     assert(binding:find(", 4)", 1, true), binding)
 end
 
+function M.gpuTargetSkipsBarriersForScratchFreeWorkgroups()
+    local dir = project({
+        ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        [
+            "map.nupp"
+        ] = [[
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function map(
+    exclusive output: span.WriteSpan<float>
+): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#output), nupp.math.u32.wrap(4))
+    gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
+        phases:run(function(localIndex: uint32)
+            if localIndex == nupp.math.u32.wrap(0) then
+                if groupIndex < #output then
+                    output[groupIndex + 1] = nupp.math.f32.narrow(1.0)
+                end
+            end
+        end)
+    end)
+end
+return {map = map}
+]],
+    })
+    local module, code = run(dir, "--emit spirv map.nupp")
+    test.equal(code, 0, module)
+    test.equal(module:sub(1, 4), "\3\2#\7")
+    test.equal(spirvOpcodeCount(module, 224), 0, "scratch-free workgroup emitted a barrier")
+    assert(spirvDecorationCount(module, 11) >= 3, "workgroup kernel lost invocation builtins")
+end
+
 function M.gpuTargetEmitsDeterministicInclusiveScan()
     local dir = project({
         ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,

@@ -26680,7 +26680,16 @@ return result , resultType
 end
 
 local function workgroupBarrier ( ) 
-instruction ( functions , OP . ControlBarrier , { constant ( u32Type , 2 ) , constant ( u32Type , 2 ) , constant ( u32Type , 264 ) } )
+
+
+
+if workgroup ~= nil and # ( workgroup ) . shared > 0 then
+instruction ( functions , OP . ControlBarrier , {
+constant ( u32Type , 2 ) ,
+constant ( u32Type , 2 ) ,
+constant ( u32Type , 264 )
+} )
+end
 end
 
 local statements
