@@ -84,10 +84,62 @@ return rows[1].x + rows[2].x + copied.x + rows:field("x")[4]
 ]])
    assertEq(value, 115, "direct, gathered and projected values")
    assert(code:find(".columns[", 1, true), "direct access did not select a column")
-   assert(code:find(".offset+", 1, true),
+   assertEq(code:find(":checkedIndex(index)", 1, true), nil,
       "a count-bounded loop retained a per-row bounds helper")
    assertEq(code:find("rows [ index ] . x", 1, true), nil,
       "a virtual row survived into generated code")
+end
+
+function M.countBoundedLoopsBindSoaInvariantsOnce()
+   local code, errors, generated = compile(PRELUDE .. [[
+function advance(view: soa.WriteSpan<Particle>, delta: float): nil
+    const rows = view
+    for index = 1, #rows do
+        rows[index].x += rows[index].dx * delta
+        rows[index].y += rows[index].dy * delta
+    end
+end
+return advance
+]])
+   assertEq(#errors, 0, "checked invariant binding fixture")
+   assertEq(#generated, 0, "generated invariant binding fixture")
+   local compact = code:gsub("%s+", "")
+   local loopStart = assert(compact:find("forindex=1,rowsdo", 1, true), compact)
+   local loopFinish = assert(compact:find("endend", loopStart, true), compact)
+   local loop = compact:sub(loopStart, loopFinish)
+   local columns = assert(compact:match("const(__nuppT%d+)=view%.columns"), compact)
+   local physical = assert(loop:match("doconst(__nuppT%d+)=__nuppT%d+%+index;"), loop)
+   for ordinal = 1, 4 do
+      assert(compact:find("=" .. columns .. "[" .. ordinal .. "]", 1, true),
+         "selected column " .. ordinal .. " is not bound once: " .. compact)
+   end
+   assert(loop:find("[" .. physical .. "]", 1, true),
+      "the physical index is not reused: " .. loop)
+   assertEq(loop:find("view.columns", 1, true), nil,
+      "the loop reloads the columns table")
+   assertEq(loop:find("view.offset", 1, true), nil,
+      "the loop reloads the physical base")
+end
+
+function M.nestedCountBoundedLoopsLeaveCrossLoopHoistingToTheRecorder()
+   local code, errors, generated = compile(PRELUDE .. [[
+function advance(view: soa.WriteSpan<Particle>, delta: float, steps: integer): nil
+    const rows = view
+    for _ = 1, steps do
+        for index = 1, #rows do
+            rows[index].x += rows[index].dx * delta
+            rows[index].y += rows[index].dy * delta
+        end
+    end
+end
+return advance
+]])
+   assertEq(#errors, 0, "checked nested invariant fixture")
+   assertEq(#generated, 0, "generated nested invariant fixture")
+   local compact = code:gsub("%s+", "")
+   assert(compact:find("view.columns[1][view.offset+", 1, true), compact)
+   assertEq(compact:find("=view.columns;", 1, true), nil,
+      "a nested inner loop repeats explicit invariant bindings")
 end
 
 function M.aCommonRangeRelatesSoAAndContiguousViews()

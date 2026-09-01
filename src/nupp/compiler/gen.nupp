@@ -1627,7 +1627,7 @@ function gen.generate(
     end
 
     -- One captured lowering service keeps `emit` under Lua's 60-upvalue ceiling.
-    emitDepth.soa = {unchecked = soaUncheckedRow, slot = soaSlot,}
+    emitDepth.soa = {unchecked = soaUncheckedRow, slot = soaSlot,} as any
 
     local function virtualView(node)
         return node
@@ -1774,7 +1774,60 @@ function gen.generate(
         end
     end
 
+    emitDepth.soa.active = {}
+    emitDepth.soa.plan = function(view, index, ordinal)
+        local viewDefinition = view and view.kind == "name" and view.token and view.token.definition or nil
+        local indexDefinition = index and index.kind == "name" and index.token and index.token.definition or nil
+        if not viewDefinition or not indexDefinition then
+            return nil
+        end
+        for position = #emitDepth.soa.active, 1, -1 do
+            local plan = emitDepth.soa.active[position]
+            if plan.viewDefinition == viewDefinition
+                and plan.indexDefinition == indexDefinition
+                and plan.columnNames
+                and plan.columnNames[
+                ordinal
+            ] then
+                return plan
+            end
+        end
+
+        return nil
+    end
+
+    emitDepth.soa.boundName = function(view, ordinal, index): string?
+        local plan = emitDepth.soa.plan(view, index, ordinal)
+        if not plan then
+            return nil
+        end
+
+        return ('%s[%s]'):format(plan.columnNames[ordinal], plan.physicalName)
+    end
+
+    emitDepth.soa.boundSlot = function(view, ordinal, index): boolean
+        local name = emitDepth.soa.boundName(view, ordinal, index)
+        if not name then
+            return false
+        end
+        e(name)
+
+        return true
+    end
+
+    emitDepth.soa.requiredBoundName = function(view, ordinal, index): string
+        local name = emitDepth.soa.boundName(view, ordinal, index)
+        if not name then
+            error("an active SoA binding lost its selected column")
+        end
+
+        return name
+    end
+
     local function emitSoaSlot(view, ordinal, index, checked)
+        if not checked and emitDepth.soa.boundSlot(view, ordinal, index) then
+            return
+        end
         emitViewRoot(view)
         e((".columns[%d]["):format(ordinal))
         emitViewOffset(view)
@@ -1795,6 +1848,51 @@ function gen.generate(
         spanSlot = emitSpanSlot,
         soaSlot = emitSoaSlot,
     }
+
+    emitDepth.soa.openLoop = function(loop): nil
+        local bindings = loop.soaLoopBindings or {}
+        if #bindings == 0 then
+            return
+        end
+        e("do", sourceLine(loop))
+        for _, plan in ipairs(bindings) do
+            plan.columnsName = plan.columnsName or nextTemp()
+            plan.offsetName = plan.offsetName or nextTemp()
+            plan.physicalName = plan.physicalName or nextTemp()
+            plan.columnNames = plan.columnNames or {}
+            e((" const %s="):format(plan.columnsName))
+            emitDepth.view.root(plan.view)
+            e(".columns")
+            e(("; const %s="):format(plan.offsetName))
+            emitDepth.view.offset(plan.view)
+            e("-1")
+            for _, ordinal in ipairs(plan.fieldOrder) do
+                plan.columnNames[ordinal] = plan.columnNames[ordinal] or nextTemp()
+                e(("; const %s=%s[%d]"):format(plan.columnNames[ordinal], plan.columnsName, ordinal))
+            end
+        end
+    end
+
+    emitDepth.soa.beginIteration = function(loop): nil
+        for _, plan in ipairs(loop.soaLoopBindings or {}) do
+            e(("const %s=%s+"):format(plan.physicalName, plan.offsetName), sourceLine(loop.body))
+            emit(plan.index)
+            e(";")
+            emitDepth.soa.active[#emitDepth.soa.active + 1] = plan
+        end
+    end
+
+    emitDepth.soa.endIteration = function(loop): nil
+        for _ = 1, #(loop.soaLoopBindings or {}) do
+            emitDepth.soa.active[#emitDepth.soa.active] = nil
+        end
+    end
+
+    emitDepth.soa.closeLoop = function(loop, line): nil
+        if #(loop.soaLoopBindings or {}) > 0 then
+            e("end", line)
+        end
+    end
 
     local function emitRuntimeLayout(spec, line, emitCtype)
         needsLayout = true
@@ -3796,7 +3894,10 @@ function gen.generate(
             end
             local row, ordinal = soaFieldTarget(target)
             if row and ordinal then
-                if emitDepth.view.info(row.obj) then
+                if emitDepth.soa.boundSlot(row.obj, ordinal, row.expr) then
+                    e("=", sourceLine(x))
+                    emit(x.exprs[1])
+                elseif emitDepth.view.info(row.obj) then
                     emitDepth.view.soaSlot(row.obj, ordinal, row.expr, not emitDepth.soa.unchecked(row))
                     e("=", sourceLine(x))
                     emit(x.exprs[1])
@@ -4004,7 +4105,32 @@ function gen.generate(
             end
             local row, ordinal = soaFieldTarget(x.target)
             if row and ordinal then
-                if emitDepth.view.info(row.obj) then
+                if emitDepth.soa.boundSlot(row.obj, ordinal, row.expr) then
+                    if bitMethod then
+                        e(
+                            "=" .. pluck.bitops.name .. "." .. bitMethod .. "(" .. emitDepth.soa.requiredBoundName(
+                                row.obj,
+                                ordinal,
+                                row.expr
+                            ) .. ",",
+                            x.op.line
+                        )
+                    elseif pluck.portable then
+                        e(
+                            (
+                                "=%s %s "
+                            ):format(emitDepth.soa.requiredBoundName(row.obj, ordinal, row.expr), compoundBase),
+                            x.op.line
+                        )
+                    else
+                        e((" %s "):format(x.op.kind), x.op.line)
+                    end
+                    emit(x.value)
+                    if bitMethod then
+                        e(")")
+                    end
+                    return
+                elseif emitDepth.view.info(row.obj) then
                     e("do ", sourceLine(x))
                     local indexName = nextTemp()
                     e(("const %s="):format(indexName))
@@ -6956,6 +7082,7 @@ function gen.generate(
             finishConcatBuffer(x, endTok and endTok.line or nil)
 
         elseif kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt" then
+            emitDepth.soa.openLoop(x)
             local portableLoop = {}
             if pluck.portableLoopNeedsWrapper(x) then
                 portableLoop.action = nextTemp()
@@ -6966,6 +7093,7 @@ function gen.generate(
                     if portableLoop.action then
                         e(("local %s;repeat"):format(portableLoop.action), sourceLine(child))
                     end
+                    emitDepth.soa.beginIteration(x)
                     emitDepth.portableLoops[#emitDepth.portableLoops + 1] = portableLoop
                     emitDepth.loop = emitDepth.loop + 1
                     emitDepth.loopNodes[#emitDepth.loopNodes + 1] = x
@@ -6973,6 +7101,7 @@ function gen.generate(
                     emitDepth.loopNodes[#emitDepth.loopNodes] = nil
                     emitDepth.loop = emitDepth.loop - 1
                     emitDepth.portableLoops[#emitDepth.portableLoops] = nil
+                    emitDepth.soa.endIteration(x)
                     if portableLoop.action then
                         e(("until true;if %s==\"break\" then break end;"):format(portableLoop.action))
                     end
@@ -6986,6 +7115,7 @@ function gen.generate(
             -- On the line the loop closes on. That line already belongs to this
             -- statement, so nothing moves and the line count is unchanged.
             finishConcatBuffer(x, lastLine)
+            emitDepth.soa.closeLoop(x, lastLine)
 
         elseif kind == "funcbody" then
             emitDepth.fn = emitDepth.fn + 1
@@ -7300,7 +7430,9 @@ function gen.generate(
             local row = x.obj
             local view = row and row.obj
             if view and row.expr then
-                if emitDepth.view.info(view) then
+                if emitDepth.soa.boundSlot(view, x.soaField.ordinal, row.expr) then
+                    return
+                elseif emitDepth.view.info(view) then
                     emitDepth.view.soaSlot(view, x.soaField.ordinal, row.expr, not emitDepth.soa.unchecked(row))
                 elseif view.kind == "name" then
                     -- Keep the common loop form as a plain column load. A name is
@@ -7368,6 +7500,11 @@ function gen.generate(
             local row = target.obj
             local view = row and row.obj
             if view and row.expr then
+                if emitDepth.soa.boundSlot(view, target.soaField.ordinal, row.expr) then
+                    e("=", sourceLine(x))
+                    emit(x.exprs[1])
+                    return
+                end
                 local viewName, indexName = nextTemp(), nextTemp()
                 e(("do const %s="):format(viewName), sourceLine(x))
                 emit(view)

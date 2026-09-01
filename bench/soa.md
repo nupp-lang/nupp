@@ -11,14 +11,16 @@ LUA_PATH='src/?.lua;src/?/init.lua;;' luajit -joff bench/soa.lua
 It compares the compiler-lowered `rows[i].field` spelling with four hand-written
 single-field cdata arrays and the canonical AoS struct. The timed update consumes two
 of four fields, over 100,000 rows and 30 steps. Allocation and initialization are
-outside the timed region; the first complete round is warmup and five medians remain.
+outside the timed region; a checksum after the timer observes every updated `x` and
+`y`, so allocation sinking or dead-store elimination cannot erase the timed kernel.
+The first complete round is warmup and five medians remain.
 
 One representative Apple ARM64 run measured:
 
 | mode | Generated SoA | Hand SoA | AoS | Generated / hand |
 | --- | ---: | ---: | ---: | ---: |
-| LuaJIT traced | 3.07 ms | 2.96 ms | 2.59 ms | 1.037x |
-| LuaJIT interpreter | 539.93 ms | 934.96 ms | 986.27 ms | 0.577x |
+| LuaJIT traced | 1.77 ms | 1.78 ms | 1.77 ms | 0.993x |
+| LuaJIT interpreter | 274.63 ms | 566.18 ms | 502.86 ms | 0.485x |
 
 The traced result is within the plan's ten-percent gate. The canonical
 `for i = 1, #rows` form proves the row range once and emits direct numeric column

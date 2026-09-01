@@ -21,6 +21,7 @@ local COUNT: integer = 100000
 local STEPS: integer = 30
 local ROUNDS: integer = 5
 local DT = 1 / 60
+local observed = 0.0
 
 local function median(values: {number}): number
     table.sort(values)
@@ -46,10 +47,14 @@ local function generatedSoA(): number
             end
         end
         elapsed = os.clock() - started
-        sink = rows[COUNT].x
+        for i = 1, #rows do
+            sink += rows[i].x + rows[i].y
+        end
     end
 
-    return elapsed + sink * 0
+    observed += sink
+
+    return elapsed
 end
 
 local function handwrittenSoA(): number
@@ -71,7 +76,13 @@ local function handwrittenSoA(): number
                 ys[i].value += dys[i].value * DT
             end
         end
-        return os.clock() - started + xs[COUNT - 1].value * 0
+        local elapsed = os.clock() - started
+        local sink = 0.0
+        for i = 0, COUNT - 1 do
+            sink += xs[i].value + ys[i].value
+        end
+        observed += sink
+        return elapsed
     end
 end
 
@@ -91,7 +102,13 @@ local function ordinaryAoS(): number
                 particles[i].y += particles[i].dy * DT
             end
         end
-        return os.clock() - started + particles[COUNT - 1].x * 0
+        local elapsed = os.clock() - started
+        local sink = 0.0
+        for i = 0, COUNT - 1 do
+            sink += particles[i].x + particles[i].y
+        end
+        observed += sink
+        return elapsed
     end
 end
 
@@ -112,6 +129,7 @@ end
 local generatedTime = median(generated)
 local handTime = median(hand)
 local aosTime = median(aos)
+assert(observed > 0)
 print(string.format("generated SoA  %8.2f ms", generatedTime * 1000))
 print(string.format("hand SoA       %8.2f ms", handTime * 1000))
 print(string.format("ordinary AoS   %8.2f ms", aosTime * 1000))

@@ -480,6 +480,14 @@ be resolved. See [effects.md](../language/effects.md) for the summaries the pass
 reads. The static bound is intentional; a dynamic raw length was flat or slower
 after tracing.
 
+A static bound is not itself an unrolling request. This proof establishes the
+literal's dense shape, not compile-time element values, so unrolling here would
+still allocate `xs` and duplicate three indexed loads and three copies of the
+body. Doing that automatically is a separate code-growth decision. `OPT-8`
+gets a bounded private body and scalar const substitution from an explicit
+`const` binder; use `comptime do` when the whole calculation is intentionally a
+compile-time value.
+
 ### `OPT-3`, constant folding
 
 Exact integer arithmetic, strings, comparisons, and boolean selection fold, and
@@ -914,11 +922,16 @@ end
 ```lua [-O1]
 function m.advance(view, delta)
     const rows = view.count
+    const columns = view.columns
+    const base = view.offset - 1
+    const xs = columns[1]
+    const ys = columns[2]
+    const dxs = columns[3]
+    const dys = columns[4]
     for index = 1, rows do
-        view.columns[1][view.offset + index - 1] +=
-            view.columns[3][view.offset + index - 1] * delta
-        view.columns[2][view.offset + index - 1] +=
-            view.columns[4][view.offset + index - 1] * delta
+        const physical = base + index
+        xs[physical] += dxs[physical] * delta
+        ys[physical] += dys[physical] * delta
     end
 end
 ```
@@ -942,6 +955,12 @@ end
 OPT-6: indexed-range: lowers 4 soa accesses
 OPT-6: view-scalar-replacement: virtualizes one alias
 ```
+
+The selected column pointers and physical base are loop invariants. `-O1` binds
+each once for the interpreter and computes one physical index per iteration;
+the source owner remains live for the whole loop. LuaJIT's recorder can discover
+the same invariants, so the explicit bindings primarily remove interpreter
+table loads without asking traced code to recover the representation.
 
 #### Admitted roots
 
@@ -1037,6 +1056,67 @@ closed checked application. The private ABI omits const carrier parameters,
 substitutes their values into the checked body, and applies constant folding and
 bounded loop unrolling before Lua is emitted. The public function remains the
 only source-visible function value, and `-O0` emits only that generic body.
+
+::: code-group
+```nupp [Nupp]
+local function accumulate<const N: integer>(value: number, count: N): number
+    local total = value
+    for offset = 1, count as integer do
+        total = total + offset
+    end
+    return total
+end
+
+function m.answer(): number
+    return accumulate(10.0, 4)
+end
+```
+
+```lua [-O1 excerpt]
+local function accumulate(value, count)
+    local total = value
+    for offset = 1, count do
+        total = total + offset
+    end
+    return total
+end
+
+local function __nuppConst_accumulate_7f57b563(value)
+    local total = value
+    do
+        do total = total + 1 end
+        do total = total + 2 end
+        do total = total + 3 end
+        do total = total + 4 end
+    end
+    return total
+end
+
+function m.answer()
+    return __nuppConst_accumulate_7f57b563(10)
+end
+```
+
+```lua [-O0]
+local function accumulate(value, count)
+    local total = value
+    for offset = 1, count do
+        total = total + offset
+    end
+    return total
+end
+
+function m.answer()
+    return accumulate(10, 4)
+end
+```
+:::
+
+The private name contains a longer key digest in generated output, and its
+compiler-private cross-module registration is omitted from the excerpt. The
+important parts are that the carrier `count` disappears from the private ABI,
+the four-iteration loop becomes straight-line code, and the public generic body
+remains available.
 
 Demands are collected across the built module graph. A direct cross-module call
 uses compiler-private linkage to the body owned by the declaring module, and a

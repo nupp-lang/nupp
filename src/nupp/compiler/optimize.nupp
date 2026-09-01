@@ -1437,9 +1437,17 @@ end
 local function indexedRangeWalk(result, remarks)
     for _, body in ipairs(result.analysis and result.analysis.bodies or {}) do
         local loops, ordered = {}, {}
-        local function collect(node)
+        local loopDepth = 0
+        local function collect(node, parent)
             if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
                 return
+            end
+            local isLoop = node.kind == "whileStmt"
+                or node.kind == "fornumStmt"
+                or node.kind == "forinStmt"
+                or node.kind == "repeatStmt"
+            if isLoop then
+                loopDepth = loopDepth + 1
             end
             if node.kind == "bracketIndex" and node.rangeProvenNoRaise and node.indexedRangeAccess then
                 local proof = node.indexedRangeAccess
@@ -1447,26 +1455,78 @@ local function indexedRangeWalk(result, remarks)
                 if loop then
                     local entry = loops[loop]
                     if not entry then
-                        entry = {loop = loop, accesses = {}}
+                        entry = {loop = loop, accesses = {}, nested = loopDepth > 1,}
                         loops[loop] = entry
                         ordered[#ordered + 1] = entry
                     end
-                    entry.accesses[#entry.accesses + 1] = node
+                    entry.accesses[#entry.accesses + 1] = {node = node, parent = parent,}
                 end
             end
             for _, child in ipairs(node) do
-                collect(child)
+                collect(child, node)
+            end
+            if isLoop then
+                loopDepth = loopDepth - 1
             end
         end
 
-        collect(body)
+        collect(body, nil)
 
         for _, entry in ipairs(ordered) do
             local adapters = {}
-            for _, access in ipairs(entry.accesses) do
+            local soaByView = {}
+            local soaBindings = {}
+            local loopDefinition = entry.loop.var and entry.loop.var.definition
+            for _, found in ipairs(entry.accesses) do
+                local access = found.node
                 access.indexedDirectAccess = true
                 local adapter = access.indexedAccess and access.indexedAccess.adapter or "indexed"
                 adapters[adapter] = (adapters[adapter] or 0) + 1
+
+                -- A proved SoA field access has three loop invariants that the
+                -- interpreter otherwise reloads for every expression: the columns
+                -- table, its selected field pointer, and the view's physical base.
+                -- Group those by semantic view and induction bindings. Generation
+                -- keeps the source owner live, captures the invariants before the
+                -- loop, and computes one physical index per iteration. A nested loop
+                -- stays in the direct spelling: binding beside the inner loop repeats
+                -- the setup at every outer iteration and measured worse after tracing,
+                -- where LuaJIT already hoists it across both loops.
+                local view = access.soaRow and access.obj or nil
+                local index = access.soaRow and access.expr or nil
+                local field = found.parent and found.parent.soaField or nil
+                local viewDefinition = view and view.kind == "name" and view.token and view.token.definition or nil
+                local indexDefinition = index and index.kind == "name" and index.token and index.token.definition or nil
+                if field
+                    and not entry.nested
+                    and viewDefinition
+                    and indexDefinition
+                    and indexDefinition == loopDefinition
+                then
+                    local plan = soaByView[viewDefinition]
+                    if not plan then
+                        plan = {
+                            view = view,
+                            viewDefinition = viewDefinition,
+                            index = index,
+                            indexDefinition = indexDefinition,
+                            fields = {},
+                            fieldOrder = {},
+                        }
+                        soaByView[viewDefinition] = plan
+                        soaBindings[#soaBindings + 1] = plan
+                    end
+                    if not plan.fields[field.ordinal] then
+                        plan.fields[field.ordinal] = true
+                        plan.fieldOrder[#plan.fieldOrder + 1] = field.ordinal
+                    end
+                end
+            end
+            if #soaBindings > 0 then
+                for _, plan in ipairs(soaBindings) do
+                    table.sort(plan.fieldOrder)
+                end
+                entry.loop.soaLoopBindings = soaBindings
             end
             local parts = {}
             for adapter, count in pairs(adapters) do

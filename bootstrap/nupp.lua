@@ -108801,7 +108801,60 @@ e ( "." .. field )
 end
 end
 
+emitDepth . soa . active = { }
+emitDepth . soa . plan = function ( view , index , ordinal ) 
+local viewDefinition = view and view . kind == "name" and view . token and view . token . definition or nil
+local indexDefinition = index and index . kind == "name" and index . token and index . token . definition or nil
+if not viewDefinition or not indexDefinition then
+return nil
+end
+for position = # emitDepth . soa . active , 1 , - 1 do
+local plan = emitDepth . soa . active [ position ]
+if plan . viewDefinition == viewDefinition
+and plan . indexDefinition == indexDefinition
+and plan . columnNames
+and plan . columnNames [
+ordinal
+] then
+return plan
+end
+end
+
+return nil
+end
+
+emitDepth . soa . boundName = function ( view , ordinal , index ) 
+local plan = emitDepth . soa . plan ( view , index , ordinal )
+if not plan then
+return nil
+end
+
+return ( '%s[%s]' ) : format ( plan . columnNames [ ordinal ] , plan . physicalName )
+end
+
+emitDepth . soa . boundSlot = function ( view , ordinal , index ) 
+local name = emitDepth . soa . boundName ( view , ordinal , index )
+if not name then
+return false
+end
+e ( name )
+
+return true
+end
+
+emitDepth . soa . requiredBoundName = function ( view , ordinal , index ) 
+local name = emitDepth . soa . boundName ( view , ordinal , index )
+if not name then
+error ( "an active SoA binding lost its selected column" )
+end
+
+return name
+end
+
 local function emitSoaSlot ( view , ordinal , index , checked ) 
+if not checked and emitDepth . soa . boundSlot ( view , ordinal , index ) then
+return
+end
 emitViewRoot ( view )
 e ( ( ".columns[%d][" ) : format ( ordinal ) )
 emitViewOffset ( view )
@@ -108822,6 +108875,51 @@ offset = emitViewOffset ,
 spanSlot = emitSpanSlot ,
 soaSlot = emitSoaSlot ,
 }
+
+emitDepth . soa . openLoop = function ( loop ) 
+local bindings = loop . soaLoopBindings or { }
+if # bindings == 0 then
+return
+end
+e ( "do" , sourceLine ( loop ) )
+for _ , plan in ipairs ( bindings ) do
+plan . columnsName = plan . columnsName or nextTemp ( )
+plan . offsetName = plan . offsetName or nextTemp ( )
+plan . physicalName = plan . physicalName or nextTemp ( )
+plan . columnNames = plan . columnNames or { }
+e ( ( " const %s=" ) : format ( plan . columnsName ) )
+emitDepth . view . root ( plan . view )
+e ( ".columns" )
+e ( ( "; const %s=" ) : format ( plan . offsetName ) )
+emitDepth . view . offset ( plan . view )
+e ( "-1" )
+for _ , ordinal in ipairs ( plan . fieldOrder ) do
+plan . columnNames [ ordinal ] = plan . columnNames [ ordinal ] or nextTemp ( )
+e ( ( "; const %s=%s[%d]" ) : format ( plan . columnNames [ ordinal ] , plan . columnsName , ordinal ) )
+end
+end
+end
+
+emitDepth . soa . beginIteration = function ( loop ) 
+for _ , plan in ipairs ( loop . soaLoopBindings or { } ) do
+e ( ( "const %s=%s+" ) : format ( plan . physicalName , plan . offsetName ) , sourceLine ( loop . body ) )
+emit ( plan . index )
+e ( ";" )
+emitDepth . soa . active [ # emitDepth . soa . active + 1 ] = plan
+end
+end
+
+emitDepth . soa . endIteration = function ( loop ) 
+for _ = 1 , # ( loop . soaLoopBindings or { } ) do
+emitDepth . soa . active [ # emitDepth . soa . active ] = nil
+end
+end
+
+emitDepth . soa . closeLoop = function ( loop , line ) 
+if # ( loop . soaLoopBindings or { } ) > 0 then
+e ( "end" , line )
+end
+end
 
 local function emitRuntimeLayout ( spec , line , emitCtype ) 
 needsLayout = true
@@ -110823,7 +110921,10 @@ return
 end
 local row , ordinal = soaFieldTarget ( target )
 if row and ordinal then
-if emitDepth . view . info ( row . obj ) then
+if emitDepth . soa . boundSlot ( row . obj , ordinal , row . expr ) then
+e ( "=" , sourceLine ( x ) )
+emit ( x . exprs [ 1 ] )
+elseif emitDepth . view . info ( row . obj ) then
 emitDepth . view . soaSlot ( row . obj , ordinal , row . expr , not emitDepth . soa . unchecked ( row ) )
 e ( "=" , sourceLine ( x ) )
 emit ( x . exprs [ 1 ] )
@@ -111031,7 +111132,32 @@ return
 end
 local row , ordinal = soaFieldTarget ( x . target )
 if row and ordinal then
-if emitDepth . view . info ( row . obj ) then
+if emitDepth . soa . boundSlot ( row . obj , ordinal , row . expr ) then
+if bitMethod then
+e (
+"=" .. pluck . bitops . name .. "." .. bitMethod .. "(" .. emitDepth . soa . requiredBoundName (
+row . obj ,
+ordinal ,
+row . expr
+) .. "," ,
+x . op . line
+)
+elseif pluck . portable then
+e (
+(
+"=%s %s "
+) : format ( emitDepth . soa . requiredBoundName ( row . obj , ordinal , row . expr ) , compoundBase ) ,
+x . op . line
+)
+else
+e ( ( " %s " ) : format ( x . op . kind ) , x . op . line )
+end
+emit ( x . value )
+if bitMethod then
+e ( ")" )
+end
+return
+elseif emitDepth . view . info ( row . obj ) then
 e ( "do " , sourceLine ( x ) )
 local indexName = nextTemp ( )
 e ( ( "const %s=" ) : format ( indexName ) )
@@ -113983,6 +114109,7 @@ e ( "end" , endTok and endTok . line or nil )
 finishConcatBuffer ( x , endTok and endTok . line or nil )
 
 elseif kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt" then
+emitDepth . soa . openLoop ( x )
 local portableLoop = { }
 if pluck . portableLoopNeedsWrapper ( x ) then
 portableLoop . action = nextTemp ( )
@@ -113993,6 +114120,7 @@ if child == x . body then
 if portableLoop . action then
 e ( ( "local %s;repeat" ) : format ( portableLoop . action ) , sourceLine ( child ) )
 end
+emitDepth . soa . beginIteration ( x )
 emitDepth . portableLoops [ # emitDepth . portableLoops + 1 ] = portableLoop
 emitDepth . loop = emitDepth . loop + 1
 emitDepth . loopNodes [ # emitDepth . loopNodes + 1 ] = x
@@ -114000,6 +114128,7 @@ emit ( child )
 emitDepth . loopNodes [ # emitDepth . loopNodes ] = nil
 emitDepth . loop = emitDepth . loop - 1
 emitDepth . portableLoops [ # emitDepth . portableLoops ] = nil
+emitDepth . soa . endIteration ( x )
 if portableLoop . action then
 e ( ( "until true;if %s==\"break\" then break end;" ) : format ( portableLoop . action ) )
 end
@@ -114013,6 +114142,7 @@ end
 
 
 finishConcatBuffer ( x , lastLine )
+emitDepth . soa . closeLoop ( x , lastLine )
 
 elseif kind == "funcbody" then
 emitDepth . fn = emitDepth . fn + 1
@@ -114327,7 +114457,9 @@ elseif kind == "dotIndex" and x . soaField then
 local row = x . obj
 local view = row and row . obj
 if view and row . expr then
-if emitDepth . view . info ( view ) then
+if emitDepth . soa . boundSlot ( view , x . soaField . ordinal , row . expr ) then
+return
+elseif emitDepth . view . info ( view ) then
 emitDepth . view . soaSlot ( view , x . soaField . ordinal , row . expr , not emitDepth . soa . unchecked ( row ) )
 elseif view . kind == "name" then
 
@@ -114395,6 +114527,11 @@ local target = x . targets [ 1 ]
 local row = target . obj
 local view = row and row . obj
 if view and row . expr then
+if emitDepth . soa . boundSlot ( view , target . soaField . ordinal , row . expr ) then
+e ( "=" , sourceLine ( x ) )
+emit ( x . exprs [ 1 ] )
+return
+end
 local viewName , indexName = nextTemp ( ) , nextTemp ( )
 e ( ( "do const %s=" ) : format ( viewName ) , sourceLine ( x ) )
 emit ( view )
@@ -135998,9 +136135,17 @@ end
 local function indexedRangeWalk ( result , remarks ) 
 for _ , body in ipairs ( result . analysis and result . analysis . bodies or { } ) do
 local loops , ordered = { } , { }
-local function collect ( node ) 
+local loopDepth = 0
+local function collect ( node , parent ) 
 if not node or isToken ( node ) or NESTED_FUNCTION [ node . kind ] then
 return
+end
+local isLoop = node . kind == "whileStmt"
+or node . kind == "fornumStmt"
+or node . kind == "forinStmt"
+or node . kind == "repeatStmt"
+if isLoop then
+loopDepth = loopDepth + 1
 end
 if node . kind == "bracketIndex" and node . rangeProvenNoRaise and node . indexedRangeAccess then
 local proof = node . indexedRangeAccess
@@ -136008,26 +136153,78 @@ local loop = proof and proof . loop
 if loop then
 local entry = loops [ loop ]
 if not entry then
-entry = { loop = loop , accesses = { } }
+entry = { loop = loop , accesses = { } , nested = loopDepth > 1 , }
 loops [ loop ] = entry
 ordered [ # ordered + 1 ] = entry
 end
-entry . accesses [ # entry . accesses + 1 ] = node
+entry . accesses [ # entry . accesses + 1 ] = { node = node , parent = parent , }
 end
 end
 for _ , child in ipairs ( node ) do
-collect ( child )
+collect ( child , node )
+end
+if isLoop then
+loopDepth = loopDepth - 1
 end
 end
 
-collect ( body )
+collect ( body , nil )
 
 for _ , entry in ipairs ( ordered ) do
 local adapters = { }
-for _ , access in ipairs ( entry . accesses ) do
+local soaByView = { }
+local soaBindings = { }
+local loopDefinition = entry . loop . var and entry . loop . var . definition
+for _ , found in ipairs ( entry . accesses ) do
+local access = found . node
 access . indexedDirectAccess = true
 local adapter = access . indexedAccess and access . indexedAccess . adapter or "indexed"
 adapters [ adapter ] = ( adapters [ adapter ] or 0 ) + 1
+
+
+
+
+
+
+
+
+
+
+local view = access . soaRow and access . obj or nil
+local index = access . soaRow and access . expr or nil
+local field = found . parent and found . parent . soaField or nil
+local viewDefinition = view and view . kind == "name" and view . token and view . token . definition or nil
+local indexDefinition = index and index . kind == "name" and index . token and index . token . definition or nil
+if field
+and not entry . nested
+and viewDefinition
+and indexDefinition
+and indexDefinition == loopDefinition
+then
+local plan = soaByView [ viewDefinition ]
+if not plan then
+plan = {
+view = view ,
+viewDefinition = viewDefinition ,
+index = index ,
+indexDefinition = indexDefinition ,
+fields = { } ,
+fieldOrder = { } ,
+}
+soaByView [ viewDefinition ] = plan
+soaBindings [ # soaBindings + 1 ] = plan
+end
+if not plan . fields [ field . ordinal ] then
+plan . fields [ field . ordinal ] = true
+plan . fieldOrder [ # plan . fieldOrder + 1 ] = field . ordinal
+end
+end
+end
+if # soaBindings > 0 then
+for _ , plan in ipairs ( soaBindings ) do
+table . sort ( plan . fieldOrder )
+end
+entry . loop . soaLoopBindings = soaBindings
 end
 local parts = { }
 for adapter , count in pairs ( adapters ) do
