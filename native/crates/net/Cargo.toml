@@ -1,0 +1,12 @@
+[package]
+name = "nupp-native-net"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+nupp-native-runtime = { path = "../runtime", features = ["async"] }
+socket2 = { version = "0.6", features = ["all"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }

@@ -13,6 +13,8 @@ mod files;
 mod gpu;
 #[cfg(feature = "http")]
 mod http;
+#[cfg(feature = "net")]
+mod net;
 #[cfg(feature = "process")]
 mod process;
 #[cfg(feature = "uri")]
@@ -26,6 +28,7 @@ const FEATURE_HTTP: u64 = 1 << 4;
 const FEATURE_PROCESS: u64 = 1 << 5;
 const FEATURE_FILESYSTEM: u64 = 1 << 6;
 const FEATURE_FILES: u64 = 1 << 7;
+const FEATURE_NET: u64 = 1 << 8;
 
 fn bytes() -> &'static Mutex<Arena<Box<[u8]>>> {
     static BYTES: OnceLock<Mutex<Arena<Box<[u8]>>>> = OnceLock::new();
@@ -104,6 +107,11 @@ pub extern "C" fn nuppNativeV2Features() -> u64 {
         }
         | if cfg!(feature = "files") {
             FEATURE_FILES
+        } else {
+            0
+        }
+        | if cfg!(feature = "net") {
+            FEATURE_NET
         } else {
             0
         }

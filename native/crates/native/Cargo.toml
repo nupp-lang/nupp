@@ -18,6 +18,7 @@ gpu = ["base", "dep:nupp-native-gpu"]
 uri = ["base", "dep:url"]
 http = ["base", "dep:nupp-native-http"]
 process = ["base", "dep:nupp-native-process"]
+net = ["base", "dep:nupp-native-net"]
 filesystem = ["base", "dep:nupp-native-files"]
 files = ["filesystem", "nupp-native-files/lane"]
 
@@ -25,6 +26,7 @@ files = ["filesystem", "nupp-native-files/lane"]
 nupp-native-abi = { path = "../abi" }
 nupp-native-gpu = { path = "../gpu", optional = true }
 nupp-native-http = { path = "../http", optional = true }
+nupp-native-net = { path = "../net", optional = true }
 nupp-native-files = { path = "../files", optional = true, default-features = false }
 nupp-native-platform = { path = "../platform" }
 nupp-native-process = { path = "../process", optional = true }

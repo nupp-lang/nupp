@@ -940,6 +940,7 @@ dependencies = [
  "nupp-native-files",
  "nupp-native-gpu",
  "nupp-native-http",
+ "nupp-native-net",
  "nupp-native-platform",
  "nupp-native-process",
  "nupp-native-runtime",
@@ -990,6 +991,16 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "url",
+]
+
+[[package]]
+name = "nupp-native-net"
+version = "0.1.0"
+dependencies = [
+ "nupp-native-runtime",
+ "socket2",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

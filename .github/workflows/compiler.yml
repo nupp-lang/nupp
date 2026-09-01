@@ -270,6 +270,14 @@ jobs:
         shell: bash
         run: ./bin/nupp check
 
+      # The public native.net provider still belongs to the legacy C library,
+      # but its replacement has an independently testable Rust core and ABI.
+      # Keep that dormant foundation portable before the provider cutover ties
+      # its lifecycle to Nupp suspension and the remaining transports.
+      - name: Test the Rust network foundation
+        shell: bash
+        run: cargo test --locked --package nupp-native-net
+
       # Fail close to provisioning, and name the last case if the Windows
       # loader or native networking layer terminates the test process. Exercise
       # the nested launcher fixtures here too: in the full suite that process is

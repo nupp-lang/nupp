@@ -37,6 +37,7 @@
 #define NUPP_NATIVE_V2_FEATURE_PROCESS (UINT64_C(1) << 5)
 #define NUPP_NATIVE_V2_FEATURE_FILESYSTEM (UINT64_C(1) << 6)
 #define NUPP_NATIVE_V2_FEATURE_FILES (UINT64_C(1) << 7)
+#define NUPP_NATIVE_V2_FEATURE_NET (UINT64_C(1) << 8)
 
 #ifdef __cplusplus
 extern "C" {
@@ -140,6 +141,93 @@ NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferWait(
     uint64_t timeout_ms, size_t *ready);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2FilesTransferPending(
     size_t *pending);
+
+/* Present when NUPP_NATIVE_V2_FEATURE_NET is set. Rust owns the resolver,
+ * sockets and worker tasks. Host names and write bytes are copied during the
+ * call; listeners, connects and streams are distinct generational handles. */
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+} NuppNativeV2NetSlice;
+
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    uint32_t backlog;
+    int32_t reuse_port;
+} NuppNativeV2NetListenOptions;
+
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    uint64_t timeout_ms;
+} NuppNativeV2NetConnectOptions;
+
+typedef struct {
+    uint8_t address[16];
+    uint16_t port;
+    uint8_t family;
+} NuppNativeV2NetAddress;
+
+#define NUPP_NATIVE_V2_NET_ACCEPTED 0u
+#define NUPP_NATIVE_V2_NET_PENDING 1u
+#define NUPP_NATIVE_V2_NET_READ_DATA 0u
+#define NUPP_NATIVE_V2_NET_READ_EOF 2u
+#define NUPP_NATIVE_V2_NET_WRITE_ACCEPTED 0u
+#define NUPP_NATIVE_V2_NET_WRITE_CLOSED 2u
+#define NUPP_NATIVE_V2_NET_CONNECT_PENDING 0u
+#define NUPP_NATIVE_V2_NET_CONNECT_READY 1u
+#define NUPP_NATIVE_V2_NET_CONNECT_FAILED 2u
+#define NUPP_NATIVE_V2_NET_STREAM_READ_EOF (UINT32_C(1) << 0)
+#define NUPP_NATIVE_V2_NET_STREAM_WRITE_CLOSED (UINT32_C(1) << 1)
+#define NUPP_NATIVE_V2_NET_STREAM_CLOSED (UINT32_C(1) << 2)
+#define NUPP_NATIVE_V2_NET_STREAM_SHUTTING_DOWN (UINT32_C(1) << 3)
+#define NUPP_NATIVE_V2_NET_STREAM_READ_FAILED (UINT32_C(1) << 4)
+#define NUPP_NATIVE_V2_NET_STREAM_WRITE_FAILED (UINT32_C(1) << 5)
+
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetListenerCreate(
+    const NuppNativeV2NetListenOptions *options, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetListenerPort(
+    uint64_t listener, uint16_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetListenerAccept(
+    uint64_t listener, uint32_t *state, uint64_t *stream);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetListenerRelease(
+    uint64_t listener);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetConnectCreate(
+    const NuppNativeV2NetConnectOptions *options, uint64_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetConnectPoll(
+    uint64_t connect, uint32_t *state, uint64_t *stream);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetConnectCancel(
+    uint64_t connect);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetConnectRelease(
+    uint64_t connect);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamRead(
+    uint64_t stream, uint8_t *output, size_t capacity,
+    uint32_t *state, size_t *length);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamWrite(
+    uint64_t stream, const uint8_t *data, size_t length,
+    uint32_t *state, size_t *accepted);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamPendingWrite(
+    uint64_t stream, size_t *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamState(
+    uint64_t stream, uint32_t *flags);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamShutdownWrite(
+    uint64_t stream);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamClose(uint64_t stream);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamLocalAddress(
+    uint64_t stream, NuppNativeV2NetAddress *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamPeerAddress(
+    uint64_t stream, NuppNativeV2NetAddress *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamSetNoDelay(
+    uint64_t stream, int32_t enabled);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamSetKeepAlive(
+    uint64_t stream, int32_t enabled, uint32_t delay_seconds);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetStreamRelease(uint64_t stream);
+/* Poll snapshots a monotonic activity generation. Recheck resource state
+ * before waiting from that generation so no readiness edge can be lost. */
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetPoll(uint64_t *generation);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2NetWait(
+    uint64_t generation, uint64_t timeout_ms, uint64_t *output_generation);
 
 /* Present when NUPP_NATIVE_V2_FEATURE_UUID is set. Both outputs require a
  * capacity of at least 37 bytes and include their trailing NUL. */

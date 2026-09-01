@@ -4,15 +4,17 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 CC=${NUPP_CC:-${CC:-cc}}
-PROVIDER=$($ROOT/scripts/toolchain native-rust files,gpu,http,process,uri,uuid)
+PROVIDER=$($ROOT/scripts/toolchain native-rust files,gpu,http,net,process,uri,uuid)
 DIRECTORY=$(dirname "$PROVIDER")
 TEMP=$(mktemp -d "${TMPDIR:-/tmp}/nupp-rust-abi.XXXXXX")
 trap 'rm -r "$TEMP"' EXIT HUP INT TERM
 OUTPUT="$TEMP/abi-smoke"
+NET_OUTPUT="$TEMP/net-abi-smoke"
 
 case "$(uname -s 2>/dev/null || printf unknown)" in
     MINGW*|MSYS*|CYGWIN*)
         OUTPUT="$OUTPUT.exe"
+        NET_OUTPUT="$NET_OUTPUT.exe"
         IMPORT="$DIRECTORY/libnupp_native_v2.dll.a"
         SEARCH_DIRECTORY="$DIRECTORY"
         if command -v cygpath >/dev/null 2>&1; then
@@ -26,17 +28,29 @@ case "$(uname -s 2>/dev/null || printf unknown)" in
             -I"$ROOT/native/include" "$ROOT/native/tests/abi_smoke.c" \
             "$IMPORT" -o "$OUTPUT"
         PATH="$SEARCH_DIRECTORY:$PATH" "$OUTPUT"
+        "$CC" -std=c11 -Wall -Wextra -Werror \
+            -I"$ROOT/native/include" "$ROOT/native/tests/net_abi_smoke.c" \
+            "$IMPORT" -o "$NET_OUTPUT"
+        PATH="$SEARCH_DIRECTORY:$PATH" "$NET_OUTPUT"
         ;;
     Darwin)
         "$CC" -std=c11 -Wall -Wextra -Werror \
             -I"$ROOT/native/include" "$ROOT/native/tests/abi_smoke.c" \
             "$PROVIDER" -Wl,-rpath,"$DIRECTORY" -o "$OUTPUT"
         "$OUTPUT"
+        "$CC" -std=c11 -Wall -Wextra -Werror \
+            -I"$ROOT/native/include" "$ROOT/native/tests/net_abi_smoke.c" \
+            "$PROVIDER" -Wl,-rpath,"$DIRECTORY" -o "$NET_OUTPUT"
+        "$NET_OUTPUT"
         ;;
     *)
         "$CC" -std=c11 -Wall -Wextra -Werror \
             -I"$ROOT/native/include" "$ROOT/native/tests/abi_smoke.c" \
             "$PROVIDER" -Wl,-rpath,"$DIRECTORY" -o "$OUTPUT"
         "$OUTPUT"
+        "$CC" -std=c11 -Wall -Wextra -Werror \
+            -I"$ROOT/native/include" "$ROOT/native/tests/net_abi_smoke.c" \
+            "$PROVIDER" -Wl,-rpath,"$DIRECTORY" -o "$NET_OUTPUT"
+        "$NET_OUTPUT"
         ;;
 esac
