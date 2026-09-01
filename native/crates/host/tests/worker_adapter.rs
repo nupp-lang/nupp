@@ -142,9 +142,11 @@ local cancelled, deadline
 repeat
     cancelled, deadline = workers.workerTaskCheckpoint()
 until cancelled
-assert(workers.channelPush(outbox, "cancelled", tostring(deadline)))
 local finished = workers.workerTaskFinish(id)
 assert(finished)
+-- Match the production scheduler boundary: the task reaches its terminal
+-- native state before the reply makes completion observable to the parent.
+assert(workers.channelPush(outbox, "cancelled", tostring(deadline)))
 "#;
     let mut runtime = runtime(payload);
     run(

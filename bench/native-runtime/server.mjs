@@ -1,10 +1,13 @@
 import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { createServer as createTcpServer } from "node:net";
 import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 
-const portFile = process.argv[2];
-if (!portFile) {
-  console.error("usage: node server.mjs PORT_FILE");
+const httpPortFile = process.argv[2];
+const netPortFile = process.argv[3];
+if (!httpPortFile || !netPortFile) {
+  console.error("usage: node server.mjs HTTP_PORT_FILE NET_PORT_FILE");
   process.exit(2);
 }
 
@@ -12,6 +15,9 @@ const small = Buffer.alloc(64, 0x61);
 const large = Buffer.alloc(4 * 1024 * 1024, 0x62);
 const slowChunk = Buffer.alloc(64 * 1024, 0x63);
 const slowBytes = 256 * 1024 * 1024;
+const slowWriterChunk = Buffer.alloc(1024, 0x64);
+const slowWriterBytes = 8 * 1024 * 1024;
+const netSlowWriterChunk = Buffer.alloc(1024, 0x65);
 
 async function sendSlow(res) {
   res.writeHead(200, {
@@ -21,6 +27,24 @@ async function sendSlow(res) {
   try {
     for (let sent = 0; sent < slowBytes; sent += slowChunk.length) {
       if (!res.write(slowChunk)) {
+        await once(res, "drain");
+      }
+    }
+    res.end();
+  } catch {
+    res.destroy();
+  }
+}
+
+async function sendSlowWriter(res) {
+  res.writeHead(200, {
+    "Content-Length": slowWriterBytes,
+    "Content-Type": "application/octet-stream",
+  });
+  try {
+    for (let sent = 0; sent < slowWriterBytes; sent += slowWriterChunk.length) {
+      await delay(10);
+      if (!res.write(slowWriterChunk)) {
         await once(res, "drain");
       }
     }
@@ -50,6 +74,10 @@ const server = createServer((req, res) => {
     void sendSlow(res);
     return;
   }
+  if (req.url === "/slow-writer") {
+    void sendSlowWriter(res);
+    return;
+  }
   res.writeHead(404, { "Content-Length": 0 });
   res.end();
 });
@@ -57,6 +85,26 @@ const server = createServer((req, res) => {
 server.on("clientError", (_error, socket) => socket.destroy());
 server.listen(0, "127.0.0.1", () => {
   const address = server.address();
-  writeFileSync(portFile, String(address.port), "ascii");
+  writeFileSync(httpPortFile, String(address.port), "ascii");
 });
 
+const tcpServer = createTcpServer((socket) => {
+  socket.on("error", () => socket.destroy());
+  void (async () => {
+    try {
+      while (!socket.destroyed) {
+        await delay(100);
+        if (!socket.write(netSlowWriterChunk)) {
+          await once(socket, "drain");
+        }
+      }
+    } catch {
+      socket.destroy();
+    }
+  })();
+});
+
+tcpServer.listen(0, "127.0.0.1", () => {
+  const address = tcpServer.address();
+  writeFileSync(netPortFile, String(address.port), "ascii");
+});

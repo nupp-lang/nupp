@@ -127,10 +127,7 @@ mod tests {
         let renamed = source.with_file_name("cli fixture.lua");
         std::fs::write(
             &renamed,
-            format!(
-                "assert(debug.getinfo(1, 'S').source == '@{}'); assert(arg[1] == 'one' and arg[2] == 'two')",
-                renamed.display()
-            ),
+            "assert(debug.getinfo(1, 'S').source == '@' .. arg[1]); assert(arg[2] == 'one' and arg[3] == 'two')",
         )
         .unwrap();
         let executable = std::env::current_exe().unwrap();
@@ -138,6 +135,7 @@ mod tests {
             Ok(executable.clone()),
             vec![
                 executable.into_os_string(),
+                renamed.clone().into_os_string(),
                 renamed.clone().into_os_string(),
                 OsString::from("one"),
                 OsString::from("two"),
