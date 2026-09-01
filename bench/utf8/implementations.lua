@@ -29,17 +29,13 @@ implementations.simd = assert(
    "build the utf8simd project first"
 )().isValid
 
---- The rock the module used to call, which is the number to beat.
-implementations.rock = require("lua-utf8").isvalid
-
-implementations.order = {"simd", "aot", "scalar", "shipped", "rock"}
+implementations.order = {"simd", "aot", "scalar", "shipped"}
 
 implementations.titles = {
    simd = "Nupp @aot SIMD",
    aot = "Nupp @aot",
    scalar = "Nupp @aot on LuaJIT",
    shipped = "nupp.data.utf8",
-   rock = "lua-utf8 (C)",
 }
 
 return implementations

@@ -28,9 +28,6 @@ extern const unsigned int nupp_host_zone_length;
 #if NUPP_FEATURE_LPEG
 extern int luaopen_lpeg(lua_State *state);
 #endif
-#if NUPP_FEATURE_LUA_UTF8
-extern int luaopen_utf8(lua_State *state);
-#endif
 
 /* --- the runtime -------------------------------------------------------- */
 
@@ -145,7 +142,6 @@ static void install_host_record(lua_State *state) {
     lua_setfield(state, -2, "hostAbi");
     lua_createtable(state, 0, 8);
     set_flag(state, "lpeg", NUPP_FEATURE_LPEG);
-    set_flag(state, "lua-utf8", NUPP_FEATURE_LUA_UTF8);
     set_flag(state, "native-files", NUPP_FEATURE_NATIVE_FILES);
     set_flag(state, "native-net", NUPP_FEATURE_NATIVE_NET);
     set_flag(state, "native-tls", NUPP_FEATURE_NATIVE_TLS);
@@ -190,11 +186,6 @@ static void open_libraries(lua_State *state) {
     free(preload_lua(state, "jit.zone", nupp_host_zone, nupp_host_zone_length));
 #if NUPP_FEATURE_LPEG
     preload_opener(state, "lpeg", luaopen_lpeg);
-#endif
-    /* Under the name luautf8 installs it as, since that is the name lunamark
-     * asks for; LuaJIT has no utf8 of its own to collide with. */
-#if NUPP_FEATURE_LUA_UTF8
-    preload_opener(state, "lua-utf8", luaopen_utf8);
 #endif
 #if NUPP_FEATURE_WORKERS
     preload_opener(state, "nupp.workers.native", nupp_host_workers_open);

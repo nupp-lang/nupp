@@ -10,7 +10,7 @@ local function differential()
    for _, name in ipairs(implementations.order) do subjects[#subjects + 1] = name end
 
    local function agree(value, what)
-      local want = implementations.rock(value)
+      local want = implementations.shipped(value)
       for _, name in ipairs(subjects) do
          local got = implementations[name](value)
          if got ~= want then
@@ -62,7 +62,7 @@ local function differential()
    end
    print("differential: every byte, every pair, every prefix and suffix of a sample,")
    print("200000 random strings, and every corruption, truncation and block-edge")
-   print("straddle of a multi-block string -- all five agree\n")
+   print("straddle of a multi-block string -- all four agree\n")
 end
 
 local function corpus(make) local l = {} for i = 1, 64 do l[i] = make(i) end return l end
@@ -102,9 +102,9 @@ for _, case in ipairs(CASES) do
    io.write(("%-24s"):format(label))
    for _, name in ipairs(implementations.order) do io.write(("%13.0f MB/s"):format(rates[name])) end
    print()
-   io.write(("%-24s"):format("  against the rock"))
+   io.write(("%-24s"):format("  against shipped"))
    for _, name in ipairs(implementations.order) do
-      io.write(("%19.2fx"):format(rates[name] / rates.rock))
+      io.write(("%19.2fx"):format(rates[name] / rates.shipped))
    end
    print()
 end

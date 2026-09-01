@@ -407,6 +407,7 @@ local DEPENDENCY_KEYS: {
         "server",
         "luaDir",
         "luarocks",
+        "rockDependencies",
         "bundle"
     },
     types = {"kind", "format", "source", "path"},
@@ -898,6 +899,9 @@ local function validateRock(dep, label)
     local valid, err = validateArray(dep.bundle, label .. ".bundle", "string")
     if not valid then
         return nil, err
+    end
+    if dep.rockDependencies ~= nil and type(dep.rockDependencies) ~= "boolean" then
+        return nil, label .. ".rockDependencies must be a boolean"
     end
     -- LuaRocks resolves what a rock needs. Letting one name a dependency here would
     -- read as declaring that and mean nothing, which is the one way a configuration

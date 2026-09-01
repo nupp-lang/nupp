@@ -1101,6 +1101,9 @@ local function buildRock(root, outDir, name, dep, previous)
                 install[#install + 1] = dep.version
             end
         end
+        if dep.rockDependencies == false then
+            install[#install + 1] = "--deps-mode=none"
+        end
         local code, printed = process.capture(install, {cwd = source})
         if code ~= 0 then
             io.stderr:write(printed)

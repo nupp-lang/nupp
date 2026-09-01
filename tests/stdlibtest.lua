@@ -1102,10 +1102,6 @@ function M.nativeFeaturesAreResolvedEffects()
    assert(expanded["native.uri"], "HTTP brings the URI provider")
    assert(expanded["stdlib.io"], "HTTP brings buffers and stream contracts")
 
-   local utf8 = effectsOf("local utf8 = require('lua-utf8')")
-   assert(utf8["native.lua_utf8"],
-      "require('lua-utf8') records its native effect")
-
    local shadowed = effectsOf(table.concat({
       "local nupp = {data = {sha256 = function() end}}",
       "nupp.data.sha256()",
@@ -1579,22 +1575,24 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
 end
 
 
--- Encoding is Nupp rather than the rock's `char`. The rock is still installed for
--- the documentation build, so it stands here as the answer key: every boundary
--- between sequence lengths, both ends of the surrogate block, and the first value
--- that is not a codepoint at all.
-function M.utf8EncodingMatchesTheRockAtEveryBoundary()
+-- Encoding is Nupp throughout. Pin every boundary between sequence lengths,
+-- both ends of the surrogate block, and the first value that is not a codepoint.
+function M.utf8EncodingCoversEveryBoundary()
    local utf8 = require("nupp.data.utf8")
-   local rock = require("lua-utf8")
    local boundaries = {
-      0, 1, 0x7F, 0x80, 0x7FF, 0x800,
-      0xD7FF, 0xD800, 0xDFFF, 0xE000,   -- a surrogate half encodes; `isValid` is what refuses it
-      0xFFFF, 0x10000, 0x10FFFF,
-      0x24, 0xA2, 0x20AC, 0x1F600,
+      {0, "\0"}, {1, "\1"}, {0x7F, "\127"},
+      {0x80, "\194\128"}, {0x7FF, "\223\191"}, {0x800, "\224\160\128"},
+      {0xD7FF, "\237\159\191"},
+      {0xD800, "\237\160\128"}, -- a surrogate half encodes; `isValid` refuses it
+      {0xDFFF, "\237\191\191"}, {0xE000, "\238\128\128"},
+      {0xFFFF, "\239\191\191"}, {0x10000, "\240\144\128\128"},
+      {0x10FFFF, "\244\143\191\191"},
+      {0x24, "$"}, {0xA2, "\194\162"}, {0x20AC, "\226\130\172"},
+      {0x1F600, "\240\159\152\128"},
    }
-   for _, codepoint in ipairs(boundaries) do
-      assertEq(utf8.encode(codepoint), rock.char(codepoint),
-         ("the encoding of U+%04X"):format(codepoint))
+   for _, case in ipairs(boundaries) do
+      assertEq(utf8.encode(case[1]), case[2],
+         ("the encoding of U+%04X"):format(case[1]))
    end
    assertEq(utf8.isValid(utf8.encode(0xD800)), false, "an encoded surrogate half is not valid UTF-8")
    assertEq(utf8.decodeAt(utf8.encode(0x1F600), 1), 0x1F600, "a four-byte scalar decodes back")
@@ -1604,8 +1602,7 @@ function M.utf8EncodingMatchesTheRockAtEveryBoundary()
 end
 
 -- Every shape a lead byte alone cannot rule out, and the well-formed ones
--- around each boundary. `true` is what `lua-utf8` says about the bytes, and the
--- rock is asserted beside each use so the answer key cannot drift either.
+-- around each boundary.
 local UTF8_SHAPES = {
    {"A", true},
    {"caf\xc3\xa9", true, "a two-byte scalar"},
@@ -1643,11 +1640,9 @@ local UTF8_SHAPES = {
 -- asked of it here; decoding is the SIMD parser, which needs a compiled entry.
 function M.jsonEncodingRefusesEveryMalformedUtf8Shape()
    local json = require("nupp.data.json.aot")
-   local rock = require("lua-utf8")
    for _, case in ipairs(UTF8_SHAPES) do
       local value, valid = case[1], case[2]
       local what = case[3] or ("%q"):format(value)
-      assertEq(rock.isvalid(value), valid, "the rock disagrees about " .. what)
       local ok, result = pcall(json.encode, value)
       assertEq(ok, valid, "encoding " .. what)
       if valid then
@@ -1661,27 +1656,23 @@ function M.jsonEncodingRefusesEveryMalformedUtf8Shape()
    end
 end
 
--- `nupp.data.utf8` validates in Nupp now. The rock is still installed for the
--- documentation build, so it stands here as the answer key over the same shapes
--- the encoder is held to, and `validPrefixLength` is checked for being maximal
--- rather than merely valid -- the property that keeps a fixed-width field from
--- splitting a scalar without also throwing away a whole one.
-function M.utf8ValidationAgreesWithTheRockOnEveryShape()
+-- `validPrefixLength` is checked for being maximal rather than merely valid --
+-- the property that keeps a fixed-width field from splitting a scalar without
+-- also throwing away a whole one.
+function M.utf8ValidationCoversEveryShape()
    local utf8 = require("nupp.data.utf8")
-   local rock = require("lua-utf8")
    for _, case in ipairs(UTF8_SHAPES) do
       local value, valid = case[1], case[2]
       local what = case[3] or ("%q"):format(value)
-      assertEq(rock.isvalid(value), valid, "the rock disagrees about " .. what)
       assertEq(utf8.isValid(value), valid, "validating " .. what)
       -- The longest valid prefix within every budget the value admits.
       for budget = 0, #value do
          local length = utf8.validPrefixLength(value, budget)
          assert(length <= budget, "a prefix of " .. what .. " overran its budget")
-         assert(rock.isvalid(value:sub(1, length)),
+         assert(utf8.isValid(value:sub(1, length)),
             ("prefix %d of %s is not valid"):format(length, what))
          if length < budget then
-            assert(not rock.isvalid(value:sub(1, length + 1)),
+            assert(not utf8.isValid(value:sub(1, length + 1)),
                ("prefix %d of %s was not maximal"):format(length, what))
          end
       end
@@ -1801,18 +1792,14 @@ end
 
 function M.nativeFeatureOverridesAreTriState()
    local automatic = { ["native.uri"] = true, ["native.json"] = true }
-   local resolved = native.resolve(automatic, {uri = false, lua_utf8 = true})
+   local resolved = native.resolve(automatic, {uri = false, path = true})
    assert(not resolved["native.uri"], "false removes a detected feature")
    assert(resolved["native.json"], "an absent override remains automatic")
-   assert(resolved["native.lua_utf8"], "true adds an undetected feature")
+   assert(resolved["runtime.path"], "true adds an undetected feature")
 
-   local external = native.sourceEffects(table.concat({
-      "local lpeg = require('lpeg')",
-      "local utf8 = require('lua-utf8')",
-   }, "\n"), "rock.lua", sharedEnv)
+   local external = native.sourceEffects("local lpeg = require('lpeg')", "rock.lua", sharedEnv)
    assert(external["native.lpeg"],
       "bundled Lua contributes native LPeg")
-   assert(external["native.lua_utf8"], "bundled Lua contributes lua-utf8")
 end
 
 function M.selectOverloadsSeparateCountFromPackSelection()

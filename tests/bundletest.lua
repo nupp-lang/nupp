@@ -207,10 +207,10 @@ return loaded
    local target = {kind = "binary", outDir = "build", entries = {"main"}}
    local modules = {main = {output = dir .. "/build/main.lua"}}
    local text = assert(packaging.bundleText(
-      dir, {}, target, nil, modules, false, nil, {}, {"lua-utf8"}
+      dir, {}, target, nil, modules, false, nil, {}, {"workers"}
    ))
    local again = assert(packaging.bundleText(
-      dir, {}, target, nil, modules, false, nil, {}, {"lua-utf8"}
+      dir, {}, target, nil, modules, false, nil, {}, {"workers"}
    ))
    assert(text == again, "the payload depends on selected features, not ambient stub state")
 
@@ -218,7 +218,7 @@ return loaded
    -- because a module that was not preloaded saves as nil and `pairs` does not
    -- visit it. Restoring by iteration therefore left this test's stub opener
    -- installed for every later `require` of it.
-   local stubbed = {"lpeg", "lua-utf8", "nupp.workers.native"}
+   local stubbed = {"lpeg", "nupp.workers.native"}
    local savedPreloads, savedLoaded = {}, package.loaded.lpeg
    local savedPath, savedCpath = package.path, package.cpath
    for _, name in ipairs(stubbed) do
@@ -229,15 +229,12 @@ return loaded
    package.path, package.cpath = "", ""
    _G.__nuppHost = {hostAbi = 1, hostFeatures = {
       lpeg = true,
-      ["lua-utf8"] = true,
       workers = true,
    }}
    local loaded = assert(loadstring(text))()
    assert(not loaded, "a computed require cannot observe an unselected universal feature")
-   assert(package.preload["lua-utf8"], "selected UTF-8 opener remains visible")
-   assert(package.preload.lpeg == nil
-      and package.preload["nupp.workers.native"] == nil,
-      "unselected universal openers are removed")
+   assert(package.preload["nupp.workers.native"], "selected worker opener remains visible")
+   assert(package.preload.lpeg == nil, "unselected universal openers are removed")
    assert(_G.__nuppHost == nil, "the private handshake is gone before user code")
    package.loaded.lpeg = savedLoaded
    package.path, package.cpath = savedPath, savedCpath

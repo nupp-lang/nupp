@@ -309,17 +309,36 @@ return {
    -- and `tests/run` put that tree on the search path, and a build puts it
    -- there for itself, so nothing here is installed globally.
    dependencies = {
-      -- Renders the markdown. Pulls in lpeg, cosmo, alt-getopt and luautf8,
-      -- which LuaRocks resolves rather than this file listing them.
+      -- Lunamark's rockspec names an obsolete native UTF-8 module. Its actual
+      -- retained dependencies are pinned here, and Nupp supplies the two UTF-8
+      -- operations Lunamark needs while constructing its parser.
+      lunamark_lpeg = {
+         kind = "luarocks",
+         rock = "lpeg",
+         version = "1.1.0-2",
+      },
+      lunamark_cosmo = {
+         kind = "luarocks",
+         rock = "cosmo",
+         version = "16.06.04-1",
+      },
+      lunamark_getopt = {
+         kind = "luarocks",
+         rock = "alt-getopt",
+         version = "0.8.0-2",
+      },
+      -- Renders the markdown. The retained rocks it needs are listed above so
+      -- their dependency boundary is Nupp's rather than upstream's.
       --
       -- `bundle` is what a binary carries. The official `re.lua` frontend is Lua
-      -- payload; LPeg itself and the utf8 the entity table needs are native host
-      -- features selected from the bundled sources. Named rather than swept,
+      -- payload; LPeg itself is a native host feature selected from the bundled
+      -- sources. Named rather than swept,
       -- because the tree also holds a command-line program and its tests, which
       -- nothing here ever asks for.
       lunamark = {
          kind = "luarocks",
          version = "0.6.0-1",
+         rockDependencies = false,
          bundle = {
             "lunamark.lua", "lunamark/**.lua",
             "cosmo.lua", "cosmo/**.lua",
@@ -416,7 +435,10 @@ return {
             -- Carried, not just installed: a binary is handed to someone who
             -- has no rock tree, and `nupp doc` is one of the commands it
             -- claims to have.
-            dependencies = { "lunamark", "scintillua" },
+            dependencies = {
+               "lunamark_lpeg", "lunamark_cosmo", "lunamark_getopt",
+               "lunamark", "scintillua",
+            },
             backends = { "nupp.runtime.backend.lunajson" },
             nativeFeatures = COMPILER_NATIVE_FEATURES,
             resources = RESOURCES,
@@ -426,7 +448,10 @@ return {
          },
          docs = {
             kind = "docs",
-            dependencies = { "lunamark", "scintillua" },
+            dependencies = {
+               "lunamark_lpeg", "lunamark_cosmo", "lunamark_getopt",
+               "lunamark", "scintillua",
+            },
             sources = { "src" },
             format = "both",
             outDir = "build/docs",

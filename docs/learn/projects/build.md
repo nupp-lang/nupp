@@ -292,17 +292,16 @@ keeps the detected answer.
 nativeFeatures = {
    json = true,
    lpeg = true,
-   lua_utf8 = false,
    uuid = true
 }
 ```
 
-The forceable binary feature names are `json`, `lpeg`, `lua_utf8`, `path`,
+The forceable binary feature names are `json`, `lpeg`, `path`,
 `uri`, `uuid`, `files`, `process`, `workers`, and `http`. The registered module
-effects include `nupp.data.json`, native `lpeg`, the Lua `re`
-module that requires it, and `lua-utf8`. Bundled LuaRock modules are checked
-too, so Lunamark contributes LPeg and lua-utf8 even when application source
-does not require either one directly. Forced removal is an expert escape hatch:
+effects include `nupp.data.json`, native `lpeg`, and the Lua `re`
+module that requires it. Bundled LuaRock modules are checked too, so Lunamark
+contributes LPeg even when application source does not require it directly.
+Forced removal is an expert escape hatch:
 if reachable code still requires that provider, the resulting program fails at
 runtime in the usual way.
 
@@ -988,6 +987,12 @@ A rock must be pinned by one of those three, a `version`, a `rockspec`, or a
 starts. Naming both a `version` and a `rockspec` that declares a different one
 is refused too. A rock does not list `dependencies` of its own: LuaRocks
 resolves what a rock needs, which is the reason to use it.
+
+`rockDependencies = false` passes `--deps-mode=none` when an upstream rockspec's
+dependency list is deliberately unsuitable. The target must name separately
+pinned rock dependencies before that rock; Nupp does not infer or replace what
+was disabled. This is an escape hatch for taking ownership of a dependency
+boundary, not an unpinned-install mode.
 
 | Field | Meaning |
 | --- | --- |

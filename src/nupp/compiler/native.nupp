@@ -65,10 +65,6 @@ local FEATURES: {[string]: native.Feature} = {
         binary = true,
         requires = {"runtime.native_v2", "runtime.spanview"},
     },
-    -- The rock, for source that requires it by name. `nupp.data.utf8` is not
-    -- that source any more, so this is reached only through bundled Lua --
-    -- lunamark's entity table -- and no longer through the standard library.
-    ["native.lua_utf8"] = {name = "lua_utf8", module = "lua-utf8", host = "lua-utf8", binary = true,},
     -- UTF-8 itself, which is Nupp and so asks the host for nothing. The record
     -- exists to attribute the module rather than to select anything.
     ["runtime.data_utf8"] = {name = "data_utf8", modules = {"nupp.data.utf8"},},

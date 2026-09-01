@@ -145,7 +145,7 @@ end
 function M.everyPinHasAVersionAndADigest()
    local recorded = pins()
    for _, component in ipairs({
-      "LUAJIT", "LUAROCKS", "LPEG", "LUAUTF8",
+      "LUAJIT", "LUAROCKS", "LPEG",
    }) do
       local marker = component == "LUAJIT" and "REV" or "VERSION"
       assert(recorded[component .. "_" .. marker],
@@ -162,7 +162,7 @@ end
 -- pin for which no notice exists would make that check unreachable.
 function M.everyPinnedSourceHasANotice()
    for _, notice in ipairs({
-      "LuaJIT-COPYRIGHT.txt", "LPeg-LICENSE.txt", "luautf8-LICENSE.txt",
+      "LuaJIT-COPYRIGHT.txt", "LPeg-LICENSE.txt",
    }) do
       assert(io.open(ROOT .. "/host/notices/" .. notice, "rb"),
          "host/notices/" .. notice .. " is missing")

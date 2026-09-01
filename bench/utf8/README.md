@@ -1,46 +1,45 @@
-# UTF-8 validation, five ways
+# UTF-8 validation, four ways
 
-What `nupp.data.utf8.isValid` is worth written five different ways, on one
+What `nupp.data.utf8.isValid` is worth written four different ways, on one
 machine in one run: the lookup4 SIMD validator `nupp.simd` carries, the same
 scalar ladder compiled by `@aot` and left to LuaJIT, the ordinary Nupp that
-ships, and the `lua-utf8` rock the module used to call.
+ships.
 
 ```sh
-./run.sh          # in-process, all five interleaved
+./run.sh          # in-process, all four interleaved
 ```
 
 `tests/one.lua` runs one implementation over one corpus in a process of its own.
-Prefer it for anything but the two compiled entries: five validators in one
-process is five sets of traces competing for the same specialization, and the
+Prefer it for anything but the two compiled entries: four validators in one
+process is four sets of traces competing for the same specialization, and the
 ones that are Lua read low there. A compiled entry is a registered C closure and
 does not care either way.
 
 ## What it found
 
-Best of seven, one implementation and one corpus a process, against the rock:
+Best of seven, one implementation and one corpus a process, against the shipped
+Nupp implementation:
 
-| corpus                 |  SIMD | `@aot` | `@aot` on LuaJIT | `nupp.data.utf8` |  rock |
-| ---------------------- | ----: | -----: | ---------------: | ---------------: | ----: |
-| short ascii (8-24 B)   | 0.61x |  0.74x |            0.20x |            1.29x | 1.00x |
-| short accented (~20 B) | 0.57x |  0.74x |            0.20x |            0.64x | 1.00x |
-| short CJK (~24 B)      | 0.60x |  0.70x |            0.24x |            0.96x | 1.00x |
-| json-ish 4 KiB         | 2.92x |  1.00x |            0.04x |            0.75x | 1.00x |
-| CJK 900 B              | 4.18x |  0.76x |            0.11x |            0.88x | 1.00x |
-| ascii 1 MiB            | 2.93x |  1.00x |            0.04x |            0.75x | 1.00x |
+| corpus                 |  SIMD | `@aot` | `@aot` on LuaJIT | `nupp.data.utf8` |
+| ---------------------- | ----: | -----: | ---------------: | ---------------: |
+| short ascii (8-24 B)   | 0.47x |  0.57x |            0.16x |            1.00x |
+| short accented (~20 B) | 0.89x |  1.16x |            0.31x |            1.00x |
+| short CJK (~24 B)      | 0.63x |  0.73x |            0.25x |            1.00x |
+| json-ish 4 KiB         | 3.89x |  1.33x |            0.05x |            1.00x |
+| CJK 900 B              | 4.75x |  0.86x |            0.13x |            1.00x |
+| ascii 1 MiB            | 3.91x |  1.33x |            0.05x |            1.00x |
 
 Three answers, and they do not point the same way.
 
-**On a buffer, SIMD is three to four times the C.** 11.9 GB/s on a megabyte of
-ASCII against the rock's 4.1, and 4.18x on dense CJK, where a scalar validator
-spends most of its time on continuation bytes and lookup4 does not care. This is
-the ceiling, and it is a long way above where the module sits.
+**On a buffer, SIMD is about four times the shipped implementation.** A scalar
+validator spends most of its time on continuation bytes and lookup4 does not
+care. This is the ceiling, and it is a long way above where the module sits.
 
-**The scalar `@aot` entry ties the C** on the same buffers -- 4085 MB/s against
-4088 -- and does not beat it. Validation is a branch a byte with no arithmetic
-to speak of, so there is nothing for a C compiler to win that LuaJIT has not
-already won; `bench/sha256` found the opposite because a digest is arithmetic.
+**The scalar `@aot` entry modestly beats the shipped implementation on large
+buffers.** Validation is a branch a byte with no arithmetic to speak of;
+`bench/sha256` found a larger compiler gain because a digest is arithmetic.
 
-**Every compiled form loses on short values.** 0.57x to 0.74x at eight to
+**Every compiled form loses on short values.** 0.47x to 0.89x at eight to
 twenty-four bytes, where the Lua-to-C boundary is most of the call and, for the
 SIMD entry, the species, the three nibble tables and the padded string are set
 up to validate twenty bytes. Short values are most of what a program validates.
@@ -72,8 +71,8 @@ four-byte scalar deliberately straddling each of the first three block edges.
 ## What the port ran into
 
 The shape of the body was most of the scalar answer. The first version carried a
-`bad` flag to a single exit and ran at half the rock; rewriting it to return
-from wherever it finds out took a megabyte of ASCII from 2.0 GB/s to 4.1. Per
+`bad` flag to a single exit; rewriting it to return from wherever it finds out
+took a megabyte of ASCII from 2.0 GB/s to 4.1. Per
 ASCII byte the flag form set four locals and tested three, where the ladder
 tests one byte and advances.
 

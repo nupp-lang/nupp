@@ -2694,6 +2694,7 @@ end
 -- it replaced got wrong, so they are the ones worth pinning.
 function M.markdownIsRenderedByLunamark()
    local html = require("nupp.compiler.doc.html")
+   local previousUtf8 = package.loaded["lua-utf8"]
    local cases = {
       {"**a *nested* b**", "<strong>a <em>nested</em> b</strong>"},
       {"a \\*escaped\\* b", "a *escaped* b"},
@@ -2717,6 +2718,18 @@ function M.markdownIsRenderedByLunamark()
    assert(windows:find("<p>after</p>", 1, true), windows)
    -- A summary is a sentence, so the one paragraph around it goes.
    assert(html.inlineHtml("a **bold** one") == "a <strong>bold</strong> one")
+
+   local entities = html.markdownHtml("&#x20AC; &copy;", {})
+   assert(entities:find("€ ©", 1, true), entities)
+
+   local asciiReference = html.markdownHtml("[label][TAG]\n\n[tag]: /ascii", {})
+   assert(asciiReference:find('href="/ascii"', 1, true), asciiReference)
+   local exactUnicode = html.markdownHtml("[label][CAFÉ]\n\n[CAFÉ]: /exact", {})
+   assert(exactUnicode:find('href="/exact"', 1, true), exactUnicode)
+   local differentUnicode = html.markdownHtml("[label][CAFÉ]\n\n[café]: /different", {})
+   assert(not differentUnicode:find('href="/different"', 1, true), differentUnicode)
+   assert(package.loaded["lua-utf8"] == previousUtf8,
+      "the Lunamark adapter does not expose a lua-utf8 module")
 end
 
 -- Fenced regions are lifted out before lunamark sees them, which is what keeps

@@ -35,6 +35,7 @@ local stringsMod = require("nupp.compiler.doc.strings")
 local highlightMod = require("nupp.compiler.doc.highlight")
 local urlsMod = require("nupp.compiler.doc.urls")
 local syntax = require("nupp.compiler.doc.syntax")
+local utf8 = require("nupp.data.utf8")
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local headingId = stringsMod.headingId
@@ -395,11 +396,20 @@ end
 -- which is the only caller.
 local parse, headings, headingIndex, headingShiftBy = nil, {}, 0, 1
 
-local function buildParser()
-    local ok, lunamark = pcall(require, "lunamark")
-    if not ok then
-        return nil, lunamark
-    end
+-- Lunamark 0.6 asks for the `lua-utf8` rock in two places. Nupp supplies the
+-- two operations for the duration of parser construction instead of carrying a
+-- native compatibility library in every compiler host. Numeric and named HTML
+-- entities use the standard library encoder. Reference labels deliberately fold
+-- ASCII only: their non-ASCII UTF-8 bytes are exact and independent of the C
+-- locale or of a particular Unicode casing-table revision.
+local function referenceLower(text: string): string
+    return (text:gsub("[A-Z]", function(character: string): string
+        return string.char((string.byte(character) as integer) + 32)
+    end))
+end
+
+local function lunamarkParser(): any
+    local lunamark: any = require("lunamark")
     local writer = lunamark.writer.html.new()
     writer.header = function(content, level)
         headingIndex = headingIndex + 1
@@ -430,6 +440,23 @@ local function buildParser()
         header_attributes = true,
         pipe_tables = true,
     })
+end
+
+local function buildParser()
+    local previousPreload = package.preload["lua-utf8"]
+    local previousLoaded = package.loaded["lua-utf8"]
+    package.loaded["lua-utf8"] = nil
+    package.preload["lua-utf8"] = function()
+        return {char = utf8.encode, lower = referenceLower}
+    end
+    local ok, built = pcall(lunamarkParser)
+    rawset(package.preload, "lua-utf8", previousPreload)
+    rawset(package.loaded, "lua-utf8", previousLoaded)
+    if not ok then
+        return nil, built
+    end
+
+    return built
 end
 
 markdownHtml = function(text: string?, links: nupp.compiler.doc.urls.Links?, headingShift: integer?): string

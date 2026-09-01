@@ -947,10 +947,9 @@ return {include = {"src"}, build = {targets = {app = {
       return config, err, task
    end
 
-   local config, err, task = load("{lpeg = true, lua_utf8 = false, path = true, uuid = false}")
+   local config, err, task = load("{lpeg = true, path = true, uuid = false}")
    assert(config, "boolean native feature overrides are accepted: " .. tostring(err))
    assertEq(task.nativeFeatures.lpeg, true, "task reports forced inclusion")
-   assertEq(task.nativeFeatures.lua_utf8, false, "task reports forced removal")
    assertEq(task.nativeFeatures.path, true, "new native providers can be forced in")
    assertEq(task.nativeFeatures.uuid, false, "new native providers can be forced out")
 
@@ -2952,6 +2951,31 @@ return {
    remove(dir)
 end
 
+function M.rockDependenciesCanBeOwnedByTheManifest()
+   local files = tinyRockFiles()
+   files["vendor/tinyrock/tinyrock-1.0-1.rockspec"] = TINY_ROCKSPEC:gsub(
+      'dependencies = { "lua >= 5.1" }',
+      'dependencies = { "lua >= 5.1", "dependency-nupp-does-not-install >= 1" }'
+   )
+   files["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny = {kind = "luarocks", rock = "tinyrock", path = "vendor/tinyrock",
+         rockspec = "vendor/tinyrock/tinyrock-1.0-1.rockspec",
+         rockDependencies = false},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]]
+   local dir = tempProject(files)
+   assertEq(project.build(dir), 0,
+      "an explicitly owned rock dependency list is not resolved by LuaRocks")
+   assert(exists(dir .. "/.rocks/share/lua/5.1/tinyrock.lua"),
+      "disabling transitive resolution still installs the selected rock")
+   remove(dir)
+end
+
 -- A rock's `nupp` directory is copied into its versioned installation beside the
 -- rockspec. It is not on Lua's runtime path; Nupp alone reads the declaration that
 -- mirrors the module LuaRocks installed.
@@ -3131,6 +3155,20 @@ return {
    assertEq(config, nil, "a rock does not declare what LuaRocks resolves")
    assert(err:find("LuaRocks resolves", 1, true), err)
    remove(nested)
+
+   local wrongMode = tempProject({
+      ["nupp.lua"] = [[
+return {
+   dependencies = {lunamark = {kind = "luarocks", version = "0.6.0-1",
+      rockDependencies = "no"}},
+   build = {entries = {"main"}},
+}
+]],
+   })
+   config, err = project.loadManifest(wrongMode)
+   assertEq(config, nil, "the rock dependency policy is a boolean")
+   assert(err:find("rockDependencies must be a boolean", 1, true), err)
+   remove(wrongMode)
 end
 
 -- A version in the manifest and a version in the rockspec are two claims about

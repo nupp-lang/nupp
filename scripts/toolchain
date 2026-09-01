@@ -2,9 +2,8 @@
 # Provisions the native prerequisites Nupp builds against.
 #
 # Nupp asks for a C and a C++ compiler. Everything else it needs to build itself
-# -- the LuaJIT the compiler runs on, the LPeg the documentation renderer parses
-# with and the utf8 library its entity table wants -- is fetched here from a
-# pinned source, verified against a digest,
+# -- the LuaJIT the compiler runs on and the LPeg the documentation renderer
+# parses with -- is fetched here from a pinned source, verified against a digest,
 # built with that compiler pair, and cached.
 #
 # This is the only thing that builds those. A component is asked for by name and
@@ -35,7 +34,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks lpeg lpeg-source luautf8
+Components: luajit luarocks lpeg lpeg-source
             swiftshader
             native-rust FEATURES
             rust-vendor OUTPUT
@@ -772,10 +771,9 @@ build_luarocks() {
     release_lock
 }
 
-# One Lua C module built straight from its sources. Neither LPeg nor luautf8
-# ships a makefile worth driving from here: both are a handful of files against
-# the Lua headers, and naming the files is shorter than teaching their build
-# systems where the staged LuaJIT is.
+# LPeg is built straight from its sources. It is a handful of files against the
+# Lua headers, and naming them is shorter than teaching its build system where
+# the staged LuaJIT is.
 build_lua_module() {
     name=$1 out=$2 tree=$3 include=$4
     shift 4
@@ -830,24 +828,6 @@ build_lpeg() {
     # the module it parses with.
     mkdir -p "$out/share"
     cp "$tree/re.lua" "$out/share/re.lua"
-    printf 'done\n' > "$out/.complete"
-    release_lock
-}
-
-build_luautf8() {
-    out="$PREFIX/luautf8"
-    include=$(luajit_include)
-    take_lock luautf8 "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
-
-    directory="luautf8-$LUAUTF8_VERSION"
-    url="https://github.com/starwing/luautf8/archive/refs/tags/$LUAUTF8_VERSION.tar.gz"
-    tree=$(source_tree "$directory" "$url" "$LUAUTF8_SHA256" "$LUAUTF8_MARKER")
-    verify_notice "$tree/LICENSE" luautf8-LICENSE.txt
-
-    note "building luautf8 with $CC"
-    rm -rf "$out"
-    build_lua_module lua-utf8 "$out" "$tree" "$include" lutf8lib.c
     printf 'done\n' > "$out/.complete"
     release_lock
 }
@@ -957,7 +937,7 @@ build_host() {
     mkdir -p "$out/objects"
     write_vmdef "$out/objects/vmdef.c"
 
-    defines="-DNUPP_FEATURE_LPEG=0 -DNUPP_FEATURE_LUA_UTF8=0"
+    defines="-DNUPP_FEATURE_LPEG=0"
     defines="$defines -DNUPP_FEATURE_WORKERS=0 -DNUPP_FEATURE_NATIVE_FILES=0"
     defines="$defines -DNUPP_FEATURE_NATIVE_NET=0 -DNUPP_FEATURE_NATIVE_TLS=0"
     defines="$defines -DNUPP_FEATURE_NATIVE_PROCESS=0"
@@ -969,11 +949,6 @@ build_host() {
                 lpeg_prefix=$(build_lpeg; printf '%s' "$PREFIX/lpeg")
                 defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_LPEG=0/-DNUPP_FEATURE_LPEG=1/')
                 libraries="$libraries $lpeg_prefix/lib/liblpeg.a"
-                ;;
-            lua-utf8)
-                utf8_prefix=$(build_luautf8; printf '%s' "$PREFIX/luautf8")
-                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_LUA_UTF8=0/-DNUPP_FEATURE_LUA_UTF8=1/')
-                libraries="$libraries $utf8_prefix/lib/liblua-utf8.a"
                 ;;
             workers)
                 defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_WORKERS=0/-DNUPP_FEATURE_WORKERS=1/')
@@ -1106,7 +1081,6 @@ $1"
     for feature in $(printf '%s' "$features" | tr ',' ' '); do
         case "$feature" in
             lpeg)       set -- "$@" "$PREFIX/lpeg/lib/liblpeg.a" ;;
-            lua-utf8)   set -- "$@" "$PREFIX/luautf8/lib/liblua-utf8.a" ;;
         esac
     done
     case "$PLATFORM" in
@@ -1165,7 +1139,6 @@ case "$1" in
         build_luajit
         build_luarocks
         build_lpeg
-        build_luautf8
         exit 0
         ;;
     native-rust)
@@ -1209,7 +1182,6 @@ for component in "$@"; do
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
         lpeg)     build_lpeg;     native_path "$PREFIX/lpeg" ;;
         lpeg-source) native_path "$(lpeg_source)" ;;
-        luautf8)  build_luautf8;  native_path "$PREFIX/luautf8" ;;
         swiftshader) build_swiftshader; cat "$PREFIX/swiftshader/.icd" ;;
         *) note "unknown component $component"; usage ;;
     esac

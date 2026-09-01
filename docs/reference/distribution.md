@@ -202,7 +202,7 @@ window and own an event loop before step 6; Nupp's own does none of that.
 
 ## Host source acquisition
 
-The compiler-owned toolchain builds pinned LuaJIT, LuaRocks, LPeg and luautf8
+The compiler-owned toolchain builds pinned LuaJIT, LuaRocks and LPeg
 sources rather than committing generated native artifacts or source archives.
 An ordinary cold build downloads
 the exact upstream files and verifies their SHA-256 digests before extraction
@@ -227,7 +227,6 @@ their extracted directories:
 LuaJIT-1edc3e52b67eaf6ce5f809be8e17d6862594b8bc.tar.gz
 luarocks-3.13.0.tar.gz
 lpeg-1.1.0.tar.gz
-luautf8-0.2.1.tar.gz
 ```
 
 Every supplied archive is checked against the same committed digest as a
@@ -287,7 +286,7 @@ Release CI uses a Developer ID identity and notarizes the final stamped bytes.
 
 ## Third-party notices
 
-The compiler-owned stub links LuaJIT, its selected LPeg and luautf8 modules, and
+The compiler-owned stub links LuaJIT, its selected LPeg module, and
 one feature-selected Rust provider archive. A stamped binary or provider is a
 distribution of what it links, so the notices ship in
 [`host/NOTICE.md`](https://github.com/nupp-lang/nupp/blob/main/host/NOTICE.md)
@@ -395,9 +394,10 @@ A distributed binary is deliberately none of these things.
   tagged releases do not yet publish cross-target compiler packs. Prebuilt
   target-indexed C archives remain usable without compiling their sources.
 
-  Nupp's compiler payload detects two native modules, and its compiler-owned
-  host links exactly those features: LPeg, which backs direct LPeg patterns and every
-  general `nupp.peg` matcher; and `luautf8`, which Lunamark's entity table uses.
+  Nupp's compiler payload detects one native module, and its compiler-owned
+  host links exactly that feature: LPeg, which backs direct LPeg patterns and every
+  general `nupp.peg` matcher. Nupp supplies Lunamark's entity encoder and
+  reference-label normalizer from its own payload.
   Filesystem and network operations, TLS, clocks, payload trailer verification
   and child processes come from the feature-selected Rust native archive linked
   into the host.

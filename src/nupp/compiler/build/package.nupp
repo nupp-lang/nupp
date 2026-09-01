@@ -151,7 +151,6 @@ local function bundleText(
         if not component then
             local preloads = {
                 {feature = "lpeg", modules = {"lpeg"}},
-                {feature = "lua-utf8", modules = {"lua-utf8"}},
                 {feature = "workers", modules = {"nupp.workers.native"}},
             }
             for _, feature in ipairs(preloads) do

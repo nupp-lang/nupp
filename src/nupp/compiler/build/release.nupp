@@ -16,9 +16,7 @@ local stubs = require("nupp.compiler.build.stubs")
 local release = {}
 local json = nupp.data.json
 
-local HOST_FEATURES: {
-    string
-} = {"lpeg", "lua-utf8", "native-files", "native-net", "native-process", "native-tls", "workers",}
+local HOST_FEATURES: {string} = {"lpeg", "native-files", "native-net", "native-process", "native-tls", "workers",}
 
 local function copyArray(values: {string}): {string}
     local copied: {string} = {}

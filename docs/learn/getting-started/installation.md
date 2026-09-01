@@ -29,8 +29,8 @@ Rustup reads the committed toolchain file automatically. `NUPP_RUSTC` and
 `NUPP_CARGO` may name an equivalent toolchain explicitly; the build refuses a
 different release so its content-addressed native artifacts remain reproducible.
 
-Everything else is provisioned. `scripts/toolchain` fetches LuaJIT, LuaRocks,
-LPeg and luautf8 by pinned revision, refuses any archive whose SHA-256 is not the
+Everything else is provisioned. `scripts/toolchain` fetches LuaJIT, LuaRocks
+and LPeg by pinned revision, refuses any archive whose SHA-256 is not the
 one written down, builds each with that compiler pair, and caches the result
 beside the repository so every worktree shares one build. Cargo resolves the
 Rust-native crates, including networking and TLS, through the committed
@@ -153,8 +153,9 @@ installs them.
 
 That installs both and their declared rocks into a project-local `.rocks` tree
 that `bin/nupp` and `tests/run` put on the search path. A Nupp binary's feature
-scan sees the LPeg and lua-utf8 calls in those bundled libraries and links both
-native modules into its host. Their Lua files, including LPeg's official
+scan sees the LPeg calls in those bundled libraries and links that native module
+into its host. Nupp supplies Lunamark's entity encoder and reference-label
+normalizer from the payload. Their Lua files, including LPeg's official
 `re.lua`, remain in the payload. Two checkouts can hold different rock versions
 without either disturbing the other, and nothing lands in a global tree. See
 [rock dependencies](../projects/build.md#rock-dependencies) for declaring your
@@ -187,7 +188,7 @@ alongside:
 | LPeg 1.1 | detected and linked | general PEG and direct LPeg patterns |
 | LPeg `re.lua` | in the payload | runtime textual grammars |
 | Nupp PEG matcher shell | emitted in the payload | typed matching, search, and replacement |
-| `luautf8` | detected and linked | `nupp doc`'s entities |
+| Nupp UTF-8 adapter | in the payload | `nupp doc`'s entities and reference labels |
 | `lunamark` | in the payload | `nupp doc`'s markdown |
 | Scintillua (45) | in the payload | highlighting fences |
 

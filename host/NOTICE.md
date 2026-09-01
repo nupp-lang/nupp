@@ -15,7 +15,6 @@ notices remain complete in one place.
 | --- | --- | --- | --- |
 | [LuaJIT](https://luajit.org/) | `1edc3e52b67eaf6ce5f809be8e17d6862594b8bc` | MIT | [notices/LuaJIT-COPYRIGHT.txt](notices/LuaJIT-COPYRIGHT.txt) |
 | [LPeg](https://www.inf.puc-rio.br/~roberto/lpeg/) | `1.1.0` | MIT | [notices/LPeg-LICENSE.txt](notices/LPeg-LICENSE.txt) |
-| [luautf8](https://github.com/starwing/luautf8) | `0.2.1` | MIT | [notices/luautf8-LICENSE.txt](notices/luautf8-LICENSE.txt) |
 | [Lunajson](https://github.com/grafi-tt/lunajson) | `1.2.3` | MIT | [notices/lunajson-LICENSE.txt](notices/lunajson-LICENSE.txt) |
 | Rust dependency graph | `Cargo.lock` | Mixed permissive licenses | [notices/Rust-dependencies.html](notices/Rust-dependencies.html) |
 
@@ -29,9 +28,9 @@ notice inside HTML, so that check verifies the identifying copyright, grant and
 warranty terms in both copies. Bumping a pin without updating the notice beside
 it therefore stops the build rather than shipping the wrong text.
 
-LuaJIT is in every compiler host. LPeg and `luautf8` are selected host features,
-and the locked Rust graph supplies feature-selected native providers including
-networking and TLS. A build that selects none of those does not distribute them;
+LuaJIT is in every compiler host. LPeg is a selected host feature. The locked
+Rust graph supplies feature-selected native providers including networking and
+TLS. A build that does not select one of those does not distribute it;
 the notices stay here because each binary's features are decided independently.
 Lunajson's decoder and encoder are vendored into the portable compiler runtime.
 

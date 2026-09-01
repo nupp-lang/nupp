@@ -34,13 +34,6 @@ LPEG_URL='https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-${LPEG_VERSION}.tar.gz'
 LPEG_MARKER=lptree.c
 LPEG_DIRECTORY='lpeg-${LPEG_VERSION}'
 
-# Lunamark's entity table needs a utf8.char that Lua 5.1 does not have.
-LUAUTF8_VERSION=0.2.1
-LUAUTF8_SHA256=ea52075cd960aed8c37512ab31cdc166aa77a6458504d29f33ae40b93d2d8594
-LUAUTF8_URL='https://github.com/starwing/luautf8/archive/refs/tags/${LUAUTF8_VERSION}.tar.gz'
-LUAUTF8_MARKER=lutf8lib.c
-LUAUTF8_DIRECTORY='luautf8-${LUAUTF8_VERSION}'
-
 # The headless GPU conformance device. CI builds this exact Vulkan ICD rather
 # than accepting whichever physical adapter a hosted runner happens to expose.
 SWIFTSHADER_REV=694585a05946e1ed49b6bd577ca6537cbb57f025

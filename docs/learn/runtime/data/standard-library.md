@@ -119,8 +119,8 @@ level of omission inside the first. An unused facility contributes no generated
 adapter and no native artifact, and a selected but unvisited member never
 initializes its provider.
 
-The public surface does not expose the JSON provider module, `lua-utf8`, a
-provider's own handles, or FFI pointers. Those are implementation details, so application code
+The public surface does not expose the JSON provider module, a provider's own
+handles, or FFI pointers. Those are implementation details, so application code
 keeps the same Nupp API when a provider changes.
 
 ### Forcing a native feature
