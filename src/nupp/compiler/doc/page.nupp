@@ -13,7 +13,6 @@ local assetsMod = require("nupp.compiler.doc.assets")
 
 local htmlEscape = stringsMod.htmlEscape
 local moduleFile, pageLink = urlsMod.moduleFile, urlsMod.pageLink
-local cleanRoute, routeFile = urlsMod.cleanRoute, urlsMod.routeFile
 local relativePrefix = urlsMod.relativePrefix
 local markdownHtml = htmlMod.markdownHtml
 local ICONS = assetsMod.ICONS
@@ -431,7 +430,7 @@ local function pageNavigation(route, pages, prefix)
     return table.concat(out)
 end
 
-local function homeHero(config: page.Hero, links: urlsMod.Links?): string
+local function homeHero(config: page.Hero, links: urlsMod.Links?, resolveHref: (function(string): string)?): string
     if config.layout ~= "home" then
         return ""
     end
@@ -456,9 +455,8 @@ local function homeHero(config: page.Hero, links: urlsMod.Links?): string
         -- but it reads the field rather than a local, which is not a narrowing.
         for _, action in ipairs(config.heroActions as {page.HeroAction}) do
             local href = tostring(action.path or "")
-            if not href:match("^[%w+.-]+:") and not href:match("^[/#]") then
-                local route = cleanRoute(href)
-                href = route and routeFile(route) or href
+            if resolveHref then
+                href = resolveHref(href)
             end
             local theme = action.theme == "brand" and "brand" or "alt"
             out[

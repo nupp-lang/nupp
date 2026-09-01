@@ -85,7 +85,7 @@ chooses the entry mode; the application still selects only `require-wasm`.
 Fresh numeric tables, rooted `string.byte` and `string.sub` calls, and ordinary
 append-only concatenation lower through the same entry. Specialized streaming
 parsers may still use
-[`nupp.data.valuebuilder`](../../src/nupp/data/valuebuilder.nupp) inside that
+[`nupp.data.valuebuilder`](https://github.com/nupp-lang/nupp/blob/main/src/nupp/data/valuebuilder.nupp) inside that
 boundary.
 
 ## Struct arrays

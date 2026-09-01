@@ -240,43 +240,75 @@ local function linkText(text: string, path: string, title: string?): string
     return text
 end
 
-local function rewriteConfiguredPageLinks(
-    markdown: string,
-    candidate: urls.Page,
-    pages: {urls.Page},
-    file: string
-): string
+local function routesBySource(pages: {urls.Page}): {[string]: urls.Page}
     local routes = {}
     for _, page in ipairs(pages) do
         if page.source then
             routes[resolveDots(normalize(page.source))] = page
         end
     end
+
+    return routes
+end
+
+-- One link target resolved against the site's routes, the way a configured page's
+-- markdown is. Answers nil for what a rewrite leaves alone: an absolute or external
+-- target, an anchor on the current page, or one that names no configured page.
+local function resolveRoutedLink(
+    target: string,
+    routes: {[string]: urls.Page},
+    sourceDirectory: string?,
+    file: string
+): string?, string?
+    if target:match("^[%w+.-]+:") or target:match("^[/#]") or target:find("%s") then
+        return nil
+    end
+    local path, fragment = target:match("^([^#]+)(#.*)$")
+    path, fragment = path or target, fragment or ""
+    local destination = (
+        sourceDirectory and routes[resolveDots(normalize(join(sourceDirectory, path)))] or nil
+    ) or routes[resolveDots(normalize(path))]
+    if destination == nil then
+        return nil
+    end
+
+    return relativePrefix(file) .. routeFile(destination.path) .. fragment, destination.title
+end
+
+local function rewriteConfiguredPageLinks(
+    markdown: string,
+    candidate: urls.Page,
+    pages: {urls.Page},
+    file: string
+): string
+    local routes = routesBySource(pages)
     -- A generated page has no file of its own, so a link out of one cannot be relative
     -- to where it was written. It names the repository path instead, which the second
-    -- lookup below answers, and is why a missing source is not a reason to stop.
+    -- lookup inside resolveRoutedLink answers, and is why a missing source is not a
+    -- reason to stop.
     local sourceDirectory = candidate.source and dirname(normalize(candidate.source)) or nil
 
     return (markdown:gsub("%[([^%]]+)%]%(([^%)]+)%)", function(text, target)
         local written = "[" .. text .. "](" .. target .. ")"
-        if target:match("^[%w+.-]+:") or target:match("^[/#]") or target:find("%s") then
+        local href, title = resolveRoutedLink(target, routes, sourceDirectory, file)
+        if not href then
             return written
         end
-        local path, fragment = target:match("^([^#]+)(#.*)$")
-        path, fragment = path or target, fragment or ""
-        local destination = (
-            sourceDirectory and routes[resolveDots(normalize(join(sourceDirectory, path)))] or nil
-        ) or routes[resolveDots(normalize(path))]
-        if destination == nil then
-            return written
-        end
+        local path = target:match("^([^#]+)") or target
 
-        return "[" .. linkText(
-            text,
-            path,
-            destination.title
-        ) .. "](" .. relativePrefix(file) .. routeFile(destination.path) .. fragment .. ")"
+        return "[" .. linkText(text, path, title) .. "](" .. href .. ")"
     end))
+end
+
+-- The same resolution `rewriteConfiguredPageLinks` gives a body of markdown, for a
+-- caller holding one bare href instead -- a hero action's, say. Answers the target
+-- unchanged when it names no configured page, matching what the markdown rewrite
+-- leaves behind.
+local function resolvePageHref(target: string, candidate: urls.Page, pages: {urls.Page}, file: string): string
+    local routes = routesBySource(pages)
+    local sourceDirectory = candidate.source and dirname(normalize(candidate.source)) or nil
+
+    return (resolveRoutedLink(target, routes, sourceDirectory, file)) or target
 end
 
 urls.moduleFile = moduleFile
@@ -287,6 +319,7 @@ urls.rewriteSymbolLinks = rewriteSymbolLinks
 urls.routeFile = routeFile
 urls.cleanRoute = cleanRoute
 urls.pageLink = pageLink
+urls.resolvePageHref = resolvePageHref
 urls.rewriteConfiguredPageLinks = rewriteConfiguredPageLinks
 
 export = urls

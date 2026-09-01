@@ -98,7 +98,7 @@ every key, scalar and container crosses the Lua/C boundary and may drain a
 buffer on every call, so the cost belongs to the physical call graph rather than
 to the logical abstraction.
 
-The retained [serde architecture spike](../../bench/serde-spike/README.md)
+The retained [serde architecture spike](https://github.com/nupp-lang/nupp/blob/main/bench/serde-spike/README.md)
 measured this distinction. Static format-neutral callbacks and a generic Lua
 schema walk were within seven percent of handwritten writer calls. A
 benchmark-only codec consuming the same schema in one native entry encoded a

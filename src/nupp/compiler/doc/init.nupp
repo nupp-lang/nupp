@@ -1039,7 +1039,18 @@ local function renderSite(root, outDir, modules, title, settings)
         else
             local links = symbolLinks(linkIndex, nil, relativePrefix(file))
             appendOutline(items, markdown)
-            body[#body + 1] = homeHero(candidate, links)
+            -- The hero and the feature cards are read straight off the page's markdown
+            -- (nupp.compiler.doc.home), before the routing table below exists to
+            -- rewrite their links against it. Route their links here, the same way the
+            -- page's ordinary markdown is routed just below.
+            for _, feature in ipairs(candidate.features or {}) do
+                if feature.details then
+                    feature.details = rewriteConfiguredPageLinks(feature.details, candidate, pages, file)
+                end
+            end
+            body[#body + 1] = homeHero(candidate, links, function(href)
+                return urlsMod.resolvePageHref(href, candidate, pages, file)
+            end)
             -- A page whose markdown opens on a heading has named its own subject. One
             -- that does not is a file written for somewhere else, most often a module
             -- overview reused at a second route, and it would otherwise render with no

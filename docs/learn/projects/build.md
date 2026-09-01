@@ -261,7 +261,7 @@ or UTF-8. Files and filesystem-backed path operations use the Rust-native
 provider; whole-file transfers and processes share its Tokio executor and use
 bounded queues. HTTP uses Reqwest over Tokio and Rustls, URI uses Rust's `url`
 parser, and UUID uses the Rust-native provider. SHA-256 stages no native
-artifact at all: it is [`nupp.data.digest`](../../src/nupp/data/digest.nupp),
+artifact at all: it is [`nupp.data.digest`](https://github.com/nupp-lang/nupp/blob/main/src/nupp/data/digest.nupp),
 written in Nupp and compiled ahead of time where the target's [`aot`
 policy](../performance/ahead-of-time/build-and-artifacts.md) asks for that.
 The Rust facilities share the versioned `build/lib/nupp_native_v2` sidecar.
