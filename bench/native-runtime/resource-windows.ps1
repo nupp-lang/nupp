@@ -9,6 +9,52 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+if ($null -eq ("Nupp.NativeProcessStatus" -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace Nupp {
+    public static class NativeProcessStatus {
+        private const UInt32 WaitObject0 = 0x00000000;
+        private const UInt32 WaitFailed = 0xFFFFFFFF;
+        private const UInt32 Infinite = 0xFFFFFFFF;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern UInt32 WaitForSingleObject(
+            IntPtr handle, UInt32 milliseconds);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetExitCodeProcess(
+            IntPtr process, out UInt32 exitCode);
+
+        public static UInt32 WaitForExitCode(IntPtr process) {
+            UInt32 wait = WaitForSingleObject(process, Infinite);
+            if (wait == WaitFailed) {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "WaitForSingleObject failed for benchmark process");
+            }
+            if (wait != WaitObject0) {
+                throw new InvalidOperationException(
+                    "Unexpected benchmark process wait result: " + wait);
+            }
+
+            UInt32 exitCode;
+            if (!GetExitCodeProcess(process, out exitCode)) {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "GetExitCodeProcess failed for benchmark process");
+            }
+            return exitCode;
+        }
+    }
+}
+'@ | Out-Null
+}
+
 function Read-ChildText {
     param(
         [Parameter(Mandatory = $true)]
@@ -198,6 +244,7 @@ function Measure-Load {
     $errorOutput = Join-Path $OutputDirectory "$mode.err"
     $process = Start-Benchmark -Mode $mode -Output $output -ErrorOutput $errorOutput
     try {
+        $processHandle = $process.Handle
         # Sample once before waiting for the marker so even a short benchmark
         # cannot finish during process discovery without an observation.
         $rss = Read-RssKiB -Process $process -Mode $mode
@@ -219,10 +266,13 @@ function Measure-Load {
             }
             Start-Sleep -Milliseconds 50
         }
-        $process.WaitForExit()
-        if ($process.ExitCode -ne 0) {
+        # Windows PowerShell 5.1 does not reliably populate Process.ExitCode
+        # after asynchronous Start-Process use. Wait and query through the
+        # native handle acquired while the exact sampled process was live.
+        $exitCode = [Nupp.NativeProcessStatus]::WaitForExitCode($processHandle)
+        if ($exitCode -ne 0) {
             $details = Child-Diagnostics -Output $output -ErrorOutput $errorOutput
-            throw "$mode exited with status $($process.ExitCode): $details"
+            throw "$mode exited with status ${exitCode}: $details"
         }
         if ($sampleCount -eq 0) {
             throw "$mode benchmark ended without an RSS sample"

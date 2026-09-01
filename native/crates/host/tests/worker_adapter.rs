@@ -1,4 +1,4 @@
-use nupp_native_host::HostRuntime;
+use nupp::HostRuntime;
 
 fn runtime(payload: &[u8]) -> HostRuntime {
     let mut runtime = HostRuntime::owned(true, None).expect("runtime");

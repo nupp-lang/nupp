@@ -6,7 +6,7 @@ publish = false
 build = "build.rs"
 
 [lib]
-name = "nupp_native_host"
+name = "nupp"
 path = "src/lib.rs"
 crate-type = ["rlib", "staticlib", "cdylib"]
 

@@ -1,4 +1,4 @@
-use nupp_native_host::HostRuntime;
+use nupp::HostRuntime;
 
 #[test]
 fn file_payload_runs_on_the_owned_lane() {

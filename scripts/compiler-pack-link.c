@@ -105,6 +105,8 @@ int main(int argc, char **argv) {
     append(&cursor, "-lshell32");
     append(&cursor, "-lbcrypt");
     append(&cursor, "-lcrypt32");
+    /* Rust std implements child pipes through NtCreateNamedPipeFile. */
+    append(&cursor, "-lntdll");
     append(&cursor, "-Wl,--export-all-symbols");
 #elif defined(__APPLE__)
     append(&cursor, "-lm");

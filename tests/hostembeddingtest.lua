@@ -96,6 +96,7 @@ local function platformLibraries()
                 "-lshell32",
                 "-lbcrypt",
                 "-lcrypt32",
+                "-lntdll",
             },
             " "
         )

@@ -633,7 +633,7 @@ build_rust_host() {
     executable=nupp-host-rust
     [ "$PLATFORM" = windows ] && executable=nupp-host-rust.exe
     RUST_HOST_OUT="$out/target/release/$executable"
-    RUST_HOST_STATIC_OUT="$out/target/release/libnupp_native_host.a"
+    RUST_HOST_STATIC_OUT="$out/target/release/libnupp.a"
 
     expected=$RUST_HOST_OUT
     [ "$host_kind" = application ] && expected=$RUST_HOST_STATIC_OUT
@@ -700,14 +700,14 @@ build_rust_embedding() {
         printf '%s\n' "$rust_environment"
     } | sha256_stdin | cut -c1-16)
     out="$RUST_BUILD_ROOT/embedding/$digest"
-    RUST_EMBED_OUT="$out/target/release/libnupp_native_host.a"
+    RUST_EMBED_OUT="$out/target/release/libnupp.a"
     case "$PLATFORM" in
-        darwin) cargo_dynamic=libnupp_native_host.dylib ;;
+        darwin) cargo_dynamic=libnupp.dylib ;;
         windows)
-            cargo_dynamic=nupp_native_host.dll
-            RUST_EMBED_IMPORT_OUT="$out/target/release/libnupp_native_host.dll.a"
+            cargo_dynamic=nupp.dll
+            RUST_EMBED_IMPORT_OUT="$out/target/release/libnupp.dll.a"
             ;;
-        *) cargo_dynamic=libnupp_native_host.so ;;
+        *) cargo_dynamic=libnupp.so ;;
     esac
     RUST_EMBED_DYNAMIC_OUT="$out/target/release/$cargo_dynamic"
 
@@ -980,6 +980,35 @@ build_lpeg() {
 
 # --- the host ------------------------------------------------------------
 
+# A Rust staticlib flattens its dependency rlibs. On Windows GNU that includes
+# import thunk members from windows-targets, sometimes under the same archive
+# member name more than once. Application hosts are force-loaded because their
+# provider exports are reached only through LuaJIT FFI, so leave ordinary Rust
+# objects intact but remove the bundled import thunks and resolve them from the
+# explicit system import libraries at the final link.
+stage_application_archive() {
+    source=$1
+    destination=$2
+    cp "$source" "$destination"
+    [ "$PLATFORM" = windows ] || return 0
+
+    archive_tool=${AR:-ar}
+    members="$destination.members.$$"
+    imports="$destination.imports.$$"
+    "$archive_tool" t "$destination" > "$members"
+    : > "$imports"
+    while IFS= read -r member; do
+        case "$member" in
+            *.dlls[0-9]*.o) printf '%s\n' "$member" >> "$imports" ;;
+        esac
+    done < "$members"
+    while IFS= read -r member; do
+        [ -z "$member" ] || "$archive_tool" d "$destination" "$member"
+    done < "$imports"
+    "$archive_tool" s "$destination"
+    rm -f "$members" "$imports"
+}
+
 # Stages the Rust executable and static application entry, or the Rust embedding
 # SDK, for one exact compiler-selected feature set.
 build_host() {
@@ -1051,7 +1080,7 @@ build_host() {
     rm -rf "$out"
     mkdir -p "$out"
     cp "$rust_executable" "$out/nupp-host"
-    cp "$rust_application" "$out/libnupp-host.a"
+    stage_application_archive "$rust_application" "$out/libnupp-host.a"
     chmod +x "$out/nupp-host" 2>/dev/null || true
     printf 'done\n' > "$out/.complete"
     release_lock
@@ -1123,7 +1152,8 @@ EOF
             ;;
         windows)
             set -- "$@" -lpthread -lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv
-            set -- "$@" -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -Wl,--export-all-symbols
+            set -- "$@" -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -lntdll
+            set -- "$@" -Wl,--export-all-symbols
             ;;
         *)       set -- "$@" -lm -lpthread -ldl -Wl,-E ;;
     esac

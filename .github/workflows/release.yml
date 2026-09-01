@@ -297,14 +297,7 @@ jobs:
       # GNU Rust artifact set before it is stamped or packaged.
       - name: Gate the Rust-native platform artifacts
         shell: bash
-        run: |
-          set -euo pipefail
-          bash_path=$(command -v bash)
-          sh_path=$(dirname "$bash_path")/sh.exe
-          test -f "$sh_path"
-          NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
-          NUPP_TEST_SH=$(cygpath -w "$sh_path") \
-          .github/scripts/test-rust-native-platform.sh
+        run: .github/scripts/test-rust-native-platform.sh
 
       - name: Verify the binary packaging fixpoint
         shell: bash
