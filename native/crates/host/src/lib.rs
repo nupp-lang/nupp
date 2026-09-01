@@ -7,9 +7,17 @@
 //! cannot unwind through Rust.
 
 mod lua;
+mod mcode;
 mod payload;
+mod sharedbytes;
+mod workers;
 
 pub use payload::{Error as PayloadError, Payload, read as read_payload};
+pub use sharedbytes::{BuilderError as SharedBytesBuilderError, SharedBytes, SharedBytesBuilder};
+pub use workers::{
+    Cancellation, CancellationToken, TaskHandle, TaskId, TaskState, Worker, WorkerError,
+    WorkerEvent, WorkerJob, WorkerLimits,
+};
 
 pub use lua::{LuaFunction, LuaState};
 
@@ -122,6 +130,34 @@ pub struct HostRuntime {
 impl HostRuntime {
     pub fn new(executable: &Path) -> Result<Self, HostError> {
         Self::owned(true, Some(executable))
+    }
+
+    /// Reserves a nearby address-space window before any isolated worker state
+    /// is made. The first worker releases it immediately before initialization.
+    pub fn reserve_worker_mcode() {
+        mcode::reserve();
+    }
+
+    /// Starts an isolated LuaJIT lane whose state is created, used, and closed
+    /// on its native worker thread. Each submitted job is one Lua chunk; the
+    /// worker reports Lua failures as task failures without entering or
+    /// borrowing the caller's Lua state.
+    pub fn spawn_isolated_worker(
+        name: impl Into<String>,
+        executable: Option<PathBuf>,
+        limits: WorkerLimits,
+    ) -> Result<Worker, WorkerError> {
+        mcode::reserve();
+        Worker::spawn(name, limits, move || {
+            let runtime = HostRuntime::owned(true, executable.as_deref())
+                .map_err(|error| error.to_string())?;
+            Ok(move |job: WorkerJob, _cancellation: CancellationToken| {
+                match runtime.run_buffer(job.bytes.as_slice(), "=nupp-worker-task", &[]) {
+                    Ok(()) => Ok(SharedBytes::default()),
+                    Err(error) => Err(error.to_string()),
+                }
+            })
+        })
     }
 
     pub fn owned(open_libraries: bool, executable: Option<&Path>) -> Result<Self, HostError> {
