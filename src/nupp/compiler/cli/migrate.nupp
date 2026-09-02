@@ -97,12 +97,15 @@ local function run(parsed: any): integer
         local check = require("nupp.compiler.check")
         local diagnostics = require("nupp.compiler.diagnostics")
         local env = require("nupp.compiler.env").new(".")
-        for _, plan in ipairs(plans) do
+        -- One failure stops the writing, not the reporting: every plan after it is
+        -- still listed, as untouched, so a reader sees what was asked for and not
+        -- only what was reached before the stop.
+        local function attempt(plan: any): boolean
             local wrote, writeErr = fs.writeFile(plan.destination, plan.text)
             if not wrote then
                 errors[#errors + 1] = plan.destination .. ": " .. tostring(writeErr)
                 public[#public + 1] = publicPlan(plan, false, asJson)
-                break
+                return false
             end
             local result = parser.parse(plan.text, plan.destination)
             local checked = #result.errors == 0 and check.check(
@@ -120,16 +123,27 @@ local function run(parsed: any): integer
             if fatal then
                 errors[#errors + 1] = plan.destination .. ": " .. fatal.code .. ": " .. fatal.msg
                 public[#public + 1] = publicPlan(plan, true, asJson)
-                break
+                return false
             end
             local removed, removeErr = os.remove(plan.source)
             if not removed then
                 errors[#errors + 1] = plan.source .. ": " .. tostring(removeErr)
                 public[#public + 1] = publicPlan(plan, true, asJson)
-                break
+                return false
             end
             public[#public + 1] = publicPlan(plan, true, asJson)
             completed[plan] = true
+
+            return true
+        end
+
+        local stopped = false
+        for _, plan in ipairs(plans) do
+            if stopped then
+                public[#public + 1] = publicPlan(plan, false, asJson)
+            else
+                stopped = not attempt(plan)
+            end
         end
     else
         for _, plan in ipairs(plans) do

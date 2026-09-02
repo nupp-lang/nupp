@@ -361,6 +361,29 @@ function M.migrateDoesNotClaimFilesItNeverTouched()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.migrateJsonListsEveryPlanAfterAFailure()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local bad = assert(io.open(dir .. "/bad.lua", "wb"))
+   bad:write("---@param value integer\n---@return string\n"
+      .. "local function bad(value) return value end\nreturn bad\n")
+   bad:close()
+   local waiting = assert(io.open(dir .. "/waiting.lua", "wb"))
+   waiting:write("---@param value integer\n---@return integer\n"
+      .. "local function keep(value) return value end\nreturn keep\n")
+   waiting:close()
+   local report = json.decode(captureJsonAt(dir, "migrate --json bad.lua waiting.lua"))
+   assert(not report.ok and #report.errors == 1,
+      "the first migration fails its check: " .. json.encode(report.errors))
+   assert(#report.migrations == 2,
+      "every plan is listed, the one that stopped the batch and the one it never reached")
+   assert(report.migrations[2].source == "waiting.lua"
+      and report.migrations[2].written == false,
+      "the untouched plan is reported as not written")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.exportCEmitsTheCanonicalTypedHeader()
    local dir = os.tmpname()
    os.remove(dir)
