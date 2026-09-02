@@ -1087,14 +1087,12 @@ function emit.lane(node: lane.Expr | scalarIR.Expr): string
         else
             -- Elementwise, through the width's own library call, so the lane
             -- form is the same operation the scalar one performs.
-            local element, lanes = emit.vectorParts(vector)
+            local element = emit.vectorParts(vector)
             local call = element == "f32" and "sqrtf(" or "sqrt("
-            local parts: {string} = {}
-            for index = 0, lanes - 1 do
-                parts[index + 1] = call .. emit.lane(operator.args[1]) .. "[" .. tostring(index) .. "])"
-            end
 
-            return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
+            return emit.perLane(vector, operator.args, function(names: {string}, index: integer): string
+                return call .. names[1] .. "[" .. tostring(index) .. "])"
+            end)
         end
     elseif operation == "vsplat" then
         return "ks_splat_" .. vector .. "(" .. emit.lane((node as lane.Splat).args[1]) .. ")"
