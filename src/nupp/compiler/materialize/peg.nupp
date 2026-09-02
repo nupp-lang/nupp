@@ -251,9 +251,6 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
             position = function()
                 return node("position", nil, nil, at)
             end,
-            action = function(pattern, name)
-                return node("action", {pattern}, name, at)
-            end,
             reference = function(name)
                 return node("reference", nil, name, at)
             end,
@@ -342,8 +339,6 @@ local function nullableNodes(nodes)
                         break
                     end
                 end
-            elseif op == "difference" then
-                value = nullable[node[2]] == true
             elseif op == "oneOrMore"
                 or op == "capture"
                 or op == "collect"
@@ -354,7 +349,6 @@ local function nullableNodes(nodes)
                 or op == "matchTime"
                 or op == "accumulate"
                 or op == "fold"
-                or op == "action"
             then
                 value = nullable[node[2]] == true
             elseif op == "reference" then
@@ -412,13 +406,6 @@ local function analyze(nodes, root, ruleRoots)
                     return false, cycle
                 end
             end
-        elseif op == "difference" then
-            for child = 2, 3 do
-                local ok, cycle = leading(node[child], active)
-                if not ok then
-                    return false, cycle
-                end
-            end
         elseif op == "zeroOrMore"
             or op == "oneOrMore"
             or op == "optional"
@@ -433,7 +420,6 @@ local function analyze(nodes, root, ruleRoots)
             or op == "matchTime"
             or op == "accumulate"
             or op == "fold"
-            or op == "action"
         then
             return leading(node[2], active)
         end
@@ -485,8 +471,6 @@ local function analyze(nodes, root, ruleRoots)
             for _, item in ipairs(inner) do
                 answer[#answer + 1] = item
             end
-        elseif op == "action" then
-            answer = {"action:" .. node[3]}
         elseif op == "position" then
             answer = {"integer"}
         elseif op == "collect" then
@@ -531,13 +515,6 @@ local function analyze(nodes, root, ruleRoots)
                     return nil, failure("NUPP2417", "PEG choice alternatives produce different capture shapes")
                 end
             end
-        elseif op == "difference" then
-            local got, why = signature(node[2], collected)
-            if not got then
-                visiting[index] = nil
-                return nil, why
-            end
-            answer = got
         elseif op == "zeroOrMore" or op == "oneOrMore" or op == "optional" then
             local got, why = signature(node[2], collected)
             if not got then
@@ -664,13 +641,7 @@ local function finalizeGraph(state, rootHandle, backend)
                 return nil, why
             end
             output[2] = targetIndex
-        elseif op == "action"
-            or op == "group"
-            or op == "transform"
-            or op == "matchTime"
-            or op == "accumulate"
-            or op == "fold"
-        then
+        elseif op == "group" or op == "transform" or op == "matchTime" or op == "accumulate" or op == "fold" then
             local childIndex, why = visit(entry.payload.children[1])
             if not childIndex then
                 return nil, why
@@ -714,15 +685,10 @@ local function finalizeGraph(state, rootHandle, backend)
     end
     local slotSet = {}
     for _, node in ipairs(nodes) do
-        if node[
-            1
-        ] == "action" or node[
-            1
-        ] == "matchTime" or node[
-            1
-        ] == "accumulate" or node[
-            1
-        ] == "fold" or node[1] == "external" or (node[1] == "transform" and node[3][1] == "definition") then
+        local op = node[1]
+        if op == "matchTime" or op == "accumulate" or op == "fold" or op == "external" or (
+            op == "transform" and node[3][1] == "definition"
+        ) then
             local name = node[1] == "external" and node[2] or node[1] == "transform" and node[3][2] or node[3]
             slotSet[name] = true
         end
@@ -807,7 +773,6 @@ local function validateEnvelope(envelope)
         any = 1,
         eof = 1,
         position = 1,
-        difference = 3,
         zeroOrMore = 2,
         oneOrMore = 2,
         optional = 2,
@@ -833,7 +798,7 @@ local function validateEnvelope(envelope)
             if #node < 3 then
                 return nil, "PEG variadic instruction has too few children"
             end
-        elseif op == "action" or op == "matchTime" or op == "accumulate" or op == "fold" then
+        elseif op == "matchTime" or op == "accumulate" or op == "fold" then
             if #node ~= 3 or type(node[2]) ~= "number" or not slotSet[node[3]] then
                 return nil, "PEG action instruction is malformed"
             end
@@ -874,12 +839,7 @@ local function validateEnvelope(envelope)
             and op ~= "external"
         then
             local last = (
-                op == "action"
-                or op == "group"
-                or op == "transform"
-                or op == "matchTime"
-                or op == "accumulate"
-                or op == "fold"
+                op == "group" or op == "transform" or op == "matchTime" or op == "accumulate" or op == "fold"
             ) and 2 or #node
             for index = 2, last do
                 if type(node[index]) ~= "number" or node[index] < 1 or node[index] > #nodes then
@@ -903,36 +863,26 @@ end
 -- The types a match produces
 ----------------------------------------------------------------------------
 
-local function descriptorType(descriptor, actionReturns): T.Type?
+local function descriptorType(descriptor): T.Type?
     if descriptor == "integer" then
         return T.integer
     elseif descriptor == "string" then
         return T.string
+    elseif descriptor == "any" then
+        return T.any
     end
     local element = descriptor:match("^array:(.+)$")
-    if element then
-        if element == "string" then
-            return T.array(T.string)
-        elseif element == "integer" then
-            return T.array(T.integer)
-        elseif element == "any" then
-            return T.array(T.any)
-        end
-        local actionName = element:match("^action:(.+)$")
-        local actionPack = actionName and actionReturns and actionReturns[actionName]
-        local actionType = actionPack and T.packAt(actionPack, 1)
-        if actionType and not T.packAt(actionPack, 2) then
-            return T.array(actionType)
-        end
+    local elementType = element and descriptorType(element)
+    if elementType then
+        return T.array(elementType)
     end
 
     return nil
 end
 
 --- Turns the canonical capture descriptors produced by `analyze` into the native
---- result pack seen by a matcher caller. Action descriptors splice their whole return
---- pack into the surrounding captures; no tuple type is introduced.
-local function packOfResult(result, actionReturns): T.Pack?
+--- result pack seen by a matcher caller. No tuple type is introduced.
+local function packOfResult(result): T.Pack?
     if result == "any" then
         return T.pack({}, {kind = "unknown", type = T.any})
     end
@@ -959,21 +909,11 @@ local function packOfResult(result, actionReturns): T.Pack?
 
     local output = T.pack({})
     for _, descriptor in ipairs(result) do
-        local action = descriptor:match("^action:(.+)$")
-        local contribution
-        if action then
-            contribution = actionReturns and actionReturns[action]
-            if not contribution then
-                return nil
-            end
-        else
-            local member = descriptorType(descriptor, actionReturns)
-            if not member then
-                return nil
-            end
-            contribution = T.pack({member})
+        local member = descriptorType(descriptor)
+        if not member then
+            return nil
         end
-        output = concatenate(output, contribution)
+        output = concatenate(output, T.pack({member}))
         if not output then
             return nil
         end
@@ -982,11 +922,11 @@ local function packOfResult(result, actionReturns): T.Pack?
     return output
 end
 
-local function resultFits(result, resultPack, actionReturns)
+local function resultFits(result, resultPack)
     if result == "any" then
         return resultPack ~= nil
     end
-    local actual = packOfResult(result, actionReturns)
+    local actual = packOfResult(result)
 
     return actual ~= nil and resultPack ~= nil and actual.id == resultPack.id
 end
@@ -999,33 +939,6 @@ local function matcherResult(candidate, matcher)
     end
 
     return candidate.packArgs[1]
-end
-
-local function actionReturnTypes(slots, actions)
-    if not actions or (
-        actions.tag ~= "nominal" and actions.tag ~= "shape"
-    ) or actions.indexReadKey or actions.indexWriteKey then
-        return nil, "PEG action factory input must be a closed record or shape"
-    end
-    local byname, count = actions.byname or {}, 0
-    for _ in pairs(byname) do
-        count = count + 1
-    end
-    if count ~= #slots then
-        return nil, "PEG action factory input must declare exactly the blueprint's action slots"
-    end
-    local returns = {}
-    for _, name in ipairs(slots) do
-        local callback = byname[name]
-        if not callback or callback.tag ~= "func" or #callback.params ~= 1 or callback.params[
-            1
-        ] ~= T.string or callback.vararg then
-            return nil, ("PEG action %s must be function(string): R..."):format(name)
-        end
-        returns[name] = callback.retPack or T.pack(callback.rets)
-    end
-
-    return returns
 end
 
 local function generalDefinitionTypes(slots, definitions)
@@ -1095,20 +1008,14 @@ function peg.inferSourceResult(source: string, actions: T.Type?): T.Pack?, peg.F
     if not validated then
         return finish(nil, failure("NUPP2415", why as string))
     end
-    local returns
     if #validated.slots > 0 then
-        local actionWhy
-        if validated.general then
-            returns, actionWhy = generalDefinitionTypes(validated.slots, actions)
-        else
-            returns, actionWhy = actionReturnTypes(validated.slots, actions)
-        end
-        if not returns then
-            return finish(nil, failure("NUPP2415", actionWhy as string))
+        local definitions, definitionWhy = generalDefinitionTypes(validated.slots, actions)
+        if not definitions then
+            return finish(nil, failure("NUPP2415", definitionWhy as string))
         end
     end
 
-    return finish(packOfResult(validated.result, returns), nil)
+    return finish(packOfResult(validated.result), nil)
 end
 
 ----------------------------------------------------------------------------
@@ -1144,9 +1051,9 @@ local function hasCaptures(nodes, index, seen)
     seen[index] = true
     local node = nodes[index]
     local op = node[1]
-    if op == "capture" or op == "collect" or op == "action" or op == "position" then
+    if op == "capture" or op == "collect" or op == "position" then
         return true
-    elseif op == "sequence" or op == "choice" or op == "difference" then
+    elseif op == "sequence" or op == "choice" then
         for child = 2, #node do
             if hasCaptures(nodes, node[child], seen) then
                 return true
@@ -1210,14 +1117,11 @@ local function searchPlan(validated)
                     break
                 end
             end
-        elseif op == "difference" then
-            known = collect(node[2], bytes, active)
         elseif op == "zeroOrMore"
             or op == "oneOrMore"
             or op == "optional"
             or op == "capture"
             or op == "collect"
-            or op == "action"
             or op == "reference"
         then
             known = collect(node[2], bytes, active)
@@ -1677,7 +1581,7 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
     end
     local pegTypes = env and env.globalTypes and env.globalTypes["nupp.peg"]
     local matcher = pegTypes and pegTypes.nestedTypes and pegTypes.nestedTypes.Peg
-    local resultPack, actionReturns
+    local resultPack
     local inferredTarget
     if #validated.slots == 0 then
         if expected then
@@ -1690,7 +1594,7 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
                 )
             end
         else
-            resultPack = packOfResult(validated.result, nil)
+            resultPack = packOfResult(validated.result)
         end
         local binder = matcher and matcher.packParams and matcher.packParams[1]
         if not expected and matcher and binder and resultPack then
@@ -1709,17 +1613,12 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
         and not expected.vararg
     then
         resultPack = matcherResult(expected.rets[1], matcher)
-        local actionWhy
-        if validated.general then
-            actionReturns, actionWhy = generalDefinitionTypes(validated.slots, expected.params[1])
-        else
-            actionReturns, actionWhy = actionReturnTypes(validated.slots, expected.params[1])
-        end
-        if not actionReturns then
-            return nil, failure("NUPP2415", actionWhy as string)
+        local definitions, definitionWhy = generalDefinitionTypes(validated.slots, expected.params[1])
+        if not definitions then
+            return nil, failure("NUPP2415", definitionWhy as string)
         end
     end
-    if not resultPack or not resultFits(validated.result, resultPack, actionReturns) then
+    if not resultPack or not resultFits(validated.result, resultPack) then
         return nil, failure("NUPP2415", "PEG blueprint result pack does not match the declared matcher type")
     end
     local backend = validated.backend == "auto" and "nupp.peg.codegen" or "nupp.peg.lpeg"
