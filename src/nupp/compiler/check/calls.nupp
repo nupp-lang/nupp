@@ -1809,10 +1809,10 @@ function calls.install(c: state.Checker): calls.Ops
         if not packProblem then
             retPack, packProblem = generics.expandComputedPack(retPack, c.reductionControl)
         end
-        if packProblem and not constInferenceFailed then
-            c.diag("NUPP2006", node, packProblem, nil, callDetails(node))
-            paramPack = T.pack(params, {kind = "unknown", type = T.any}, paramPack.modes)
-        elseif packProblem then
+        if packProblem then
+            if not constInferenceFailed then
+                c.diag("NUPP2006", node, packProblem, nil, callDetails(node))
+            end
             paramPack = T.pack(params, {kind = "unknown", type = T.any}, paramPack.modes)
         end
         params, rets = paramPack.head, retPack.head

@@ -231,6 +231,19 @@ local type Token = lexer.Token
 --- Builds the same declared-field specification as `layoutof`, but marks it for the
 --- SoA runtime rather than exposing an AoS byte stride. Kept here because an aliased
 --- `soa.allocate` has no syntactic relationship to the global layout intrinsic.
+--- Whether every argument is positional. A named or plucked argument is
+--- positional only after the adjustment the ordinary call path performs, so an
+--- intrinsic that goes around that path keeps its call when one is present.
+local function positionalOnly(exprs: {Node}): boolean
+    for _, argument in ipairs(exprs) do
+        if argument.kind == "namedArg" or argument.kind == "pluckArg" then
+            return false
+        end
+    end
+
+    return true
+end
+
 local function soaLayoutSpec(c: state.Checker, subject: Type, at: Node): any?
     if subject.tag ~= "nominal" or subject.declKind ~= "struct" then
         c.diag("NUPP2403", at, "SoA storage requires a reified struct type", nil, {
@@ -750,13 +763,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- A named or plucked argument is positional only after the adjustment the
             -- ordinary call path performs, and lowering goes around that path. Rather
             -- than repeat it here, those spellings keep their call.
-            local positional = true
-            for _, argument in ipairs(argExprs) do
-                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
-                    positional = false
-                end
-            end
-            if positional and format and format.kind == "string" then
+            if positionalOnly(argExprs) and format and format.kind == "string" then
                 node.logIntrinsic = severity
                 node.logFormatIntrinsic = debugFormatPlan(literalString(format) or "")
             end
@@ -765,13 +772,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         -- doubles as the arg-count contract the ordinary call below still enforces.
         local zoneOp = zoneIntrinsic(c, callee)
         if zoneOp and not argTable and not argStr then
-            local positional = true
-            for _, argument in ipairs(argExprs) do
-                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
-                    positional = false
-                end
-            end
-            if positional then
+            if positionalOnly(argExprs) then
                 if zoneOp == "push" and #argExprs == 1 then
                     node.zoneIntrinsic = "push"
                 elseif zoneOp == "pop" and #argExprs == 0 then
@@ -1016,10 +1017,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 return T.nil_
             end
         end
+        local calleeEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
         if calleeName ~= "" then
-            local entry = c.lookupEntry(calleeName)
-            node.cdefCall = entry and entry.definition and entry.definition.cdef or false
-            node.cdefIdentity = node.cdefCall and entry.definition.cdefIdentity or nil
+            node.cdefCall = calleeEntry and calleeEntry.definition and calleeEntry.definition.cdef or false
+            node.cdefIdentity = node.cdefCall and calleeEntry.definition.cdefIdentity or nil
         end
         -- require("mod") resolves to the module's type when the module can be found. An
         -- undeclared Lua module stays gradual by default, but strict checking exposes
@@ -1247,7 +1248,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.nosuspend.callback(bodyOfArgument(3), "`string.gsub`")
             end
         end
-        local wrappedEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
+        local wrappedEntry = calleeEntry
         if wrappedEntry and wrappedEntry.wrappedProtocol then
             local protocol = wrappedEntry.wrappedProtocol
             local input = wrappedEntry.wrappedPhase == "new" and protocol.startPack or protocol.resumePack
@@ -1353,13 +1354,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if node.kind == "call" and stringFormatIntrinsic(c, callee) then
             local format = literalString(argExprs[1])
             local plan = format and debugFormatPlan(format) or nil
-            local positional = true
-            for _, argument in ipairs(argExprs) do
-                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
-                    positional = false
-                end
-            end
-            if positional and plan then
+            if positionalOnly(argExprs) and plan then
                 node.formatIntrinsic = {format = plan.format, debugArguments = plan.debugArguments, argumentOffset = 1,}
             end
         end
@@ -1384,8 +1379,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             wrappedEntry.wrappedPhase = "started"
         end
         local globalEntry = calleeName ~= "" and c.env and c.env.globals and c.env.globals[calleeName] or nil
-        local localEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
-        local stableGlobal = globalEntry and localEntry and globalEntry.definition == localEntry.definition
+        local stableGlobal = globalEntry and calleeEntry and globalEntry.definition == calleeEntry.definition
         if stableGlobal and calleeName == "select" and node.argumentPack then
             local source = node.argumentPack
             local selector = argExprs[1]
@@ -1956,13 +1950,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             while literal and literal.kind == "paren" do
                 literal = literal.expr
             end
-            local positional = true
             local methodArgs = node.args and node.args.kind == "args" and (node.args as cst.Args).exprs or {}
-            for _, argument in ipairs(methodArgs) do
-                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
-                    positional = false
-                end
-            end
+            local positional = positionalOnly(methodArgs)
             if origin and (
                 origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
             ) == "nupp.mem.soa" and (
