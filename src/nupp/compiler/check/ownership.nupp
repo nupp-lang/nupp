@@ -507,8 +507,6 @@ function ownership.install(c: state.Checker): ownership.Ops
                         )
                     ) then
                         c.diag(code, at, ("terminal %q must return nil"):format(cleanup.name))
-                    elseif cleanupFunc and not cleanupFunc.noYield and cleanup.visibleBody ~= true then
-                        c.diag(code, at, ("terminal %q must be nosuspend"):format(cleanup.name))
                     elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
                         c.diag("NUPP2615", at, ("cleanup %q takes before the final step"):format(cleanup.name))
                     end

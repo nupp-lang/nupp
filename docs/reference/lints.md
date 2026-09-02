@@ -60,7 +60,6 @@ Every lint has a name and a stable code.
 | `jit-boundary` | `NUPP2514` | suspicious | warning |
 | `jit-loop-closure` | `NUPP2515` | performance | off |
 | `private-export-type` | `NUPP2516` | suspicious | warning |
-| `blocking-worker-drop` | `NUPP2517` | performance | off |
 | `prefer-comptime` | `NUPP2518` | performance | off |
 
 The name is what you write in configuration and suppressions; the code is what
@@ -588,29 +587,6 @@ An exported alias for the nominal also gives callers a public name and silences
 the lint. Transparent aliases such as `local type Coordinate = number` carry no
 nominal identity and do not report it. Private record fields stay outside the
 public surface and are not traversed.
-
-### `blocking-worker-drop`
-
-A direct `workers.scope()` has a non-suspending affine terminal. It always
-settles its submitted work, which is deterministic and appropriate for a
-blocking command, but terminal cleanup may hold an application frame while it
-drains.
-
-Inside a handled application task, let that task scope own the workers:
-
-```nupp
-const tasks = require("nupp.tasks")
-
-tasks.run(function(scope: tasks.Scope): nil
-    const parallel = scope:workers()
-    parallel:spawn(compute)
-end)
-```
-
-The task scope closes the worker scope through the installed suspension handler.
-Queued work is cancelled without invocation and running work drains
-cooperatively. The lint is off until a project enables the performance category
-or the lint by name.
 
 ### `prefer-comptime`
 

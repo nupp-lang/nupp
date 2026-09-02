@@ -114,10 +114,9 @@ deadline, and `tasks.checkpoint()`:
 - a running worker observes the request at `tasks.checkpoint()` or return;
 - a checkpoint-free function is not interrupted and keeps the scope open.
 
-Direct `workers.scope()` remains useful in blocking programs. Its affine
-terminal cannot suspend, so terminal cleanup drains synchronously. The opt-in
-`blocking-worker-drop` performance lint points application paths toward a
-task-owned worker scope.
+Direct `workers.scope()` remains useful in blocking programs. Its terminal
+settles the scope: under a suspension handler it parks until every child has
+settled, and without one it drains synchronously.
 
 ## Host scheduling
 

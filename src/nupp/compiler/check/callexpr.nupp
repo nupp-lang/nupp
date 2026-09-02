@@ -1605,20 +1605,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
         end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
-        if soaExport and backends.publicModule(
-            c.opts and c.opts.backendResolution,
-            soaExport.module
-        ) == "nupp.workers" and soaExport.member == "scope" and not c.suppressed("blocking-worker-drop") then
-            c.diag(
-                "blocking-worker-drop",
-                callee,
-                "a direct worker scope drains synchronously if terminal cleanup reaches it",
-                nil,
-                {
-                    help = "inside a handled application task, use scope:workers(); otherwise call close before terminal cleanup"
-                }
-            )
-        end
         if soaExport and soaExport.module == "nupp.mem.soa" and (
             soaExport.member == "allocate" or soaExport.member == "layoutof"
         ) then

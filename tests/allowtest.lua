@@ -248,20 +248,6 @@ local lintFixtures = {
          "export record Point coordinate: Coordinate end"),
       opts = {moduleName = "fixture"},
    },
-   NUPP2517 = {
-      reports = source(
-         "const workers = require('nupp.workers')",
-         "local function run(): nil",
-         "   with scope = workers.scope() do scope:close() end",
-         "end",
-         "return run"),
-      quiet = source(
-         "const tasks = require('nupp.tasks')",
-         "tasks.run(function(scope: tasks.Scope): nil",
-         "   local parallel = scope:workers()",
-         "   print(parallel)",
-         "end)"),
-   },
    NUPP2518 = {
       reports = source(
          "local m = {}",

@@ -670,8 +670,24 @@ local function inferFunction(info, byDefinition)
         ) then
             return
         end
+        local cleanupsHere = {}
         for _, owner in ipairs(node.automaticOwners or {}) do
             for _, cleanup in ipairs(owner.cleanups or {}) do
+                cleanupsHere[#cleanupsHere + 1] = cleanup
+            end
+        end
+        -- A `with` discharges its acquisition on every exit the same way, and the
+        -- terminal it runs may settle -- park until the resource's work is done -- so
+        -- it belongs to the summary exactly as an automatic owner's does.
+        if node.kind == "withStmt" then
+            for _, binding in ipairs(node.bindings or {}) do
+                for _, cleanup in ipairs(binding.ownerCleanups or {}) do
+                    cleanupsHere[#cleanupsHere + 1] = cleanup
+                end
+            end
+        end
+        for _, cleanup in ipairs(cleanupsHere) do
+            do
                 local operation = cleanup
                 while operation and operation.kind == "field" do
                     operation = operation.cleanup

@@ -337,7 +337,7 @@ end
 
 --- The cleanup contract a structured worker scope carries.
 affine interface workers.ScopeToken
-    terminal drop: nosuspend function(takes self: workers.ScopeToken): nil
+    terminal drop: function(takes self: workers.ScopeToken): nil
 end
 
 --- A lexical family of parallel child tasks.
@@ -351,10 +351,12 @@ record workers.Scope is workers.ScopeToken
     spawn: function<F is Submittable>(borrows self: workers.Scope, F, ...: unpackof Submitted(F)): workers.Task<F>
 
     --- Waits for every child. Idempotent.
-    close: function(workers.Scope): nil
+    close: function(borrows self: workers.Scope): nil
 
-    --- Closes the scope on every structured exit.
-    drop: nosuspend function(takes self: workers.Scope): nil
+    --- Closes the scope on every structured exit. A settling terminal: under a
+    --- suspension handler it parks until every child has settled, and without one it
+    --- blocks.
+    drop: function(takes self: workers.Scope): nil
 
     private _cancelAll: function(workers.Scope, string?): nil
 end
@@ -578,23 +580,6 @@ local function awaitSettlement(task: any): nil
     end
 end
 
---- Waits for one task without parking the application.
----
---- An affine terminal may not suspend while ownership is being discharged, so this
---- drives the Wasm host boundary directly, the way `nupp.suspension` itself waits when
---- a browser application has no handler installed. The native scheduler's terminal
---- drains its channel for the same reason.
-local function settleBlocking(task: any): nil
-    if task:isDone() then
-        return
-    end
-    ensureAwait(task)
-    while task._answer == nil do
-        browserEffects.park("worker drain")
-    end
-    consume(task)
-end
-
 function TaskImpl:await(): ...any
     self._observed = true
     awaitSettlement(self)
@@ -710,7 +695,7 @@ local function settleAll(children: {any}, wait: function(any): nil): any?
     return firstFailure
 end
 
-function workers.Scope:close(): nil
+function workers.Scope.close(borrows self: workers.Scope): nil
     if self._closed then
         return
     end
@@ -722,14 +707,7 @@ function workers.Scope:close(): nil
 end
 
 function workers.Scope.drop(takes self: workers.Scope): nil
-    if self._closed then
-        return
-    end
-    self._closed = true
-    local firstFailure = settleAll(self._tasks, settleBlocking)
-    if firstFailure ~= nil then
-        error(firstFailure, 2)
-    end
+    workers.Scope.close(self)
 end
 
 function workers.Scope:_cancelAll(reason: string?): nil
