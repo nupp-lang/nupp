@@ -2678,26 +2678,12 @@ function types.func(
     if #rets == 1 and rets[1] == types.never then
         noreturn = true
     end
-    local pids: {string} = {}
-    local rids: {string} = {}
     local modes: {string} = {}
     local names: {string} = {}
     local preservesPaths: {[integer]: {string}} = {}
-    for j, p in ipairs(params) do
-        pids[j] = p.id
+    for j = 1, #params do
         modes[j] = paramModes and paramModes[j] or "plain"
         names[j] = paramNames and paramNames[j] or ""
-    end
-    for j, r in ipairs(rets) do
-        rids[j] = r.id
-    end
-    local keyedParams: {string} = {}
-    for j, id in ipairs(pids) do
-        keyedParams[j] = modes[j] .. ":" .. id
-    end
-    local varargPart = ""
-    if vararg then
-        varargPart = varargType and (",..." .. varargType.id) or ",..."
     end
     paramPack = paramPack or types.pack(
         params,
