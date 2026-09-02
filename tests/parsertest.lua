@@ -696,6 +696,23 @@ function M.unassignableTargetIsReportedAtTheTarget()
    assertEq(second.errors[1].col, 6, "second target column")
 end
 
+-- A bare return list continues past a comma into anything a type can start with,
+-- literal types included: the list once knew fewer starts than the type rule.
+function M.bareReturnListsAcceptLiteralTypes()
+   local sources = {
+      "local function f(): string, 1\n    return \"a\", 1\nend\n",
+      "local function g(): string, `x`\n    return \"a\", `x`\nend\n",
+      "local function h(): integer, true, nil\n    return 1, true, nil\nend\n",
+   }
+   for _, src in ipairs(sources) do
+      local result = assertRoundtrip(src)
+      assertEq(#result.errors, 0, src .. ": "
+         .. (result.errors[1] and result.errors[1].msg or ""))
+      local body = result.root.blocks[1].stats[1].body
+      assertEq(#body.rets, select(2, src:gsub(",", ",")) / 2 + 1, "every result was read")
+   end
+end
+
 -- An unmatched second half is still reported rather than silently swallowed.
 function M.strayHalfCloseIsReported()
    local result = parser.parse("local w: Box<integer>> = 1\n")

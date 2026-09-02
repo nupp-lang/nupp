@@ -23,9 +23,6 @@ local type Token = lexer.Token
 --- A node of the tree being built.
 local type Node = cst.Node
 
---- What a node holds: another node, or a token.
-local type Child = cst.Child
-
 --- What parsing a file yields.
 type parser.ParseResult = {
     --- The root node, which is always a chunk. Printing it reproduces the source
@@ -331,17 +328,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor, parseFuncbody, parseType, parsePosttype, parseTypePack, parseStatement, parseReturnType, parseIstring, parseCaptureClause
 
     -- Tokens that can begin a type expression.
-    local TYPE_START = {
-        ["name"] = true,
-        ["nil"] = true,
-        ["{"] = true,
-        ["function"] = true,
-        ["("] = true,
-        ["string"] = true,
-        ["true"] = true,
-        ["false"] = true,
-    }
-
     -- FFI operations that take a type rather than a value, so the checker can give them
     -- a return type that depends on it.
     local FFI_INTRINSIC = {
@@ -590,6 +576,21 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- type that happens to be named `const` [CS-12].
 
     --- Whether a type could begin at this token.
+    --- The contextual words that may open a type, each with the one other prefix it
+    --- may be written before -- a plain `function` always follows -- and the flag it
+    --- sets on what it qualifies. `nosuspend` and `sendable` mark only a function
+    --- type and accept each other in either order, since each re-enters the rule.
+    --- `comptime` marks whatever it opens, `function` or `type`.
+    local TYPE_PREFIXES: {[string]: {
+        orBefore: string,
+        flag: string,
+        functionOnly: boolean
+    }} = {
+        nosuspend = {orBefore = "sendable", flag = "noSuspend", functionOnly = true},
+        sendable = {orBefore = "nosuspend", flag = "sendable", functionOnly = true},
+        comptime = {orBefore = "type", flag = "comptimeOnly", functionOnly = false},
+    }
+
     local function startsType(tok: Token?): boolean
         if not tok then
             return false
@@ -623,6 +624,42 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
 
         return external
+    end
+
+    --- Records a parsed return pack on a function type or body: the pack itself, its
+    --- children spliced in when it is a bare list so reprinting stays exact, and the
+    --- result list read from it. Returns the first result when it borrows from a
+    --- source outside the parameters, which each caller records in its own way.
+    local function attachReturnPack(n: cst.Tfunc | cst.Funcbody, returnPack: Node): cst.Tborrows?
+        n.returnPack = returnPack
+        if returnPack.kind == "tpack" and not returnPack.tail then
+            for _, child in ipairs(returnPack) do
+                add(n, child)
+            end
+        else
+            add(n, returnPack)
+        end
+        n.rets = returnPack.kind == "tpack" and returnPack.types or {}
+        local firstResult = (n.rets or {})[1]
+        if firstResult and firstResult.kind == "tborrows" then
+            local borrowed = firstResult as cst.Tborrows
+            if borrowsExternalSource(n.params as {cst.Param | cst.TfuncParam}, borrowed) then
+                return borrowed
+            end
+        end
+
+        return nil
+    end
+
+    --- A function's block: `break` and switch yields inside it belong to it, not to a
+    --- loop or arm enclosing the function, so both depths start over and come back.
+    local function parseFunctionBlock(): Node
+        local savedLoopDepth, savedSwitchArmDepth = loopDepth, switchArmDepth
+        loopDepth, switchArmDepth = 0, 0
+        local body = parseBlock()
+        loopDepth, switchArmDepth = savedLoopDepth, savedSwitchArmDepth
+
+        return body
     end
 
     --- One argument to a generic application or a type function. `C...` and `...T`
@@ -662,46 +699,19 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         -- Contextual in type position on the rule it opens a region with: a name,
         -- followed by the thing it qualifies. Read before the plain-name case, which
         -- would otherwise take `nosuspend` for a type called that.
-        if kind == "name" and cur().text == "nosuspend" and tokens[
-            i + 1
-        ] and (
-            tokens[i + 1].kind == "function" or tokens[i + 1].kind == "name" and tokens[i + 1].text == "sendable"
+        local prefix = kind == "name" and TYPE_PREFIXES[cur().text] or nil
+        local following = tokens[i + 1]
+        if prefix and following and (
+            following.kind == "function" or following.kind == "name" and following.text == prefix.orBefore
         ) then
             local keyword = advance()
             keyword.contextualOp = true
             local inner = parseTypePrimary()
-            if inner.kind == "tfunc" then
-                inner.noSuspend = true
+            if not prefix.functionOnly or inner.kind == "tfunc" then
+                (inner as any)[prefix.flag] = true
             end
             -- The keyword joins the node's children at the front, so reprinting is
             -- exact and the formatter needs to know nothing new.
-            table.insert(inner, 1, keyword)
-            return inner
-        end
-        -- `sendable function(...)` states that another isolated Lua state can
-        -- reproduce the value. Written before `nosuspend` or after it, since each
-        -- modifier re-enters this rule and neither depends on the other.
-        if kind == "name" and cur().text == "sendable" and tokens[
-            i + 1
-        ] and (
-            tokens[i + 1].kind == "function" or tokens[i + 1].kind == "name" and tokens[i + 1].text == "nosuspend"
-        ) then
-            local keyword = advance()
-            keyword.contextualOp = true
-            local inner = parseTypePrimary()
-            if inner.kind == "tfunc" then
-                inner.sendable = true
-            end
-            table.insert(inner, 1, keyword)
-            return inner
-        end
-        if kind == "name" and cur().text == "comptime" and tokens[
-            i + 1
-        ] and (tokens[i + 1].kind == "function" or tokens[i + 1].kind == "name" and tokens[i + 1].text == "type") then
-            local keyword = advance()
-            keyword.contextualOp = true
-            local inner = parseTypePrimary()
-            inner.comptimeOnly = true
             table.insert(inner, 1, keyword)
             return inner
         end
@@ -995,26 +1005,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 -- return type that itself intersects with a function remains available
                 -- by parenthesizing it.
                 local returnPack = parseTypePack(false, true)
-                n.returnPack = returnPack
-                if returnPack.kind == "tpack" and not returnPack.tail then
-                    for _, child in ipairs(returnPack) do
-                        add(n, child)
-                    end
-                else
-                    add(n, returnPack)
-                end
-                n.rets = returnPack.kind == "tpack" and returnPack.types or {}
-                local returns = n.rets or {}
-                local firstResult = returns[1]
-                if firstResult and firstResult.kind == "tborrows" then
-                    local borrowed = firstResult as cst.Tborrows
-                    if borrowsExternalSource(n.params, borrowed) then
-                        n.captureBorrows = borrowed
-                        if borrowed.type then
-                            returns[1] = borrowed.type
-                            if returnPack.kind == "tpack" then
-                                returnPack.types[1] = borrowed.type
-                            end
+                local borrowed = attachReturnPack(n, returnPack)
+                if borrowed then
+                    n.captureBorrows = borrowed
+                    if borrowed.type then
+                        (n.rets or {})[1] = borrowed.type
+                        if returnPack.kind == "tpack" then
+                            returnPack.types[1] = borrowed.type
                         end
                     end
                 end
@@ -1166,7 +1163,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind ~= "(" then
             local n = new cst.Tpack(kind = "tpack", types = {})
             n.types[1] = add(n, parseReturnType(stopAtFunctionMember))
-            while allowBareList and cur().kind == "," and tokens[i + 1] and TYPE_START[tokens[i + 1].kind] do
+            while allowBareList and cur().kind == "," and startsType(tokens[i + 1]) do
                 add(n, advance()).typeSeparator = true
                 n.types[#n.types + 1] = add(n, parseReturnType(stopAtFunctionMember))
             end
@@ -1687,13 +1684,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         add(n, expect("->", "in short function"))
         if cur().kind == "do" then
             add(n, advance())
-            local savedLoopDepth = loopDepth
-            local savedSwitchArmDepth = switchArmDepth
-            loopDepth = 0
-            switchArmDepth = 0
-            n.body = add(n, parseBlock())
-            loopDepth = savedLoopDepth
-            switchArmDepth = savedSwitchArmDepth
+            n.body = add(n, parseFunctionBlock())
             add(n, expect("end", "to close short function"))
         else
             n.expr = add(n, parseExp())
@@ -2149,24 +2140,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind == ":" then
             -- Statement-position return annotation: unparenthesized list [CS-7].
             annotationColon(n, "before return types")
-            local returnPack = parseTypePack(true)
-            n.returnPack = returnPack
-            if returnPack.kind == "tpack" and not returnPack.tail then
-                for _, child in ipairs(returnPack) do
-                    add(n, child)
-                end
-            else
-                add(n, returnPack)
-            end
-            n.rets = returnPack.kind == "tpack" and returnPack.types or {}
-            local returns = n.rets or {}
-            local firstResult = returns[1]
-            if firstResult and firstResult.kind == "tborrows" then
-                local borrowed = firstResult as cst.Tborrows
-                if borrowsExternalSource(n.params, borrowed) then
-                    n.captureBorrowsCandidate = borrowed
-                end
-            end
+            n.captureBorrowsCandidate = attachReturnPack(n, parseTypePack(true))
         end
         while cur().kind == "name" and (
             cur().text == "takes" or cur().text == "borrows"
@@ -2194,13 +2168,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 n.resumePack = add(n, parseTypePack(true))
             end
         end
-        local savedLoopDepth = loopDepth
-        local savedSwitchArmDepth = switchArmDepth
-        loopDepth = 0
-        switchArmDepth = 0
-        n.body = add(n, parseBlock())
-        loopDepth = savedLoopDepth
-        switchArmDepth = savedSwitchArmDepth
+        n.body = add(n, parseFunctionBlock())
         add(n, expect("end", "to close function"))
 
         return n
