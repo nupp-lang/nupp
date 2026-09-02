@@ -7,6 +7,15 @@ function suite.test(provider: any): (boolean, string?)
     if type(provider.scope) ~= "function" then
         return false, "scope must be a function"
     end
+    -- What a task scope reaches a provider through. Hidden with rawset because they
+    -- are not part of the authored surface, and required here because a provider
+    -- without them would fail at the first `fork` rather than at selection.
+    for _, name in ipairs({"__scope", "__settle", "__parallelism"}) do
+        if type(rawget(provider, name)) ~= "function" then
+            return false, name .. " must be a function"
+        end
+    end
+
     return true
 end
 

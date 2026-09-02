@@ -7,9 +7,15 @@ local seam = {moduleName = "nupp.runtime.seam.workers", suiteModuleName = "nupp.
 -- The cleanup contract it carries, `ScopeToken`, is an affine interface: a promise
 -- the checker holds a provider to, with nothing of it left at run time. So the
 -- shallow runtime check names the one of the two a loaded module can answer for.
+--
+-- The three underscored functions are what `nupp.tasks` reaches a provider through
+-- without linking it: `__scope` opens a family for a task scope to own, `__settle`
+-- waits on one task without raising, and `__parallelism` sizes a bounded fan-out.
+-- A provider missing any of them fails selection here rather than at the first
+-- `fork`. Version 2 of the contract is the one that names them.
 local CONTRACT = common.contract("host.workers", {
     globalName = "__nuppWorkers",
-    requiredFunctions = {"scope"},
+    requiredFunctions = {"scope", "__scope", "__settle", "__parallelism"},
     requiredValues = {"Scope"},
     suiteModule = seam.suiteModuleName,
 })

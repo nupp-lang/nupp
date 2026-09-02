@@ -203,6 +203,7 @@ local CONTRACTS: {any} = {
     },
     {
         name = "host.workers",
+        version = 2,
         effect = "native.workers",
         binding = "runtime",
         factoryModule = "nupp.runtime.seam.workers",

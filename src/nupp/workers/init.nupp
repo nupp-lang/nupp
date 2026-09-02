@@ -122,9 +122,10 @@ local type TransferState = {
 -- the signature alone and says nothing about where the function came from.
 local type Callable = function(...: any): any
 
--- What may actually be submitted. A sendable callable is either a module member or
--- an outlined literal whose effectively-final captures can be copied to another lane.
-local type Submittable = sendable function(...: any): any
+--- What may actually be submitted: a module member, or an outlined literal whose
+--- effectively-final captures can be copied to another lane. Exported so a task scope
+--- can hold its `fork` to the same bound without linking this module.
+type workers.Submittable = sendable function(...: any): any
 
 --- Whether one type is an engine-backed owner a lane boundary moves rather than
 --- copies: a [](nupp.mem.heap) array of a fixed-width element. The storage lives in
@@ -237,7 +238,7 @@ end
 --- The arguments a submitted function takes, once its whole signature is known to be
 --- copyable. Reached only from `spawn`: naming `Task<F>` describes a handle rather than
 --- a crossing, so a signature is held to this where it is submitted and nowhere else.
-local comptime function Submitted(F: type): typepack
+comptime function workers.Submitted(F: type): typepack
     if nupp.types.kind(F) ~= "function" then
         return nupp.types.error("a worker task must name a function type")
     end
@@ -458,7 +459,11 @@ record workers.Scope is workers.ScopeToken
     _observer: any
 
     --- Starts one sendable function with copied arguments.
-    spawn: function<F is Submittable>(borrows self: workers.Scope, F, ...: unpackof Submitted(F)): workers.Task<F>
+    spawn: function<F is workers.Submittable>(
+        borrows self: workers.Scope,
+        F,
+        ...: unpackof workers.Submitted(F)
+    ): workers.Task<F>
 
     --- Waits for every child. Idempotent.
     close: function(borrows self: workers.Scope): nil
@@ -1718,10 +1723,10 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     return task
 end
 
-local spawnSurface: function<F is Submittable>(
+local spawnSurface: function<F is workers.Submittable>(
     borrows self: workers.Scope,
     F,
-    ...: unpackof Submitted(F)
+    ...: unpackof workers.Submitted(F)
 ): workers.Task<F>
 unsafe do
     spawnSurface = spawnImpl as any
@@ -1829,6 +1834,32 @@ local function settleParking(task: any): string?
 
     return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
 end
+
+--- Settles one task for a task scope's `fork`, answering rather than raising.
+---
+--- The task scope owns the failure rule -- level, prefix, and what cancels what -- so
+--- this answers the settled state and lets the caller raise in its own terms. The
+--- values come back packed with their exact count, because a result pack with `nil`
+--- in it is a pack and not a shorter one.
+---
+--- @return the status, the packed values, their count, and the problem or cancellation
+local function settleForScope(task: any): (string, {any}?, integer, any)
+    task._observed = true
+    if not TaskImpl.isDone(task) then
+        waitFor(task._scheduler, task._lane, task._id)
+    end
+    task._lane.replies[task._id] = nil
+    if task._state == "failed" then
+        return "failed", nil, 0, "nupp: worker task failed: " .. (task._error or "unknown failure")
+    end
+    if task._state == "cancelled" then
+        return "cancelled", nil, 0, task._cancelled
+    end
+
+    return "done", task._values, task._count, nil
+end
+
+rawset(workers, "__settle", settleForScope)
 
 ----------------------------------------------------------------------------
 -- Scopes
