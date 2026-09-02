@@ -111,17 +111,19 @@ The official release workflow builds these compiler hosts and catalog stubs:
 | --- | --- | --- | --- |
 | `x86_64-unknown-linux-gnu` | `nupp-linux-x86_64.tar.gz` | bundled and separately published | native Linux GNU |
 | `aarch64-apple-darwin` | `nupp-macos-arm64.tar.gz` | none; native source builds use local Xcode tools | native Apple Darwin |
-| `x86_64-pc-windows-msvc` | `nupp-windows-x86_64.zip` | bundled and separately published | `x86_64-pc-windows-gnu` internally |
+| `x86_64-pc-windows-msvc` | `nupp-windows-x86_64.zip` | bundled and separately published | GNU for the base host; `x86_64-pc-windows-gnullvm` inside the LLVM-MinGW compiler pack |
 
 The Windows names describe two different contracts. Nupp-generated C and AOT
 artifacts use the public `x86_64-pc-windows-msvc` target spelling and layout.
-The Nupp host itself embeds a LuaJIT built by its GNU make and MinGW toolchain,
-so its Rust objects must use
-the ABI-compatible `x86_64-pc-windows-gnu` Rust host. A Windows source checkout
-therefore needs the exact GNU Rust toolchain named in
-[`installation.md`](../learn/getting-started/installation.md#requirements);
-the toolchain driver refuses an MSVC-hosted Rust compiler instead of mixing the
-two object ABIs.
+The Nupp host itself embeds a LuaJIT built by its GNU make and MinGW toolchain.
+The base release host and ordinary Windows source checkout therefore use the
+ABI-compatible `x86_64-pc-windows-gnu` Rust host named in
+[`installation.md`](../learn/getting-started/installation.md#requirements).
+The authenticated compiler pack instead pairs LLVM-MinGW/UCRT with Rust's
+`x86_64-pc-windows-gnullvm` host so the Rust application archive and the pack's
+linker agree on their runtime ABI. The toolchain driver selects these pairs
+explicitly and refuses an MSVC-hosted Rust compiler rather than mixing object
+ABIs.
 
 The release workflow also publishes the browser runtime separately. Browser
 Lua and WebGPU use their own portable host and do not turn the desktop host
@@ -148,6 +150,9 @@ static application host, static and dynamic embedding SDKs, workers, appended
 compiler payloads, unpacked release artifacts, and byte-identical compiler and
 binary packaging fixpoints. The Windows gate also exercises the DirectX 12 WGPU
 adapter rather than relying only on the cross-platform software adapter.
+Manual release rehearsals do not hold Apple Developer ID credentials and cannot
+exercise tag-only signing and notarization; those remain gates of an actual
+tagged release.
 
 ## Migration breaks
 
