@@ -1539,7 +1539,17 @@ return {
    assert(exists(dir .. "/out/app/data/schema.nupp"),
       "resource tables use their explicit target-relative output")
    assert(exists(dir .. "/out/.nupp-state.json"), "persistent state is written")
-   assert(exists(dir .. "/out/.nupp-complete"), "completion marker is written last")
+   assert(exists(dir .. "/out/.nupp-complete"), "the completion marker is published")
+   assert(not exists(dir .. "/out/.nupp-complete.pending"),
+      "the stamp it was written to is renamed into place rather than left beside it")
+   -- The launcher rebuilds whenever a source is newer than this marker, so the marker
+   -- has to date from before the sources were read. Stamped when the build finished it
+   -- covered every edit made while the build was running: an edit that landed too late
+   -- to be compiled was also too old to ask for another build, and the tree stayed one
+   -- edit behind until something unrelated happened to move.
+   assertEq(os.execute(("test ! '%s/out/.nupp-complete' -nt '%s/out/lib/util.lua'")
+      :format(dir, dir)), 0,
+      "the completion marker must not be newer than what the build wrote")
    local before = read(dir .. "/out/lib/util.lua")
    assertEq(project.build(dir), 0, "warm build succeeds")
    assertEq(read(dir .. "/out/lib/util.lua"), before, "warm artifact is unchanged")

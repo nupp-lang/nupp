@@ -39937,11 +39937,27 @@ end
 
 
 
+
+
+
+
+
+
+
+
+
 local function sourceContentHash ( path ) 
 local text = substituted [ path ]
 if text ~= nil then
 return hash . digest ( text )
 end
+local checked = inc . fileText ( path )
+if checked ~= nil then
+return hash . digest ( checked )
+end
+
+
+
 
 return hashFile ( path )
 end
@@ -42841,8 +42857,16 @@ return 1
 end
 local outDir = normalize ( opts . outDir or target . outDir or "build" )
 local completionPath = join ( root , join ( outDir , ".nupp-complete" ) )
+
+
+
+
+
+
+local pendingCompletionPath = completionPath .. ".pending"
 if not opts . checkOnly then
 os . remove ( completionPath )
+os . remove ( pendingCompletionPath )
 end
 
 
@@ -42862,6 +42886,15 @@ oldState = loadState ( statePath )
 end
 local newState = cache . emptyState ( )
 newState . compilerHash = toolFingerprint ( )
+
+
+if not opts . checkOnly then
+local stamped , stampErr = writeFile ( pendingCompletionPath , newState . compilerHash .. "\n" )
+if not stamped then
+io . stderr : write ( "nupp: " .. tostring ( stampErr ) .. "\n" )
+return 1
+end
+end
 
 
 
@@ -43378,7 +43411,13 @@ if not ok then
 io . stderr : write ( "nupp: " .. tostring ( stateErr ) .. "\n" ) ;
 return 1
 end
-local completed , completionErr = writeFile ( completionPath , newState . compilerHash .. "\n" )
+local completed , completionErr = os . rename ( pendingCompletionPath , completionPath )
+if not completed then
+
+
+
+completed , completionErr = writeFile ( completionPath , newState . compilerHash .. "\n" )
+end
 if not completed then
 io . stderr : write ( "nupp: " .. tostring ( completionErr ) .. "\n" )
 return 1
@@ -43598,7 +43637,9 @@ local native = relative : match ( "^native/" ) or relative : match ( "^lib/" )
 
 
 local derived = relative : match ( "^cache/" ) or relative : match ( "^%.bytecode/" )
-if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" and not native and not derived then
+if relative ~= ".nupp-state.json" and not relative : match (
+"^%.nupp%-complete"
+) and not native and not derived then
 parts [ # parts + 1 ] = relative .. "\0" .. ( hashFile ( file ) or "" )
 end
 end
@@ -43781,7 +43822,9 @@ end
 local function copyTree ( source , destination ) 
 for _ , path in ipairs ( listFiles ( source ) ) do
 local relative = path : sub ( # normalize ( source ) + 2 )
-if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" and not relative : match ( "^native/" ) then
+if relative ~= ".nupp-state.json" and not relative : match (
+"^%.nupp%-complete"
+) and not relative : match ( "^native/" ) then
 local ok , err = copyFile ( path , join ( destination , relative ) )
 if not ok then
 return nil , err
@@ -93747,7 +93790,7 @@ local THEME = [[
 .nuppdoc-logo{width:auto;height:28px;border-radius:5px}
 .nuppdoc-icon-link{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer;text-decoration:none}.nuppdoc-icon-link:hover,.nuppdoc-icon-link[aria-pressed="true"]{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-icon-link svg{width:18px;height:18px}.nuppdoc-panel-toggle-right svg{transform:scaleX(-1)}
 .nuppdoc-shell{transition:grid-template-columns 160ms ease}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) var(--nuppdoc-outline-width)}.nuppdoc-shell.is-outline-collapsed{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed.is-outline-collapsed{grid-template-columns:0 minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{overflow:hidden;padding-right:0;padding-left:0;border:0;opacity:0;pointer-events:none}
-.nuppdoc-sidebar{background:var(--nuppdoc-sidebar-background)}.nuppdoc-sidebar>ul{margin:0;padding:0;list-style:none}.nuppdoc-sidebar li{margin:0;padding:0}.nuppdoc-sidebar-section{margin-top:1.1rem!important;padding-top:1.1rem!important;border-top:1px solid var(--nuppdoc-border)}.nuppdoc-sidebar-section:first-child{margin-top:0!important;padding-top:0!important;border-top:0}.nuppdoc-sidebar-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-sidebar-section summary{position:relative;margin:0;padding:.24rem 1.2rem .24rem .55rem;color:var(--nuppdoc-text);font-size:.7rem;font-weight:700;line-height:1.3;cursor:pointer;list-style:none}.nuppdoc-sidebar-section summary::after{position:absolute;top:50%;right:.5rem;width:.36rem;height:.36rem;border-right:1.5px solid var(--nuppdoc-text-faint);border-bottom:1.5px solid var(--nuppdoc-text-faint);content:"";transform:translateY(-50%) rotate(45deg)}.nuppdoc-sidebar-section details:not([open]) summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-sidebar-section summary::-webkit-details-marker{display:none}.nuppdoc-sidebar-section summary::marker{content:""}.nuppdoc-sidebar-section ul{padding:4px 0 0 .5rem}
+.nuppdoc-sidebar{background:var(--nuppdoc-sidebar-background)}.nuppdoc-sidebar>ul{margin:0;padding:0;list-style:none}.nuppdoc-sidebar li{margin:0;padding:0}.nuppdoc-sidebar-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-sidebar-section summary{position:relative;margin:0;padding:.24rem 1.2rem .24rem .55rem;color:var(--nuppdoc-text);font-size:.7rem;font-weight:700;line-height:1.3;cursor:pointer;list-style:none}.nuppdoc-sidebar-section summary::after{position:absolute;top:50%;right:.5rem;width:.36rem;height:.36rem;border-right:1.5px solid var(--nuppdoc-text-faint);border-bottom:1.5px solid var(--nuppdoc-text-faint);content:"";transform:translateY(-50%) rotate(45deg)}.nuppdoc-sidebar-section details:not([open]) summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-sidebar-section summary::-webkit-details-marker{display:none}.nuppdoc-sidebar-section summary::marker{content:""}.nuppdoc-sidebar-section>details>summary.nuppdoc-sidebar-section-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-sidebar-section>details>summary>a{font-weight:inherit;padding-right:.2rem}.nuppdoc-sidebar-section ul{padding:4px 0 0 .5rem}
 .nuppdoc-module-tree{margin:0;padding:4px 0 0 .5rem;list-style:none}.nuppdoc-module-branch>details>summary{color:var(--nuppdoc-text-muted);font-weight:500}.nuppdoc-module-branch>details>summary.nuppdoc-module-branch-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-module-branch>details>summary>a{padding-right:.2rem}.nuppdoc-module-branch .nuppdoc-module-tree{padding:2px 0 0 .7rem}
 .nuppdoc-outline-title{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.66rem;font-weight:600}.nuppdoc-outline a[aria-current]{color:var(--nuppdoc-accent)}
 .nuppdoc-outline-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-outline-section summary{position:relative;margin:0;padding:0 1rem 0 0;cursor:pointer;list-style:none}.nuppdoc-outline-section summary::-webkit-details-marker{display:none}.nuppdoc-outline-section summary::marker{content:""}.nuppdoc-outline-section summary::after{position:absolute;top:50%;right:.15rem;width:.32rem;height:.32rem;border-right:1.5px solid var(--nuppdoc-text-muted);border-bottom:1.5px solid var(--nuppdoc-text-muted);content:"";transform:translateY(-65%) rotate(45deg);transition:transform 120ms ease}.nuppdoc-outline-section details:not([open])>summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-outline-section details>ol{margin:0;padding:0 0 0 .65rem;border:0;list-style:none}
@@ -98241,23 +98284,57 @@ end
 return false
 end
 
-local function pageTreeHtml ( node , currentPath , prefix ) 
+
+
+local function sectionPage ( node , path ) 
+for _ , candidate in ipairs ( node . pages ) do
+if candidate . path == path then
+return candidate
+end
+end
+
+return nil
+end
+
+local function pageTreeHtml ( node , currentPath , prefix , path ) 
 local out = { }
 for _ , candidate in ipairs ( node . pages ) do
+if candidate . path ~= path then
 local active = candidate . path == currentPath and ' aria-current="page"' or ""
 local link = pageLink ( prefix , candidate . path )
 local title = htmlEscape ( candidate . title )
 out [ # out + 1 ] = '<li><a' .. active .. ' href="' .. link .. '">' .. title .. "</a></li>"
 end
+end
 for _ , name in ipairs ( node . order ) do
 local child = node . children [ name ]
+local childPath = path == "" and name or path .. "/" .. name
 local label = name : gsub ( "[-_]" , " " )
 label = label : sub ( 1 , 1 ) : upper ( ) .. label : sub ( 2 )
 local open = pageBranchContains ( child , currentPath ) and " open" or ""
-local summary = htmlEscape ( label ) .. "</summary><ul>"
-out [ # out + 1 ] = '<li class="nuppdoc-sidebar-section"><details' .. open .. "><summary>" .. summary
-out [ # out + 1 ] = pageTreeHtml ( child , currentPath , prefix )
+local own = sectionPage ( child , childPath )
+local active = own and own . path == currentPath and ' aria-current="page"' or ""
+if own and # child . pages == 1 and # child . order == 0 then
+
+
+out [
+# out + 1
+] = "<li><a" .. active .. ' href="' .. pageLink (
+prefix ,
+own . path
+) .. '">' .. htmlEscape ( own . title ) .. "</a></li>"
+else
+local summary = "<summary>" .. htmlEscape ( label ) .. "</summary>"
+if own then
+summary = '<summary class="nuppdoc-sidebar-section-link"><a' .. active .. ' href="' .. pageLink (
+prefix ,
+own . path
+) .. '">' .. htmlEscape ( label ) .. "</a></summary>"
+end
+out [ # out + 1 ] = '<li class="nuppdoc-sidebar-section"><details' .. open .. ">" .. summary .. "<ul>"
+out [ # out + 1 ] = pageTreeHtml ( child , currentPath , prefix , childPath )
 out [ # out + 1 ] = "</ul></details></li>"
+end
 end
 
 return table . concat ( out )
@@ -98265,7 +98342,7 @@ end
 
 local function sidebar ( modules , current , prefix , pages , currentPath ) 
 local out = { '<aside class="nuppdoc-sidebar" id="nuppdoc-sidebar"' .. ' aria-label="Page navigation"><ul>' }
-out [ # out + 1 ] = pageTreeHtml ( pageTree ( pages ) , currentPath , prefix )
+out [ # out + 1 ] = pageTreeHtml ( pageTree ( pages ) , currentPath , prefix , "" )
 local apiOpen = current and current ~= "" and " open" or ""
 out [
 # out + 1
