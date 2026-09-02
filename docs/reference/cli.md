@@ -317,7 +317,7 @@ decoration.
 :::
 
 ::: seealso
-- [tour.md](../learn/getting-started/tour.md) for a walk through the scaffolded
+- [tour.md](../getting-started/tour.md) for a walk through the scaffolded
   project
 - [build.md](../learn/projects/build.md) for the `nupp.lua` a template writes
 - [LuaRocks](../learn/projects/integrations/luarocks.md) for the layout the `lib` template
@@ -1353,7 +1353,7 @@ are running. Printing it from the binary makes the two the same artifact.
 
 ::: seealso
 - [diagnostics.md](diagnostics.md) for the codes `--for` resolves
-- [tour.md](../learn/getting-started/tour.md) for the same material written for a
+- [tour.md](../getting-started/tour.md) for the same material written for a
   first read rather than for pasting
 :::
 

@@ -1,5 +1,6 @@
 ---
-order: 90
+order: 5
+redirects: learn/getting-started/installation
 ---
 
 # Installation
@@ -40,7 +41,7 @@ beside the repository so every worktree shares one build. Cargo resolves the
 Rust-native crates, including networking and TLS, through the committed
 lockfile. The toolchain driver builds Nupp's Rust native providers, executable
 host, and embedding libraries; `bin/nupp` runs it for what is missing and
-nothing more. See [Native runtime and support](../../reference/native-runtime.md)
+nothing more. See [Native runtime and support](../reference/native-runtime.md)
 for the feature mapping, retained non-Rust boundaries, and release matrix.
 
 ### LuaJIT
@@ -163,7 +164,7 @@ into its host. Nupp supplies Lunamark's entity encoder and reference-label
 normalizer from the payload. Their Lua files, including LPeg's official
 `re.lua`, remain in the payload. Two checkouts can hold different rock versions
 without either disturbing the other, and nothing lands in a global tree. See
-[rock dependencies](../projects/build.md#rock-dependencies) for declaring your
+[rock dependencies](../learn/projects/build.md#rock-dependencies) for declaring your
 own.
 
 `nupp doc` needs lunamark and stops with a message when it cannot install or
@@ -201,9 +202,9 @@ The lexers are a chosen set rather than all hundred and sixty Scintillua ships.
 They are the languages a technical document actually fences, listed at the top
 of `nupp.lua`. A fence in something else renders as escaped text, which is what
 it does with no Scintillua at all. See
-[distribution](../../reference/distribution.md) for the stub-and-payload format,
+[distribution](../reference/distribution.md) for the stub-and-payload format,
 and [carrying a rock into a
-bundle](../projects/build.md#carrying-a-rock-into-a-bundle) for carrying your own.
+bundle](../learn/projects/build.md#carrying-a-rock-into-a-bundle) for carrying your own.
 
 ## Running checks
 
@@ -233,8 +234,8 @@ templates. See [Getting started](index.md) for the project loop and what each
 template contains.
 
 ::: seealso
-- [build.md](../projects/build.md) for every manifest key, target kind, and cache
+- [build.md](../learn/projects/build.md) for every manifest key, target kind, and cache
 - [tour.md](tour.md) for the language itself, one construct at a time
-- [tooling.md](../tooling/index.md) for what the rest of the binary does
-- [testing.md](../projects/testing.md) for configuring a suite of your own
+- [tooling.md](../learn/tooling/index.md) for what the rest of the binary does
+- [testing.md](../learn/projects/testing.md) for configuring a suite of your own
 :::

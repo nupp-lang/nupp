@@ -149,22 +149,20 @@ else
 fi
 sha256() { sha256_stdin < "$1"; }
 
-# The digest of the C host, in a fixed order. Host build directories are keyed
-# on it as well as on their feature list, because a cache keyed on the request
-# alone answers an edited source tree with the artifact built from the source
-# it replaced.
-sources_digest() {
-    (cd "$ROOT" && find host/c host/include \
-        -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null) \
+# Public embedding headers are staged beside the Rust libraries rather than
+# compiled into them. Give those staged SDKs their own content key so changing
+# the public ABI refreshes the SDK without needlessly rebuilding a Rust crate.
+embedding_headers_digest() {
+    (cd "$ROOT" && find host/include -type f -name '*.h' 2>/dev/null) \
         | LC_ALL=C sort | while IFS= read -r file; do
             printf '%s ' "$file"
             sha256 "$ROOT/$file"
         done | sha256_stdin | cut -c1-16
 }
 
-# Rust inputs have their own content key. Keeping this separate from the C
-# digest means editing a crate does not rebuild LuaJIT or the C host,
-# while every workspace or lock-file change does rebuild the Rust artifact.
+# Rust inputs have their own content key. Keeping this separate from the public
+# headers means editing a header only restages the SDK, while every workspace or
+# lock-file change rebuilds the Rust artifact.
 rust_sources_digest() {
     {
         for file in Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml \
@@ -1064,7 +1062,7 @@ build_host() {
     selected_cargo_features=$host_cargo_features
     selected_lpeg_prefix=$host_lpeg_prefix
     digest=$(printf '%s|%s|%s|%s' \
-        "$kind" "$selected_cargo_features" "$(sources_digest)" "$(rust_sources_digest)" \
+        "$kind" "$selected_cargo_features" "$(embedding_headers_digest)" "$(rust_sources_digest)" \
         | sha256_stdin | cut -c1-16)
     out="$PREFIX/host/$digest"
     HOST_OUT="$out"

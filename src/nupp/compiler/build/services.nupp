@@ -1,0 +1,92 @@
+module nupp.compiler.build.services
+
+local capabilities = require("nupp.compiler.build.capabilities")
+local deps = require("nupp.compiler.build.deps")
+local fs = require("nupp.compiler.fs")
+
+local services = {}
+
+local function quote(value: string): string
+    return string.format("%q", value)
+end
+
+--- Writes the deterministic, lazy service registry for one target. Only target-role
+--- dependencies participate; host tools and compile-only declarations never become
+--- runtime providers merely because they share a package format.
+function services.write(root, outDir, config, target, records): (boolean?, string?, boolean?)
+    local found = {}
+    for _, dependencyName in ipairs(target.dependencies or {}) do
+        local dependency = (config.dependencies or {})[dependencyName]
+        local record = deps.record(records, dependencyName, "target")
+        local descriptor = record and record.typeRoot and fs.join(record.typeRoot, "capabilities.json") or nil
+        if dependency and dependency.kind == "luarocks" and record and descriptor and fs.exists(descriptor) then
+            local entries, err = capabilities.read(record, dependencyName)
+            if not entries then
+                return nil, err
+            end
+            for _, entry in ipairs(entries) do
+                if entry.kind == "service" then
+                    local service = entry.service as string
+                    if entry.api ~= 1 then
+                        return nil, "service "
+                            .. service
+                            .. "/"
+                            .. entry.name
+                            .. " requires unsupported API "
+                            .. entry.api
+                    end
+                    local key = service .. "\0" .. entry.name
+                    if found[key] then
+                        return nil, "duplicate service provider " .. service .. "/" .. entry.name .. " from " .. found[
+                            key
+                        ].dependency .. " and " .. dependencyName
+                    end
+                    found[
+                        key
+                    ] = {
+                        dependency = dependencyName,
+                        service = service,
+                        name = entry.name,
+                        entry = entry.entry,
+                        member = entry.member,
+                    }
+                end
+            end
+        end
+    end
+
+    local ordered = {}
+    for _, provider in pairs(found) do
+        ordered[#ordered + 1] = provider
+    end
+    table.sort(ordered, function(left, right)
+        return left.service == right.service and left.name < right.name or left.service < right.service
+    end)
+    local lines = {"module nupp.service.registry", "", "local registry = {}",}
+    for _, provider in ipairs(ordered) do
+        lines[
+            #lines + 1
+        ] = "registry[" .. quote(provider.service) .. "] = registry[" .. quote(provider.service) .. "] or {}"
+        local expression = "require(" .. quote(provider.entry) .. ")"
+        if provider.member then
+            expression = expression .. "." .. provider.member
+        end
+        lines[
+            #lines + 1
+        ] = "registry[" .. quote(
+            provider.service
+        ) .. "][" .. quote(provider.name) .. "] = function() return " .. expression .. " end"
+    end
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "export = registry"
+    lines[#lines + 1] = ""
+
+    local wrote, err = fs.writeFileIfChanged(
+        fs.join(root, fs.join(outDir, "generated/nupp/service/registry.g.nupp")),
+        table.concat(lines, "\n")
+    )
+
+    return wrote, err, #ordered > 0
+end
+
+export = services

@@ -1,0 +1,37 @@
+module nupp.services
+
+-- Generic runtime lookup over the registry composed from a target's service-provider
+-- dependencies. Service-specific packages can put a typed facade over this deliberately
+-- dynamic boundary.
+
+local registry = require("nupp.service.registry") as {[string]: {[string]: function(): any}}
+
+local services = {}
+
+function services.lookup(service: string, name: string): any?
+    local providers = registry[service]
+    local load = providers and providers[name]
+
+    return load and load() or nil
+end
+
+function services.require(service: string, name: string): any
+    local provider = services.lookup(service, name)
+    if provider == nil then
+        error("no service provider " .. service .. "/" .. name, 2)
+    end
+
+    return provider
+end
+
+function services.list(service: string): {string}
+    local names = {}
+    for name in pairs(registry[service] or {}) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
+export = services

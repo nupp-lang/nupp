@@ -17,6 +17,8 @@ local cache = require("nupp.compiler.build.cache")
 local manifest = require("nupp.compiler.build.manifest")
 local tasks = require("nupp.compiler.build.tasks")
 local deps = require("nupp.compiler.build.deps")
+local generators = require("nupp.compiler.build.generators")
+local services = require("nupp.compiler.build.services")
 local modules = require("nupp.compiler.build.modules")
 local packaging = require("nupp.compiler.build.package")
 local buildPlatform = require("nupp.compiler.build.platform")
@@ -399,10 +401,27 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     newState.dependencies = dependencies
+    report:at("generate")
+    report:step("running generators")
+    local generated, generatorErr = generators.run(root, outDir, config, dependencies, oldState.generators)
+    report:clear()
+    if not generated then
+        io.stderr:write("nupp: " .. tostring(generatorErr) .. "\n")
+        return 1
+    end
+    newState.generators = generated
+    local wroteServices, serviceErr, hasServices = services.write(root, outDir, config, target, dependencies)
+    if not wroteServices then
+        io.stderr:write("nupp: " .. tostring(serviceErr) .. "\n")
+        return 1
+    end
     -- One query graph for the whole build, opened here because the ahead-of-time
     -- policy checks through it before the module build does. It reads the
     -- dependencies just resolved, which is why it cannot be opened any earlier.
     local session = modules.session(root, outDir, config, target, dependencies, strict, report)
+    if hasServices then
+        session.stageBundled("nupp.services")
+    end
     -- AOT consumes checked trees before the module pass. Give that shared graph
     -- the target's backend resolution now, so a portable standard surface reached
     -- by an AOT source is checked under the same seams as the later overlay.
@@ -696,14 +715,14 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 end
 
                 for dependencyName, dep in pairs(dependencies) do
-                    if dep.staticOutput then
+                    if dep.usage == "target" and dep.staticOutput then
                         for _, archive in ipairs(dep.linkOutputs or {dep.staticOutput as string}) do
                             addUnique(archives, seenArchives, archive)
                         end
                         for _, flag in ipairs(dep.linkFlags or {}) do
                             addUnique(flags, seenFlags, flag)
                         end
-                    elseif dep.runtimeOutput and dep.reference then
+                    elseif dep.usage == "target" and dep.runtimeOutput and dep.reference then
                         io.stderr:write(
                             "nupp: standalone binary cannot carry shared dependency "
                             .. dependencyName
@@ -821,8 +840,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- named for the platform loader instead carries no `@` and stays where
         -- it is, since nothing is looking for it beside anything.
         for _, dep in pairs(dependencies) do
-            local relative = dep.reference ~= nil and (dep.reference as string):match("^@(.+)$") or nil
-            local runtimeOutput = dep.runtimeOutput or (dep.staticOutput == nil and dep.output) or nil
+            local relative = dep.usage == "target" and dep.reference ~= nil and (
+                dep.reference as string
+            ):match("^@(.+)$") or nil
+            local runtimeOutput = dep.usage == "target" and (
+                dep.runtimeOutput or (dep.staticOutput == nil and dep.output)
+            ) or nil
             if relative ~= nil and runtimeOutput ~= nil then
                 local beside = join(dirname(output), relative as string)
                 local copied, copyErr = copyFile(runtimeOutput as string, beside)

@@ -32,10 +32,10 @@ nupp test
 nupp task start
 ```
 
-See [Getting started](docs/learn/getting-started/index.md) for the daily loop
+See [Getting started](docs/getting-started/index.md) for the daily loop
 and the browser, library, SIMD, and LÖVE templates. Building Nupp itself from a
 source checkout is documented separately in
-[Installation](docs/learn/getting-started/installation.md).
+[Installation](docs/getting-started/installation.md).
 
 ## Language and runtime
 
@@ -53,7 +53,7 @@ source checkout is documented separately in
 - The standard library covers files, networking, TLS, HTTP, processes, data
   formats, hashes, parsing, memory views, GPU storage, and model assets.
 
-The [Feature map](docs/learn/getting-started/features.md) links each area to the
+The [Feature map](docs/getting-started/features.md) links each area to the
 page that owns its rules. The complete checking model is under
 [Types](docs/learn/language/types/index.md).
 

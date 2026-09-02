@@ -94,6 +94,12 @@ type cache.ModuleRecord = {
 --- what any of them says, and `key` is the part they all agree on.
 type cache.DependencyRecord = {
     key: string?,
+
+    --- How this installation is used: host tool, compile surface, or target artifact.
+    usage: string?,
+
+    --- Host or target platform the record was built for.
+    platform: string?,
     output: string?,
     staticOutput: string?,
 
@@ -149,6 +155,11 @@ type cache.State = {
     version: integer,
     modules: {[string]: cache.ModuleRecord},
     dependencies: {[string]: cache.DependencyRecord},
+    generators: {[string]: {
+        key: string,
+        files: {string},
+        outputHash: string?
+    }}?,
     outputs: {[string]: boolean},
 
     --- Target name -> the outputs that target produced, so each can remove its own
@@ -586,7 +597,7 @@ end
 -- Bumped whenever a recorded digest stops meaning what it meant, which discards the
 -- last version's state instead of comparing hex that was computed by a different
 -- function. Version 2 is where the cache keys moved off SHA-256.
-local STATE_VERSION: integer = 3
+local STATE_VERSION: integer = 4
 
 local function emptyState(): cache.State
     return {version = STATE_VERSION, modules = {}, dependencies = {}, outputs = {}, targets = {}} as cache.State

@@ -3213,10 +3213,10 @@ function M.themePairsCodeGroupPanelsWithTheirTabs()
     )
 end
 
--- Markdown is the one tree .gitattributes leaves to the platform, so a Windows
--- checkout hands every page over with CRLF endings. The block is recognized by
--- exact `---` lines, and a stray carriage return must not cost a page its
--- route, title, order, and redirects.
+-- Documentation Markdown remains platform-spelled in .gitattributes, so a
+-- Windows checkout hands every page over with CRLF endings. The block is
+-- recognized by exact `---` lines, and a stray carriage return must not cost a
+-- page its route, title, order, and redirects.
 function M.frontmatterSurvivesWindowsLineEndings()
     local frontmatter = require("nupp.compiler.doc.frontmatter")
     local fields, body = frontmatter.parse("---\r\ntitle: Guide\r\nredirects: old/guide\r\n---\r\n\r\nBody\r\n")

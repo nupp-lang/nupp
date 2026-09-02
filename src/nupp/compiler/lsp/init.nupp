@@ -168,9 +168,22 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         if not config then
             return
         end
+        local selectedTarget = (require("nupp.compiler.build.tasks") as any).targetConfig(config)
+        local selected = {}
+        if selectedTarget and selectedTarget.compileDependencies ~= nil then
+            for _, name in ipairs(selectedTarget.compileDependencies) do
+                selected[name] = true
+            end
+        else
+            for name, dep in pairs(config.dependencies or {}) do
+                if type(dep) == "table" and (dep as any).kind == "types" then
+                    selected[name] = true
+                end
+            end
+        end
         local pending = {}
         for name, dep in pairs(config.dependencies or {}) do
-            if type(dep) == "table" and (dep as any).kind == "types" then
+            if selected[name] and type(dep) == "table" and (dep as any).kind == "types" then
                 if not fs.exists(fs.join(root, ".nupp/deps/" .. name .. "/.git/HEAD")) then
                     pending[#pending + 1] = name
                 end
@@ -186,7 +199,23 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             })
         end
         local outDir = config.build and config.build.outDir or "build"
-        local ok, built, err = pcall((require("nupp.compiler.build.deps") as any).build, root, outDir, config, {}, nil)
+        local compileConfig = {}
+        for key, value in pairs(config) do
+            compileConfig[key] = value
+        end
+        compileConfig.generators = {}
+        compileConfig._target = {
+            dependencies = {},
+            compileDependencies = selectedTarget and selectedTarget.compileDependencies or nil,
+        }
+        local ok, built, err = pcall(
+            (require("nupp.compiler.build.deps") as any).build,
+            root,
+            outDir,
+            compileConfig,
+            {},
+            compileConfig._target
+        )
         if not ok then
             notify("window/logMessage", {type = 1, message = "nupp: " .. tostring(built)})
         elseif not built then

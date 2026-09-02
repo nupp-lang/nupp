@@ -55,7 +55,7 @@ source remains refused until its cross-backend exactness contract is specified.
 
 ### Translation cannot happen where the artifact is wanted
 
-[NEP 25](0025-gpu-compute-kernels.md) derives Metal from canonical SPIR-V with
+The native GPU backend derives Metal from canonical SPIR-V with
 a pinned translator during the build. That pattern assumes a build that can run
 a subprocess. The reason to want a browser GPU backend at all is to run kernels
 on a page that compiles them in the browser, and a Wasm-hosted compiler has no
@@ -63,7 +63,7 @@ process to spawn: a derived artifact would be exactly the artifact that cannot
 be produced where it is needed.
 
 Nothing available would fit even where a subprocess exists.
-[NEP 17](0017-c-only-toolchain.md) removed Rust from the tree, which rules out
+Rust is not in the tree, which rules out
 naga; the alternative is importing Dawn's translator and its dependencies to
 gain one output format. Emitting WGSL from the compiler makes it a peer of
 SPIR-V rather than a derivative, and the differential conformance run is what
@@ -103,7 +103,7 @@ copy WebGPU makes between Wasm and device memory.
 
 ### WGSL needs its own exactness profile
 
-NEP 25's central invariant is that GPU execution preserves the ordinary CPU
+GPU execution's central invariant is that it preserves the ordinary CPU
 meaning exactly, and SPIR-V can ask for it: denormal preservation and
 signed-zero/infinity/NaN preservation are execution modes a module declares.
 WGSL has no spelling for either. A browser lowers a module through its own
@@ -122,7 +122,7 @@ proves the ordinary CPU meaning is identical, not a tolerance in the test.
 
 ### Source is unchanged
 
-The authored kernel is the one NEP 25 admits, with the workgroup phases of
+The authored kernel is the one the native GPU backend admits, with the workgroup phases of
 [NEP 26](0026-structured-workgroup-phases.md) where it cooperates. Nothing in
 the body, the annotation, or the resident-buffer protocol is browser-specific:
 
@@ -182,7 +182,7 @@ position is
 scratch is `var<workgroup>`, which is the same structural mapping NEP 26 gives
 the other backends.
 
-The uniform block keeps its NEP 25 layout exactly: the dispatch count, one
+The uniform block keeps the native backend's layout exactly: the dispatch count, one
 count word per bound span in binding order, one offset word per span, then the
 authored scalars, every field four-byte aligned and the whole block capped at
 128 bytes.
@@ -236,7 +236,7 @@ with a diagnosable error, not at dispatch.
 
 ### Limits
 
-The portable floors NEP 25 fixed — 256 workgroup threads and 16 KiB of
+The portable floors the native GPU backend fixed — 256 workgroup threads and 16 KiB of
 workgroup scratch — are WebGPU guarantees, so no kernel generated against the
 portable floor is refused for its workgroup shape. Its storage-buffer floor is
 eight bindings per compute stage, far below the native runtime's sixteen reads
@@ -262,8 +262,8 @@ three must agree element-exactly across wrapped arithmetic, non-multiple
 workgroup tails, every binding class, independent span counts, and repeated
 dispatch over resident intermediates.
 
-A missing adapter fails the job. It is not converted to a skip, for the reason
-NEP 25 gives: a GPU suite that can pass by not running is a compile-only suite
+A missing adapter fails the job. It is not converted to a skip, for the same
+reason: a GPU suite that can pass by not running is a compile-only suite
 with extra steps.
 
 ### What stays refused
@@ -301,9 +301,9 @@ admit rather than disappearing.
 
 ## Alternatives considered
 
-**Translating canonical SPIR-V to WGSL with a pinned tool.** This is what NEP
-25 does for Metal and would have kept one emitter. It fails twice: no
-translator fits a toolchain that removed Rust without importing Dawn, and a
+**Translating canonical SPIR-V to WGSL with a pinned tool.** This is what the
+native backend does for Metal and would have kept one emitter. It fails twice: no
+translator fits a toolchain with no Rust without importing Dawn, and a
 browser-hosted compiler cannot run one at all, so the artifact would be missing
 from the only host that needs it.
 
@@ -322,8 +322,8 @@ owns the canvas and would be the right place if rendering were in scope. Today
 it would put every transfer through a structured clone, and the bytes already
 live in the Worker's heap.
 
-**A tolerance for browser results.** NEP 25 rejected backend-selected relaxation
-for native, and adopting it here would make `target = "gpu"` mean one thing on a
+**A tolerance for browser results.** The native backend rejected
+backend-selected relaxation, and adopting it here would make `target = "gpu"` mean one thing on a
 desktop and another in a browser — a difference that would show up as wrong
 answers rather than as a refusal.
 

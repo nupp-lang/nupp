@@ -393,6 +393,14 @@ function cli.main(argv: {string}): integer
         local worker = require("nupp.compiler.comptimeworker") as {serviceMain: function(): integer}
 
         return worker.serviceMain()
+    elseif name == "__generator-worker" then
+        local rest: {string} = {}
+        for index = 2, #argv do
+            rest[#rest + 1] = argv[index]
+        end
+        local worker = require("nupp.compiler.generatorworker") as {main: function({string}): integer}
+
+        return worker.main(rest)
     elseif name == "__lsp-reader" then
         local server = require("nupp.compiler.lsp") as {readerMain: function(): integer}
 

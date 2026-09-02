@@ -1,5 +1,6 @@
 ---
-order: 20
+order: 2
+redirects: learn/getting-started/tour
 ---
 
 # Tour of Nupp
@@ -46,7 +47,7 @@ There is one place the two dialects disagree, and it is documented rather than
 discovered: Lua reads `local type Alias = 5` as two statements, and Nupp reads
 it as a type alias. A newline or semicolon after `type` picks the Lua meaning.
 See [plain Lua is valid
-Nupp](../language/syntax.md#plain-lua-is-valid-nupp) for the compatibility
+Nupp](../learn/language/syntax.md#plain-lua-is-valid-nupp) for the compatibility
 guarantee the test suite pins.
 
 ## Records are tables
@@ -74,7 +75,7 @@ print(p:length())
 
 `new Point(...)` lowers to `setmetatable({x = 3, y = 4}, Point)`. The runtime
 shape is what you would have written by hand. See
-[records](../language/types/records-and-structs.md#records) for constructors, field defaults,
+[records](../learn/language/types/records-and-structs.md#records) for constructors, field defaults,
 private fields, and recursive declarations.
 
 ## Structs have fixed layouts
@@ -102,8 +103,8 @@ local b: Vec2
 
 Fields must be C-representable, so a `string` or a `{T}` field is refused. That
 is the trade you make for the layout. See [struct field
-types](../language/types/records-and-structs.md#struct-field-types) for what is reifiable, and
-[choosing](../language/types/records-and-structs.md#choosing) for when to reach for each.
+types](../learn/language/types/records-and-structs.md#struct-field-types) for what is reifiable, and
+[choosing](../learn/language/types/records-and-structs.md#choosing) for when to reach for each.
 
 ## Interfaces are structural
 
@@ -134,7 +135,7 @@ end
 ```
 
 Interfaces erase completely and have no runtime value. See
-[interfaces](../language/types/interfaces.md#satisfaction-is-structural) for sealed
+[interfaces](../learn/language/types/interfaces.md#satisfaction-is-structural) for sealed
 interfaces, default implementations, and what makes an interface testable at run
 time.
 
@@ -164,7 +165,7 @@ handles "green" | "red" and leaves "green" unhandled
 ```
 
 See [literal unions are
-enums](../language/types/unions.md#literal-unions-are-enums) for how a member
+enums](../learn/language/types/unions.md#literal-unions-are-enums) for how a member
 relates to `string`.
 
 ## Unions, optionals, and narrowing
@@ -214,8 +215,8 @@ Narrowing reads `is`, `== nil`, truthiness, discriminant fields, and
 `ffi.istype`. It does not read `type(x) == "string"`, which is an ordinary call
 returning an ordinary string, and the checker has no way to tie it back to `x`.
 Write `x is string`. See [narrowing
-tests](../language/types/narrowing.md#narrowing-tests) for what proves what, and
-[tests that do not narrow](../language/types/narrowing.md#tests-that-do-not-narrow)
+tests](../learn/language/types/narrowing.md#narrowing-tests) for what proves what, and
+[tests that do not narrow](../learn/language/types/narrowing.md#tests-that-do-not-narrow)
 for the rest.
 
 ## Switches produce values
@@ -250,7 +251,7 @@ end
 An arm that needs statements writes `-> do`, then `yield value`; `return`
 continues to exit the enclosing function. The selector runs once and lowering
 adds no arm closure. See [switch
-expressions](../language/switch-expressions.md) for the complete syntax and
+expressions](../learn/language/switch-expressions.md) for the complete syntax and
 constraints.
 
 ## Generics
@@ -272,8 +273,8 @@ print(firstOr({1, 2, 3}, 0))
 There is no explicit type-argument syntax at a call site. `f<number>(x)` parses
 as two comparisons, the way it does in Lua. See [call sites take no explicit
 type
-argument](../language/types/generics.md#call-sites-take-no-explicit-type-argument)
-for why, and [generics](../language/types/generics.md) for constraints,
+argument](../learn/language/types/generics.md#call-sites-take-no-explicit-type-argument)
+for why, and [generics](../learn/language/types/generics.md) for constraints,
 refinements, and instantiation.
 
 ## Ownership
@@ -310,8 +311,8 @@ end
 Cleanup runs on fallthrough, `return`, `break`, `continue`, a `goto` leaving the
 block, and an error raised anywhere inside. Moving, returning, or explicitly
 dropping the owner deactivates its automatic cleanup exactly once. See
-[ownership](../runtime/ownership/index.md) for the annotations a caller writes, and
-[ownership and affine types](../runtime/ownership/borrowing.md) for the whole model.
+[ownership](../learn/runtime/ownership/index.md) for the annotations a caller writes, and
+[ownership and affine types](../learn/runtime/ownership/borrowing.md) for the whole model.
 
 ## Waiting is an ordinary call
 
@@ -335,7 +336,7 @@ so other work can run. A ready operation does neither.
 Whether a function may suspend is an inferred effect. Use `nosuspend do` where
 control must not park; the compiler follows calls to the possible suspension and
 reports the path. Libraries subscribe through `nupp.suspension`, [suspension
-handlers](../runtime/concurrency/suspension.md#hosts-supply-scheduling-policy) own
+handlers](../learn/runtime/concurrency/suspension.md#hosts-supply-scheduling-policy) own
 scheduling policy, and `all`, `gather`, `race`, and `batch` compose several
 waiting operations without promises.
 
@@ -349,10 +350,10 @@ them.
 Suspension is one handled effect rather than general algebraic effects. One
 effect with handlers covers the case, and a language where any operation can be
 declared and handled is a much larger language than this needs. See [NEP
-5](../../neps/0005-suspension.md) for more information.
+5](../neps/0005-suspension.md) for more information.
 :::
 
-See [suspension](../runtime/concurrency/suspension.md) for the runtime paths, cancellation
+See [suspension](../learn/runtime/concurrency/suspension.md) for the runtime paths, cancellation
 contract, coroutine inheritance, and concurrent combinators.
 
 ## Calling C
@@ -373,17 +374,17 @@ That emits `ffi.cdef` and an `ffi.load` lookup. The parameter modes `borrows`,
 which a header cannot. None of them change the ABI.
 
 For a whole header there are two routes.
-[`nupp import-c`](../runtime/c-interop/index.md#import-a-header) writes a committed,
+[`nupp import-c`](../learn/runtime/c-interop/index.md#import-a-header) writes a committed,
 hand-editable module, and
-[`cheader("mini.h")`](../runtime/c-interop/index.md#type-the-header-in-place) types
+[`cheader("mini.h")`](../learn/runtime/c-interop/index.md#type-the-header-in-place) types
 the header at compile time with no generated file. A manifest C dependency adds
 a generated bridge when the API exists only as `static inline` functions or
 function-like macros.
 
 ::: seealso
-- [c-interop.md](../runtime/c-interop/index.md) for all three import routes
+- [c-interop.md](../learn/runtime/c-interop/index.md) for all three import routes
 - [describe lifetime
-  behavior](../runtime/c-interop/index.md#describe-lifetime-behavior) for what each
+  behavior](../learn/runtime/c-interop/index.md#describe-lifetime-behavior) for what each
   parameter mode promises
 - [](nupp.mem.span) for bounds-checked views over C storage
 :::
@@ -407,11 +408,11 @@ Each shares one parse, one type checker, and one incremental engine, so the
 editor and the build never disagree about what your code means.
 
 ::: seealso
-- [tooling.md](../tooling/index.md) for the guided version of that list
+- [tooling.md](../learn/tooling/index.md) for the guided version of that list
 - [why.md](why.md) for what each addition buys and what it costs
-- [strictness.md](../language/gradual-typing.md) for typing an existing Lua project
+- [strictness.md](../learn/language/gradual-typing.md) for typing an existing Lua project
   a file at a time
-- [overview.md](../language/types/index.md) for the type system as a whole
+- [overview.md](../learn/language/types/index.md) for the type system as a whole
 - [features.md](features.md) for the broader runtime, compilation, and
   deployment features
 :::

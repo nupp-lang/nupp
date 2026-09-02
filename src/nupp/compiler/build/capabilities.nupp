@@ -1,0 +1,126 @@
+module nupp.compiler.build.capabilities
+
+-- Static package metadata shared by build-time generators and target services.
+-- Discovery never loads provider code: the capability entry point is required only
+-- after the build has selected and validated one descriptor entry.
+
+local fs = require("nupp.compiler.fs")
+local json = nupp.data.json
+
+local capabilities = {}
+
+type capabilities.Entry = {
+    kind: string,
+    name: string,
+    api: integer,
+    entry: string,
+    service: string?,
+    member: string?
+}
+
+local ENTRY_KEYS = {api = true, entry = true, kind = true, member = true, name = true, service = true}
+
+local function identifier(value)
+    return type(value) == "string" and value:match("^[A-Za-z0-9][A-Za-z0-9_.-]*$") ~= nil
+end
+
+local function readDescriptor(record, dependencyName): {capabilities.Entry}?, string?
+    if not record or not record.typeRoot then
+        return nil, "dependency " .. dependencyName .. " does not install Nupp capability metadata"
+    end
+    local path = fs.join(record.typeRoot, "capabilities.json")
+    local text = fs.readFile(path)
+    if not text then
+        return nil, "dependency " .. dependencyName .. " has no nupp/capabilities.json"
+    end
+    local ok, document = pcall(json.decode, text, json.NULL)
+    if not ok or type(document) ~= "table" then
+        return nil, path .. " is not valid JSON"
+    end
+    for key in pairs(document) do
+        if key ~= "schema" and key ~= "capabilities" then
+            return nil, path .. " has no key " .. tostring(key)
+        end
+    end
+    if document.schema ~= 1 then
+        return nil, path .. ".schema must be 1"
+    end
+    if type(document.capabilities) ~= "table" or not json.isArray(document.capabilities) then
+        return nil, path .. ".capabilities must be an array"
+    end
+    local entries = {}
+    local seen = {}
+    for index, raw in ipairs(document.capabilities) do
+        local label = path .. ".capabilities[" .. index .. "]"
+        if type(raw) ~= "table" then
+            return nil, label .. " must be a table"
+        end
+        for key in pairs(raw) do
+            if not ENTRY_KEYS[key] then
+                return nil, label .. " has no key " .. tostring(key)
+            end
+        end
+        if raw.kind ~= "generator" and raw.kind ~= "service" then
+            return nil, label .. ".kind must be generator or service"
+        end
+        if not identifier(raw.name) then
+            return nil, label .. ".name must be an identifier"
+        end
+        if type(raw.api) ~= "number" or raw.api < 1 or raw.api ~= math.floor(raw.api) then
+            return nil, label .. ".api must be a positive integer"
+        end
+        if not identifier(raw.entry) then
+            return nil, label .. ".entry must be a module name"
+        end
+        if raw.kind == "generator" and (raw.service ~= nil or raw.member ~= nil) then
+            return nil, label .. " generator must not name service or member"
+        end
+        if raw.kind == "service" then
+            if not identifier(raw.service) then
+                return nil, label .. ".service must be an identifier"
+            end
+            if raw.member ~= nil and not identifier(raw.member) then
+                return nil, label .. ".member must be an identifier"
+            end
+        end
+        local identity = raw.kind == "service"
+            and raw.kind
+            .. "\0"
+            .. raw.service
+            .. "\0"
+            .. raw.name
+            or raw.kind
+            .. "\0"
+            .. raw.name
+        if seen[identity] then
+            return nil, label .. " duplicates capability " .. raw.name
+        end
+        seen[identity] = true
+        entries[#entries + 1] = raw as capabilities.Entry
+    end
+    if #entries ~= #document.capabilities then
+        return nil, path .. ".capabilities must be a dense array"
+    end
+
+    return entries
+end
+
+function capabilities.find(record, dependencyName: string, kind: string, name: string): capabilities.Entry?, string?
+    local entries, err = readDescriptor(record, dependencyName)
+    if not entries then
+        return nil, err
+    end
+    for _, entry in ipairs(entries) do
+        if entry.kind == kind and entry.name == name then
+            return entry
+        end
+    end
+
+    return nil, "dependency " .. dependencyName .. " provides no " .. kind .. " named " .. name
+end
+
+function capabilities.read(record, dependencyName: string): {capabilities.Entry}?, string?
+    return readDescriptor(record, dependencyName)
+end
+
+export = capabilities

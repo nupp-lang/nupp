@@ -155,7 +155,11 @@ dependencies = {
 
 Each kind has its own keys: see [C dependencies](#c-dependencies), [Rust
 dependencies](#rust-dependencies), [rock dependencies](#rock-dependencies),
-and [type dependencies](#type-dependencies). The `test` action names the target
+and [type dependencies](#type-dependencies). Dependency acquisition and usage are
+separate: target dependencies ship with the target, `compileDependencies` are visible
+only while compiling, and a dependency selected by `generators.*.using` is a host
+tool. See [Service Providers](service-providers.md) for generators, runtime service
+lookup, and the compatibility rule for ambient type dependencies. The `test` action names the target
 to build first and the command to run:
 
 ```lua

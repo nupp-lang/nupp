@@ -56,7 +56,7 @@
   --nuppdoc-syntax-meta: #2e595c;
   --nuppdoc-syntax-number: #836620;
   --nuppdoc-syntax-operator: #2e595c;
-  --nuppdoc-syntax-property: #425f3c;
+  --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
   --nuppdoc-syntax-punctuation: #3c5156;
   --nuppdoc-syntax-string: #364c31;
   --nuppdoc-syntax-type: #2e595c;
@@ -514,7 +514,7 @@
     --nuppdoc-syntax-meta: #718e90;
     --nuppdoc-syntax-number: #f9cd5f;
     --nuppdoc-syntax-operator: #718e90;
-    --nuppdoc-syntax-property: #8eac87;
+    --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
     --nuppdoc-syntax-punctuation: #84a2aa;
     --nuppdoc-syntax-string: #9eb798;
     --nuppdoc-syntax-type: #718e90;
@@ -532,7 +532,7 @@
   --nuppdoc-syntax-meta: #718e90;
   --nuppdoc-syntax-number: #f9cd5f;
   --nuppdoc-syntax-operator: #718e90;
-  --nuppdoc-syntax-property: #8eac87;
+  --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
   --nuppdoc-syntax-punctuation: #84a2aa;
   --nuppdoc-syntax-string: #9eb798;
   --nuppdoc-syntax-type: #718e90;
@@ -549,7 +549,7 @@
   --nuppdoc-syntax-meta: #2e595c;
   --nuppdoc-syntax-number: #836620;
   --nuppdoc-syntax-operator: #2e595c;
-  --nuppdoc-syntax-property: #425f3c;
+  --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
   --nuppdoc-syntax-punctuation: #3c5156;
   --nuppdoc-syntax-string: #364c31;
   --nuppdoc-syntax-type: #2e595c;

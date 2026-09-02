@@ -294,8 +294,8 @@ stacked, three to a row:
 
 ## Learning Nupp
 
-- [Installation](../getting-started/installation.md)
-- [Tour of Nupp](../getting-started/tour.md)
+- [Installation](../../getting-started/installation.md)
+- [Tour of Nupp](../../getting-started/tour.md)
 
 ## Language reference
 

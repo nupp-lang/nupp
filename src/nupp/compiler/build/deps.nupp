@@ -1253,6 +1253,17 @@ end
 
 local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo, luarocks = buildRock, types = buildTypes}
 
+local function scopeKey(name: string, usage: string): string
+    if usage == "target" then
+        return name
+    end
+    return usage .. ":" .. name
+end
+
+local function dependencyRecord(records, name, usage)
+    return records and records[scopeKey(name, usage or "target")] or nil
+end
+
 -- The target is passed rather than read off the config for the one caller that has no
 -- build to hang it on: `nupp doc` renders straight from the manifest, and the docs
 -- target's dependencies are the renderer's.
@@ -1265,11 +1276,13 @@ local function buildDependencies(
 ): {[string]: cache.DependencyRecord}?, string?
     local results: {[string]: cache.DependencyRecord} = {}
     local visiting = {}
-    local function buildOne(name)
-        if results[name] then
-            return results[name]
+    local targetPlatform = target and target.layoutTarget or require("nupp.compiler.targetlayout").hostKey()
+    local function buildOne(name, usage)
+        local recordKey = scopeKey(name, usage)
+        if results[recordKey] then
+            return results[recordKey]
         end
-        if visiting[name] then
+        if visiting[recordKey] then
             return nil, "dependency cycle involving " .. name
         end
         local dep = (config.dependencies and config.dependencies[name]) as Dependency
@@ -1280,38 +1293,70 @@ local function buildDependencies(
         if not provider then
             return nil, "unsupported dependency kind " .. tostring(dep.kind)
         end
-        visiting[name] = true
+        visiting[recordKey] = true
         local childResults = {}
         for _, child in ipairs(dep.dependencies or {}) do
-            local childResult, err = buildOne(child)
+            local childResult, err = buildOne(child, usage)
             if err then
                 return nil, err
             end
             childResults[child] = childResult
         end
-        local result, err = provider(root, outDir, name, dep, previous[name], childResults, target)
-        visiting[name] = nil
+        local old = previous[recordKey] or (usage == "target" and previous[name] or nil)
+        local result, err = provider(root, outDir, name, dep, old, childResults, usage == "tool" and nil or target)
+        visiting[recordKey] = nil
         if not result then
             return nil, err
         end
-        results[name] = result
+        result.usage = usage
+        result.platform = usage == "tool" and require("nupp.compiler.targetlayout").hostKey() or targetPlatform
+        results[recordKey] = result
 
         return result
     end
 
-    -- Type-only declarations are ambient project inputs, not target artifacts. Every
-    -- target gets the same checker surface while runtime providers remain opt-in.
-    local targetDeps = (target or config._target or {}).dependencies or {}
-    for name, dep in pairs(config.dependencies or {}) do
-        if dep.kind == "types" then
-            local _, err = buildOne(name)
+    local selected = target or config._target or {}
+    local targetDeps = selected.dependencies or {}
+    local compileDeps = selected.compileDependencies
+    if compileDeps == nil then
+        compileDeps = {}
+        for name, dep in pairs(config.dependencies or {}) do
+            if dep.kind == "types" then
+                compileDeps[#compileDeps + 1] = name
+            end
+        end
+        table.sort(compileDeps)
+    end
+    local targetNames = {}
+    for _, name in ipairs(targetDeps) do
+        targetNames[name] = true
+    end
+    for _, name in ipairs(compileDeps) do
+        if not targetNames[name] then
+            local _, err = buildOne(name, "compile")
             if err then
                 return nil, err
             end
         end
     end
+    local targetUsage = selected.kind == "docs" and "tool" or "target"
     for _, name in ipairs(targetDeps) do
-        local _, err = buildOne(name)
+        local _, err = buildOne(name, targetUsage)
+        if err then
+            return nil, err
+        end
+    end
+    local toolNames = {}
+    if selected.kind ~= "docs" then
+        for _, generator in pairs(config.generators or {}) do
+            local name = generator.using:match("^([^/]+)/")
+            if name then
+                toolNames[name] = true
+            end
+        end
+    end
+    for name in pairs(toolNames) do
+        local _, err = buildOne(name, "tool")
         if err then
             return nil, err
         end
@@ -1325,13 +1370,33 @@ end
 --- the pinned revision through `buildDependencies` first.
 local function typeRoots(root: string, config: Config, records: {[string]: cache.DependencyRecord}?): {string}
     local roots = {}
-    for name, dep in pairs(config.dependencies or {}) do
-        if dep.kind == "types" then
-            local record = records and records[name] or nil
+    local target = config._target or {}
+    local names = target.compileDependencies
+    if names == nil then
+        names = {}
+        for name, dep in pairs(config.dependencies or {}) do
+            if dep.kind == "types" then
+                names[#names + 1] = name
+            end
+        end
+    end
+    local selected = {}
+    for _, name in ipairs(names) do
+        selected[name] = true
+    end
+    for _, name in ipairs(target.dependencies or {}) do
+        selected[name] = true
+    end
+    for name in pairs(selected) do
+        local dep = (config.dependencies or {})[name]
+        if dep then
+            local record = dependencyRecord(records, name, "compile") or dependencyRecord(records, name, "target")
             local checkout = join(root, ".nupp/deps/" .. name)
-            local path = record and record.typesRoot or join(checkout, dep.path or ".")
-            if exists(path) then
-                roots[#roots + 1] = path
+            local path = record and (
+                record.typesRoot or record.typeRoot
+            ) or dep.kind == "types" and join(checkout, dep.path or ".") or nil
+            if path and exists(path) then
+                roots[#roots + 1] = path as string
             end
         end
     end
@@ -1344,6 +1409,8 @@ deps.expandGlob = expandGlob
 deps.build = buildDependencies
 deps.rockPaths = rockPaths
 deps.typeRoots = typeRoots
+deps.record = dependencyRecord
+deps.scopeKey = scopeKey
 deps.runtimeModuleOwner = runtimeModuleOwner
 deps.rockModules = rockModules
 

@@ -1,5 +1,6 @@
 ---
-order: 10
+order: 1
+redirects: learn/getting-started
 ---
 
 # Getting started
@@ -51,7 +52,7 @@ manifest, tests, and the tasks needed for its host.
 Read the [tour](tour.md) for the core language. Use the
 [feature map](features.md) to find comptime, ownership, workers, AOT, GPU
 compute, portable targets, embedding, and the standard library. The
-[tooling guide](../tooling/index.md) covers the daily commands in more depth.
+[tooling guide](../learn/tooling/index.md) covers the daily commands in more depth.
 
 Building Nupp itself from a source checkout is separate from creating a Nupp
 project. See [installation.md](installation.md) when you need that workflow.

@@ -76,6 +76,7 @@ type manifest.Target = {
     sources: {string}?,
     resources: {string | manifest.Resource}?,
     dependencies: {string}?,
+    compileDependencies: {string}?,
 
     --- Target triple used by compile-time C layout intrinsics. It is deliberately
     --- separate from the machine running the compiler and from a dependency's native
@@ -161,6 +162,15 @@ type manifest.Task = {
     [string]: any
 }
 
+--- One explicit use of a generator capability exported by a host dependency.
+type manifest.Generator = {
+    description: string?,
+    using: string,
+    inputs: {string}?,
+    options: {[string]: any}?,
+    [string]: any
+}
+
 --- A whole `nupp.lua`.
 ---
 --- The underscored keys are not written by hand: `nupp.compiler.build.project` folds
@@ -171,6 +181,7 @@ type manifest.Config = {
     fmt: {methodParens: boolean?}?,
     lints: {[string]: string}?,
     dependencies: {[string]: manifest.Dependency}?,
+    generators: {[string]: manifest.Generator}?,
     build: manifest.Build?,
     test: manifest.Test?,
     tasks: {[string]: manifest.Task}?,
@@ -218,6 +229,64 @@ local function validateString(value, label)
     return true
 end
 
+-- Generator options cross a process boundary and participate in the cache key. Keep
+-- them to the same deterministic data model as JSON rather than letting a manifest
+-- smuggle functions, metatables, cycles, or sparse/mixed tables into a provider.
+local function validatePlainData(value, label, visiting): boolean?, string?
+    local valueType = type(value)
+    if valueType == "string" or valueType == "boolean" then
+        return true
+    elseif valueType == "number" then
+        if value ~= value or value == math.huge or value == -math.huge then
+            return nil, label .. " must contain only finite numbers"
+        end
+        return true
+    elseif valueType ~= "table" then
+        return nil, label .. " must contain only strings, numbers, booleans, arrays, and tables"
+    else
+        value = value as table
+    end
+    if getmetatable(value) ~= nil then
+        return nil, label .. " must not contain tables with metatables"
+    end
+    visiting = visiting or {}
+    if visiting[value] then
+        return nil, label .. " must not contain cycles"
+    end
+    visiting[value] = true
+
+    local numeric, stringKeys, highest = 0, 0, 0
+    for key in pairs(value) do
+        if type(key) == "number" and key >= 1 and key == math.floor(key) then
+            numeric = numeric + 1
+            highest = math.max(highest, key)
+        elseif type(key) == "string" then
+            stringKeys = stringKeys + 1
+        else
+            visiting[value] = nil
+            return nil, label .. " must use either array indexes or string keys"
+        end
+    end
+    if numeric > 0 and stringKeys > 0 then
+        visiting[value] = nil
+        return nil, label .. " must not mix array indexes and string keys"
+    end
+    if numeric > 0 and numeric ~= highest then
+        visiting[value] = nil
+        return nil, label .. " must not contain gaps"
+    end
+    for key, item in pairs(value) do
+        local valid, err = validatePlainData(item, label .. "[" .. tostring(key) .. "]", visiting)
+        if not valid then
+            visiting[value] = nil
+            return nil, err
+        end
+    end
+    visiting[value] = nil
+
+    return true
+end
+
 -- A docs target is the one place a manifest key is read by something other than the
 -- build: the generator takes a dozen of its own, none of which the checks below know
 -- about, so a misspelling used to configure nothing and say nothing. `custmCss`
@@ -250,6 +319,7 @@ local DOCS_KEYS = {
     -- taken by any build target
     "kind",
     "dependencies",
+    "compileDependencies",
     "entries",
     "exports",
     "resources",
@@ -289,6 +359,7 @@ local PAGE_KEYS = {
 local GENERATED_KEYS = {"path", "redirects", "source", "title"}
 
 local TASK_KEYS = {"description", "argv", "build", "env"}
+local GENERATOR_KEYS = {"description", "using", "inputs", "options"}
 
 -- The rest of the manifest, closed for the same reason the docs target is: a key
 -- nothing reads takes effect silently, and `dependencie` or `entires` is a build that
@@ -297,7 +368,19 @@ local TASK_KEYS = {"description", "argv", "build", "env"}
 -- `nupp.compiler.build.project`, a dependency's by its provider in
 -- `nupp.compiler.build.deps` -- so this list is also the inventory of what a manifest
 -- can say.
-local CONFIG_KEYS = {"name", "include", "fmt", "lints", "dependencies", "build", "test", "tasks", "selfHost", "docs"}
+local CONFIG_KEYS = {
+    "name",
+    "include",
+    "fmt",
+    "lints",
+    "dependencies",
+    "generators",
+    "build",
+    "test",
+    "tasks",
+    "selfHost",
+    "docs",
+}
 
 -- What any build target takes, whatever its kind. A docs target is checked against
 -- DOCS_KEYS instead, which spells out these same keys plus the generator's own.
@@ -322,6 +405,7 @@ local TARGET_KEYS = {
     "sources",
     "resources",
     "dependencies",
+    "compileDependencies",
     "nativeFeatures",
     "dialect",
     "backends",
@@ -864,6 +948,15 @@ local function validateTarget(target, label, dependencies)
             return nil, label .. ".dependencies references unknown dependency " .. name
         end
     end
+    valid, err = validateArray(target.compileDependencies, label .. ".compileDependencies", "string")
+    if not valid then
+        return nil, err
+    end
+    for _, name in ipairs(target.compileDependencies or {}) do
+        if type(dependencies[name]) ~= "table" then
+            return nil, label .. ".compileDependencies references unknown dependency " .. name
+        end
+    end
     if kind == "docs" then
         valid, err = validateDocsTarget(target, label)
         if not valid then
@@ -1202,6 +1295,63 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         valid, err = visit(name)
         if not valid then
             return nil, err
+        end
+    end
+
+    local generators = config.generators or {}
+    if type(generators) ~= "table" then
+        return nil, "generators must be a table"
+    end
+    for name, generator in pairs(generators) do
+        local label = "generators." .. tostring(name)
+        if type(name) ~= "string" or not name:match("^[A-Za-z0-9][A-Za-z0-9_-]*$") then
+            return nil, "generator names must contain only letters, digits, underscores, and hyphens"
+        end
+        if type(generator) ~= "table" then
+            return nil, label .. " must be a table"
+        end
+        valid, err = validateKeys(generator, GENERATOR_KEYS, label)
+        if not valid then
+            return nil, err
+        end
+        valid, err = validateString(generator.using, label .. ".using")
+        if not valid then
+            return nil, err
+        end
+        local dependencyName, providerName = generator.using:match("^([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)$")
+        if not dependencyName or not providerName then
+            return nil, label .. ".using must be dependency/provider"
+        end
+        local dependency = dependencies[dependencyName] as manifest.Dependency?
+        if type(dependency) ~= "table" then
+            return nil, label .. ".using references unknown dependency " .. dependencyName
+        end
+        if (dependency as manifest.Dependency).kind ~= "luarocks" then
+            return nil, label .. ".using requires a luarocks dependency"
+        end
+        if generator.description ~= nil then
+            valid, err = validateString(generator.description, label .. ".description")
+            if not valid then
+                return nil, err
+            end
+        end
+        valid, err = validateArray(generator.inputs, label .. ".inputs", "string")
+        if not valid then
+            return nil, err
+        end
+        for index, input in ipairs(generator.inputs or {}) do
+            if input == "" then
+                return nil, label .. ".inputs[" .. index .. "] must be a non-empty string"
+            end
+        end
+        if generator.options ~= nil then
+            if type(generator.options) ~= "table" then
+                return nil, label .. ".options must be a table"
+            end
+            valid, err = validatePlainData(generator.options, label .. ".options")
+            if not valid then
+                return nil, err
+            end
         end
     end
 

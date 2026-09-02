@@ -621,6 +621,14 @@ local function openSession(
         envConfig.include[#envConfig.include + 1] = include
     end
     envConfig.include[#envConfig.include + 1] = join(outDir, "generated")
+    local generatorNames = {}
+    for name in pairs(config.generators or {}) do
+        generatorNames[#generatorNames + 1] = name
+    end
+    table.sort(generatorNames)
+    for _, name in ipairs(generatorNames) do
+        envConfig.include[#envConfig.include + 1] = join(outDir, "generated/" .. name)
+    end
     local rocks = deps.rockPaths(root, config, target, dependencies)
     local ambientTypeRoots = deps.typeRoots(root, config, dependencies)
     local checkMs: {[string]: number} = {}

@@ -561,6 +561,12 @@ function M.networkAndTlsAreRustOnlyToolchainFeatures()
     end
 end
 
+function M.deletedCHostDoesNotContributeCacheInputs()
+    local driver = read(ROOT .. "/scripts/toolchain")
+    assert(not driver:find("host/c", 1, true), "the deleted C host still contributes toolchain cache inputs")
+    assert(driver:find("embedding_headers_digest", 1, true), "the staged public embedding headers have no content key")
+end
+
 -- Release and compiler-pack jobs exercise a feature list outside the ordinary
 -- toolchain driver. A removed host feature left there fails only after a clean
 -- Linux or Windows release runner has provisioned the entire toolchain.

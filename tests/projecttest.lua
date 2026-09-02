@@ -2961,6 +2961,178 @@ local function tinyRockFiles()
    }
 end
 
+function M.packagedGeneratorsAndRuntimeServicesUseSeparateDependencyRoles()
+   local rockspec = [[
+rockspec_format = "3.0"
+package = "providerrock"
+version = "1.0-1"
+source = { url = "file://provider.lua" }
+description = { summary = "Generator and service provider fixture." }
+dependencies = { "lua >= 5.1" }
+build = {
+   type = "builtin",
+   modules = {
+      ["provider.codegen"] = "codegen.lua",
+      ["provider.codec"] = "codec.lua",
+   },
+   copy_directories = { "nupp" },
+}
+]]
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      provider = {kind = "luarocks", path = "vendor/provider",
+         rockspec = "vendor/provider/providerrock-1.0-1.rockspec"},
+   },
+   generators = {
+      api = {using = "provider/codegen", inputs = {"model/*.txt"},
+         options = {prefix = "generated"}},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"provider"}},
+}
+]],
+      ["src/main.nupp"] = [[
+local generated = require("fixture.generated")
+local services = require("nupp.services")
+local codec = services.require("nupp.codec", "fixture")
+return generated.value .. ":" .. codec.name
+]],
+      ["model/value.txt"] = "answer\n",
+      ["vendor/provider/providerrock-1.0-1.rockspec"] = rockspec,
+      ["vendor/provider/codegen.lua"] = [[
+return function(request)
+   local value = request.read("model/value.txt"):match("%S+")
+   request.write("fixture/generated.nupp", "return {value = "
+      .. string.format("%q", request.options.prefix .. "-" .. value) .. "}\n")
+end
+]],
+      ["vendor/provider/codec.lua"] = "return {codec = {name = 'codec'}}\n",
+      ["vendor/provider/nupp/capabilities.json"] = [[
+{"schema":1,"capabilities":[
+ {"kind":"generator","name":"codegen","api":1,"entry":"provider.codegen"},
+ {"kind":"service","service":"nupp.codec","name":"fixture","api":1,
+  "entry":"provider.codec","member":"codec"}
+]}
+]],
+      ["vendor/provider/nupp/provider/codec.d.nupp"] = [[
+local codec: {name: string}
+return {codec = codec}
+]],
+   })
+   assertEq(project.build(dir), 0, "a packaged generator and runtime service build")
+   assert(exists(dir .. "/out/generated/api/fixture/generated.nupp"),
+      "the generator publishes beneath its instance module root")
+   local state = json.decode(read(dir .. "/out/.nupp-state.json"))
+   assertEq(state.dependencies["tool:provider"].usage, "tool",
+      "generator discovery installs a host-tool record")
+   assertEq(state.dependencies.provider.usage, "target",
+      "runtime discovery keeps a distinct target record")
+   assert(exists(dir .. "/out/nupp/service/registry/g.lua")
+      or exists(dir .. "/out/nupp/service/registry.lua"),
+      "the build compiles a deterministic service registry")
+
+   local script = ("package.path=%q..package.path;io.write(require('main'))")
+      :format(dir .. "/out/?.lua;" .. dir .. "/.rocks/share/lua/5.1/?.lua;")
+   local status, output = process.capture({"luajit", "-e", script})
+   assertEq(status, 0, "the generated module and service load: " .. tostring(output))
+   assertEq(output, "generated-answer:codec")
+
+   assertEq(project.build(dir), 0, "unchanged generator output is reusable")
+   write(dir .. "/model/value.txt", "changed\n")
+   assertEq(project.build(dir), 0, "an input change reruns the generator")
+   assert(read(dir .. "/out/generated/api/fixture/generated.nupp"):find("generated%-changed"),
+      "the published output follows the changed input")
+   remove(dir)
+end
+
+function M.compileDependenciesOptInWithoutChangingOldTypeManifests()
+   local legacyDir = tempProject({
+      ["nupp.lua"] = [[
+return {dependencies = {types = {kind = "types", format = "luacats",
+ source = {git = "https://example.invalid/types", rev = string.rep("a", 40)}}},
+ build = {entries = {"main"}}}
+]],
+      ["main.nupp"] = "return true\n",
+   })
+   local legacy = assert(project.loadManifest(legacyDir))
+   assertEq(legacy.build.compileDependencies, nil,
+      "omission preserves ambient type dependency compatibility")
+   remove(legacyDir)
+
+   local explicitDir = tempProject({
+      ["nupp.lua"] = [[
+return {dependencies = {types = {kind = "types", format = "luacats",
+ source = {git = "https://example.invalid/types", rev = string.rep("a", 40)}}},
+ build = {entries = {"main"}, compileDependencies = {}}}
+]],
+      ["main.nupp"] = "return true\n",
+   })
+   local explicit = assert(project.loadManifest(explicitDir))
+   assertEq(#explicit.build.compileDependencies, 0,
+      "an explicit empty list opts out of ambient type dependencies")
+   remove(explicitDir)
+end
+
+function M.generatorDeclarationsAreClosedAndPlainData()
+   local unknown = tempProject({
+      ["nupp.lua"] = [[
+return {generators = {api = {using = "missing/codegen"}},
+ build = {entries = {"main"}}}
+]],
+      ["main.nupp"] = "return true\n",
+   })
+   local _, unknownErr = project.loadManifest(unknown)
+   assert(tostring(unknownErr):find("references unknown dependency missing", 1, true),
+      "a generator must select a declared provider dependency: " .. tostring(unknownErr))
+   remove(unknown)
+
+   local cyclic = tempProject({
+      ["nupp.lua"] = [[
+local options = {}
+options.self = options
+return {
+ dependencies = {provider = {kind = "luarocks", path = "provider"}},
+ generators = {api = {using = "provider/codegen", options = options}},
+ build = {entries = {"main"}},
+}
+]],
+      ["main.nupp"] = "return true\n",
+   })
+   local _, cyclicErr = project.loadManifest(cyclic)
+   assert(tostring(cyclicErr):find("must not contain cycles", 1, true),
+      "generator options must be serializable plain data: " .. tostring(cyclicErr))
+   remove(cyclic)
+
+   local compile = tempProject({
+      ["nupp.lua"] = [[
+return {build = {entries = {"main"}, compileDependencies = {"missing"}}}
+]],
+      ["main.nupp"] = "return true\n",
+   })
+   local _, compileErr = project.loadManifest(compile)
+   assert(tostring(compileErr):find("references unknown dependency missing", 1, true),
+      "compile dependencies are checked by name: " .. tostring(compileErr))
+   remove(compile)
+end
+
+function M.docsDoNotInstallUnrunGeneratorTools()
+   local dir = tempProject({})
+   local config = {
+      dependencies = {
+         provider = {kind = "luarocks", path = "not-present"},
+      },
+      generators = {
+         api = {using = "provider/codegen"},
+      },
+   }
+   local built, err = deps.build(dir, "out", config, {}, {kind = "docs", dependencies = {}})
+   assert(built, "a docs dependency pass ignores unrun generators: " .. tostring(err))
+   assertEq(next(built), nil, "no generator tool is installed for docs")
+   remove(dir)
+end
+
 function M.luarocksDependencyInstallsIntoTheProjectTree()
    local files = tinyRockFiles()
    files["nupp.lua"] = [[

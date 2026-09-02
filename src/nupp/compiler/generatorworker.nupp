@@ -1,0 +1,89 @@
+module nupp.compiler.generatorworker
+
+-- The small process boundary around third-party generator code. The parent owns
+-- discovery, inputs, caching, and publication; this child receives one validated
+-- request and can only write through the request object into its staging directory.
+
+local fs = require("nupp.compiler.fs")
+local json = nupp.data.json
+
+local worker = {}
+
+local function contained(root, path)
+    root = fs.absolute(root)
+    path = fs.absolute(path)
+    return path == root or path:sub(1, #root + 1) == root .. "/"
+end
+
+function worker.main(argv: {string}): integer
+    local requestPath, resultPath = argv[1], argv[2]
+    local text = requestPath and fs.readFile(requestPath)
+    local ok, wire = false, nil
+    if text then
+        ok, wire = pcall(json.decode, text, json.NULL)
+    end
+    if not ok or type(wire) ~= "table" or not resultPath then
+        return 2
+    end
+    package.path = tostring(wire.path or "") .. ";" .. package.path
+    package.cpath = tostring(wire.cpath or "") .. ";" .. package.cpath
+
+    local inputs = {}
+    for _, path in ipairs(wire.inputs or {}) do
+        inputs[fs.canonical(path)] = true
+    end
+    local diagnostics = {}
+    local request = {
+        name = wire.name,
+        inputRoot = wire.inputRoot,
+        outputRoot = wire.outputRoot,
+        inputs = wire.inputs,
+        options = wire.options or {},
+    }
+    function request.read(path: string): string
+        local resolved = fs.canonical(fs.join(wire.inputRoot, path))
+        if not inputs[resolved] then
+            error("generator read is not a declared input: " .. path, 2)
+        end
+        local contents, err = fs.readFile(resolved)
+        if not contents then
+            error(tostring(err), 2)
+        end
+
+        return contents
+    end
+
+    function request.write(path: string, contents: string): nil
+        local resolved = fs.absolute(fs.join(wire.outputRoot, path))
+        if not contained(wire.outputRoot, resolved) or resolved == fs.absolute(wire.outputRoot) then
+            error("generator output must stay inside outputRoot: " .. path, 2)
+        end
+        local wrote, err = fs.writeFile(resolved, contents)
+        if not wrote then
+            error(tostring(err), 2)
+        end
+    end
+
+    function request.diagnostic(severity: string, message: string): nil
+        diagnostics[#diagnostics + 1] = {severity = severity, message = message}
+    end
+
+    local succeeded, failure = xpcall(
+        function()
+            local provider = require(wire.entry) as any
+            local generate = type(provider) == "table" and (provider as any).generate or provider
+            if type(generate) ~= "function" then
+                error(wire.entry .. " must return a function or a table with generate", 0)
+            end
+            generate(request)
+        end,
+        function(problem)
+            return debug.traceback(tostring(problem))
+        end
+    )
+    fs.writeFile(resultPath, json.encode({ok = succeeded, error = failure, diagnostics = diagnostics}) .. "\n")
+
+    return succeeded and 0 or 1
+end
+
+export = worker

@@ -681,7 +681,7 @@ function page.render(
     )
         .. '<div class="nuppdoc-top-nav"><a href="'
         .. prefix
-        .. 'learn/getting-started/index.html">Getting started</a><a href="'
+        .. 'getting-started/index.html">Getting started</a><a href="'
         .. 'https://nupp.org/modules/nupp/index.html">API</a><a href="/playground/">Playground</a></div><div class="nuppdoc-actions">'
         .. table.concat(
         actions

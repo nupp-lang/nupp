@@ -13,7 +13,7 @@ Nupp adds checked types, resource contracts, concurrency, native compilation,
 and a complete project toolchain while keeping ordinary Lua modules and control
 flow.
 
-[Get started](learn/getting-started/index.md)
+[Get started](getting-started/index.md)
 [Playground](/playground/)
 
 ![A nuppeppo in a moonlit forest](images/nupp.png)
@@ -48,7 +48,7 @@ end
 
 Compiler diagnostics carry stable codes, source spans, related locations,
 repair help, and structured fixes. See the [language
-tour](learn/getting-started/tour.md) and [type
+tour](getting-started/tour.md) and [type
 system](learn/language/types/index.md).
 
 ## Resources and foreign code
@@ -186,11 +186,11 @@ See [tooling](learn/tooling/index.md) for the guided map and
 
 ## Start here
 
-- [Getting started](learn/getting-started/index.md)
-- [Tour of Nupp](learn/getting-started/tour.md)
-- [Feature map](learn/getting-started/features.md)
-- [Why use Nupp](learn/getting-started/why.md)
-- [Installation](learn/getting-started/installation.md)
+- [Getting started](getting-started/index.md)
+- [Tour of Nupp](getting-started/tour.md)
+- [Feature map](getting-started/features.md)
+- [Why use Nupp](getting-started/why.md)
+- [Installation](getting-started/installation.md)
 
 ## Learn
 
