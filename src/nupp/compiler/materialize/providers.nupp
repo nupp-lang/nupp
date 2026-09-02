@@ -36,6 +36,7 @@ local deriveprovider = require("nupp.compiler.materialize.derive") as {
     materializeInfo: function(any, any, any, any): any,
     index: function(any, any, any): (any, any),
     iterator: function(any, any, boolean): (any, any),
+    sortedPairs: function(any, boolean, any): any,
     operator: function(any, string, any, any): (any, any),
     finalize: function(any, any): (any, any)
 }
@@ -205,34 +206,10 @@ function providers.iterator(state: any, handle: any, array: boolean): any, provi
     if not entry or entry.provider ~= "reflection" or type(entry.payload) ~= "table" then
         return nil, {code = "NUPP2411", message = "this opaque comptime value cannot be iterated"}
     end
-    local payload = entry.payload
-    local keys = {}
-    if array then
-        for index = 1, #payload do
-            keys[index] = index
-        end
-    else
-        for key in pairs(payload) do
-            keys[#keys + 1] = key
-        end
-        table.sort(keys, function(left, right)
-            if type(left) ~= type(right) then
-                return type(left) < type(right)
-            end
-            return left < right
-        end)
-    end
-    local cursor = 0
 
-    return function()
-        cursor = cursor + 1
-        local key = keys[cursor]
-        if key == nil then
-            return nil
-        end
-
-        return key, reflectionValue(state, payload[key], nil)
-    end, nil
+    return deriveprovider.sortedPairs(entry.payload, array, function(item)
+        return reflectionValue(state, item, nil)
+    end), nil
 end
 
 function providers.method(state: any, handle: any, name: string, args: any, at: any): any, providers.Failure?

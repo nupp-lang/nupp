@@ -14,6 +14,7 @@ local record deriveProvider
     materializeInfo: function(any, any, any, any): any
     index: function(any, any, any): (any, any)
     iterator: function(any, any, boolean): (any, any)
+    sortedPairs: function(any, boolean, any): any
     operator: function(any, string, any, any): (any, any)
     finalize: function(any, any): (any, any)
 end
@@ -424,17 +425,17 @@ function deriveProvider.index(state: any, entry: any, key: any): any, any
     return nil, failure("NUPP2810", "this derive value has no member " .. tostring(key))
 end
 
-function deriveProvider.iterator(state: any, entry: any, array: boolean): any, any
-    if entry.family ~= "View" then
-        return nil, failure("NUPP2810", "this derive value cannot be iterated")
-    end
-    local payload, keys = entry.payload, {}
+--- Iterates a table in an order comptime can depend on: array indices in order,
+--- or every key sorted by type and then value. `view` wraps each value as the
+--- caller's provider presents it.
+function deriveProvider.sortedPairs(value: any, array: boolean, view: any): any
+    local keys = {}
     if array then
-        for index = 1, #payload.value do
+        for index = 1, #value do
             keys[index] = index
         end
     else
-        for key in pairs(payload.value) do
+        for key in pairs(value) do
             keys[#keys + 1] = key
         end
         table.sort(keys, function(left, right)
@@ -454,8 +455,17 @@ function deriveProvider.iterator(state: any, entry: any, array: boolean): any, a
             return nil
         end
 
-        return key, payload.view(payload.value[key])
-    end, nil
+        return key, view(value[key])
+    end
+end
+
+function deriveProvider.iterator(state: any, entry: any, array: boolean): any, any
+    if entry.family ~= "View" then
+        return nil, failure("NUPP2810", "this derive value cannot be iterated")
+    end
+    local payload = entry.payload
+
+    return deriveProvider.sortedPairs(payload.value, array, payload.view), nil
 end
 
 function deriveProvider.operator(state: any, op: string, entry: any, right: any): any, any
