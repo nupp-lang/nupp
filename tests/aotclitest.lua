@@ -3027,4 +3027,29 @@ return {decode = decode}
     test.equal(code, 0, "a loop whose own condition proves the cursor proves it every pass\n" .. out)
 end
 
+function M.moduloIsFlooredLikeLuas()
+    -- Lua's `%` takes the divisor's sign: `-1 % 3` is 2. C's `fmod` truncates
+    -- and says -1, so a kernel that rendered `%` as `fmod` disagreed with the
+    -- same source on the interpreter for every negative operand.
+    local dir = project{
+        [
+            "mod.nupp"
+        ] = [[
+@aot
+local function wrap(value: number, modulus: number): number
+    return value % modulus
+end
+
+return {wrap = wrap}
+]],
+    }
+    local out, code = run(dir, "--emit c mod.nupp")
+    test.equal(code, 0, out)
+    assert(out:find("nupp_mod(p_value, p_modulus)", 1, true), "the operator is a floored helper: " .. out)
+    assert(
+        out:find("double r = fmod(a, b); if ((r < 0) != (b < 0) && r != 0) { r += b; } return r;", 1, true),
+        "which corrects the truncated remainder toward the divisor's sign: " .. out
+    )
+end
+
 return M

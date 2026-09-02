@@ -894,7 +894,8 @@ function emit.scalarBits(node: scalarIR.Expr): string
     end
 
     if operation == "mod" then
-        return "fmod(" .. emit.scalar(binary.left) .. ", " .. emit.scalar(binary.right) .. ")"
+        -- Lua's `%` is floored -- `-1 % 3` is 2 -- where C's `fmod` truncates.
+        return "nupp_mod(" .. emit.scalar(binary.left) .. ", " .. emit.scalar(binary.right) .. ")"
     end
     if operation == "pow" then
         return "pow(" .. emit.scalar(binary.left) .. ", " .. emit.scalar(binary.right) .. ")"
@@ -3489,6 +3490,14 @@ local function scalarHelpers(): {string}
         unused .. "uint32_t nupp_u32(double value) { return (uint32_t)value; }",
         unused .. "uint32_t nupp_u32_div(uint32_t left, uint32_t right) { return right == 0u ? 0u : left / right; }",
         unused .. "uint32_t nupp_u32_mod(uint32_t left, uint32_t right) { return right == 0u ? 0u : left % right; }",
+        "/* Lua's `%` is floored: the remainder takes the divisor's sign, so -1 % 3 is 2",
+        " * where fmod, which truncates toward zero, says -1. */",
+        unused
+        .. "double nupp_mod(double a, double b) { double r = fmod(a, b); if ((r < 0) != (b < 0) && r != 0) { r += b; } return r; }",
+        unused
+        .. "uint32_t nupp_u32_ctz(uint32_t value) { return value == 0u ? 32u : (uint32_t)__builtin_ctz(value); }",
+        unused
+        .. "uint32_t nupp_u32_clz(uint32_t value) { return value == 0u ? 32u : (uint32_t)__builtin_clz(value); }",
         unused .. "uint32_t nupp_u32_i32(int32_t value) { return (uint32_t)value; }",
         unused .. "uint32_t nupp_u32_u32(uint32_t value) { return value; }",
         "#define nupp_u32(value) _Generic((value), int32_t: nupp_u32_i32, uint32_t: nupp_u32_u32, default: nupp_u32)(value)",
