@@ -2934,6 +2934,18 @@ return {rows = rows}
     )
 end
 
+function M.negatingANarrowValueWidensItLikeArithmetic()
+    -- `-value` is binary64 arithmetic the way `0 - value` is, so a float or a
+    -- fixed-width operand widens into it rather than being refused.
+    local dir = project{
+        [
+            "neg.nupp"
+        ] = [[
+@aot
+local function neg(value: float): number
+    return -value
+end
+
 @aot
 local function negFixed(value: uint32): number
     return -value

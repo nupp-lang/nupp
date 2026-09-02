@@ -2502,8 +2502,11 @@ end
 local function unary(node: cst.Unop, value: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local written = (node.op as lexer.Token).text
     local source = lower.site(node)
-    if written == "-" and value.type == "f64" then
-        return new scalarIR.Unary(op = "neg", value = value, type = "f64", source = source)
+    -- Negation is binary64 arithmetic like the binary operators, so a fixed-width
+    -- or binary32 operand widens into it the same way `binary` promotes one.
+    local negated = written == "-" and lower.conversion(value, "f64", value.source) or nil
+    if negated ~= nil then
+        return new scalarIR.Unary(op = "neg", value = negated as scalarIR.Expr, type = "f64", source = source)
     elseif written == "not" and value.type == "bool" then
         return new scalarIR.Unary(op = "not", value = value, type = "bool", source = source)
     elseif written == "~" and bitOperand(value) then
