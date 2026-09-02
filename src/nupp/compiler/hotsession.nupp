@@ -12,7 +12,6 @@ local incremental = require("nupp.compiler.incremental")
 local diagnostics = require("nupp.compiler.diagnostics")
 local buildModules = require("nupp.compiler.build.modules")
 local hash = require("nupp.compiler.build.hash")
-local cache = require("nupp.compiler.build.cache")
 local cst = require("nupp.compiler.cst")
 local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")
@@ -227,25 +226,6 @@ local function diagnosticsFailure(values)
     return new hotSession.Rejected(kind = "diagnostics", diagnostics = values)
 end
 
-local function exportDeprecationsFingerprint(exports)
-    local items = {}
-    for _, field in ipairs({"typeDefs", "valueDefs"}) do
-        for name, definition in pairs(exports and exports[field] or {}) do
-            local deprecated = definition.deprecated
-            if deprecated then
-                items[
-                    #items + 1
-                ] = field .. ":" .. name .. ":" .. cache.stable(
-                    deprecated.reason
-                ) .. ":" .. cache.stable(deprecated.replacement)
-            end
-        end
-    end
-    table.sort(items)
-
-    return table.concat(items, "\0")
-end
-
 ----------------------------------------------------------------------------
 -- Fingerprints
 ----------------------------------------------------------------------------
@@ -346,19 +326,10 @@ local function cDeclarations(parsed)
     return declarations
 end
 
-local function interfaceFingerprint(moduleType, exports)
-    exports = exports or {}
-    return hash.digest(
-        buildModules.typeFingerprint(
-            moduleType
-        ) .. "\0deprecated\0" .. exportDeprecationsFingerprint(
-            exports
-        ) .. "\0nominal-callables:" .. (
-            exports.nominalEffectFingerprint or ""
-        ) .. "\0derives:" .. (
-            exports.deriveInterfaceFingerprint or ""
-        ) .. "\0comptime-functions:" .. (exports.comptimeFunctionFingerprint or "")
-    )
+-- The build's own interface digest, so a change the build would recompile a
+-- reader for is one the session restarts for, and nothing less.
+local function interfaceFingerprint(moduleType, exports, backendFingerprint)
+    return buildModules.interfaceHash(moduleType, exports, backendFingerprint, nil)
 end
 
 local function applyCMetadata(snapshot, metadata)
@@ -677,7 +648,11 @@ function Session:semanticSnapshot(path, checked, module)
         snapshot.modules[
             currentModule
         ] = {
-            fingerprint = interfaceFingerprint(result.moduleType, result.exports),
+            fingerprint = interfaceFingerprint(
+                result.moduleType,
+                result.exports,
+                result.backend and result.backend.fingerprint or nil
+            ),
             label = currentModule,
             path = currentPath,
             cFingerprint = cFingerprint,

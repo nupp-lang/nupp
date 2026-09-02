@@ -518,6 +518,38 @@ typeFingerprint = function(
     return value
 end
 
+--- What a module's readers depend on, as one digest: its type, the definition
+--- metadata that changes how an export may be used (deprecations, comptime-only
+--- aliases), the nominal, derive and comptime-function fingerprints the checker
+--- publishes beside it, and the backend that resolved its seams. An external
+--- module adds its source hash, since nothing else of a declaration file is
+--- recorded.
+---
+--- The one function for it, so the build's records and the hot session's
+--- snapshots cannot disagree about what an interface change is.
+function modules.interfaceHash(
+    moduleType: nupp.compiler.types.Type?,
+    exports: any,
+    backendFingerprint: string?,
+    externalSourceHash: string?
+): string
+    exports = exports or {}
+
+    return hash.digest(
+        typeFingerprint(
+            moduleType
+        ) .. "\0definitions\0" .. exportDefinitionFingerprint(
+            exports
+        ) .. "\0nominal-callables:" .. (
+            exports.nominalEffectFingerprint or ""
+        ) .. "\0derives:" .. (
+            exports.deriveInterfaceFingerprint or ""
+        ) .. "\0comptime-functions:" .. (
+            exports.comptimeFunctionFingerprint or ""
+        ) .. "\0backend:" .. (backendFingerprint or "") .. (externalSourceHash and ("\0" .. externalSourceHash) or "")
+    )
+end
+
 --- A path as a progress line should say it: relative to the project root, so a
 --- step reads the same wherever the project was checked out.
 local function shortPath(root: string, path: string): string
@@ -1337,20 +1369,11 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local checkedExports = result.exports or {}
         records[name] = {
             sourceHash = sourceHash,
-            interfaceHash = hash.digest(
-                typeFingerprint(
-                    result.moduleType
-                ) .. "\0definitions\0" .. exportDefinitionFingerprint(
-                    checkedExports
-                ) .. "\0nominal-callables:" .. (
-                    checkedExports.nominalEffectFingerprint or ""
-                ) .. "\0derives:" .. (
-                    checkedExports.deriveInterfaceFingerprint or ""
-                ) .. "\0comptime-functions:" .. (
-                    checkedExports.comptimeFunctionFingerprint or ""
-                ) .. "\0backend:" .. (
-                    result.backend and result.backend.fingerprint or ""
-                ) .. (external and ("\0" .. sourceHash) or "")
+            interfaceHash = modules.interfaceHash(
+                result.moduleType,
+                checkedExports,
+                result.backend and result.backend.fingerprint or nil,
+                external and sourceHash or nil
             ),
             artifactHash = artifactHash,
             dependencies = jsonArray(depNames),
