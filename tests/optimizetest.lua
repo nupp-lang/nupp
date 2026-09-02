@@ -527,6 +527,24 @@ function M.foldsExactPrimitiveComparisons()
       "folded comparison result")
 end
 
+-- A const table folds to the map of its const fields so that reads through it
+-- fold, but that map is not a value: comparing two of them, or one against nil,
+-- compared their absent `.value` slots and folded `a == nil` to true.
+function M.leavesConstTableEqualityToTheRuntime()
+   local src = "const a = {const x = 1}\nconst b = {const y = 2}\n"
+      .. "local isNil = a == nil\nlocal notNil = a ~= nil\nlocal same = a == b\n"
+      .. "local branch\nif a == nil then branch = 'nil' else branch = 'table' end\n"
+      .. "return isNil, notNil, same, branch"
+   local code = compile(src, 1)
+   assertTrue(code:find("a == nil", 1, true) ~= nil,
+      "a const table's nil comparison is not folded: " .. code)
+   local isNil, notNil, same, branch = run(src)
+   assertEq(isNil, false, "a const table is not nil")
+   assertEq(notNil, true, "a const table is not nil, negated")
+   assertEq(same, false, "two const tables are distinct")
+   assertEq(branch, "table", "the else branch survives")
+end
+
 -- Lua's grammar takes only a name, a parenthesized expression, or another
 -- suffixed expression as the prefix of a call or an index, and every fold puts a
 -- scalar literal there. Emitting the bare literal produced Lua that would not

@@ -286,6 +286,14 @@ local function remark(remarks, node, code, message, related)
     }
 end
 
+-- One related location for a remark, pointing at `token` with `message`.
+local function relatedAt(token, message)
+    if not token then
+        return nil
+    end
+    return {{line = token.line, col = token.col, offset = token.offset, length = #token.text, message = message,}}
+end
+
 local function presizeBlock(stats, remarks)
     for i, stat in ipairs(stats) do
         if not isToken(
@@ -330,15 +338,7 @@ local function presizeBlock(stats, remarks)
                         .. "something other than a field assignment before its "
                         .. "fields are known"
                     ):format(name),
-                    token and {
-                        {
-                            line = token.line,
-                            col = token.col,
-                            offset = token.offset,
-                            length = #token.text,
-                            message = "used here",
-                        }
-                    } or nil
+                    relatedAt(token, "used here")
                 )
             end
         end
@@ -453,15 +453,7 @@ local function numericIpairsBody(body, facts, remarks)
                     node,
                     "OPT-2",
                     "numeric-ipairs: not rewritten because " .. reason,
-                    at and {
-                        {
-                            line = at.line,
-                            col = at.col,
-                            offset = at.offset,
-                            length = #at.text,
-                            message = "proof stopped here",
-                        }
-                    } or nil
+                    relatedAt(at, "proof stopped here")
                 )
             end
         end
@@ -1001,7 +993,11 @@ local function foldExpr(node, current)
             node.folded = folded.code
             return folded
         end
-        local comparable = left.kind == right.kind or (left.kind == "nil" or right.kind == "nil")
+        -- A const table folds to its field map, not a value: two of them compare
+        -- equal by identity at runtime and nothing here knows which, so only
+        -- scalars take the equality fold.
+        local scalar = left.kind ~= "table" and right.kind ~= "table"
+        local comparable = scalar and (left.kind == right.kind or (left.kind == "nil" or right.kind == "nil"))
         if comparable and (op == "==" or op == "~=") then
             local equal = left.value == right.value
             local folded = literal(
@@ -1157,8 +1153,9 @@ local function foldStatement(stat, current)
             end
         end
     elseif kind == "assignStmt" then
-        for _, expr in ipairs(stat.exprs or {}) do
-            foldExpr(expr, current)
+        local values = {}
+        for i, expr in ipairs(stat.exprs or {}) do
+            values[i] = foldExpr(expr, current)
         end
         for i, target in ipairs(stat.targets or {}) do
             local path = textPath(target)
@@ -1168,7 +1165,7 @@ local function foldStatement(stat, current)
             else
                 foldExpr(target, current)
                 if stat.isConst and path then
-                    local value = foldExpr((stat.exprs or {})[i], current)
+                    local value = values[i]
                     if value and value.kind == "table" then
                         bindObjectFields(current, path, value)
                     end
