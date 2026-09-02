@@ -50,8 +50,9 @@ record compile.Settings
     --- reached. Nil when the caller does not report them.
     specializedBodies: integer?
 
-    --- Coverage is a separate generated artifact. It is intentionally absent from
-    --- ordinary settings so normal compilation does not even build a site manifest.
+    --- Whether generated code carries coverage probes. No command has an option for
+    --- it; `NUPP_COVERAGE=1` in the environment asks for it, which is how the coverage
+    --- runner reaches the compiles it starts, and every other compile leaves it off.
     coverage: boolean
 
     --- A command-only literal emitted between generated preamble and authored code.
@@ -74,7 +75,7 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
         remarks = values.remarks and true or false,
         disabled = values.disabled or {},
         diagnostics = collected,
-        coverage = values.coverage == true or os.getenv("NUPP_COVERAGE") == "1",
+        coverage = os.getenv("NUPP_COVERAGE") == "1",
         bytecodeBoundary = nil
     )
 end
