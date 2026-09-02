@@ -1489,20 +1489,6 @@ function derive.install(c: state.Checker): derive.Ops
 
         local observations = {}
         for _, item in ipairs(pending) do
-            local memberCount = 0
-            for _ in pairs(item.nominal.derivedDefinitions or {}) do
-                memberCount = memberCount + 1
-            end
-            for _ in pairs(item.nominal.derivedStaticDefinitions or {}) do
-                memberCount = memberCount + 1
-            end
-            if memberCount > MAX_GENERATED_MEMBERS then
-                c.diag(
-                    "NUPP2808",
-                    item.stat,
-                    ("derive generated %d members; the limit is %d"):format(memberCount, MAX_GENERATED_MEMBERS)
-                )
-            end
             for _, provider in ipairs(item.order) do
                 local providerMembers = 0
                 for _, definition in pairs(item.nominal.derivedDefinitions or {}) do
