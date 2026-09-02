@@ -325,38 +325,27 @@ local function run(parsed: any): integer
     local derives: {any} = {}
     local selectedBackends: {any} = {}
     local reachedBackends: {any} = {}
-    local function finish(
-        code: integer,
-        builtTarget: any,
-        outputs: {string},
-        observed: {any}?,
-        observedDerives: {any}?,
-        timing: any?,
-        selectedPlatform: string?,
-        platformResults: {any}?,
-        distributionReady: boolean?,
-        notice: string?,
-        artifact: string?,
-        aotManifest: string?
-    ): integer
+    -- Ends the command with what the build produced, in the shape the project build
+    -- fills in; the file shape fills in the fields it has and leaves the rest absent.
+    local function finish(code: integer, produced: {[string]: any}): integer
         if asJson then
             reportMod.write({
                 ok = code == 0,
                 diagnostics = reportMod.diagnosticValues(diagnostics),
-                target = builtTarget,
+                target = produced.target,
                 dialect = selectedDialect,
-                platform = selectedPlatform,
-                platforms = platformResults,
-                distributionReady = distributionReady,
-                notice = notice,
-                written = outputs,
-                artifact = artifact,
-                aotManifest = aotManifest,
-                materializations = observed or materializations,
-                derives = observedDerives or derives,
+                platform = produced.platform,
+                platforms = produced.platforms,
+                distributionReady = produced.distributionReady,
+                notice = produced.notice,
+                written = produced.outputs or {},
+                artifact = produced.artifact,
+                aotManifest = produced.aotManifest,
+                materializations = produced.materializations or materializations,
+                derives = produced.derives or derives,
                 backends = selectedBackends,
                 backendResolution = reachedBackends,
-                timing = code == 0 and timing or nil,
+                timing = code == 0 and produced.timing or nil,
             })
         end
 
@@ -383,25 +372,12 @@ local function run(parsed: any): integer
         selectedBackends = produced.backends or {}
         reachedBackends = produced.backendResolution or {}
         selectedDialect = produced.dialect or selectedDialect
-        return finish(
-            code,
-            produced.target,
-            produced.outputs or {},
-            produced.materializations,
-            produced.derives,
-            produced.timing,
-            produced.platform,
-            produced.platforms,
-            produced.distributionReady,
-            produced.notice,
-            produced.artifact,
-            produced.aotManifest
-        )
+        return finish(code, produced)
     end
-    local process = require("nupp.compiler.build.process")
-    if outDir and process.run(process.mkdirCommand(outDir)) ~= 0 then
+    local fs = require("nupp.compiler.fs")
+    if outDir and not fs.mkdir(outDir) then
         io.stderr:write("nupp: cannot create output directory " .. outDir .. "\n")
-        return finish(1, nil, {}, materializations, derives)
+        return finish(1, {})
     end
     local env = require("nupp.compiler.env").new(".")
     settings.materializations = materializations
@@ -415,7 +391,6 @@ local function run(parsed: any): integer
     local failed = false
     local written: {[string]: boolean} = {}
     local outputs: {string} = {}
-    local fs = require("nupp.compiler.fs")
     -- Positionals arrive spelled however the caller typed them, while `env.loaded`
     -- records paths the environment has normalized. `written` is keyed on the
     -- normalized spelling so `./lib.nupp` on the command line and `lib.nupp` in the
@@ -503,7 +478,7 @@ local function run(parsed: any): integer
         report:finish("built")
     end
 
-    return finish(failed and 1 or 0, nil, outputs, materializations, derives, report:timing())
+    return finish(failed and 1 or 0, {outputs = outputs, timing = report:timing()})
 end
 
 export = new spec.Handler(spec = command, run = run)
