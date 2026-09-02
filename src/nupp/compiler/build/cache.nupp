@@ -191,49 +191,9 @@ local function jsonArray<T>(takes items: {T}): {T} preserves items
     return json.asArray(items)
 end
 
-local function stable(value: unknown, seen: {[unknown]: boolean}?): string
-    -- Guard clauses over a closed set: what each one does not take is taken by the
-    -- next, and the table this walks into is what is left. Naming the rest in an else
-    -- would be naming it twice.
-    local kind = type(value)
-    @allow("exhaustiveness")
-    if kind == "nil" then
-        return "nil"
-    end
-    if kind == "boolean" or kind == "number" then
-        return tostring(value)
-    end
-    @allow("exhaustiveness")
-    if kind == "string" then
-        return ("%q"):format(value)
-    end
-    @allow("exhaustiveness")
-    if kind ~= "table" then
-        return "<" .. kind .. ">"
-    end
-    -- `type` has settled what this is; the cast is how that answer reaches the checker,
-    -- which follows `is` rather than a comparison against a copied `type()` result.
-    local entries = value as {[unknown]: unknown}
-    seen = seen or {}
-    if seen[value] then
-        return "<cycle>"
-    end
-    seen[value] = true
-    local keys = {}
-    for key in pairs(entries) do
-        keys[#keys + 1] = key
-    end
-    table.sort(keys, function(a, b)
-        return tostring(a) < tostring(b)
-    end)
-    local parts = {}
-    for _, key in ipairs(keys) do
-        parts[#parts + 1] = stable(key, seen) .. "=" .. stable(entries[key], seen)
-    end
-    seen[value] = nil
-
-    return "{" .. table.concat(parts, ",") .. "}"
-end
+-- Canonical memoization text for a plain-data value, shared with the checker's
+-- own memoization rather than kept as a second copy beside it.
+local stable = require("nupp.compiler.stable")
 
 local function hashFile(path: string, contentDigest: (function(string): string)?): string?
     local text = readFile(path)
