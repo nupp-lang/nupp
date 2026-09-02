@@ -1,13 +1,12 @@
 -- Mandelbrot escape counts, as one AOT-compiled function.
 --
--- The Tecs workload in kernels.nupp is memory-bound: it streams two component
--- columns and does a little arithmetic per row, so it measures bandwidth more
--- than code. This one is the opposite and is here for that reason. Each pixel
--- reads sixteen bytes once and then runs a bounded loop over four live doubles
--- that touches no memory at all, so what it measures is how well the inner loop
--- was compiled. That is the register-resident arithmetic chain
--- docs/neps/0009-ahead-of-time-compilation.md asks for in its performance gates, written as ordinary
--- Nupp.
+-- The Tecs workload in kernels.nupp is memory-bound: it streams two component columns
+-- and does a little arithmetic per row, so it measures bandwidth more than code. This
+-- one is the opposite and is here for that reason. Each pixel reads sixteen bytes once
+-- and then runs a bounded loop over four live doubles that touches no memory at all, so
+-- what it measures is how well the inner loop was compiled. That is the
+-- register-resident arithmetic chain docs/neps/0009-ahead-of-time-compilation.md asks
+-- for in its performance gates, written as ordinary Nupp.
 --
 -- The complex plane is an input rather than something the kernel derives from a
 -- pixel index, which keeps this a map over two spans and leaves the grid the
@@ -28,7 +27,7 @@ end
 -- so it is asked for here rather than assumed. Without this line the kernel is
 -- exact and reproducible across targets; with it, it is neither. Measured on
 -- Apple arm64 at 1024x768 and 256 iterations it is worth about six percent
--- either way -- 75.8 against 71.1 MPix/s lane-parallel, 36.9 against 35.0
+-- either way -- 128.5 against 121.4 MPix/s lane-parallel, 66.4 against 62.6
 -- forced scalar -- which is a real gain and not the doubling this comment used
 -- to claim. `mandelbrot_exact.nupp` is the same source without the line.
 @relax("fp-contract")

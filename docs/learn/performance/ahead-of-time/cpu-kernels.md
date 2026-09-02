@@ -392,9 +392,9 @@ this measures how the body was compiled and nothing else.
 
 | Body | ns/frame | MPix/s | Relative |
 | --- | --- | --- | --- |
-| AOT, lane-parallel | 10,465,198 | 75.15 | 30.4x |
-| AOT, forced scalar | 21,268,854 | 36.98 | 15.0x |
-| LuaJIT | 318,066,750 | 2.47 | 1.0x |
+| AOT, lane-parallel | 6,143,356 | 128.01 | 26.6x |
+| AOT, forced scalar | 11,879,941 | 66.20 | 13.7x |
+| LuaJIT | 163,140,569 | 4.82 | 1.0x |
 
 Reproduce with:
 
@@ -405,20 +405,20 @@ MANDELBROT_WIDTH=1024 MANDELBROT_HEIGHT=768 MANDELBROT_ITERATIONS=256 \
 
 Read the two gaps separately, because they have different causes.
 
-**Scalar C over LuaJIT is 15x**, and most of that is not arithmetic. Timing the
-same recurrence in plain Lua with local variables instead of spans gives about
-4.6 MPix/s, so roughly half the gap is the span and struct-field plumbing that
-the AOT body compiles away and the interpreter cannot. The rest is codegen on a
-loop with a data-dependent exit. The loop is traceable, and `nupp bc --check` on
-this kernel is clean, so this is LuaJIT compiling it and still losing rather
-than LuaJIT giving up. See
+**Scalar C over LuaJIT is 13.7x**, and most of that is not arithmetic. Timing
+the same recurrence in plain Lua with local variables instead of spans gives
+about 15.9 MPix/s, so roughly half the gap is the span and struct-field
+plumbing that the AOT body compiles away and the interpreter cannot. The rest
+is codegen on a loop with a data-dependent exit. The loop is traceable, and
+`nupp bc --check` on this kernel is clean, so this is LuaJIT compiling it and
+still losing rather than LuaJIT giving up. See
 [jit-trace-checking.md](../jit-trace-checking.md) for that check.
 
-**Lane-parallel over scalar C is 2.0x** on four lanes, not 4x, because lanes
+**Lane-parallel over scalar C is 1.9x** on four lanes, not 4x, because lanes
 diverge: every lane runs until the last one escapes, so a group costs its
 slowest member. Measure that against what the algorithm allows rather than
 against the lane count. `divergence.lua` in the spike does exactly that, and at
-this cap the four-lane ceiling is 1.22x the ideal work, so 2.0x against scalar
+this cap the four-lane ceiling is 1.22x the ideal work, so 1.9x against scalar
 is close to what four lanes can be.
 
 ```bash
@@ -432,9 +432,9 @@ registers:
 
 | Body | MPix/s | Notes |
 | --- | --- | --- |
-| AOT f32x8 | 123.28 | eight lanes, 32-byte gang |
-| AOT forced scalar | 35.66 | same width as the f64 scalar |
-| LuaJIT | 0.02 | every rounding through an FFI store and load |
+| AOT f32x8 | 213.06 | eight lanes, 32-byte gang |
+| AOT forced scalar | 65.82 | same width as the f64 scalar |
+| LuaJIT | 0.13 | every rounding through an FFI store and load |
 
 That is a different program with different escape counts, and it is the source
 that says so. `bench/kernel-subset-spike/mandelbrot_f32.nupp` is the same
@@ -468,12 +468,12 @@ The LuaJIT row collapses because explicit binary32 in ordinary Nupp performs
 each rounding point through an FFI store and load, which is the price of the
 source rather than an artifact of measuring it.
 
-Eight lanes over four is 1.64x, not 2x, and that is the algorithm rather than
+Eight lanes over four is 1.66x, not 2x, and that is the algorithm rather than
 the lowering. A gang runs until its slowest lane retires, so widening it takes
 that maximum over more pixels. Measured on this view the eight-lane ceiling is
 1.68x at 256 iterations, falling to 1.58x at 4096 as escape counts spread
-further apart, against measured ratios of 1.60x and 1.42x. The lowering runs at
-90 to 95 percent of what the algorithm allows, and the remainder is the
+further apart, against measured ratios of 1.66x and 1.48x. The lowering runs at
+94 to 99 percent of what the algorithm allows, and the remainder is the
 per-pixel gather and scatter, which costs the same however many lanes share it.
 
 A divergent loop is the case lane lowering is worst at, and the width you get is
