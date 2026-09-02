@@ -942,8 +942,12 @@ Usage:
   nupp backend test <module> [--dialect luajit|luajit-compat|lua51] [--runtime LUA] [--seam NAME] [--json]
 
 Options:
-  -h, --help  Show this help
-  --schema    Print the JSON Schema of --json output and exit
+  --dialect DIALECT  Check and compile for this dialect (default: luajit)
+  --runtime LUA      Execute the checked modules with this interpreter
+  --seam NAME        Run only the named seam suite
+  --json             Report as one JSON document
+  -h, --help         Show this help
+  --schema           Print the JSON Schema of --json output and exit
 
 The command checks and compiles the backend without executing it, then runs all or one of its compiler-owned seam suites. --runtime writes the checked modules as real Lua files and executes them with that interpreter; without it the isolated CLI process is used. It reports resolution evidence, not a cached certification claim.
 ```

@@ -4,14 +4,40 @@ module nupp.compiler.cli.backend
 
 local spec = require("nupp.compiler.cli.spec")
 
+-- What `test` takes. The group lists the same options, so `nupp help backend` says
+-- what the one operation parses.
+local OPTIONS: {
+    any
+} = {
+    {
+        name = "--dialect",
+        value = "DIALECT",
+        choices = {"luajit", "luajit-compat", "lua51"},
+        help = "Check and compile for this dialect (default: luajit)",
+    },
+    {name = "--runtime", value = "LUA", help = "Execute the checked modules with this interpreter"},
+    {name = "--seam", value = "NAME", help = "Run only the named seam suite"},
+    {name = "--json", help = "Report as one JSON document"},
+    spec.helpOption,
+}
+
+local USAGE = "nupp backend test <module> [--dialect luajit|luajit-compat|lua51] [--runtime LUA] [--seam NAME] [--json]"
+
+local TEST = spec.command{
+    name = "backend test",
+    helpName = "backend",
+    summary = "Run a checked backend's seam suites",
+    usage = {USAGE},
+    universal = false,
+    options = OPTIONS,
+}
+
 local command = spec.command{
     name = "backend",
     summary = "Run checked backend conformance suites",
-    usage = {
-        "nupp backend test <module> [--dialect luajit|luajit-compat|lua51] [--runtime LUA] [--seam NAME] [--json]"
-    },
+    usage = {USAGE},
     universal = false,
-    options = {spec.helpOption},
+    options = OPTIONS,
     positionals = {},
     schema = {
         type = "object",
@@ -247,81 +273,48 @@ local function run(argv: {string}): integer
         io.write(command:help())
         return 0
     end
-    if argv[1] ~= "test" or argv[2] == nil then
+    if argv[1] ~= "test" then
         return fail("backend expects `test <module>`; see `nupp help backend`")
     end
-    local moduleName = argv[2]
-    local dialect, focused, runtime, asJson = "luajit", nil, nil, false
-    local at: integer = 3
-    while at <= #argv do
-        local value = argv[at]
-        if value == "--json" then
-            asJson = true
-        elseif value == "--dialect" and argv[at + 1] ~= nil then
-            dialect = argv[at + 1]
-            at = at + 1
-        elseif value:match("^%-%-dialect=") then
-            dialect = value:sub(11)
-        elseif value == "--runtime" and argv[at + 1] ~= nil then
-            runtime = argv[at + 1]
-            at = at + 1
-        elseif value:match("^%-%-runtime=") then
-            runtime = value:sub(11)
-        elseif value == "--seam" and argv[at + 1] ~= nil then
-            focused = argv[at + 1]
-            at = at + 1
-        elseif value:match("^%-%-seam=") then
-            focused = value:sub(8)
-        else
-            return fail("unknown backend test argument " .. value)
-        end
-        at = at + 1
+    local rest: {string} = {}
+    for index = 2, #argv do
+        rest[#rest + 1] = argv[index]
     end
-    if require("nupp.compiler.dialects").resolve(dialect) == nil then
-        return fail("unknown dialect " .. dialect)
+    local parsed, parseErr = TEST:parse(rest)
+    if not parsed then
+        return TEST:usageError(parseErr)
     end
+    if parsed.values.help then
+        io.write(TEST:help())
+        return 0
+    end
+    if #parsed.positional ~= 1 then
+        return fail("backend expects `test <module>`; see `nupp help backend`")
+    end
+    local moduleName: string = parsed.positional[1]
+    local dialect: string = parsed.values.dialect or "luajit"
+    local focused: string? = parsed.values.seam
+    local runtime: string? = parsed.values.runtime
+    local asJson = parsed.values.json == true
 
     local env: any = require("nupp.compiler.env").new(".")
     local path = env.findModulePath(env, moduleName)
     if path == nil then
         return fail("backend module not found: " .. moduleName)
     end
-    local source, readProblem = require("nupp.compiler.fs").readFile(path)
-    if source == nil then
-        return fail(tostring(readProblem))
-    end
-    local parsed = require("nupp.compiler.parser").parse(source, path)
-    local diagnostics = parsed.errors
-    if #diagnostics == 0 then
-        diagnostics = require("nupp.compiler.check").check(parsed, path, env, {dialect = dialect, strict = true,})
-    end
-    if require("nupp.compiler.diagnostics").report(diagnostics) then
+    local compile = require("nupp.compiler.cli.compile")
+    local checked, source = compile.check(path, env, {dialect = dialect, strict = true})
+    if checked == nil then
         return 1
     end
-    local descriptor, descriptorProblem = require("nupp.compiler.backends").inspect(parsed.root, moduleName)
+    local descriptor, descriptorProblem = require("nupp.compiler.backends").inspect(checked.root, moduleName)
     if descriptor == nil then
         return fail("backend module " .. moduleName .. ": " .. tostring(descriptorProblem or "invalid Backend export"))
     end
+    local digest = require("nupp.compiler.build.hash").digest(source as string)
 
-    local compile = require("nupp.compiler.cli.compile")
-    local settings = compile.settings({strict = true, dialect = dialect})
-    if runtime ~= nil then
-        local results, runtimeLabel, runtimeProblem = runOnRuntime(
-            runtime,
-            env,
-            moduleName,
-            descriptor,
-            focused,
-            settings
-        )
-        if results == nil then
-            return fail(tostring(runtimeProblem))
-        end
-        local failed = false
-        for _, result in ipairs(results) do
-            failed = failed or not result.ok
-        end
-        local digest = require("nupp.compiler.build.hash").digest(source)
+    -- What was found, as JSON or as one line per seam and one for the backend.
+    local function report(results: {any}, failed: boolean, runtimeLabel: string?): integer
         if asJson then
             require("nupp.compiler.cli.report").write({
                 ok = not failed,
@@ -353,6 +346,27 @@ local function run(argv: {string}): integer
         end
 
         return failed and 1 or 0
+    end
+
+    local settings = compile.settings({strict = true, dialect = dialect})
+    if runtime ~= nil then
+        local results, runtimeLabel, runtimeProblem = runOnRuntime(
+            runtime,
+            env,
+            moduleName,
+            descriptor,
+            focused,
+            settings
+        )
+        if results == nil then
+            return fail(tostring(runtimeProblem))
+        end
+        local failed = false
+        for _, result in ipairs(results) do
+            failed = failed or not result.ok
+        end
+
+        return report(results, failed, runtimeLabel)
     end
     local function preloadChecked(name: string, candidate: string): boolean
         local code = compile.module(candidate, env, settings)
@@ -408,35 +422,8 @@ local function run(argv: {string}): integer
     if focused ~= nil and #results == 0 then
         return fail("backend " .. moduleName .. " does not supply seam " .. focused)
     end
-    local runtime = _VERSION .. (jit and " / " .. jit.version or "")
-    local digest = require("nupp.compiler.build.hash").digest(source)
-    if asJson then
-        require("nupp.compiler.cli.report").write({
-            ok = not failed,
-            backend = descriptor.name,
-            module = moduleName,
-            digest = digest,
-            dialect = dialect,
-            runtime = runtime,
-            seams = results,
-        })
-    else
-        for _, result in ipairs(results) do
-            io.write(
-                (
-                    "%s %d (%s): %s\n"
-                ):format(
-                    result.name,
-                    result.version,
-                    result.binding,
-                    result.ok and "passed" or "failed: " .. tostring(result.problem)
-                )
-            )
-        end
-        io.write(("backend %s digest %s; dialect %s; runtime %s\n"):format(moduleName, digest, dialect, runtime))
-    end
 
-    return failed and 1 or 0
+    return report(results, failed, _VERSION .. (jit and " / " .. jit.version or ""))
 end
 
 export = new spec.Handler(spec = command, raw = true, run = run)

@@ -589,6 +589,22 @@ function M.initListRefusesAJsonSpellingItCannotProduce()
    assert(output:sub(1, 1) ~= "{", "template text is not mislabeled JSON")
 end
 
+function M.backendTestParsesItsOptionsThroughAGrammar()
+   local output, code = captureStatusAt(HERE, "backend test --dialect nope x")
+   assert(code == 2, "an unknown dialect is a usage error: " .. output)
+   assert(output:find("expected luajit, luajit-compat, lua51", 1, true),
+      "and the grammar says what was expected: " .. output)
+   output, code = captureStatusAt(HERE, "backend test --wat x")
+   assert(code == 2 and output:find("unknown option --wat", 1, true),
+      "an unknown option is refused by name: " .. output)
+   output, code = captureStatusAt(HERE, "backend test --json")
+   assert(code == 2 and output:find("test <module>", 1, true),
+      "a missing module is still the group's own complaint: " .. output)
+   local help = capture("help backend")
+   assert(help:find("--dialect DIALECT", 1, true) and help:find("--seam NAME", 1, true),
+      "the group's help lists what test parses: " .. help)
+end
+
 function M.backendRuntimePreservesMultilineSeamFailures()
    local dir = os.tmpname()
    os.remove(dir)
