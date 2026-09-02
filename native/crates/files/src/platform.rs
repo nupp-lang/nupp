@@ -6,6 +6,7 @@ pub fn read_only(permissions: &Permissions) -> bool {
     platform_read_only(permissions)
 }
 
+#[cfg(not(windows))]
 pub fn set_read_only(file: &File, mut permissions: Permissions, read_only: bool) -> io::Result<()> {
     platform_set_read_only(&mut permissions, read_only);
     file.set_permissions(permissions)

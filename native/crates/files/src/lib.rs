@@ -233,6 +233,15 @@ pub fn create_symlink(target: &Path, link: &Path, directory: bool) -> io::Result
 }
 
 pub fn set_read_only(path: &Path, read_only: bool) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        // `File::open` requests read access, but `File::set_permissions` needs
+        // FILE_WRITE_ATTRIBUTES on Windows. Set the path attribute directly
+        // so both enabling and clearing read-only work through the public API.
+        let permissions = fs::metadata(path)?.permissions();
+        return platform::set_path_read_only(path, permissions, read_only);
+    }
+    #[cfg(not(windows))]
     match File::open(path) {
         Ok(file) => {
             let permissions = file.metadata()?.permissions();
@@ -504,6 +513,20 @@ mod tests {
         assert!(Path::new(&file).is_file());
         assert!(Path::new(&directory).is_dir());
         assert!(file.contains("before-") && file.ends_with(".tmp"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn read_only_attribute_can_be_set_and_cleared() {
+        let root = root("read-only");
+        let path = root.join("value.txt");
+        fs::write(&path, b"value").unwrap();
+
+        set_read_only(&path, true).unwrap();
+        assert!(info(&path, true).unwrap().read_only);
+        set_read_only(&path, false).unwrap();
+        assert!(!info(&path, true).unwrap().read_only);
+
         fs::remove_dir_all(root).unwrap();
     }
 
