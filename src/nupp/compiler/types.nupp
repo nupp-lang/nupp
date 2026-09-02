@@ -3339,6 +3339,33 @@ function types.hasProjection(t: types.Type): boolean
     return t.id:find(MARK_PROJECTION, 1, true) ~= nil
 end
 
+--- Whether a pack mentions a binder: in its head, its tail, or any alternative.
+local function packHasTypevar(pack: types.Pack): boolean
+    if pack.id:find(
+        MARK_TYPEVAR,
+        1,
+        true
+    ) or pack.id:find(MARK_PACKVAR, 1, true) or pack.id:find(MARK_CONSTVAR, 1, true) then
+        return true
+    end
+    for _, member in ipairs(pack.head) do
+        if types.hasTypevar(member) then
+            return true
+        end
+    end
+    local tail = pack.tail
+    if tail and tail.type and types.hasTypevar(tail.type as types.Type) then
+        return true
+    end
+    for _, alternative in ipairs(pack.alternatives or {}) do
+        if packHasTypevar(alternative) then
+            return true
+        end
+    end
+
+    return false
+end
+
 -- Cheap containment test used to decide whether instantiation is needed.
 function types.hasTypevar(t: types.Type): boolean
     if t.tag == "nominal" and t.origin then
@@ -3422,6 +3449,51 @@ function types.hasTypevar(t: types.Type): boolean
         end
         for _, member in ipairs(t.rets) do
             if types.hasTypevar(member) then
+                return true
+            end
+        end
+    elseif tag == "projection" then
+        return types.hasTypevar(t.of)
+    elseif tag == "packResult" then
+        return packHasTypevar(t.pack)
+    elseif tag == "protocolThread" then
+        return packHasTypevar(
+            t.startPack
+        ) or packHasTypevar(t.resumePack) or packHasTypevar(t.yieldPack) or packHasTypevar(t.returnPack)
+    elseif tag == "neutral" then
+        -- A type-level operation over an instantiated nominal is where the fast
+        -- summary most often falls short: `Box<T>.["value"]` and `keyof Box<T>` carry
+        -- no mark, because the nominal's id carries none, and a substitution that
+        -- trusted the id would leave the operation blocked at every call site.
+        if (
+            t.subject and types.hasTypevar(t.subject)
+        ) or (
+            t.key and types.hasTypevar(t.key)
+        ) or (
+            t.keys and types.hasTypevar(t.keys)
+        ) or (
+            t.value and types.hasTypevar(t.value)
+        ) or (t.remap and types.hasTypevar(t.remap)) or (t.comptimeBound and types.hasTypevar(t.comptimeBound)) then
+            return true
+        end
+        if t.constTerm and t.constTerm.id:find(MARK_CONSTVAR, 1, true) then
+            return true
+        end
+        for _, part in ipairs(t.templateParts or {}) do
+            if type(part) == "table" and types.hasTypevar(part as types.Type) then
+                return true
+            end
+        end
+        for _, argument in ipairs(t.comptimeArguments or {}) do
+            if argument.kind == "type" then
+                if types.hasTypevar(argument.value) then
+                    return true
+                end
+            elseif argument.kind == "typepack" then
+                if packHasTypevar(argument.value) then
+                    return true
+                end
+            elseif argument.value.id:find(MARK_CONSTVAR, 1, true) then
                 return true
             end
         end

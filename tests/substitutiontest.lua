@@ -123,4 +123,27 @@ function M.anUninferredBinderMaterializesAsAny()
    clean(body .. "local other: integer? = pick()\nreturn other\n")
 end
 
+-- A type-level operation over an instantiated nominal -- `Box<T>.["value"]`, `keyof
+-- Box<T>` -- carries no binder mark in its id, because the nominal's id carries none.
+-- Substitution has to walk it to find `T`, or the call site keeps the blocked term.
+function M.anOperationOverAnInstantiatedNominalIsSubstitutedAtTheCall()
+   clean(table.concat({
+      "local m = {}",
+      "record m.Box<T>",
+      "   value: T",
+      "end",
+      'function m.get<T>(b: m.Box<T>): m.Box<T>.["value"]',
+      "   return b.value as any",
+      "end",
+      "function m.key<T>(b: m.Box<T>): keyof m.Box<T>",
+      '   return "value" as any',
+      "end",
+      "local one: integer = 1",
+      "local b = new m.Box(value = one)",
+      "local n: integer = m.get(b)",
+      'local k: "value" = m.key(b)',
+      "print(n, k)",
+   }, "\n"))
+end
+
 return M
