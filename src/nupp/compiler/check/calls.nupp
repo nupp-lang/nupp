@@ -748,23 +748,7 @@ function calls.install(c: state.Checker): calls.Ops
                     unify(varargType, ats[j], map)
                 end
             end
-            for j, tv in ipairs(ft.typeParams or {}) do
-                local bound = ft.typeBounds and ft.typeBounds[j]
-                local actual = map[tv]
-                if bound and actual then
-                    local wanted = substType(bound, map, nil, c.reductionControl)
-                    local ok, why = isA(actual, wanted)
-                    if not ok then
-                        c.diag(
-                            "NUPP2116",
-                            site,
-                            ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why),
-                            nil,
-                            {help = boundHelp(wanted, actual)}
-                        )
-                    end
-                end
-            end
+            ops.validateTypeBounds(ft.typeParams, ft.typeBounds, map, site)
             local p2, r2 = {}, {}
             local erasedProjections: {string} = {}
             for j, p in ipairs(params) do
@@ -1787,23 +1771,7 @@ function calls.install(c: state.Checker): calls.Ops
                     unify(varargType, ats[j], map)
                 end
             end
-            for j, tv in ipairs(calleeT.typeParams or {}) do
-                local bound = calleeT.typeBounds and calleeT.typeBounds[j]
-                local actual = map[tv]
-                if bound and actual then
-                    local expected = substType(bound, map, nil, c.reductionControl)
-                    local ok, why = isA(actual, expected)
-                    if not ok then
-                        c.diag(
-                            "NUPP2116",
-                            node,
-                            ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why),
-                            nil,
-                            {help = boundHelp(expected, actual)}
-                        )
-                    end
-                end
-            end
+            ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, map, node)
             local p2, r2 = {}, {}
             local erasedProjections: {string} = {}
             for j, p in ipairs(params) do
