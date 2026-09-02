@@ -93,13 +93,7 @@ function stage.hostStub(
         return target.stub
     end
     if target.platforms then
-        local required = {}
-        for _, feature in ipairs(native.features(effects)) do
-            if feature.host then
-                required[#required + 1] = feature.host
-            end
-        end
-        table.sort(required)
+        local required = native.hostFeatureNames(effects)
         local stubs = require("nupp.compiler.build.stubs")
         local record, recordErr = target._stubRecord, nil
         if not record then
@@ -115,14 +109,7 @@ function stage.hostStub(
         return nil, "the compiler-owned Nupp stub needs compiler source; "
             .. "use a source checkout or name a prebuilt stub path"
     end
-    local featureNames, included = {}, {}
-    for _, feature in ipairs(native.features(effects)) do
-        if feature.host and not included[feature.host] then
-            featureNames[#featureNames + 1] = feature.host
-            included[feature.host] = true
-        end
-    end
-    table.sort(featureNames)
+    local featureNames = native.hostFeatureNames(effects)
     local built, problem = driven(compilerRoot, "host", featureNames)
     if not built then
         return nil, "cannot build the compiler-owned Nupp host:\n" .. problem
@@ -157,14 +144,7 @@ function stage.linkHost(
     if not compilerRoot and (pack == nil or (pack as any).linkHost == nil) then
         return nil, "standalone native linking needs compiler source or an installed compiler pack"
     end
-    local featureNames, included = {}, {}
-    for _, feature in ipairs(native.features(effects)) do
-        if feature.host and not included[feature.host] then
-            featureNames[#featureNames + 1] = feature.host
-            included[feature.host] = true
-        end
-    end
-    table.sort(featureNames)
+    local featureNames = native.hostFeatureNames(effects)
     local driver = pack and (pack as any).linkHost or join(compilerRoot as string, "scripts/toolchain")
     if driver == nil then
         return nil, "compiler pack for " .. tostring(selected or host) .. " has no standalone host linker"
@@ -193,16 +173,7 @@ function stage.linkHost(
     return output, nil
 end
 
-local function libraryFile(name: string): string
-    if jit.os == "Windows" then
-        return name .. ".dll"
-    end
-    if jit.os == "OSX" then
-        return "lib" .. name .. ".dylib"
-    end
-
-    return "lib" .. name .. ".so"
-end
+local libraryFile = deps.sharedLibraryName
 
 --- Builds and stages every native feature in `effects`, returning its files.
 function stage.build(

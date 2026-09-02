@@ -90,6 +90,8 @@ local function sharedLibraryName(name)
     return "lib" .. name .. ".so"
 end
 
+deps.sharedLibraryName = sharedLibraryName
+
 local function staticLibraryName(name)
     return "lib" .. name:gsub("%-", "_") .. ".a"
 end
@@ -632,12 +634,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
                 if not builtOutput then
                     return nil
                 end
-                local staged = builtOutput .. ".tmp"
-                local binary, binaryErr = readFile(staged)
-                if not binary then
-                    return binaryErr
-                end
-                local installed, installErr = writeFile(builtOutput, binary)
+                local installed, installErr = fs.installStaged(builtOutput .. ".tmp", builtOutput)
                 if not installed then
                     return installErr
                 end
@@ -915,13 +912,22 @@ local function rockTree(root, dep)
     return absolute(join(root, dep.tree or ROCK_TREE)), dep.luaVersion or ROCK_LUA_VERSION
 end
 
+--- A rockspec's literal string field -- `package = "name"` on a line of its own --
+--- or nil when it is not declared as one. The rock publisher reads rockspecs the
+--- same way, through this, so the two cannot disagree on what a declaration is.
+function deps.rockspecField(text: string, field: string): string?
+    return text:match(
+        "[\r\n]" .. field .. "%s*=%s*[\"']([^\"']+)[\"']"
+    ) or text:match("^" .. field .. "%s*=%s*[\"']([^\"']+)[\"']")
+end
+
 local function declaredVersion(rockspec)
     local text = rockspec and readFile(rockspec)
     if not text then
         return nil
     end
 
-    return text:match("[\r\n]version%s*=%s*[\"']([^\"']+)[\"']") or text:match("^version%s*=%s*[\"']([^\"']+)[\"']")
+    return deps.rockspecField(text, "version")
 end
 
 local function declaredPackage(rockspec): string?
@@ -930,7 +936,16 @@ local function declaredPackage(rockspec): string?
         return nil
     end
 
-    return text:match("[\r\n]package%s*=%s*[\"']([^\"']+)[\"']") or text:match("^package%s*=%s*[\"']([^\"']+)[\"']")
+    return deps.rockspecField(text, "package")
+end
+
+-- The rock a dependency is, and its version: the completed record is
+-- authoritative, then the manifest, then what the rockspec declares, and the
+-- dependency's own name is the last word on the package.
+local function rockIdentity(record, dep, rockspec, name): (string, string?)
+    return record and record.rock or dep.rock or declaredPackage(
+        rockspec
+    ) or name, record and record.version or dep.version or declaredVersion(rockspec)
 end
 
 -- One listing per tree per run, and one version per LuaRocks. Nothing but this process
@@ -1153,8 +1168,7 @@ local function rockPaths(
             -- authoritative even when the manifest omitted `rock` and named a
             -- rockspec whose package field supplied it.
             local rockspec = dep.rockspec and absolute(join(root, dep.rockspec)) or nil
-            local rock = record and record.rock or dep.rock or declaredPackage(rockspec) or name
-            local version = record and record.version or dep.version or declaredVersion(rockspec)
+            local rock, version = rockIdentity(record, dep, rockspec, name)
             local typeRoot = record and record.typeRoot or rockTypeRoot(tree, luaVersion, rock, version)
             if typeRoot then
                 typeRoots[#typeRoots + 1] = typeRoot
@@ -1194,12 +1208,9 @@ local function runtimeModuleOwner(
             for _, candidate in ipairs(candidates) do
                 if exists(candidate) then
                     local rockspec = dep.rockspec and absolute(join(root, dep.rockspec)) or nil
+                    local package, version = rockIdentity(record, dep, rockspec, name)
 
-                    return {
-                        dependency = name,
-                        package = record and record.rock or dep.rock or declaredPackage(rockspec) or name,
-                        version = record and record.version or dep.version or declaredVersion(rockspec),
-                    }
+                    return {dependency = name, package = package, version = version}
                 end
             end
         end
@@ -1297,7 +1308,7 @@ local function buildDependencies(
             end
             childResults[child] = childResult
         end
-        local old = previous[recordKey] or (usage == "target" and previous[name] or nil)
+        local old = previous[recordKey]
         local result, err = provider(root, outDir, name, dep, old, childResults, usage == "tool" and nil or target)
         visiting[recordKey] = nil
         if not result then

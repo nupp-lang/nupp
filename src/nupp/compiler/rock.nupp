@@ -77,12 +77,12 @@ local function metadata(root, asked): rock.Metadata?, string?
     if not text then
         return nil, readErr
     end
-    local name = text:match(
-        "[\r\n]package%s*=%s*[\"']([^\"']+)[\"']"
-    ) or text:match("^package%s*=%s*[\"']([^\"']+)[\"']")
-    local version = text:match(
-        "[\r\n]version%s*=%s*[\"']([^\"']+)[\"']"
-    ) or text:match("^version%s*=%s*[\"']([^\"']+)[\"']")
+    -- Required here rather than at the top: a top-level require of the dependency
+    -- builder closed a require cycle through the checker, and this is the one
+    -- place the rockspec reader is wanted.
+    local deps = require("nupp.compiler.build.deps")
+    local name = deps.rockspecField(text, "package")
+    local version = deps.rockspecField(text, "version")
     if not name or not version then
         return nil, rockspec .. " must declare literal package and version strings"
     end

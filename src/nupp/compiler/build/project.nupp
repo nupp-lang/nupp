@@ -49,7 +49,8 @@ type project.BuildOptions = {
     --- and then to `luajit`.
     dialect: string?,
 
-    --- Overrides the manifest's own `strict`.
+    --- Holds every file to the strict floor whatever its extension, as `--strict`
+    --- does. A file's extension decides otherwise; the manifest has no say.
     strict: boolean?,
 
     --- Where to write, instead of the target's own directory.
@@ -143,11 +144,17 @@ local dirname, basename = fs.dirname, fs.basename
 local readFile, writeFile = fs.readFile, fs.writeFile
 local copyFile, listFiles = fs.copyFile, fs.listFiles
 
+local stable, hashFile = cache.stable, cache.hashFile
+local loadState, saveState = cache.loadState, cache.saveState
+local toolFingerprint = cache.toolFingerprint
+local targetConfig = tasks.targetConfig
+local buildDependencies = deps.build
+local buildModules = modules.build
+local aotPolicy = require("nupp.compiler.build.aot")
+
 local function mentionsGpuTarget(path: string): boolean
     local source = fs.readFile(path)
-    return source ~= nil and (
-        source as string
-    ):find("@aot", 1, true) ~= nil and (source as string):match("target%s*=%s*[\"']gpu[\"']") ~= nil
+    return source ~= nil and aotPolicy.mentionsGpuTarget(source as string)
 end
 
 --- A check does not enter the AOT phase that normally stages this runtime before
@@ -170,13 +177,6 @@ local function checkedTargetNeedsGpu(root: string, config: any, paths: {string}?
     return false
 end
 
-local stable, hashFile = cache.stable, cache.hashFile
-local loadState, saveState = cache.loadState, cache.saveState
-local toolFingerprint = cache.toolFingerprint
-local targetConfig = tasks.targetConfig
-local buildDependencies = deps.build
-local buildModules = modules.build
-local aotPolicy = require("nupp.compiler.build.aot")
 local bundleText, bundleOutput = packaging.bundleText, packaging.bundleOutput
 local componentOutput = packaging.componentOutput
 local binaryOutput = packaging.binaryOutput
@@ -430,10 +430,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         session.stageBundled(backendModule)
     end
     if opts.checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
-        session.stageBundled("nupp.gpulayout")
-        session.stageBundled("nupp.runtime.nativev2")
-        session.stageBundled("nupp.runtime.provider.nativegpu")
-        session.stageBundled("nupp.gpu")
+        session.stageGpuRuntime()
     end
     local earlyBackend = backends.resolve(session.inc, target.backends)
     if earlyBackend ~= nil then
@@ -644,19 +641,13 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         report:at("bundle")
         report:step("bundling " .. (target.name or target.kind))
         local runtimeModules = {}
-        local requiredHostFeatures = {}
-        local includedHostFeatures: {[string]: boolean} = {}
         for _, feature in ipairs(nativeFeatures.features(resolvedEffects)) do
             if feature.runtimeModule then
                 runtimeModules[#runtimeModules + 1] = feature.runtimeModule
             end
-            if feature.host and not includedHostFeatures[feature.host] then
-                requiredHostFeatures[#requiredHostFeatures + 1] = feature.host
-                includedHostFeatures[feature.host] = true
-            end
         end
         table.sort(runtimeModules)
-        table.sort(requiredHostFeatures)
+        local requiredHostFeatures = nativeFeatures.hostFeatureNames(resolvedEffects)
         local text, bundleErr, unreachable = bundleText(
             root,
             config,
@@ -1141,7 +1132,7 @@ local function treeDigest(path)
         end
     end
 
-    return hash.digest(table.concat(parts, "\0")), files
+    return hash.digest(table.concat(parts, "\0"))
 end
 
 local function removeTree(path)
@@ -1474,7 +1465,7 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
     ) or entry
     moduleName = moduleName or "nupp.compiler.main"
     local mainPath = join(root, join(stage1, moduleName:gsub("%.", "/") .. ".lua"))
-    local packagePath = join(root, stage1) .. "/?.lua;" .. package.path
+    local packagePath = join(root, stage1) .. "/?.lua;"
     local argv = {
         "luajit",
         "-e",
