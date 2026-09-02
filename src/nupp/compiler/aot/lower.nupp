@@ -1341,7 +1341,10 @@ local function call(
             identity = kernel.intrinsicAliases[path as string]
         end
     end
-    if identity == "string.byte" or identity == "@prelude.string.byte" or path == "string.byte" then
+    -- A spelling is only the prelude's when nothing between here and the
+    -- prelude has rebound `string`, which is the same test `table.new` makes.
+    local preludeString = kernel.modules.string == "@prelude.string" and environment.string == nil
+    if identity == "string.byte" or identity == "@prelude.string.byte" or path == "string.byte" and preludeString then
         if #args ~= 2 or args[1].type ~= "lua_string" or args[1].op ~= "local" or args[2].type ~= "f64" then
             context.reject(lower.site(node), "string.byte in AOT takes one rooted string and one numeric index")
         end
@@ -1353,7 +1356,7 @@ local function call(
             type = "f64",
             source = lower.site(node)
         )
-    elseif identity == "string.sub" or identity == "@prelude.string.sub" or path == "string.sub" then
+    elseif identity == "string.sub" or identity == "@prelude.string.sub" or path == "string.sub" and preludeString then
         if (
             #args ~= 2 and #args ~= 3
         ) or args[

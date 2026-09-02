@@ -2959,4 +2959,28 @@ return {neg = neg, negFixed = negFixed}
     assert(out:find("(-(((double)p_value)))", 1, true), "the operand is widened, then negated: " .. out)
 end
 
+function M.aShadowedStringIsNotThePreludes()
+    -- `string.byte` is only the intrinsic when `string` still names the
+    -- prelude's module. A file that rebound the name used to have its own
+    -- function compiled as the prelude's.
+    local dir = project{
+        [
+            "shadow.g.nupp"
+        ] = [[
+local string = {byte = function(text: string, index: number): number return 7 end}
+@aot(lanes = false)
+local function first(source: string): number
+    return string.byte(source, 1)
+end
+return {first = first}
+]],
+    }
+    local out, code = run(dir, "--emit ir shadow.g.nupp")
+    test.equal(code, 1, "the rebound name is not an intrinsic\n" .. out)
+    assert(
+        out:find("shadow.g.nupp:4:12: aot: call target string.byte is not an admitted intrinsic or helper", 1, true),
+        "and is refused as the call it is: " .. out
+    )
+end
+
 return M
