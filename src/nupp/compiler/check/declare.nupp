@@ -1066,12 +1066,15 @@ function declare.install(
             order[#order + 1] = name
         end
 
+        -- A nested declaration sits in byname beside the fields so the owner's name
+        -- reaches it, but it is not a slot the constructor fills.
+        local nested = n.nestedTypes or {}
         local missing = {}
         for _, name in ipairs(order) do
             local ft2 = n.byname[name]
-            if ft2 and ft2.tag ~= "func" and ft2.tag ~= "nominal" and not assigned[
+            if ft2 and ft2.tag ~= "func" and ft2.tag ~= "typeobject" and not nested[
                 name
-            ] and not (n.fieldDefaults and n.fieldDefaults[name]) and not isA(T.nil_, ft2) then
+            ] and not assigned[name] and not (n.fieldDefaults and n.fieldDefaults[name]) and not isA(T.nil_, ft2) then
                 missing[#missing + 1] = name
             end
         end

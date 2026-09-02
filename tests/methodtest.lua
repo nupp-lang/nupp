@@ -1356,4 +1356,32 @@ function M.aMethodIsNotAPositionalField()
    assertEq(found.msg, "too many values (record Pt has 2 fields)", "message")
 end
 
+function M.aConstructorMustFillARecordTypedField()
+   -- A field whose type is another declaration is as much a slot as an integer
+   -- one; only a nested declaration, which sits beside the fields, is skipped.
+   assertEq(diagsOf(table.concat({
+      "local record Vec",
+      "    x: integer",
+      "end",
+      "local record Body",
+      "    position: Vec",
+      "    mass: integer",
+      "    constructor(self, mass: integer)",
+      "        self.mass = mass",
+      "    end",
+      "end",
+   }, "\n")), "NUPP2208:7")
+   assertClean(table.concat({
+      "local record Body",
+      "    record Vec",
+      "        x: integer",
+      "    end",
+      "    mass: integer",
+      "    constructor(self, mass: integer)",
+      "        self.mass = mass",
+      "    end",
+      "end",
+   }, "\n"))
+end
+
 return M
