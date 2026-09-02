@@ -266,7 +266,9 @@ local function spin(seconds)
 end
 function M.beforeAll() spin(0.05) end
 function M.quick() end
-function M.slow() spin(0.05) end
+-- Keep a wide margin over captured-I/O jitter on loaded CI hosts. The assertion
+-- below deliberately checks which case the runner identifies as slowest.
+function M.slow() spin(0.5) end
 for index = 1, 16 do
    M["captured" .. index] = function()
       io.stdout:write("passing captured stdout\n")
