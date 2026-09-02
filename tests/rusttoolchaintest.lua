@@ -23,6 +23,10 @@ local function read(path)
     return text
 end
 
+local function readLines(path)
+    return (read(path):gsub("\r\n", "\n"))
+end
+
 local function countOccurrences(text, needle)
     local count = 0
     local cursor = 1
@@ -96,7 +100,7 @@ local function artifactNames()
     return "libnupp_native_v2.so", "nupp-host-rust"
 end
 
-local function fakeRustTools(directory, version, identity)
+local function fakeRustTools(directory, version, identity, identityMarker)
     local rustc = executable(
         directory,
         "rustc",
@@ -104,11 +108,11 @@ local function fakeRustTools(directory, version, identity)
             [[#!/bin/sh
 case "${1:-}" in
    --version) printf '%%s\n' 'rustc %s (fake)' ;;
-   -vV) printf '%%s\n' 'rustc %s (fake)' 'host: %s' ;;
+   -vV) printf '%%s\n' 'rustc %s (fake)' 'host: %s' 'LLVM version: %s' ;;
    *) exit 2 ;;
 esac
 ]]
-        ):format(version, version, identity)
+        ):format(version, version, identity, identityMarker)
     )
     local cargo = executable(
         directory,
@@ -159,9 +163,15 @@ printf '%%s\n' "${CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER:-}" > "$NUPP_TES
     return cargo, rustc
 end
 
-local function environment(directory, version, identity)
+local function environment(directory, version, identity, identityMarker)
     local compiler = fakeCompiler(directory)
-    local cargo, rustc = fakeRustTools(directory, version or "1.98.0", identity or "fake-unknown-nupp")
+    local defaultIdentity = package.config:sub(1, 1) == "\\" and "x86_64-pc-windows-gnu" or "fake-unknown-nupp"
+    local cargo, rustc = fakeRustTools(
+        directory,
+        version or "1.98.0",
+        identity or defaultIdentity,
+        identityMarker or "fake-llvm-1"
+    )
     local library, host = artifactNames()
     assert(os.execute("mkdir -p " .. quote(directory .. "/vendor")) == 0)
 
@@ -337,7 +347,7 @@ esac
 
     assert(status == 0, output)
     assert(io.open(proxyRecord, "rb") == nil, "an ambient Rust proxy was executed")
-    local selected = read(rustupRecord)
+    local selected = readLines(rustupRecord)
     local _, count = selected:gsub("1%.98%.0\n", "")
     assert(count == 2, "Cargo and rustc did not both select the pinned Unix toolchain:\n" .. selected)
 end
@@ -514,7 +524,7 @@ function M.featuresAndToolIdentityChangeTheArtifactKey()
     assert(secondStatus == 0, secondOutput)
     assert(answer(firstOutput) ~= answer(secondOutput), "two feature unions shared one artifact")
 
-    local changed = environment(directory, "1.98.0", "different-unknown-nupp")
+    local changed = environment(directory, "1.98.0", nil, "fake-llvm-2")
     local thirdStatus, thirdOutput = run(changed, "native-rust beta")
     assert(thirdStatus == 0, thirdOutput)
     assert(answer(secondOutput) ~= answer(thirdOutput), "two rustc identities shared one artifact")
@@ -558,7 +568,7 @@ function M.hostShimUsesTheResolvedLuaJitCompiler()
 
     assert(status == 0, output)
     assert(
-        read(env.NUPP_TEST_CARGO_CC_RECORD):match("^" .. compiler:gsub("([^%w])", "%%%1") .. "\n$"),
+        readLines(env.NUPP_TEST_CARGO_CC_RECORD):match("^" .. compiler:gsub("([^%w])", "%%%1") .. "\n$"),
         "the Rust host build did not receive the compiler selected for LuaJIT"
     )
     local driver = read(DRIVER)
@@ -599,14 +609,17 @@ esac
     local status, output = run(env, "host-rust")
 
     assert(status == 0, output)
-    local selected = read(rustupRecord)
+    local selected = readLines(rustupRecord)
     local _, count = selected:gsub("1%.98%.0%-x86_64%-pc%-windows%-gnu\n", "")
     assert(count == 2, "Cargo and rustc did not both select the pinned Windows GNU toolchain:\n" .. selected)
     assert(
-        read(env.NUPP_TEST_CARGO_LINKER_RECORD):match("^" .. env.NUPP_CC:gsub("([^%w])", "%%%1") .. "\n$"),
+        readLines(env.NUPP_TEST_CARGO_LINKER_RECORD) == readLines(env.NUPP_TEST_CARGO_CC_RECORD),
         "Cargo did not link the Windows GNU artifact with Nupp's selected compiler"
     )
-    assert(read(env.NUPP_TEST_CARGO_GNULLVM_LINKER_RECORD) == "\n", "the GNU build also configured the gnullvm linker")
+    assert(
+        readLines(env.NUPP_TEST_CARGO_GNULLVM_LINKER_RECORD) == "\n",
+        "the GNU build also configured the gnullvm linker"
+    )
 end
 
 -- LLVM-MinGW carries UCRT and compiler-rt rather than GCC's runtime archives.
@@ -643,12 +656,12 @@ esac
     local status, output = run(env, "host-rust")
 
     assert(status == 0, output)
-    local selected = read(rustupRecord)
+    local selected = readLines(rustupRecord)
     local _, count = selected:gsub("1%.98%.0%-x86_64%-pc%-windows%-gnullvm\n", "")
     assert(count == 2, "Cargo and rustc did not both select the pinned Windows gnullvm toolchain:\n" .. selected)
-    assert(read(env.NUPP_TEST_CARGO_LINKER_RECORD) == "\n", "the gnullvm build also configured the GNU linker")
+    assert(readLines(env.NUPP_TEST_CARGO_LINKER_RECORD) == "\n", "the gnullvm build also configured the GNU linker")
     assert(
-        read(env.NUPP_TEST_CARGO_GNULLVM_LINKER_RECORD):match("^" .. env.NUPP_CC:gsub("([^%w])", "%%%1") .. "\n$"),
+        readLines(env.NUPP_TEST_CARGO_GNULLVM_LINKER_RECORD) == readLines(env.NUPP_TEST_CARGO_CC_RECORD),
         "Cargo did not link the Windows gnullvm artifact with Nupp's selected compiler"
     )
 end
@@ -656,7 +669,11 @@ end
 function M.gnullvmRustAbiIsRejectedOffWindows()
     local directory = temporary()
     local env = environment(directory)
+    executable(directory, "uname", [[#!/bin/sh
+printf '%s\n' Linux
+]])
     env.NUPP_RUST_WINDOWS_ABI = "gnullvm"
+    env.PATH = directory .. ":$PATH"
     local status, output = run(env, "host-rust")
     assert(status ~= 0, output)
     assert(output:find("NUPP_RUST_WINDOWS_ABI=gnullvm is only supported on Windows", 1, true), output)
