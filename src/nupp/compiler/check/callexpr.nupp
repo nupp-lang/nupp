@@ -66,13 +66,7 @@ local COMPILER_SURFACES: {
     ["nupp.workers"] = {Scope = {spawn = {rotate = true, sendableLast = true,},},},
     [
         "nupp.tasks"
-    ] = {
-        Scope = {
-            spawn = {rotate = true,},
-            fork = {effect = "native.workers", rotate = true, sendableLast = true,},
-            workers = {effect = "native.workers",},
-        },
-    },
+    ] = {Scope = {spawn = {rotate = true,}, fork = {effect = "native.workers", rotate = true, sendableLast = true,},},},
 }
 
 --- Whether a callee names `nupp.tasks.open`, reached by its qualified path or through

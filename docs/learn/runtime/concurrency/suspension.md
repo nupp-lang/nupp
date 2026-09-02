@@ -373,13 +373,19 @@ local function runReady(): nil
     local pass = runnable
     runnable = {}
     for _, task in ipairs(pass) do
-        local ok, problem = coroutine.resume(task)
-        if not ok then
-            error(problem)
+        if coroutine.status(task) == "suspended" then
+            local ok, problem = coroutine.resume(task)
+            if not ok then
+                error(problem)
+            end
         end
     end
 end
 ```
+
+A waker may run before the park that registered it has yielded, when the wait
+completes during the registration itself, so a task can be queued and have moved
+on by the time its turn comes; the status check is what makes that harmless.
 
 The handler itself is three members. `park` registers a waker that enqueues the
 current coroutine, then yields until the wait is ready. `canPark` returns false
