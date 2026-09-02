@@ -18,6 +18,7 @@ would otherwise miss on every build and a fingerprint would call two identical
 programs different.
 ]]
 
+local admit = require("nupp.compiler.aot.admit")
 local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local target = require("nupp.compiler.aot.target")
@@ -5438,11 +5439,8 @@ local NEON_PAIR: {
     ["uint32"] = {lanes = 4, element = "u32", tuple = "uint32x4x2_t", load = "vld2q_u32", alias = "ks_alias_u32",},
 }
 
---- The canonical physical spelling of a lane element.
-local CANONICAL_SOURCE: {[string]: string} = {f64 = "number", f32 = "float", i32 = "int32", u32 = "uint32",}
-
 local function physicalSource(load: lane.FieldLoad): string
-    return load.sourceType or tostring(CANONICAL_SOURCE[load.scalarType])
+    return load.sourceType or tostring(admit.CANONICAL_SOURCE[load.scalarType])
 end
 
 --- Peels the one exact arithmetic conversion a physical field load may carry.
@@ -5486,8 +5484,8 @@ local function neonFieldPair(first: any, second: any, body: emit.Body): any
         return nil
     end
     local fields = (layout as scalarIR.Layout).fields
-    local firstSource = fields[1].sourceType or tostring(CANONICAL_SOURCE[fields[1].type])
-    local secondSource = fields[2].sourceType or tostring(CANONICAL_SOURCE[fields[2].type])
+    local firstSource = fields[1].sourceType or tostring(admit.CANONICAL_SOURCE[fields[1].type])
+    local secondSource = fields[2].sourceType or tostring(admit.CANONICAL_SOURCE[fields[2].type])
     if firstSource ~= source or secondSource ~= source then
         return nil
     end

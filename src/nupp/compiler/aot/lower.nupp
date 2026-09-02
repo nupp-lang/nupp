@@ -854,32 +854,14 @@ local function markLua(kernel: lower.Kernel, source: scalarIR.Source): nil
     end
 end
 
---- The largest 32-bit pattern, for a literal standing in for one.
-const lower.UINT32_MAX = 4294967295
+--- The fixed-width bounds, which `admit` owns so the verifier reads the same ones.
+const lower.UINT32_MAX = admit.UINT32_MAX
 
---- The bounds of int32, for a literal that has to be exactly representable.
-const lower.INT32_MIN = -2147483648
+const lower.INT32_MIN = admit.INT32_MIN
 
-const lower.INT32_MAX = 2147483647
+const lower.INT32_MAX = admit.INT32_MAX
 
---- Whether a value may take part in a bitwise operation.
----
---- A value established as 32-bit may. So may an exact nonnegative literal that
---- already denotes a 32-bit pattern, which is how a mask is written without a
---- cast.
-local function bitOperand(value: scalarIR.Expr): boolean
-    if value.type == "i32" or value.type == "u32" then
-        return true
-    end
-    local raw = value as any
-    if raw.op ~= "constant" then
-        return false
-    end
-
-    local number = tonumber(raw.value)
-
-    return number ~= nil and number >= 0 and number <= lower.UINT32_MAX and number % 1 == 0
-end
+local bitOperand = admit.bitOperand
 
 --- One operand of ordinary arithmetic, which is binary64.
 ---

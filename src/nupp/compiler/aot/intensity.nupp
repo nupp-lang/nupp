@@ -24,6 +24,7 @@ and would make two builds of one source disagree, which an artifact cache cannot
 have.
 ]]
 
+local admit = require("nupp.compiler.aot.admit")
 local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
@@ -99,10 +100,8 @@ const intensity.SOURCE_BYTES = {
     ["uint32"] = 4,
 }
 
-const intensity.CANONICAL_SOURCE = {["f64"] = "number", ["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32",}
-
 local function sourceBytes(valueType: string, sourceType: string?): integer
-    return intensity.SOURCE_BYTES[sourceType or tostring(intensity.CANONICAL_SOURCE[valueType])] or 8
+    return intensity.SOURCE_BYTES[sourceType or tostring(admit.CANONICAL_SOURCE[valueType])] or 8
 end
 
 --- Counts one loop body.

@@ -30,6 +30,7 @@ admits is not silently valid in another, which is what keeps a binary64 value
 from entering a 32-bit gang that would change its answers.
 ]]
 
+local admit = require("nupp.compiler.aot.admit")
 local effects = require("nupp.compiler.aot.effects")
 local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
@@ -165,48 +166,15 @@ end
 -- The opcode vocabulary
 ----------------------------------------------------------------------------
 
---- The largest value a 32-bit pattern can hold, for a literal standing in for
---- one.
-const verify.UINT32_MAX = 4294967295
-
 --- The types an arithmetic comparison may relate.
 const verify.NUMERIC = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] = true, ["i64"] = true, ["u64"] = true}
 
---- The value type established by each physical scalar storage type.
----
---- Narrow integers are deliberately absent from the IR value vocabulary: a
---- load establishes a 32-bit value, and a store narrows only at memory. Keeping
---- this relation explicit prevents a backend from confusing register width
---- with the bytes an ABI pointer actually addresses.
-const verify.SOURCE_STORAGE = {
-    ["number"] = "f64",
-    ["float"] = "f32",
-    ["int8"] = "i32",
-    ["int16"] = "i32",
-    ["int32"] = "i32",
-    ["uint8"] = "u32",
-    ["uint16"] = "u32",
-    ["uint32"] = "u32",
-    ["int64"] = "i64",
-    ["uint64"] = "u64",
-}
-
---- The source spelling an old or hand-built IR node means when it omits one.
-const verify.CANONICAL_SOURCE = {
-    ["f64"] = "number",
-    ["f32"] = "float",
-    ["i32"] = "int32",
-    ["u32"] = "uint32",
-    ["i64"] = "int64",
-    ["u64"] = "uint64",
-}
-
 local function storageSource(valueType: string, sourceType: string?): string
-    return sourceType or tostring(verify.CANONICAL_SOURCE[valueType])
+    return sourceType or tostring(admit.CANONICAL_SOURCE[valueType])
 end
 
 local function validStorage(valueType: string, sourceType: string?): boolean
-    return verify.SOURCE_STORAGE[storageSource(valueType, sourceType)] == valueType
+    return admit.STORAGE[storageSource(valueType, sourceType)] == valueType
 end
 
 --- The arity of each bitwise verb. `not` is the only unary one.
@@ -286,36 +254,21 @@ const verify.FIXED_CORRECTED = {
     ["f32_fma"] = {element = "f32", arity = 3},
 }
 
---- The closed math set a body may call.
+--- The closed math set a body may call, by name: exactly what `admit` reads a
+--- call into, so the verifier cannot admit a call the lowerer never makes.
 ---
 --- One table for both halves, because a lane math operation is emitted as one
 --- scalar call per lane: anything the scalar rules admit is admissible in lanes
 --- by construction, and a second list would only be a chance for the two to
 --- disagree.
-const verify.MATH = {
-    ["sqrt"] = true,
-    ["abs"] = true,
-    ["floor"] = true,
-    ["ceil"] = true,
-    ["min"] = true,
-    ["max"] = true,
-    ["sin"] = true,
-    ["cos"] = true,
-    ["tan"] = true,
-    ["asin"] = true,
-    ["acos"] = true,
-    ["atan"] = true,
-    ["atan2"] = true,
-    ["sinh"] = true,
-    ["cosh"] = true,
-    ["tanh"] = true,
-    ["exp"] = true,
-    ["log"] = true,
-    ["pow"] = true,
-    ["fmod"] = true,
-    ["deg"] = true,
-    ["rad"] = true,
-}
+local MATH: {[string]: boolean} = (function(): {[string]: boolean}
+    local names: {[string]: boolean} = {}
+    for _, entry in pairs(admit.MATH) do
+        names[entry.name] = true
+    end
+
+    return names
+end)()
 
 --- Every lane opcode this vocabulary knows, beside the arithmetic and
 --- comparison ones a shape generates.
@@ -1269,7 +1222,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         end
     elseif op == "math" then
         holds(node.type == "f64", "invalid math result")
-        holds(verify.MATH[node.intrinsic] == true, "unknown math intrinsic")
+        holds(MATH[node.intrinsic] == true, "unknown math intrinsic")
         for _, argument in ipairs(node.args) do
             holds(argument.type == "f64", "invalid math argument")
             scalarWalk(argument, values, scope)
@@ -1522,7 +1475,7 @@ laneWalk = function(node: lane.Expr, values: {[string]: string}, context: verify
         laneWalk(node.args[3], values, context)
     elseif node.op == "vmath" then
         laneHolds(
-            node.type == shape.vectorFor["f64"] and verify.MATH[node.intrinsic] == true,
+            node.type == shape.vectorFor["f64"] and MATH[node.intrinsic] == true,
             "a math operation outside the closed set, or not in binary64 lanes"
         )
         operands(node.args, node.type, #node.args, values, context, "a math argument of the wrong width")

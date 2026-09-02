@@ -38,6 +38,46 @@ const admit.STORAGE = {
     ["uint64"] = "u64",
 }
 
+--- The canonical source spelling of each physical value type: what an IR node
+--- built without one means, and what a storage type establishes.
+const admit.CANONICAL_SOURCE = {
+    ["f64"] = "number",
+    ["f32"] = "float",
+    ["i32"] = "int32",
+    ["u32"] = "uint32",
+    ["i64"] = "int64",
+    ["u64"] = "uint64",
+}
+
+--- The largest value a 32-bit pattern can hold, for a literal standing in for
+--- one.
+const admit.UINT32_MAX = 4294967295
+
+--- The bounds of int32, for a literal that has to be exactly representable.
+const admit.INT32_MIN = -2147483648
+
+const admit.INT32_MAX = 2147483647
+
+--- Whether a value may take part in a bitwise operation.
+---
+--- A value established as 32-bit may. So may an exact nonnegative literal that
+--- already denotes a 32-bit pattern, which is how a mask is written without a
+--- cast. One rule for the lowerer and the verifier, so what one admits the
+--- other holds.
+function admit.bitOperand(value: scalarIR.Expr): boolean
+    if value.type == "i32" or value.type == "u32" then
+        return true
+    end
+    local raw = value as any
+    if raw.op ~= "constant" then
+        return false
+    end
+
+    local number = tonumber(raw.value)
+
+    return number ~= nil and number >= 0 and number <= admit.UINT32_MAX and number % 1 == 0
+end
+
 --- Ordinary arithmetic, which is binary64 whatever the operands were stored as.
 local ARITHMETIC: {
     [string]: scalarIR.BinaryOp
