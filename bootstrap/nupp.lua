@@ -246496,13 +246496,12 @@ os.tmpname = function()
     handedOut = handedOut + 1
     local reserved = rawTmpname()
     local named = ("%s-%s-%d"):format((reserved:gsub("\\", "/")), shardSalt, handedOut)
-    local file = io.open(named, "wb")
-    if file then
-        file:close()
-    end
-    -- The reservation itself is not the name handed out, so it would otherwise
-    -- stay in the temporary directory for the length of the run, one per call.
-    os.remove(reserved)
+    -- Keep the reservation `rawTmpname` already made. Creating a second file and
+    -- silently accepting failure returned a nonexistent path after deleting the
+    -- only successful reservation, which made nested Windows capture fail later
+    -- and far from the actual cause.
+    local renamed, problem = os.rename(reserved, named)
+    assert(renamed, ("cannot reserve temporary name %s: %s"):format(named, tostring(problem)))
 
     return named
 end
