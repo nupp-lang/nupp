@@ -156,6 +156,58 @@ local function directName(expr)
     return expr and expr.kind == "name" and expr.token or nil
 end
 
+-- The kinds that open a body of their own. A walk over one function stops at each of
+-- these, because what happens inside belongs to that function's summary.
+local NESTED_FUNCTION = {
+    localFuncStmt = true,
+    funcStmt = true,
+    inlineMethod = true,
+    constructorDecl = true,
+    funcExpr = true,
+    shortfn = true,
+}
+
+local INDEX = {dotIndex = true, bracketIndex = true, safeIndex = true, safeBracket = true}
+
+-- The expression an assignment target indexes into, or the target itself when it is
+-- not an index. `p?.x = v` is a target as much as `p.x = v` is, and either writes
+-- p's shape, so the safe forms count as indexes here for every caller.
+local function indexBase(target)
+    local base = target
+    while base and INDEX[base.kind] do
+        base = base.obj
+    end
+
+    return base
+end
+
+-- A union-find over definitions, for the alias classes both inference and the
+-- per-body facts keep: `find` names a class by its representative and `union` merges
+-- two of them.
+local function unionFind()
+    local parent = {}
+    local function find(value)
+        if not value then
+            return nil
+        end
+        parent[value] = parent[value] or value
+        if parent[value] ~= value then
+            parent[value] = find(parent[value])
+        end
+
+        return parent[value]
+    end
+
+    local function union(a, b)
+        a, b = find(a), find(b)
+        if a and b and a ~= b then
+            parent[b] = a
+        end
+    end
+
+    return find, union
+end
+
 local function callName(call)
     local callee = call and call.obj
     if not callee then
@@ -348,25 +400,8 @@ local PURE_BUILTINS = {
 
 local function inferFunction(info, byDefinition)
     local out = summary()
-    local parent, localDefinitions = {}, {}
-    local function find(value)
-        if not value then
-            return nil
-        end
-        parent[value] = parent[value] or value
-        if parent[value] ~= value then
-            parent[value] = find(parent[value])
-        end
-
-        return parent[value]
-    end
-
-    local function union(a, b)
-        a, b = find(a), find(b)
-        if a and b and a ~= b then
-            parent[b] = a
-        end
-    end
+    local localDefinitions = {}
+    local find, union = unionFind()
 
     for definition, index in pairs(info.params) do
         localDefinitions[definition] = true
@@ -385,12 +420,7 @@ local function inferFunction(info, byDefinition)
                 localDefinitions[node.name.definition] = true
             end
             return
-        elseif kind == "funcStmt"
-            or kind == "inlineMethod"
-            or kind == "constructorDecl"
-            or kind == "funcExpr"
-            or kind == "shortfn"
-        then
+        elseif NESTED_FUNCTION[kind] then
             return
         elseif kind == "localStmt" then
             for j, name in ipairs(node.names or {}) do
@@ -546,13 +576,7 @@ local function inferFunction(info, byDefinition)
             return
         end
         local kind = node.kind
-        if kind == "localFuncStmt"
-            or kind == "funcStmt"
-            or kind == "inlineMethod"
-            or kind == "constructorDecl"
-            or kind == "funcExpr"
-            or kind == "shortfn"
-        then
+        if NESTED_FUNCTION[kind] then
             out.allocates = true
             return
         elseif kind == "tableExpr" then
@@ -583,15 +607,7 @@ local function inferFunction(info, byDefinition)
             end
         elseif kind == "assignStmt" then
             for _, target in ipairs(node.targets or {}) do
-                local base = target
-                while base and (
-                    base.kind == "dotIndex"
-                    or base.kind == "bracketIndex"
-                    or base.kind == "safeIndex"
-                    or base.kind == "safeBracket"
-                ) do
-                    base = base.obj
-                end
+                local base = indexBase(target)
                 local token = directName(base)
                 local root = token and rooted[find(token.definition)]
                 if root and target ~= base then
@@ -601,7 +617,16 @@ local function inferFunction(info, byDefinition)
                     out.writes["$capture[*]"] = true
                     out.shapes["$capture"] = true
                 end
-                walk(target, true)
+                -- Only the name being assigned is not a read. The keys along the way
+                -- -- `q` in `p[q] = v` -- are read like any other expression.
+                local level = target
+                while level ~= base do
+                    if level.expr then
+                        walk(level.expr, false)
+                    end
+                    level = level.obj
+                end
+                walk(base, base and base.kind == "name")
             end
             for j, expr in ipairs(node.exprs or {}) do
                 local escaped = rootOf(expr)
@@ -616,10 +641,7 @@ local function inferFunction(info, byDefinition)
             end
             return
         elseif kind == "compoundAssign" then
-            local base = node.target
-            while base and (base.kind == "dotIndex" or base.kind == "bracketIndex") do
-                base = base.obj
-            end
+            local base = indexBase(node.target)
             local token = directName(base)
             local root = token and rooted[find(token.definition)]
             if root and node.target ~= base then
@@ -660,14 +682,7 @@ local function inferFunction(info, byDefinition)
         if not node or cst.isToken(node) then
             return
         end
-        if node ~= info.body and (
-            node.kind == "localFuncStmt"
-            or node.kind == "funcStmt"
-            or node.kind == "inlineMethod"
-            or node.kind == "constructorDecl"
-            or node.kind == "funcExpr"
-            or node.kind == "shortfn"
-        ) then
+        if NESTED_FUNCTION[node.kind] then
             return
         end
         local cleanupsHere = {}
@@ -753,25 +768,7 @@ end
 -- spelling of the iterated table. Reassignment may merge classes that never coexist;
 -- that is a conservative missed optimization.
 local function aliasClasses(body, byDefinition)
-    local parent = {}
-    local function find(value)
-        if not value then
-            return nil
-        end
-        parent[value] = parent[value] or value
-        if parent[value] ~= value then
-            parent[value] = find(parent[value])
-        end
-
-        return parent[value]
-    end
-
-    local function union(a, b)
-        a, b = find(a), find(b)
-        if a and b and a ~= b then
-            parent[b] = a
-        end
-    end
+    local find, union = unionFind()
 
     local function returnedAlias(expr, resultIndex)
         local direct = directName(expr)
@@ -819,13 +816,7 @@ local function aliasClasses(body, byDefinition)
             return
         end
         local kind = node.kind
-        if kind == "localFuncStmt"
-            or kind == "funcStmt"
-            or kind == "inlineMethod"
-            or kind == "constructorDecl"
-            or kind == "funcExpr"
-            or kind == "shortfn"
-        then
+        if NESTED_FUNCTION[kind] then
             return
         elseif kind == "localStmt" then
             for j, name in ipairs(node.names or {}) do
@@ -933,14 +924,6 @@ end
 
 -- Nodes that own their own body. Every walk below stops at one, because a function
 -- written here runs at a time this walk cannot place.
-local NESTED_FUNCTION = {
-    localFuncStmt = true,
-    funcStmt = true,
-    inlineMethod = true,
-    constructorDecl = true,
-    funcExpr = true,
-    shortfn = true,
-}
 
 --- The facts that are about one body rather than about the module.
 ---
@@ -1091,10 +1074,7 @@ function queries.body(body: any, byDefinition: any): any
             end
             if kind == "assignStmt" then
                 for _, target in ipairs(value.targets or {}) do
-                    local base = target
-                    while base and (base.kind == "dotIndex" or base.kind == "bracketIndex") do
-                        base = base.obj
-                    end
+                    local base = indexBase(target)
                     local token = directName(base)
                     if target ~= base and token and find(token.definition) == class then
                         stable, reason, related = false, "the array may change shape in the loop", target
@@ -1102,10 +1082,7 @@ function queries.body(body: any, byDefinition: any): any
                     end
                 end
             elseif kind == "compoundAssign" then
-                local base = value.target
-                while base and (base.kind == "dotIndex" or base.kind == "bracketIndex") do
-                    base = base.obj
-                end
+                local base = indexBase(value.target)
                 local token = directName(base)
                 if value.target ~= base and token and find(token.definition) == class then
                     stable, reason, related = false, "the array may change shape in the loop", value.target
@@ -1173,7 +1150,6 @@ type analysis.Facts = {
 type analysis.Queries = {
     visible: function(summary: any): (boolean, string?),
     free: function(summary: any, kinds: {string}): (boolean, string?),
-    named: function(name: any): any,
     known: function(token: any): any,
     callee: function(call: any): any,
     body: function(body: any): any
@@ -1205,26 +1181,6 @@ function analysis.queries(facts: analysis.Facts?): analysis.Queries?
     local prepared = {}
     bound.visible = queries.visible
     bound.free = queries.free
-
-    -- Callees indexed by the name a summary records them under. `calls` holds names,
-    -- not definitions, so following a chain of them needs this; building it once per
-    -- run costs one pass over functions already collected.
-    local byName = {}
-    for _, info in ipairs(facts.functions or {}) do
-        local token = info.node and (info.node.name or info.node.token) or nil
-        local text = token and (token.text or token.name and token.name.text) or nil
-        if type(text) == "string" and byName[text] == nil then
-            byName[text] = info
-        end
-    end
-
-    --- What a name a summary recorded as a callee resolves to, if this run saw it.
-    ---
-    --- @param name the callee's name, as `summary.calls` spells it
-    --- @return the callee's record
-    function bound.named(name: any): any
-        return type(name) == "string" and byName[name] or nil
-    end
 
     --- What a name resolves to, or nil when this run never saw its body.
     ---

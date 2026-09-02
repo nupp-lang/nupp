@@ -143,6 +143,35 @@ return value
    assertEq(queries.known(nil), nil, "and nil resolves to nothing")
 end
 
+-- Walking a whole assignment target in "target context" suppressed every read
+-- under it, so `p[q] = v` never recorded q and a contract missing it verified.
+function test.anAssignmentTargetsKeysAreRead()
+   local src = [[
+local function put(p: {[string]: integer}, q: string, v: integer)
+    p[q] = v
+end
+put({}, "k", 1)
+]]
+   local queries, result = analysed(src)
+   local call = findKind(result.root, "call")
+   local known = queries.known(call and call.obj and call.obj.token)
+   assert(known, "the callee resolved")
+   assertEq(known.summary.reads.q, true, "the key is read")
+   assertEq(known.summary.reads.v, true, "the value is read")
+   assertEq(known.summary.reads.p, nil, "the assigned table itself is not")
+   assertEq(known.summary.writes["p[*]"], true, "and it is written")
+
+   local contracted = parser.parse(
+      '@effects(reads = {"v"}, writes = {"p[*]"}, shapes = {"p"})\n' .. src, "test.g.nupp")
+   local diags = check.check(contracted, "test.g.nupp", sharedEnv, {})
+   local found
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2112" then found = diag.msg end
+   end
+   assert(found and found:find('reads = "q"', 1, true),
+      "a contract without the key is refused: " .. tostring(found))
+end
+
 function test.calleeUsesTheSelectedConstructorSummary()
    local queries, result = analysed([[
 local record Choice
