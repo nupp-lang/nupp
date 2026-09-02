@@ -60,12 +60,22 @@ function inside(root, relative, label) {
 }
 
 function buildResult(project, target, environment) {
-  const stdout = execFileSync(path.join(repo, "bin/nupp"), ["build", "--target", target, "--json"], {
-    cwd: project,
-    env: environment,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "inherit"],
-  });
+  let stdout;
+  try {
+    stdout = execFileSync(path.join(repo, "bin/nupp"), ["build", "--target", target, "--json"], {
+      cwd: project,
+      env: environment,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "inherit"],
+    });
+  } catch (error) {
+    const captured = error?.stdout?.toString?.() || "";
+    if (captured.length > 0) {
+      process.stderr.write(`Nupp build output for ${project} (${target}):\n${captured}`);
+      if (!captured.endsWith("\n")) process.stderr.write("\n");
+    }
+    throw error;
+  }
   const lines = stdout.trim().split(/\r?\n/);
   const result = JSON.parse(lines[lines.length - 1]);
   if (!result.ok) throw new Error(`Nupp target ${target} did not build`);
@@ -236,7 +246,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     });
     process.stdout.write(JSON.stringify(manifest, null, 2) + "\n");
   } catch (error) {
-    console.error(`nupp browser app: ${error.message}`);
+    const status = error?.status === undefined ? "" : ` (exit ${error.status})`;
+    console.error(`nupp browser app${status}: ${error.message}`);
     process.exit(1);
   }
 }

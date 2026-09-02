@@ -42,6 +42,7 @@ for case_name in plain scalar simd128 http platform derive cancel runtime-error 
     workers-simd) project="$script_dir/workers-simd-project"; target=simd ;;
   esac
   output="$site/$case_name"
+  echo "packaging browser application: $case_name ($target)" >&2
   NUPP_WASM_CC="$emcc_command" \
   NUPP_BROWSER_RUNTIME="$runtime" \
   NUPP_LUA51_SOURCE="$lua_source" \

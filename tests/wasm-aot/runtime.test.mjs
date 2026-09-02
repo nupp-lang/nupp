@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash, webcrypto } from "node:crypto";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   handleBrowserEffects,
@@ -11,6 +14,7 @@ import { createWorkerPool } from "../../runtime/wasm/worker-pool.mjs";
 
 globalThis.crypto ||= webcrypto;
 
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const bytes = new TextEncoder().encode("fixture");
 const checksum = createHash("sha256").update(bytes).digest("hex");
 const moduleChecksum = "1".repeat(64);
@@ -37,6 +41,21 @@ function fetcher(document) {
     return new Response(bytes, {status: 200});
   };
 }
+
+test("browser packaging preserves failed Nupp build output", () => {
+  const result = spawnSync(process.execPath, [
+    path.join(repo, "runtime/wasm/package-browser-app.mjs"),
+    "--project", path.join(repo, "tests/wasm-aot/plain-project"),
+    "--target", "definitely-missing",
+    "--output", path.join(repo, "build/wasm-invalid-packager-test"),
+    "--runtime", path.join(repo, "build/wasm-app-runtime"),
+    "--lua-source", path.join(repo, "build/wasm-invalid-lua-source"),
+  ], {cwd: repo, encoding: "utf8"});
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Nupp build output for .* \(definitely-missing\):/);
+  assert.match(result.stderr, /"ok":false/);
+});
 
 test("packaged applications reject unknown manifest versions", async () => {
   await assert.rejects(
