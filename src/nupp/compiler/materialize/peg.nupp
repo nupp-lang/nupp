@@ -42,24 +42,6 @@ local function failure(code, message, help)
     return {code = code, message = message, help = help} as peg.Failure
 end
 
-local function sortedBytes(text)
-    local seen, bytes = {}, {}
-    for index = 1, #text do
-        local byte = text:byte(index)
-        if not seen[byte] then
-            seen[byte] = true
-            bytes[#bytes + 1] = byte
-        end
-    end
-    table.sort(bytes)
-    local parts = {}
-    for _, byte in ipairs(bytes) do
-        parts[#parts + 1] = string.char(byte)
-    end
-
-    return table.concat(parts)
-end
-
 local function canonical(value)
     local kind = type(value)
     if value == nil then
@@ -183,8 +165,10 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
             literal = function(text)
                 return node("literal", nil, text, at)
             end,
+            -- The parser hands every class over sorted and deduplicated, which is
+            -- the canonical spelling the blueprint fingerprint depends on.
             set = function(text)
-                return node("set", nil, sortedBytes(text), at)
+                return node("set", nil, text, at)
             end,
             anyByte = function()
                 return node("any", nil, nil, at)

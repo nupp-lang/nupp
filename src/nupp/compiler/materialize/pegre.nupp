@@ -343,7 +343,7 @@ local function parsePrimary(state: any): any?, pegRe.Failure?
             return nil, why
         end
 
-        return value and make.set(value) or make.external(name)
+        return value and make.set(sortedBytes(value as string)) or make.external(name)
     elseif consume(state, "(") then
         return nested(state, function()
             local pattern, why = parseExpression(state, false)
