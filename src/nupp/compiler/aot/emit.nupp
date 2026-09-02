@@ -5563,6 +5563,8 @@ local function neonPairValue(
 end
 
 --- One block of statements, scalar or lane, indented by `depth`.
+--- @raises when a multiple-result binding calls a helper the body does not
+---   declare, which is malformed IR rather than anything about the source
 function emit.block(statements: {any}, depth: integer, body: emit.Body): {string}
     local lines: {string} = {}
     local prefix = string.rep("    ", depth)
@@ -5672,15 +5674,18 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
         elseif op == "multi_let" then
             temporary = temporary + 1
 
-            local result = ""
+            local result: string? = nil
             for _, candidate in ipairs(body.helpers) do
                 if candidate.name == statement.call.helper then
                     result = tostring(candidate.cResult)
                 end
             end
+            if result == nil then
+                error("no result struct for helper " .. tostring(statement.call.helper), 0)
+            end
 
             local temp = "mr" .. tostring(temporary)
-            lines[#lines + 1] = prefix .. result .. " " .. temp .. " = " .. emit.lane(statement.call) .. ";"
+            lines[#lines + 1] = prefix .. tostring(result) .. " " .. temp .. " = " .. emit.lane(statement.call) .. ";"
             for position, bound in ipairs(statement.bindings) do
                 lines[
                     #lines + 1
