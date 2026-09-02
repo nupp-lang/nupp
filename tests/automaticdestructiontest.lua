@@ -696,4 +696,31 @@ function M.manualCloseDischargesAnInherentObligationOnce()
    assertEq(chunk(), 1)
 end
 
+function M.aTakingMethodCalledWithAStringArgumentReceivesIt()
+   -- The receiver's move is cleared inside a wrapper, so the call is respelled
+   -- there argument by argument; a call written with a bare string has that
+   -- string for its one argument.
+   local chunk = compile(table.concat({
+      "local calls = ''",
+      "local record Resource is nupp.Closeable",
+      "   name: string",
+      "   function flush(exclusive self): nil end",
+      "   function close(takes self): nil calls = calls .. self.name end",
+      "   function consume(takes self, label: string): string",
+      "      local answer = self.name .. label",
+      "      self:close()",
+      "      return answer",
+      "   end",
+      "end",
+      "local function use(): string",
+      "   local value = new Resource(name = 'r')",
+      "   return value:consume'x'",
+      "end",
+      "return use(), calls",
+   }, "\n"))
+   local answer, closed = chunk()
+   assertEq(answer, "rx")
+   assertEq(closed, "r")
+end
+
 return M

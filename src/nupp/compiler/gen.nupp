@@ -6139,8 +6139,8 @@ function gen.generate(
             if args and args.table then
                 values = {args.table}
             end
-            if args and args.string then
-                values = {args.string}
+            if args and args.str then
+                values = {args.str}
             end
             if args and args.loweredArgs then
                 if #args.loweredArgs > 0 then
