@@ -1064,7 +1064,11 @@ function gen.generate(
             end
             if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
                 if node.kind == "funcStmt" and node.structOwner and node.memberName then
-                    node.hotRuntimeName = "__nuppMt_" .. node.structOwner .. ".__index" .. (
+                    -- The metatable local carries the struct's own name whatever path
+                    -- it was declared on, so a member of `m.Vec` attaches to
+                    -- `__nuppMt_Vec`.
+                    local structName = node.structOwner:match("[^.]+$") or node.structOwner
+                    node.hotRuntimeName = "__nuppMt_" .. structName .. ".__index" .. (
                         node.name and node.name.method and ":" or "."
                     ) .. node.memberName
                 end
@@ -6324,10 +6328,11 @@ function gen.generate(
             if x.name.method then
                 table.insert(names, 1, "self")
             end
+            -- The metatable local carries the struct's own name whatever path it was
+            -- declared on, so a member of `m.Vec` attaches to `__nuppMt_Vec`.
+            local structName = x.structOwner:match("[^.]+$") or x.structOwner
             e(
-                (
-                    "__nuppMt_%s.__index.%s = function(%s)"
-                ):format(x.structOwner, x.memberName, table.concat(names, ", ")),
+                ("__nuppMt_%s.__index.%s = function(%s)"):format(structName, x.memberName, table.concat(names, ", ")),
                 line
             )
             if x.body.varargParam then

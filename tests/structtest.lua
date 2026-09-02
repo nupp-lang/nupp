@@ -139,6 +139,26 @@ function M.inlineStructMethodsUseTheFfiMetatypeNamespace()
    }, "\n"))), "NUPP2118:3")
 end
 
+function M.methodsOnADottedStructAttachToItsMetatable()
+   -- The metatable local is named by the struct's own name; a method declared on
+   -- the dotted path has to reach the same local rather than a global spelled
+   -- with the path's first component.
+   local m, len = run(table.concat({
+      "local m = {}",
+      "struct m.Vec",
+      "   x: number",
+      "   y: number",
+      "end",
+      "function m.Vec:len(): number",
+      "   return self.x + self.y",
+      "end",
+      "local v = new m.Vec(1, 2)",
+      "return m, v:len()",
+   }, "\n"))
+   assert(type(m) == "table", "the dotted owner is the authored table")
+   assertEq(len, 3)
+end
+
 -- A struct binding used to construct one where it was declared, which was a
 -- construction the source did not say. Now it holds nil until something puts a
 -- value in it, and reading it before that is reported rather than silently
