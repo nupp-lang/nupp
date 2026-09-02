@@ -254,4 +254,72 @@ return keep
    assert(invalid == nil and invalidProblem:find("unsupported", 1, true))
 end
 
+-- A trailing description after a field's type is prose, not a second statement
+-- that happens to parse. The scope words and bracketed indexers LuaCATS allows in
+-- front of a field name are read for what they are.
+function M.describedScopedAndIndexedFieldsSurvive()
+   local source = [[
+---@class User
+---@field id integer The identifier
+---@field name string The user name
+---@field private secret string
+---@field [string] integer
+local module = {}
+
+return module
+]]
+   local parsed = parser.parse(source, "users.lua")
+   local diagnostics, _, exports = check.check(parsed, "users.lua")
+   assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+   local user = exports.types.User
+   assert(user and user.tag == "nominal", "described fields dropped the class")
+   assertEq(T.tostring(user.byname.id), "integer", "described field")
+   assertEq(T.tostring(user.byname.name), "string", "described field")
+   assertEq(T.tostring(user.byname.secret), "string", "scoped field")
+   assert(user.byname["[string]"] == nil and user.byname["string"] == nil,
+      "a bracketed field name was read as a field")
+   assert(user.indexReadValue, "a bracketed field name was not read as an indexer")
+   assertEq(T.tostring(user.indexReadKey), "string", "indexer key")
+   assertEq(T.tostring(user.indexReadValue), "integer", "indexer value")
+end
+
+-- A multi-line alias lists its members on `---|` lines; the declaration keeps the
+-- alias's own name and becomes the union of those members.
+function M.multiLineAliasBecomesAUnion()
+   local source = [[
+---@alias Mode
+---| "fast" # the quick one
+---| "slow"
+
+---@param mode Mode
+local function keep(mode)
+   return mode
+end
+return keep
+]]
+   local parsed = parser.parse(source, "modes.lua")
+   local diagnostics, moduleType, exports = check.check(parsed, "modes.lua")
+   assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+   assert(exports.types.Mode, "the alias kept a name nobody registered")
+   assertEq(T.tostring(moduleType.params[1]), '"fast" | "slow"')
+end
+
+-- `---@param ... T` types the vararg the same way `---@vararg T` does.
+function M.paramTagTypesTheVararg()
+   local source = [[
+---@param first string
+---@param ... integer the rest
+local function keep(first, ...)
+   return first, ...
+end
+return keep
+]]
+   local parsed = parser.parse(source, "vararg.lua")
+   local diagnostics, moduleType = check.check(parsed, "vararg.lua")
+   assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+   assertEq(T.tostring(moduleType.params[1]), "string")
+   assert(moduleType.vararg, "the function lost its vararg")
+   assertEq(T.tostring(moduleType.varargType), "integer", "vararg")
+end
+
 return M

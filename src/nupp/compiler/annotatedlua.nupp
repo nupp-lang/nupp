@@ -72,8 +72,21 @@ function annotated.tags(source: string, parsedTokens: {lexer.Token}?): {annotate
             if lexer.triviaKind(token, index) == "comment" then
                 local record = lexer.triviaRecord(token, index)
                 local body = record.text:match("^%-%-%-%s*@(.+)$") or record.text:match("^%-%-%s+@(.+)$")
+                local member = not body and record.text:match("^%-%-%-%s*|%s*(.+)$") or nil
                 if body then
                     appendTag(out, body, record.line, record.col, record.offset, record.text)
+                elseif member then
+                    -- A `---|` line lists one member of the multi-line alias above it.
+                    out[
+                        #out + 1
+                    ] = new annotated.Tag(
+                        name = "|",
+                        value = trim(member),
+                        line = record.line,
+                        col = record.col,
+                        offset = record.offset,
+                        raw = record.text
+                    )
                 else
                     local opener = record.text:match("^(%-%-%[=*%[)")
                     if opener then
@@ -231,8 +244,12 @@ local function parsedType(written: string, names: {[string]: string}, tag: annot
             seen[cut] = true
             local candidate = translateType(trim(written:sub(1, cut)), names)
             local result = parser.parse("local __foreign: " .. candidate .. " = nil\n", "nupp:annotated-lua-type")
-            local block = result.root.blocks and result.root.blocks[1]
-            local stat = block and block.stats and block.stats[1]
+            -- A description after the type can parse as a second statement, so a
+            -- candidate is a type only when the whole line is the one declaration.
+            local blocks = result.root.blocks or {}
+            local block = #blocks == 1 and blocks[1] or nil
+            local stats = block and block.stats or {}
+            local stat = #stats == 1 and stats[1] or nil
             if #result.errors == 0 and stat and stat.kind == "localStmt" and stat.types and stat.types[1] then
                 local node = stat.types[1]
                 markSynthetic(node, tag)
@@ -301,12 +318,28 @@ local function functionBody(stat: any): cst.Funcbody?
     return nil
 end
 
+-- The LuaCATS visibility words a `@field` may start with.
+local FIELD_SCOPES = {private = true, protected = true, public = true, package = true}
+
+--- The tags on lines strictly between `previous` and `line`. Tags are in source
+--- order, so the first candidate is found by bisection and the scan stops at `line`.
 local function tagsBefore(all: {annotated.Tag}, line: integer, previous: integer): {annotated.Tag}
     local selected = {}
-    for _, tag in ipairs(all) do
-        if tag.line > previous and tag.line < line then
-            selected[#selected + 1] = tag
+    local low: integer, high: integer = 1, #all + 1
+    while low < high do
+        local mid = math.floor((low + high) / 2) as integer
+        if all[mid].line > previous then
+            high = mid
+        else
+            low = mid + 1
         end
+    end
+    for at = low, #all do
+        local tag = all[at]
+        if tag.line >= line then
+            break
+        end
+        selected[#selected + 1] = tag
     end
 
     return selected
@@ -321,10 +354,22 @@ local function declarationSource(
 ): string?
     if tag.name == "alias" then
         tag.used = true
-        local foreign, rest = splitFirst(tag.value)
-        if not foreign or not rest then
+        local foreign = declaredName(tag.value)
+        local rest = foreign and trim(tag.value:sub(#foreign + 1)) or ""
+        if rest == "" and #following > 0 then
+            -- The members of a multi-line alias, each on a `---|` line with an
+            -- optional `# description` after it.
+            local members = {}
+            for _, member in ipairs(following) do
+                member.used = true
+                members[#members + 1] = trim((member.value:gsub("%s+#.*$", "")))
+            end
+            rest = table.concat(members, " | ")
+        end
+        if not foreign or rest == "" then
             warnings[#warnings + 1] = warning(tag, filename, "malformed annotated Lua @alias; using any")
-            return "local type " .. safeName(foreign or "ForeignAlias") .. " = any\n"
+            local name = foreign and (names[foreign] or safeName(foreign)) or "ForeignAlias"
+            return (name:find("%.", 1, false) and "type " or "local type ") .. name .. " = any\n"
         end
         local _, translated = parsedType(rest, names, tag)
         if not translated then
@@ -366,16 +411,21 @@ local function declarationSource(
             warnings[#warnings + 1] = warning(tag, filename, "cannot read annotated Lua base class; base ignored")
         end
     end
+    local indexers = 0
     for _, field in ipairs(following) do
         if field.name == "field" then
             field.used = true
             local fieldName, rest = splitFirst(field.value)
+            if fieldName and rest and FIELD_SCOPES[fieldName] then
+                -- A scope word says who may see the field, which Nupp does not model.
+                fieldName, rest = splitFirst(rest)
+            end
             if fieldName and rest then
                 local optional = fieldName:sub(-1) == "?"
                 if optional then
                     fieldName = fieldName:sub(1, -2)
                 end
-                fieldName = fieldName:gsub("^%[", ""):gsub("%]$", "")
+                local keyType = fieldName:match("^%[(.+)%]$")
                 local _, translated = parsedType(rest, names, field)
                 if not translated then
                     warnings[
@@ -385,7 +435,22 @@ local function declarationSource(
                 elseif optional then
                     translated = "(" .. translated .. ")?"
                 end
-                out[#out + 1] = "    " .. safeSegment(fieldName) .. ": " .. translated
+                if keyType then
+                    -- `[K] V` is an indexer rather than a field spelled with brackets.
+                    -- It goes ahead of the fields: after one, its `[` would read as the
+                    -- C array postfix of that field's type.
+                    local _, key = parsedType(keyType, names, field)
+                    if not key then
+                        warnings[
+                            #warnings + 1
+                        ] = warning(field, filename, "cannot read annotated Lua indexer key; using any")
+                        key = "any"
+                    end
+                    indexers = indexers + 1
+                    table.insert(out, 1 + indexers, "    [" .. key .. "]: " .. translated)
+                else
+                    out[#out + 1] = "    " .. safeSegment(fieldName) .. ": " .. translated
+                end
             else
                 warnings[#warnings + 1] = warning(field, filename, "malformed annotated Lua @field; field ignored")
             end
@@ -502,7 +567,11 @@ local function decorateFunction(
                 elseif optional then
                     node = parsedType("(" .. (translated or "any") .. ")?", functionNames, tag) or anyType(tag)
                 end
-                params[name] = node
+                if name == "..." then
+                    vararg = node
+                else
+                    params[name] = node
+                end
             else
                 warnings[
                     #warnings + 1
@@ -571,6 +640,18 @@ local function decorateFunction(
         body.foreignOverloads = overloads
     end
 end
+
+--- Decorates the blocks and functions nested inside one statement's child `node`;
+--- `line` is where that statement starts, so only annotations inside it are seen.
+local decorateNested: function(
+    node: any,
+    all: {annotated.Tag},
+    names: {[string]: string},
+    warnings: {annotated.Warning},
+    filename: string?,
+    line: integer,
+    dialect: string
+)
 
 local function decorateBlock(
     block: cst.Block,
@@ -703,38 +784,39 @@ local function decorateBlock(
         previous = last and last.line or line
         -- Nested blocks are found through the semantic children below; their own pass
         -- uses source lines to select only annotations inside them.
-        local function decorateNested(node: any)
-            if type(node) ~= "table" or cst.isToken(node) then
-                return
-            end
-            if node.kind == "block" then
-                decorateBlock(node, all, names, warnings, filename, line, dialect)
-                return
-            elseif node.kind == "funcExpr" and node.body then
-                decorateFunction(
-                    node.body,
-                    tagsBefore(all, firstTokenLine(node), line),
-                    names,
-                    warnings,
-                    filename,
-                    dialect
-                )
-                decorateBlock(node.body.body, all, names, warnings, filename, firstTokenLine(node), dialect)
-                return
-            elseif node.kind == "funcbody" and node.body then
-                decorateBlock(node.body, all, names, warnings, filename, line, dialect)
-                return
-            end
-            for _, child in ipairs(node) do
-                decorateNested(child)
-            end
-        end
-
         for _, child in ipairs(stat) do
-            decorateNested(child)
+            decorateNested(child, all, names, warnings, filename, line, dialect)
         end
     end
     block.stats = semantic
+end
+
+decorateNested = function(
+    node: any,
+    all: {annotated.Tag},
+    names: {[string]: string},
+    warnings: {annotated.Warning},
+    filename: string?,
+    line: integer,
+    dialect: string
+)
+    if type(node) ~= "table" or cst.isToken(node) then
+        return
+    end
+    if node.kind == "block" then
+        decorateBlock(node, all, names, warnings, filename, line, dialect)
+        return
+    elseif node.kind == "funcExpr" and node.body then
+        decorateFunction(node.body, tagsBefore(all, firstTokenLine(node), line), names, warnings, filename, dialect)
+        decorateBlock(node.body.body, all, names, warnings, filename, firstTokenLine(node), dialect)
+        return
+    elseif node.kind == "funcbody" and node.body then
+        decorateBlock(node.body, all, names, warnings, filename, line, dialect)
+        return
+    end
+    for _, child in ipairs(node) do
+        decorateNested(child, all, names, warnings, filename, line, dialect)
+    end
 end
 
 --- Attaches the comments of one `.lua` parse as semantic typing facts. This operation
@@ -766,6 +848,12 @@ function annotated.decorate(result: any, filename: string?, dialect: string?): {
             if tag.name == "class" then
                 local at = index + 1
                 while tags[at] and (tags[at].name == "field" or tags[at].name == "operator") do
+                    following[#following + 1] = tags[at]
+                    at = at + 1
+                end
+            elseif tag.name == "alias" then
+                local at = index + 1
+                while tags[at] and tags[at].name == "|" do
                     following[#following + 1] = tags[at]
                     at = at + 1
                 end
