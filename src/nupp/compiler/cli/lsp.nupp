@@ -17,6 +17,7 @@ rejected afterwards.
 
 local json = nupp.data.json
 local spec = require("nupp.compiler.cli.spec")
+local fs = require("nupp.compiler.fs")
 
 local type CodeActionContext = {
     diagnostics: {any},
@@ -31,39 +32,7 @@ local function jsonArray<T>(takes items: T): T preserves items
     return json.asArray(items)
 end
 
-local function readFile(path)
-    local file, err = io.open(path, "rb")
-    if not file then
-        return nil, err
-    end
-    local source = file:read("*a")
-    file:close()
-
-    return source
-end
-
-local function writeFile(path, source)
-    local file, err = io.open(path, "wb")
-    if not file then
-        return nil, err
-    end
-    local ok, writeErr = file:write(source)
-    local closeOk, closeErr = file:close()
-    if not ok then
-        return nil, writeErr
-    end
-    if not closeOk then
-        return nil, closeErr
-    end
-
-    return true
-end
-
-local function normalizePath(path)
-    path = path:gsub("\\", "/"):gsub("/+", "/")
-    path = path:gsub("^%./", ""):gsub("/%./", "/")
-    return (path:gsub("/$", ""))
-end
+local normalizePath = fs.normalize
 
 local function absolutePath(path)
     return path:match("^/") or path:match("^[A-Za-z]:[/\\]")
@@ -508,7 +477,7 @@ local function newClient(root)
         if sources[path] then
             return sources[path]
         end
-        local text, err = readFile(path)
+        local text, err = fs.readFile(path)
         if not text then
             return nil, err
         end
@@ -1023,7 +992,7 @@ local function runRename(client, opts)
     table.sort(changedFiles)
     if opts.write then
         for _, changedPath in ipairs(changedFiles) do
-            local ok, writeErr = writeFile(changedPath, rewritten[changedPath])
+            local ok, writeErr = fs.writeFile(changedPath, rewritten[changedPath])
             if not ok then
                 return nil, writeErr
             end

@@ -415,20 +415,13 @@ local function run(parsed: any): integer
     local failed = false
     local written: {[string]: boolean} = {}
     local outputs: {string} = {}
+    local fs = require("nupp.compiler.fs")
     -- Positionals arrive spelled however the caller typed them, while `env.loaded`
     -- records paths the environment has normalized. `written` is keyed on the
     -- normalized spelling so `./lib.nupp` on the command line and `lib.nupp` in the
     -- module graph are one module, emitted once.
-    local function normalized(path: string): string
-        path = path:gsub("\\", "/"):gsub("/+", "/")
-        path = path:gsub("^%./", ""):gsub("/%./", "/")
-
-        return (path:gsub("/$", ""))
-    end
-
-    local fs = require("nupp.compiler.fs")
     local function emitModule(givenPath: string): boolean
-        local path = normalized(givenPath)
+        local path = fs.normalize(givenPath)
         if written[path] then
             return true
         end
