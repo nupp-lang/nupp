@@ -2129,12 +2129,14 @@ function M.aPageTreeSectionsDirectoriesRatherThanPages()
       "the directory's pages are links in its section: " .. sidebar)
 
    -- A directory holding other pages still names a section, and its own index is
-   -- the first entry inside rather than a link beside it.
+   -- what that name links to rather than an entry repeated inside it.
    local nested = assert(sidebar:match("<summary>Guides</summary>.*"), sidebar)
-   assert(nested:find("<summary>Integrations</summary>", 1, true),
+   assert(nested:find('<summary class="nuppdoc-sidebar-section-link">', 1, true),
       "a directory below a directory lost its section: " .. sidebar)
    assert(nested:find(">Integrations</a>", 1, true) < nested:find(">LOVE</a>", 1, true),
-      "the directory index did not open its own section: " .. sidebar)
+      "the section is not named by its own page: " .. sidebar)
+   assert(select(2, nested:gsub(">Integrations</a>", "")) == 1,
+      "the section index was repeated as an entry inside it: " .. sidebar)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -2392,9 +2394,11 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(searchAt < outlineAt, guide)
    assert(guide:find('M8 6.5h12M8 12h12M8 17.5h12', outlineAt, true), guide)
    assert(guide:find('aria-controls="nuppdoc-sidebar"', 1, true), guide)
-   -- the sidebar opens the section holding the page being read and leaves the
-   -- rest shut, so its sections are what a reader sees first
-   assert(guide:find('<details open><summary>Guide</summary>', 1, true), guide)
+   -- a route naming nothing below it is a link rather than a section that opens
+   -- onto itself, and the sidebar opens the section holding the page being read
+   -- and leaves the rest shut, so its sections are what a reader sees first
+   assert(guide:find('<li><a aria-current="page" href="../guide/index.html">Guide</a>',
+      1, true), guide)
    assert(guide:find('<details><summary>Reference</summary>', 1, true), guide)
    assert(guide:find('<details><summary>API reference</summary>', 1, true), guide)
    -- inside it, a top-level branch is a library and stands open on every page,
@@ -2470,7 +2474,8 @@ function M.siteMatchesTheNuppdocPageModel()
    -- reaching the module itself
    assert(module:find('<details open><summary>API reference</summary>', 1, true),
       module)
-   assert(module:find('<details><summary>Guide</summary>', 1, true), module)
+   assert(module:find('<li><a href="../../guide/index.html">Guide</a></li>', 1, true),
+      module)
    assert(module:match(
       '<details open><summary class="nuppdoc%-module%-branch%-link">'
       .. '<a href="[^"]*" aria%-label="engine">'),

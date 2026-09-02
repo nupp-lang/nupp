@@ -237,23 +237,57 @@ local function pageBranchContains(node, currentPath)
     return false
 end
 
-local function pageTreeHtml(node, currentPath, prefix)
+-- A section directory that also has a page of its own is that page: the summary
+-- names it and links to it, rather than repeating it as the first entry inside.
+local function sectionPage(node, path)
+    for _, candidate in ipairs(node.pages) do
+        if candidate.path == path then
+            return candidate
+        end
+    end
+
+    return nil
+end
+
+local function pageTreeHtml(node, currentPath, prefix, path)
     local out = {}
     for _, candidate in ipairs(node.pages) do
-        local active = candidate.path == currentPath and ' aria-current="page"' or ""
-        local link = pageLink(prefix, candidate.path)
-        local title = htmlEscape(candidate.title)
-        out[#out + 1] = '<li><a' .. active .. ' href="' .. link .. '">' .. title .. "</a></li>"
+        if candidate.path ~= path then
+            local active = candidate.path == currentPath and ' aria-current="page"' or ""
+            local link = pageLink(prefix, candidate.path)
+            local title = htmlEscape(candidate.title)
+            out[#out + 1] = '<li><a' .. active .. ' href="' .. link .. '">' .. title .. "</a></li>"
+        end
     end
     for _, name in ipairs(node.order) do
         local child = node.children[name]
+        local childPath = path == "" and name or path .. "/" .. name
         local label = name:gsub("[-_]", " ")
         label = label:sub(1, 1):upper() .. label:sub(2)
         local open = pageBranchContains(child, currentPath) and " open" or ""
-        local summary = htmlEscape(label) .. "</summary><ul>"
-        out[#out + 1] = '<li class="nuppdoc-sidebar-section"><details' .. open .. "><summary>" .. summary
-        out[#out + 1] = pageTreeHtml(child, currentPath, prefix)
-        out[#out + 1] = "</ul></details></li>"
+        local own = sectionPage(child, childPath)
+        local active = own and own.path == currentPath and ' aria-current="page"' or ""
+        if own and #child.pages == 1 and #child.order == 0 then
+            -- A directory naming nothing but its own page is that page: a link,
+            -- rather than a section that opens onto an empty list.
+            out[
+                #out + 1
+            ] = "<li><a" .. active .. ' href="' .. pageLink(
+                prefix,
+                own.path
+            ) .. '">' .. htmlEscape(own.title) .. "</a></li>"
+        else
+            local summary = "<summary>" .. htmlEscape(label) .. "</summary>"
+            if own then
+                summary = '<summary class="nuppdoc-sidebar-section-link"><a' .. active .. ' href="' .. pageLink(
+                    prefix,
+                    own.path
+                ) .. '">' .. htmlEscape(label) .. "</a></summary>"
+            end
+            out[#out + 1] = '<li class="nuppdoc-sidebar-section"><details' .. open .. ">" .. summary .. "<ul>"
+            out[#out + 1] = pageTreeHtml(child, currentPath, prefix, childPath)
+            out[#out + 1] = "</ul></details></li>"
+        end
     end
 
     return table.concat(out)
@@ -261,7 +295,7 @@ end
 
 local function sidebar(modules, current, prefix, pages, currentPath)
     local out = {'<aside class="nuppdoc-sidebar" id="nuppdoc-sidebar"' .. ' aria-label="Page navigation"><ul>'}
-    out[#out + 1] = pageTreeHtml(pageTree(pages), currentPath, prefix)
+    out[#out + 1] = pageTreeHtml(pageTree(pages), currentPath, prefix, "")
     local apiOpen = current and current ~= "" and " open" or ""
     out[
         #out + 1
