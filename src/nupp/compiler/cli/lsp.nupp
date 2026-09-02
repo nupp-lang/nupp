@@ -374,6 +374,70 @@ local OPERATION_SPECS: {
     ),
 }
 
+-- The operations in the order help lists them.
+local OPERATION_ORDER = {"inspect", "definition", "references", "symbols", "rename", "actions", "trace-check"}
+
+--- The group's option list, rendered from the operations' grammars rather than written
+--- beside them: an option the group lists is one some operation parses, and an option
+--- only some operations take says which. `--schema` is answered per operation, since
+--- each has its own, so the group's entry says where to ask.
+local function groupOptions(): {any}
+    local takers: {[string]: {string}} = {}
+    local listed: {spec.Option} = {}
+    for _, name in ipairs(OPERATION_ORDER) do
+        local operation = assert(OPERATION_SPECS[name])
+        for _, option in ipairs(operation.options) do
+            local spelling = option.names[1]
+            local taking = takers[spelling]
+            if not taking then
+                taking = {}
+                takers[spelling] = taking
+                listed[#listed + 1] = option
+            end
+            taking[#taking + 1] = name
+        end
+    end
+    -- What every operation takes, then what only some do.
+    local shared: {spec.Option} = {}
+    local particular: {spec.Option} = {}
+    for _, option in ipairs(listed) do
+        if #assert(takers[option.names[1]]) == #OPERATION_ORDER then
+            shared[#shared + 1] = option
+        else
+            particular[#particular + 1] = option
+        end
+    end
+    for _, option in ipairs(particular) do
+        shared[#shared + 1] = option
+    end
+    local out: {any} = {}
+    for _, option in ipairs(shared) do
+        local spelling = option.names[1]
+        local taking = assert(takers[spelling])
+        local help = option.help
+        if spelling == "--schema" then
+            help = "Print the JSON Schema of an operation's --json output; ask one operation, "
+                .. "as `nupp lsp <operation> --schema`"
+        elseif #taking < #OPERATION_ORDER then
+            help = table.concat(taking, ", ") .. " only: " .. help
+        end
+        out[
+            #out + 1
+        ] = {
+            names = option.names,
+            value = option.value,
+            form = option.form,
+            key = option.key,
+            choices = option.choices,
+            constant = option.constant,
+            display = option.display,
+            help = help,
+        }
+    end
+
+    return out
+end
+
 local command = spec.command{
     name = "lsp",
     summary = "Language-server and semantic source operations",
@@ -389,21 +453,7 @@ local command = spec.command{
         "nupp lsp trace-check [options] <file> <line> <column>",
     },
     universal = false,
-    options = {
-        {name = "--root", value = "DIR", help = "Project root (default: current directory)"},
-        {name = "--format", value = "FORMAT", help = "Output format: text (default) or json"},
-        {name = "--json", help = "Shorthand for --format json"},
-        {name = "--text", help = "Shorthand for --format text"},
-        {name = "--include-declaration", help = "references only: include the declaration"},
-        {name = "--file", value = "FILE", help = "symbols only: search one document instead of the workspace"},
-        {name = "--only", value = "KIND", help = "actions only: narrow to quickfix or refactor"},
-        {names = {"-w", "--write"}, help = "rename only: apply the rename instead of previewing it"},
-        {
-            name = "--schema",
-            help = "Print the JSON Schema of an operation's --json output; each " .. "operation answers with its own"
-        },
-        spec.helpOption,
-    },
+    options = groupOptions(),
     detail = [[With no operation, or with only a root, runs the language server over stdio for
 compatibility. `serve` names that mode explicitly. Source positions are 1-based
 byte line and column numbers, matching compiler diagnostics. Rename previews by
@@ -1142,6 +1192,9 @@ local function dispatch(args: any): integer
     end
     local run = OPERATIONS[operation]
     if not run then
+        if operation == "--schema" then
+            return usageError("--schema answers for one operation: nupp lsp <operation> --schema")
+        end
         -- Preserve `nupp lsp ROOT` for existing editor clients.
         if #args == 1 and operation:sub(1, 1) ~= "-" then
             return lsp.run(operation)

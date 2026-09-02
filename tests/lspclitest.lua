@@ -339,7 +339,7 @@ end
 
 function M.refinementAndSpellingFixesReachLanguageActions()
    local dir = tempProject({
-      ["nupp.lua"] = 'return {include = {"."}, strict = true}\n',
+      ["nupp.lua"] = 'return {include = {"."}}\n',
       ["main.nupp"] = "local wide: integer = 5\n"
          .. "local small: int32 = wide\n",
       ["field.nupp"] = "local p: {horizontal: number} = {horizontal = 1}\n"
@@ -397,6 +397,19 @@ function M.explicitServeAndLegacyHelpRemainAvailable()
    contains(help, "nupp lsp serve", "explicit server help")
    contains(help, "nupp lsp rename", "rename help")
    contains(help, "nupp lsp actions", "actions help")
+end
+
+function M.groupHelpListsWhatTheOperationsParse()
+   local help = capture(HERE .. "/..", "lsp --help")
+   contains(help, "references only:", "an option one operation takes says which")
+   contains(help, "--include-declaration", "and is the operation's own option")
+   contains(help, "symbols only:", "the symbols filter is attributed")
+   contains(help, "nupp lsp <operation> --schema",
+      "the group's --schema entry points at the operations")
+   local refusal = capture(HERE .. "/..", "lsp --schema 2>&1; echo \"__exit__:$?\"")
+   contains(refusal, "nupp lsp <operation> --schema",
+      "asking the group for a schema says where to ask")
+   contains(refusal, "__exit__:2", "and is a usage error")
 end
 
 return M
