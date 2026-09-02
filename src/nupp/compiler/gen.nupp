@@ -1436,12 +1436,12 @@ function gen.generate(
     -- bytecode afterwards. This is that rule enforced before the bytecode exists.
     --
     -- So a lowering building a function inside a loop has to say why it cannot be
-    -- declared once instead. Every reason passed today is the same one: the body
-    -- assigns
-    -- a local belonging to its own site, and Lua gives no way to hand another
-    -- function's
-    -- local over to be written. A lowering with any other reason does not have one --
-    -- declare it for the module with `pluck.declareHelper` and call it.
+    -- declared once instead. The reasons passed today are two: the body assigns a
+    -- local belonging to its own site, and Lua gives no way to hand another
+    -- function's local over to be written; or the body defers an operand that must
+    -- not be evaluated before the test that guards it, which a helper taking the
+    -- operand as an argument cannot do. A lowering with any other reason does not
+    -- have one -- declare it for the module with `pluck.declareHelper` and call it.
     --
     -- Saying nothing from inside a loop is a compiler bug and reports itself as one,
     -- because the alternative is emitting code that is correct and never compiles.
@@ -1960,6 +1960,7 @@ function gen.generate(
             move = "the body clears this site's own move flag",
             cheader = "a C header is declared once where it is imported",
             region = "the protected body reads and writes this region's own owners and flags",
+            lazy = "the body defers an operand until the test that guards it has passed",
         },
         bitops = {
             portable = portableBitops,
@@ -4261,7 +4262,11 @@ function gen.generate(
         end
         if pluck.portable and kind == "ternary" and x.cond and x.ifTrue and x.ifFalse then
             local value = nextTemp()
-            e(("(function(%s) if %s then return ("):format(value, value), sourceLine(x))
+            pluck.loweredFunction(
+                ("(function(%s) if %s then return ("):format(value, value),
+                sourceLine(x),
+                pluck.reasons.lazy
+            )
             emit(x.ifTrue)
             e(") else return (")
             emit(x.ifFalse)
@@ -4272,19 +4277,40 @@ function gen.generate(
         end
         if pluck.portable and kind == "binop" and x.op and x.op.kind == "??" and x.lhs and x.rhs then
             local value = nextTemp()
-            e(("(function(%s) if %s==nil then return ("):format(value, value), x.op.line)
+            pluck.loweredFunction(
+                ("(function(%s) if %s==nil then return ("):format(value, value),
+                x.op.line,
+                pluck.reasons.lazy
+            )
             emit(x.rhs)
             e((") else return %s end end)("):format(value))
             emit(x.lhs)
             e(")")
             return
         end
-        if pluck.portable and (kind == "safeIndex" or kind == "safeBracket" or kind == "safeCall") and x.obj then
+        if pluck.portable and kind == "safeIndex" and x.obj then
+            -- A member read has no operand of its own to defer, so one helper per
+            -- member name serves every site.
+            local helper = pluck.declareHelper(
+                "__nuppSafeIndex",
+                "__nuppV",
+                ("if __nuppV==nil then return nil end return __nuppV.%s"):format(x.name.text)
+            )
+            e(helper .. "(", sourceLine(x))
+            emit(x.obj)
+            e(")")
+            return
+        end
+        if pluck.portable and (kind == "safeBracket" or kind == "safeCall") and x.obj then
+            -- The key and the arguments are evaluated only once the receiver is known
+            -- to be present, as they are natively, so they stay inside a body.
             local value = nextTemp()
-            e(("(function(%s) if %s==nil then return nil end return %s"):format(value, value, value), sourceLine(x))
-            if kind == "safeIndex" then
-                e("." .. x.name.text)
-            elseif kind == "safeBracket" then
+            pluck.loweredFunction(
+                ("(function(%s) if %s==nil then return nil end return %s"):format(value, value, value),
+                sourceLine(x),
+                pluck.reasons.lazy
+            )
+            if kind == "safeBracket" then
                 e("[")
                 emit(x.expr)
                 e("]")

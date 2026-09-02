@@ -238,6 +238,44 @@ function M.cleanupContinueAndBreakUseTheStructuredLoopExit()
    assertEq(broken, true, "cleanup break exits the authored loop")
 end
 
+function M.safeMemberReadsShareAHelperAndOperandsStayDeferred()
+   -- `?.x` has nothing of its own to evaluate, so one module-level helper per
+   -- member serves every site and a loop reading it builds no function. `?.[]`
+   -- and `?.()` evaluate their key and arguments only once the receiver is present,
+   -- as they do natively, so those keep a body of their own.
+   local source = table.concat({
+      "local calls = 0",
+      "local function key(): string",
+      "   calls = calls + 1",
+      "   return 'k'",
+      "end",
+      "local points: {any} = {{x = 2}, {}, {x = 3}}",
+      "local none: any = nil",
+      "local total = 0",
+      "for index = 1, 3 do",
+      "   total = total + (points[index]?.x ?? 0) + (none?.x ?? 0)",
+      "end",
+      "local absent: any = nil",
+      "local missing: any = nil",
+      "local byKey = absent?.[key()]",
+      "local called = missing?.(key())",
+      "return total, calls, byKey, called",
+   }, "\n")
+   local result, diags = checked(source, "lua51")
+   assertEq(#diags, 0, "safe navigation source checks: " .. (diags[1] and diags[1].msg or ""))
+   local code, loweringDiags = gen.generate(result, "portable-safe.nupp")
+   assertEq(#loweringDiags, 0, "safe navigation lowers cleanly")
+   assert(code:find("__nuppSafeIndex%d+%("), "member reads call a declared helper:\n" .. code)
+   assertEq(select(2, code:gsub("return __nuppV%.x", "")), 1, "one helper serves the member:\n" .. code)
+   local chunk, problem = loadstring(code, "@portable-safe")
+   assert(chunk, "safe navigation generated code loads: " .. tostring(problem) .. "\n" .. code)
+   local total, calls, byKey, called = chunk()
+   assertEq(total, 5, "member reads through nil receivers")
+   assertEq(calls, 0, "a key or argument is not evaluated for an absent receiver")
+   assertEq(byKey, nil)
+   assertEq(called, nil)
+end
+
 function M.wrappedRepeatLoopKeepsItsConditionInTheBodyScope()
    -- The wrapper's `until true` ends the body's scope, so the authored condition
    -- reads `done` inside it, and a `continue` reaches the condition the way it does
