@@ -267,7 +267,7 @@ local function classify(instructions: {any}): {any}
                 -- Compatibility: the old field and exit status meant the whole loop,
                 -- which only a must-reach blocker can still truthfully mean.
                 if must then
-                    ins.unrecordable = ins.op == "FNEW" and "builds a function" or "closes an upvalue"
+                    ins.unrecordable = reason.explanation or reason.id
                 end
             end
         end

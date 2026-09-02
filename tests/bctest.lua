@@ -152,7 +152,7 @@ function M.checkReportsALoopThatCannotCompileAndFailsForIt()
    local dir = project{["bad.g.nupp"] = CAPTURING}
    local out, code = run(dir, "--check bad.g.nupp")
    test.equal(code, 1, "a loop that cannot compile must fail --check:\n" .. out)
-   assert(out:find("this loop never compiles: builds a function", 1, true),
+   assert(out:find("this loop never compiles: LuaJIT has no recorder for constructing a function", 1, true),
       "the instruction is marked in place:\n" .. out)
    assert(out:find("in a loop that cannot compile", 1, true),
       "the run says how many:\n" .. out)

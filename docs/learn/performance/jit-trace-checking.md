@@ -376,9 +376,9 @@ construction (`FNEW`) and upvalue closing (`UCLO`) in the repeatable region:
 $ nupp bc --check src/sum.g.nupp
 nupp: 2 instructions in a loop that cannot compile
 ...
-0006  FNEW  6  0  <-- this loop never compiles: builds a function [jit/loop-function-construction, must-reach]
+0006  FNEW  6  0  <-- this loop never compiles: LuaJIT has no recorder for constructing a function [jit/loop-function-construction, must-reach]
 ...
-0010  UCLO  5 => 0011  <-- this loop never compiles: closes an upvalue [jit/loop-upvalue-close, must-reach]
+0010  UCLO  5 => 0011  <-- this loop never compiles: LuaJIT has no recorder for closing an upvalue [jit/loop-upvalue-close, must-reach]
 0011  FORL  2 => 0006
 ```
 
