@@ -480,6 +480,42 @@ function M.overlayClearRevertsToDisk()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A build hashes the text its check saw rather than the file as it now stands, and
+-- that only says which source an artifact came from while one session answers with
+-- one text per file. A module is read twice by a build -- the checker takes its tree
+-- when whatever requires it is checked, and the module build reaches it again on its
+-- own turn -- and a source edited between the two used to be recorded at content the
+-- build never compiled, which left every later build reusing the older artifact for
+-- it.
+function M.aSessionReadsAFileOnce()
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local path = dir .. "/m.nupp"
+   local function write(text)
+      local f = assert(io.open(path, "wb"))
+      f:write(text)
+      f:close()
+   end
+   write("return { ok = 1 }\n")
+
+   local inc = incremental.new(dir)
+   local first = inc.fileText(path)
+   assertEq(first, "return { ok = 1 }\n", "the text the check will see")
+   write("return { ok = 2 }\n")
+   assertEq(inc.fileText(path), first,
+      "a file rewritten under a running session still reads as what it checked")
+   assertEq(#inc.checkFile(path).diags, 0)
+
+   -- Nothing about that outlives the session, and a session told about the change
+   -- reads it now: it is one answer per session, not a stale one.
+   inc.diskChanged(path, 2)
+   assertEq(inc.fileText(path), "return { ok = 2 }\n", "a watcher event re-reads it")
+   assertEq(incremental.new(dir).fileText(path), "return { ok = 2 }\n",
+      "and the next session starts from disk")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.diskWatcherChangesInvalidateQueriesAndProjectFiles()
    local dir = os.tmpname()
    os.remove(dir)

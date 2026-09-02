@@ -334,8 +334,16 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     local outDir = normalize(opts.outDir or target.outDir or "build")
     local completionPath = join(root, join(outDir, ".nupp-complete"))
+    -- The stamp is written when the build starts and renamed into place when it
+    -- finishes, because a rename keeps the mtime the write gave it. The launcher
+    -- rebuilds whenever a source is newer than this file, and a stamp dated from the
+    -- end of a build covers every edit made while it was running: an edit that landed
+    -- too late to be compiled was also too old to ask for another build, so the tree
+    -- stayed one edit behind until something unrelated happened to move.
+    local pendingCompletionPath = completionPath .. ".pending"
     if not opts.checkOnly then
         os.remove(completionPath)
+        os.remove(pendingCompletionPath)
     end
     -- A check and a build each keep their own record of what they last did. They agree
     -- about what a module is but not about what counts as done: a build's record is
@@ -355,6 +363,15 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     local newState = cache.emptyState()
     newState.compilerHash = toolFingerprint()
+    -- Dated here, before a single source has been read, and published by the rename
+    -- below once they all have been.
+    if not opts.checkOnly then
+        local stamped, stampErr = writeFile(pendingCompletionPath, newState.compilerHash .. "\n")
+        if not stamped then
+            io.stderr:write("nupp: " .. tostring(stampErr) .. "\n")
+            return 1
+        end
+    end
     -- What compiling a module reaches, rather than everything the compiler contains. An
     -- edit to a command, to the language server, or to anything else the module build
     -- does not call now leaves the last build's artifacts reusable, where before it
@@ -871,7 +888,13 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         io.stderr:write("nupp: " .. tostring(stateErr) .. "\n");
         return 1
     end
-    local completed, completionErr = writeFile(completionPath, newState.compilerHash .. "\n")
+    local completed, completionErr = os.rename(pendingCompletionPath, completionPath)
+    if not completed then
+        -- Nothing to publish, which is a build that took a path around the stamp
+        -- rather than a failure. Write one dated now: later than it should be, and
+        -- better than a tree that never looks built.
+        completed, completionErr = writeFile(completionPath, newState.compilerHash .. "\n")
+    end
     if not completed then
         io.stderr:write("nupp: " .. tostring(completionErr) .. "\n")
         return 1
@@ -1091,7 +1114,9 @@ local function treeDigest(path)
         -- stages that produced identical Lua still disagree there, because they are
         -- two directories.
         local derived = relative:match("^cache/") or relative:match("^%.bytecode/")
-        if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" and not native and not derived then
+        if relative ~= ".nupp-state.json" and not relative:match(
+            "^%.nupp%-complete"
+        ) and not native and not derived then
             parts[#parts + 1] = relative .. "\0" .. (hashFile(file) or "")
         end
     end
@@ -1274,7 +1299,9 @@ end
 local function copyTree(source, destination)
     for _, path in ipairs(listFiles(source)) do
         local relative = path:sub(#normalize(source) + 2)
-        if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" and not relative:match("^native/") then
+        if relative ~= ".nupp-state.json" and not relative:match(
+            "^%.nupp%-complete"
+        ) and not relative:match("^native/") then
             local ok, err = copyFile(path, join(destination, relative))
             if not ok then
                 return nil, err

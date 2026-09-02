@@ -987,14 +987,30 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
-    --- What a module's record is keyed on: its substitute when it has one, and
-    --- the file otherwise. Hashing the file while compiling something else would
-    --- make a rebuild reuse an artifact built from different source.
+    --- What a module's record is keyed on: its substitute when it has one, and the
+    --- text this build checked otherwise. Hashing the file while compiling something
+    --- else would make a rebuild reuse an artifact built from different source.
+    ---
+    --- The text the check saw rather than the file as it now stands, because a build
+    --- reads a module twice: the checker takes its tree when whatever requires it is
+    --- checked, and the scan reaches it later on its own turn. A source edited between
+    --- the two was recorded at content this build never compiled -- and since the
+    --- artifact beside it then matched what the record said it wrote, every later build
+    --- reused it and the edit was never compiled at all. `fileText` is memoized for the
+    --- life of the build, so both reads answer with whichever content got there first
+    --- and the record describes the artifact it is stored next to.
     local function sourceContentHash(path: string): string?
         local text = substituted[path]
         if text ~= nil then
             return hash.digest(text as string)
         end
+        local checked = inc.fileText(path)
+        if checked ~= nil then
+            return hash.digest(checked as string)
+        end
+
+        -- Not a file the checker reads through this query: a dependency's declarations
+        -- are answered by another one, and a missing file has no text at all.
 
         return hashFile(path)
     end
