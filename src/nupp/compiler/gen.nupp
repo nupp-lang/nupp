@@ -5698,22 +5698,11 @@ function gen.generate(
             -- that checks and builds but will not load. Binding the value keeps
             -- whatever computing it does and lets the block discard it.
             --
-            -- The block is also what lets the move be marked without a wrapper: this is
-            -- statement root, so the clear is a statement ahead of the value rather
-            -- than a
-            -- function built round it. The order it needs is the same one.
-            local inner = x.expr
-            local innerArgs = inner.args and inner.args.exprs or {}
-            local innerMove = ownershipMoveOf(innerArgs[1])
-            local innerActive = innerMove and activeWith(innerMove) or nil
+            -- `drop` is the one intrinsic that clears a move flag, and it has its own
+            -- branch above.
             e("do ", sourceLine(x))
-            if innerActive and inner.ownershipIntrinsic == "drop" then
-                e(("%s=false; "):format(innerActive))
-                inner.ownershipMoveCleared = true
-            end
             e("local " .. nextTemp() .. "=")
-            emit(inner)
-            inner.ownershipMoveCleared = nil
+            emit(x.expr)
             e(" end")
             return
 
