@@ -5566,34 +5566,6 @@ function gen.generate(
             e(" end")
             return
 
-        elseif kind == "compoundAssign" and x.target and x.target.soaField then
-            local target = x.target
-            local row = target.obj
-            local view = row and row.obj
-            if view and row.expr then
-                local viewName, indexName = nextTemp(), nextTemp()
-                e(("do const %s="):format(viewName), sourceLine(x))
-                emit(view)
-                e(("; const %s="):format(indexName))
-                emit(row.expr)
-                local slot = emitDepth.soa.slot(
-                    viewName,
-                    target.soaField.ordinal,
-                    indexName,
-                    emitDepth.soa.unchecked(row)
-                )
-                if pluck.portable then
-                    e(("; %s=%s %s "):format(slot, slot, x.op.kind:sub(1, -2)), x.op.line)
-                else
-                    e(("; %s %s "):format(slot, x.op.kind), x.op.line)
-                end
-                emit(x.value)
-                e(" end")
-            else
-                emitChildren(x)
-            end
-            return
-
         elseif kind == "callStmt" and x.expr and x.expr.logIntrinsic then
             -- The level test stands at the site rather than inside the call, so a
             -- filtered line evaluates none of its arguments -- which is the whole
@@ -7559,49 +7531,6 @@ function gen.generate(
                 emit(x.expr)
                 e(")")
             end
-            return
-
-        elseif kind == "assignStmt" and #(
-            x.targets or {}
-        ) == 1 and x.targets[1] and x.targets[1].soaField and #(x.exprs or {}) == 1 then
-            local target = x.targets[1]
-            local row = target.obj
-            local view = row and row.obj
-            if view and row.expr then
-                if emitDepth.soa.boundSlot(view, target.soaField.ordinal, row.expr) then
-                    e("=", sourceLine(x))
-                    emit(x.exprs[1])
-                    return
-                end
-                local viewName, indexName = nextTemp(), nextTemp()
-                e(("do const %s="):format(viewName), sourceLine(x))
-                emit(view)
-                e(("; const %s="):format(indexName))
-                emit(row.expr)
-                e(
-                    (
-                        "; %s="
-                    ):format(
-                        emitDepth.soa.slot(viewName, target.soaField.ordinal, indexName, emitDepth.soa.unchecked(row))
-                    )
-                )
-                emit(x.exprs[1])
-                e(" end")
-            else
-                emitChildren(x)
-            end
-            return
-
-        elseif kind == "assignStmt" and #(
-            x.targets or {}
-        ) == 1 and x.targets[1] and x.targets[1].soaRow and #(x.exprs or {}) == 1 then
-            local target = x.targets[1]
-            emit(target.obj)
-            e(":set(", sourceLine(x))
-            emit(target.expr)
-            e(",")
-            emit(x.exprs[1])
-            e(")")
             return
 
         elseif kind == "call" and x.layoutOf then
