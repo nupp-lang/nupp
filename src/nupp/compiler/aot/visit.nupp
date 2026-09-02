@@ -456,6 +456,15 @@ laneStatement = function(node: lane.Statement, visitor: visit.Visitor): nil
         callback(node)
     end
 
+    -- A uniform multiple-result call stays the scalar statement it was: the
+    -- rewrite leaves it alone, the verifier checks it with the scalar rules,
+    -- and the emitter renders it as one. Its call is a scalar expression.
+    if (node as any).op == "multi_let" then
+        scalarExpression((node as any).call as scalarIR.Expr, visitor)
+
+        return
+    end
+
     return switch node.op do
         case "let" -> do
             local value = (node as lane.Let).value

@@ -344,4 +344,32 @@ function M.pointerSpansSeeLoadsBeneathWideArithmetic()
     assert(used.values == true, "a span read beneath 64-bit arithmetic must count as used")
 end
 
+function M.laneWalkReachesAUniformMultipleBinding()
+    -- A uniform multiple-result call stays a scalar `multi_let` inside a lane
+    -- body. The rewrite emits one, the verifier admits one and the emitter
+    -- renders one; the walk used to fall through it without visiting the call.
+    local program = {
+        lanes = {
+            shape = "mixed4",
+            lanes = 4,
+            statements = {
+                {
+                    op = "multi_let",
+                    call = {op = "helper_call", helper = "pair", args = {localValue("argument")}, type = "multi"},
+                    bindings = {{name = "first", cName = "first", type = "u32"}},
+                }
+            },
+        },
+    }
+    local seen = {}
+    visit.program(program, {
+        scalarExpression = function(expression)
+            if expression.op == "local" then
+                seen[expression.name] = true
+            end
+        end
+    })
+    assert(seen.argument, "the lane walk reaches the call's arguments")
+end
+
 return M
