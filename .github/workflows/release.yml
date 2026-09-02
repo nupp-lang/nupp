@@ -488,11 +488,31 @@ jobs:
           foreach ($command in @("cc", "gcc", "clang", "ar", "ld", "lld-link")) {
             "@exit /b 97" | Set-Content "poison/$command.cmd"
           }
+          $readelf = Join-Path $env:GITHUB_WORKSPACE (
+            "release/package/lib/nupp/compiler-packs/" +
+            "x86_64-pc-windows-msvc/x86_64-pc-windows-msvc/" +
+            "toolchain/bin/llvm-readelf.exe"
+          )
+          if (-not (Test-Path -LiteralPath $readelf)) {
+            throw "installed compiler pack has no PE reader at $readelf"
+          }
           $env:PATH = "$env:GITHUB_WORKSPACE\poison;$env:PATH"
           Push-Location project
           & "$env:GITHUB_WORKSPACE\release\package\nupp.exe" build --format json |
             Set-Content "$env:GITHUB_WORKSPACE\release\compiler-pack-windows-result.json"
           if ($LASTEXITCODE -ne 0) { throw "installed compiler-pack build failed" }
+          $imports = & $readelf --coff-imports build/pack-smoke.exe 2>&1
+          $status = $LASTEXITCODE
+          $imports | Write-Output
+          if ($status -ne 0) {
+            throw "could not inspect compiler-pack output imports (exit $status)"
+          }
+          $importText = $imports -join "`n"
+          foreach ($runtime in @("libunwind.dll", "libc++.dll", "libwinpthread-1.dll", "libgcc_s_")) {
+            if ($importText -match [regex]::Escape($runtime)) {
+              throw "standalone compiler-pack output imports $runtime"
+            }
+          }
           $answer = & build/pack-smoke.exe
           $status = $LASTEXITCODE
           if ($status -ne 0 -or $answer -ne "15") {
