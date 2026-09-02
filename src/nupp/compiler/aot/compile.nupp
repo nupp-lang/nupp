@@ -89,7 +89,10 @@ record compile.Artifacts
     --- Shader artifacts by logical program symbol. CPU programs have no entry.
     gpu: {[string]: gpuartifact.Artifact}
 
-    --- Where each program's declaration was written, in the same order.
+    --- Where each source-declared program was written, in `programs` order.
+    --- Const specializations are appended to `programs` after these and have
+    --- no entry here: their several programs share one declaration, which
+    --- `constFamilies` records.
     sites: {compile.Site}
 
     --- Const-generic declarations whose several programs share one source site.
@@ -815,16 +818,22 @@ function compile.artifacts(
         qualifySymbols(cpuPrograms, filename)
     end
 
-    local generatedGpuBindings: {string} = {}
-    for _, program in ipairs(programs) do
-        local artifact = gpu[program.symbol]
-        if artifact ~= nil then
-            generatedGpuBindings[#generatedGpuBindings + 1] = gpuBinding.replacement(program, artifact, browser)
-        end
-    end
+    -- A file with no CPU program has no binding module to stand in front of
+    -- the C, so the GPU replacements are the whole binding. Beside CPU
+    -- programs they are not part of it: the build rewrites each GPU
+    -- declaration in place from `gpu` instead.
     local generatedBinding = bindingRules.module(cpuPrograms, library)
-    if #cpuPrograms == 0 and #generatedGpuBindings > 0 then
-        generatedBinding = table.concat(generatedGpuBindings, "\n\n") .. "\n"
+    if #cpuPrograms == 0 then
+        local generatedGpuBindings: {string} = {}
+        for _, program in ipairs(programs) do
+            local artifact = gpu[program.symbol]
+            if artifact ~= nil then
+                generatedGpuBindings[#generatedGpuBindings + 1] = gpuBinding.replacement(program, artifact, browser)
+            end
+        end
+        if #generatedGpuBindings > 0 then
+            generatedBinding = table.concat(generatedGpuBindings, "\n\n") .. "\n"
+        end
     end
 
     return new compile.Artifacts(
