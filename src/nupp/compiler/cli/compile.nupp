@@ -80,6 +80,29 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
     )
 end
 
+--- Reads, parses and checks one file, reporting every diagnostic the way the text
+--- form reports them. Returns the parse and the source it came from, or nil once
+--- what stopped it has been said: a command that inspects a checked tree rather than
+--- compiling it starts here, so that it sees the same tree a build would.
+function compile.check(path: string, env: table, opts: {[string]: any}?): (any?, string?)
+    local source, readErr = fs.readFile(path)
+    if not source then
+        io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+        return nil
+    end
+    local result = require("nupp.compiler.parser").parse(source, path)
+    if #result.errors > 0 then
+        diagnosticMod.report(result.errors)
+        return nil
+    end
+    local diags = require("nupp.compiler.check").check(result, path, env, opts)
+    if diagnosticMod.report(diags) then
+        return nil
+    end
+
+    return result, source
+end
+
 --- Compiles one file to Lua source. Returns the generated code, or nil and a short
 --- reason after having reported the diagnostics that stopped it.
 function compile.module(path: string, env: table, settings: compile.Settings): string?, string?
