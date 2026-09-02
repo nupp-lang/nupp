@@ -1428,7 +1428,6 @@ end
 -- OPT-6 indexed-range
 ----------------------------------------------------------------------------
 
--- Checking has already attached one representation-independent proof to each
 -- Whether `node`, a name bound to a view, is used directly under `parent` in one of
 -- the forms every view lowering supports: its indexed length, an indexed element
 -- read, or seeding a const local. A caller adds the forms only it can lower.
@@ -1449,6 +1448,7 @@ local function directViewUse(node, parent)
     return false
 end
 
+-- Checking has already attached one representation-independent proof to each
 -- admitted access. Optimization merely selects the direct adapter; it does not
 -- rediscover length, receiver or induction relationships from source spelling.
 local function indexedRangeWalk(result, remarks)
