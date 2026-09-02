@@ -2889,6 +2889,32 @@ return {decode = decode}
     assert(not out:find("traceback", 1, true), "rather than by the verifier: " .. out)
 end
 
+function M.aNestedLoopInAMapEntryIsProvedByItsOwnBound()
+    -- Under `for j = 1, #weights` the read `weights[j]` is proved by that
+    -- loop's own bound, whatever the map's guard prologue related to `i`. It
+    -- used to be checked against the map's guarded spans and refused with a
+    -- guard that compared `weights` with itself.
+    local body = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function rows(
+    exclusive output: span.WriteSpan<number>,
+    borrows input: span.Span<number>,
+    borrows weights: span.Span<number>
+): nil
+    if #output ~= #input then
+        error("length")
+    end
+    for i = 1, #output do
+        local sum = 0
+        for j = 1, BOUND do
+            sum = sum + weights[j]
+        end
+        output[i] = input[i] * sum
+    end
+end
+
 return {rows = rows}
 ]]
     local dir = project{["nested.nupp"] = body:gsub("BOUND", "#weights"), ["literal.nupp"] = body:gsub("BOUND", "10"),}

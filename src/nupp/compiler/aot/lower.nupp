@@ -4682,15 +4682,22 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             local bounding = from.op == "constant_i32" and (
                 from as scalarIR.IntConstant
             ).value == "1" and to.op == "span_count" and (to as scalarIR.SpanCount).span or nil
+            -- Inside the nested loop only its own bound proves an index access,
+            -- whatever the enclosing map's guard prologue related to the map
+            -- index: the verifier admits exactly `boundSpan` under a nested
+            -- `fornum`, so lowering proves the same thing and refuses the rest
+            -- at its line.
             local previousIndex, previousCName = kernel.index, kernel.indexCName
-            local previousBound = kernel.boundSpan
+            local previousBound, previousMapEntry = kernel.boundSpan, kernel.mapEntry
             kernel.index = binding.name
             kernel.indexCName = binding.cName
             kernel.boundSpan = bounding
+            kernel.mapEntry = false
             local loopBody = lower.block(loop.body ~= nil and (loop.body as cst.Block).stats or {}, inner, kernel)
             kernel.index = previousIndex
             kernel.indexCName = previousCName
             kernel.boundSpan = previousBound
+            kernel.mapEntry = previousMapEntry
             out[
                 #out + 1
             ] = new scalarIR.Fornum(
