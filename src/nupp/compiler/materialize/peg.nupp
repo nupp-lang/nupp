@@ -1119,6 +1119,52 @@ local function singleResult(result, descriptor): boolean
     return result ~= "any" and #result == 1 and result[1] == descriptor
 end
 
+-- The nodes a sequence runs in order, with nested sequences opened up so `(a b) c`
+-- and `a b c` plan alike. `resolve` maps an index through rule references first.
+local function flattenSequence(nodes, index, out, resolve)
+    if resolve then
+        index = resolve(index)
+    end
+    local node = nodes[index]
+    if node[1] == "sequence" then
+        for child = 2, #node do
+            flattenSequence(nodes, node[child], out, resolve)
+        end
+    else
+        out[#out + 1] = index
+    end
+
+    return out
+end
+
+local function hasCaptures(nodes, index, seen)
+    if seen[index] then
+        return false
+    end
+    seen[index] = true
+    local node = nodes[index]
+    local op = node[1]
+    if op == "capture" or op == "collect" or op == "action" or op == "position" then
+        return true
+    elseif op == "sequence" or op == "choice" or op == "difference" then
+        for child = 2, #node do
+            if hasCaptures(nodes, node[child], seen) then
+                return true
+            end
+        end
+    elseif op == "zeroOrMore"
+        or op == "oneOrMore"
+        or op == "optional"
+        or op == "and"
+        or op == "not"
+        or op == "reference"
+    then
+        return hasCaptures(nodes, node[2], seen)
+    end
+
+    return false
+end
+
 local function searchPlan(validated)
     local nodes, root = validated.nodes, validated.root
     local nullable = nullableNodes(nodes)
@@ -1286,18 +1332,21 @@ local function searchPlan(validated)
         elseif node[1] == "eof" then
             return "$"
         elseif node[1] == "sequence" then
+            -- A repetition may only be greedy at the very end of the whole match, so
+            -- nested sequences are opened up before deciding which child is last.
+            local children = flattenSequence(nodes, index, {}, dereference)
             local parts = {}
-            for child = 2, #node do
-                local childNode = nodes[dereference(node[child])]
-                local lastConsuming = child == #node or (
-                    child == #node - 1 and nodes[dereference(node[#node])][1] == "eof"
+            for position, child in ipairs(children) do
+                local childNode = nodes[child]
+                local lastConsuming = position == #children or (
+                    position == #children - 1 and nodes[children[#children]][1] == "eof"
                 )
                 local part
                 if childNode[1] == "oneOrMore" and lastConsuming then
                     local atom = atomPattern(childNode[2])
                     part = atom and (atom .. "+") or nil
                 else
-                    part = fixedPattern(node[child], false)
+                    part = fixedPattern(child, false)
                 end
                 if not part then
                     return nil
@@ -1316,30 +1365,7 @@ local function searchPlan(validated)
 
     local directRoot = dereference(root)
     local directResult
-    local function hasCaptures(index, seen)
-        index = dereference(index)
-        if seen[index] then
-            return false
-        end
-        seen[index] = true
-        local node = nodes[index]
-        local op = node[1]
-        if op == "capture" or op == "collect" or op == "action" or op == "position" then
-            return true
-        elseif op == "sequence" or op == "choice" or op == "difference" then
-            for child = 2, #node do
-                if hasCaptures(node[child], seen) then
-                    return true
-                end
-            end
-        elseif op == "zeroOrMore" or op == "oneOrMore" or op == "optional" or op == "and" or op == "not" then
-            return hasCaptures(node[2], seen)
-        end
-
-        return false
-    end
-
-    if singleResult(validated.result, "integer") and not hasCaptures(root, {}) then
+    if singleResult(validated.result, "integer") and not hasCaptures(nodes, root, {}) then
         directResult = "integer"
     elseif singleResult(validated.result, "string") and nodes[directRoot][1] == "capture" then
         directRoot = nodes[directRoot][2]
@@ -1446,19 +1472,7 @@ local function compilePlan(validated)
         return out
     end
 
-    local parts = {}
-    local function flatten(index)
-        local node = nodes[index]
-        if node[1] == "sequence" then
-            for child = 2, #node do
-                flatten(node[child])
-            end
-        else
-            parts[#parts + 1] = index
-        end
-    end
-
-    flatten(validated.root)
+    local parts = flattenSequence(nodes, validated.root, {}, nil)
 
     local fastFixed
     if singleResult(validated.result, "integer") and #parts > 1 and nodes[parts[#parts]][1] == "eof" then
@@ -1591,19 +1605,7 @@ local function compilePlan(validated)
             root = nil
         end
         if root then
-            local repeatParts = {}
-            local function flattenRepeat(index)
-                local node = nodes[index]
-                if node[1] == "sequence" then
-                    for child = 2, #node do
-                        flattenRepeat(node[child])
-                    end
-                else
-                    repeatParts[#repeatParts + 1] = index
-                end
-            end
-
-            flattenRepeat(root)
+            local repeatParts = flattenSequence(nodes, root, {}, nil)
             local eof = #repeatParts > 1 and nodes[repeatParts[#repeatParts]][1] == "eof"
             if eof then
                 table.remove(repeatParts)
@@ -1627,27 +1629,6 @@ local function compilePlan(validated)
         end
     end
 
-    local function hasCaptures(index, seen)
-        if seen[index] then
-            return false
-        end
-        seen[index] = true
-        local node, op = nodes[index], nodes[index][1]
-        if op == "capture" or op == "collect" or op == "action" or op == "position" then
-            return true
-        elseif op == "sequence" or op == "choice" or op == "difference" then
-            for child = 2, #node do
-                if hasCaptures(node[child], seen) then
-                    return true
-                end
-            end
-        elseif op == "zeroOrMore" or op == "oneOrMore" or op == "optional" or op == "and" or op == "not" then
-            return hasCaptures(node[2], seen)
-        end
-
-        return false
-    end
-
     -- Only the generated kernels consult the prefilter; the LPeg fallback runs the
     -- graph from every position itself.
     local search = (fastFixed or fastScan or fastRepeat) and searchPlan(validated) or nil
@@ -1660,7 +1641,7 @@ local function compilePlan(validated)
         fastRepeat = fastRepeat,
         search = search,
         actions = validated.slots,
-        captureful = hasCaptures(validated.root, {}),
+        captureful = hasCaptures(nodes, validated.root, {}),
     }
 end
 
