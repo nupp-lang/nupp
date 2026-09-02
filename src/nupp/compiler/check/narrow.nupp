@@ -83,6 +83,29 @@ type narrow.Ops = {
     applyFacts: function(facts: {[string]: Type})
 }
 
+--- Narrows every name bound from one correlated pack to what the surviving
+--- `arms` hold at its slot: the names the group binds, and the copies made of them.
+local function correlateGroup(into: {[string]: Type}, arms: {T.Pack}, group: any): nil
+    for index, sibling in pairs(group.names) do
+        local members = {}
+        for _, arm in ipairs(arms) do
+            members[#members + 1] = T.packAt(arm, index) or T.nil_
+        end
+        if #members > 0 then
+            into[sibling] = T.union(members)
+        end
+    end
+    for _, copy in ipairs(group.extraNames or {}) do
+        local members = {}
+        for _, arm in ipairs(arms) do
+            members[#members + 1] = T.packAt(arm, copy.index) or T.nil_
+        end
+        if #members > 0 then
+            into[copy.name] = T.union(members)
+        end
+    end
+end
+
 --- Installs the narrowing on one run.
 ---
 --- @param c the run's state
@@ -322,29 +345,8 @@ function narrow.install(c: state.Checker): narrow.Ops
                             falseArms[#falseArms + 1] = arm
                         end
                     end
-                    local function correlate(into, arms)
-                        for index, sibling in pairs(group.names) do
-                            local members = {}
-                            for _, arm in ipairs(arms) do
-                                members[#members + 1] = T.packAt(arm, index) or T.nil_
-                            end
-                            if #members > 0 then
-                                into[sibling] = T.union(members)
-                            end
-                        end
-                        for _, copy in ipairs(group.extraNames or {}) do
-                            local members = {}
-                            for _, arm in ipairs(arms) do
-                                members[#members + 1] = T.packAt(arm, copy.index) or T.nil_
-                            end
-                            if #members > 0 then
-                                into[copy.name] = T.union(members)
-                            end
-                        end
-                    end
-
-                    correlate(out.t, trueArms)
-                    correlate(out.f, falseArms)
+                    correlateGroup(out.t, trueArms, group)
+                    correlateGroup(out.f, falseArms, group)
                 end
                 return out
             end
@@ -514,29 +516,8 @@ function narrow.install(c: state.Checker): narrow.Ops
                                     rejected[#rejected + 1] = arm
                                 end
                             end
-                            local function addCorrelated(into, arms)
-                                for index, sibling in pairs(group.names) do
-                                    local members = {}
-                                    for _, arm in ipairs(arms) do
-                                        members[#members + 1] = T.packAt(arm, index) or T.nil_
-                                    end
-                                    if #members > 0 then
-                                        into[sibling] = T.union(members)
-                                    end
-                                end
-                                for _, copy in ipairs(group.extraNames or {}) do
-                                    local members = {}
-                                    for _, arm in ipairs(arms) do
-                                        members[#members + 1] = T.packAt(arm, copy.index) or T.nil_
-                                    end
-                                    if #members > 0 then
-                                        into[copy.name] = T.union(members)
-                                    end
-                                end
-                            end
-
-                            addCorrelated(out.t, selected)
-                            addCorrelated(out.f, rejected)
+                            correlateGroup(out.t, selected, group)
+                            correlateGroup(out.f, rejected, group)
                         end
                     end
                     -- what the value can still hold once this member is ruled out
