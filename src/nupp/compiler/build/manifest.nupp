@@ -1029,6 +1029,21 @@ local function validateTargetReference(build, value, label)
     return true
 end
 
+-- An environment block is a table of string names to string values, wherever a
+-- manifest carries one.
+local function validateEnv(env: any, label: string): (boolean?, string?)
+    if type(env) ~= "table" then
+        return nil, label .. " must be a table"
+    end
+    for key, value in pairs(env) do
+        if type(key) ~= "string" or type(value) ~= "string" then
+            return nil, label .. " keys and values must be strings"
+        end
+    end
+
+    return true
+end
+
 local function validateManifest(config: manifest.Config): boolean?, string?
     local valid, err = validateArray(config.include, "include", "string")
     if not valid then
@@ -1446,13 +1461,9 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             end
         end
         if config.test.env ~= nil then
-            if type(config.test.env) ~= "table" then
-                return nil, "test.env must be a table"
-            end
-            for key, value in pairs(config.test.env) do
-                if type(key) ~= "string" or type(value) ~= "string" then
-                    return nil, "test.env keys and values must be strings"
-                end
+            local envOk, envErr = validateEnv(config.test.env, "test.env")
+            if not envOk then
+                return nil, envErr
             end
         end
     end
@@ -1493,13 +1504,9 @@ local function validateManifest(config: manifest.Config): boolean?, string?
                 end
             end
             if task.env ~= nil then
-                if type(task.env) ~= "table" then
-                    return nil, label .. ".env must be a table"
-                end
-                for key, value in pairs(task.env) do
-                    if type(key) ~= "string" or type(value) ~= "string" then
-                        return nil, label .. ".env keys and values must be strings"
-                    end
+                local envOk, envErr = validateEnv(task.env, label .. ".env")
+                if not envOk then
+                    return nil, envErr
                 end
             end
         end

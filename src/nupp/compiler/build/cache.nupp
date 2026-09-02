@@ -148,8 +148,7 @@ type cache.DependencyRecord = {
 --- every project header. It gated reuse for the whole project, so an edit to any
 --- exported type rechecked every module. Each module now records the project queries it
 --- actually read (`incremental.projectDependencies`), which invalidates the readers of
---- a
---- changed declaration and nobody else, and the whole-project digest became a hash
+--- a changed declaration and nobody else, and the whole-project digest became a hash
 --- computed on every command and compared by nothing.
 type cache.State = {
     version: integer,
@@ -288,7 +287,14 @@ type cache.ModuleGraph = {
 local GRAPH_STAMP = "modules/2"
 
 local graphMemo: cache.ModuleGraph? = nil
+
+--- Whether this process has read or computed the graph, and whether a store has
+--- been given it. A caller with nowhere to write computes it in this process,
+--- which must not stop the next caller that has somewhere from keeping it for
+--- the next command.
 local graphAttempted = false
+
+local graphStored = false
 
 --- The module name a file under `root` provides: the path, without its extension, with
 --- the separators spelled as dots. `init` is how a directory names itself.
@@ -379,7 +385,7 @@ end
 --- command; the store makes it once per compiler. Passing no directory computes it in
 --- this process, which is what a caller with nowhere to write does.
 local function moduleGraph(cacheDir: string?, digest: function(string): string): cache.ModuleGraph?
-    if graphAttempted then
+    if graphAttempted and (graphMemo == nil or graphStored or cacheDir == nil) then
         return graphMemo
     end
     graphAttempted = true
@@ -397,12 +403,20 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
     local root = dirname(dirname(dir))
     local store = nil
     if cacheDir then
+        graphStored = true
         store = require(
             "nupp.compiler.build.store"
         ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. toolFingerprint(digest))
         local stored = store.value
         if type(stored) == "table" then
             graphMemo = stored as cache.ModuleGraph
+
+            return graphMemo
+        end
+        -- Computed already by a caller with nowhere to keep it.
+        if graphMemo ~= nil then
+            store.set(graphMemo)
+            store.save()
 
             return graphMemo
         end

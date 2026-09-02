@@ -277,7 +277,9 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     updateProjectFiles()
     q:setInput("backendResolution", "root", nil)
 
-    q:define("fileText", function(_, path)
+    -- Two queries, one reader: a source file and a file a module reads at compile
+    -- time are tracked apart, but both are the bytes at a path or nothing.
+    local function wholeFile(_, path)
         local f = io.open(path, "rb")
         if not f then
             return nil
@@ -286,18 +288,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         f:close()
 
         return s
-    end)
+    end
 
-    q:define("externalFile", function(_, path)
-        local f = io.open(path, "rb")
-        if not f then
-            return nil
-        end
-        local s = f:read("*a")
-        f:close()
-
-        return s
-    end)
+    q:define("fileText", wholeFile)
+    q:define("externalFile", wholeFile)
 
     q:define("parse", function(self, path)
         local text = self:get("fileText", path)
