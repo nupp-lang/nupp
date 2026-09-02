@@ -413,7 +413,14 @@ jobs:
       - name: Check the Windows Rust toolchain contract
         if: runner.os == 'Windows'
         shell: bash
-        run: ./bin/nupp test --jobs=1 rusttoolchaintest toolchaintest
+        run: |
+          set -euo pipefail
+          bash_path=$(command -v bash)
+          sh_path=$(dirname "$bash_path")/sh.exe
+          test -f "$sh_path"
+          NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
+          NUPP_TEST_SH=$(cygpath -w "$sh_path") \
+          ./bin/nupp test --jobs=1 rusttoolchaintest toolchaintest
 
       # Name the Rust-native release boundary before the broad suite. This runs
       # each resource owner's stress/cancellation tests, the aggregate C ABI
