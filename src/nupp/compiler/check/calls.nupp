@@ -691,6 +691,100 @@ function calls.install(c: state.Checker): calls.Ops
         end
     end
 
+    -- Parameter modes describe capability flow, so they also break an
+    -- otherwise identical overload tie. Ordinary and borrowed callbacks prefer
+    -- a scoped arm; values with movable capability prefer a taking arm.
+    local function modePreference(ft: T.Func, pack: T.Pack): integer
+        local score: integer = 0
+        for position, actual in ipairs(pack.head) do
+            local mode = ft.paramModes and ft.paramModes[position] or "plain"
+            local kind = c.ownershipKind(actual)
+            if mode == "scoped" and kind ~= "affine" and kind ~= "pinned" then
+                score = score + 1
+            elseif mode == "takes" and (kind == "affine" or kind == "pinned") then
+                score = score + 1
+            end
+        end
+
+        return score
+    end
+
+    local function retainPreferredModes(survivors, originals, choices, packs)
+        if #survivors < 2 then
+            return survivors, originals, choices
+        end
+        local scores, best = {}, 0 as integer
+        for position, candidate in ipairs(survivors) do
+            scores[position] = modePreference(candidate, packs[position])
+            best = math.max(best, scores[position])
+        end
+        if best == 0 then
+            return survivors, originals, choices
+        end
+        local preferred, preferredOriginals, preferredChoices = {}, {}, {}
+        for position, score in ipairs(scores) do
+            if score == best then
+                preferred[#preferred + 1] = survivors[position]
+                preferredOriginals[#preferredOriginals + 1] = originals[position]
+                if choices then
+                    preferredChoices[#preferredChoices + 1] = choices[position]
+                end
+            end
+        end
+
+        return preferred, preferredOriginals, choices and preferredChoices or nil
+    end
+
+    --- The overload a call selects: its specialized signature, the candidate it came
+    --- from, and the choice `probe` made for it. `probe` answers a candidate with
+    --- those, or with nil and why it was rejected. Where a choice carries no
+    --- argument pack of its own, `preferencePack` is read for mode preference among
+    --- the survivors, and nil leaves them all standing. Nothing comes back once no
+    --- candidate or several accept the call; that is reported here, naming the
+    --- `operation` where one is given and attaching `details`.
+    local function selectOverload(overloads, probe, site, operation, preferencePack, details)
+        local survivors, originals, choices, rejections = {}, {}, {}, {}
+        for _, candidate in ipairs(overloads) do
+            local specialized, choice, why = probe(candidate)
+            if specialized then
+                survivors[#survivors + 1] = specialized
+                originals[#originals + 1] = candidate
+                choices[#choices + 1] = choice or false
+            else
+                rejections[#rejections + 1] = T.tostring(candidate) .. ": " .. (why or "rejected")
+            end
+        end
+        if preferencePack or choices[1] then
+            local packs = {}
+            for position, choice in ipairs(choices) do
+                packs[position] = choice and choice.pack or preferencePack
+            end
+            survivors, originals, choices = retainPreferredModes(survivors, originals, choices, packs)
+        end
+        local named = operation and operation .. " " or ""
+        if #survivors == 0 then
+            c.diag(
+                "NUPP2125",
+                site,
+                ("no %soverload accepts this call: %s"):format(named, table.concat(rejections, "; ")),
+                nil,
+                details
+            )
+            return nil
+        elseif #survivors > 1 then
+            c.diag(
+                "NUPP2126",
+                site,
+                ("several %soverloads accept this call: %s"):format(named, signaturesText(survivors)),
+                nil,
+                details
+            )
+            return nil
+        end
+
+        return survivors[1], originals[1], choices[1] or nil
+    end
+
     ---------------------------------------------------------------------
     -- Contracts
     ---------------------------------------------------------------------
@@ -704,32 +798,22 @@ function calls.install(c: state.Checker): calls.Ops
         site.effectUnknownOperation = true
         local overloads = ft and callableMembers(ft) or nil
         if overloads then
-            local survivors, rejections = {}, {}
             local argPack = T.pack(ats)
-            for _, candidate in ipairs(overloads) do
-                local specialized, why = probeSignature(candidate, argPack, nil, c.reductionControl)
-                if specialized then
-                    survivors[#survivors + 1] = specialized
-                else
-                    rejections[#rejections + 1] = T.tostring(candidate) .. ": " .. (why or "rejected")
-                end
-            end
-            if #survivors == 0 then
-                c.diag(
-                    "NUPP2125",
-                    site,
-                    ("no %s overload accepts this call: %s"):format(operation, table.concat(rejections, "; "))
-                )
-                return T.any
-            elseif #survivors > 1 then
-                c.diag(
-                    "NUPP2126",
-                    site,
-                    ("several %s overloads accept this call: %s"):format(operation, signaturesText(survivors))
-                )
+            local winner = selectOverload(
+                overloads,
+                function(candidate)
+                    local specialized, why = probeSignature(candidate, argPack, nil, c.reductionControl)
+                    return specialized, nil, why
+                end,
+                site,
+                operation,
+                nil,
+                nil
+            )
+            if not winner then
                 return T.any
             end
-            ft = survivors[1]
+            ft = winner
         end
         if not ft or ft.tag ~= "func" then
             c.diag("NUPP2003", site, operation .. " contract is not a function")
@@ -1339,49 +1423,6 @@ function calls.install(c: state.Checker): calls.Ops
         local ats = knownAts or {}
         local argPack
         local argNodes = {}
-        -- Parameter modes describe capability flow, so they also break an
-        -- otherwise identical overload tie. Ordinary and borrowed callbacks prefer
-        -- a scoped arm; values with movable capability prefer a taking arm.
-        local function modePreference(ft: T.Func, pack: T.Pack): integer
-            local score: integer = 0
-            for position, actual in ipairs(pack.head) do
-                local mode = ft.paramModes and ft.paramModes[position] or "plain"
-                local kind = c.ownershipKind(actual)
-                if mode == "scoped" and kind ~= "affine" and kind ~= "pinned" then
-                    score = score + 1
-                elseif mode == "takes" and (kind == "affine" or kind == "pinned") then
-                    score = score + 1
-                end
-            end
-
-            return score
-        end
-
-        local function retainPreferredModes(survivors, originals, choices, packs)
-            if #survivors < 2 then
-                return survivors, originals, choices
-            end
-            local scores, best = {}, 0 as integer
-            for position, candidate in ipairs(survivors) do
-                scores[position] = modePreference(candidate, packs[position])
-                best = math.max(best, scores[position])
-            end
-            if best == 0 then
-                return survivors, originals, choices
-            end
-            local preferred, preferredOriginals, preferredChoices = {}, {}, {}
-            for position, score in ipairs(scores) do
-                if score == best then
-                    preferred[#preferred + 1] = survivors[position]
-                    preferredOriginals[#preferredOriginals + 1] = originals[position]
-                    if choices then
-                        preferredChoices[#preferredChoices + 1] = choices[position]
-                    end
-                end
-            end
-
-            return preferred, preferredOriginals, choices and preferredChoices or nil
-        end
 
         if advanced then
             local rawArguments = {}
@@ -1571,46 +1612,25 @@ function calls.install(c: state.Checker): calls.Ops
 
             local selected
             if overloads then
-                local survivors, originals, rejections, choices = {}, {}, {}, {}
-                for _, candidate in ipairs(overloads) do
-                    local choice, specialized, why = chooseFor(candidate)
-                    if choice and specialized then
-                        survivors[#survivors + 1] = specialized
-                        originals[#originals + 1] = candidate
-                        choices[#choices + 1] = choice
-                    else
-                        rejections[#rejections + 1] = T.tostring(candidate) .. ": " .. (why or "arguments do not fit")
-                    end
-                end
-                local preferencePacks = {}
-                for position, choice in ipairs(choices) do
-                    preferencePacks[position] = choice.pack
-                end
-                survivors, originals, choices = retainPreferredModes(survivors, originals, choices, preferencePacks)
                 node.overloadCandidates = overloads
-                if #survivors == 0 then
-                    c.diag(
-                        "NUPP2125",
-                        node,
-                        "no overload accepts this call: " .. table.concat(rejections, "; "),
-                        nil,
-                        callDetails(node)
-                    )
-                    return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
-                elseif #survivors > 1 then
-                    c.diag(
-                        "NUPP2126",
-                        node,
-                        "several overloads accept this call: " .. signaturesText(survivors),
-                        nil,
-                        callDetails(node)
-                    )
+                local winner, original, choice = selectOverload(
+                    overloads,
+                    function(candidate)
+                        local found, specialized, why = chooseFor(candidate)
+                        return specialized, found, why
+                    end,
+                    node,
+                    nil,
+                    nil,
+                    callDetails(node)
+                )
+                if not winner then
                     return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
                 end
-                calleeT = survivors[1]
-                node.overloadWinner = originals[1]
+                calleeT = winner
+                node.overloadWinner = original
                 node.signatureType = calleeT
-                selected = choices[1]
+                selected = choice
                 advancedOverloadSelected = true
             else
                 local choice, _, why = chooseFor(calleeT as T.Func)
@@ -1667,43 +1687,23 @@ function calls.install(c: state.Checker): calls.Ops
         end
 
         if overloads and not advancedOverloadSelected then
-            local survivors, originals, rejections = {}, {}, {}
-            for _, candidate in ipairs(overloads) do
-                local specialized, why = probeSignature(candidate, selectionPack, node.cdefCall, c.reductionControl)
-                if specialized then
-                    survivors[#survivors + 1] = specialized
-                    originals[#originals + 1] = candidate
-                else
-                    rejections[#rejections + 1] = T.tostring(candidate) .. ": " .. (why or "rejected")
-                end
-            end
-            local preferencePacks = {}
-            for position = 1, #survivors do
-                preferencePacks[position] = selectionPack
-            end
-            survivors, originals = retainPreferredModes(survivors, originals, nil, preferencePacks)
             node.overloadCandidates = overloads
-            if #survivors == 0 then
-                c.diag(
-                    "NUPP2125",
-                    node,
-                    "no overload accepts this call: " .. table.concat(rejections, "; "),
-                    nil,
-                    callDetails(node)
-                )
-                return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
-            elseif #survivors > 1 then
-                c.diag(
-                    "NUPP2126",
-                    node,
-                    "several overloads accept this call: " .. signaturesText(survivors),
-                    nil,
-                    callDetails(node)
-                )
+            local winner, original = selectOverload(
+                overloads,
+                function(candidate)
+                    local specialized, why = probeSignature(candidate, selectionPack, node.cdefCall, c.reductionControl)
+                    return specialized, nil, why
+                end,
+                node,
+                nil,
+                selectionPack,
+                callDetails(node)
+            )
+            if not winner then
                 return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
             end
-            calleeT = survivors[1]
-            node.overloadWinner = originals[1]
+            calleeT = winner
+            node.overloadWinner = original
             node.signatureType = calleeT
             if calleeT.ffiOut and #calleeT.ffiOut > 0 then
                 node.ffiOutContracts = calleeT.ffiOut
