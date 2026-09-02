@@ -1080,4 +1080,28 @@ function M.refinementsRejectWhatCannotBeEnforced()
    assertEq(refuses("other == 1"), "NUPP2122:3")
 end
 
+function M.constructionWidensAnInferredLiteral()
+   -- A field is a slot the value can be replaced in, so the type argument
+   -- construction infers from a literal is the literal's type: `Box<integer>`,
+   -- not `Box<1>`, the way `{1}` is an `{integer}`.
+   assertClean(table.concat({
+      "local record Box<T>",
+      "    value: T",
+      "end",
+      "local b: Box<integer> = new Box(value = 1)",
+      "local s: Box<string> = new Box(value = 'a')",
+      "b.value = 2",
+      "s.value = 'b'",
+      "return b, s",
+   }, "\n"))
+   assertClean(table.concat({
+      "local record Pair<T>",
+      "    first: T",
+      "    second: T",
+      "end",
+      "local p: Pair<integer> = new Pair(first = 1, second = 2)",
+      "return p",
+   }, "\n"))
+end
+
 return M

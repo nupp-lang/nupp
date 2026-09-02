@@ -129,6 +129,31 @@ local function isPluckPath(node: cst.Node?): boolean
     return node.kind == "dotIndex" and isPluckPath(node.obj)
 end
 
+--- A field is a slot the value can be replaced in, so a type argument that
+--- construction inferred from a literal is the literal's type rather than the
+--- one value: `new Box(value = 1)` is a `Box<integer>`, as `{1}` is an `{integer}`.
+local function widenLiteralBindings(map: {[any]: any}): nil
+    for tv, bound in pairs(map) do
+        if tv.tag == "typevar" then
+            if bound.tag == "literal" then
+                map[tv] = bound.base or T.string
+            elseif bound.tag == "union" then
+                local members, changed = {}, false
+                for j, member in ipairs(bound.members) do
+                    if member.tag == "literal" then
+                        members[j], changed = member.base or T.string, true
+                    else
+                        members[j] = member
+                    end
+                end
+                if changed then
+                    map[tv] = T.union(members)
+                end
+            end
+        end
+    end
+end
+
 local function constInferenceProblem(ft: T.Func, map: {[any]: any}): string?
     for _, cv in ipairs(ft.constParams or {}) do
         local value = map[cv]
@@ -1187,6 +1212,7 @@ function calls.install(c: state.Checker): calls.Ops
             end
             if genericMap then
                 -- the type arguments follow from the values supplied
+                widenLiteralBindings(genericMap)
                 ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, genericMap, node)
                 local inst = instantiateNominal(calleeT, genericMap)
                 return inst, {inst}
