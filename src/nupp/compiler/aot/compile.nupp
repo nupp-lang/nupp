@@ -292,20 +292,19 @@ function compile.constSpecializations(
 ): (compile.Artifacts?, {compile.Diagnostic})
     const maxPerModule = 8
     local diagnostics: {compile.Diagnostic} = {}
-    local context = new lower.Context(checked = true, reject = function(at: scalarIR.Source?, message: string): nil
-        diagnostics[
-            #diagnostics + 1
-        ] = new compile.Diagnostic(
-            file = filename,
-            line = at ~= nil and (at as scalarIR.Source).line or 1,
-            column = at ~= nil and (at as scalarIR.Source).column or 1,
-            message = message
-        )
-        error(REFUSED, 0)
-    end)
+    local context = new lower.Context(checked = true, reject = rejection(filename, diagnostics))
 
+    -- Returned rather than rejected: `reject` unwinds to the pcall below, and
+    -- there is none yet.
     if #parsed.errors > 0 then
-        context.reject(nil, "const specialization needs a checked source")
+        return nil, {
+            new compile.Diagnostic(
+                file = filename,
+                line = 1,
+                column = 1,
+                message = "const specialization needs a checked source"
+            ),
+        }
     end
 
     local found = lower.scan(parsed.root, true)
