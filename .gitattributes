@@ -6,11 +6,13 @@ host/notices/*.txt text eol=lf
 *.nupp text eol=lf
 
 # The tracked stage-0 compiler is compared byte-for-byte with a fresh bundle.
-# These two non-Nupp resources are embedded in that bundle, so all three need
-# one checkout spelling on Windows as well as Unix hosts.
+# Its non-Nupp text resources are embedded verbatim, so every one needs one
+# checkout spelling on Windows as well as Unix hosts.
 bootstrap/nupp.lua text eol=lf
 tests/run.lua text eol=lf
 src/nupp/compiler/build/stub-catalog.json text eol=lf
+src/nupp/runtime/vendor/lunajson/*.lua text eol=lf
+templates/** text eol=lf
 
 # The formatter corpus is bytes under test: a case exists to prove what the
 # formatter does with the line endings it was given, so nothing normalizes them.
