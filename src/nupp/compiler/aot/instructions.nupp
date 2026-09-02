@@ -340,10 +340,11 @@ function instructions.parse(assembly: string, architecture: string, system: stri
     for raw in (assembly .. "\n"):gmatch("([^\n]*)\n") do
         local line = trim(uncomment(raw, architecture))
         local label = line:match("^([%w_%$%.][%w_%$%.]*):$")
-        if line == "" or line:sub(1, 1) == "." then
-            -- A directive, an alignment or a section. None of them is an
-            -- instruction, and the ones that carry a symbol carry it in a form
-            -- the label below reads anyway.
+        -- A label is read before a directive is skipped: an ELF assembler's
+        -- private labels begin with `.` too, and `.L2:` is a label rather than
+        -- a directive.
+        if line == "" then
+            -- Nothing.
         elseif label ~= nil then
             if isLocalLabel(label as string) then
                 pending = label
@@ -361,6 +362,10 @@ function instructions.parse(assembly: string, architecture: string, system: stri
                 listings[#listings + 1] = current
                 pending = nil
             end
+        elseif line:sub(1, 1) == "." then
+            -- A directive, an alignment or a section. None of them is an
+            -- instruction, and the ones that carry a symbol carry it in a form
+            -- the label above reads anyway.
         elseif current ~= nil then
             local mnemonic = line:match("^([%w_%.][%w_%.]*)") or line
             local operands = trim(line:sub(#mnemonic + 1))
