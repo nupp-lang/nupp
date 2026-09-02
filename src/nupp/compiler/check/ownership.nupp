@@ -587,7 +587,12 @@ function ownership.install(c: state.Checker): ownership.Ops
                 and entryFacts.regionPath == regionPath
                 and 1
                 or 0
-            local active = exclusive and regionRoot.activeExclusiveRegions or regionRoot.activeRegions
+            -- Chosen with a branch: a table that was never created is nil, and an
+            -- `and ... or` would then read the other one.
+            local active = regionRoot.activeRegions
+            if exclusive then
+                active = regionRoot.activeExclusiveRegions
+            end
             for activePath, count in pairs(active or {}) do
                 if (
                     activePath == regionPath and count > ownCount
@@ -602,9 +607,11 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
             return false
         end
-        local count = exclusive and root.activeExclusiveBorrows or root.activeBorrows
+        if exclusive then
+            return (root.activeExclusiveBorrows or 0) > 0
+        end
 
-        return (count or 0) > 0
+        return (root.activeBorrows or 0) > 0
     end
 
     function own.checkExclusiveReceiver(receiver, at)
