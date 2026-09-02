@@ -4949,8 +4949,7 @@ function gen.generate(
         if kind == "recordDecl" and x.declKind == "struct" then
             if pluck.structvalue.enabled then
                 pluck.needRuntimeEffect(pluck.structvalue.effect)
-                local first = x[1]
-                local line = first and cst.isToken(first) and first.line or nil
+                local line = sourceLine(x)
                 local path = declPath(x)
                 local storage = path and "" or x.visibility == "global" and "" or "local "
                 local mt = "__nuppMt_" .. x.name.text
@@ -5084,8 +5083,7 @@ function gen.generate(
                     end
                 end
             end
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             local path = declPath(x)
             local storage = path and "" or x.visibility == "global" and "" or "const "
             -- The metatable is created up front so members declared later (function
@@ -5158,8 +5156,7 @@ function gen.generate(
                     end
                 end
             end
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             -- pcall tolerates re-declaration when two modules cdef one struct
             e(
                 (
@@ -5187,8 +5184,7 @@ function gen.generate(
                 emitDepth.diag(x.name, "NUPP3003", "cdef signature has no C spelling: " .. tostring(signatureWhy))
                 sig = "void " .. name .. "(void);"
             end
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             -- symbols come from the default namespace unless a library is named, in
             -- which case they resolve through a cached ffi.load
             local ns = "__nuppFfi.C"
@@ -5505,8 +5501,7 @@ function gen.generate(
                 pluck.needRuntimeEffect(pluck.bitops.effect)
             end
             local target = x.target
-            local first = target[1]
-            local line = first and cst.isToken(first) and first.line or (cst.isToken(target) and target.line or nil)
+            local line = sourceLine(target)
             -- Writes the assignment for a target already reduced to a slot expression
             -- that is cheap and safe to name twice. A `?.` slot suppresses both the
             -- read and the write on a nil receiver, which is what the operator
@@ -5916,8 +5911,7 @@ function gen.generate(
         elseif kind == "call" and x.ffiIntrinsic then
             -- the type argument becomes the ctype value the FFI expects
             needsFfi = true
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             -- a declared struct is already a ctype value; anything else is named by its
             -- C spelling
             local ctypeExpr = x.ffiTypeName
@@ -5963,8 +5957,7 @@ function gen.generate(
             -- one array ctype per element type, built once and reused
             needsFfi = true
             needsArrayCache = true
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             e("__nuppArray(", line)
             emit(x.carrayElem)
             e(")(")
@@ -5979,8 +5972,7 @@ function gen.generate(
             -- the declarations go in, and the library namespace comes out; indexing it
             -- resolves each symbol
             needsFfi = true
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             local library = x.cheaderLib and (pluck.hotLibraries[x.cheaderLib] or x.cheaderLib) or nil
             local ns = library and ("__nuppFfi.load(%q)"):format(library) or "__nuppFfi.C"
             -- pcall: a header may be declared twice in one process, and redeclaring a
@@ -6176,8 +6168,7 @@ function gen.generate(
         elseif (kind == "call" or kind == "safeCall") and x.constructorCall then
             -- A declared constructor is a direct call to the function minted for it,
             -- resolved here rather than dispatched at run time.
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             e(x.constructorCall .. "." .. constructorMember(x.constructorIndex), line)
             if x.args then
                 emit(x.args)
@@ -6185,8 +6176,7 @@ function gen.generate(
             return
 
         elseif (kind == "call" or kind == "safeCall") and x.structConstruct then
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             e(x.structConstruct .. "(", line)
             for index, binding in ipairs(x.recordFields or {}) do
                 if index > 1 then
@@ -6209,8 +6199,7 @@ function gen.generate(
             -- The fields come out in the order they were written, whether the call
             -- named them or left them to the declaration's order, because that is
             -- where the source put the evaluation of their values.
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             e("setmetatable({", line)
             for index, binding in ipairs(x.recordFields or {}) do
                 if index > 1 then
@@ -6232,8 +6221,7 @@ function gen.generate(
             -- and its `end` already occupy, which is what keeps the generated file's
             -- line count equal to the source's.
             local body = x.body
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             local names = {}
             for index, p in ipairs(body.params or {}) do
                 -- The receiver is written out the way a method's is, and is no more an
@@ -6301,8 +6289,7 @@ function gen.generate(
                 return
             end
             local body = x.body
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             local names = {}
             for _, p in ipairs(body.params or {}) do
                 if p.namedVararg then
@@ -6366,8 +6353,7 @@ function gen.generate(
                 return
             end
             needsFfi = true
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or nil
+            local line = sourceLine(x)
             local names = {}
             if x.name.method then
                 names[1] = "self"
@@ -7049,8 +7035,7 @@ function gen.generate(
             -- control variable instead of introducing a temporary and copying it into
             -- the source binding on every iteration.
             local index = names[1] and names[1].text or nextTemp()
-            local first = x[1]
-            local line = first and cst.isToken(first) and first.line or sourceLine(x)
+            local line = sourceLine(x)
             e(("for %s=1,%d do"):format(index, x.numericIpairs.length), line)
             if names[2] then
                 e(("local %s="):format(names[2].text))
