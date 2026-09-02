@@ -28,6 +28,143 @@ local emit = {}
 local explicitWidth = 0
 local explicitScalar = false
 local independentSpanCounts = true
+
+--- The C operator each single-rounded binary32 operation is.
+const F32_OPERATORS = {["f32_add"] = "+", ["f32_sub"] = "-", ["f32_mul"] = "*", ["f32_div"] = "/",}
+
+--- The C operator each wrapping int32 operation is, applied in unsigned.
+const I32_WRAPPING_OPERATORS = {["i32_add"] = "+", ["i32_sub"] = "-", ["i32_mul"] = "*",}
+
+--- The C operator each uint32 operation is.
+const U32_OPERATORS = {
+    ["u32_add"] = "+",
+    ["u32_sub"] = "-",
+    ["u32_mul"] = "*",
+    ["u32_and"] = "&",
+    ["u32_or"] = "|",
+    ["u32_xor"] = "^",
+}
+
+--- The C operator each 64-bit operation is, applied in unsigned and cast back.
+const WIDE_OPERATORS = {
+    ["u64_add"] = "+",
+    ["u64_sub"] = "-",
+    ["u64_mul"] = "*",
+    ["i64_add"] = "+",
+    ["i64_sub"] = "-",
+    ["i64_mul"] = "*",
+}
+
+--- The C library function each math intrinsic calls.
+const MATH_C = {
+    ["sqrt"] = "sqrt",
+    ["abs"] = "fabs",
+    ["floor"] = "floor",
+    ["ceil"] = "ceil",
+    ["sin"] = "sin",
+    ["cos"] = "cos",
+    ["tan"] = "tan",
+    ["asin"] = "asin",
+    ["acos"] = "acos",
+    ["atan"] = "atan",
+    ["atan2"] = "atan2",
+    ["sinh"] = "sinh",
+    ["cosh"] = "cosh",
+    ["tanh"] = "tanh",
+    ["exp"] = "exp",
+    ["log"] = "log",
+    ["pow"] = "pow",
+    ["fmod"] = "fmod",
+}
+
+--- The 64-bit mask operations that render as one `ks_mask64_*` helper call,
+--- by the verb the helper is named for.
+const MASK64_BINARY = {
+    ["simd_mask64_add"] = "add",
+    ["simd_mask64_and"] = "and",
+    ["simd_mask64_or"] = "or",
+    ["simd_mask64_xor"] = "xor",
+    ["simd_mask64_shl"] = "shl",
+    ["simd_mask64_shr"] = "shr",
+    ["simd_mask64_prefix_xor"] = "prefix_xor",
+}
+
+const MASK64_UNARY = {
+    ["simd_mask64_not"] = "not",
+    ["simd_mask64_any"] = "any",
+    ["simd_mask64_count"] = "count",
+    ["simd_mask64_first"] = "first",
+    ["simd_mask64_clear_first"] = "clear_first",
+}
+
+--- The block-of-64 SIMD operations that render as one helper call over their
+--- arguments in order: the helper's name, then the C prefix each argument
+--- takes -- an address, a byte narrowing, or nothing.
+const BLOCK64_CALLS = {
+    ["simd_block64_load_u8"] = {"block64_load_", "&", ""},
+    ["simd_block64_and_byte_u8"] = {"block64_and_byte_", "", "(uint8_t)"},
+    ["simd_block64_and_u8"] = {"block64_and_", "", ""},
+    ["simd_block64_shr_u8"] = {"block64_shr_", "", ""},
+    ["simd_block64_lookup16_u8"] = {"block64_lookup16_", "", ""},
+    ["simd_block64_any_bits_u8"] = {"block64_any_bits_", "", "(uint8_t)"},
+    ["simd_block64_last_u8"] = {"block64_last_", ""},
+    ["simd_block64_utf8_errors_u8"] = {"block64_utf8_errors_", "", "", "", "", ""},
+    ["simd_block64_eq_u8"] = {"block64_eq_", "", "(uint8_t)"},
+    [
+        "simd_block64_eq_any6_u8"
+    ] = {"block64_eq_any6_", "", "(uint8_t)", "(uint8_t)", "(uint8_t)", "(uint8_t)", "(uint8_t)", "(uint8_t)",},
+    ["simd_block64_range_u8"] = {"block64_range_", "", "(uint8_t)", "(uint8_t)"},
+    ["simd_block64_outside_range_u8"] = {"block64_outside_range_", "", "(uint8_t)", "(uint8_t)"},
+}
+
+--- The C that folds one 64-byte block's lane bits into a 64-bit mask: part
+--- `i` of `width` lanes lands in the low word until that is full and in the
+--- high word after.
+local function collectBits(width: integer): string
+    local lanes = tostring(width)
+
+    return "if (i * "
+        .. lanes
+        .. "u < 32u) { out.low |= bits << (i * "
+        .. lanes
+        .. "u); } else { out.high |= bits << (i * "
+        .. lanes
+        .. "u - 32u); }"
+end
+
+--- One scratch write as a C statement: `helper` or its `_fixed` form, which
+--- takes the buffer's compile-time width as a last argument.
+local function scratchWrite(helper: string, statement: any, prefix: string): string
+    local fixed = statement.fixedBound ~= nil and ", " .. tostring(statement.fixedBound) .. "u" or ""
+
+    return prefix .. helper .. (
+        statement.fixedBound ~= nil and "_fixed" or ""
+    ) .. "(L, &" .. tostring(
+        (statement.scratch as scalarIR.Name).cName
+    ) .. ", " .. emit.scalar(
+        statement.index as scalarIR.Expr
+    ) .. ", " .. emit.scalar(statement.value as scalarIR.Expr) .. fixed .. ");"
+end
+
+--- The rooted bytes, their length and the slice bounds one substring names,
+--- as the C helpers that take a slice spell them. An absent last bound is the
+--- whole length.
+local function substringArguments(sliced: scalarIR.LuaSubstring): string
+    local bytes = sliced.bytes as scalarIR.Name
+
+    return "ks_bytes_" .. tostring(
+        bytes.cName
+    ) .. ", ks_length_" .. tostring(
+        bytes.cName
+    ) .. ", " .. emit.scalar(
+        sliced.first
+    ) .. ", " .. (
+        sliced.last ~= nil and emit.scalar(
+            sliced.last as scalarIR.Expr
+        ) or "(double)ks_length_" .. tostring(bytes.cName)
+    )
+end
+
 local reusableScratchName: string? = nil
 local builderEager = false
 local fpTranscendentals = false
@@ -507,58 +644,13 @@ function emit.scalar(node: scalarIR.Expr): string
             ) .. ", " .. emit.scalar(args[2]) .. ")"
         elseif operation == "simd_padded_load_tail_u8" then
             return helper .. "padded_load_tail_" .. suffix .. "(&" .. emit.scalar(args[1]) .. ")"
-        elseif operation == "simd_block64_load_u8" then
-            return helper .. "block64_load_" .. suffix .. "(&" .. emit.scalar(
-                args[1]
-            ) .. ", " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_block64_and_byte_u8" then
-            return helper .. "block64_and_byte_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", (uint8_t)" .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_block64_and_u8" then
-            return helper .. "block64_and_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_block64_shr_u8" then
-            return helper .. "block64_shr_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_block64_lookup16_u8" then
-            return helper .. "block64_lookup16_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_block64_any_bits_u8" then
-            return helper .. "block64_any_bits_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", (uint8_t)" .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_block64_last_u8" then
-            return helper .. "block64_last_" .. suffix .. "(" .. emit.scalar(args[1]) .. ")"
-        elseif operation == "simd_block64_utf8_errors_u8" then
-            local values: {string} = {}
-            for index = 1, 5 do
-                values[index] = emit.scalar(args[index])
+        elseif BLOCK64_CALLS[tostring(operation)] ~= nil then
+            local call = BLOCK64_CALLS[tostring(operation)] as {string}
+            local rendered: {string} = {}
+            for position = 2, #call do
+                rendered[#rendered + 1] = call[position] .. emit.scalar(args[position - 1])
             end
-            return helper .. "block64_utf8_errors_" .. suffix .. "(" .. table.concat(values, ", ") .. ")"
-        elseif operation == "simd_block64_eq_u8" then
-            return helper .. "block64_eq_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", (uint8_t)" .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_block64_eq_any6_u8" then
-            local values: {string} = {}
-            for index = 2, 7 do
-                values[#values + 1] = "(uint8_t)" .. emit.scalar(args[index])
-            end
-            return helper .. "block64_eq_any6_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", " .. table.concat(values, ", ") .. ")"
-        elseif operation == "simd_block64_range_u8" then
-            return helper .. "block64_range_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", (uint8_t)" .. emit.scalar(args[2]) .. ", (uint8_t)" .. emit.scalar(args[3]) .. ")"
-        elseif operation == "simd_block64_outside_range_u8" then
-            return helper .. "block64_outside_range_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", (uint8_t)" .. emit.scalar(args[2]) .. ", (uint8_t)" .. emit.scalar(args[3]) .. ")"
+            return helper .. call[1] .. suffix .. "(" .. table.concat(rendered, ", ") .. ")"
         elseif operation == "simd_tail_u8" then
             return helper .. "tail_" .. suffix .. "(" .. emit.scalar(args[2]) .. ")"
         elseif operation == "simd_eq_u8" then
@@ -624,58 +716,16 @@ function emit.scalar(node: scalarIR.Expr): string
             ) .. ")))"
         elseif operation == "simd_mask64" then
             return "ks_mask64(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_mask64_add"
-            or operation == "simd_mask64_and"
-            or operation == "simd_mask64_or"
-            or operation == "simd_mask64_xor"
-        then
-            local verb = operation == "simd_mask64_add"
-                and "add"
-                or operation == "simd_mask64_and"
-                and "and"
-                or operation == "simd_mask64_or"
-                and "or"
-                or "xor"
-            return "ks_mask64_" .. verb .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_mask64_not" then
-            return "ks_mask64_not(" .. emit.scalar(args[1]) .. ")"
-        elseif operation == "simd_mask64_shl" or operation == "simd_mask64_shr" then
-            local verb = operation == "simd_mask64_shl" and "shl" or "shr"
-            return "ks_mask64_" .. verb .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_mask64_prefix_xor" then
-            return "ks_mask64_prefix_xor(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+        elseif MASK64_BINARY[tostring(operation)] ~= nil then
+            return "ks_mask64_" .. tostring(
+                MASK64_BINARY[tostring(operation)]
+            ) .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+        elseif MASK64_UNARY[tostring(operation)] ~= nil then
+            return "ks_mask64_" .. tostring(MASK64_UNARY[tostring(operation)]) .. "(" .. emit.scalar(args[1]) .. ")"
         elseif operation == "simd_mask64_low" then
             return "(" .. emit.scalar(args[1]) .. ").low"
         elseif operation == "simd_mask64_high" then
             return "(" .. emit.scalar(args[1]) .. ").high"
-        elseif operation == "simd_mask64_any" then
-            return "((" .. emit.scalar(args[1]) .. ").low != 0u || (" .. emit.scalar(args[1]) .. ").high != 0u)"
-        elseif operation == "simd_mask64_count" then
-            return "((uint32_t)(__builtin_popcount((" .. emit.scalar(
-                args[1]
-            ) .. ").low) + __builtin_popcount((" .. emit.scalar(args[1]) .. ").high)))"
-        elseif operation == "simd_mask64_first" then
-            return "((" .. emit.scalar(
-                args[1]
-            ) .. ").low != 0u ? (uint32_t)__builtin_ctz((" .. emit.scalar(
-                args[1]
-            ) .. ").low) : ((" .. emit.scalar(
-                args[1]
-            ) .. ").high != 0u ? UINT32_C(32) + (uint32_t)__builtin_ctz((" .. emit.scalar(
-                args[1]
-            ) .. ").high) : UINT32_C(64)))"
-        elseif operation == "simd_mask64_clear_first" then
-            return "((" .. emit.scalar(
-                args[1]
-            ) .. ").low != 0u ? ks_mask64((" .. emit.scalar(
-                args[1]
-            ) .. ").low & ((" .. emit.scalar(
-                args[1]
-            ) .. ").low - 1u), (" .. emit.scalar(
-                args[1]
-            ) .. ").high) : ks_mask64(0u, (" .. emit.scalar(
-                args[1]
-            ) .. ").high & ((" .. emit.scalar(args[1]) .. ").high - 1u)))"
         end
         error("no C form for SIMD operation " .. tostring(operation), 0)
     elseif operation == "field_load" then
@@ -757,8 +807,7 @@ function emit.scalarCall(node: scalarIR.Expr): string
     -- C float arithmetic is single-rounded -- it does not promote to double --
     -- so this is the binary32 operation the source asked for, and the casts say
     -- so rather than relying on the operands already being float.
-    local fixed = {["f32_add"] = "+", ["f32_sub"] = "-", ["f32_mul"] = "*", ["f32_div"] = "/",}
-    local operator = fixed[operation]
+    local operator = F32_OPERATORS[operation]
     if operator ~= nil then
         local binary = node as scalarIR.Fixed
 
@@ -768,8 +817,7 @@ function emit.scalarCall(node: scalarIR.Expr): string
     end
 
     -- Wrapping happens in unsigned, where overflow is defined, and comes back.
-    local wrapping = {["i32_add"] = "+", ["i32_sub"] = "-", ["i32_mul"] = "*"}
-    operator = wrapping[operation]
+    operator = I32_WRAPPING_OPERATORS[operation]
     if operator ~= nil then
         local binary = node as scalarIR.Fixed
 
@@ -778,15 +826,7 @@ function emit.scalarCall(node: scalarIR.Expr): string
         ) .. ") " .. (operator as string) .. " nupp_u32(" .. emit.scalar(binary.right) .. ")))"
     end
 
-    local unsigned = {
-        ["u32_add"] = "+",
-        ["u32_sub"] = "-",
-        ["u32_mul"] = "*",
-        ["u32_and"] = "&",
-        ["u32_or"] = "|",
-        ["u32_xor"] = "^",
-    }
-    operator = unsigned[operation]
+    operator = U32_OPERATORS[operation]
     if operator ~= nil then
         local binary = node as scalarIR.Fixed
 
@@ -809,8 +849,7 @@ function emit.scalarCall(node: scalarIR.Expr): string
         ) .. (operation == "u32_shl" and " << " or " >> ") .. shift .. "))"
     end
 
-    local wide = {u64_add = "+", u64_sub = "-", u64_mul = "*", i64_add = "+", i64_sub = "-", i64_mul = "*"}
-    operator = wide[operation]
+    operator = WIDE_OPERATORS[operation]
     if operator ~= nil then
         local binary = node as scalarIR.Fixed
         local result = "((uint64_t)(" .. emit.scalar(
@@ -830,11 +869,9 @@ function emit.scalarCall(node: scalarIR.Expr): string
     elseif operation == "u32_popcount" then
         return "((uint32_t)__builtin_popcount(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. "))"
     elseif operation == "u32_ctz" then
-        local value = emit.scalar((node as scalarIR.FixedUnary).value)
-        return "((uint32_t)(" .. value .. " == 0u ? 32u : __builtin_ctz(" .. value .. ")))"
+        return "nupp_u32_ctz(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
     elseif operation == "u32_clz" then
-        local value = emit.scalar((node as scalarIR.FixedUnary).value)
-        return "((uint32_t)(" .. value .. " == 0u ? 32u : __builtin_clz(" .. value .. ")))"
+        return "nupp_u32_clz(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
     end
 
     local corrected = {["f32_min"] = "nupp_f32_min", ["f32_max"] = "nupp_f32_max", ["f32_fma"] = "nupp_f32_fma",}
@@ -958,27 +995,7 @@ function emit.mathFrom(intrinsic: string, parts: {string}): string
         return "(" .. parts[1] .. " * (M_PI / 180.0))"
     end
 
-    local named = {
-        ["sqrt"] = "sqrt",
-        ["abs"] = "fabs",
-        ["floor"] = "floor",
-        ["ceil"] = "ceil",
-        ["sin"] = "sin",
-        ["cos"] = "cos",
-        ["tan"] = "tan",
-        ["asin"] = "asin",
-        ["acos"] = "acos",
-        ["atan"] = "atan",
-        ["atan2"] = "atan2",
-        ["sinh"] = "sinh",
-        ["cosh"] = "cosh",
-        ["tanh"] = "tanh",
-        ["exp"] = "exp",
-        ["log"] = "log",
-        ["pow"] = "pow",
-        ["fmod"] = "fmod",
-    }
-    local name = named[intrinsic]
+    local name = MATH_C[intrinsic]
     if name == nil then
         error("no C form for math operation " .. tostring(intrinsic), 0)
     end
@@ -1459,6 +1476,10 @@ function emit.includes(): {string}
         "static KS_UNUSED KsMaskBits64 ks_mask64_or(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low | b.low, a.high | b.high); }",
         "static KS_UNUSED KsMaskBits64 ks_mask64_xor(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low ^ b.low, a.high ^ b.high); }",
         "static KS_UNUSED KsMaskBits64 ks_mask64_not(KsMaskBits64 a) { return ks_mask64(~a.low, ~a.high); }",
+        "static KS_UNUSED bool ks_mask64_any(KsMaskBits64 a) { return a.low != 0u || a.high != 0u; }",
+        "static KS_UNUSED uint32_t ks_mask64_count(KsMaskBits64 a) { return (uint32_t)(__builtin_popcount(a.low) + __builtin_popcount(a.high)); }",
+        "static KS_UNUSED uint32_t ks_mask64_first(KsMaskBits64 a) { return a.low != 0u ? (uint32_t)__builtin_ctz(a.low) : (a.high != 0u ? UINT32_C(32) + (uint32_t)__builtin_ctz(a.high) : UINT32_C(64)); }",
+        "static KS_UNUSED KsMaskBits64 ks_mask64_clear_first(KsMaskBits64 a) { return a.low != 0u ? ks_mask64(a.low & (a.low - 1u), a.high) : ks_mask64(0u, a.high & (a.high - 1u)); }",
         "static KS_UNUSED KsMaskBits64 ks_mask64_shl(KsMaskBits64 a, uint32_t n) { if (n >= 64u) { return ks_mask64(0u, 0u); } if (n == 0u) { return a; } if (n >= 32u) { return ks_mask64(0u, a.low << (n - 32u)); } return ks_mask64(a.low << n, (a.high << n) | (a.low >> (32u - n))); }",
         "static KS_UNUSED KsMaskBits64 ks_mask64_shr(KsMaskBits64 a, uint32_t n) { if (n >= 64u) { return ks_mask64(0u, 0u); } if (n == 0u) { return a; } if (n >= 32u) { return ks_mask64(a.high >> (n - 32u), 0u); } return ks_mask64((a.low >> n) | (a.high << (32u - n)), a.high >> n); }",
         "static KS_UNUSED KsMaskBits64 ks_mask64_prefix_xor(KsMaskBits64 a, bool carry) { uint32_t lo = a.low, hi = a.high; lo ^= lo << 1; lo ^= lo << 2; lo ^= lo << 4; lo ^= lo << 8; lo ^= lo << 16; hi ^= hi << 1; hi ^= hi << 2; hi ^= hi << 4; hi ^= hi << 8; hi ^= hi << 16; if ((lo & UINT32_C(0x80000000)) != 0u) { hi = ~hi; } if (carry) { lo = ~lo; hi = ~hi; } return ks_mask64(lo, hi); }",
