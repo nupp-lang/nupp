@@ -3582,24 +3582,33 @@ function gen.generate(
         emit(region)
     end
 
-    local function activeWith(move)
-        local owner = move and (move.owner or move) or nil
+    -- The innermost cleanup region of the function being emitted, or nil when the
+    -- statement is outside every region of its own function.
+    function pluck.currentRegion()
+        local ctx = cleanupStack[#cleanupStack]
+        if ctx and ctx.functionDepth == emitDepth.fn then
+            return ctx
+        end
+
+        return nil
+    end
+
+    -- The active flag of the owner `move` takes, or nil when no region of this
+    -- function tracks that owner. Only a move is looked up: a lookup without one
+    -- has no flag to answer with, and a lookup that once fell back to the region
+    -- itself wrote that table into the output.
+    local function activeFlag(move)
+        local owner = move.owner or move
         for index = #cleanupStack, 1, -1 do
             local ctx = cleanupStack[index]
             if ctx.functionDepth == emitDepth.fn then
-                if owner then
-                    local state = ctx.automaticMap and ctx.automaticMap[owner]
-                    if state then
-                        if move.field and state.fields then
-                            return state.fields[move.field]
-                        end
-                        return state.whole
+                local state = ctx.automaticMap and ctx.automaticMap[owner]
+                if state then
+                    if move.field and state.fields then
+                        return state.fields[move.field]
                     end
-                else
-                    return ctx
+                    return state.whole
                 end
-            elseif not owner then
-                break
             end
         end
 
@@ -3656,7 +3665,10 @@ function gen.generate(
             -- with its cleanup owner. Usually the move already points at that owner;
             -- the retained outer state is the stable bridge when the replacement was
             -- made after the closure was checked.
-            local outerActive = activeWith(capture.move) or activeWith(capture.outer and capture.outer.automaticOwner)
+            local outerActive = capture.move and activeFlag(capture.move) or nil
+            if not outerActive and capture.outer and capture.outer.automaticOwner then
+                outerActive = activeFlag(capture.outer.automaticOwner)
+            end
             if not outerActive then
                 for index = #cleanupStack, 1, -1 do
                     local ctx = cleanupStack[index]
@@ -3738,7 +3750,7 @@ function gen.generate(
         local actives, seen = {}, {}
         for _, expr in ipairs(x.exprs or {}) do
             local move = expr.automaticOwnerMove
-            local active = move and activeWith(move) or nil
+            local active = move and activeFlag(move) or nil
             if active and not seen[active] then
                 seen[active] = true
                 actives[#actives + 1] = active
@@ -4251,7 +4263,7 @@ function gen.generate(
             return
         end
         if x.automaticOwnerReinit then
-            local active = activeWith(x.automaticOwnerReinit)
+            local active = activeFlag(x.automaticOwnerReinit)
             if active then
                 local reinit = x.automaticOwnerReinit
                 local slot = not reinit.field and automaticSlot(reinit) or nil
@@ -5266,7 +5278,7 @@ function gen.generate(
 
         elseif kind == "unsafeOwnershipExpr" then
             local move = x.expr and x.expr.automaticOwnerMove or nil
-            local movedActive = move and activeWith(move) or nil
+            local movedActive = move and activeFlag(move) or nil
             if x.operation == "release" and movedActive then
                 pluck.loweredFunction(
                     ("(function() %s=false; return "):format(movedActive),
@@ -5692,7 +5704,7 @@ function gen.generate(
             local inner = x.expr
             local innerArgs = inner.args and inner.args.exprs or {}
             local innerMove = ownershipMoveOf(innerArgs[1])
-            local innerActive = innerMove and activeWith(innerMove) or nil
+            local innerActive = innerMove and activeFlag(innerMove) or nil
             e("do", sourceLine(x))
             if innerActive then
                 e(("%s=false;"):format(innerActive))
@@ -5848,7 +5860,7 @@ function gen.generate(
             local args = x.args and x.args.exprs or {}
             local line = sourceLine(x)
             local move = ownershipMoveOf(args[1])
-            local movedActive = move and activeWith(move) or nil
+            local movedActive = move and activeFlag(move) or nil
             -- The move has to be marked before the value is produced: if producing it
             -- raises, the region must already know the owner left, or unwinding frees
             -- it a
@@ -6054,13 +6066,13 @@ function gen.generate(
             local args = x.args and x.args.exprs or {}
             local activeNames, seen = {}, {}
             local directMove = ownershipMoveOf(args[1])
-            local directActive = directMove and activeWith(directMove) or nil
+            local directActive = directMove and activeFlag(directMove) or nil
             if directActive then
                 seen[directActive] = true
                 activeNames[#activeNames + 1] = directActive
             end
             for _, move in ipairs(x.automaticOwnerMoves or {}) do
-                local activeName = activeWith(move)
+                local activeName = activeFlag(move)
                 if activeName and not seen[activeName] then
                     seen[activeName] = true
                     activeNames[#activeNames + 1] = activeName
@@ -6159,7 +6171,7 @@ function gen.generate(
             -- the callee's terminal contract rather than this lexical region.
             local activeNames, seen = {}, {}
             for _, move in ipairs(x.automaticOwnerMoves or {}) do
-                local activeName = activeWith(move)
+                local activeName = activeFlag(move)
                 if activeName and not seen[activeName] then
                     seen[activeName] = true
                     activeNames[#activeNames + 1] = activeName
@@ -6508,7 +6520,7 @@ function gen.generate(
                 e("do const ", x.withTok and x.withTok.line or sourceLine(x))
                 e(binding.name.text .. "=", sourceLine(binding.expr))
                 local move = binding.expr and binding.expr.automaticOwnerMove or nil
-                local movedActive = move and activeWith(move) or nil
+                local movedActive = move and activeFlag(move) or nil
                 emit(binding.expr)
                 if movedActive then
                     e(("; %s=false"):format(movedActive))
@@ -6638,7 +6650,7 @@ function gen.generate(
                 e("do const ", (x.startTok or x.withTok) and (x.startTok or x.withTok).line or sourceLine(x))
                 e(("%s="):format(owners[1]), sourceLine(binding.expr))
                 local move = binding.expr and binding.expr.automaticOwnerMove or nil
-                local movedActive = move and activeWith(move) or nil
+                local movedActive = move and activeFlag(move) or nil
                 emit(binding.expr)
                 if movedActive then
                     -- Marked after the binding rather than around it. This is already a
@@ -6749,7 +6761,7 @@ function gen.generate(
                     emit(expr)
                     local move = expr and expr.automaticOwnerMove or nil
 
-                    return move and activeWith(move) or nil
+                    return move and activeFlag(move) or nil
                 end
 
                 local function activateValue(j, binding, value)
@@ -7064,14 +7076,14 @@ function gen.generate(
                 e((",%q)"):format(message))
             end
 
-        elseif kind == "returnStmt" and activeWith() then
-            emitPackedReturn(activeWith(), x)
+        elseif kind == "returnStmt" and pluck.currentRegion() then
+            emitPackedReturn(pluck.currentRegion(), x)
 
         elseif (
             kind == "breakStmt" or kind == "continueStmt"
-        ) and activeWith() and emitDepth.loop <= activeWith().entryLoopDepth then
+        ) and pluck.currentRegion() and emitDepth.loop <= pluck.currentRegion().entryLoopDepth then
             local completion = kind == "breakStmt" and "break" or "continue"
-            activeWith()[completion .. "Exit"] = true
+            pluck.currentRegion()[completion .. "Exit"] = true
             e(("return %q"):format(completion), sourceLine(x))
 
         elseif pluck.portable and (kind == "breakStmt" or kind == "continueStmt") then
@@ -7082,8 +7094,8 @@ function gen.generate(
                 emitChildren(x)
             end
 
-        elseif kind == "gotoStmt" and activeWith() and not activeWith().labels[x.name.text] then
-            local ctx = activeWith()
+        elseif kind == "gotoStmt" and pluck.currentRegion() and not pluck.currentRegion().labels[x.name.text] then
+            local ctx = pluck.currentRegion()
             ctx.gotos[x.name.text] = true
             e(("return %q"):format("goto:" .. x.name.text), sourceLine(x))
 

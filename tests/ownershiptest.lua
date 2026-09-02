@@ -3278,6 +3278,32 @@ function M.aCalledTakingClosureCleansItsCapture()
    assertEq(calls, 1, "a called closure releases its capture once")
 end
 
+function M.aTakingClosureOverAnOwnedParameterGenerates()
+   -- The parameter's move is recorded before the body's cleanup planning replaces
+   -- the local, so the capture's move can name an owner no region tracks. That
+   -- lookup once fell back to the region itself and wrote the table into the code.
+   local source = CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local function use(takes resource: affine(ClosureResource, closeClosureResource)): integer",
+      "   local callback = function(): integer takes (resource)",
+      "      return resource.value",
+      "   end",
+      "   return callback()",
+      "end",
+      "return use(openClosureResource(7)), calls",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   assert(not code:find("table: 0x", 1, true), "a region table reached the output:\n" .. code)
+   local chunk, loadErr = loadstring(code, "@taking-closure-parameter")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local answer, calls = chunk()
+   assertEq(answer, 7)
+   assertEq(calls, 1, "the closure releases the parameter it took once")
+end
+
 function M.anUncalledTakingClosureCleansItsCapture()
    local source = CLOSURE_RESOURCE .. table.concat({
       "",
