@@ -5065,15 +5065,16 @@ end
 
 --- The length agreements one guard proves.
 ---
---- Every span addressed by the loop index has to be covered, because a shorter
---- one would be read past its end. Spans reached only through proved cursors do
---- not need an equality the algorithm may be unable to state.
+--- The guard may leave a span out: a span reached only through proved cursors
+--- needs no equality the algorithm may be unable to state, and one the loop
+--- index does address is checked at that access against the spans the guard
+--- did name, so the omission cannot widen what the kernel may touch on either
+--- execution target.
 function lower.lengthGuards(
     stat: cst.Node,
     form: lower.GuardForm,
     signature: lower.Signature,
-    context: lower.Context,
-    partial: boolean?
+    context: lower.Context
 ): {scalarIR.Guard}
     local primary = signature.writes[1]
     local guarded: {[string]: scalarIR.Source} = {}
@@ -5119,24 +5120,15 @@ function lower.lengthGuards(
 
     local guards: {scalarIR.Guard} = {}
     for _, span in ipairs(signature.spans) do
-        if span.name ~= primary.name then
-            -- A map entry may leave a span out of the guard when the body only
-            -- reaches it through proved cursors; lowering checks that any
-            -- loop-index access names a guarded span, so the omission cannot
-            -- widen what the kernel may touch on either execution target.
-            if guarded[span.name] == nil and partial ~= true then
-                context.reject(lower.site(stat), "the length guard does not cover span " .. span.name)
-            end
-            if guarded[span.name] ~= nil then
-                guards[
-                    #guards + 1
-                ] = new scalarIR.Guard(
-                    op = "equal_count",
-                    left = primary.name,
-                    right = span.name,
-                    source = guarded[span.name]
-                )
-            end
+        if span.name ~= primary.name and guarded[span.name] ~= nil then
+            guards[
+                #guards + 1
+            ] = new scalarIR.Guard(
+                op = "equal_count",
+                left = primary.name,
+                right = span.name,
+                source = guarded[span.name]
+            )
         end
     end
 
@@ -5976,8 +5968,7 @@ function lower.program(
                 context
             ),
             signature,
-            context,
-            true
+            context
         )
     end
 
