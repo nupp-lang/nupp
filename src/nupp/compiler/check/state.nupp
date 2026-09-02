@@ -354,6 +354,9 @@ record state.Checker
 
     resolvePack: function(node: Node?): any
 
+    --- Reports a vararg ownership mode a parameter list cannot honour.
+    checkVarargMode: function(mode: string?, modeToken: any, varargType: Type?, at: any)
+
     --- The type a reference currently holds: what narrowing knows, else the declared or
     --- inferred type reached through its base.
     refType: function(node: Node?): Type?

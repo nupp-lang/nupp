@@ -754,18 +754,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
-        if varargModeToken and not varargType then
-            c.diag("NUPP2602", varargModeToken, "an ownership-qualified vararg needs one homogeneous type")
-        end
-        if varargMode == "retains" or varargMode == "releases" then
-            c.diag("NUPP2602", varargModeToken or body, varargMode .. " is only valid on imported cdef parameters")
-        elseif varargMode == "takes" then
-            c.diag(
-                "NUPP2602",
-                varargModeToken or body,
-                "takes is not valid on an unnamed typed vararg because the body cannot discharge individual owners"
-            )
-        end
+        c.checkVarargMode(varargMode, varargModeToken, varargType, body)
         local paramPack = T.pack(
             params,
             paramPackTail or (

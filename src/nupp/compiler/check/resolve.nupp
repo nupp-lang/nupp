@@ -1622,18 +1622,7 @@ function resolve.install(c: state.Checker): nil
                     end
                 end
             end
-            if varargModeToken and not varargType then
-                c.diag("NUPP2602", varargModeToken, "an ownership-qualified vararg needs one homogeneous type")
-            end
-            if varargMode == "retains" or varargMode == "releases" then
-                c.diag("NUPP2602", varargModeToken or node, varargMode .. " is only valid on imported cdef parameters")
-            elseif varargMode == "takes" then
-                c.diag(
-                    "NUPP2602",
-                    varargModeToken or node,
-                    "takes is not valid on an unnamed typed vararg because a body cannot discharge individual owners"
-                )
-            end
+            c.checkVarargMode(varargMode, varargModeToken, varargType, node)
             local paramPack = T.pack(
                 params,
                 paramPackTail or (
@@ -1760,6 +1749,24 @@ function resolve.install(c: state.Checker): nil
     ---------------------------------------------------------------------
     -- Packs and pending aliases
     ---------------------------------------------------------------------
+
+    --- A vararg may be qualified only by a mode the callee can honour: the mode needs
+    --- one homogeneous type to apply to, retains and releases belong to imported cdef
+    --- parameters, and takes has no individual owner for a body to discharge.
+    c.checkVarargMode = function(mode, modeToken, varargType, at)
+        if modeToken and not varargType then
+            c.diag("NUPP2602", modeToken, "an ownership-qualified vararg needs one homogeneous type")
+        end
+        if mode == "retains" or mode == "releases" then
+            c.diag("NUPP2602", modeToken or at, mode .. " is only valid on imported cdef parameters")
+        elseif mode == "takes" then
+            c.diag(
+                "NUPP2602",
+                modeToken or at,
+                "takes is not valid on an unnamed typed vararg because the body cannot discharge individual owners"
+            )
+        end
+    end
 
     c.resolvePack = function(node)
         if not node then
