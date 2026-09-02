@@ -171,8 +171,11 @@ local function bindingConfig(dep)
     return nil
 end
 
-local function generateBinding(root, outDir, name, dep, base, libraryPath, extraCppflags, bindingCc)
-    local binding = bindingConfig(dep)
+-- `binding` is the dependency's own configuration unless the caller has a
+-- resolved copy to hand in, the way `buildCargo` does with the header cbindgen
+-- wrote; the manifest's table is never written to.
+local function generateBinding(root, outDir, name, dep, base, libraryPath, extraCppflags, bindingCc, binding)
+    binding = binding or bindingConfig(dep)
     if not binding or not binding.header then
         return nil
     end
@@ -805,7 +808,14 @@ local function buildCargo(root, outDir, name, dep, previous)
         if process.run(argv, {cwd = crateDir}) ~= 0 then
             return nil, "cbindgen failed for " .. name
         end
-        binding.header = header
+        -- Resolved on a copy: `dep.bindings` is the manifest's table, shared with
+        -- every other reader of the configuration, and a build is not an edit to it.
+        local resolved = {}
+        for field, value in pairs(binding) do
+            resolved[field] = value
+        end
+        resolved.header = header
+        binding = resolved
     end
     -- A Cargo crate's cdylib is copied into the same `lib/` a C dependency's
     -- library is built into, so it travels with the build the same way and is
@@ -813,7 +823,7 @@ local function buildCargo(root, outDir, name, dep, previous)
     -- binding, for the same reason as in `buildC`: the record has to report what
     -- the binding wrote.
     local reference = binding and (binding.library or dep.load or libraryReference(root, outDir, output)) or nil
-    local generated, bindingErr = generateBinding(root, outDir, name, dep, crateDir, reference)
+    local generated, bindingErr = generateBinding(root, outDir, name, dep, crateDir, reference, nil, nil, binding)
     if bindingErr then
         return nil, bindingErr
     end
@@ -1068,7 +1078,7 @@ local function buildRock(root, outDir, name, dep, previous)
             inputs[#inputs + 1] = path
         end
     end
-    local key = hash.sha256(stable(dep) .. "\0" .. hashFiles(inputs) .. "\0" .. version .. "\0" .. tree)
+    local key = hash.digest(stable(dep) .. "\0" .. hashFiles(inputs) .. "\0" .. version .. "\0" .. tree)
 
     -- What is on disk answers for a pinned rock. The version asked for is installed or
     -- it is not, and installing one that is there again costs a download to be told so

@@ -448,6 +448,8 @@ function worker.evaluate(
     end
     local wrote, writeErr = write(requestPath, requestText)
     if not wrote then
+        -- `tmpname` made the file; a write that failed still leaves it behind.
+        os.remove(requestPath)
         return nil, {code = "NUPP2412", message = "cannot create comptime worker request: " .. tostring(writeErr)}
     end
     local code, output = process.captureIsolated({executable, "__comptime-worker", requestPath}, {
