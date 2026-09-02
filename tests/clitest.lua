@@ -557,6 +557,37 @@ print("done")
       "requiring a command module loads its grammar, not the compiler:\n" .. out)
 end
 
+-- `--json` positions come from an index of where each line starts; a diagnostic
+-- on the last line of a file, and one on the first, both have to land where the
+-- text form would put them.
+function M.jsonPositionsAreResolvedThroughALineIndex()
+   local report = require("nupp.compiler.cli.report")
+   local path = os.tmpname()
+   local file = assert(io.open(path, "wb"))
+   file:write("first\nsecond line\n\nfourth\n")
+   file:close()
+   local function at(offset, length)
+      local values = report.diagnosticValues({{filename = path, offset = offset,
+         length = length, code = "NUPP0001", msg = "x", severity = "error"}})
+      return values[1].range
+   end
+   local first = at(1, 5)
+   assert(first.start.line == 1 and first.start.column == 1, "the first byte is 1:1")
+   assert(first["end"].line == 1 and first["end"].column == 6, "and its end is on the same line")
+   local second = at(7, 6)
+   assert(second.start.line == 2 and second.start.column == 1,
+      "the byte after a newline starts the next line")
+   local blank = at(19, 0)
+   assert(blank.start.line == 3 and blank.start.column == 1, "an empty line is a line")
+   local last = at(25, 1)
+   assert(last.start.line == 4 and last.start.column == 6,
+      ("the last line resolves: got %d:%d"):format(last.start.line, last.start.column))
+   local past = at(27, 3)
+   assert(past["end"].line == 5 and past["end"].column == 1,
+      "a range running past the end stops at the byte after the text")
+   os.remove(path)
+end
+
 function M.checkRefusesAManifestItCannotLoad()
    local dir = os.tmpname()
    os.remove(dir)

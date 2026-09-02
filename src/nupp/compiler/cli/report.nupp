@@ -18,43 +18,66 @@ local diagnosticMod = require("nupp.compiler.diagnostics")
 
 local report = {}
 
---- Walks a source to the line and column an offset falls on. Positions are 1-based byte
---- counts, matching what the text form prints.
-local function positionAtByte(source: string?, offset: number?): any
+--- A source and where each of its lines starts, so that an offset is turned into a
+--- line by searching a list rather than by walking the text again for every range.
+local type Source = {
+    text: string,
+    lineStarts: {integer}
+}
+
+local function indexed(text: string): Source
+    local lineStarts: {integer} = {1}
+    local at = text:find("\n", 1, true)
+    while at do
+        lineStarts[#lineStarts + 1] = at + 1
+        at = text:find("\n", at + 1, true)
+    end
+
+    return {text = text, lineStarts = lineStarts}
+end
+
+--- The line and column an offset falls on. Positions are 1-based byte counts, matching
+--- what the text form prints. The line is the last one starting at or before the
+--- offset, found by bisection.
+local function positionAtByte(source: Source?, offset: number?): any
     if not source or not offset or offset < 1 then
         return {line = 0, column = 0, offset = offset or 0}
     end
-    local line: integer, lineStart: integer, cursor: integer = 1, 1, 1
-    while cursor < offset and cursor <= #source do
-        if source:byte(cursor) == 10 then
-            line, lineStart = line + 1, cursor + 1
+    local starts = source.lineStarts
+    local low: integer, high: integer = 1, #starts
+    while low < high do
+        local middle = math.floor((low + high + 1) / 2)
+        if starts[middle] <= offset then
+            low = middle
+        else
+            high = middle - 1
         end
-        cursor = cursor + 1
     end
 
-    return {line = line, column = offset - lineStart + 1, offset = offset}
+    return {line = low, column = offset - starts[low] + 1, offset = offset}
 end
 
---- Reads each file at most once, however many diagnostics point into it.
-local function sourceReader(): function(string?): string?
+--- Reads and indexes each file at most once, however many diagnostics point into it.
+local function sourceReader(): function(string?): Source?
     local sources: {[string]: any} = {}
-    return function(path: string?): string?
+    return function(path: string?): Source?
         if not path then
             return nil
         end
         if sources[path] == nil then
-            sources[path] = fs.readFile(path) or false
+            local text = fs.readFile(path)
+            sources[path] = text and indexed(text) or false
         end
 
         return sources[path] or nil
     end
 end
 
-local function rangeAt(source: string?, offset: number?, length: number?): any
+local function rangeAt(source: Source?, offset: number?, length: number?): any
     local start = positionAtByte(source, offset or 1)
     local span = length or 0
     if source then
-        return {start = start, ["end"] = positionAtByte(source, math.min(#source + 1, (offset or 1) + span))}
+        return {start = start, ["end"] = positionAtByte(source, math.min(#source.text + 1, (offset or 1) + span))}
     end
 
     return {
