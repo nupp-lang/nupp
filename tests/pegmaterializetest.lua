@@ -1531,6 +1531,16 @@ end
    assertEq(ruleCodes[1], "NUPP2417", "a rule reference reports its unwrapped repetition")
 end
 
+function M.rejectsAComptimeMatcherDeclaredAsAnotherType()
+   local codes, diagnostics = errorsOf([[
+const Wrong: string = comptime do
+    return nupp.peg.compile("'a'")
+end
+]])
+   assertEq(codes[1], "NUPP2415", "a non-matcher declaration is rejected")
+   assert(diagnostics[1].msg:find("nupp.peg.Peg", 1, true), diagnostics[1].msg)
+end
+
 function M.rejectsAMatcherResultTypeMismatch()
    local codes = errorsOf([[
 const Bad: nupp.peg.Peg<integer> = comptime do

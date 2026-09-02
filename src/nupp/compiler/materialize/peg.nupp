@@ -1663,7 +1663,18 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
     local resultPack, actionReturns
     local inferredTarget
     if #validated.slots == 0 then
-        resultPack = expected and matcherResult(expected, matcher) or packOfResult(validated.result, nil)
+        if expected then
+            resultPack = matcherResult(expected, matcher)
+            if not resultPack then
+                return nil, failure(
+                    "NUPP2415",
+                    "a comptime PEG must be declared as nupp.peg.Peg<R...>",
+                    "declare the constant as nupp.peg.Peg<R...> or leave the type to be inferred"
+                )
+            end
+        else
+            resultPack = packOfResult(validated.result, nil)
+        end
         local binder = matcher and matcher.packParams and matcher.packParams[1]
         if not expected and matcher and binder and resultPack then
             inferredTarget = generics.instantiate(matcher, {[binder] = resultPack})
