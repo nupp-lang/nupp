@@ -5,6 +5,13 @@ host/notices/*.txt text eol=lf
 # anything reads it. Windows is where that happens.
 *.nupp text eol=lf
 
+# The tracked stage-0 compiler is compared byte-for-byte with a fresh bundle.
+# These two non-Nupp resources are embedded in that bundle, so all three need
+# one checkout spelling on Windows as well as Unix hosts.
+bootstrap/nupp.lua text eol=lf
+tests/run.lua text eol=lf
+src/nupp/compiler/build/stub-catalog.json text eol=lf
+
 # The formatter corpus is bytes under test: a case exists to prove what the
 # formatter does with the line endings it was given, so nothing normalizes them.
 tests/fmtcorpus/** -text
