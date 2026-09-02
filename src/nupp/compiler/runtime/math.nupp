@@ -838,7 +838,7 @@ function vec2.angleBetween(ax: number, ay: number, bx: number, by: number): numb
     return atan2(math.abs(vec2.cross(ax, ay, bx, by)), vec2.dot(ax, ay, bx, by))
 end
 
---- The signed turn between two vectors, in (-pi, pi].
+--- The signed turn between two vectors, in [-pi, pi).
 function vec2.signedAngleBetween(ax: number, ay: number, bx: number, by: number): number
     if (ax == 0 and ay == 0) or (bx == 0 and by == 0) then
         return 0
@@ -884,7 +884,7 @@ local function lerp(from: number, to: number, t: number): number
     return from + (to - from) * t
 end
 
---- Brings an angle into (-pi, pi].
+--- Brings an angle into [-pi, pi).
 local function wrapAngle(radians: number): number
     return (radians + pi) % tau - pi
 end
