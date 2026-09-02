@@ -340,6 +340,22 @@ function predicate.paths(node: predicate.Node?, out: {{string}}?): {{string}}
     return out
 end
 
+--- What `type()` answers for a value of each primitive, where that is one answer.
+--- A `types.Prim` carries its name as its tag, so this is keyed by tag.
+local PRIMITIVE_LUA_TYPE: {
+    [string]: string
+} = {
+    string = "string",
+    cstring = "string",
+    number = "number",
+    integer = "number",
+    float = "number",
+    boolean = "boolean",
+    table = "table",
+    thread = "thread",
+    userdata = "userdata",
+}
+
 --- What `type()` answers for a value of `t`, when that is decided by the type.
 ---
 --- Only the tags whose runtime answer is fixed. A union, a type parameter, and `any`
@@ -351,35 +367,12 @@ local function luaTypeOf(t: any): string?
     local tag = t.tag
     if tag == "literal" then
         return luaTypeOf(t.base)
-
-    elseif tag == "prim" then
-        -- Unreachable, and left that way. A `types.Prim` carries its primitive tag in
-        -- this field -- "string", "number" -- never the literal "prim", so nothing
-        -- arrives here. What it must not do is read `t.id`, which now identifies an
-        -- interned type without describing it. Waking the branch would change what
-        -- narrowing answers, which is not a performance change's business.
-        local name = tag
-        if name == "string" or name == "cstring" then
-            return "string"
-        end
-        if name == "number" or name == "integer" or name == "float" then
-            return "number"
-        end
-        if name == "boolean" then
-            return "boolean"
-
-        elseif name == "table" then
-            return "table"
-
-        elseif name == "thread" then
-            return "thread"
-
-        elseif name == "userdata" then
-            return "userdata"
-        end
-        return nil
-
-    elseif tag == "nominal" then
+    end
+    local primitive = PRIMITIVE_LUA_TYPE[tag]
+    if primitive then
+        return primitive
+    end
+    if tag == "nominal" then
         if t.declKind == "struct" then
             return "cdata"
         end
