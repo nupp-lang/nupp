@@ -207,30 +207,16 @@ local function fish(commands: {Command}): string
         for _, option in ipairs(command.spec.options) do
             local choices = option.choices
             for _, name in ipairs(spellings(option)) do
-                if name:sub(1, 2) == "--" then
-                    local line = "complete -c nupp -n '__fish_nupp_using_command "
-                        .. command.name
-                        .. "' -l "
-                        .. name:sub(
-                        3
-                    )
-                    -- `-r` makes fish complete the value as the next word, which
-                    -- only a "value" option consumes; attached and optional forms
-                    -- still get their choices offered after `--name=`.
-                    if option.form == "value" then
-                        line = line .. " -r"
-                    end
-                    if choices then
-                        line = line .. " -a '" .. words(choices) .. "'"
-                    end
-                    lines[#lines + 1] = line
-                elseif #name == 2 and name:sub(1, 1) == "-" then
-                    local line = "complete -c nupp -n '__fish_nupp_using_command "
-                        .. command.name
-                        .. "' -s "
-                        .. name:sub(
-                        2
-                    )
+                -- A long spelling is fish's `-l`, a one-letter short one its `-s`;
+                -- the rest of the line is the same for both.
+                local flag = name:sub(
+                    1,
+                    2
+                ) == "--" and "-l " .. name:sub(
+                    3
+                ) or #name == 2 and name:sub(1, 1) == "-" and "-s " .. name:sub(2) or nil
+                if flag then
+                    local line = "complete -c nupp -n '__fish_nupp_using_command " .. command.name .. "' " .. flag
                     -- `-r` makes fish complete the value as the next word, which
                     -- only a "value" option consumes; attached and optional forms
                     -- still get their choices offered after `--name=`.
