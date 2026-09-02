@@ -52308,13 +52308,7 @@ local COMPILER_SURFACES
 [ "nupp.workers" ] = { Scope = { spawn = { rotate = true , sendableLast = true , } , } , } ,
 [
 "nupp.tasks"
-] = {
-Scope = {
-spawn = { rotate = true , } ,
-fork = { effect = "native.workers" , rotate = true , sendableLast = true , } ,
-workers = { effect = "native.workers" , } ,
-} ,
-} ,
+] = { Scope = { spawn = { rotate = true , } , fork = { effect = "native.workers" , rotate = true , sendableLast = true , } , } , } ,
 }
 
 
@@ -196654,9 +196648,6 @@ tasks.Scope = {} tasks.Scope.__index = tasks.Scope
 
 
 
-
-
-
 local ScopeMT = { __index = tasks . Scope }
 
 
@@ -196965,11 +196956,14 @@ context = ( waiting ) . context ,
 ready = function ( _ ) 
 
 
-deadlinePassed ( owner )
+
+
+const deadline = owner . deadline
+const expired = deadline ~= nil and timeRuntime ( ) . now ( ) >= deadline
 
 return waiting : ready ( ) or (
 # owner . queue > 0 and suspensionRuntime . __turnAvailable ( )
-) or owner . failed or ( owner . cancellation ~= nil and not owner . deliberate )
+) or owner . failed or expired or ( owner . cancellation ~= nil and not owner . deliberate )
 end ,
 onResume = function ( _ , wake ) 
 waiting : onResume ( wake )
@@ -197382,7 +197376,6 @@ local forkSurface
 
 
 local cancelSurface
-local workersSurface
 do
 
 
@@ -197396,7 +197389,6 @@ return spawnChild ( scope , name , body , nil )
 end
 forkSurface = forkImpl
 cancelSurface = cancelImpl
-workersSurface = workersImpl
 end
 
 
@@ -197486,20 +197478,6 @@ end
 
 do
 tasks . Scope . cancel = cancelSurface
-end
-
-
-
-
-
-
-
-
-
-
-
-do
-tasks . Scope . workers = workersSurface
 end
 
 
@@ -244957,7 +244935,7 @@ assert(total == 500500)
 ]]
 
 local suspension = require("nupp.suspension")
-local {type Scope as WorkerScope, type Submittable} = require("nupp.workers")
+local {type Submittable} = require("nupp.workers")
 local suspensionRuntime = suspension as any
 local dynamicRequire = require as function(string): any
 local timeModule: any = nil
@@ -245171,9 +245149,6 @@ record tasks.Scope
 
     --- Requests cancellation of every child.
     cancel: function(borrows self: tasks.Scope, reason: string?): nil
-
-    --- Answers the one worker scope this task scope owns.
-    workers: function(borrows self: tasks.Scope): WorkerScope borrows (self)
 end
 
 -- The record's own table is the method table, so a declared method reaches an
@@ -245484,13 +245459,16 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                 operation = waiting.operation,
                 context = (waiting as any).context,
                 ready = function(_: any): boolean
-                    -- Asked by whoever parks outward, so the deadline is observed while
-                    -- waiting and not only on the way back in.
-                    deadlinePassed(owner)
+                    -- A readiness check is pure: it says whether the loop above has
+                    -- something to do, and the loop does it. Cancelling here would
+                    -- route replies and wake waiters from inside the host's own
+                    -- check, before it has yielded.
+                    const deadline = owner.deadline
+                    const expired = deadline ~= nil and timeRuntime().now() >= deadline
 
                     return waiting:ready() or (
                         #owner.queue > 0 and suspensionRuntime.__turnAvailable()
-                    ) or owner.failed or (owner.cancellation ~= nil and not owner.deliberate)
+                    ) or owner.failed or expired or (owner.cancellation ~= nil and not owner.deliberate)
                 end,
                 onResume = function(_: any, wake: function(): nil): nil
                     waiting:onResume(wake)
@@ -245903,7 +245881,6 @@ local forkSurface: function<F is Submittable>(
     ...: unpackof nupp.workers.Submitted(F)
 ): tasks.Task<F> borrows (self)
 local cancelSurface: function(borrows self: tasks.Scope, reason: string?): nil
-local workersSurface: function(borrows self: tasks.Scope): WorkerScope borrows (self)
 unsafe do
     -- `spawnChild` is the ownership implementation boundary: the runtime stores
     -- the transferred body in a coroutine and stores the scope state in the handle.
@@ -245917,7 +245894,6 @@ unsafe do
     end as any
     forkSurface = forkImpl as any
     cancelSurface = cancelImpl as any
-    workersSurface = workersImpl as any
 end
 
 --- Starts a child under this scope.
@@ -246007,20 +245983,6 @@ end
 --- @param reason why, for whoever catches the cancellation
 unsafe do
     tasks.Scope.cancel = cancelSurface as any
-end
-
---- Reaches the one lazily-created worker scope owned by this task scope.
----
---- `fork` submits to this same scope, so it is the lower-level handle: reach for it
---- when the worker scope itself is wanted, not to start one child.
----
---- ```nupp
---- const lane = scope:workers()
---- ```
----
---- @return the worker scope, borrowed from this scope
-unsafe do
-    tasks.Scope.workers = workersSurface as any
 end
 
 ----------------------------------------------------------------------------
