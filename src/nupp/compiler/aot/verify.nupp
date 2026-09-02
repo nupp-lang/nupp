@@ -304,23 +304,30 @@ local laneWalk: function(lane.Expr, {[string]: string}, verify.Context): nil
 -- Expressions
 ----------------------------------------------------------------------------
 
---- Whether an operand may take part in a bitwise operation.
+local bitOperand = admit.bitOperand
+
+--- Whether a direct read at `index` is proved by a cursor: the index is that
+--- very cursor local -- by name and by the C name the emitter addresses -- the
+--- cursor is a uint32, and a dominating check bounded it against `root`.
 ---
---- A value established as 32-bit may. So may a literal that already denotes a
---- 32-bit pattern, which is how a mask is written without a cast; anything else
---- would be a binary64 value silently truncated.
-local function bitOperand(value: scalarIR.Expr): boolean
-    if value.type == "i32" or value.type == "u32" then
-        return true
+--- One rule for every read that names a cursor, so the scratch read and the
+--- rooted byte read cannot come to require different proofs.
+local function cursorRead(
+    index: scalarIR.Expr,
+    cursor: string?,
+    cursorCName: string?,
+    root: string,
+    values: {[string]: string},
+    scope: verify.Scope
+): boolean
+    if cursor == nil or cursorCName == nil or index.op ~= "local" then
+        return false
     end
-    local raw = value as any
-    if raw.op == "constant" then
-        local number = tonumber(raw.value)
+    local named = index as scalarIR.Name
 
-        return number ~= nil and number >= 0 and number <= verify.UINT32_MAX and number % 1 == 0
-    end
-
-    return false
+    return named.name == cursor and named.cName == cursorCName and values[
+        cursor as string
+    ] == "u32" and scope.cursorBounds[cursor as string] == root
 end
 
 --- The prefix a fixed word buffer's width is recorded under, in the same map
@@ -1024,18 +1031,14 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         )
         holds(loaded.index.type == "u32", "scratch read index is not uint32")
         holds(
-            loaded.cursor == nil
-            and loaded.cursorCName == nil
-            or loaded.cursor ~= nil
-            and loaded.cursorCName ~= nil
-            and loaded.index.op == "local"
-            and (
-                loaded.index as scalarIR.Name
-            ).name == loaded.cursor and (
-                loaded.index as scalarIR.Name
-            ).cName == loaded.cursorCName and scope.cursorBounds[
-                loaded.cursor as string
-            ] == (loaded.scratch as scalarIR.Name).name,
+            loaded.cursor == nil and loaded.cursorCName == nil or cursorRead(
+                loaded.index,
+                loaded.cursor,
+                loaded.cursorCName,
+                (loaded.scratch as scalarIR.Name).name,
+                values,
+                scope
+            ),
             "direct scratch read lacks a dominating length proof"
         )
         holds(
@@ -1149,9 +1152,14 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             if op == "lua_string_byte_at" then
                 local rooted = bytes.bytes as scalarIR.Name
                 holds(
-                    bytes.cursor ~= nil and bytes.cursorCName ~= nil and scope.cursorBounds[
-                        bytes.cursor as string
-                    ] == rooted.name,
+                    cursorRead(
+                        bytes.index as scalarIR.Expr,
+                        bytes.cursor,
+                        bytes.cursorCName,
+                        rooted.name,
+                        values,
+                        scope
+                    ),
                     "direct rooted byte read lacks a bounds proof"
                 )
             end

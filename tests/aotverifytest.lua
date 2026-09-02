@@ -135,4 +135,20 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
     verify.program(program)
 end
 
+function M.aRootedByteReadIsIndexedByTheCursorThatProvesIt()
+    -- The proof is about `cursor`; a read that names the cursor and then reads
+    -- at some other uint32 would be proved by a fact about a different value.
+    local program = lowered(CURSOR_READ, "cursor.g.nupp")
+    local branch = find(program.body, function(statement)
+        return statement.op == "if"
+    end)
+    local read = branch.clauses[1].body[1].values[1].value
+    assert(read.op == "lua_string_byte_at" and read.cursor == "cursor", "the guarded read")
+    local other = find(program.body, function(statement)
+        return statement.op == "let" and statement.name == "n"
+    end)
+    read.index = {op = "local", name = "n", cName = other.cName, type = "u32", source = read.index.source}
+    refuses(program, "direct rooted byte read lacks a bounds proof")
+end
+
 return M
