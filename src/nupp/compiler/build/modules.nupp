@@ -1277,7 +1277,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local depNames = inc.moduleDependencies(path)
         local effectNames = {}
         if fatal or checkOnly or external then
-            for effect in pairs(result.result.effects or {}) do
+            for effect in pairs(result.result and result.result.effects or {}) do
                 effectNames[#effectNames + 1] = effect
             end
             table.sort(effectNames)
@@ -1322,7 +1322,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
             table.sort(effectNames)
             stats.generatedModules = stats.generatedModules + 1
-            for _, diag in ipairs(genDiags or {}) do
+            for _, diag in ipairs(genDiags) do
                 mine[#mine + 1] = diag
             end
             if #genDiags == 0 then
