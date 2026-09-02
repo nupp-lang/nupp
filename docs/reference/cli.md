@@ -2021,14 +2021,17 @@ Options:
   --format FORMAT  Output format: text (default) or json
   --json           Shorthand for --format json
   --text           Shorthand for --format text
-  --include-declaration
-                   references only: include the declaration
-  --file FILE      symbols only: search one document instead of the workspace
-  --only KIND      actions only: narrow to quickfix or refactor
-  -w, --write      rename only: apply the rename instead of previewing it
-  --schema         Print the JSON Schema of an operation's --json output; each
-                   operation answers with its own
+  --schema         Print the JSON Schema of an operation's --json output; ask
+                   one operation, as `nupp lsp <operation> --schema`
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
+  --include-declaration
+                   references only: Include the declaration among the
+                   references
+  --file FILE      symbols only: Search one document instead of the workspace
+  -w, --write      rename only: Apply the rename instead of previewing it
+  --only KIND      actions only: Narrow the results to quickfix or refactor
 
 With no operation, or with only a root, runs the language server over stdio for
 compatibility. `serve` names that mode explicitly. Source positions are 1-based
