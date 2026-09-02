@@ -514,7 +514,12 @@ local function analyze(nodes, root, ruleRoots)
                 end
             end
         elseif op == "choice" then
-            answer = signature(node[2], collected)
+            local first, firstWhy = signature(node[2], collected)
+            if not first then
+                visiting[index] = nil
+                return nil, firstWhy
+            end
+            answer = first
             for child = 3, #node do
                 local got, why = signature(node[child], collected)
                 if not got then
@@ -527,7 +532,12 @@ local function analyze(nodes, root, ruleRoots)
                 end
             end
         elseif op == "difference" then
-            answer = signature(node[2], collected)
+            local got, why = signature(node[2], collected)
+            if not got then
+                visiting[index] = nil
+                return nil, why
+            end
+            answer = got
         elseif op == "zeroOrMore" or op == "oneOrMore" or op == "optional" then
             local got, why = signature(node[2], collected)
             if not got then
@@ -540,7 +550,12 @@ local function analyze(nodes, root, ruleRoots)
             end
             answer = got
         elseif op == "reference" then
-            answer = signature(node[2], collected)
+            local got, why = signature(node[2], collected)
+            if not got then
+                visiting[index] = nil
+                return nil, why
+            end
+            answer = got
         end
         visiting[index] = nil
         if not collected then

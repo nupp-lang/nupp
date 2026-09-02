@@ -1516,6 +1516,21 @@ end
    assertEq(codes[1], "NUPP2417", "left recursion is rejected")
 end
 
+function M.reportsUnwrappedRepetitionInsideChoiceAndRules()
+   local codes = errorsOf([[
+const Bad = comptime do
+    return nupp.peg.compile("{'a'}* / 'b'")
+end
+]])
+   assertEq(codes[1], "NUPP2417", "a choice alternative reports its unwrapped repetition")
+   local ruleCodes = errorsOf([[
+const Bad = comptime do
+    return nupp.peg.compile("S <- A 'x'  A <- {'a'}*")
+end
+]])
+   assertEq(ruleCodes[1], "NUPP2417", "a rule reference reports its unwrapped repetition")
+end
+
 function M.rejectsAMatcherResultTypeMismatch()
    local codes = errorsOf([[
 const Bad: nupp.peg.Peg<integer> = comptime do
