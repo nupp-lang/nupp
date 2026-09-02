@@ -2376,22 +2376,31 @@ function gen.generate(
     -- Emitting hot functions
     ---------------------------------------------------------------------
 
+    -- The parameter names a function is written with, in order: a vararg of either
+    -- spelling is `...`. `dropSelf` leaves out a first parameter named `self`, for a
+    -- body whose receiver is written out by the caller rather than declared here.
+    function pluck.paramNames(params, dropSelf: boolean): {string}
+        local names = {}
+        for index, param in ipairs(params or {}) do
+            if dropSelf and index == 1 and param.name and param.name.text == "self" then
+                -- skipped
+            elseif param.namedVararg then
+                names[#names + 1] = "..."
+            elseif param.name then
+                names[#names + 1] = param.name.text
+            elseif param.vararg or param[1] and cst.isToken(param[1]) and param[1].kind == "..." then
+                names[#names + 1] = "..."
+            end
+        end
+
+        return names
+    end
+
     local function hotEmitImplementation(planned): nil
         local body = planned.node.body
-        local names = {}
+        local names = pluck.paramNames(body.params, planned.implicitSelf)
         if planned.implicitSelf then
-            names[#names + 1] = "self"
-        end
-        for index, param in ipairs(body.params or {}) do
-            if not (planned.implicitSelf and index == 1 and param.name and param.name.text == "self") then
-                if param.namedVararg then
-                    names[#names + 1] = "..."
-                elseif param.name then
-                    names[#names + 1] = param.name.text
-                elseif param[1] and cst.isToken(param[1]) and param[1].kind == "..." then
-                    names[#names + 1] = "..."
-                end
-            end
+            table.insert(names, 1, "self")
         end
         local line = sourceLine(planned.node)
         e("function(" .. table.concat(names, ",") .. ")", line)
@@ -6222,22 +6231,11 @@ function gen.generate(
             -- line count equal to the source's.
             local body = x.body
             local line = sourceLine(x)
-            local names = {}
-            for index, p in ipairs(body.params or {}) do
-                -- The receiver is written out the way a method's is, and is no more an
-                -- argument here than it is there: the instance is made below, so a
-                -- parameter of that name would shadow it with whatever the caller
-                -- happened to pass first.
-                if index == 1 and p.name and p.name.text == "self" then
-                    -- skipped
-                elseif p.namedVararg then
-                    names[#names + 1] = "..."
-                elseif p.name then
-                    names[#names + 1] = p.name.text
-                elseif p.vararg or p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
-                    names[#names + 1] = "..."
-                end
-            end
+            -- The receiver is written out the way a method's is, and is no more an
+            -- argument here than it is there: the instance is made below, so a
+            -- parameter of that name would shadow it with whatever the caller
+            -- happened to pass first.
+            local names = pluck.paramNames(body.params, true)
             local owner = x.inlineRuntimeOwner
             local seeded = {}
             local nominal = x.ownerNominal
@@ -6290,16 +6288,7 @@ function gen.generate(
             end
             local body = x.body
             local line = sourceLine(x)
-            local names = {}
-            for _, p in ipairs(body.params or {}) do
-                if p.namedVararg then
-                    names[#names + 1] = "..."
-                elseif p.name then
-                    names[#names + 1] = p.name.text
-                elseif p.vararg or p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
-                    names[#names + 1] = "..."
-                end
-            end
+            local names = pluck.paramNames(body.params, false)
             if x.inlineDotted then
                 -- Defaults and statics are plain functions on a declaration table.
                 -- A default's explicitly written `self` remains its first parameter;
@@ -6354,18 +6343,9 @@ function gen.generate(
             end
             needsFfi = true
             local line = sourceLine(x)
-            local names = {}
+            local names = pluck.paramNames(x.body.params, false)
             if x.name.method then
-                names[1] = "self"
-            end
-            for _, p in ipairs(x.body.params or {}) do
-                if p.namedVararg then
-                    names[#names + 1] = "..."
-                elseif p.name then
-                    names[#names + 1] = p.name.text
-                elseif p.vararg or p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
-                    names[#names + 1] = "..."
-                end
+                table.insert(names, 1, "self")
             end
             e(
                 (
