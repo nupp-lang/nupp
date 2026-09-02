@@ -958,6 +958,19 @@ local function provenIndex(spanName: string, cursor: string?, node: cst.Node, ke
     end
 end
 
+--- Whether `value` names a rooted string or byte parameter of this kernel,
+--- as the SIMD loads that read one directly require: the local itself, and
+--- not a copy or a slice, so the C name the load addresses is the parameter's.
+local function rootedBytesParam(value: scalarIR.Expr, kernel: lower.Kernel): boolean
+    if value.op ~= "local" or value.type ~= "lua_string" and value.type ~= "lua_bytes" then
+        return false
+    end
+    local rooted = value as scalarIR.Name
+    local param = kernel.params[rooted.name]
+
+    return param ~= nil and param.kind == "scalar" and param.type == value.type and rooted.cName == param.cName
+end
+
 --- The cursor a `candidate + 1` index names, when a dominating check bounded
 --- that cursor against this span.
 ---
@@ -1431,21 +1444,8 @@ local function call(
         )
     elseif identity == "nupp.simd.paddedStringU8" or identity == "nupp.simd.paddedBytesU8" then
         local bytes = args[1]
-        local rooted = bytes ~= nil and bytes.op == "local" and bytes as scalarIR.Name or nil
-        local param = rooted ~= nil and kernel.params[(rooted as scalarIR.Name).name] or nil
-        if #args ~= 1
-            or bytes == nil
-            or identity == "nupp.simd.paddedStringU8"
-            and bytes.type ~= "lua_string"
-            or identity == "nupp.simd.paddedBytesU8"
-            and bytes.type ~= "lua_bytes"
-            or rooted == nil
-            or param == nil
-            or param.kind ~= "scalar"
-            or param.type ~= bytes.type
-            or (
-            rooted as scalarIR.Name
-        ).cName ~= param.cName then
+        local wanted = identity == "nupp.simd.paddedStringU8" and "lua_string" or "lua_bytes"
+        if #args ~= 1 or bytes == nil or bytes.type ~= wanted or not rootedBytesParam(bytes, kernel) then
             context.reject(lower.site(node), "simd.paddedStringU8 requires a rooted string parameter")
         end
         kernel.usesSimd = true
@@ -2150,6 +2150,16 @@ local function simdMethod(
     local source = lower.site(node)
     kernel.usesSimd = true
 
+    --- The written argument at `position`, established as uint32.
+    local function u32Arg(position: integer): scalarIR.Expr
+        return lower.convert(
+            lower.expression(raw[position], environment, activeIndex, kernel),
+            "u32",
+            source,
+            kernel.context
+        )
+    end
+
     if receiverType == "simd_mask_bits64" then
         local binary64 = {
             add = "simd_mask64_add",
@@ -2168,9 +2178,7 @@ local function simdMethod(
         elseif method == "notBits" and #raw == 0 then
             return new scalarIR.Simd(op = "simd_mask64_not", args = args, type = "simd_mask_bits64", source = source)
         elseif (method == "shiftLeft" or method == "shiftRight") and #raw == 1 then
-            args[
-                2
-            ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+            args[2] = u32Arg(1)
             return new scalarIR.Simd(
                 op = method == "shiftLeft" and "simd_mask64_shl" or "simd_mask64_shr",
                 args = args,
@@ -2211,9 +2219,7 @@ local function simdMethod(
         )
     elseif receiverType == "simd_padded_string_u8" then
         if method == "loadFull" and #raw == 1 then
-            args[
-                2
-            ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+            args[2] = u32Arg(1)
             return new scalarIR.Simd(
                 op = "simd_padded_load_full_u8",
                 args = args,
@@ -2228,9 +2234,7 @@ local function simdMethod(
                 source = source
             )
         elseif method == "loadBlock64" and #raw == 1 then
-            args[
-                2
-            ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+            args[2] = u32Arg(1)
             return new scalarIR.Simd(
                 op = "simd_block64_load_u8",
                 args = args,
@@ -2287,9 +2291,7 @@ local function simdMethod(
     elseif receiverType == "simd_block_u8x64" and (
         method == "andByte" or method == "shiftRight" or method == "anyBitsSet"
     ) and #raw == 1 then
-        args[
-            2
-        ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+        args[2] = u32Arg(1)
         return new scalarIR.Simd(
             op = method == "andByte"
             and "simd_block64_and_byte_u8"
@@ -2330,9 +2332,7 @@ local function simdMethod(
             source = source
         )
     elseif receiverType == "simd_species_u8" and method == "splat" and #raw == 1 then
-        args[
-            2
-        ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+        args[2] = u32Arg(1)
         return new scalarIR.Simd(op = "simd_splat_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_species_u8" and method == "load" then
         if #raw ~= 2 then
@@ -2343,9 +2343,7 @@ local function simdMethod(
         if span == nil or span.kind ~= "read_span" or span.sourceType ~= "uint8" then
             kernel.context.reject(source, "SIMD byte loads require a borrowed Span<uint8>")
         end
-        args[
-            2
-        ] = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "u32", source, kernel.context)
+        args[2] = u32Arg(2)
 
         return new scalarIR.Simd(
             op = "simd_load_u8",
@@ -2359,27 +2357,12 @@ local function simdMethod(
             kernel.context.reject(source, "SIMD strided loads take a source, offset and lane")
         end
         local strideBytes = lower.expression(raw[1], environment, activeIndex, kernel)
-        local strideRooted = strideBytes.op == "local" and strideBytes as scalarIR.Name or nil
-        local strideParam = strideRooted ~= nil and kernel.params[(strideRooted as scalarIR.Name).name] or nil
-        if strideBytes.type ~= "lua_string"
-            and strideBytes.type ~= "lua_bytes"
-            or strideRooted == nil
-            or strideParam == nil
-            or strideParam.kind ~= "scalar"
-            or strideParam.type ~= "lua_string"
-            and strideParam.type ~= "lua_bytes"
-            or (
-            strideRooted as scalarIR.Name
-        ).cName ~= strideParam.cName then
+        if not rootedBytesParam(strideBytes, kernel) then
             kernel.context.reject(source, "SIMD rooted-string loads require a rooted string parameter")
         end
         args[2] = strideBytes
-        args[
-            3
-        ] = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "u32", source, kernel.context)
-        args[
-            4
-        ] = lower.convert(lower.expression(raw[3], environment, activeIndex, kernel), "u32", source, kernel.context)
+        args[3] = u32Arg(2)
+        args[4] = u32Arg(3)
         markLua(kernel, source)
         return new scalarIR.Simd(op = "simd_load_stride3_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_species_u8" and method == "loadString" then
@@ -2387,30 +2370,15 @@ local function simdMethod(
             kernel.context.reject(source, "SIMD rooted-string loads take a source and offset")
         end
         local bytes = lower.expression(raw[1], environment, activeIndex, kernel)
-        local rooted = bytes.op == "local" and bytes as scalarIR.Name or nil
-        local param = rooted ~= nil and kernel.params[(rooted as scalarIR.Name).name] or nil
-        if bytes.type ~= "lua_string"
-            and bytes.type ~= "lua_bytes"
-            or rooted == nil
-            or param == nil
-            or param.kind ~= "scalar"
-            or param.type ~= "lua_string"
-            and param.type ~= "lua_bytes"
-            or (
-            rooted as scalarIR.Name
-        ).cName ~= param.cName then
+        if not rootedBytesParam(bytes, kernel) then
             kernel.context.reject(source, "SIMD rooted-string loads require a rooted string parameter")
         end
         args[2] = bytes
-        args[
-            3
-        ] = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "u32", source, kernel.context)
+        args[3] = u32Arg(2)
         markLua(kernel, source)
         return new scalarIR.Simd(op = "simd_load_string_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_species_u8" and method == "tail" and #raw == 1 then
-        args[
-            2
-        ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+        args[2] = u32Arg(1)
         return new scalarIR.Simd(op = "simd_tail_u8", args = args, type = "simd_mask_u8", source = source)
     elseif receiverType == "simd_vector_u8" and (method == "equal" or method == "inRange") then
         local expected = method == "equal" and 1 or 2
@@ -2434,14 +2402,10 @@ local function simdMethod(
             source = source
         )
     elseif receiverType == "simd_vector_u8" and method == "shiftRight" and #raw == 1 then
-        args[
-            2
-        ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+        args[2] = u32Arg(1)
         return new scalarIR.Simd(op = "simd_shr_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_vector_u8" and method == "shiftLeft" and #raw == 1 then
-        args[
-            2
-        ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+        args[2] = u32Arg(1)
         return new scalarIR.Simd(op = "simd_shl_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_vector_u8" and method == "lookup64" and #raw == 4 then
         for index = 1, 4 do
