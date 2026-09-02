@@ -72,31 +72,53 @@ function text.utf8Char(source: string, offset: number): integer, integer
     return len, len == 4 and 2 or 1
 end
 
-function text.positionAtOffset(source: string, offset: number): text.Position
-    local line: integer, character: integer, pos: integer = 0, 0, 1
-    while pos < offset and pos <= #source do
-        if source:byte(pos) == 10 then
-            line, character, pos = line + 1, 0, pos + 1
+-- The line starts of the source most recently asked about. A request such as
+-- semantic tokens asks for thousands of positions in one text, and scanning from the
+-- first byte each time made that quadratic; one text at a time is enough, because a
+-- request works over one document.
+local cachedSource: string? = nil
+local cachedStarts: {integer} = {}
+
+local function startsOf(source: string): {integer}
+    if source ~= cachedSource then
+        cachedSource, cachedStarts = source, text.lineStarts(source)
+    end
+
+    return cachedStarts
+end
+
+--- The zero-based line `offset` stands on, and the byte that line starts at.
+local function lineOf(starts: {integer}, offset: number): integer, integer
+    local low: integer, high: integer = 1, #starts
+    while low < high do
+        local middle: integer = (low + high + 1) // 2
+        if starts[middle] <= offset then
+            low = middle
         else
-            local bytes, units = text.utf8Char(source, pos)
-            character, pos = character + units, pos + bytes
+            high = middle - 1
         end
+    end
+
+    return low - 1, starts[low]
+end
+
+function text.positionAtOffset(source: string, offset: number): text.Position
+    local line, pos = lineOf(startsOf(source), offset)
+    local character: integer = 0
+    while pos < offset and pos <= #source do
+        local bytes, units = text.utf8Char(source, pos)
+        character, pos = character + units, pos + bytes
     end
 
     return {line = line, character = character}
 end
 
 function text.offsetAtPosition(source: string, target: text.Position): integer?
-    local line: integer, character: integer, pos: integer = 0, 0, 1
-    while pos <= #source and line < target.line do
-        if source:byte(pos) == 10 then
-            line = line + 1
-        end
-        pos = pos + 1
-    end
-    if line ~= target.line then
+    local pos = startsOf(source)[target.line + 1]
+    if not pos then
         return nil
     end
+    local character: integer = 0
     while pos <= #source and source:byte(pos) ~= 10 and character < target.character do
         local bytes, units = text.utf8Char(source, pos)
         character, pos = character + units, pos + bytes
@@ -105,11 +127,13 @@ function text.offsetAtPosition(source: string, target: text.Position): integer?
     return pos
 end
 
+--- The protocol range covering bytes `from` up to `to` of `source`.
+function text.spanRange(source: string, from: number, to: number): text.Range
+    return {start = text.positionAtOffset(source, from), ["end"] = text.positionAtOffset(source, to)}
+end
+
 function text.tokenRange(source: string, tok: lexer.Token): text.Range
-    return {
-        start = text.positionAtOffset(source, tok.offset),
-        ["end"] = text.positionAtOffset(source, tok.offset + #tok.text),
-    }
+    return text.spanRange(source, tok.offset, tok.offset + #tok.text)
 end
 
 --- The lines of `text`, each keeping its own newline, so concatenating them reproduces

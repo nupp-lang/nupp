@@ -55,10 +55,7 @@ local function declarationChildren(stat, source)
         ] = {
             name = nameTok.text,
             kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.field,
-            range = {
-                start = text.positionAtOffset(source, from),
-                ["end"] = text.positionAtOffset(source, to as integer),
-            },
+            range = text.spanRange(source, from, to as integer),
             selectionRange = text.tokenRange(source, nameTok),
             children = wire.array({}),
         }
@@ -128,10 +125,7 @@ function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.S
         ] = {
             name = path or nameTok.text,
             kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.variable,
-            range = {
-                start = text.positionAtOffset(source, from),
-                ["end"] = text.positionAtOffset(source, to as integer),
-            },
+            range = text.spanRange(source, from, to as integer),
             selectionRange = text.tokenRange(source, nameTok),
             children = declarationChildren(stat, source),
         }

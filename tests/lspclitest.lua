@@ -198,6 +198,34 @@ function M.traceCheckInspectsOneFunctionWithoutAddingAContract()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- `@jit` decorates a declaration. A function expression has no statement of its own
+-- to carry it, and the offer used to splice the whole line prefix in front of it:
+-- `local f = @jit\nlocal f = function`.
+function M.traceCheckOffersNoContractForAFunctionExpression()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["expr.g.nupp"] = table.concat({
+         "local hot = function(values: {integer}): integer",
+         "   local total = 0",
+         "   for i = 1, #values do",
+         "      local add = function(): integer return values[i] end",
+         "      total = total + add()",
+         "   end",
+         "   return total",
+         "end",
+         "return hot({1, 2, 3})",
+         "",
+      }, "\n"),
+   })
+   local checked = json.decode(captureJson(dir,
+      "lsp trace-check --json expr.g.nupp 5 7"))
+   assert(checked.findings and #checked.findings > 0, "the expression is inspected")
+   assert(checked.addContract == nil or checked.addContract == json.null,
+      "no contract edit is offered for a function expression: "
+      .. tostring(checked.addContract and checked.addContract.newText))
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.traceCheckIncludesARepairableNoncapturingClosure()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',

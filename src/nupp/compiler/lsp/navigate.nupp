@@ -23,7 +23,7 @@ local complete = require("nupp.compiler.lsp.complete")
 local wire = require("nupp.compiler.lsp.wire")
 
 local uriToPath, pathToUri = text.uriToPath, text.pathToUri
-local positionAtOffset, offsetAtPosition = text.positionAtOffset, text.offsetAtPosition
+local offsetAtPosition = text.offsetAtPosition
 local tokenRange, readFile = text.tokenRange, text.readFile
 local findDeclaration, tokenAt = tree.findDeclaration, tree.tokenAt
 local symbolKey, memberOccurrences = tree.symbolKey, tree.memberOccurrences
@@ -97,6 +97,9 @@ type navigate.Api = {
     memberReferences: function(member: any, includeDeclaration: boolean?): {any},
 
     memberHover: function(member: tree.MemberRef): string?,
+
+    --- The docblock over a member's declaration in the file at `path`.
+    memberDocumentation: function(path: string, tok: lexer.Token?): string?,
 
     --- The type a receiver path names, plus the module it holds when it holds one.
     resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?)
@@ -191,13 +194,7 @@ function navigate.install(s: navigate.Session): navigate.Api
         end
         local tok = tokens[index]
 
-        return {
-            uri = pathToUri(def.filename),
-            range = {
-                start = positionAtOffset(source, tok.offset),
-                ["end"] = positionAtOffset(source, tok.offset + #tok.text),
-            },
-        }
+        return {uri = pathToUri(def.filename), range = tokenRange(source, tok),}
     end
 
     local function documentationFor(def)
@@ -406,13 +403,7 @@ function navigate.install(s: navigate.Session): navigate.Api
             return json.NULL
         end
 
-        return {
-            uri = pathToUri(path),
-            range = {
-                start = positionAtOffset(source, tok.offset),
-                ["end"] = positionAtOffset(source, tok.offset + #tok.text),
-            },
-        }
+        return {uri = pathToUri(path), range = tokenRange(source, tok),}
     end
 
     local function memberReferences(member, includeDeclaration)
@@ -443,24 +434,35 @@ function navigate.install(s: navigate.Session): navigate.Api
     --- Hover for a member: the declaration as it was written, and its docblock. There
     --- is no type to render, the table it sits on having been inferred open, and the
     --- line the author wrote says more than `any` would.
+    --- The docblock over a member's declaration, read from the file that holds it as
+    --- it reads right now.
+    local function memberDocumentation(path: string, tok: lexer.Token?): string?
+        if not tok then
+            return nil
+        end
+        local source = sourceForPath(path)
+        if not source then
+            return nil
+        end
+        local tokens = fileTokens(path, source)
+        for index, candidate in ipairs(tokens) do
+            if candidate.offset == tok.offset then
+                return documentationAt(tokens, index)
+            end
+        end
+
+        return nil
+    end
+
     local function memberHover(member)
         local path, tok, stat = memberDeclaration(member.moduleName, member.name)
         if not path then
             return nil
         end
         local value = "```nupp\n" .. functionSignature(stat) .. "\n```"
-        local source = sourceForPath(path)
-        if source then
-            local tokens = fileTokens(path, source)
-            for index, candidate in ipairs(tokens) do
-                if candidate.offset == tok.offset then
-                    local docs = documentationAt(tokens, index)
-                    if docs then
-                        value = value .. "\n\n" .. docs
-                    end
-                    break
-                end
-            end
+        local docs = memberDocumentation(path, tok)
+        if docs then
+            value = value .. "\n\n" .. docs
         end
 
         return value
@@ -513,9 +515,6 @@ function navigate.install(s: navigate.Session): navigate.Api
                 return nil, nil
             end
         end
-        if #path > 1 then
-            moduleName = nil
-        end
 
         return t, moduleName
     end
@@ -535,6 +534,7 @@ function navigate.install(s: navigate.Session): navigate.Api
         documentsMentioning = documentsMentioning,
         referencesFor = referencesFor,
         memberDeclaration = memberDeclaration,
+        memberDocumentation = memberDocumentation,
         memberAt = memberAt,
         memberLocation = memberLocation,
         memberReferences = memberReferences,

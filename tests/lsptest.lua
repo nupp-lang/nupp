@@ -272,6 +272,70 @@ end
 
 local M = {}
 
+-- Positions were found by scanning from the first byte of the text on every call,
+-- which made a request asking for thousands of them quadratic in the file. The
+-- answer has to stay the one the scan gave, over every line and every width of
+-- character.
+function M.positionsAgreeWithAScanFromTheStart()
+   local text = require("nupp.compiler.lsp.text")
+   local source = "local a = 1\n-- \195\169t\195\169 \240\159\152\128 wide\n\nreturn a\n"
+   local function scanned(offset)
+      local line, character, pos = 0, 0, 1
+      while pos < offset and pos <= #source do
+         if source:byte(pos) == 10 then
+            line, character, pos = line + 1, 0, pos + 1
+         else
+            local bytes, units = text.utf8Char(source, pos)
+            character, pos = character + units, pos + bytes
+         end
+      end
+      return line, character, pos
+   end
+   for offset = 1, #source + 2 do
+      local got = text.positionAtOffset(source, offset)
+      local line, character, pos = scanned(offset)
+      assert(got.line == line and got.character == character,
+         ("offset %d: want %d:%d, got %d:%d"):format(offset, line, character,
+            got.line, got.character))
+      -- An offset on a character boundary names the same byte from either side; one
+      -- inside a multi-byte character rounds to the character's end, as it always
+      -- did.
+      if pos == offset then
+         local back = text.offsetAtPosition(source, got)
+         assert(back == offset,
+            ("offset %d does not round-trip: %s"):format(offset, tostring(back)))
+      end
+   end
+   assert(text.offsetAtPosition(source, {line = 9, character = 0}) == nil,
+      "a line past the end is nothing")
+   assert(text.offsetAtPosition(source, {line = 4, character = 0}) == #source + 1,
+      "the empty last line starts one past the end")
+end
+
+-- A session started against "." answered a document reached by its absolute path by
+-- walking up from that path, finding the working directory's own manifest, and
+-- building a second graph of the same project under the absolute spelling.
+function M.anAbsolutePathUnderARelativeRootReusesItsGraph()
+   local pwd = assert(io.popen("pwd")):read("*l")
+   local dir = pwd .. "/tests/lsp-root-probe"
+   os.execute("rm -rf '" .. dir .. "'")
+   writeInto(dir, "probe.nupp", "local value = 1\nreturn value\n")
+   local host = stubHost()
+   local client = inProcessSession(".", host)
+   client.dispatch({ jsonrpc = "2.0", id = 1, method = "initialize", params = {} })
+   local uri = "file://" .. dir .. "/probe.nupp"
+   client.dispatch({ jsonrpc = "2.0", method = "textDocument/didOpen",
+      params = { textDocument = { uri = uri, languageId = "nupp",
+         version = 1, text = "local value = 1\nreturn value\n" } } })
+   client.dispatch({ jsonrpc = "2.0", id = 2, method = "$/nupp/inspect",
+      params = { textDocument = { uri = uri },
+         position = { line = 1, character = 8 } } })
+   local answer = client.answer(2)
+   os.execute("rm -rf '" .. dir .. "'")
+   assert(answer.result and answer.result.root == ".",
+      "the relative root answers for its absolute paths: " .. json.encode(answer))
+end
+
 function M.projectExportDefinitionAndCompletion()
    local projectDir = os.tmpname()
    os.remove(projectDir)

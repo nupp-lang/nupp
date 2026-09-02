@@ -35,14 +35,16 @@ local symbols = require("nupp.compiler.lsp.symbols")
 local complete = require("nupp.compiler.lsp.complete")
 local semantic = require("nupp.compiler.lsp.semantic")
 
-local documentationAt = tree.documentationAt
+-- The declarations `@jit` can decorate: the ones the pragma checker attaches a
+-- contract to.
+local CONTRACT_TARGETS = {localFuncStmt = true, funcStmt = true, inlineMethod = true, constructorDecl = true}
 local enclosingChain = tree.enclosingChain
 local functionSignature = tree.functionSignature
 local lineHunks = text.lineHunks
 local lineStarts = text.lineStarts
 local memberOccurrences = tree.memberOccurrences
 local offsetAtPosition = text.offsetAtPosition
-local positionAtOffset = text.positionAtOffset
+local positionAtOffset, spanRange = text.positionAtOffset, text.spanRange
 local splitLines = text.splitLines
 local symbolKey = tree.symbolKey
 local tokenAt = tree.tokenAt
@@ -306,17 +308,19 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     local nestedRoots: {[string]: string} = {}
 
     local function projectRootFor(folder: string, path: string): string
-        local dir = fs.dirname(path)
+        local dir = fs.dirname(fs.absolute(path))
         local memo = nestedRoots[dir]
         if memo ~= nil then
             return memo
         end
-        -- A relative root is the working directory, which every relative path is
-        -- already under, so only a named folder bounds the walk.
-        local bounded = folder ~= "" and folder ~= "."
+        -- The walk is over absolute spellings, so a relative folder -- the working
+        -- directory, or a name under it -- bounds it as a named one does, and a file
+        -- reached by its absolute path stops at the folder rather than walking past
+        -- it and finding the folder's own manifest as a project of its own.
+        local bound = fs.absolute(folder)
         local found, at = folder, dir
-        while at ~= "" and at ~= "." and at ~= folder do
-            if bounded and at:sub(1, #folder + 1) ~= folder .. "/" then
+        while at ~= bound do
+            if at:sub(1, #bound + 1) ~= bound .. "/" then
                 break
             end
             if fs.exists(fs.join(at, "nupp.lua")) then
@@ -332,6 +336,16 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         nestedRoots[dir] = found
 
         return found
+    end
+
+    --- A root's absolute spelling, worked out once: roots are compared by it, and
+    --- answered by the spelling they were declared with.
+    local function absoluteRoot(entry): string
+        if not entry.absolute then
+            entry.absolute = fs.absolute(entry.root)
+        end
+
+        return entry.absolute
     end
 
     --- Re-declares the folders this session answers for, dropping every graph built for
@@ -359,20 +373,21 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     --- the session's roots, so the graphs already built keep answering and the next
     --- file under the same project reaches the same one.
     local function rootFor(path: string): any
+        local absolute = fs.absolute(path)
         local owner, longest = nil, -1
         for _, entry in ipairs(s.roots) do
-            local root = entry.root
-            if (path == root or path:sub(1, #root + 1) == root .. "/") and #root > longest then
+            local root = absoluteRoot(entry)
+            if (absolute == root or absolute:sub(1, #root + 1) == root .. "/") and #root > longest then
                 owner, longest = entry, #root
             end
         end
         owner = owner or s.roots[1]
-        local nested = projectRootFor(owner.root, path)
+        local nested = projectRootFor(owner.root, absolute)
         if nested == owner.root then
             return owner
         end
         for _, entry in ipairs(s.roots) do
-            if entry.root == nested then
+            if entry.root == nested or absoluteRoot(entry) == nested then
                 return entry
             end
         end
@@ -448,7 +463,6 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     local refreshOpenDocuments = diags.refreshOpenDocuments
 
     local nav = navigate.install(s)
-    local fileTokens, sourceForPath = nav.fileTokens, nav.sourceForPath
     local definitionLocation = nav.definitionLocation
     local documentationFor, documentAt = nav.documentationFor, nav.documentAt
     local symbolAt = nav.symbolAt
@@ -456,7 +470,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     local referencesFor = nav.referencesFor
     local memberDeclaration, memberAt = nav.memberDeclaration, nav.memberAt
     local memberLocation, memberReferences = nav.memberLocation, nav.memberReferences
-    local memberHover = nav.memberHover
+    local memberHover, memberDocumentation = nav.memberHover, nav.memberDocumentation
 
     local completions = complete.install(s, nav)
     local completionItems = completions.completionItems
@@ -750,10 +764,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             end
             respond(id, {
                 contents = {kind = "markdown", value = value},
-                range = {
-                    start = positionAtOffset(doc.text, from or hoverOffset),
-                    ["end"] = positionAtOffset(doc.text, to or hoverOffset),
-                },
+                range = spanRange(doc.text, from or hoverOffset, to or hoverOffset),
             })
             return
         end
@@ -879,17 +890,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         local member = memberAt(doc, offset)
         if member then
             local path, memberTok, stat = memberDeclaration(member.moduleName, member.name)
-            local documentation = nil
-            local source = path and sourceForPath(path)
-            if source and memberTok then
-                local tokens = fileTokens(path, source)
-                for index, candidate in ipairs(tokens) do
-                    if candidate.offset == memberTok.offset then
-                        documentation = documentationAt(tokens, index)
-                        break
-                    end
-                end
-            end
+            local documentation = path and memberDocumentation(path, memberTok) or nil
             respond(id, {
                 name = member.name,
                 kind = "function",
@@ -960,7 +961,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             local from, to = tree.nodeBounds(finding.at or finding.callAt)
             local range = nil
             if from and to then
-                range = {start = positionAtOffset(doc.text, from), ["end"] = positionAtOffset(doc.text, to as integer),}
+                range = spanRange(doc.text, from, to as integer)
             end
             findings[
                 #findings + 1
@@ -974,27 +975,26 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             }
         end
         local profile = analysis.profile
+        -- `@jit` decorates a function declaration, so only one of those is offered
+        -- the contract: a function expression has no statement of its own to put it
+        -- on. The pragma goes on its own line over a declaration that starts its
+        -- line, at the same indent, and in front of one that does not.
         local addContract = nil
-        if not (selected.body and selected.body.jitRequired) then
+        local declared = selected.node and CONTRACT_TARGETS[selected.node.kind]
+        if declared and not (selected.body and selected.body.jitRequired) then
             local lineStart = selectedFrom
             while lineStart > 1 and doc.text:sub(lineStart - 1, lineStart - 1) ~= "\n" do
                 lineStart = lineStart - 1
             end
-            local indent = doc.text:sub(lineStart, selectedFrom - 1)
+            local before = doc.text:sub(lineStart, selectedFrom - 1)
             addContract = {
-                range = {
-                    start = positionAtOffset(doc.text, selectedFrom),
-                    ["end"] = positionAtOffset(doc.text, selectedFrom),
-                },
-                newText = "@jit\n" .. indent,
+                range = spanRange(doc.text, selectedFrom, selectedFrom),
+                newText = before:match("^%s*$") and "@jit\n" .. before or "@jit ",
             }
         end
         respond(id, {
             name = selected.traceName,
-            range = {
-                start = positionAtOffset(doc.text, selectedFrom),
-                ["end"] = positionAtOffset(doc.text, selectedTo),
-            },
+            range = spanRange(doc.text, selectedFrom, selectedTo),
             findings = findings,
             traceProfile = profile,
             reasonCatalog = analysis.reasonCatalog,
@@ -1247,15 +1247,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     local function toTextEdits(source, edits)
         local out = wire.array({})
         for _, edit in ipairs(edits) do
-            out[
-                #out + 1
-            ] = {
-                range = {
-                    start = positionAtOffset(source, edit.offset),
-                    ["end"] = positionAtOffset(source, edit.offset + edit.length),
-                },
-                newText = edit.newText,
-            }
+            out[#out + 1] = {range = spanRange(source, edit.offset, edit.offset + edit.length), newText = edit.newText,}
         end
 
         return out
@@ -1408,7 +1400,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             ] = {
                 fromLine = hunk.from - 1,
                 toLine = hunk.to - 1,
-                range = {start = positionAtOffset(doc.text, from), ["end"] = positionAtOffset(doc.text, to),},
+                range = spanRange(doc.text, from, to),
                 newText = table.concat(hunk.lines),
             }
         end
@@ -1564,11 +1556,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             local built = nil
             for index = 1, #chain do
                 local span = chain[index]
-                local range = {
-                    start = positionAtOffset(doc.text, span.from),
-                    ["end"] = positionAtOffset(doc.text, span.to),
-                }
-                built = {range = range, parent = built}
+                built = {range = spanRange(doc.text, span.from, span.to), parent = built}
             end
             out[#out + 1] = built or {range = {start = position, ["end"] = position,}}
         end
