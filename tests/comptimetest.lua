@@ -935,6 +935,31 @@ function M.refusesAnUnquotableResult()
    assertEq(codes[1], "NUPP2413", "a function is not a quotable result")
 end
 
+function M.refusesATableValuedKey()
+   -- Keys are written in sorted order, and two table keys have no order between
+   -- them, so a result holding them was not written the same way twice.
+   local codes, diags = errorsOf(
+      "return comptime do local a, b = {}, {} return {[a] = 1, [b] = 2} end")
+   assertEq(codes[1], "NUPP2413", "a table key is refused")
+   assertTrue((diags[1] and diags[1].msg or ""):find("quotable key", 1, true) ~= nil,
+      "and named as a key: " .. tostring(diags[1] and diags[1].msg))
+end
+
+function M.compoundAssignmentAgreesWithItsOperator()
+   local floored, joined = run([[
+local v = comptime do
+    local q = 7
+    q //= 2
+    local s = "a"
+    s ..= "b"
+    return {q = q, s = s}
+end
+return v.q, v.s
+]])
+   assertEq(floored, 3, "floor division through the compound form")
+   assertEq(joined, "ab", "concatenation through the compound form")
+end
+
 function M.refusesASharedTable()
    -- Quoting it twice would build two tables where the block had one. Refusing leaves
    -- the author a decision rather than a difference to discover at run time.

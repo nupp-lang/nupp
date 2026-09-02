@@ -306,10 +306,21 @@ local function quote(value, node, seen, state)
         local skip = type(key) == "number" and key == math.floor(key) and key >= 1 and key <= count
         if not skip then
             local keyText
-            if type(key) == "string" and key:find("^[%a_][%w_]*$") then
+            local keyKind = type(key)
+            if keyKind == "string" and key:find("^[%a_][%w_]*$") then
                 keyText = key
-            else
+            elseif keyKind == "string" or keyKind == "number" or keyKind == "boolean" then
                 keyText = "[" .. quote(key, node, seen, state) .. "]"
+            else
+                -- Keys are written in sorted order, and only scalars sort: two table
+                -- keys have no order between them, so a result holding them would
+                -- not be written the same way twice.
+                fail(
+                    "NUPP2413",
+                    node,
+                    ("a %s is not a quotable key"):format(keyKind),
+                    "key the table by a string, a number, or a boolean"
+                )
             end
             parts[#parts + 1] = keyText .. " = " .. quote(value[key], node, seen, state)
         end
@@ -647,6 +658,37 @@ end
 
 local evalExpr, execBlock, evalMulti
 
+--- The arithmetic and concatenation a binary operator and its compound assignment
+--- share, so `a // b` and `a //= b` cannot disagree.
+---
+--- @return the answer, and whether `op` was one of these at all
+local function arith(op, left, right, node)
+    if op == "+" then
+        return left + right, true
+    elseif op == "-" then
+        return left - right, true
+    elseif op == "*" then
+        return left * right, true
+    elseif op == "/" then
+        return left / right, true
+    elseif op == "%" then
+        return left % right, true
+    elseif op == "^" then
+        return left ^ right, true
+    elseif op == "//" then
+        -- The same expression `gen` lowers `//` to, so a block and the runtime cannot
+        -- disagree about a quotient no double holds exactly.
+        return math.floor(left / right), true
+    elseif op == ".." then
+        if #tostring(left) + #tostring(right) > MAX_RESULT_BYTES then
+            fail("NUPP2416", node, "concatenated comptime value exceeds 524288 bytes")
+        end
+        return left .. right, true
+    end
+
+    return nil, false
+end
+
 --- Calls one of the allowlisted library functions. Everything a block can call is a
 --- real
 --- Lua function reached through the environment, so the call itself is ordinary; what
@@ -966,27 +1008,9 @@ evalExpr = function(state, node)
 
                 return value
             end
-            if op == "+" then
-                answer = left + right
-            elseif op == "-" then
-                answer = left - right
-            elseif op == "*" then
-                answer = left * right
-            elseif op == "/" then
-                answer = left / right
-            elseif op == "%" then
-                answer = left % right
-            elseif op == "^" then
-                answer = left ^ right
-            elseif op == "//" then
-                -- The same expression `gen` lowers `//` to, so a block and the runtime
-                -- cannot disagree about a quotient no double holds exactly.
-                answer = math.floor(left / right)
-            elseif op == ".." then
-                if #tostring(left) + #tostring(right) > MAX_RESULT_BYTES then
-                    fail("NUPP2416", node, "concatenated comptime value exceeds 524288 bytes")
-                end
-                answer = left .. right
+            local arithmetic, handled = arith(op, left, right, node)
+            if handled then
+                answer = arithmetic
             elseif op == "==" then
                 answer = left == right
             elseif op == "~=" then
@@ -1396,28 +1420,13 @@ execStatement = function(state, stat)
         local base = op:sub(1, -2)
         local current = evalExpr(state, stat.target)
         local operand = evalExpr(state, stat.value)
-        local answer
-        if base == "+" then
-            answer = current + operand
-        elseif base == "-" then
-            answer = current - operand
-        elseif base == "*" then
-            answer = current * operand
-        elseif base == "/" then
-            answer = current / operand
-        elseif base == "%" then
-            answer = current % operand
-        elseif base == "//" then
-            answer = math.floor(current / operand)
-        elseif base == ".." then
-            if #tostring(current) + #tostring(operand) > MAX_RESULT_BYTES then
-                fail("NUPP2416", stat, "concatenated comptime value exceeds 524288 bytes")
+        local answer, handled = arith(base, current, operand, stat)
+        if not handled then
+            if base == "??" then
+                answer = current == nil and operand or current
+            else
+                unsupported(stat, ("the %s operator"):format(op))
             end
-            answer = current .. operand
-        elseif base == "??" then
-            answer = current == nil and operand or current
-        else
-            unsupported(stat, ("the %s operator"):format(op))
         end
         assign(state, stat.target, answer)
     elseif kind == "returnStmt" then
@@ -1764,15 +1773,36 @@ end
 --- Executes one already-checked private type function with closed arguments.
 --- Type and pack arguments enter through the versioned semantic graph and become
 --- opaque evaluator handles; no checker object is reachable from user code.
-function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, helpers: any): any, comptime.Failure?
+--- A checked helper, unsealed if it arrived sealed, with a fresh evaluator state
+--- that has it and its companions installed.
+type comptime.SealedCall = {
+    state: any,
+    env: any,
+    helper: any,
+    name: string
+}
+
+--- Unseals `helper` when it arrived sealed, then builds the state and environment a
+--- direct evaluation runs in, with `helper` and `helpers` installed as comptime
+--- functions.
+---
+--- @param prefix the chunk-name prefix an unsealed program loads under
+--- @param code the diagnostic code a failure reports
+--- @param loadPrefix the message prefix for a program that does not load
+--- @param noEntry the message for a sealed program with no entry helper
+--- @param noBody the message for a helper with no checked body
+--- @return the prepared call, or nil and why
+local function prepareSealedCall(
+    helper: any,
+    helpers: any,
+    prefix: string,
+    code: string,
+    loadPrefix: string,
+    noEntry: string,
+    noBody: string
+): comptime.SealedCall?, comptime.Failure?
     if helper and helper.sealedTypeFunction then
-        local main, parsedHelpers, failure = unsealProgram(
-            helper,
-            "=comptime-helper-",
-            "NUPP2412",
-            "cannot load sealed comptime helper ",
-            "sealed type function has no entry helper"
-        )
+        local main, parsedHelpers, failure = unsealProgram(helper, prefix, code, loadPrefix, noEntry)
         if not main then
             return nil, failure
         end
@@ -1781,7 +1811,7 @@ function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, help
     local node = helper and helper.body or helper
     local name = helper and helper.name and helper.name.text or ""
     if not node or name == "" then
-        return nil, {code = "NUPP2412", message = "type function has no checked body"} as comptime.Failure
+        return nil, {code = code, message = noBody} as comptime.Failure
     end
     local state = newState()
     local env, libraries = buildEnvironment(state)
@@ -1793,6 +1823,70 @@ function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, help
     available[name] = helper
     installComptimeFunctions(state, env, available)
     state.scope = scope(nil)
+
+    return {state = state, env = env, helper = helper, name = name}, nil
+end
+
+--- Calls a prepared helper with `values` and closes what it returns into an envelope
+--- from `provider`.
+---
+--- @param code the diagnostic code a failure reports
+--- @param mustReturn the message for a result that is not an opaque handle
+--- @param cannotFinalize the message for a handle that does not finalize
+--- @param foreign the message for an envelope from another provider
+--- @return the envelope, or nil and why
+local function finishEnvelope(
+    call: comptime.SealedCall,
+    values: any,
+    code: string,
+    provider: string,
+    mustReturn: string,
+    cannotFinalize: string,
+    foreign: string
+): any, comptime.Failure?
+    local state, helper = call.state, call.helper
+    local token = call.env[call.name]
+    local ok, produced = pcall(callValues, state, helper, token, values)
+    if not ok then
+        if type(produced) == "table" and produced[FAILURE] then
+            return nil, produced as comptime.Failure
+        end
+        return nil, {code = code, node = helper, message = tostring(produced)} as comptime.Failure
+    end
+    local value = produced[1]
+    if not materializeProviders.isOpaque(state, value) then
+        return nil, {code = code, node = helper, message = mustReturn} as comptime.Failure
+    end
+    local envelope, finalFailure = materializeProviders.finalize(state, value)
+    if not envelope then
+        return nil, {
+            code = finalFailure and finalFailure.code or code,
+            node = helper,
+            message = finalFailure and finalFailure.message or cannotFinalize,
+            help = finalFailure and finalFailure.help or nil,
+        } as comptime.Failure
+    end
+    if envelope.provider ~= provider then
+        return nil, {code = code, node = helper, message = foreign} as comptime.Failure
+    end
+
+    return envelope, nil
+end
+
+function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, helpers: any): any, comptime.Failure?
+    local call, prepareFailure = prepareSealedCall(
+        helper,
+        helpers,
+        "=comptime-helper-",
+        "NUPP2412",
+        "cannot load sealed comptime helper ",
+        "sealed type function has no entry helper",
+        "type function has no checked body"
+    )
+    if not call then
+        return nil, prepareFailure
+    end
+    local state, helper = call.state, call.helper
     local values = {n = #arguments}
     for position, argument in ipairs(arguments) do
         if argument.kind == "type" or argument.kind == "typepack" then
@@ -1839,40 +1933,16 @@ function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, help
             values[position] = argument.value
         end
     end
-    local token = env[name]
-    local ok, produced = pcall(callValues, state, helper, token, values)
-    if not ok then
-        if type(produced) == "table" and produced[FAILURE] then
-            return nil, produced as comptime.Failure
-        end
-        return nil, {code = "NUPP2412", node = helper, message = tostring(produced)} as comptime.Failure
-    end
-    local value = produced[1]
-    if not materializeProviders.isOpaque(state, value) then
-        return nil, {
-            code = "NUPP2415",
-            node = helper,
-            message = "a type function must return a type or type-pack handle",
-        } as comptime.Failure
-    end
-    local envelope, finalFailure = materializeProviders.finalize(state, value)
-    if not envelope then
-        return nil, {
-            code = finalFailure and finalFailure.code or "NUPP2415",
-            node = helper,
-            message = finalFailure and finalFailure.message or "cannot finalize a type-function result",
-            help = finalFailure and finalFailure.help or nil,
-        } as comptime.Failure
-    end
-    if envelope.provider ~= "types" then
-        return nil, {
-            code = "NUPP2415",
-            node = helper,
-            message = "a type function returned a non-type compiler blueprint",
-        } as comptime.Failure
-    end
 
-    return envelope, nil
+    return finishEnvelope(
+        call,
+        values,
+        "NUPP2415",
+        "types",
+        "a type function must return a type or type-pack handle",
+        "cannot finalize a type-function result",
+        "a type function returned a non-type compiler blueprint"
+    )
 end
 
 --- Executes one checked derive provider and returns its closed recipe envelope.
@@ -1885,35 +1955,21 @@ function comptime.evaluateDeriveProviderDirect(
     runtimeHelpers: any,
     providerModule: string?
 ): any, comptime.Failure?
-    if helper and helper.sealedTypeFunction then
-        local main, parsedHelpers, failure = unsealProgram(
-            helper,
-            "=derive-provider-",
-            "NUPP2810",
-            "cannot load sealed derive provider ",
-            "sealed derive provider has no entry helper"
-        )
-        if not main then
-            return nil, failure
-        end
-        helper, helpers = main, parsedHelpers
+    local call, prepareFailure = prepareSealedCall(
+        helper,
+        helpers,
+        "=derive-provider-",
+        "NUPP2810",
+        "cannot load sealed derive provider ",
+        "sealed derive provider has no entry helper",
+        "derive provider has no checked body"
+    )
+    if not call then
+        return nil, prepareFailure
     end
-    local node = helper and helper.body or helper
-    local name = helper and helper.name and helper.name.text or ""
-    if not node or name == "" then
-        return nil, {code = "NUPP2810", message = "derive provider has no checked body"} as comptime.Failure
-    end
-    local state = newState()
-    local env, libraries = buildEnvironment(state)
-    state.env, state.libraries = env, libraries
+    local state = call.state
     state.deriveHelpers = runtimeHelpers or {}
     state.deriveProviderModule = providerModule
-    local available = {}
-    for helperName, supplied in pairs(helpers or {}) do
-        available[helperName] = supplied
-    end
-    available[name] = helper
-    installComptimeFunctions(state, env, available)
     local function importType(edge, label)
         if not edge then
             return nil
@@ -1979,34 +2035,16 @@ function comptime.evaluateDeriveProviderDirect(
         info.fields[index] = transported
     end
     local infoHandle = materializeProviders.materializeDeriveInfo(state, info)
-    state.scope = scope(nil)
-    local token = env[name]
-    local ok, produced = pcall(callValues, state, helper, token, {n = 1, infoHandle})
-    if not ok then
-        if type(produced) == "table" and produced[FAILURE] then
-            return nil, produced as comptime.Failure
-        end
-        return nil, {code = "NUPP2810", node = helper, message = tostring(produced)} as comptime.Failure
-    end
-    local value = produced[1]
-    if not materializeProviders.isOpaque(state, value) then
-        return nil, {
-            code = "NUPP2810",
-            node = helper,
-            message = "a derive provider must return nupp.derive.implement or nupp.derive.error",
-        } as comptime.Failure
-    end
-    local envelope, finalFailure = materializeProviders.finalize(state, value)
-    if not envelope or envelope.provider ~= "derive" then
-        return nil, {
-            code = finalFailure and finalFailure.code or "NUPP2810",
-            node = helper,
-            message = finalFailure and finalFailure.message or "derive provider returned a foreign blueprint",
-            help = finalFailure and finalFailure.help or nil,
-        } as comptime.Failure
-    end
 
-    return envelope, nil
+    return finishEnvelope(
+        call,
+        {n = 1, infoHandle},
+        "NUPP2810",
+        "derive",
+        "a derive provider must return nupp.derive.implement or nupp.derive.error",
+        "derive provider returned a foreign blueprint",
+        "derive provider returned a foreign blueprint"
+    )
 end
 
 --- Evaluates through the isolated worker when the compiler was launched from its
