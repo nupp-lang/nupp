@@ -498,6 +498,30 @@ function M.lintsUsesDefaultsOutsideAConfiguredProject()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.checkRefusesAManifestItCannotLoad()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write("return {\n")
+   manifest:close()
+   local file = assert(io.open(dir .. "/m.nupp", "wb"))
+   file:write("module m\nexport = {}\n")
+   file:close()
+   local output, code = captureStatusAt(dir, "check m.nupp")
+   assert(code == 1, "a broken manifest fails the check rather than " ..
+      "checking the file standalone: " .. output)
+   assert(output:find("cannot load nupp.lua", 1, true),
+      "the load error is what is reported: " .. output)
+   local report = json.decode(captureJsonAt(dir, "check --json m.nupp"))
+   assert(report.ok == false and report.diagnostics[1].file == "nupp.lua",
+      "--json carries the same failure as a diagnostic about the manifest")
+   os.remove(dir .. "/nupp.lua")
+   local _, standalone = captureStatusAt(dir, "check m.nupp")
+   assert(standalone == 0, "and without a manifest the file is checked on its own")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.initListRefusesAJsonSpellingItCannotProduce()
    local output, code = captureStatusAt(HERE, "init --list --json")
    assert(code ~= 0, "--list cannot satisfy the scaffold JSON schema")

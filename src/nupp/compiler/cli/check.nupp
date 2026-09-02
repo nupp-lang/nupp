@@ -173,7 +173,30 @@ local function run(parsed: any): integer
     -- project, or every file when there is no project here at all. Those are parsed and
     -- checked on their own below, which is what every named file used to get.
     local remaining = readable
-    local config = #readable > 0 and require("nupp.compiler.build.manifest").load(".") or nil
+    -- A directory with no `nupp.lua` is a supported configuration: every file is
+    -- checked on its own. A manifest that exists and cannot be loaded is not, since a
+    -- file checked without it would be checked the wrong way and say it was fine.
+    local config: any = nil
+    if #readable > 0 and fs.exists("nupp.lua") then
+        local loaded, loadErr = require("nupp.compiler.build.manifest").load(".")
+        if not loaded then
+            if asJson then
+                diagnostics[
+                    #diagnostics + 1
+                ] = reportMod.fileDiagnostic(
+                    "nupp.lua",
+                    (tostring(loadErr):gsub("^nupp: ", "")),
+                    "fix the manifest, or check the file from a directory without one"
+                )
+                writeJson(false)
+            else
+                io.stderr:write(tostring(loadErr) .. "\n")
+            end
+
+            return 1
+        end
+        config = loaded
+    end
     if config then
         local envMod = require("nupp.compiler.env")
         local roots = envMod.projectRoots(".", config as {[string]: any})
