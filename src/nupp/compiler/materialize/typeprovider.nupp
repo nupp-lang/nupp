@@ -100,6 +100,26 @@ local function keyOf(state, handle)
     return found and found.payload and found.payload.key or nil
 end
 
+-- Every structural key names its kind and length-prefixes its parts, so a part that
+-- itself contains a key cannot be read as two: `indexer(union(nil, number), integer)`
+-- and `union(nil, indexer(number, integer))` spell different strings however their
+-- members are joined.
+local function composeKey(kind, parts)
+    local out = {kind, "("}
+    for _, part in ipairs(parts) do
+        out[#out + 1] = tostring(#part) .. ":" .. part
+    end
+    out[#out + 1] = ")"
+
+    return table.concat(out)
+end
+
+local function withIndexer(keys, indexKey)
+    keys[#keys + 1] = indexKey
+
+    return keys
+end
+
 local function make(state, opaque, family, payload, at)
     local key = family .. ":" .. payload.key
     local prior = state.typeHandles[key]
@@ -132,7 +152,19 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     local library = {}
 
     local function primitive(name)
-        return make(state, opaque, "Type", {kind = "primitive", name = name, key = "primitive:" .. name}, nil)
+        return make(
+            state,
+            opaque,
+            "Type",
+            {
+                kind = "primitive",
+                name = name,
+                key = composeKey("primitive", {
+                    name
+                })
+            },
+            nil
+        )
     end
 
     for name in pairs(PRIMITIVES) do
@@ -151,7 +183,13 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             state,
             opaque,
             "Type",
-            {kind = "primitive", name = "open", key = "primitive:open"},
+            {
+                kind = "primitive",
+                name = "open",
+                key = composeKey("primitive", {
+                    "open"
+                })
+            },
             provenance(at, "nonExhaustive")
         )
     end)
@@ -169,13 +207,13 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             or valueKind == "boolean"
             and library.boolean
             or library.integer
-        local encoded = valueKind .. ":" .. tostring(value)
+        local encoded = composeKey("literal", {valueKind, tostring(value)})
 
         return make(
             state,
             opaque,
             "Type",
-            {kind = "literal", value = value, base = base, key = "literal:" .. encoded},
+            {kind = "literal", value = value, base = base, key = encoded},
             provenance(at, "literal")
         )
     end)
@@ -190,7 +228,13 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             state,
             opaque,
             "Type",
-            {kind = "array", element = args[1], key = "array:" .. element.payload.key},
+            {
+                kind = "array",
+                element = args[1],
+                key = composeKey("array", {
+                    element.payload.key
+                })
+            },
             provenance(at, "array")
         )
     end)
@@ -209,64 +253,70 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             state,
             opaque,
             "Type",
-            {kind = "tuple", members = members, key = "tuple:" .. table.concat(keys, ",")},
+            {kind = "tuple", members = members, key = composeKey("tuple", keys)},
             provenance(at, "tuple")
         )
     end)
 
-    local function setLike(name, kind, separator)
-        installIntrinsic(state, library, name, function(at, args)
-            local members, why = memberArray(state, args[1], "Type", "nupp.types." .. name)
-            if not members then
-                return nil, why
+    -- A union or intersection is a set: nested members of the same kind are opened
+    -- up, duplicates dropped, and the rest ordered by key, so `optional(optional(T))`
+    -- and `optional(T)` are one handle, as are `optional(A | B)` and `A | B | nil`.
+    local function setLikeHandle(at, kind, origin, members)
+        local byKey = {}
+        local function add(member)
+            local found = entry(state, member, "Type")
+            if found.payload.kind == kind then
+                for _, nested in ipairs(found.payload.members) do
+                    add(nested)
+                end
+            else
+                byKey[found.payload.key] = member
             end
-            local byKey = {}
-            for _, member in ipairs(members) do
-                byKey[keyOf(state, member)] = member
-            end
-            local keys = {}
-            for key in pairs(byKey) do
-                keys[#keys + 1] = key
-            end
-            table.sort(keys)
-            local canonical = {}
-            for index, key in ipairs(keys) do
-                canonical[index] = byKey[key]
-            end
-
-            return make(
-                state,
-                opaque,
-                "Type",
-                {kind = kind, members = canonical, key = kind .. ":" .. table.concat(keys, separator)},
-                provenance(at, kind)
-            )
-        end)
-    end
-
-    setLike("union", "union", "|")
-    setLike("intersection", "intersection", "&")
-
-    installIntrinsic(state, library, "optional", function(at, args)
-        local inner = entry(state, args[1], "Type")
-        if not inner then
-            return nil, failure("NUPP2415", "nupp.types.optional needs one type handle")
         end
-        local nilHandle = library.nil_
-        local members = {args[1], nilHandle}
-        local keys = {inner.payload.key, keyOf(state, nilHandle)}
+
+        for _, member in ipairs(members) do
+            add(member)
+        end
+        local keys = {}
+        for key in pairs(byKey) do
+            keys[#keys + 1] = key
+        end
         table.sort(keys)
-        if keys[1] ~= inner.payload.key then
-            members = {nilHandle, args[1]}
+        local canonical = {}
+        for index, key in ipairs(keys) do
+            canonical[index] = byKey[key]
         end
 
         return make(
             state,
             opaque,
             "Type",
-            {kind = "union", members = members, key = "union:" .. table.concat(keys, "|")},
-            provenance(at, "optional")
+            {kind = kind, members = canonical, key = composeKey(kind, keys)},
+            provenance(at, origin)
         )
+    end
+
+    local function setLike(name, kind)
+        installIntrinsic(state, library, name, function(at, args)
+            local members, why = memberArray(state, args[1], "Type", "nupp.types." .. name)
+            if not members then
+                return nil, why
+            end
+
+            return setLikeHandle(at, kind, kind, members)
+        end)
+    end
+
+    setLike("union", "union")
+    setLike("intersection", "intersection")
+
+    installIntrinsic(state, library, "optional", function(at, args)
+        local inner = entry(state, args[1], "Type")
+        if not inner then
+            return nil, failure("NUPP2415", "nupp.types.optional needs one type handle")
+        end
+
+        return setLikeHandle(at, "union", "optional", {args[1], library.nil_})
     end)
 
     local function unary(name, kind)
@@ -280,7 +330,13 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 state,
                 opaque,
                 "Type",
-                {kind = kind, inner = args[1], key = kind .. ":" .. inner.payload.key},
+                {
+                    kind = kind,
+                    inner = args[1],
+                    key = composeKey(kind, {
+                        inner.payload.key
+                    })
+                },
                 provenance(at, kind)
             )
         end)
@@ -310,7 +366,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 inner = args[1],
                 terminal = terminalKey,
                 transferOnly = terminal == nil,
-                key = "affine:" .. inner.payload.key .. ":" .. (terminalKey or "transfer")
+                key = composeKey("affine", {inner.payload.key, terminalKey or "transfer"})
             },
             provenance(at, "affine")
         )
@@ -334,7 +390,10 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 kind = "carray",
                 element = args[1],
                 count = count,
-                key = "carray:" .. element.payload.key .. ":" .. tostring(count)
+                key = composeKey("carray", {
+                    element.payload.key,
+                    tostring(count)
+                })
             },
             provenance(at, "carray")
         )
@@ -368,7 +427,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 readValue = args[2],
                 writeKey = args[3],
                 writeValue = args[4],
-                key = table.concat(keys, ":")
+                key = composeKey("indexer", keys)
             },
             provenance(at, "indexer")
         )
@@ -376,8 +435,15 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
 
     installIntrinsic(state, library, "map", function(at, args)
         local readKey, readValue = entry(state, args[1], "Type"), entry(state, args[2], "Type")
-        local writeKey = args[3] ~= nil and entry(state, args[3], "Type") or readKey
-        local writeValue = args[4] ~= nil and entry(state, args[4], "Type") or readValue
+        -- An omitted write side mirrors the read side; a supplied one must be a
+        -- handle, so a stray value fails here rather than silently reading as omitted.
+        local writeKey, writeValue = readKey, readValue
+        if args[3] ~= nil then
+            writeKey = entry(state, args[3], "Type")
+        end
+        if args[4] ~= nil then
+            writeValue = entry(state, args[4], "Type")
+        end
         if not readKey or not readValue or not writeKey or not writeValue then
             return nil, failure(
                 "NUPP2415",
@@ -396,7 +462,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 readValue = args[2],
                 writeKey = args[3] or args[1],
                 writeValue = args[4] or args[2],
-                key = table.concat(keys, ":")
+                key = composeKey("indexer", keys)
             },
             provenance(at, "map")
         )
@@ -440,24 +506,19 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         end)
         local keys = {}
         for position, field in ipairs(fields) do
-            keys[
-                position
-            ] = field.name .. ":" .. (
-                field.read and keyOf(state, field.read) or "-"
-            ) .. ":" .. (field.write and keyOf(state, field.write) or "-")
+            keys[position] = composeKey("field", {
+                field.name,
+                field.read and keyOf(state, field.read) or "-",
+                field.write and keyOf(state, field.write) or "-",
+            })
         end
-        local indexKey = indexer and keyOf(state, indexer) or "-"
+        keys[#keys + 1] = indexer and keyOf(state, indexer) or "-"
 
         return make(
             state,
             opaque,
             "Type",
-            {
-                kind = "shape",
-                fields = fields,
-                indexer = indexer,
-                key = table.concat(keys, ",") .. "[" .. indexKey .. "]"
-            },
+            {kind = "shape", fields = fields, indexer = indexer, key = composeKey("shape", keys)},
             provenance(at, "shape")
         )
     end)
@@ -487,21 +548,15 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 return nil, failure("NUPP2415", "nupp.types.pack has an invalid mode at " .. tostring(index))
             end
             copiedModes[index] = mode
-            keys[index] = mode .. ":" .. keyOf(state, member)
+            keys[index] = composeKey(mode, {keyOf(state, member)})
         end
-        local tailKey = tail and keyOf(state, tail) or "-"
+        keys[#keys + 1] = tail and keyOf(state, tail) or "-"
 
         return make(
             state,
             opaque,
             "Pack",
-            {
-                kind = "pack",
-                head = head,
-                tail = tail,
-                modes = copiedModes,
-                key = table.concat(keys, ",") .. "..." .. tailKey
-            },
+            {kind = "pack", head = head, tail = tail, modes = copiedModes, key = composeKey("pack", keys)},
             provenance(at, "pack")
         )
     end)
@@ -520,7 +575,10 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 kind = "function",
                 parameters = args[1],
                 results = args[2],
-                key = parameters.payload.key .. "->" .. results.payload.key
+                key = composeKey("function", {
+                    parameters.payload.key,
+                    results.payload.key
+                })
             },
             provenance(at, "function")
         )
@@ -689,7 +747,15 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                     state,
                     opaque,
                     "Type",
-                    {kind = "literal", value = value, base = library.string, key = "literal:string:" .. value,},
+                    {
+                        kind = "literal",
+                        value = value,
+                        base = library.string,
+                        key = composeKey("literal", {
+                            "string",
+                            value
+                        }),
+                    },
                     nil
                 )
             end
@@ -887,7 +953,19 @@ function typeprovider.importDescriptor(
                 reflected.arguments[position] = import(argument)
             end
         elseif PRIMITIVES[kind] then
-            made = make(state, opaque, "Type", {kind = "primitive", name = kind, key = "primitive:" .. kind}, nil)
+            made = make(
+                state,
+                opaque,
+                "Type",
+                {
+                    kind = "primitive",
+                    name = kind,
+                    key = composeKey("primitive", {
+                        kind
+                    })
+                },
+                nil
+            )
         elseif kind == "literal" then
             local base = import(node.base)
             if base then
@@ -899,7 +977,10 @@ function typeprovider.importDescriptor(
                         kind = "literal",
                         value = node.value,
                         base = base,
-                        key = "literal:" .. type(node.value) .. ":" .. tostring(node.value),
+                        key = composeKey("literal", {
+                            type(node.value),
+                            tostring(node.value)
+                        }),
                     },
                     nil
                 )
@@ -913,7 +994,13 @@ function typeprovider.importDescriptor(
                     state,
                     opaque,
                     "Type",
-                    {kind = "array", element = element, key = "array:" .. keyOf(state, element)},
+                    {
+                        kind = "array",
+                        element = element,
+                        key = composeKey("array", {
+                            keyOf(state, element)
+                        })
+                    },
                     nil
                 )
             end
@@ -942,7 +1029,7 @@ function typeprovider.importDescriptor(
                         writeKey = writeKey,
                         writeValue = writeValue,
                         sourceKind = "map",
-                        key = table.concat(keys, ":"),
+                        key = composeKey("indexer", keys),
                     },
                     nil
                 )
@@ -956,11 +1043,11 @@ function typeprovider.importDescriptor(
                     return nil
                 end
                 fields[position] = {name = field.name, read = read, write = write}
-                keys[
-                    position
-                ] = field.name .. ":" .. (
-                    read and keyOf(state, read) or "-"
-                ) .. ":" .. (write and keyOf(state, write) or "-")
+                keys[position] = composeKey("field", {
+                    field.name,
+                    read and keyOf(state, read) or "-",
+                    write and keyOf(state, write) or "-"
+                })
             end
             local reflected = node.index or {}
             local readKey = reflected.readKey and import(reflected.readKey) or nil
@@ -985,7 +1072,7 @@ function typeprovider.importDescriptor(
                         readValue = readValue,
                         writeKey = writeKey,
                         writeValue = writeValue,
-                        key = table.concat(indexKeys, ":"),
+                        key = composeKey("indexer", indexKeys),
                     },
                     nil
                 )
@@ -998,7 +1085,7 @@ function typeprovider.importDescriptor(
                     kind = "shape",
                     fields = fields,
                     indexer = indexer,
-                    key = table.concat(keys, ",") .. "[" .. (indexer and keyOf(state, indexer) or "-") .. "]",
+                    key = composeKey("shape", withIndexer(keys, indexer and keyOf(state, indexer) or "-")),
                 },
                 nil
             )
@@ -1009,13 +1096,7 @@ function typeprovider.importDescriptor(
                 for position, member in ipairs(members) do
                     keys[position] = keyOf(state, member)
                 end
-                made = make(
-                    state,
-                    opaque,
-                    "Type",
-                    {kind = kind, members = members, key = kind .. ":" .. table.concat(keys, ",")},
-                    nil
-                )
+                made = make(state, opaque, "Type", {kind = kind, members = members, key = composeKey(kind, keys)}, nil)
             end
         elseif kind == "ptr" or kind == "const" or kind == "borrowed" or kind == "pinned" or kind == "affine" then
             local inner = import(node.element)
@@ -1033,9 +1114,10 @@ function typeprovider.importDescriptor(
                         inner = inner,
                         transferOnly = transferOnly,
                         terminal = terminal,
-                        key = kind .. (
-                            transferOnly and ":transfer" or terminal and ":" .. terminal or ""
-                        ) .. ":" .. keyOf(state, inner),
+                        key = kind == "affine" and composeKey(kind, {
+                            keyOf(state, inner),
+                            transferOnly and "transfer" or terminal or "-"
+                        }) or composeKey(kind, {keyOf(state, inner)}),
                     },
                     nil
                 )
@@ -1051,7 +1133,10 @@ function typeprovider.importDescriptor(
                         kind = "carray",
                         element = element,
                         count = node.count,
-                        key = "carray:" .. keyOf(state, element) .. ":" .. tostring(node.count),
+                        key = composeKey("carray", {
+                            keyOf(state, element),
+                            tostring(node.count)
+                        }),
                     },
                     nil
                 )
@@ -1067,19 +1152,14 @@ function typeprovider.importDescriptor(
             if head then
                 local keys = {}
                 for position, member in ipairs(head) do
-                    keys[position] = modes[position] .. ":" .. keyOf(state, member)
+                    keys[position] = composeKey(modes[position], {keyOf(state, member)})
                 end
+                keys[#keys + 1] = tail and keyOf(state, tail) or "-"
                 made = make(
                     state,
                     opaque,
                     "Pack",
-                    {
-                        kind = "pack",
-                        head = head,
-                        modes = modes,
-                        tail = tail,
-                        key = table.concat(keys, ",") .. "..." .. (tail and keyOf(state, tail) or "-"),
-                    },
+                    {kind = "pack", head = head, modes = modes, tail = tail, key = composeKey("pack", keys),},
                     nil
                 )
             end
@@ -1095,7 +1175,10 @@ function typeprovider.importDescriptor(
                         kind = "function",
                         parameters = parameters,
                         results = results,
-                        key = keyOf(state, parameters) .. "->" .. keyOf(state, results),
+                        key = composeKey("function", {
+                            keyOf(state, parameters),
+                            keyOf(state, results)
+                        }),
                     },
                     nil
                 )

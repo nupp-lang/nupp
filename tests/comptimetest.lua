@@ -106,7 +106,60 @@ local function evaluateTypeBlueprint(body)
    return value, envelope
 end
 
+local function typeBlueprintFailure(body)
+   local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-failure-test.g.nupp")
+   assertEq(#result.errors, 0, "type blueprint source parses")
+   local returned = result.root.blocks[1].stats[1]
+   assert(returned.kind == "returnStmt")
+   local node = returned.exprs[1]
+   assert(node.kind == "comptimeExpr")
+   local _, _, failure = comptime.evaluateDirect(node, node.body, {}, {}, {})
+   if not failure then error("expected the type blueprint to fail", 2) end
+   return failure
+end
+
 local M = {}
+
+function M.internsStructurallyDistinctTypesApart()
+   local value = evaluateTypeBlueprint([[
+      const a = nupp.types.indexer(nupp.types.union({nupp.types.nil_, nupp.types.number}), nupp.types.integer)
+      const b = nupp.types.union({nupp.types.nil_, nupp.types.indexer(nupp.types.number, nupp.types.integer)})
+      if a == b or nupp.types.kind(a) ~= "indexer" or nupp.types.kind(b) ~= "union" then
+         return nupp.types.error("distinct types interned as one")
+      end
+      const pair = nupp.types.tuple({nupp.types.string, nupp.types.integer})
+      const nested = nupp.types.tuple({nupp.types.tuple({nupp.types.string}), nupp.types.integer})
+      if pair == nested then
+         return nupp.types.error("nested tuple interned as flat")
+      end
+      return b
+   ]])
+   assertEq(value.tag, "union", "the union survives the indexer built before it")
+end
+
+function M.flattensOptionalIntoTheUnionItNames()
+   local value = evaluateTypeBlueprint([[
+      const direct = nupp.types.union({nupp.types.string, nupp.types.number, nupp.types.nil_})
+      const viaOptional = nupp.types.optional(nupp.types.union({nupp.types.string, nupp.types.number}))
+      if direct ~= viaOptional then
+         return nupp.types.error("optional of a union is not the flat union")
+      end
+      const once = nupp.types.optional(nupp.types.string)
+      if nupp.types.optional(once) ~= once then
+         return nupp.types.error("optional of optional is not optional")
+      end
+      return viaOptional
+   ]])
+   assertEq(value, T.union({T.string, T.number, T.nil_}), "the flattened union reconstructs")
+end
+
+function M.rejectsANonHandleMapWriteSide()
+   local failure = typeBlueprintFailure([[
+      return nupp.types.map(nupp.types.string, nupp.types.number, 42)
+   ]])
+   assertEq(failure.code, "NUPP2415", "a stray write key fails at the call")
+   assert(failure.message:find("nupp.types.map", 1, true), failure.message)
+end
 
 function M.finalizesAndValidatesStructuralTypeHandles()
    local value = evaluateTypeBlueprint([[
