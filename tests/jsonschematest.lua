@@ -247,6 +247,38 @@ function M.explainOutputMatchesItsSchema()
    assert(decoded.docs, "and its reference given")
 end
 
+--- Every name a schema requires is one it also describes, at every depth. A
+--- required name with no property is a field the validator above can never
+--- check the type of, which is how a promise goes unkept without anything failing.
+local function requiredAreDescribed(schema, path)
+   if type(schema) ~= "table" then return end
+   if schema.required then
+      for _, name in ipairs(schema.required) do
+         assert(schema.properties and schema.properties[name],
+            ("%s requires %q without describing it"):format(path, name))
+      end
+   end
+   for key, child in pairs(schema) do
+      if type(child) == "table" then
+         requiredAreDescribed(child, path .. "." .. tostring(key))
+      end
+   end
+end
+
+function M.everySchemaDescribesWhatItRequires()
+   for _, command in ipairs(require("nupp.compiler.cli").commands()) do
+      if command.spec.schema then
+         requiredAreDescribed(command.spec.schema, command.name)
+      end
+   end
+   local lspOperations = {"inspect", "definition", "references", "symbols",
+      "rename", "actions", "trace-check"}
+   for _, operation in ipairs(lspOperations) do
+      local text = capture(nil, "lsp " .. operation .. " --schema")
+      requiredAreDescribed(json.decode(text), "lsp " .. operation)
+   end
+end
+
 function M.everyCommandThatWritesJsonAlsoDescribesIt()
    -- The pairing is the point: a command that can be asked for JSON can always
    -- be asked what that JSON will look like.

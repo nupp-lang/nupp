@@ -166,6 +166,7 @@ local command = spec.command{
                         name = {type = "string"},
                         module = {type = "string"},
                         fingerprint = {type = "string"},
+                        digest = {type = "string"},
                         seams = {
                             type = "array",
                             items = {
