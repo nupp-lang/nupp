@@ -36,10 +36,6 @@ did not get them is the failure, and it is reported with the construct that
 refused.
 ]]
 
-local aot = require("nupp.compiler.aot.compile")
-local buildAot = require("nupp.compiler.build.aot")
-local instructionsMod = require("nupp.compiler.aot.instructions")
-local targets = require("nupp.compiler.aot.target")
 local optionsMod = require("nupp.compiler.cli.options")
 local spec = require("nupp.compiler.cli.spec")
 local report = require("nupp.compiler.cli.report")
@@ -378,7 +374,10 @@ end
 ---
 --- @param wanted one function, named as the source or the symbol spells it
 --- @return the report, or nothing and what stopped it
-local function assembly(artifacts: any, selected: targets.Target, wanted: string?): (any?, string?)
+local function assembly(artifacts: any, selected: nupp.compiler.aot.target.Target, wanted: string?): (any?, string?)
+    local buildAot = require("nupp.compiler.build.aot")
+    local instructionsMod = require("nupp.compiler.aot.instructions")
+    local targets = require("nupp.compiler.aot.target")
     if not instructionsMod.reads(selected.architecture) then
         return nil, (
             "there are no instruction rules for %s; --emit asm reads %s"
@@ -470,6 +469,8 @@ local function writeListing(listing: nupp.compiler.aot.instructions.Listing): ni
 end
 
 local function run(parsed: any): integer
+    local aot = require("nupp.compiler.aot.compile")
+    local targets = require("nupp.compiler.aot.target")
     local paths: {string} = parsed.positional
     if #paths ~= 1 then
         return command:usageError("exactly one source file is required")

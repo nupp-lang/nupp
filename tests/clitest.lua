@@ -498,6 +498,38 @@ function M.lintsUsesDefaultsOutsideAConfiguredProject()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- The registry's contract is that naming a command loads its grammar and nothing
+-- heavier; the compiler it needs is required inside `run`. Checked in a fresh
+-- interpreter, since this process has long since loaded everything.
+function M.aCommandModuleDoesNotLoadTheCompilerItRuns()
+   local runtimePipe = assert(io.popen(("'%s/../scripts/toolchain' luajit")
+      :format(HERE)))
+   local runtime = assert(runtimePipe:read("*l")) .. "/bin/luajit"
+   runtimePipe:close()
+   local probe = ([[
+package.path = %q
+for _, name in ipairs({"aot", "lsp", "bc", "ast"}) do
+   require("nupp.compiler.cli." .. name)
+end
+for _, heavy in ipairs({"nupp.compiler.aot.compile", "nupp.compiler.lsp",
+      "nupp.compiler.tracebytecode", "nupp.compiler.lexer",
+      "nupp.compiler.check", "nupp.compiler.parser"}) do
+   if package.loaded[heavy] then print("loaded " .. heavy) end
+end
+print("done")
+]]):format(package.path)
+   local script = os.tmpname()
+   local file = assert(io.open(script, "wb"))
+   file:write(probe)
+   file:close()
+   local pipe = assert(io.popen(("'%s' '%s' 2>&1"):format(runtime, script)))
+   local out = pipe:read("*a")
+   pipe:close()
+   os.remove(script)
+   assert(out == "done\n",
+      "requiring a command module loads its grammar, not the compiler:\n" .. out)
+end
+
 function M.checkRefusesAManifestItCannotLoad()
    local dir = os.tmpname()
    os.remove(dir)

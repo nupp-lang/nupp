@@ -16,7 +16,6 @@ rejected afterwards.
 ]]
 
 local json = nupp.data.json
-local lsp = require("nupp.compiler.lsp")
 local spec = require("nupp.compiler.cli.spec")
 
 local type CodeActionContext = {
@@ -422,7 +421,7 @@ end
 local function newClient(root)
     local emitted = {}
     local sources = {}
-    local session = lsp.newSession(root, function(message)
+    local session = require("nupp.compiler.lsp").newSession(root, function(message)
         emitted[#emitted + 1] = message
     end)
     local nextId = 0
@@ -1127,6 +1126,7 @@ local OPERATIONS = {
 }
 
 local function dispatch(args: any): integer
+    local lsp = require("nupp.compiler.lsp")
     if #args == 0 then
         return lsp.run(".")
     end
