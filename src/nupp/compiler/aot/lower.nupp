@@ -1195,6 +1195,19 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
     return left
 end
 
+--- The unary fixed-width operations, which lower to `FixedUnary`; every other
+--- unary entry in the set is a conversion. Mirrors `scalarIR.FixedUnaryOp`.
+const FIXED_UNARY: {
+    [string]: boolean
+} = {
+    ["f32_sqrt"] = true,
+    ["f32_exp"] = true,
+    ["u32_not"] = true,
+    ["u32_popcount"] = true,
+    ["u32_ctz"] = true,
+    ["u32_clz"] = true,
+}
+
 --- One call to a fixed-width intrinsic.
 ---
 --- This is where the front end refuses to invent establishment the source never
@@ -1263,7 +1276,7 @@ local function fixedCall(
     end
 
     if fixed.arity == 1 then
-        if fixed.op == "f32_sqrt" or fixed.op == "f32_exp" or tostring(fixed.op):match("^u32_") ~= nil then
+        if FIXED_UNARY[tostring(fixed.op)] == true then
             return new scalarIR.FixedUnary(
                 op = fixed.op as scalarIR.FixedUnaryOp,
                 value = args[1],
