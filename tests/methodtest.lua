@@ -1333,4 +1333,27 @@ function M.aGenericMethodStillInfers()
    }, "\n") .. "\n")
 end
 
+function M.aMethodIsNotAPositionalField()
+   -- A method declared on a record does not take a construction position: one
+   -- value past the declared fields is one too many, not a value for the method.
+   local result = parser.parse(table.concat({
+      "local record Pt",
+      "    x: integer",
+      "    y: integer",
+      "end",
+      "function Pt:sum(): integer",
+      "    return self.x + self.y",
+      "end",
+      "local p = new Pt(1, 2, 3)",
+      "return p",
+   }, "\n"), "test.g.nupp")
+   assertEq(#result.errors, 0, "syntax errors")
+   local found = nil
+   for _, d in ipairs(check.check(result, "test.g.nupp", env)) do
+      if d.code == "NUPP2202" then found = d end
+   end
+   assert(found, "expected NUPP2202")
+   assertEq(found.msg, "too many values (record Pt has 2 fields)", "message")
+end
+
 return M

@@ -462,4 +462,23 @@ return Bad
    assert(found, "a variable-length array cannot be a struct field")
 end
 
+function M.aMethodDeclaredBeforeLayoutofIsNotAField()
+   -- A method is not a stored field, so declaring one ahead of the layout query
+   -- neither adds a member to the layout nor asks the FFI to spell it.
+   local l = runs([[
+local struct Vec
+    x: float
+    y: float
+end
+function Vec:len(): float
+    return self.x
+end
+return layoutof(Vec)
+]])
+   assertEq(#l.fields, 2, "field count")
+   assertEq(l.fields[1].name, "x", "first field")
+   assertEq(l.fields[2].name, "y", "second field")
+   assertEq(l.size, ffi.sizeof("struct { float x; float y; }"), "size")
+end
+
 return M

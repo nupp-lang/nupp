@@ -1535,9 +1535,6 @@ function functions.install(c: state.Checker): state.StatHandlers
                     body = body,
                 }
             end
-            if owner.fieldOrder and (fname.method or owner.declKind == "struct") then
-                owner.fieldOrder[#owner.fieldOrder + 1] = member
-            end
         end
         if not fname.method and #fname == 1 and fname.base then
             c.bindVar(fname.base.text, ft) -- global function: best-effort bind
