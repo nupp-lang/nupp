@@ -369,6 +369,22 @@ function M.halfClosedGenericsFormatStably()
    assertEq(kinds(fmt1(source)), kinds(source))
 end
 
+-- An @annotationValue on an entry with no name is the checker's to report; the
+-- formatter leaves the record alone rather than reaching for a name it lacks.
+function M.annotationValueOnANamelessEntryFormats()
+   local source = table.concat({
+      "@annotation",
+      "record Marker",
+      "    @annotationValue",
+      "    [string]: integer",
+      "    @annotationValue",
+      "    {integer}",
+      "end",
+      "",
+   }, "\n")
+   assertEq(fmt1(source), source)
+end
+
 function M.typeParametersStayOnTheSignatureLine()
    local src = "local xpcall: function<E, A..., R...>(scoped f: function(A...): R...,"
       .. " scoped handler: function(any): E, A...): ((true, R...) | (false, E))\n"

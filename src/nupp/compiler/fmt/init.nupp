@@ -1508,12 +1508,16 @@ local function canonicalizeSingleValueAnnotations(result, opts)
                 local marked = nil
                 local duplicate = false
                 for _, entry in ipairs(target.entries or {}) do
-                    for _, attached in ipairs(entry.annotations or {}) do
-                        if attached.name.text == "annotationValue" then
-                            if marked then
-                                duplicate = true
-                            else
-                                marked = entry.name.text
+                    -- Only a field has a name to mark; the checker reports the
+                    -- annotation on an indexer, array part or constructor.
+                    if entry.kind == "fieldDecl" then
+                        for _, attached in ipairs(entry.annotations or {}) do
+                            if attached.name.text == "annotationValue" then
+                                if marked then
+                                    duplicate = true
+                                else
+                                    marked = entry.name.text
+                                end
                             end
                         end
                     end
