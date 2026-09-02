@@ -1635,8 +1635,6 @@ function declare.install(
                             c.diag("NUPP2615", e, "a terminal method must take exactly one consuming self")
                         elseif #terminal.rets ~= 1 or terminal.retPack.tail ~= nil or terminal.rets[1] ~= T.nil_ then
                             c.diag("NUPP2615", e, "a terminal method must return nil")
-                        elseif not terminal.noYield then
-                            c.diag("NUPP2615", e, "a terminal method must be nosuspend")
                         end
                     end
                     if stat.declKind ~= "struct" then

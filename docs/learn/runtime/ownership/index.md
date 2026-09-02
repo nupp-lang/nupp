@@ -53,8 +53,10 @@ local function openSession(id: integer): affine(Session, closeSession)
 end
 ```
 
-The terminal must be a non-suspending function that takes the represented value
-and returns `nil`. It may raise. General affine policies name the exact function;
+The terminal is a function that takes the represented value and returns `nil`.
+It may raise, and it may suspend: a terminal that waits for what the resource
+owns to finish is a *settling* terminal, and discharging it parks the coroutine
+the way any wait does, so it is refused inside a `nosuspend` region. General affine policies name the exact function;
 the standard `nupp.Closeable` lifecycle below names `close` through an explicit
 nominal contract.
 

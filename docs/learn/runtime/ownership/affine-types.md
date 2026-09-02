@@ -64,7 +64,7 @@ local type MustForward<T> = affine(T)
 ```
 
 `affine(T, cleanup)` carries one obligation to invoke exactly `cleanup`, whose
-type must be `nosuspend function(takes T): nil`. `affine(T)` carries an
+type must be `function(takes T): nil`; it may suspend. `affine(T)` carries an
 obligation that may be moved, returned, released through an unsafe boundary, or
 placed into another affine value, but it has no local cleanup and therefore
 cannot be dropped.

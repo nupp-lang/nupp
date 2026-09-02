@@ -73,10 +73,18 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
     local callbackRegions: {any} = {}
     local cleanupContracts: {any} = {}
 
-    --- Registers a cleanup contract. Visible bodies are checked after effect inference;
-    --- bodyless declarations are part of the trusted boundary and their promise is
-    --- accepted, exactly as foreign ownership annotations are.
+    --- Registers a cleanup contract discharged inside a region.
+    ---
+    --- A terminal may suspend: running one is a settlement point, where the coroutine
+    --- parks until what the resource owns has settled. That is only a problem where
+    --- suspending is refused, so a cleanup outside every region is not judged at all.
+    --- Visible bodies are checked after effect inference; bodyless declarations are
+    --- part of the trusted boundary and their promise is accepted, exactly as foreign
+    --- ownership annotations are.
     function ops.cleanup(cleanup: any, at: any)
+        if c.noSuspendDepth <= 0 then
+            return
+        end
         cleanupContracts[#cleanupContracts + 1] = {cleanup = cleanup, at = at}
     end
 
@@ -216,9 +224,9 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
                 c.diag(
                     "NUPP2701",
                     candidate.at,
-                    ("cleanup %q may suspend while an obligation is being discharged"):format(cleanup.name),
+                    ("cleanup %q may suspend, and this region forbids suspending"):format(cleanup.name),
                     nil,
-                    {help = "make every cleanup call non-suspending, or move the suspension before cleanup begins"}
+                    {help = "discharge the owner outside the region, or give it a terminal that cannot suspend"}
                 )
             end
         end

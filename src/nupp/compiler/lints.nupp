@@ -155,13 +155,6 @@ lints.all = {
         summary = "an export exposes a private nominal type"
     ),
     new lints.Lint(
-        name = "blocking-worker-drop",
-        code = "NUPP2517",
-        category = "performance",
-        level = "off",
-        summary = "a direct worker scope may block a handled host while dropping"
-    ),
-    new lints.Lint(
         name = "prefer-comptime",
         code = "NUPP2518",
         category = "performance",

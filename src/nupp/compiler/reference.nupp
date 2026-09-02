@@ -1277,7 +1277,7 @@ return m
 `affine(T[, cleanup])` is a transparent compile-time type-generator call,
 written in a type position: `type HeldLock = affine(LockToken, unlock)`. Its
 identity combines `T` with the exact const cleanup function, and no wrapper is
-allocated. Cleanup has type `nosuspend function(takes T): nil`. `affine(T)`
+allocated. Cleanup has type `function(takes T): nil` and may suspend. `affine(T)`
 selects the inherent terminal of an affine interface or `nupp.Closeable` nominal; for
 other types it is transfer-only.
 

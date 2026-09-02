@@ -126,10 +126,15 @@ aggregate obligations and destroys live fields in reverse declaration order.
 A closed terminal has the exact shape:
 
 ```nupp
-nosuspend function(takes Representation): nil
+function(takes Representation): nil
 ```
 
-The terminal may raise. Automatic destruction keeps the first failure primary,
+The terminal may raise, and it may suspend. One that waits for the resource's
+own work to finish before returning is a *settling* terminal: a task scope's
+terminal waits for its children, and a worker scope's for its lanes. Discharging
+one parks the coroutine as any wait does, and is therefore refused inside a
+`nosuspend` region. A terminal declared `nosuspend` is a stronger promise and
+still fits. Automatic destruction keeps the first failure primary,
 attempts the independent remaining cleanups, and attaches later failures as
 suppressed errors. It may not suspend, because lexical destruction also runs at
 non-yieldable boundaries.

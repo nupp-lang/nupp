@@ -1370,22 +1370,6 @@ ENTRIES[#ENTRIES + 1] = {
 ENTRIES[
     #ENTRIES + 1
 ] = {
-    code = "NUPP2517",
-    summary = "A worker scope may drain synchronously during cleanup",
-    rule = "The `blocking-worker-drop` lint reports a direct `workers.scope()` "
-    .. "because its affine terminal must settle every submitted worker without "
-    .. "suspending. That deterministic drain is useful in a blocking command, but "
-    .. "can hold an application frame. Inside a handled application task, let "
-    .. "`nupp.tasks` own the worker scope so closing it parks through the installed "
-    .. "handler. The lint is a performance prompt and is off until a project enables "
-    .. "it.",
-    related = {"NUPP2515"},
-    docs = "docs/reference/lints.md#blocking-worker-drop",
-}
-
-ENTRIES[
-    #ENTRIES + 1
-] = {
     code = "NUPP2901",
     summary = "One function is promised to two compilers",
     rule = "`@jit` promises a function compiles as a LuaJIT trace. `@aot` reserves "

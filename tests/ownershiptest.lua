@@ -390,18 +390,38 @@ function M.coroutineChildrenCannotCaptureAParentBorrow()
    }, "\n")), "NUPP2603")
 end
 
-function M.cleanupContractsCannotSuspend()
+-- A terminal may suspend: discharging it is a settlement point. Only a region that
+-- forbids suspending refuses one, and it says so where the owner is discharged.
+function M.settlingTerminalsAreAcceptedOutsideRegions()
    assertEq(codes(table.concat({
       "local record Resource value: integer end",
-      "local function close(takes value: Resource)",
-      "   coroutine.yield()",
+      "local park: function(): nil = nil as any",
+      "local function close(takes value: Resource): nil",
+      "   park()",
       "end",
       "local function open(): affine(Resource, close)",
       "   return new Resource(value = 1)",
       "end",
       "local value = open()",
       "drop(value)",
-   }, "\n")), "NUPP2603 NUPP2615 NUPP2701")
+   }, "\n")), "")
+end
+
+function M.settlingTerminalsAreRefusedInsideANosuspendRegion()
+   assertEq(codes(table.concat({
+      "local record Resource value: integer end",
+      "local park: function(): nil = nil as any",
+      "local function close(takes value: Resource): nil",
+      "   park()",
+      "end",
+      "local function open(): affine(Resource, close)",
+      "   return new Resource(value = 1)",
+      "end",
+      "nosuspend do",
+      "   local value = open()",
+      "   drop(value)",
+      "end",
+   }, "\n")), "NUPP2701")
 end
 
 -- Parameter modes were read at the position the parameter takes in the function type,
