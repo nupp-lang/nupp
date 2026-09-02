@@ -589,42 +589,17 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     end
                 end
             end
+            -- A borrowed or affine binding is a live view of whatever the initializer
+            -- was rooted in: the call's result facts where one produced it, else the
+            -- initializer's own. Each root counts the view until the binding ends.
+            local borrowRoots = returnRoots or initNode and c.own.capabilityFacts(initNode, nil, false).roots or nil
             if boundEntry and (
                 boundKind == "borrowed" or boundKind == "affine"
-            ) and returnRoots and #returnRoots == 1 then
+            ) and borrowRoots and #borrowRoots > 0 then
                 local boundFacts = c.own.capabilityFacts(boundEntry)
-                boundFacts.roots = {returnRoots[1]}
-                returnRoots[1].activeBorrows = (returnRoots[1].activeBorrows or 0) + 1
-                returnRoots[1].activeBorrowSites = returnRoots[1].activeBorrowSites or {}
-                returnRoots[1].activeBorrowSites[boundEntry] = nameTok
-                if returnExclusiveBorrow then
-                    boundFacts.exclusive = true
-                    returnRoots[1].activeExclusiveBorrows = (returnRoots[1].activeExclusiveBorrows or 0) + 1
-                end
-            elseif boundEntry and (
-                boundKind == "borrowed" or boundKind == "affine"
-            ) and initNode and c.own.capabilityFacts(
-                initNode,
-                nil,
-                false
-            ).roots and #c.own.capabilityFacts(initNode, nil, false).roots == 1 then
-                local owner = c.own.capabilityFacts(initNode, nil, false).roots[1]
-                local boundFacts = c.own.capabilityFacts(boundEntry)
-                boundFacts.roots = {owner}
-                owner.activeBorrows = (owner.activeBorrows or 0) + 1
-                owner.activeBorrowSites = owner.activeBorrowSites or {}
-                owner.activeBorrowSites[boundEntry] = nameTok
-                if returnExclusiveBorrow then
-                    boundFacts.exclusive = true
-                    owner.activeExclusiveBorrows = (owner.activeExclusiveBorrows or 0) + 1
-                end
-            end
-            if boundEntry and (
-                boundKind == "borrowed" or boundKind == "affine"
-            ) and returnRoots and #returnRoots > 1 then
-                local boundFacts = c.own.capabilityFacts(boundEntry)
-                boundFacts.roots = returnRoots
-                for _, owner in ipairs(returnRoots) do
+                local roots = {}
+                for index, owner in ipairs(borrowRoots) do
+                    roots[index] = owner
                     owner.activeBorrows = (owner.activeBorrows or 0) + 1
                     owner.activeBorrowSites = owner.activeBorrowSites or {}
                     owner.activeBorrowSites[boundEntry] = nameTok
@@ -632,26 +607,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         owner.activeExclusiveBorrows = (owner.activeExclusiveBorrows or 0) + 1
                     end
                 end
-                boundFacts.exclusive = returnExclusiveBorrow or nil
-            elseif boundEntry and (
-                boundKind == "borrowed" or boundKind == "affine"
-            ) and initNode and c.own.capabilityFacts(
-                initNode,
-                nil,
-                false
-            ).roots and #c.own.capabilityFacts(initNode, nil, false).roots > 1 then
-                local initRoots = c.own.capabilityFacts(initNode, nil, false).roots
-                local boundFacts = c.own.capabilityFacts(boundEntry)
-                boundFacts.roots = initRoots
-                for _, owner in ipairs(initRoots) do
-                    owner.activeBorrows = (owner.activeBorrows or 0) + 1
-                    owner.activeBorrowSites = owner.activeBorrowSites or {}
-                    owner.activeBorrowSites[boundEntry] = nameTok
-                    if returnExclusiveBorrow then
-                        owner.activeExclusiveBorrows = (owner.activeExclusiveBorrows or 0) + 1
-                    end
+                boundFacts.roots = roots
+                if returnExclusiveBorrow then
+                    boundFacts.exclusive = true
                 end
-                boundFacts.exclusive = returnExclusiveBorrow or nil
             end
             local boundFacts = boundEntry and c.own.capabilityFacts(boundEntry, nil, false) or nil
             if boundFacts and boundFacts.regionRoot and boundFacts.regionPath and boundFacts.exclusive then
