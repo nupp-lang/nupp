@@ -59,16 +59,6 @@ function annotate.install(c: state.Checker): annotate.Ops
         return tok and tok.text or nil
     end
 
-    --- The source text of a literal, quotes and all, or nil where the node is not one.
-    function ops.literalText(expr: cst.Node?): string?
-        if not expr then
-            return nil
-        end
-        local tok = expr.kind == "number" and expr.token or expr.kind == "string" and expr.token or nil
-
-        return tok and tok.text or nil
-    end
-
     function ops.stringValue(expr)
         if not expr or expr.kind ~= "string" then
             return nil
