@@ -151,13 +151,12 @@ local function run(parsed: any): integer
             readable[#readable + 1] = path
             sources[path] = source
         else
-            if asJson then
-                diagnostics[
-                    #diagnostics + 1
-                ] = reportMod.fileDiagnostic(path, err, "check that the path exists and is readable")
-            else
-                io.stderr:write("nupp: " .. tostring(err) .. "\n")
-            end
+            reportMod.fileFailure(
+                path,
+                err,
+                "check that the path exists and is readable",
+                asJson and diagnostics or nil
+            )
             failed = true
         end
     end
@@ -268,7 +267,7 @@ local function run(parsed: any): integer
             if asJson then
                 for _, diagnostic in ipairs(diags) do
                     diagnostics[#diagnostics + 1] = diagnostic
-                    if reportMod.fatal(diagnostic) then
+                    if diagnosticMod.isFatal(diagnostic) then
                         failed = true
                     end
                 end

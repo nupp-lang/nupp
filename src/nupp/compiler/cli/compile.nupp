@@ -103,14 +103,9 @@ function compile.module(path: string, env: table, settings: compile.Settings): s
 
     local source, readErr = fs.readFile(path)
     if not source then
-        if collected then
-            local reportMod = require("nupp.compiler.cli.report")
-            collected[
-                #collected + 1
-            ] = reportMod.fileDiagnostic(path, readErr, "check that the path exists and is readable")
-        else
-            io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
-        end
+        require(
+            "nupp.compiler.cli.report"
+        ).fileFailure(path, readErr, "check that the path exists and is readable", collected)
         return nil, readErr
     end
     local parser = require("nupp.compiler.parser")

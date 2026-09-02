@@ -14,10 +14,9 @@ See `docs/reference/diagnostics.md` for what the fields mean.
 
 local fs = require("nupp.compiler.fs")
 local explain = require("nupp.compiler.explain")
+local diagnosticMod = require("nupp.compiler.diagnostics")
 
 local report = {}
-
-local REPORTED = {note = "note", warning = "warning"}
 
 --- Walks a source to the line and column an offset falls on. Positions are 1-based byte
 --- counts, matching what the text form prints.
@@ -135,7 +134,7 @@ function report.diagnosticValues(diagnostics: {any}): {any}
         end
         values[#values + 1] = {
             file = e.filename,
-            severity = REPORTED[e.severity] or "error",
+            severity = diagnosticMod.severityOf(e),
             code = e.code,
             lint = e.lint,
             -- Derived from the code rather than carried on every diagnostic: one code
@@ -154,16 +153,25 @@ function report.diagnosticValues(diagnostics: {any}): {any}
     return values
 end
 
---- Whether a diagnostic stops the work. Only an error does.
-function report.fatal(diagnostic: {readonly severity: string?}): boolean
-    return REPORTED[diagnostic.severity] == nil
-end
-
 --- A diagnostic about a file rather than a place in it: a path that could not be read
 --- or written has no position, so the range fields are zero and the code is the one
 --- every command reports for a file the run never got inside.
 function report.fileDiagnostic(path: string, msg: string?, help: string): {[string]: any}
     return {filename = path, line = 0, col = 0, offset = 0, length = 0, code = "NUPP0001", msg = msg, help = help}
+end
+
+--- Says that a file could not be read or written, the way every command says it: as a
+--- diagnostic appended to `collected` when the run is gathering them for `--json`, and
+--- as one line on stderr when it is not. Returns the diagnostic either way.
+function report.fileFailure(path: string, err: string?, help: string, collected: {any}?): {[string]: any}
+    local diagnostic = report.fileDiagnostic(path, err, help)
+    if collected then
+        collected[#collected + 1] = diagnostic
+    else
+        io.stderr:write("nupp: " .. tostring(err) .. "\n")
+    end
+
+    return diagnostic
 end
 
 -- The schema of what the writers above produce, kept beside them for the same reason

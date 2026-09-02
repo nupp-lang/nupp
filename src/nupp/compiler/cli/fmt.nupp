@@ -184,22 +184,23 @@ local function run(parsed: any): integer
 
     local failed = false
     local unformatted: {string} = {}
+    -- A file that could not be read or written is a failure of its own, listed under
+    -- its path with the one diagnostic that says so.
+    local function fileFailure(path: string, err: string?, help: string): nil
+        local collected = asJson and {} or nil
+        reportMod.fileFailure(path, err, help, collected)
+        if collected then
+            failures[#failures + 1] = {file = path, diagnostics = reportMod.diagnosticValues(collected)}
+        end
+    end
+
     for _, path in ipairs(paths) do
         local source, err = fs.readFile(path)
         -- Looked up once above the chain: the key digests the whole file, so an arm
         -- that asked for itself would hash the file again.
         local verdict = source and settled and settled.get(verdictKey(path, source)) or nil
         if not source then
-            if asJson then
-                failures[#failures + 1] = {
-                    file = path,
-                    diagnostics = reportMod.diagnosticValues({
-                        reportMod.fileDiagnostic(path, err, "check that the path exists and is readable")
-                    })
-                }
-            else
-                io.stderr:write("nupp: " .. tostring(err) .. "\n")
-            end
+            fileFailure(path, err, "check that the path exists and is readable")
             failed = true
         elseif verdict == "same" then
             -- Known to format to itself: nothing to report and nothing to rewrite.
@@ -233,20 +234,7 @@ local function run(parsed: any): integer
                     -- one that abandons the remaining files.
                     local wrote, writeErr = fs.writeFile(path, formatted)
                     if not wrote then
-                        if asJson then
-                            failures[#failures + 1] = {
-                                file = path,
-                                diagnostics = reportMod.diagnosticValues({
-                                    reportMod.fileDiagnostic(
-                                        path,
-                                        tostring(writeErr),
-                                        "check that the path is writable"
-                                    )
-                                })
-                            }
-                        else
-                            io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
-                        end
+                        fileFailure(path, tostring(writeErr), "check that the path is writable")
                         failed = true
                     else
                         unformatted[#unformatted + 1] = path

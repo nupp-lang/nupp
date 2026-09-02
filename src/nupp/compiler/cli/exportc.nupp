@@ -137,7 +137,7 @@ local function run(parsed: any): integer
     local reportMod = require("nupp.compiler.cli.report")
     local failed = false
     for _, one in ipairs(allDiagnostics) do
-        if reportMod.fatal(one) then
+        if require("nupp.compiler.diagnostics").isFatal(one) then
             failed = true
         end
     end

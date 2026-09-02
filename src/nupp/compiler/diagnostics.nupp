@@ -33,6 +33,12 @@ function diagnostics.isFatal(e: {readonly severity: string?}): boolean
     return REPORTED[e.severity] == nil
 end
 
+--- The severity a diagnostic is reported under: its own when it is one of the two
+--- that are stepped over, and `error` for everything else, by the same rule.
+function diagnostics.severityOf(e: {readonly severity: string?}): string
+    return REPORTED[e.severity] or "error"
+end
+
 local function readFile(path)
     local file = io.open(path, "rb")
     if not file then
