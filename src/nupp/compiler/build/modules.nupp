@@ -1483,7 +1483,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 local dependencyChanged = false
                 for _, depName in ipairs(record.dependencies or {}) do
                     local depPath = inc.modulePath(depName)
-                    if depPath then
+                    -- A module a backend projects through its seams has a source
+                    -- path but no record of its own -- `enqueue` never compiles it --
+                    -- so looking one up would invalidate its readers on every build.
+                    -- Its interface is the bundled one, which the backend and
+                    -- compiler fingerprints already cover.
+                    if depPath and not inc.runtimeProjectedModule(depName) then
                         local current = records[depName]
                         local previous = oldState.modules[depName]
                         if not current or not previous or current.interfaceHash ~= previous.interfaceHash then

@@ -1132,6 +1132,31 @@ return json
    remove(dir)
 end
 
+function M.aWarmBuildBehindAProjectedModuleRecompilesNothing()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {outDir = "out", entries = {"main"},
+   dialect = "lua51", backends = {"nupp.runtime.backend.browser"}}}
+]],
+      ["src/main.nupp"] = [[
+local data = require("nupp.data")
+
+return function(): string
+   return data.uuid4()
+end
+]],
+   })
+   local cold = {}
+   assertEq(project.build(dir, {stats = cold}), 0, "a browser-backend project builds")
+   assert(cold.checkedModules > 0, "the cold build checks the entry")
+   local warm = {}
+   assertEq(project.build(dir, {stats = warm}), 0)
+   -- The facade behind the backend has no record of its own, and a dependent
+   -- that looked one up would be recompiled on every build for want of it.
+   assertEq(warm.checkedModules, 0, "a reader of a projected module is reused unchanged")
+   remove(dir)
+end
+
 function M.installedBrowserBackendTypesExactAndProjectedModules()
    local dir = tempProject({
       ["nupp.lua"] = [[
