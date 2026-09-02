@@ -147,6 +147,55 @@ local function sitePosition(source: string, offset: integer): (integer, integer)
     return newlines + 1, offset - lineStart + 1
 end
 
+--- A refusal recorder for `lower.Context`: the reason lands in `diagnostics`
+--- against `filename`, and lowering unwinds to the enclosing pcall.
+local function rejection(filename: string, diagnostics: {compile.Diagnostic}): function(scalarIR.Source?, string): nil
+    return function(at: scalarIR.Source?, message: string): nil
+        diagnostics[
+            #diagnostics + 1
+        ] = new compile.Diagnostic(
+            file = filename,
+            line = at ~= nil and (at as scalarIR.Source).line or 1,
+            column = at ~= nil and (at as scalarIR.Source).column or 1,
+            message = message
+        )
+        error(REFUSED, 0)
+    end
+end
+
+--- Gives every Lua builder in a module the one registrar they share, named
+--- after all of their symbols so two modules cannot collide.
+local function nameRegistrar(programs: {scalarIR.Program}): nil
+    local builderSymbols: {string} = {}
+    for _, program in ipairs(programs) do
+        if program.entryMode == "lua-builder" then
+            builderSymbols[#builderSymbols + 1] = program.symbol
+        end
+    end
+    if #builderSymbols == 0 then
+        return
+    end
+    local registrar = "ks_register_" .. hash.digest(table.concat(builderSymbols, "\0")):sub(1, 16)
+    for _, program in ipairs(programs) do
+        if program.entryMode == "lua-builder" then
+            program.registrar = registrar
+        end
+    end
+end
+
+--- A diagnostic placed at the program's map loop, which is where a lane
+--- decision is about.
+local function loopDiagnostic(program: scalarIR.Program, filename: string, message: string): compile.Diagnostic
+    local at = (program.loop as scalarIR.Loop).source
+
+    return new compile.Diagnostic(
+        file = filename,
+        line = at ~= nil and (at as scalarIR.Source).line or 1,
+        column = at ~= nil and (at as scalarIR.Source).column or 1,
+        message = message
+    )
+end
+
 --- Lowers one source to verified scalar IR.
 ---
 --- @param source the text, used when `parsed` is not supplied
@@ -178,20 +227,12 @@ function compile.lower(
         return {}, diagnostics, {}
     end
 
-    local context = new lower.Context(checked = parsed ~= nil, constantNames = {}, constantValues = {}, reject = function(
-        at: scalarIR.Source?,
-        message: string
-    ): nil
-        diagnostics[
-            #diagnostics + 1
-        ] = new compile.Diagnostic(
-            file = filename,
-            line = at ~= nil and (at as scalarIR.Source).line or 1,
-            column = at ~= nil and (at as scalarIR.Source).column or 1,
-            message = message
-        )
-        error(REFUSED, 0)
-    end)
+    local context = new lower.Context(
+        checked = parsed ~= nil,
+        constantNames = {},
+        constantValues = {},
+        reject = rejection(filename, diagnostics)
+    )
 
     -- The checker records `@aot` as a fact on the body; without it the
     -- annotation is read off the tree, which is what lets this run on a tree the
@@ -214,20 +255,7 @@ function compile.lower(
             end
         end
 
-        local builderSymbols: {string} = {}
-        for _, program in ipairs(programs) do
-            if program.entryMode == "lua-builder" then
-                builderSymbols[#builderSymbols + 1] = program.symbol
-            end
-        end
-        if #builderSymbols > 0 then
-            local registrar = "ks_register_" .. hash.digest(table.concat(builderSymbols, "\0")):sub(1, 16)
-            for _, program in ipairs(programs) do
-                if program.entryMode == "lua-builder" then
-                    program.registrar = registrar
-                end
-            end
-        end
+        nameRegistrar(programs)
         for position, program in ipairs(programs) do
             programs[position] = verify.program(program)
         end
@@ -580,20 +608,7 @@ function compile.constSpecializations(
             context.reject(nil, "no closed const-generic AOT applications were found")
         end
 
-        local builderSymbols: {string} = {}
-        for _, program in ipairs(programs) do
-            if program.entryMode == "lua-builder" then
-                builderSymbols[#builderSymbols + 1] = program.symbol
-            end
-        end
-        if #builderSymbols > 0 then
-            local registrar = "ks_register_" .. hash.digest(table.concat(builderSymbols, "\0")):sub(1, 16)
-            for _, program in ipairs(programs) do
-                if program.entryMode == "lua-builder" then
-                    program.registrar = registrar
-                end
-            end
-        end
+        nameRegistrar(programs)
         for _, program in ipairs(programs) do
             verify.program(program)
         end
@@ -665,44 +680,21 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
     -- it one is the whole of what a reader can act on.
     local shapes = targets.gangs(selected)
     if #shapes == 0 then
-        program.laneRefusals = {
-            new compile.Diagnostic(
-                file = filename,
-                line = (
-                    program.loop as scalarIR.Loop
-                ).source ~= nil and ((program.loop as scalarIR.Loop).source as scalarIR.Source).line or 1,
-                column = (
-                    program.loop as scalarIR.Loop
-                ).source ~= nil and ((program.loop as scalarIR.Loop).source as scalarIR.Source).column or 1,
-                message = targets.noGangReason(selected)
-            ),
-        }
+        program.laneRefusals = {loopDiagnostic(program, filename, targets.noGangReason(selected))}
         program.lanesDeclined = false
 
         return
     end
 
-    -- Only the narrowest gang's refusals are kept. A loop that cannot lower at
-    -- all cannot lower in any width, and the binary64 refusal is the one that
-    -- names the construct rather than the width.
+    -- Only the last attempt's refusals are kept, which is the narrowest gang's.
+    -- A loop that cannot lower at all cannot lower in any width, and the
+    -- binary64 refusal is the one that names the construct rather than the
+    -- width.
     local attempts = rewrite.select(program, shapes)
+    local last = attempts[#attempts]
     local refusals: {compile.Diagnostic} = {}
-    for _, attempt in ipairs(attempts) do
-        refusals = {}
-        for _, why in ipairs(attempt.refusals) do
-            refusals[
-                #refusals + 1
-            ] = new compile.Diagnostic(
-                file = filename,
-                line = (
-                    program.loop as scalarIR.Loop
-                ).source ~= nil and ((program.loop as scalarIR.Loop).source as scalarIR.Source).line or 1,
-                column = (
-                    program.loop as scalarIR.Loop
-                ).source ~= nil and ((program.loop as scalarIR.Loop).source as scalarIR.Source).column or 1,
-                message = why
-            )
-        end
+    for _, why in ipairs(last ~= nil and last.refusals or {}) do
+        refusals[#refusals + 1] = loopDiagnostic(program, filename, why)
     end
 
     if program.lanes == nil then
