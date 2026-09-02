@@ -65,6 +65,14 @@ local TASK = table.concat({
 
 local M = {}
 
+function M.colonCallsRequireAMethodBearingReceiver()
+   assertEq(diagsOf(table.concat({
+      "local value: integer = 1",
+      "local text: string = value:upper()",
+      "return text",
+   }, "\n")), "NUPP2004:2")
+end
+
 function M.recordMethodsTypeAtCallSites()
    assertClean(TASK .. "\nlocal t: Task = new Task()\nlocal s: string = t:describe()")
    assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task()\nlocal n: number = t:describe()"),

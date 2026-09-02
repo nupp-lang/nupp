@@ -170,7 +170,7 @@ type](primitives.md#unknown-the-top-type) for more information.
 
 ## Deliberate unsoundness
 
-Four rules are unsound on purpose, because the sound version rejects too much
+Five rules are unsound on purpose, because the sound version rejects too much
 ordinary Lua:
 
 ```nupp
@@ -182,13 +182,19 @@ nums[1] = 1.5
 That last line stores a non-integer into a `{integer}`, and nothing reports it.
 
 - **Arrays are covariant.** `{integer}` is accepted where `{number}` is wanted.
-- **Shape fields are covariant**, not invariant, even though they are mutable.
+  Arrays of functions are invariant, because covariance there could erase a
+  `nosuspend` effect guarantee.
+- **Generic nominal arguments are covariant.** `Box<integer>` is accepted where
+  `Box<number>` is wanted even when the box exposes mutable contents.
 - **`table` is gradual in both directions.** Every table-shaped type is a
   `table`, and a `table` may be used where any of them is wanted. It is closer
   to "`any`, for tables" than to a top type.
 - **A declared `is` edge is trusted rather than proved.** If a record says
   `is nupp.Closeable`, it satisfies `nupp.Closeable` even before a runtime registrar has
   filled the members in.
+- **Record construction has no definite-initialization proof.** A required field
+  may be omitted so staged constructors and registrars can fill it later; reading
+  it first observes Lua's `nil` despite the declared field type.
 
 Each is a place where the checker chose compatibility over proof. See [`is` is
 a claim, not a proof](interfaces.md#is-is-a-claim-not-a-proof) for what a

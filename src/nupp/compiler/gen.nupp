@@ -3436,10 +3436,26 @@ function gen.generate(
     -- moving intervening work or extending an inner block's lifetime.
     emitAutomaticBlock = function(block)
         local stats = block.stats or {}
+        local loop = emitDepth.loopNodes[#emitDepth.loopNodes]
+        local repeatCondition = loop
+            and loop.kind == "repeatStmt"
+            and loop.body == block
+            and loop.cleanupConditionTemp
+            and loop.cond
+            or nil
+        local function emitRepeatCondition()
+            if repeatCondition then
+                e(("%s="):format(loop.cleanupConditionTemp), sourceLine(repeatCondition))
+                emit(repeatCondition)
+                e(";")
+            end
+        end
+
         if block.automaticDirect then
             for _, stat in ipairs(stats) do
                 emit(stat)
             end
+            emitRepeatCondition()
             local owner = block.automaticDirect
             for _, cleanup in ipairs(owner.cleanups or {}) do
                 local call = cleanupCall(cleanup, owner.name)
@@ -3528,9 +3544,14 @@ function gen.generate(
             body = body,
             automaticRegion = true,
             automaticSequence = sequence,
+            repeatCondition = repeatCondition,
+            repeatConditionTemp = loop and loop.cleanupConditionTemp or nil,
         }
+        if repeatCondition then
+            region.analysisBody = {kind = "block", body, repeatCondition}
+        end
         region.automaticComplex = #bindings == 1 and sequence[1] and sequence[1].declaration ~= nil
-        region.enclosingCaptures = automaticCaptures(body, bindings)
+        region.enclosingCaptures = automaticCaptures(region.analysisBody or body, bindings)
         region.capturesEnclosing = #region.enclosingCaptures > 0
         emit(region)
     end
@@ -5323,25 +5344,7 @@ function gen.generate(
                 -- by design, because it is conformance rather than provenance. Three
                 -- things can answer for one, so the message names them rather than
                 -- implying a fourth is coming.
-                local at = t[1] and (cst.isToken(t[1]) and t[1] or nil)
-                if t.interfaceName then
-                    emitDepth.diag(
-                        at,
-                        "NUPP3001",
-                        "an interface has no runtime identity of its own, so " .. "this `is` has nothing to test",
-                        "give it a literal-typed field and the tag becomes the "
-                        .. "test; or a `matches` block, which says the test "
-                        .. "outright; or test a subject whose own type declares "
-                        .. "the interface, which needs no test at all"
-                    )
-                else
-                    emitDepth.diag(
-                        at,
-                        "NUPP3001",
-                        "this type has no runtime identity, so `is` has " .. "nothing to test",
-                        "test against a record, a struct, or an interface that " .. "can say what it is"
-                    )
-                end
+                -- The checker owns this diagnostic so `check` and `build` agree.
                 e("true")
             end
 
@@ -6539,7 +6542,8 @@ function gen.generate(
                 end
             end
 
-            collectCaptureMoves(x.body)
+            local analysisBody = x.analysisBody or x.body
+            collectCaptureMoves(analysisBody)
             for j = 1, #(x.bindings or {}) do
                 owners[j] = nextTemp()
                 local binding = x.bindings[j]
@@ -6569,7 +6573,7 @@ function gen.generate(
                     }
                 end
             end
-            local variadic = usesVararg(x.body)
+            local variadic = usesVararg(analysisBody)
             local ctx = {
                 entryLoopDepth = emitDepth.loop,
                 functionDepth = emitDepth.fn,
@@ -6585,7 +6589,7 @@ function gen.generate(
             local captures = x.enclosingCaptures or {}
             local activation = emitDepth.activations[#emitDepth.activations]
             local stable = #captures > 0 and activation and emitDepth.activationStable(captures) or false
-            local captureWrites, nestedCaptures = emitDepth.captureUsage(x.body, captures)
+            local captureWrites, nestedCaptures = emitDepth.captureUsage(analysisBody, captures)
             local framed = #captures > 0 and not stable and emitDepth.frameEligible(captures, nestedCaptures)
             local cacheName = #captures == 0
                 and cleanupCacheName
@@ -6653,6 +6657,10 @@ function gen.generate(
                 e("do")
                 if x.body then
                     emit(x.body)
+                end
+                if x.repeatCondition then
+                    e((";%s="):format(x.repeatConditionTemp), sourceLine(x.repeatCondition))
+                    emit(x.repeatCondition)
                 end
                 e(("end; return \"normal\" end; %s[%d]=%s end;"):format(cacheName, slot, region))
                 if frame then
@@ -6871,6 +6879,10 @@ function gen.generate(
                     if x.body then
                         emit(x.body)
                     end
+                end
+                if x.repeatCondition then
+                    e((";%s="):format(x.repeatConditionTemp), sourceLine(x.repeatCondition))
+                    emit(x.repeatCondition)
                 end
                 e(("end; return \"normal\" end,%s%s);"):format(cleanupIdName, variadic and ",..." or ""))
                 cleanupStack[#cleanupStack] = nil
@@ -7092,6 +7104,17 @@ function gen.generate(
         elseif kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt" then
             emitDepth.soa.openLoop(x)
             local portableLoop = {}
+            if kind == "repeatStmt" then
+                local body = x.body
+                local hasAutomaticCleanup = body and body.automaticDirect ~= nil
+                for _, stat in ipairs(body and body.stats or {}) do
+                    hasAutomaticCleanup = hasAutomaticCleanup or stat.automaticOwners and #stat.automaticOwners > 0
+                end
+                if hasAutomaticCleanup then
+                    x.cleanupConditionTemp = nextTemp()
+                    e(("local %s;"):format(x.cleanupConditionTemp), sourceLine(x))
+                end
+            end
             if pluck.portableLoopNeedsWrapper(x) then
                 portableLoop.action = nextTemp()
             end
@@ -7113,6 +7136,8 @@ function gen.generate(
                     if portableLoop.action then
                         e(("until true;if %s==\"break\" then break end;"):format(portableLoop.action))
                     end
+                elseif child == x.cond and x.cleanupConditionTemp then
+                    e(x.cleanupConditionTemp, sourceLine(child))
                 else
                     emit(child)
                 end

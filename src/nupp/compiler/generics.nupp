@@ -76,9 +76,13 @@ end
 local function substCleanup(cleanup: T.Cleanup, map: Bindings, unmapped: string): T.Cleanup
     if cleanup.kind == "function" and cleanup.constTerm then
         local term = substConst(cleanup.constTerm, map)
+        local cleanupName: string? = cleanup.name
+        if term.tag == "constLiteral" then
+            cleanupName = nil
+        end
         local specialized = T.constFunctionCleanup(
             term,
-            term.tag == "constLiteral" and nil or cleanup.name,
+            cleanupName,
             cleanup.functionType and substWith(cleanup.functionType, map, unmapped) or nil
         )
         specialized.validated = cleanup.validated
@@ -1561,7 +1565,13 @@ function generics.unifyPack(param: T.Pack, arg: T.Pack, map: Bindings): nil
         return
     end
     for j, expected in ipairs(param.head) do
-        generics.unify(expected, T.packAt(arg, j) or T.nil_, map)
+        local actual = T.packAt(arg, j)
+        if actual then
+            -- An explicit nil is evidence for a binder; an omitted optional argument
+            -- is not. The latter must leave result-only defaults free to choose their
+            -- declared gradual fallback.
+            generics.unify(expected, actual, map)
+        end
     end
     local tail = param.tail
     if not tail then
@@ -1847,7 +1857,7 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
     end
     local tag = param.tag
     if tag == "typevar" then
-        if arg ~= T.any and arg ~= T.nil_ then
+        if arg ~= T.any then
             -- A binder in two positions holds what both arguments were. An index by a
             -- computed key has no name to narrow, so the previous binding is read into
             -- one.

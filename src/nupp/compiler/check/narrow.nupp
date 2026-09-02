@@ -59,8 +59,18 @@ type narrow.Ops = {
     --- Forgets what was known about a reference and anything under it.
     clearNarrowed: function(key: string),
 
+    --- Forgets facts beneath a reference while preserving the reference itself.
+    clearNarrowedBelow: function(key: string),
+
     --- Forgets that a copy still speaks for what it was copied from.
     clearAliases: function(key: string),
+
+    --- Resolves a field path through a copied table reference.
+    aliasTarget: function(key: string): string?,
+
+    --- Forgets facts an arbitrary call may have invalidated through aliases or
+    --- captured variables.
+    invalidateForCall: function(),
 
     --- What a condition proves, on each side of it.
     analyzeCond: function(cond: Node): narrow.Facts,
@@ -183,6 +193,20 @@ function narrow.install(c: state.Checker): narrow.Ops
         end
     end
 
+    function facts.clearNarrowedBelow(key)
+        local sc = c.scope
+        while sc do
+            if sc.narrowed then
+                for k in pairs(sc.narrowed) do
+                    if k:sub(1, #key + 1) == key .. "." then
+                        sc.narrowed[k] = nil
+                    end
+                end
+            end
+            sc = sc.parent
+        end
+    end
+
     c.refType = function(node)
         if not node then
             return nil
@@ -220,6 +244,42 @@ function narrow.install(c: state.Checker): narrow.Ops
             end
             sc = sc.parent
         end
+    end
+
+    function facts.aliasTarget(key)
+        local root, suffix = key:match("^([^.]+)(.*)$")
+        local entry = root and c.lookupEntry(root) or nil
+        if entry and entry.aliasPath then
+            return entry.aliasPath .. suffix
+        end
+
+        return nil
+    end
+
+    function facts.invalidateForCall()
+        for key in pairs(c.callMutationRoots or {}) do
+            facts.clearNarrowedBelow(key)
+            local aliased = facts.aliasTarget(key)
+            if aliased then
+                facts.clearNarrowedBelow(aliased)
+            end
+        end
+        c.callMutationRoots = nil
+        for mutated in pairs(c.callMutatedEntries or {}) do
+            local sc = c.scope
+            while sc do
+                for _, entry in pairs(sc.vars) do
+                    if entry == mutated or (mutated.definition and entry.definition == mutated.definition) then
+                        if entry.narrowing then
+                            entry.t = entry.decl
+                            entry.narrowing = false
+                        end
+                    end
+                end
+                sc = sc.parent
+            end
+        end
+        c.callMutatedEntries = nil
     end
 
     -- What testing a value for truth proves about it, on each side of the test. Falsy

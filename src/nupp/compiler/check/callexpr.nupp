@@ -23,6 +23,7 @@ local methodslots = require("nupp.compiler.methodslots")
 local native = require("nupp.compiler.native")
 local luaFormat = require("nupp.compiler.luaformat") as {analyze: function(string): (any, string?)}
 local reflection = require("nupp.compiler.reflection")
+local narrowing = require("nupp.compiler.narrowing")
 local targetLayout = require("nupp.compiler.targetlayout")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local indexedViews = require("nupp.compiler.indexedviews")
@@ -1114,6 +1115,23 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if callee and callee.fixedWidthCallableUntrusted == true then
             node.fixedWidthUntrustedResult = true
         end
+        local calleeEntry = callee and c.ownershipEntry(callee) or nil
+        local calleeFacts = calleeEntry and c.own.capabilityFacts(calleeEntry, nil, false) or nil
+        if calleeFacts and calleeFacts.capturedBorrowRoots then
+            for _, root in ipairs(calleeFacts.roots or {}) do
+                if root.moved then
+                    local related = root.movedAt and c.related(root.movedAt, "captured owner was moved here") or nil
+                    c.diag(
+                        "NUPP2602",
+                        callee,
+                        "a local function cannot read a captured owner after it was moved",
+                        nil,
+                        {related = related and {related} or nil}
+                    )
+                    break
+                end
+            end
+        end
         if callee and c.ownershipKind(calleeT) == "affine" and rawType(calleeT).tag == "func" then
             if node.kind == "safeCall" then
                 c.diag("NUPP2602", callee, "an affine closure call cannot be conditional; narrow it first")
@@ -1298,6 +1316,16 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 knownAts = {at}
             end
         end
+        local collectionGlobal = (
+            calleeName == "pairs" or calleeName == "ipairs"
+        ) and c.env and c.env.globals and c.env.globals[calleeName] or nil
+        if collectionGlobal and c.lookupEntry(calleeName) == collectionGlobal and #argExprs == 1 then
+            local at = knownAts and knownAts[1] or c.infer(argExprs[1])
+            local raw = rawType(at)
+            if raw.tag == "const" then
+                knownAts = {raw.inner}
+            end
+        end
         -- Every metatable literal is checked where it meets a `metatable<T>`, which is
         -- what the prelude declares `setmetatable` to take. A run with no prelude has
         -- no such parameter to read the receiver off, and the name is then the only
@@ -1307,6 +1335,21 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             c.checkMetatableLiteral(argExprs[2], nil, T.metatable(T.any))
         end
         local first, rets, pack = c.inferCall(node, calleeT, node.args, knownAts)
+        local globalsForAssert = c.env and c.env.globals
+        local stableAssert = calleeName == "assert" and globalsForAssert and c.lookupEntry(
+            "assert"
+        ) == globalsForAssert.assert
+        if stableAssert then
+            local input = node.argumentPack and T.packAt(node.argumentPack, 1) or T.any
+            local truthy = narrowing.truthiness(input)
+            if input ~= T.any then
+                first = truthy or T.never
+                rets = {first}
+                pack = T.pack(rets)
+                local dynamicNode: any = node
+                dynamicNode.assertNever = first == T.never
+            end
+        end
         if node.kind == "call" and stringFormatIntrinsic(c, callee) then
             local format = literalString(argExprs[1])
             local plan = format and debugFormatPlan(format) or nil
@@ -2206,8 +2249,37 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     named = rawType(ot)
                 end
             end
-            if named.tag == "shape" or named.tag == "nominal" then
-                local fixes = c.edits.nameSpellingFix(member, c.fieldNames(named))
+            local function cannotHaveMethods(t: Type): boolean
+                t = rawType(t)
+                if t.tag == "literal" then
+                    t = t.base
+                end
+
+                return t.tag == "nil"
+                    or t.tag == "boolean"
+                    or t.tag == "number"
+                    or t.tag == "integer"
+                    or t.tag == "float"
+                    or t.tag == "int8"
+                    or t.tag == "int16"
+                    or t.tag == "int32"
+                    or t.tag == "int64"
+                    or t.tag == "uint8"
+                    or t.tag == "uint16"
+                    or t.tag == "uint32"
+                    or t.tag == "uint64"
+            end
+
+            local receiverDetails: any = receiver
+            while receiverDetails.kind == "paren" and receiverDetails.expr do
+                receiverDetails = receiverDetails.expr
+            end
+            if not receiverDetails.primitiveUntrusted and rawType(
+                named
+            ) ~= T.string and (named.tag == "shape" or named.tag == "nominal" or cannotHaveMethods(named)) then
+                local fixes = (
+                    named.tag == "shape" or named.tag == "nominal"
+                ) and c.edits.nameSpellingFix(member, c.fieldNames(named)) or nil
                 c.diag("NUPP2004", member, ("no method %q in %s"):format(member.text, T.tostring(named)), fixes, {
                     help = fixes
                     and "use the suggested method spelling"

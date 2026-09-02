@@ -393,6 +393,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
         end
         customaryOperator(c, opTok)
         local t = c.infer(operand)
+        if t.tag == "const" then
+            t = t.inner
+        end
         local op = opTok.kind
         if op == "-" then
             local origin = lpegPattern(t)
@@ -476,6 +479,11 @@ function operators.install(c: state.Checker): state.ExprHandlers
         if lpegResult then
             return lpegResult
         end
+        if (operators.logical[op] or op == "??") and (c.ownershipKind(lt) or c.ownershipKind(rt)) then
+            c.diag("NUPP2602", node, "an ownership-bearing value cannot be selected by a logical operator", nil, {
+                help = "move or drop the owner explicitly in each control-flow branch"
+            })
+        end
         if operators.arith[op] then
             local mmName = op ~= "//" and operators.metamethod[op] or nil
             local mm = mmName and (c.metamethodOf(lt, mmName) or c.metamethodOf(rt, mmName)) or nil
@@ -505,6 +513,12 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
+            if lt == T.any or rt == T.any then
+                -- Arithmetic over a gradual operand may dispatch a metamethod whose
+                -- result is not numeric. Keep the useful numeric approximation, but
+                -- do not later treat it as proof that a colon receiver is primitive.
+                (node as any).primitiveUntrusted = true
+            end
             local wide = lt.tag == "int64"
                 and lt
                 or lt.tag == "uint64"
@@ -616,22 +630,32 @@ function operators.install(c: state.Checker): state.ExprHandlers
             -- yields the left unless it is nil, so nil drops out of it
             return T.union({subtract(lt, T.nil_), rt})
         elseif operators.logical[op] then
-            -- Value-selection semantics. Until literal true/false types land with
-            -- narrowing, a boolean lhs of 'and' approximates as contributing nothing
-            -- (its false outcome), which types the pervasive 'cond and a or b' idiom
-            -- correctly.
-            if op == "and" then
-                local parts = {rt}
-                if lt == T.nil_ or (lt.tag == "union" and lt.hasNil) then
-                    parts[#parts + 1] = T.nil_
-                end
-                return T.union(parts)
-            else -- or
-                if lt == T.nil_ then
-                    return rt
-                end
-                return T.union({c.minusNil(lt), rt})
+            -- These operators select an operand value rather than producing a
+            -- boolean. The left contributes its falsy possibilities to `and` and
+            -- its truthy possibilities to `or`; the right is reachable on the
+            -- opposite side. Keep `never` out of the union because it describes an
+            -- unreachable side rather than a value the expression can produce.
+            local truthy, falsy = narrowing.truthiness(lt)
+            if lt == T.any then
+                return T.any
             end
+            local parts: {Type} = {}
+            if op == "and" then
+                if truthy and truthy ~= T.never then
+                    parts[#parts + 1] = rt
+                end
+                if falsy and falsy ~= T.never then
+                    parts[#parts + 1] = falsy
+                end
+            else -- or
+                if truthy and truthy ~= T.never then
+                    parts[#parts + 1] = truthy
+                end
+                if falsy and falsy ~= T.never then
+                    parts[#parts + 1] = rt
+                end
+            end
+            return #parts == 0 and T.never or T.union(parts)
         end
 
         return T.any

@@ -190,6 +190,23 @@ function bindings.install(c: state.Checker): state.StatHandlers
         for j, nameTok in ipairs(stat.names) do
             local ann = annotations[j]
             local init = inferred[j]
+            local directInitializer = initializers[j]
+            local expected = ann and rawType(ann) or nil
+            if directInitializer and expected and expected.tag == "tuple" and directInitializer.kind == "tableExpr" then
+                local elems: {Type} = {}
+                local positionalOnly = true
+                for _, field in ipairs(directInitializer.fields or {}) do
+                    if field.kind ~= "fieldItem" or not field.value then
+                        positionalOnly = false
+                        break
+                    end
+                    local value: any = field.value
+                    elems[#elems + 1] = value.inferredType or T.any
+                end
+                if positionalOnly then
+                    init = T.tuple(elems)
+                end
+            end
             if ann and init then
                 local initializer = initializers[
                     j
@@ -201,6 +218,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     initializer.fixedWidthTargetTypeNode = stat.types[j]
                 end
                 local ok, why, reported = c.fixedWidth.fits(init, ann, initializer or stat)
+                if ok and relations.typevarMismatch(init, ann) then
+                    ok = false
+                    why = ("%s is not a value of the generic type %s"):format(T.tostring(init), T.tostring(ann))
+                end
                 if not ok and not reported then
                     c.diag("NUPP2001", initializers[j] or stat, ("cannot initialize %s: %s"):format(nameTok.text, why))
                 end
@@ -251,7 +272,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     if not hasConst then
                         bound = T.table_
                     end
-                elseif bound == T.nil_ then
+                elseif bound == T.nil_ and (
+                    not (c.opts and c.opts.strict) or initializerCount == 0 or initializers[j] ~= nil
+                ) then
                     bound = T.any
                 end
             end
@@ -483,11 +506,37 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
             if boundEntry and initNode and not ann and initNode.kind == "name" and initNode.token then
                 local sourceEntry = c.lookupEntry(initNode.token.text)
+                local source = init and rawType(init) or nil
+                if source and (
+                    source == T.table_
+                    or source.tag == "array"
+                    or source.tag == "map"
+                    or source.tag == "tuple"
+                    or source.tag == "shape"
+                    or source.tag == "nominal"
+                ) then
+                    boundEntry.aliasNode = initNode
+                    boundEntry.aliasPath = pathKey(initNode)
+                end
                 if sourceEntry and sourceEntry.resourceCapability then
                     -- Typed dynamic handles are copyable tokens. Every alias carries
                     -- the same static custody policy so `take` does not depend on the
                     -- spelling of the original handle binding.
                     boundEntry.resourceCapability = sourceEntry.resourceCapability
+                end
+                if sourceEntry then
+                    boundEntry.mutatesParams = sourceEntry.mutatesParams
+                    boundEntry.mutatesCapturedEntries = sourceEntry.mutatesCapturedEntries
+                    boundEntry.mutatesCapturedPaths = sourceEntry.mutatesCapturedPaths
+                    boundEntry.mutatesSelf = sourceEntry.mutatesSelf
+                    if sourceEntry.definition then
+                        boundEntry.mutatesParams = boundEntry.mutatesParams or sourceEntry.definition.mutatesParams
+                        boundEntry.mutatesCapturedEntries = boundEntry.mutatesCapturedEntries
+                            or sourceEntry.definition.mutatesCapturedEntries
+                        boundEntry.mutatesCapturedPaths = boundEntry.mutatesCapturedPaths
+                            or sourceEntry.definition.mutatesCapturedPaths
+                        boundEntry.mutatesSelf = boundEntry.mutatesSelf or sourceEntry.definition.mutatesSelf
+                    end
                 end
                 if sourceEntry and sourceEntry.packCorrelation then
                     boundEntry.packCorrelation = sourceEntry.packCorrelation
@@ -498,6 +547,13 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         #group.extraNames + 1
                     ] = {name = nameTok.text, index = sourceEntry.packCorrelationIndex,}
                 end
+            end
+            if boundEntry and initNode and initNode.kind == "funcExpr" then
+                local functionNode: any = initNode
+                boundEntry.mutatesParams = functionNode.mutatesParams
+                boundEntry.mutatesCapturedEntries = functionNode.mutatesCapturedEntries
+                boundEntry.mutatesCapturedPaths = functionNode.mutatesCapturedPaths
+                boundEntry.mutatesSelf = functionNode.mutatesSelf
             end
             if boundEntry and (ownershipKind(bound) == "affine" or ownershipKind(bound) == "pinned") and not init then
                 boundEntry.moved = true -- declared storage, no live affine value
@@ -701,7 +757,33 @@ function bindings.install(c: state.Checker): state.StatHandlers
         for _, target in ipairs(stat.targets) do
             local key = pathKey(target)
             if key then
+                local root = key:match("^[^.]+")
+                local rootEntry = root and c.lookupEntry(root) or nil
+                local functionBody: any = c.functionBodies[#c.functionBodies]
+                if root and rootEntry and functionBody then
+                    if (rootEntry.functionDepth or 0) < c.functionDepth then
+                        local suffix = key:sub(#root + 1)
+                        if suffix == "" then
+                            functionBody.mutatesCapturedEntries = functionBody.mutatesCapturedEntries or {}
+                            functionBody.mutatesCapturedEntries[rootEntry] = true
+                        else
+                            functionBody.mutatesCapturedPaths = functionBody.mutatesCapturedPaths or {}
+                            local paths = functionBody.mutatesCapturedPaths[rootEntry] or {}
+                            functionBody.mutatesCapturedPaths[rootEntry] = paths
+                            paths[suffix] = true
+                        end
+                    elseif rootEntry.mutationSelf then
+                        functionBody.mutatesSelf = true
+                    elseif rootEntry.mutationParameter then
+                        functionBody.mutatesParams = functionBody.mutatesParams or {}
+                        functionBody.mutatesParams[rootEntry.mutationParameter] = true
+                    end
+                end
+                local aliased = key:find(".", 1, true) and facts.aliasTarget(key) or nil
                 clearNarrowed(key)
+                if aliased then
+                    clearNarrowed(aliased)
+                end
                 clearAliases(key)
             end
         end
@@ -1090,6 +1172,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
         -- to transfer that source into the result.
         called.discardingResults = true
         local resultT = c.infer(called)
+        if c.callMayMutate then
+            facts.invalidateForCall()
+            c.callMayMutate = false
+        end
         -- Lua commonly spells a checked optional as two statements: `assert(value)`
         -- followed by uses of that same name. The builtin returns only on the truthy
         -- arm, so that fact continues after the statement even when its result is not

@@ -195,14 +195,17 @@ function control.install(c: state.Checker): state.StatHandlers
 
     -- Rewinds every owner to the state the branch began in, and records the ones this
     -- arm moved so the statement can apply them once the last arm has run.
-    local function ownershipRewind(snapshot: {any}, moved: {[any]: boolean}): nil
+    local function ownershipRewind(snapshot: {any}, moved: {[any]: boolean}, recordMoves: boolean): nil
         for _, item in ipairs(snapshot) do
-            if item.state.moved and not item.moved then
+            if recordMoves and item.state.moved and not item.moved then
                 moved[item.state] = true
             end
             item.state.moved, item.state.movedAt = item.moved, item.movedAt
         end
     end
+
+    c.ownershipSnapshot = ownershipSnapshot
+    c.ownershipRewind = ownershipRewind
 
     --- Rejects a capability transition that a repeatable back edge would feed into a
     --- header checked under a different state. Lexical values created by the body are
@@ -256,6 +259,29 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     local handlers = {}
+    local labelOwnership = {}
+
+    handlers.labelStmt = function(stat: cst.LabelStmt)
+        local name: any = stat.name
+        if name then
+            labelOwnership[name.definition or name.text] = ownershipSnapshot()
+        end
+    end
+
+    handlers.gotoStmt = function(stat: cst.GotoStmt)
+        local name: any = stat.name
+        local before = name and labelOwnership[name.definition or name.text] or nil
+        if before then
+            for _, item in ipairs(before) do
+                if item.state.moved and not item.moved then
+                    c.diag("NUPP2609", stat, "a backward goto repeats after consuming an outer capability", nil, {
+                        help = "use structured control flow that reacquires or preserves the owner on every iteration"
+                    })
+                    break
+                end
+            end
+        end
+    end
 
     ---------------------------------------------------------------------
     -- Statements that leave a block
@@ -574,6 +600,10 @@ function control.install(c: state.Checker): state.StatHandlers
                     got = rawType(got)
                 end
                 local ok, why, reported = returnFits(got, expected, expr or stat)
+                if ok and relations.typevarMismatch(got, expected) then
+                    ok = false
+                    why = ("%s is not a value of the generic type %s"):format(T.tostring(got), T.tostring(expected))
+                end
                 if not ok and not reported then
                     c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
                 end
@@ -608,6 +638,10 @@ function control.install(c: state.Checker): state.StatHandlers
                     got = rawType(got)
                 end
                 local ok, why, reported = returnFits(got, expected, expr or stat)
+                if ok and relations.typevarMismatch(got, expected) then
+                    ok = false
+                    why = ("%s is not a value of the generic type %s"):format(T.tostring(got), T.tostring(expected))
+                end
                 if not ok and not reported then
                     c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
                 end
@@ -714,6 +748,10 @@ function control.install(c: state.Checker): state.StatHandlers
             end
             if cond then
                 c.infer(cond)
+                if c.callMayMutate then
+                    c.facts.invalidateForCall()
+                    c.callMayMutate = false
+                end
                 facts = analyzeCond(cond)
             end
             firstFacts = firstFacts or facts
@@ -723,7 +761,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 paths[#paths + 1] = snapshotNarrowed()
             end
             c.popScope()
-            ownershipRewind(ownershipBefore, branchMoved)
+            ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(body))
             accumulatedElse = mergeFacts(accumulatedElse, facts.f)
             if cond then
                 local key, seen = nil, 0
@@ -785,7 +823,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 paths[#paths + 1] = snapshotNarrowed()
             end
             c.popScope()
-            ownershipRewind(ownershipBefore, branchMoved)
+            ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(elseBody))
         else
             -- the implicit else: everything the conditions ruled out
             c.pushScope()
@@ -832,6 +870,10 @@ function control.install(c: state.Checker): state.StatHandlers
         if cond then
             local ownershipBefore = ownershipSnapshot()
             c.infer(cond)
+            if c.callMayMutate then
+                c.facts.invalidateForCall()
+                c.callMayMutate = false
+            end
             local facts = analyzeCond(cond)
             c.pushScope()
             applyFacts(facts.t)

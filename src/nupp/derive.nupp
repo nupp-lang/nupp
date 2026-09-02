@@ -469,11 +469,20 @@ decodeValue = function(value: any, spec: any, entry: any, path: string): (boolea
 
         return decodeObject(value, nested, path)
     elseif kind == "string" then
-        return type(value) == "string", value, type(value) == "string" and nil or path .. ": expected string"
+        if type(value) == "string" then
+            return true, value, nil
+        end
+        return false, value, path .. ": expected string"
     elseif kind == "boolean" then
-        return type(value) == "boolean", value, type(value) == "boolean" and nil or path .. ": expected boolean"
+        if type(value) == "boolean" then
+            return true, value, nil
+        end
+        return false, value, path .. ": expected boolean"
     elseif kind == "literal" then
-        return value == spec.value, value, value == spec.value and nil or path .. ": literal value does not match"
+        if value == spec.value then
+            return true, value, nil
+        end
+        return false, value, path .. ": literal value does not match"
     elseif kind == "number" or kind == "float" or kind == "integer" then
         if type(value) ~= "number" or not finite(value) then
             return false, nil, path .. ": expected finite number"
@@ -801,15 +810,17 @@ end
 --- @return the record, or nil when the document did not fit it
 --- @return what was wrong with the document, when something was
 function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, string?)
-    local codec = entry.codec or derivedJSON(entry)
-    if codec.nativeDecode ~= nil then
-        local ok, value, problem = pcall(codec.nativeProvider.decodeSerde, codec.nativeDecode, text)
+    local codec: any = entry.codec or derivedJSON(entry)
+    local nativeDecode = codec.nativeDecode
+    if nativeDecode ~= nil then
+        local nativeProvider = codec.nativeProvider
+        local ok, value, problem = pcall(nativeProvider.decodeSerde, nativeDecode, text)
         if not ok then
             return nil, tostring(value)
         elseif value == nil and problem ~= nil then
             return nil, problem
         end
-        if codec.nativeDecode.complete == true then
+        if nativeDecode.complete == true then
             return value as T, nil
         end
         local matched, result, err = decodeProjectedObject(value, entry, "$")

@@ -76,6 +76,8 @@ function M.typeTostring()
    assertEq(T.tostring(T.shape({{name = "value", read = T.string,
       write = T.number}})),
       "{readonly value: string, writeonly value: number}")
+   assertEq(T.tostring(T.tuple({T.string})), "{string,}")
+   assertEq(T.tostring(T.array(T.string)), "{string}")
 end
 
 -- A string literal's type is the string it denotes, not the source that spells
@@ -124,6 +126,144 @@ function M.subtypingRules()
    local takesInt = T.func({ T.integer }, { T.number }, false)
    assert(isA(takesNum, takesInt))
    assert(not isA(takesInt, takesNum))
+end
+
+function M.arrayCovarianceCannotLaunderFunctionEffects()
+   assertEq(diagsOf(table.concat({
+      "local safe: {nosuspend function(number): number} = {math.floor}",
+      "local calls: {function(number): number} = safe",
+      "return calls",
+   }, "\n")), "NUPP2001:2")
+end
+
+function M.unboundGenericParametersAreNotGradual()
+   assertEq(diagsOf(table.concat({
+      "local function readAsString<T>(value: T): string",
+      "   local text: string = value",
+      "   return text",
+      "end",
+      "local function invent<T>(): T",
+      "   return 5",
+      "end",
+      "return readAsString, invent",
+   }, "\n")), "NUPP2001:2 NUPP2002:6")
+
+   assertEq(diagsOf(table.concat({
+      "local function id<T>(value: T): T return value end",
+      "local number: number = id(nil)",
+      "return number",
+   }, "\n")), "NUPP2001:2")
+end
+
+function M.logicalOperatorsKeepTheSelectedFalsyValue()
+   assertEq(diagsOf(table.concat({
+      "local flag: boolean = nil as any",
+      "local text: string = flag and 'ready'",
+      "return text",
+   }, "\n")), "NUPP2001:2")
+end
+
+function M.assertRemovesFalseFromItsResult()
+   assertClean(table.concat({
+      "local impossible: never = assert(false)",
+      "return impossible",
+   }, "\n"))
+end
+
+function M.callsInvalidateNarrowingThroughMutationAndCapture()
+   assertEq(diagsOf(table.concat({
+      "local record Box",
+      "   name: string?",
+      "end",
+      "local function clear(box: Box): nil box.name = nil end",
+      "local box = new Box(name = 'ready')",
+      "if box.name then",
+      "   clear(box)",
+      "   local text: string = box.name",
+      "end",
+      "return box",
+   }, "\n")), "NUPP2001:8")
+
+   assertEq(diagsOf(table.concat({
+      "local value: string? = 'ready'",
+      "local function clear(): nil value = nil end",
+      "if value then",
+      "   clear()",
+      "   local text: string = value",
+      "end",
+      "return value",
+   }, "\n")), "NUPP2001:5")
+
+   assertEq(diagsOf(table.concat({
+      "local value: string? = 'ready'",
+      "local clear = function(): nil value = nil end",
+      "if value then",
+      "   clear()",
+      "   local text: string = value",
+      "end",
+      "return value",
+   }, "\n")), "NUPP2001:5")
+
+   assertEq(diagsOf(table.concat({
+      "local record Box",
+      "   name: string?",
+      "end",
+      "function Box:clear(): nil self.name = nil end",
+      "local box = new Box(name = 'ready')",
+      "if box.name then",
+      "   box:clear()",
+      "   local text: string = box.name",
+      "end",
+      "return box",
+   }, "\n")), "NUPP2001:8")
+end
+
+function M.aliasWritesInvalidateFieldNarrowing()
+   assertEq(diagsOf(table.concat({
+      "local record Box",
+      "   name: string?",
+      "end",
+      "local box = new Box(name = 'ready')",
+      "local alias = box",
+      "if box.name then",
+      "   alias.name = nil",
+      "   local text: string = box.name",
+      "end",
+      "return box",
+   }, "\n")), "NUPP2001:8")
+end
+
+function M.unreifiedInterfaceTestsFailDuringCheck()
+   assertEq(diagsOf(table.concat({
+      "local interface Drawable",
+      "   width: number",
+      "end",
+      "local value: any = nil",
+      "return value is Drawable",
+   }, "\n")), "NUPP3001:5")
+end
+
+function M.constArraysRemainReadableViews()
+   assertClean(table.concat({
+      "local values: const {string} = {'a', 'b'}",
+      "local lookup: const {[string]: integer} = {a = 1}",
+      "local count: integer = #values",
+      "local first: string = values[1]",
+      "for index, value in ipairs(values) do",
+      "   local i: integer = index",
+      "   local s: string = value",
+      "end",
+      "for key, value in pairs(lookup) do",
+      "   local k: string = key",
+      "   local n: integer = value",
+      "end",
+      "local found: integer? = lookup['a']",
+      "return count, first, found",
+   }, "\n"))
+   assertEq(diagsOf(table.concat({
+      "local values: const {string} = {'a'}",
+      "values[1] = 'b'",
+   }, "\n")), "NUPP2009:2")
 end
 
 function M.propertyCapabilities()
@@ -704,6 +844,18 @@ function M.shortFunctionsInferCallbackParameters()
    local longSrc = src:gsub("e %-%> do", "function(e)")
    assertClean(longSrc)
    assertEq((diagsOf(longSrc:gsub("e.name", "e.missing"))), "NUPP2004:6")
+end
+
+function M.shortFunctionReturnsCompleteGenericInference()
+   local prefix = table.concat({
+      "local function map<T, U>(xs: {T}, f: function(T): U): {U}",
+      "   error('not run')",
+      "end",
+   }, "\n")
+   assertClean(prefix .. "\nlocal values: {number} = map({1, 2}, |x| -> x + 1)")
+   assertEq(diagsOf(prefix
+      .. "\nlocal values: {string} = map({1, 2}, |x| -> x + 1)"),
+      "NUPP2001:4")
 end
 
 function M.interpolatedStringsTyped()

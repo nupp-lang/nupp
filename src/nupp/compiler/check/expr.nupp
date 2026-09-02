@@ -588,6 +588,8 @@ function expr.install(c: state.Checker): nil
         local resultExpressions: {cst.Node} = {}
         local resultExpressionTypes: {Type} = {}
         local expressionResultsOnly = true
+        local ownershipBefore = c.ownershipSnapshot()
+        local branchMoved: {[any]: boolean} = {}
 
         local function checkResult(arm: cst.SwitchCase | cst.SwitchElse)
             if arm.expr then
@@ -702,6 +704,7 @@ function expr.install(c: state.Checker): nil
             end
             checkResult(arm)
             c.popScope()
+            c.ownershipRewind(ownershipBefore, branchMoved, not (arm.body and c.alwaysExits(arm.body)))
         end
         if node.elseCase then
             c.pushScope()
@@ -713,6 +716,11 @@ function expr.install(c: state.Checker): nil
             end
             checkResult(node.elseCase)
             c.popScope()
+            c.ownershipRewind(
+                ownershipBefore,
+                branchMoved,
+                not (node.elseCase.body and c.alwaysExits(node.elseCase.body))
+            )
         elseif openMember(residue) then
             c.diag("NUPP2140", node, "switch is not exhaustive: the selector type is open", nil, {
                 help = "add an `else` arm, which is what `nupp.types.nonExhaustive()` asks every switch for"
@@ -735,6 +743,9 @@ function expr.install(c: state.Checker): nil
             c.diag("NUPP2140", node, "switch is not exhaustive" .. detail, nil, {
                 help = "add the missing cases or add an `else` arm"
             })
+        end
+        for state in pairs(branchMoved) do
+            state.moved = true
         end
         local result = #results > 0 and T.union(results) or T.any
         node.switchResultType = result
@@ -1092,6 +1103,11 @@ function expr.install(c: state.Checker): nil
             c.applyFacts(facts.f)
             local ft = c.infer(ifFalse)
             c.popScope()
+            if c.ownershipKind(tt) or c.ownershipKind(ft) then
+                c.diag("NUPP2602", node, "an ownership-bearing value cannot be selected by a ternary expression", nil, {
+                    help = "move or drop the owner explicitly in each control-flow branch"
+                })
+            end
             c.fixedWidth.intersect(node, ifTrue, ifFalse)
             return T.union({tt, ft})
         elseif kind == "castExpr" then
@@ -1154,6 +1170,43 @@ function expr.install(c: state.Checker): nil
                     node.refutedStatically = true
                 end
             end
+            local typeNode: any = node.type
+            local builtin = typeNode and typeNode.kind == "tname" and typeNode.base and (
+                typeNode.base.kind == "nil" or #typeNode == 1 and (
+                    typeNode.base.text == "boolean"
+                    or typeNode.base.text == "string"
+                    or typeNode.base.text == "number"
+                    or typeNode.base.text == "integer"
+                    or typeNode.base.text == "table"
+                    or typeNode.base.text == "thread"
+                    or typeNode.base.text == "userdata"
+                    or typeNode.base.text == "cdata"
+                )
+            )
+            local runtimeIdentity = node.provenStatically
+                or node.refutedStatically
+                or builtin
+                or typeNode
+                and typeNode.kind == "tfunc"
+                or typeNode
+                and typeNode.wherePredicate
+                or typeNode
+                and typeNode.recordName
+                or typeNode
+                and typeNode.reified
+            if not runtimeIdentity then
+                c.diag(
+                    "NUPP3001",
+                    typeNode or node,
+                    target
+                    and target.tag == "nominal"
+                    and target.declKind == "interface"
+                    and "an interface without a refinement has no runtime identity to test"
+                    or "this type has no runtime identity to test",
+                    nil,
+                    {help = "test a runtime-reified type, or give the interface a satisfies refinement"}
+                )
+            end
             return T.boolean
         elseif kind == "switchExpr" then
             return inferSwitch(node as cst.SwitchExpr)
@@ -1162,6 +1215,11 @@ function expr.install(c: state.Checker): nil
             local inferred = inferSendableLiteral(node, function(): Type
                 return body and c.checkFuncbody(body) or T.any
             end)
+            local dynamicNode: any = node
+            dynamicNode.mutatesParams = body and (body as any).mutatesParams or nil
+            dynamicNode.mutatesCapturedEntries = body and (body as any).mutatesCapturedEntries or nil
+            dynamicNode.mutatesCapturedPaths = body and (body as any).mutatesCapturedPaths or nil
+            dynamicNode.mutatesSelf = body and (body as any).mutatesSelf or nil
             if body and not body.returnPack then
                 node.fixedWidthCallableUntrusted = true
             end
@@ -1364,12 +1422,35 @@ function expr.install(c: state.Checker): nil
                 return valueT
             end
 
-            for _, f in ipairs(node.fields) do
+            for fieldIndex, f in ipairs(node.fields) do
                 if f.kind == "fieldItem" then
                     local value = f.value
                     if value then
                         local valueT = c.infer(value)
-                        positional[#positional + 1] = widened(tableValue(value, valueT))
+                        local expands = fieldIndex == #node.fields and EXPANDS[value.kind] and value.valuePack or nil
+                        if expands then
+                            -- The ordinary inference result is the authoritative first
+                            -- value: constructors can carry a more specialized `self`
+                            -- there than their published compatibility pack does.
+                            positional[#positional + 1] = widened(tableValue(value, valueT))
+                            local width = #expands.head
+                            if expands.alternatives then
+                                for _, arm in ipairs(expands.alternatives) do
+                                    width = math.max(width, #arm.head)
+                                end
+                            end
+                            for resultIndex = 2, width do
+                                local resultT = T.packAt(expands, resultIndex)
+                                if resultT then
+                                    positional[#positional + 1] = widened(tableValue(value, resultT))
+                                end
+                            end
+                            if expands.tail then
+                                positional[#positional + 1] = widened(expands.tail.type or T.any)
+                            end
+                        else
+                            positional[#positional + 1] = widened(tableValue(value, valueT))
+                        end
                     end
                 elseif f.kind == "fieldNamed" then
                     local value, fieldName = f.value, f.name
@@ -1432,9 +1513,92 @@ function expr.install(c: state.Checker): nil
     --- on the node and reports what the expression itself gets wrong.
     ---
     --- @param node the expression
+    local function markCallMutation(node: Node)
+        local dynamic: any = node
+        local callee = dynamic.obj
+        local isMethod = node.kind == "methodCall" or node.kind == "safeCall" and dynamic.name ~= nil
+        local entry = not isMethod and callee and callee.kind == "name" and callee.token and c.lookupEntry(
+            callee.token.text
+        ) or nil
+        local definition = isMethod
+            and dynamic.name
+            and dynamic.name.definition
+            or callee
+            and callee.kind == "dotIndex"
+            and callee.name
+            and callee.name.definition
+            or nil
+        if not entry and not definition then
+            return
+        end
+        local mutation = definition or entry and (entry.definition or entry)
+        local function add(value)
+            while value and (value.kind == "paren" or value.kind == "castExpr") do
+                value = value.expr
+            end
+            local key = value and c.pathKey(value) or nil
+            if key then
+                c.callMayMutate = true
+                c.callMutationRoots = c.callMutationRoots or {}
+                c.callMutationRoots[key] = true
+            end
+        end
+
+        if isMethod and mutation.mutatesSelf then
+            add(dynamic.obj)
+        end
+        local args = dynamic.args
+        local mutatesParams = entry and entry.mutatesParams or mutation.mutatesParams
+        if args and args.kind == "args" then
+            for index, value in ipairs(args.exprs or {}) do
+                if mutatesParams and mutatesParams[index] then
+                    add(value)
+                end
+            end
+        end
+        local mutatesCapturedEntries = entry and entry.mutatesCapturedEntries or mutation.mutatesCapturedEntries
+        if mutatesCapturedEntries then
+            c.callMayMutate = true
+            c.callMutatedEntries = c.callMutatedEntries or {}
+            for mutated in pairs(mutatesCapturedEntries) do
+                c.callMutatedEntries[mutated] = true
+            end
+        end
+        local mutatesCapturedPaths = entry and entry.mutatesCapturedPaths or mutation.mutatesCapturedPaths
+        if mutatesCapturedPaths then
+            local function visibleName(wanted)
+                local scope = c.scope
+                while scope do
+                    for name, candidate in pairs(scope.vars) do
+                        if candidate == wanted then
+                            return name
+                        end
+                    end
+                    scope = scope.parent
+                end
+            end
+
+            for mutated in pairs(mutatesCapturedPaths) do
+                local name = visibleName(mutated)
+                if name then
+                    c.callMayMutate = true
+                    c.callMutationRoots = c.callMutationRoots or {}
+                    c.callMutationRoots[name] = true
+                end
+            end
+        end
+    end
+
     c.infer = function(node: Node): Type
         if not EXPANDS[node.kind] then
             local inferred = inferExpr(node)
+            if node.kind == "call"
+                or node.kind == "methodCall"
+                or node.kind == "safeCall"
+                or node.kind == "newExpr"
+            then
+                markCallMutation(node)
+            end
             local dynamic: any = node
             dynamic.inferredType = inferred
             return inferred
@@ -1449,6 +1613,9 @@ function expr.install(c: state.Checker): nil
         node.fixedWidthResultTrusted = nil
         node.fixedWidthUntrustedResult = nil
         local first = inferExpr(node)
+        if node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" or node.kind == "newExpr" then
+            markCallMutation(node)
+        end
         local dynamic: any = node
         dynamic.inferredType = first
         if fixedWidth.isValue(first) and not node.fixedWidthUntrustedResult then

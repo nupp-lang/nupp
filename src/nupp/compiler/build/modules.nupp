@@ -1404,7 +1404,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 local sourceHash = sourceContentHash(path)
                 local previous = oldState.modules[item.name]
                 local external = envMod.isDependencyTypePath(inc.env, path) and not linkedModules[item.name]
-                local output = external and nil or join(root, join(outDir, item.name:gsub("%.", "/") .. ".lua"))
+                local output: string? = nil
+                if not external then
+                    output = join(root, join(outDir, item.name:gsub("%.", "/") .. ".lua"))
+                end
                 -- A build has to find the artifact it would have written still sitting
                 -- there and still what it wrote; a check writes no artifact and so has
                 -- nothing to confirm but the record.
@@ -1447,7 +1450,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     end
                 end
                 if usable and previous and not checkOnly and not external then
-                    usable = previous.artifactHash and hashFile(output) == previous.artifactHash
+                    usable = previous.artifactHash ~= nil and hashFile(output as string) == previous.artifactHash
                 end
                 if usable and previous then
                     records[item.name] = copyModuleRecord(previous)

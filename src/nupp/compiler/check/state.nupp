@@ -266,6 +266,19 @@ record state.Checker
     --- still in scope.
     nextStat: Node?
 
+    --- Whether the expression just checked may have mutated narrowed state.
+    callMayMutate: boolean
+
+    --- Reference roots passed to calls in the statement currently checked.
+    callMutationRoots: {[string]: boolean}?
+
+    callMutatedEntries: {[any]: boolean}?
+
+    --- Branch-local ownership state used by both statement and expression joins.
+    ownershipSnapshot: function(): {any}
+
+    ownershipRewind: function(snapshot: {any}, moved: {[any]: boolean}, recordMoves: boolean): nil
+
     --- Set while the hoisting pre-pass runs. It resolves annotations early to publish
     --- signatures, and anything wrong with them is reported when the declaration itself
     --- is checked, so saying it twice helps nobody.
@@ -302,7 +315,7 @@ record state.Checker
     lookupEntry: function(name: string): any
 
     --- The type a name resolves to, or nil.
-    lookupType: function(name: string): Type?
+    lookupType: function(name: string): (Type?, any?)
 
     lookupPack: function(name: string): any
 

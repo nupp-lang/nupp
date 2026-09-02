@@ -58,6 +58,19 @@ local PRELUDE = table.concat({
 
 local M = {}
 
+function M.repeatConditionsCanReadBodyOwnersBeforeCleanup()
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "local count = 0",
+      "repeat",
+      "   local value = open_resource('r')",
+      "   count = count + 1",
+      "until value.name == 'r' and count == 1",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), "r")
+end
+
 function M.withIsContextualAndScopesAnAffineOwner()
    local ordinary = parser.parse(
       "local with = function(value) return value end\nreturn with(1)",

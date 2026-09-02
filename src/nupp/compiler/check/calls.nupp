@@ -1064,6 +1064,10 @@ function calls.install(c: state.Checker): calls.Ops
                 local borrowedRoot = calleeT.borrowedRootFields and calleeT.borrowedRootFields[fname]
                 local fieldOwnership = T.containedOwnershipKind(ft)
                 local storesCapability = fieldOwnership == "affine" or fieldOwnership == "pinned"
+                local suppliesBorrowedField = false
+                for _, source in pairs(calleeT.fieldBorrowSources or {}) do
+                    suppliesBorrowedField = suppliesBorrowedField or source == fname
+                end
                 if storesCapability and (c.ownershipKind(vt) == "affine" or c.ownershipKind(vt) == "pinned") then
                     affineValues[fname] = vt
                     if borrowedRoot then
@@ -1076,6 +1080,17 @@ function calls.install(c: state.Checker): calls.Ops
                     unify(ft, vt, genericMap)
                 end
                 local expected = genericMap and substType(ft, genericMap) or ft
+                local valueOwnership = c.ownershipKind(vt)
+                local expectedOwnership = T.containedOwnershipKind(expected)
+                if (
+                    valueOwnership == "affine" or valueOwnership == "pinned"
+                )
+                    and expected ~= T.any
+                    and expected.tag ~= "typevar"
+                    and not expectedOwnership
+                    and not suppliesBorrowedField then
+                    c.diag("NUPP2603", value, "an ownership-bearing value needs an ownership-bearing record field")
+                end
                 local checked = borrowedRoot and not storesCapability and rawType(vt) or vt
                 if storesCapability then
                     checked = T.containedOwnershipPayload(checked)
@@ -1699,7 +1714,7 @@ function calls.install(c: state.Checker): calls.Ops
         -- it with the adjusted argument pack so substituting a generic pack can carry a
         -- borrowed slot back out without detaching it from its owner.
         local argumentBorrowOwners = {}
-        local exclusiveRegions = {}
+        local exclusiveRegions, sharedRegions = {}, {}
         for j, source in ipairs(argNodes) do
             if not cst.isToken(source) then
                 local expandedIndex = 1
@@ -1731,6 +1746,7 @@ function calls.install(c: state.Checker): calls.Ops
         local computedParamTail = paramPack.tail and paramPack.tail.kind == "computed"
         local constInferenceFailed = false
         local packProblem
+        local genericMap: {[any]: any}? = nil
         -- Only bind generics introduced by the callable itself. A callback type such as
         -- `function(A...): R...` inside an outer generic function mentions the outer
         -- binders, but calling that callback must preserve those symbolic packs rather
@@ -1742,6 +1758,7 @@ function calls.install(c: state.Checker): calls.Ops
             #(calleeT.typeParams or {}) > 0 or #(calleeT.packParams or {}) > 0 or #(calleeT.constParams or {}) > 0
         ) then
             local map = {}
+            genericMap = map
             unifyPack(paramPack, argPack, map)
             local constProblem = constInferenceProblem(calleeT, map)
             if constProblem then
@@ -1881,6 +1898,22 @@ function calls.install(c: state.Checker): calls.Ops
         if contextualArgs then
             argPack = T.pack(ats, argPack.tail, argPack.modes)
             node.argumentPack = argPack
+            if genericMap then
+                -- The provisional pass can only infer a callback's parameters. Once
+                -- checked against those parameters, its concrete return pack can bind
+                -- result-only variables such as U in function(T): U.
+                unifyPack(declaredParamPack, argPack, genericMap)
+                local paramEval = generics.evaluatePack(substPack(declaredParamPack, genericMap), c.reductionControl)
+                local retEval = generics.evaluatePack(substPack(declaredRetPack, genericMap), c.reductionControl)
+                if not paramEval.error and not retEval.error then
+                    paramPack, retPack = paramEval.pack, retEval.pack
+                    params, rets = paramPack.head, retPack.head
+                    paramModes = paramPack.modes
+                    if paramPack.tail and paramPack.tail.kind == "homogeneous" then
+                        varargType = paramPack.tail.type
+                    end
+                end
+            end
         end
 
         local jitBody = c.functionBodies[#c.functionBodies]
@@ -1980,9 +2013,9 @@ function calls.install(c: state.Checker): calls.Ops
         local parameterTail = paramPack.tail
         for j = 1, actualCount do
             local tailSlot = j > nparams
-            local mode = tailSlot and parameterTail and parameterTail.kind == "homogeneous" and parameterTail.mode or (
-                not tailSlot and (paramModes[j] or "plain") or nil
-            )
+            local mode = tailSlot and parameterTail and parameterTail.kind == "homogeneous" and (
+                parameterTail.mode or (varargType == T.any and "plain" or nil)
+            ) or (not tailSlot and (paramModes[j] or "plain") or nil)
             local actualForCheck = ats[j]
             local preservationResult = preservedByParam[j]
             if preservationResult then
@@ -2105,6 +2138,16 @@ function calls.install(c: state.Checker): calls.Ops
                 local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
                 local regionRoot, regionPath = c.regionOf(argNodes[j])
                 if regionRoot and regionPath ~= nil then
+                    for _, prior in ipairs(sharedRegions) do
+                        if prior.root == regionRoot and c.regionsOverlap(prior.path, regionPath) then
+                            c.diag(
+                                "NUPP2607",
+                                argNodes[j] or node,
+                                "an exclusive argument overlaps a shared argument in the same call"
+                            )
+                            break
+                        end
+                    end
                     for _, prior in ipairs(exclusiveRegions) do
                         if prior.root == regionRoot and c.regionsOverlap(prior.path, regionPath) then
                             c.diag(
@@ -2182,6 +2225,19 @@ function calls.install(c: state.Checker): calls.Ops
                 local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
                 if not (entry and entryFacts and entryFacts.exclusive and (entry.activeBorrows or 0) == 0) then
                     local regionRoot, regionPath = c.regionOf(argNodes[j])
+                    if regionRoot and regionPath ~= nil then
+                        for _, prior in ipairs(exclusiveRegions) do
+                            if prior.root == regionRoot and c.regionsOverlap(prior.path, regionPath) then
+                                c.diag(
+                                    "NUPP2607",
+                                    argNodes[j] or node,
+                                    "a shared argument overlaps an exclusive argument in the same call"
+                                )
+                                break
+                            end
+                        end
+                        sharedRegions[#sharedRegions + 1] = {root = regionRoot, path = regionPath}
+                    end
                     local roots = entry and {entry} or c.own.provenanceOwners(argNodes[j])
                     for _, root in ipairs(roots) do
                         local blocked = (root.activeExclusiveBorrows or 0) > 0
@@ -2220,15 +2276,28 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 end
             elseif mode == "plain" and c.ownershipKind(ats[j]) then
-                c.diag(
-                    params[j] == T.any and "NUPP2611" or "NUPP2603",
-                    argNodes[j] or node,
-                    params[
-                        j
-                    ] == T.any
-                    and "a live capability cannot cross an any parameter"
-                    or "an owner or borrow needs a borrows, exclusive, or takes contract"
-                )
+                local plainExpected = tailSlot and (varargType or T.any) or params[j]
+                local actualOwnership = c.ownershipKind(ats[j])
+                local entry = c.ownershipEntry(argNodes[j])
+                entry = c.ownershipState(entry)
+                local ownershipNode = argNodes[j]
+                local ownershipUseReported = false
+                while ownershipNode do
+                    ownershipUseReported = ownershipUseReported or ownershipNode.ownershipUseReported == true
+                    ownershipNode = ownershipNode.obj
+                end
+                local liveAcrossAny = plainExpected == T.any and (
+                    actualOwnership == "affine" or actualOwnership == "pinned"
+                ) and not ownershipUseReported and (not entry or not entry.moved and (entry.activeBorrows or 0) == 0)
+                if plainExpected ~= T.any or liveAcrossAny then
+                    c.diag(
+                        plainExpected == T.any and "NUPP2611" or "NUPP2603",
+                        argNodes[j] or node,
+                        plainExpected == T.any
+                        and "a live capability cannot cross an any parameter"
+                        or "an owner or borrow needs a borrows, exclusive, or takes contract"
+                    )
+                end
             elseif mode == "plain" and node.cdefCall and c.pointerShaped(ats[j]) then
                 if c.unsafeDepth == 0 then
                     c.diag(

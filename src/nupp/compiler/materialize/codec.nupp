@@ -32,7 +32,10 @@ canonicalValue = function(value, opts, active): (string?, string?)
         return nil, "invalid"
     end
     if scalar then
-        return within(scalar, opts) and scalar or nil, within(scalar, opts) and nil or "limit"
+        if within(scalar, opts) then
+            return scalar, nil
+        end
+        return nil, "limit"
     end
     if active[value] then
         return nil, "cycle"
@@ -70,7 +73,11 @@ canonicalValue = function(value, opts, active): (string?, string?)
     active[value] = nil
     local encoded = table.concat(out)
 
-    return within(encoded, opts) and encoded or nil, within(encoded, opts) and nil or "limit"
+    if within(encoded, opts) then
+        return encoded, nil
+    end
+
+    return nil, "limit"
 end
 
 --- Canonical semantic bytes. `root` omits only named envelope fields at the root;
@@ -109,7 +116,10 @@ renderValue = function(value, opts, active): (string?, string?)
         return nil, "invalid"
     end
     if scalar then
-        return within(scalar, opts) and scalar or nil, within(scalar, opts) and nil or "limit"
+        if within(scalar, opts) then
+            return scalar, nil
+        end
+        return nil, "limit"
     end
     if active[value] then
         return nil, "cycle"
@@ -159,7 +169,11 @@ renderValue = function(value, opts, active): (string?, string?)
     active[value] = nil
     local rendered = "{" .. table.concat(parts, ",") .. "}"
 
-    return within(rendered, opts) and rendered or nil, within(rendered, opts) and nil or "limit"
+    if within(rendered, opts) then
+        return rendered, nil
+    end
+
+    return nil, "limit"
 end
 
 --- Lua expression for the closed data-only recipe.

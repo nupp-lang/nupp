@@ -1070,7 +1070,13 @@ local function check(a: Type, b: Type): boolean, string?
     end
 
     if atag == "array" and btag == "array" then
+        -- Ordinary arrays retain Lua's deliberately gradual covariance. Function
+        -- effects are a hard guarantee, though: a covariant alias must not admit a
+        -- may-suspend callable into storage promised to contain only nosuspend ones.
         local ok = isA(a.elem, b.elem)
+        if ok and (a.elem.tag == "func" or b.elem.tag == "func") then
+            ok = isA(b.elem, a.elem)
+        end
         if ok then
             return true
         end
@@ -1397,6 +1403,41 @@ isA = function(a: Type, b: Type): boolean, string?
 end
 
 relations.isA = isA
+
+local function containsBinder(t: Type, binder: T.TypeVar): boolean
+    if t == binder or t.id == binder.id then
+        return true
+    end
+    if t.tag == "union" or t.tag == "intersection" then
+        for _, member in ipairs(t.members) do
+            if containsBinder(member, binder) then
+                return true
+            end
+        end
+    elseif t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
+        return containsBinder(t.inner, binder)
+    end
+
+    return false
+end
+
+--- Whether ordinary gradual typevar compatibility would hide an invalid operation
+--- inside a generic body. A binder is one unknown-but-fixed type there: it exposes its
+--- bound, and only that same binder can be produced for a result of T.
+function relations.typevarMismatch(actual: Type, expected: Type): boolean
+    actual, expected = T.unwrapOwnership(actual), T.unwrapOwnership(expected)
+    if actual.tag == "typevar" and not containsBinder(expected, actual) then
+        if expected == T.any or expected == T.unknown then
+            return false
+        end
+        return not (actual.bound and isA(actual.bound, expected))
+    end
+    if expected.tag == "typevar" and actual ~= expected and actual.id ~= expected.id then
+        return not expected.bound and actual ~= T.never and not T.hasTypevar(actual)
+    end
+
+    return false
+end
 
 ----------------------------------------------------------------------------
 -- Invalidation and lookups

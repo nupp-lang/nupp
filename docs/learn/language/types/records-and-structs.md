@@ -44,8 +44,10 @@ const Point = {} Point.__index = Point
 local p = setmetatable({ x = 3, y = 4 }, Point)
 ```
 
-Construction is by name. A record has no positional form, because field order in
-a table is not meaningful.
+Named construction is preferred because a record's table field order is not
+meaningful. Positional construction in declaration order is also accepted for
+Lua compatibility, but the `positional-record-construction` lint recommends
+naming the fields.
 
 The declaration's runtime table is the type's identity, which is what lets
 `p is Point` lower to a `getmetatable` comparison. An instance is a value that
@@ -147,6 +149,12 @@ explicit, and types do not acquire universal zero values. A default is a closed
 scalar or table literal that fits the field type, so it is stable across module
 and comptime boundaries. Each construction evaluates it freshly, so a mutable
 table default is never shared.
+
+A field without a default may also be omitted. This intentionally supports
+staged initialization by constructors and runtime registrars; Nupp does not
+perform a definite-initialization proof. Until some later write fills that field,
+the underlying record contains Lua's `nil`, so do not read an omitted required
+field during that interval.
 
 A constructor begins with the same defaults already installed, then its body
 runs. The body can read, refine, or replace them, and a defaulted required field
@@ -266,13 +274,12 @@ The portable provider preserves the checked field widths and construction rules
 with a table representation. A native `float` field occupies and truncates to
 the width of a C `float`.
 
-Construction has three forms, and a struct binding is never nil, so the third is
-complete on its own:
+Struct construction is positional in declaration order. A struct binding is
+never nil and a bare declaration is complete on its own:
 
 ```nupp
-local a = new Vec2(1.0, 2.0) -- named
-local b = Vec2(1.0, 2.0) -- positional, in field order
-local c: Vec2 -- zero-initialized
+local a = new Vec2(1.0, 2.0) -- positional, in field order
+local b: Vec2 -- zero-initialized
 ```
 
 ### Struct field types
@@ -383,7 +390,7 @@ values, or a hot field access you want to be an offset instead of a hash lookup.
 | Runtime | Lua table plus metatable | FFI cdata |
 | Field access | Hash lookup | Offset |
 | Field types | Anything | C-representable only |
-| Construction | `new R(x = 1)` | `new S(x = 1)` or `S(1, 2)` |
+| Construction | `new R(x = 1)` (preferred) or `new R(1)` | `new S(1, 2)` |
 | Binding with no initializer | Rejected | Zero-initialized |
 | Memory | Garbage collected | Managed by the FFI |
 | Array field `{T}` | Allowed | Rejected |

@@ -208,8 +208,9 @@ function process.capture(argv: {string}, opts: process.Options?): integer, strin
     local command = process.command(argv, opts) .. " >" .. quote(tmp) .. " 2>&1"
     local code = exitCode(os.execute(command))
     local f = io.open(tmp, "rb")
-    local output = f and f:read("*a") or ""
+    local output = ""
     if f then
+        output = f:read("*a")
         f:close()
     end
     os.remove(tmp)

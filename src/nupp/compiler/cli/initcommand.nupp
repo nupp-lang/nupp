@@ -309,7 +309,7 @@ local function run(parsed: any): integer
     -- directory, which is why the two forms have separate usage lines.
     local spelling = not values.from and positional[1] or nil
     local named = values.from and positional[1] or positional[2]
-    local limit = values.from and 1 or 2
+    local limit: integer = values.from and 1 or 2
     if #positional > limit then
         return command:usageError("unexpected argument " .. positional[limit + 1])
     end

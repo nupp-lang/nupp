@@ -290,6 +290,12 @@ record types.CapabilityFacts
 
     loans: {types.Loan}?
     roots: {any}?
+
+    --- Roots read by a named local function. They are checked afresh at each direct
+    --- call rather than held as a lexical loan, because the function may be called
+    --- before its owner is discharged and must be refused afterward.
+    capturedBorrowRoots: boolean?
+
     exclusive: boolean?
     regionRoot: any
     regionPath: string?
@@ -1554,19 +1560,8 @@ function types.intersection(members: {types.Type}): types.Type
 end
 
 --- `t` or nil: what an annotation writes `T?`.
-local function inherentCleanupOnly(cleanup: types.Cleanup): boolean
-    return cleanup.kind == "method" or cleanup.kind == "field" and cleanup.cleanup ~= nil and inherentCleanupOnly(
-        cleanup.cleanup
-    )
-end
-
 function types.optional(t: types.Type): types.Type
     if t.tag == "affine" and #(t.cleanups or {}) > 0 then
-        for _, cleanup in ipairs(t.cleanups) do
-            if not inherentCleanupOnly(cleanup) then
-                return types.union({t, types.nil_})
-            end
-        end
         local payload = types.union({types.unwrapOwnership(t), types.nil_})
         return types.withOwnershipPayload(t, payload, {})
     end
@@ -3512,6 +3507,9 @@ function types.tostring(t: types.Type): string
         local parts = {}
         for j, e in ipairs(t.elems) do
             parts[j] = types.tostring(e)
+        end
+        if #parts == 1 then
+            parts[1] = parts[1] .. ","
         end
         return "{" .. table.concat(parts, ", ") .. "}"
     elseif tag == "shape" then

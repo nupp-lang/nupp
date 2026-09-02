@@ -1952,6 +1952,9 @@ function checkMod.check(
             return false
         end
         local signature = call.signatureType as Type?
+        if (call as any).assertNever then
+            return true
+        end
         if signature and signature.tag == "func" and signature.noreturn then
             return true
         end
@@ -2480,7 +2483,9 @@ function checkMod.check(
                         local isConst = decl.generics.consts and decl.generics.consts[position]
                         if isConst then
                             local domainToken = decl.generics.domains and decl.generics.domains[position]
-                            constParams[#constParams + 1] = c.constvarAt(nameTok, c.constDomain(domainToken), "nominal")
+                            constParams[
+                                #constParams + 1
+                            ] = c.constvarAt(nameTok, c.constDomain(domainToken) as string, "nominal")
                             paramKinds[position] = "const"
                         elseif isPack then
                             packParams[#packParams + 1] = c.packvarAt(nameTok, "nominal")
@@ -2551,17 +2556,24 @@ function checkMod.check(
             if ownerKey then
                 local owner = c.lookupType(ownerKey)
                 local member = memberTok and memberTok.text
-                local isStatic = owner and not fname.method and (
-                    owner.declKind == "record" or owner.declKind == "interface"
+                local nominalOwner: T.Nominal? = nil
+                if owner and owner.tag == "nominal" then
+                    nominalOwner = owner
+                end
+                local isStatic = nominalOwner ~= nil and not fname.method and (
+                    nominalOwner.declKind == "record" or nominalOwner.declKind == "interface"
                 )
-                local members = owner and (isStatic and owner.staticByname or owner.byname)
-                if owner and owner.tag == "nominal" and members and member and not members[member] then
-                    local signature = c.signatureOf(decl.body, fname.method and owner or nil)
+                local members = nil
+                if nominalOwner then
+                    members = isStatic and nominalOwner.staticByname or nominalOwner.byname
+                end
+                if nominalOwner and members and member and not members[member] then
+                    local signature = c.signatureOf(decl.body, fname.method and nominalOwner or nil)
                     members[member] = signature
                     if not isStatic then
-                        owner.writeByname[member] = signature
+                        nominalOwner.writeByname[member] = signature
                     else
-                        owner.staticWriteByname[member] = signature
+                        nominalOwner.staticWriteByname[member] = signature
                     end
                 elseif not fname.method and ownerKey == c.moduleLocal and memberTok then
                     local definition = c.definition(memberTok, "function")
@@ -2651,6 +2663,10 @@ function checkMod.check(
         for i, stat in ipairs(stats) do
             c.nextStat = stats[i + 1]
             checkStat(stat)
+            if c.callMayMutate then
+                c.facts.invalidateForCall()
+                c.callMayMutate = false
+            end
         end
         c.nextStat = wasNext
         if block and block.kind == "block" and #(c.scope.automaticOwners or {}) > 0 then

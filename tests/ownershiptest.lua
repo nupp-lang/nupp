@@ -221,6 +221,157 @@ function M.assertPreservesAndNarrowsAnOptionalOwner()
    }, "\n"))
 end
 
+function M.optionalAliasesKeepExplicitCleanupOwnership()
+   assertClean(table.concat({
+      "local record Resource",
+      "   closed: boolean",
+      "end",
+      "local function closeResource(takes value: Resource): nil",
+      "   value.closed = true",
+      "end",
+      "local type MaybeResource = affine(Resource, closeResource)?",
+      "local function open(): affine(Resource, closeResource)",
+      "   return new Resource(closed = false)",
+      "end",
+      "local value: MaybeResource = open()",
+      "if value then drop(value) end",
+   }, "\n"))
+end
+
+function M.expressionSelectionCannotDuplicateAnOwner()
+   assertClean(RESOURCE .. table.concat({
+      "",
+      "local value = resource_new()",
+      "local moved = (value)",
+      "drop(moved)",
+   }, "\n"))
+
+   assertEq(codes(RESOURCE .. table.concat({
+      "",
+      "local value = resource_new()",
+      "local moved = true and value",
+      "drop(moved)",
+   }, "\n")), "NUPP2602")
+end
+
+function M.ownersCannotBeStoredInPlainConstructorFields()
+   assertEq(codes(RESOURCE .. table.concat({
+      "",
+      "local record Box",
+      "   value: resource*",
+      "end",
+      "local value = resource_new()",
+      "local box = new Box(value = value)",
+      "print(box.value)",
+   }, "\n")), "NUPP2603")
+end
+
+function M.localFunctionDeclarationsBorrowCapturedOwners()
+   assertEq(codes(RESOURCE .. table.concat({
+      "",
+      "local function run(): nil",
+      "   local value = resource_new()",
+      "   local function read(): nil print(value.value) end",
+      "   drop(value)",
+      "   read()",
+      "end",
+      "return run",
+   }, "\n")), "NUPP2602")
+end
+
+function M.backwardGotosAreOwnershipLoopEdges()
+   assertEq(codes(RESOURCE .. table.concat({
+      "",
+      "local value = resource_new()",
+      "::again::",
+      "drop(value)",
+      "goto again",
+   }, "\n")), "NUPP2609")
+end
+
+function M.sharedAndExclusiveArgumentsCannotAlias()
+   assertEq(codes(RESOURCE .. table.concat({
+      "",
+      "local function inspect(borrows left: resource*, exclusive right: resource*): nil end",
+      "local value = resource_new()",
+      "inspect(value, value)",
+      "drop(value)",
+   }, "\n")), "NUPP2607")
+end
+
+function M.untypedVarargsCannotEraseOwners()
+   assertEq(codes(RESOURCE .. table.concat({
+      "",
+      "local value = resource_new()",
+      "print(value)",
+      "drop(value)",
+   }, "\n")), "NUPP2611")
+end
+
+function M.earlyExitMovesDoNotPoisonFallthrough()
+   assertClean(RESOURCE .. table.concat({
+      "",
+      "local function run(stop: boolean): nil",
+      "   local value = resource_new()",
+      "   if stop then",
+      "      drop(value)",
+      "      return",
+      "   end",
+      "   print(value.value)",
+      "   drop(value)",
+      "end",
+      "return run",
+   }, "\n"))
+
+   assertClean(RESOURCE .. table.concat({
+      "",
+      "local function run(stop: boolean): nil",
+      "   local value = resource_new()",
+      "   if stop then",
+      "      drop(value)",
+      "      error('stop')",
+      "   end",
+      "   print(value.value)",
+      "   drop(value)",
+      "end",
+      "return run",
+   }, "\n"))
+
+   assertClean(RESOURCE .. table.concat({
+      "",
+      "local function run(stop: boolean): nil",
+      "   local value = resource_new()",
+      "   while true do",
+      "      if stop then",
+      "         drop(value)",
+      "         break",
+      "      end",
+      "      print(value.value)",
+      "      drop(value)",
+      "      break",
+      "   end",
+      "end",
+      "return run",
+   }, "\n"))
+
+   assertClean(RESOURCE .. table.concat({
+      "",
+      "local function run(stop: boolean): nil",
+      "   local value = resource_new()",
+      "   local selected = switch stop do",
+      "      case true -> do",
+      "         drop(value)",
+      "         return",
+      "      end",
+      "      case false -> 1",
+      "   end",
+      "   print(selected, value.value)",
+      "   drop(value)",
+      "end",
+      "return run",
+   }, "\n"))
+end
+
 function M.assertingANamedOptionalOwnerKeepsItInPlace()
    local declaration = table.concat({
       RESOURCE,
@@ -1013,7 +1164,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
       "local readable = values:read()",
       "local writable = values:write()",
       "print(readable, writable)",
-   }, "\n")), "NUPP2607", "a live array read blocks a writer")
+   }, "\n")), "NUPP2607 NUPP2611", "a live array read blocks a writer")
 
    assertEq(codes(table.concat({
       "local heap = require('nupp.mem.heap')",
@@ -1021,7 +1172,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
       "local writable = values:write()",
       "local readable = values:read()",
       "print(readable, writable)",
-   }, "\n")), "NUPP2607", "a live array writer blocks a reader")
+   }, "\n")), "NUPP2607 NUPP2611", "a live array writer blocks a reader")
 
    assertEq(codes(table.concat({
       "local heap = require('nupp.mem.heap')",

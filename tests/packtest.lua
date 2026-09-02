@@ -24,6 +24,18 @@ local function codes(source)
    return table.concat(out, " ")
 end
 
+local function strictCodes(source)
+   env.loaded = {}
+   local parsed = parser.parse(source, "test.nupp")
+   assertEq(#parsed.errors, 0, "syntax: "
+      .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+   local out = {}
+   for j, diagnostic in ipairs(check.check(parsed, "test.nupp", env)) do
+      out[j] = diagnostic.code
+   end
+   return table.concat(out, " ")
+end
+
 local function clean(source)
    assertEq(codes(source), "", "expected clean check for:\n" .. source)
 end
@@ -123,6 +135,43 @@ function M.luaOnlyExpandsTheFinalUnparenthesizedExpression()
       "local n: number = a",
       "local flag: boolean = b",
       "local missing: nil = c",
+   }, "\n"))
+end
+
+function M.missingExpandedResultsAreNilRatherThanAny()
+   assertEq(strictCodes(table.concat({
+      "local function pair(): (number, string)",
+      "   return 1, 'one'",
+      "end",
+      "local first, second, missing = pair()",
+      "local text: string = missing",
+      "return first, second, text",
+   }, "\n")), "NUPP2001")
+end
+
+function M.finalTableItemsExpandTheirResultPack()
+   assertEq(codes(table.concat({
+      "local function pair(): (number, string)",
+      "   return 1, 'one'",
+      "end",
+      "local values: {number} = {pair()}",
+      "return values",
+   }, "\n")), "NUPP2001")
+
+   clean(table.concat({
+      "local function pair(): (number, string)",
+      "   return 1, 'one'",
+      "end",
+      "local values: {number | string} = {pair()}",
+      "return values",
+   }, "\n"))
+end
+
+function M.tableLiteralsFitHeterogeneousTupleTypes()
+   clean(table.concat({
+      "local pair: {number, string} = {1, 'one'}",
+      "local n: number = pair[1]",
+      "return n",
    }, "\n"))
 end
 
@@ -375,7 +424,7 @@ function M.protectedCallOwnersAutoDestroyOnlyInTheSuccessArm()
       "if ok then",
       "   print(resource)",
       "end",
-   }, "\n")), "")
+   }, "\n")), "NUPP2611")
 end
 
 function M.genericPackForwardingKeepsBorrowProvenance()

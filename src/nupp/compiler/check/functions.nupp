@@ -653,6 +653,10 @@ function functions.install(c: state.Checker): state.StatHandlers
                 explicitSelf and explicitSelf.name or nil,
                 "parameter"
             )
+            local selfEntry = c.scope.vars.self
+            if selfEntry then
+                selfEntry.mutationSelf = true
+            end
         end
         local paramPackTail = nil
         -- Modes are read at the parameter's position in the source, not at its position
@@ -727,6 +731,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                     pt.tag == "affine" and pt or T.affine(pt)
                 ) or (mode == "borrows" or mode == "exclusive") and T.borrowed(pt) or pt
                 c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
+                c.scope.vars[p.name.text].mutationParameter = #params
                 c.fixedWidth.mark(c.scope.vars[p.name.text], pt)
                 c.fixedWidth.trust(c.scope.vars[p.name.text], pt)
                 if mode == "exclusive" then
@@ -1114,7 +1119,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             body.partitionResults,
             nil,
             explicitPreserves
-        )
+        ) as T.Func
         -- Published on the checked body for consumers that need the exact
         -- resolved signature rather than the type spellings which produced it.
         -- In particular, AOT lowering reads the instantiated parameter and
@@ -1299,6 +1304,8 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         local diagnosticsBefore = #c.diags
         local ft = c.checkFuncbody(body)
+        local checkedBody: any = body
+        local borrowed = checkedBody.borrowCaptures or {}
         if #c.diags == diagnosticsBefore then
             preferComptime.check(c, stat, body, false)
         end
@@ -1306,6 +1313,25 @@ function functions.install(c: state.Checker): state.StatHandlers
         local functionEntry = c.scope.vars[nameTok.text]
         if functionEntry then
             functionEntry.jitTarget = functionEntry.definition
+            functionEntry.mutatesParams = checkedBody.mutatesParams
+            functionEntry.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
+            functionEntry.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
+            functionEntry.mutatesSelf = checkedBody.mutatesSelf
+            if functionEntry.definition then
+                functionEntry.definition.mutatesParams = checkedBody.mutatesParams
+                functionEntry.definition.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
+                functionEntry.definition.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
+                functionEntry.definition.mutatesSelf = checkedBody.mutatesSelf
+            end
+            if #borrowed > 0 then
+                local roots = {}
+                for _, capture in ipairs(borrowed) do
+                    roots[#roots + 1] = capture.root
+                end
+                local facts = c.own.capabilityFacts(functionEntry)
+                facts.roots = roots
+                facts.capturedBorrowRoots = true
+            end
         end
         if ft.tag == "affine" then
             local entry = c.scope.vars[nameTok.text]
@@ -1376,6 +1402,11 @@ function functions.install(c: state.Checker): state.StatHandlers
         local memberDefinition = earlyMemberDefinition
         if memberDefinition then
             memberDefinition.type = ft
+            local checkedBody: any = body
+            memberDefinition.mutatesParams = checkedBody.mutatesParams
+            memberDefinition.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
+            memberDefinition.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
+            memberDefinition.mutatesSelf = checkedBody.mutatesSelf
             c.markToken(memberTok, memberDefinition, ft, memberDefinition.kind)
         end
         if not fname.method and ownerKey and memberTok and memberDefinition then
@@ -1510,6 +1541,18 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         if not fname.method and #fname == 1 and fname.base then
             c.bindVar(fname.base.text, ft) -- global function: best-effort bind
+            local functionEntry = c.scope.vars[fname.base.text]
+            local checkedBody: any = body
+            functionEntry.mutatesParams = checkedBody.mutatesParams
+            functionEntry.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
+            functionEntry.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
+            functionEntry.mutatesSelf = checkedBody.mutatesSelf
+            if functionEntry.definition then
+                functionEntry.definition.mutatesParams = checkedBody.mutatesParams
+                functionEntry.definition.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
+                functionEntry.definition.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
+                functionEntry.definition.mutatesSelf = checkedBody.mutatesSelf
+            end
         end
     end
 

@@ -95,9 +95,9 @@ termination](#failure-and-termination).
 
 `Task:await()` and explicit `Scope:close()` are suspension-aware ordinary
 calls. With a [suspension handler](suspension.md) they park the current
-coroutine; without one they sleep on the native channel. Automatic cleanup
-uses a blocking native drain because an affine terminal may not suspend while
-ownership is being discharged.
+coroutine; without one they sleep on the native channel. Automatic cleanup uses
+the worker scope's blocking native terminal, so it has the same behavior even
+when no suspension handler is installed.
 
 ## Fanning out over a list
 

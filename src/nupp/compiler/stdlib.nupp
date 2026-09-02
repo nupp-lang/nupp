@@ -18,6 +18,7 @@ local BASE = compact(
 local __nupp=_G.nupp or {};_G.nupp=__nupp
 local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end
+local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile
 ]=]
 )
 
@@ -30,6 +31,7 @@ local HOT_BASE = compact(
 local __nupp=_G.nupp or {};_G.nupp=__nupp
 rawset(__nupp,"math",rawget(__nupp,"math")or{})
 local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end
+local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile
 ]=]
 )
 

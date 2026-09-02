@@ -128,14 +128,16 @@ function M.staysCallableAcrossABranch()
    -- `a or b` over the two readings of one function must join to something callable.
    -- Keying the merge on the sendable variant would leave an uncallable union.
    local src = MODULE .. PRIVATE
-      .. "local chosen = m.hash or priv\nlocal out = chosen(\"a\")\n"
+      .. "local selected: boolean = nil as any\n"
+      .. "local chosen = selected and m.hash or priv\nlocal out = chosen(\"a\")\n"
    assertEq(#diagnose(src), 0, "the join is callable")
 end
 
 function M.dropsTheGuaranteeAcrossABranch()
    -- ...and the choice promises only what both readings did.
    local src = MODULE .. PRIVATE
-      .. "local chosen = m.hash or priv\n" .. WANT .. "chosen"
+      .. "local selected: boolean = nil as any\n"
+      .. "local chosen = selected and m.hash or priv\n" .. WANT .. "chosen"
    assertEq(#diagnose(src), 1, "an unnamed alternative loses the guarantee")
 end
 

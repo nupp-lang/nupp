@@ -594,7 +594,7 @@ local string: {
     --- @param i the first index, 1 by default; negative counts from the end
     --- @param j the last index, `i` by default
     --- @return one code per selected character
-    byte: nosuspend function(s: string, i: number?, j: number?): integer,
+    byte: nosuspend function(s: string, i: number?, j: number?): ...integer,
 
     --- Builds a string from the given character codes.
     ---

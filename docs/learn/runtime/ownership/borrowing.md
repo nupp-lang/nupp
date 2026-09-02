@@ -136,8 +136,9 @@ one parks the coroutine as any wait does, and is therefore refused inside a
 `nosuspend` region. A terminal declared `nosuspend` is a stronger promise and
 still fits. Automatic destruction keeps the first failure primary,
 attempts the independent remaining cleanups, and attaches later failures as
-suppressed errors. It may not suspend, because lexical destruction also runs at
-non-yieldable boundaries.
+suppressed errors. A suspending terminal is refused only where the surrounding
+region is `nosuspend`; a terminal that must also work without a suspension
+handler supplies its own blocking behavior.
 
 Generic terminals use ordinary inference and bounds. A terminal is a const
 function identity, not a runtime callback value or a string, which is what makes
@@ -351,6 +352,12 @@ end
 
 return m
 ```
+
+`takes` transfers responsibility at the call boundary; it does not insert an
+automatic cleanup into the callee. The body must consume, preserve, return, or
+otherwise implement the terminal action itself. In particular, a cleanup
+function's consuming parameter is the endpoint of the obligation—the compiler
+must not invoke that same cleanup recursively when its body returns.
 
 A public forwarder also writes `preserves source`. Visible-body inference
 remains a private implementation convenience rather than part of an implicit API

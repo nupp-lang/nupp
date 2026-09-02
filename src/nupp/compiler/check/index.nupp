@@ -597,6 +597,7 @@ function index.install(c: state.Checker): state.ExprHandlers
         local ownerState = target.kind == "name" and c.ownershipState((c.ownershipEntry(target))) or nil
         if ownerState and ownerState.movedFields and ownerState.movedFields[memberName] and not node.writeContext then
             c.diag("NUPP2601", node, ("owned field %q was moved and has not been reinitialized"):format(memberName))
+            node.ownershipUseReported = true
         end
         if ownerState and c.ownershipKind(ft) == "affine" and c.ownershipKind(ownerState.t) == "affine" then
             local exact = {}
@@ -741,6 +742,12 @@ function index.install(c: state.Checker): state.ExprHandlers
         local trackedObject = c.infer(target)
         local ot = rawType(trackedObject)
         local writing = node.writeContext == true
+        if ot.tag == "const" then
+            if writing then
+                c.diag("NUPP2009", node, "a const table view is read-only")
+            end
+            ot = ot.inner
+        end
         local it = c.infer(key)
         local view = indexedViews.describe(ot)
         if view then
@@ -954,6 +961,9 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
             return T.optional(valueType)
         elseif ot.tag == "tuple" then
+            if it.tag == "literal" and it.base == T.integer then
+                return ot.elems[it.constant as integer] or T.nil_
+            end
             return T.union(ot.elems)
         end
         if ot.tag == "shape" or ot.tag == "nominal" then

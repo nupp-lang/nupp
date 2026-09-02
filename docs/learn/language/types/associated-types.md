@@ -257,7 +257,7 @@ about its pointee, so an incomplete pointee is still fine.
 
 ### Refinements need every requirement fixed
 
-A [`matches` refinement](refinements.md) is a runtime test, so a contract that
+A [`satisfies` refinement](refinements.md) is a runtime test, so a contract that
 leaves an associated type unsettled cannot carry one: an implementor may answer
 otherwise and the test cannot tell. Fixing every requirement settles it,
 including inherited ones. `associated type Item == any` is fixed and still
@@ -326,7 +326,7 @@ answer](#structural-values-cannot-answer).
 - [interfaces.md](interfaces.md) for the contract these members live on
 - [generics.md](generics.md) for bounds and the inference that resolves a
   projection
-- [refinements.md](refinements.md) for `matches` and what fixing a requirement
+- [refinements.md](refinements.md) for `satisfies` and what fixing a requirement
   buys it
 - [lints.md](../../../reference/lints.md#local-suppressions) for suppressing
   `gradual-projection`
