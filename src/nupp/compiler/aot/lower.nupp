@@ -5549,6 +5549,56 @@ local function loweringEnvironment(signature: lower.Signature, specialization: l
     return environment
 end
 
+--- A kernel with nothing lowered into it yet.
+---
+--- The three entry shapes differ in a handful of fields -- where the loop was
+--- written, what proves an index, what the entry returns -- and `overrides`
+--- carries exactly those, so the bookkeeping every shape starts empty is
+--- written once.
+local function newKernel(
+    signature: lower.Signature,
+    declarations: lower.Declarations,
+    layouts: lower.Layouts,
+    symbol: string,
+    context: lower.Context,
+    overrides: {[string]: any}
+): lower.Kernel
+    local kernel = new lower.Kernel(
+        params = signature.byName,
+        layouts = layouts,
+        helperDecls = declarations.helpers,
+        entryDecls = declarations.entries,
+        helpers = {},
+        helperOrder = {},
+        constantNames = {},
+        scratchBounds = {},
+        constantOrder = {},
+        constantNumbers = declarations.constantNumbers,
+        helperState = {},
+        modules = declarations.modules,
+        intrinsicAliases = declarations.intrinsicAliases,
+        stringAccumulators = {},
+        symbol = symbol,
+        index = "",
+        indexCName = "",
+        mapEntry = false,
+        resultTypes = {},
+        cursorBounds = {},
+        lengthBounds = {},
+        scratchLengthBounds = {},
+        usesSimd = false,
+        usesNumberToken = false,
+        usesLua = false,
+        serial = 0,
+        context = context
+    )
+    for field, value in pairs(overrides) do
+        (kernel as any)[field] = value
+    end
+
+    return kernel
+end
+
 --- Lowers one whole `@aot` function to AOT IR.
 ---
 --- The IR is what everything downstream is written from -- the verifier, the C,
@@ -5672,49 +5722,14 @@ function lower.program(
         end
         local groupName = ((controllerParams[1] as cst.Param).name as lexer.Token).text
         local phasesName = ((controllerParams[2] as cst.Param).name as lexer.Token).text
-        local kernel = new lower.Kernel(
-            params = signature.byName,
-            layouts = layouts,
-            helperDecls = declarations.helpers,
-            entryDecls = declarations.entries,
-            helpers = {},
-            helperOrder = {},
-            constantNames = {},
-            scratchBounds = {},
-            constantOrder = {},
-            constantNumbers = declarations.constantNumbers,
-            helperState = {},
-            modules = declarations.modules,
-            intrinsicAliases = declarations.intrinsicAliases,
-            stringAccumulators = {},
-            symbol = symbol,
+        local kernel = newKernel(signature, declarations, layouts, symbol, context, {
             loopSource = lower.site(workgroupCall),
-            index = "",
-            indexCName = "",
-            mapEntry = false,
-            resultTypes = {},
-            cursorBounds = {},
-            lengthBounds = {},
-            scratchLengthBounds = {},
             phasesName = phasesName,
             workgroupSize = size as integer,
             shared = {},
             sharedOrder = {},
-            usesSimd = false,
-            usesNumberToken = false,
-            usesLua = false,
-            serial = 0,
-            context = context
-        )
-        local environment: {[string]: any} = {}
-        for position, param in ipairs(signature.params) do
-            if param.kind == "uniform" or param.kind == "scalar" then
-                if param.kind == "scalar" then
-                    (param as any).cName = tostring(position)
-                end
-                environment[param.name] = param
-            end
-        end
+        })
+        local environment = loweringEnvironment(signature, specialization)
         local prefix: {cst.Node} = {}
         for index = 1, #statements - 1 do
             prefix[index] = statements[index]
@@ -5870,32 +5885,10 @@ function lower.program(
             context.reject(lower.site(body), "required scalar-source lanes need the admitted map-loop shape")
         end
 
-        local kernel = new lower.Kernel(
-            params = signature.byName,
-            layouts = layouts,
-            helperDecls = declarations.helpers,
-            entryDecls = declarations.entries,
-            helpers = {},
-            helperOrder = {},
-            constantNames = {},
-            scratchBounds = {},
-            constantOrder = {},
-            constantNumbers = declarations.constantNumbers,
-            helperState = {},
-            modules = declarations.modules,
-            intrinsicAliases = declarations.intrinsicAliases,
+        local kernel = newKernel(signature, declarations, layouts, symbol, context, {
             stringAccumulators = lower.stringAccumulators(statements),
-            symbol = symbol,
             loopSource = lower.site(body.body or body),
-            index = "",
-            mapEntry = false,
-            indexCName = "",
             resultTypes = resultTypes,
-            cursorBounds = {},
-            lengthBounds = {},
-            scratchLengthBounds = {},
-            usesSimd = false,
-            usesNumberToken = false,
             usesLua = (function(): boolean
                 for _, resultType in ipairs(resultTypes) do
                     if resultType == "lua_table"
@@ -5909,9 +5902,7 @@ function lower.program(
 
                 return false
             end)(),
-            serial = 0,
-            context = context
-        )
+        })
         local environment = loweringEnvironment(signature, specialization)
         local lowered = lower.block(statements, environment, kernel)
         if #lowered == 0 then
@@ -5989,22 +5980,7 @@ function lower.program(
 
     local loop = statements[#statements]
     local index = lower.loopIndex(loop, rangeGuard, signature, context)
-    local kernel = new lower.Kernel(
-        params = signature.byName,
-        layouts = layouts,
-        helperDecls = declarations.helpers,
-        entryDecls = declarations.entries,
-        helpers = {},
-        helperOrder = {},
-        constantNames = {},
-        scratchBounds = {},
-        constantOrder = {},
-        constantNumbers = declarations.constantNumbers,
-        helperState = {},
-        modules = declarations.modules,
-        intrinsicAliases = declarations.intrinsicAliases,
-        stringAccumulators = {},
-        symbol = symbol,
+    local kernel = newKernel(signature, declarations, layouts, symbol, context, {
         loopSource = lower.site(loop),
         index = index,
         indexCName = "i",
@@ -6018,16 +5994,7 @@ function lower.program(
 
             return provable
         end)(),
-        resultTypes = {},
-        cursorBounds = {},
-        lengthBounds = {},
-        scratchLengthBounds = {},
-        usesSimd = false,
-        usesNumberToken = false,
-        usesLua = false,
-        serial = 0,
-        context = context
-    )
+    })
 
     local environment = loweringEnvironment(signature, specialization)
 
