@@ -100,12 +100,18 @@ os.tmpname = function()
     handedOut = handedOut + 1
     local reserved = rawTmpname()
     local named = ("%s-%s-%d"):format((reserved:gsub("\\", "/")), shardSalt, handedOut)
-    -- Keep the reservation `rawTmpname` already made. Creating a second file and
-    -- silently accepting failure returned a nonexistent path after deleting the
-    -- only successful reservation, which made nested Windows capture fail later
-    -- and far from the actual cause.
-    local renamed, problem = os.rename(reserved, named)
-    assert(renamed, ("cannot reserve temporary name %s: %s"):format(named, tostring(problem)))
+    -- LuaJIT reserves this name on Unix, while its Windows `tmpnam` only names a
+    -- path. Keep an existing reservation by renaming it; otherwise create the
+    -- salted name, and never hand a caller a path that was not actually made.
+    local renamed = os.rename(reserved, named)
+    if not renamed then
+        local file, problem = io.open(named, "wb")
+        assert(file, ("cannot reserve temporary name %s: %s"):format(named, tostring(problem)))
+        file:close()
+        -- If rename failed for a reason other than an absent source, do not leave
+        -- the raw reservation behind for the length of the run.
+        os.remove(reserved)
+    end
 
     return named
 end
