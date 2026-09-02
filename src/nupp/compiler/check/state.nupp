@@ -545,8 +545,10 @@ record state.Checker
 
     bindDeclaredVar: function(stat: any, t: Type?)
 
-    --- Binds a generics clause's parameters, returning them and their bounds.
-    bindGenerics: function(generics: any, role: string, predeclared: any?): (any, any, any)
+    --- Binds a generics clause's parameters, returning the type parameters, their
+    --- bounds, the pack and const parameters, the kind of every binder, and the
+    --- defaults the clause states.
+    bindGenerics: function(generics: any, role: string, predeclared: any?): (any, any, any, any, any, any)
 
     --- A fresh type parameter for one binder.
     typevarAt: function(tok: any, role: string): Type

@@ -254,10 +254,6 @@ local function soaLayoutSpec(c: state.Checker, subject: Type, at: Node): any?
 
     local owner = subject as T.Nominal
 
-    ---------------------------------------------------------------------
-    -- Rendering a type for a diagnostic
-    ---------------------------------------------------------------------
-
     local function expand(t: Type?): string?
         if not t then
             return nil

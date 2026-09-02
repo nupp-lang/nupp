@@ -305,13 +305,6 @@ function narrow.install(c: state.Checker): narrow.Ops
         c.callMutatedEntries = nil
     end
 
-    -- What testing a value for truth proves about it, on each side of the test. Falsy
-    -- in Lua is nil or false and nothing else, so the truthy side loses both and the
-    -- falsy side keeps only those.
-
-    --- Applies a narrowing map inside the current scope. Declared here because
-    --- analyzing the second conjunct of an `and` has to see what the first proved.
-
     --- What testing `cond` proves, on each side of the test.
     function facts.analyzeCond(cond: Node): narrow.Facts
         local none = {t = {}, f = {}}

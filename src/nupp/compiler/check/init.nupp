@@ -967,6 +967,8 @@ function checkMod.check(
         allowed = {},
         nextStat = nil,
         hoisting = false,
+        -- Set while a hoisted alias is being resolved, so an alias that names itself
+        -- reports rather than recurses forever.
         resolvingAlias = {},
         lastCallRets = nil,
         moduleFields = {},
@@ -1369,9 +1371,8 @@ function checkMod.check(
         return e and e.t or nil
     end
 
-    -- Set while a hoisted alias is being resolved, so an alias that names itself
-    -- reports rather than recurses forever.
-
+    --- The type a name denotes and the declaration that introduced it, resolving a
+    --- hoisted alias that is still pending on the way.
     c.lookupType = function(name)
         local s = c.scope
         while s do
@@ -1400,6 +1401,7 @@ function checkMod.check(
 
         return nil
     end
+
     c.lookupPack = function(name)
         local s = c.scope
         while s do
@@ -1737,7 +1739,7 @@ function checkMod.check(
     end
 
     ---------------------------------------------------------------------
-    -- Narrowing: facts extracted from conditions
+    -- The FFI namespace
     ---------------------------------------------------------------------
 
     -- The C namespace: a shape of what *this file* declared to the FFI, so ffi.C
@@ -2836,15 +2838,15 @@ function checkMod.check(
         end
     end
 
-    local facts = analysis.run(result as nupp.compiler.analysis.Target, c)
+    local analysisFacts = analysis.run(result as nupp.compiler.analysis.Target, c)
     -- The narrow direct case needs no protected call: the acquisition is the
     -- block's final statement, there is no live-interval body to raise, and every
     -- cleanup body is visible and proven non-raising by the same effect summaries
     -- used elsewhere. Everything less certain keeps the shared protected lowering.
-    local effectQueries = analysis.queries(facts)
+    local effectQueries = analysis.queries(analysisFacts)
     local needsTrace = opts and opts.traceInspection or #c.jitHazards > 0
     if not needsTrace then
-        for _, info in ipairs(facts.functions or {}) do
+        for _, info in ipairs(analysisFacts.functions or {}) do
             if info.body and info.body.jitRequired then
                 needsTrace = true
                 break
@@ -2855,7 +2857,7 @@ function checkMod.check(
         traceSource.run(
             result as nupp.compiler.tracesource.Target,
             c as nupp.compiler.tracesource.Checker,
-            facts,
+            analysisFacts,
             effectQueries
         )
     end
@@ -2958,7 +2960,7 @@ function checkMod.check(
 
     markDirectWith(result.root)
 
-    for _, block in ipairs(facts.bodies or {}) do
+    for _, block in ipairs(analysisFacts.bodies or {}) do
         local owners = block.automaticOwners or {}
         if #owners == 1 then
             local owner = owners[1]

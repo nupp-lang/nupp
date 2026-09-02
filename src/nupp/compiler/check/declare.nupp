@@ -701,16 +701,6 @@ function declare.install(
         return name
     end
 
-    --- Holds a concrete declaration to every associated type it is owed.
-    ---
-    --- The names come from `associated.requirementNames`, which is the authoritative
-    --- walk; rebuilding it here would be a second answer to a settled question and
-    --- would drift from the one conformance uses. An interface is not held to them:
-    --- it restates its contracts rather than answering them, and its implementors are
-    --- where the answers land.
-    ---
-    --- A default that survives is copied down, entry and all, so the binder, the site
-    --- and the fact that it arrived as a default travel with it.
     --- Reports an associated type that answers through itself.
     ---
     --- Asked once every answer is installed, because an answer may name another that
@@ -745,6 +735,16 @@ function declare.install(
         end
     end
 
+    --- Holds a concrete declaration to every associated type it is owed.
+    ---
+    --- The names come from `associated.requirementNames`, which is the authoritative
+    --- walk; rebuilding it here would be a second answer to a settled question and
+    --- would drift from the one conformance uses. An interface is not held to them:
+    --- it restates its contracts rather than answering them, and its implementors are
+    --- where the answers land.
+    ---
+    --- A default that survives is copied down, entry and all, so the binder, the site
+    --- and the fact that it arrived as a default travel with it.
     local function checkAssociatedConformance(c: any, stat: any, n: any, declared: {[string]: any})
         local associated = require("nupp.compiler.associated")
         local owed = associated.requirementNames(n)
@@ -1426,26 +1426,6 @@ function declare.install(
                     inheritMembers(n, super, selfMap)
                     for name in pairs(super.overloadedMethods or {}) do
                         n.overloadedMethods[name] = true
-                    end
-                    for name, inheritedEntries in pairs(super.methodDispatchEntries or super.methodEntries or {}) do
-                        local into = n.methodDispatchEntries[name] or {}
-                        for _, entry in ipairs(inheritedEntries) do
-                            into[
-                                #into + 1
-                            ] = {
-                                signature = substType(entry.signature, selfMap),
-                                declaration = entry.declaration,
-                                member = entry.member,
-                                parameterKey = entry.parameterKey,
-                                definition = entry.definition,
-                            }
-                        end
-                        n.methodDispatchEntries[name] = into
-                    end
-                    for name, inherited in pairs(super.writeByname or {}) do
-                        if not n.writeByname[name] then
-                            n.writeByname[name] = substType(inherited, selfMap)
-                        end
                     end
                     -- An indexer is declared as a key and a value together, so the
                     -- value being there is what says the key is.
