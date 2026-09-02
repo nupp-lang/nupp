@@ -776,8 +776,12 @@ local function runReady(): nil
     local pass = runnable
     runnable = {}
     for _, task in ipairs(pass) do
-        local ok, problem = coroutine.resume(task)
-        if not ok then error(problem, 0) end
+        -- A waker may run before the park that registered it yields, so a queued
+        -- task can have moved on by the time its turn comes.
+        if coroutine.status(task) == "suspended" then
+            local ok, problem = coroutine.resume(task)
+            if not ok then error(problem, 0) end
+        end
     end
 end
 local handler = {
@@ -798,8 +802,7 @@ local handler = {
 const app = coroutine.create(function(): nil
 with handling = suspension.install(handler) do
 with scope = tasks.open() do
-    const parallel = scope:workers()
-    const running = parallel:spawn(1000000000, jobs.cancellable)
+    const running = scope:fork(1000000000, jobs.cancellable)
     while running:status() == "queued" do
         suspension.poll()
     end
@@ -810,7 +813,7 @@ with scope = tasks.open() do
 end
 
 with scope = tasks.open() do
-    const returning = scope:workers():spawn(jobs.returnsAfterCancellation)
+    const returning = scope:fork(jobs.returnsAfterCancellation)
     while returning:status() == "queued" do suspension.poll() end
     const requested = returning:cancel("observe at return")
     const ok, problem = pcall(function(): integer return returning:await() end)
@@ -828,22 +831,24 @@ end
 
 pcall(function(): nil
 with scope = tasks.open() do
-    const parallel = scope:workers()
     for _ = 1, 64 do
-        parallel:spawn(1000000000, jobs.cancellable)
+        scope:fork(1000000000, jobs.cancellable)
     end
-    const queued = parallel:spawn(1, jobs.cancellable)
+    const queued = scope:fork(1, jobs.cancellable)
     const wasQueued = queued:status() == "queued"
     const requested = queued:cancel("never start")
     const ok, problem = pcall(function(): integer return queued:await() end)
     print(wasQueued, requested, ok, tasks.isCancelled(problem))
+    -- The block's own failure drains the family rather than cancelling it, and
+    -- these children spin until told to stop, so say so before leaving.
+    scope:cancel("finish queued cancellation test")
     error("finish queued cancellation test", 0)
 end
 end)
 
 const deadlineOk, deadlineProblem = pcall(function(): nil
     with scope = tasks.open(deadline = 1) do
-        scope:workers():spawn(1000000000, jobs.cancellable):await()
+        scope:fork(1000000000, jobs.cancellable):await()
     end
 end)
 print(deadlineOk, tasks.isCancelled(deadlineProblem),

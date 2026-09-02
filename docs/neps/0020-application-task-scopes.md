@@ -595,8 +595,8 @@ submission contract through a checker-only edge: `nupp.workers.Submitted(F)` in
 a type position resolves through the selected provider's exports and emits
 nothing, and the runtime edge is still activated only by the `native.workers`
 effect the compiler records for `fork`. So `Scope:fork` exists beside `spawn`,
-with one argument shape and one `Task<F>`, and `Scope:workers()` is the
-lower-level handle rather than the way in.
+with one argument shape and one `Task<F>`, and `Scope:workers()` is gone: the
+task scope owns its worker scope privately, and one way in is enough.
 
 **The affine scope.** The alternative rejected above -- an affine scope from
 `tasks.scope()` -- was rejected because automatic terminal cleanup could not

@@ -495,8 +495,8 @@ remains that result or failure.
 cancel its siblings. `scope:fork` on an application task scope is the fail-fast
 form: the task scope requests cancellation for every unfinished worker child when
 a sibling fails, then awaits running cleanup through the installed suspension
-handler. `scope:workers()` is the same worker scope as a handle, for when the
-scope itself is wanted.
+handler. The task scope owns that worker scope privately; `fork` is the only way
+in.
 
 The same rule applies to nontermination: an infinite worker task makes its
 scope infinite. Worker tasks are for bounded CPU work. Durable work, retries

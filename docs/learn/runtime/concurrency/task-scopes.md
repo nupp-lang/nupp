@@ -57,9 +57,6 @@ waiting, and `status` answers `queued`, `running`, `done`, `failed`, or
 `cancelled`. Handles borrow the scope that created them: one cannot be returned
 from the block or stored past it, so a task never becomes detached work.
 
-`scope:workers()` is the lower-level handle: the one worker scope this task scope
-owns, which `fork` submits to. Reach for it when the worker scope itself is
-wanted, not to start one child.
 
 ## Bounded fan-out
 
