@@ -31,26 +31,28 @@ end
 -- is what lets the copy be the same program as the original.
 local MODULES = ("NUPP_TEST_MODULES=%q "):format(ROOT .. "/build")
 
-local function run(path, args)
+-- A copied Windows runner launched directly behind `io.popen` inherits OS pipe
+-- handles without matching C-runtime descriptors, while its per-case capture
+-- deliberately works at the descriptor layer. Give the copied runner ordinary
+-- file-backed streams on every platform; `runJson` leaves standard error out of
+-- the document because progress marks belong there.
+local function runRedirected(path, args, stderr)
     local quoted = "'" .. path:gsub("'", "'\\''") .. "'"
-    local pipe = assert(io.popen((MODULES .. "luajit %s %s 2>&1"):format(quoted, args or "")))
-    local output = pipe:read("*a")
-    pipe:close()
+    local outputPath = os.tmpname()
+    local command = (MODULES .. "luajit %s %s >%q %s"):format(quoted, args or "", outputPath, stderr)
+    os.execute(command)
+    local output = read(outputPath)
+    os.remove(outputPath)
 
     return output
 end
 
--- The same, with standard error left where it was. Under `--json` the runner
--- puts its progress marks on standard error precisely so the document on
--- standard output stays a document; folding the two together turns it back into
--- something no decoder accepts.
-local function runJson(path, args)
-    local quoted = "'" .. path:gsub("'", "'\\''") .. "'"
-    local pipe = assert(io.popen((MODULES .. "luajit %s %s 2>/dev/null"):format(quoted, args or "")))
-    local output = pipe:read("*a")
-    pipe:close()
+local function run(path, args)
+    return runRedirected(path, args, "2>&1")
+end
 
-    return output
+local function runJson(path, args)
+    return runRedirected(path, args, "2>/dev/null")
 end
 
 local function runWorkerHost(args)
