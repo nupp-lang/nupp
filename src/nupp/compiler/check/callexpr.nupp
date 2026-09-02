@@ -2128,30 +2128,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag("NUPP2602", receiver, "an exclusive receiver requires a named or rooted value")
                 else
                     for _, root in ipairs(roots) do
-                        local blocked = (root.activeBorrows or 0) > 0
-                        if regionRoot and regionPath and regionPath ~= "" then
-                            blocked = false
-                            for activePath, count in pairs(regionRoot.activeRegions or {}) do
-                                local own = entry
-                                    and entryFacts
-                                    and entryFacts.regionRoot == regionRoot
-                                    and entryFacts.regionPath == regionPath
-                                    and 1
-                                    or 0
-                                if (
-                                    activePath == regionPath and count > own
-                                ) or (
-                                    activePath ~= regionPath and c.regionsOverlap(
-                                        activePath,
-                                        regionPath
-                                    ) and not c.regionContains(activePath, regionPath)
-                                ) then
-                                    blocked = true
-                                    break
-                                end
-                            end
-                        end
-                        if blocked then
+                        if c.own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, false) then
                             c.diag(
                                 "NUPP2607",
                                 nameNode or receiver,
@@ -2181,30 +2158,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
                 local roots = entry and {entry} or c.own.provenanceOwners(receiver)
                 for _, root in ipairs(roots) do
-                    local blocked = (root.activeExclusiveBorrows or 0) > 0
-                    if regionRoot and regionPath and regionPath ~= "" then
-                        blocked = false
-                        for activePath, count in pairs(regionRoot.activeExclusiveRegions or {}) do
-                            local own = entry
-                                and entryFacts
-                                and entryFacts.regionRoot == regionRoot
-                                and entryFacts.regionPath == regionPath
-                                and 1
-                                or 0
-                            if (
-                                activePath == regionPath and count > own
-                            ) or (
-                                activePath ~= regionPath and c.regionsOverlap(
-                                    activePath,
-                                    regionPath
-                                ) and not c.regionContains(activePath, regionPath)
-                            ) then
-                                blocked = true
-                                break
-                            end
-                        end
-                    end
-                    if blocked then
+                    if c.own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, true) then
                         c.diag(
                             "NUPP2607",
                             nameNode or receiver,

@@ -574,6 +574,39 @@ function ownership.install(c: state.Checker): ownership.Ops
         return {help = "end the overlapping borrow before requesting this access"}
     end
 
+    --- Whether a use of `regionPath` under `root` runs into a live borrow. A use that
+    --- names a region conflicts with an active region held by somebody else -- the
+    --- same path, or one that overlaps it without containing it -- and a use of the
+    --- whole value conflicts with any live borrow of it. `exclusive` counts only
+    --- exclusive borrows, which is what a shared use has to stay clear of.
+    function own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, exclusive)
+        if regionRoot and regionPath and regionPath ~= "" then
+            local ownCount = entry
+                and entryFacts
+                and entryFacts.regionRoot == regionRoot
+                and entryFacts.regionPath == regionPath
+                and 1
+                or 0
+            local active = exclusive and regionRoot.activeExclusiveRegions or regionRoot.activeRegions
+            for activePath, count in pairs(active or {}) do
+                if (
+                    activePath == regionPath and count > ownCount
+                ) or (
+                    activePath ~= regionPath and own.regionsOverlap(
+                        activePath,
+                        regionPath
+                    ) and not own.regionContains(activePath, regionPath)
+                ) then
+                    return true
+                end
+            end
+            return false
+        end
+        local count = exclusive and root.activeExclusiveBorrows or root.activeBorrows
+
+        return (count or 0) > 0
+    end
+
     function own.checkExclusiveReceiver(receiver, at)
         local entry, nameNode = own.ownershipEntry(receiver)
         entry = own.ownershipState(entry)
@@ -585,30 +618,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             return
         end
         for _, root in ipairs(roots) do
-            local blocked = (root.activeBorrows or 0) > 0
-            if regionRoot and regionPath and regionPath ~= "" then
-                blocked = false
-                for activePath, count in pairs(regionRoot.activeRegions or {}) do
-                    local ownCount = entry
-                        and entryFacts
-                        and entryFacts.regionRoot == regionRoot
-                        and entryFacts.regionPath == regionPath
-                        and 1
-                        or 0
-                    if (
-                        activePath == regionPath and count > ownCount
-                    ) or (
-                        activePath ~= regionPath and c.regionsOverlap(
-                            activePath,
-                            regionPath
-                        ) and not c.regionContains(activePath, regionPath)
-                    ) then
-                        blocked = true
-                        break
-                    end
-                end
-            end
-            if blocked then
+            if own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, false) then
                 c.diag(
                     "NUPP2607",
                     nameNode or at or receiver,

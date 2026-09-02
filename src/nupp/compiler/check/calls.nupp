@@ -2194,25 +2194,7 @@ function calls.install(c: state.Checker): calls.Ops
                         end
                     end
                     if regionPath and regionPath ~= "" then
-                        sole = true
-                        for activePath, count in pairs(regionRoot.activeRegions or {}) do
-                            local own = entry
-                                and entryFacts
-                                and entryFacts.regionRoot == regionRoot
-                                and entryFacts.regionPath == regionPath
-                                and 1
-                                or 0
-                            if (
-                                activePath == regionPath and count > own
-                            ) or (
-                                activePath ~= regionPath and c.regionsOverlap(
-                                    activePath,
-                                    regionPath
-                                ) and not c.regionContains(activePath, regionPath)
-                            ) then
-                                sole = false
-                            end
-                        end
+                        sole = not c.own.regionBlocked(regionRoot, entry, entryFacts, regionRoot, regionPath, false)
                     end
                     if not sole then
                         c.diag(
@@ -2255,30 +2237,7 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                     local roots = entry and {entry} or c.own.provenanceOwners(argNodes[j])
                     for _, root in ipairs(roots) do
-                        local blocked = (root.activeExclusiveBorrows or 0) > 0
-                        if regionRoot and regionPath and regionPath ~= "" then
-                            blocked = false
-                            for activePath, count in pairs(regionRoot.activeExclusiveRegions or {}) do
-                                local own = entry
-                                    and entryFacts
-                                    and entryFacts.regionRoot == regionRoot
-                                    and entryFacts.regionPath == regionPath
-                                    and 1
-                                    or 0
-                                if (
-                                    activePath == regionPath and count > own
-                                ) or (
-                                    activePath ~= regionPath and c.regionsOverlap(
-                                        activePath,
-                                        regionPath
-                                    ) and not c.regionContains(activePath, regionPath)
-                                ) then
-                                    blocked = true
-                                    break
-                                end
-                            end
-                        end
-                        if blocked then
+                        if c.own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, true) then
                             c.diag(
                                 "NUPP2607",
                                 nameNode or argNodes[j] or node,
