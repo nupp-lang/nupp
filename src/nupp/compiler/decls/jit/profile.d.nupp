@@ -58,7 +58,7 @@ local record JitProfile
     --- @param fmt the per-frame format described above
     --- @param depth how many frames, negative to walk bottom-up
     --- @return the rendered stack
-    dumpstack: function(thread: any, fmt: string, depth: integer): string
+    dumpstack: function(thread: any?, fmt: string, depth: integer): string
 end
 
 local profile: JitProfile

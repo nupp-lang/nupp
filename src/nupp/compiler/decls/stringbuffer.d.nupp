@@ -63,7 +63,7 @@ record Buffer
     --- @param b the buffer to read from
     --- @param ... how many bytes each returned string takes
     --- @return one string per argument, or the whole buffer when given none
-    get: function(exclusive b: Buffer, ...: integer?): string
+    get: function(exclusive b: Buffer, ...: integer?): ...string
 
     --- Returns the buffer contents as a string, without consuming them.
     ---
