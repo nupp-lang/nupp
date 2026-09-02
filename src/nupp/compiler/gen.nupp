@@ -2043,14 +2043,15 @@ function gen.generate(
     --- Whether this expression's lowering opens with an immediately-invoked wrapper,
     --- and therefore with `(`.
     ---
-    --- Two lowerings do: a consuming call, and a worker submission whose callable is
-    --- moved to the front. Either can sit under a receiver chain -- `scope:spawn(x,
-    --- job):await()` still begins with the submission's `(` -- so the question is
-    --- about the head of the expression rather than about its outermost node.
+    --- Two lowerings do: a consuming call, and a child-starting call whose trailing
+    --- callable is moved to the front. Either can sit under a receiver chain --
+    --- `scope:spawn(x, job):await()` still begins with the submission's `(` -- so the
+    --- question is about the head of the expression rather than about its outermost
+    --- node.
     function pluck.beginsWithLoweredWrapper(expr: any): boolean
         local at: any = expr
         while at ~= nil do
-            if at.automaticOwnerMoves ~= nil or at.workerSpawnTrailing == true then
+            if at.automaticOwnerMoves ~= nil or at.trailingCallableCall == true then
                 return true
             end
             local kind = at.kind
@@ -6092,14 +6093,21 @@ function gen.generate(
             e((":_downcast(%q)"):format(x.managedAliasPolicy), sourceLine(x))
             return
 
-        elseif kind == "methodCall" and x.workerSpawnTrailing then
+        elseif kind == "methodCall" and x.trailingCallableCall then
+            -- The member comes from the checker's table of compiler-owned surfaces and
+            -- from nowhere else; a nil here would emit `:nil(`, so it is an error
+            -- rather than a fallback.
+            local member = x.trailingCallableMember
+            if type(member) ~= "string" then
+                error("a rotated trailing-callable call without its member")
+            end
             local args = x.args and x.args.exprs or {}
             local receiver = nextTemp()
             local parameters = {receiver}
             for _ = 1, #args do
                 parameters[#parameters + 1] = nextTemp()
             end
-            e(("(function(%s) return %s:spawn("):format(table.concat(parameters, ","), receiver), sourceLine(x))
+            e(("(function(%s) return %s:%s("):format(table.concat(parameters, ","), receiver, member), sourceLine(x))
             if #args > 0 then
                 e(parameters[#parameters])
                 for index = 1, #args - 1 do

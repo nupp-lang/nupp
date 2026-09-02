@@ -42,6 +42,39 @@ local specializeReceiver = generics.specializeReceiver
 
 local callexpr: {install: function(state.Checker): state.ExprHandlers} = {}
 
+--- What one compiler-owned call surface asks of the checker and the generator.
+local type CompilerSurface = {
+    --- The feature effect calling it records, so a target packages the seam it needs.
+    effect: string?,
+
+    --- Whether the source form puts the callable last while the library signature
+    --- keeps it first, so the checker view is rotated and lowering restores the order.
+    rotate: boolean?,
+
+    --- Whether that trailing callable is a sendable position, so an inline literal
+    --- there is outlined for another Lua state without an annotation.
+    sendableLast: boolean?
+}
+
+--- The call surfaces the compiler owns on the standard library's behalf, by public
+--- module, nominal, and member. The member names here are the only ones lowering ever
+--- interpolates into emitted Lua for a rotated call, so nothing user-written reaches
+--- that path.
+local COMPILER_SURFACES: {
+    [string]: {[string]: {[string]: CompilerSurface}}
+} = {
+    ["nupp.workers"] = {Scope = {spawn = {rotate = true, sendableLast = true,},},},
+    [
+        "nupp.tasks"
+    ] = {
+        Scope = {
+            spawn = {rotate = true,},
+            fork = {effect = "native.workers", rotate = true, sendableLast = true,},
+            workers = {effect = "native.workers",},
+        },
+    },
+}
+
 ----------------------------------------------------------------------------
 -- Intrinsics
 ----------------------------------------------------------------------------
@@ -1799,28 +1832,35 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 node.fixedWidthPhysicalParameters = {[2] = true}
             end
             local callArgs = node.args
-            -- Scope.spawn's library signature keeps the generic callable first because
-            -- a variadic type pack cannot precede a named parameter. Its source API
-            -- puts the callable last. Reorder only the checker view, then restore the
-            -- tree so lowering can retain source evaluation order.
-            -- A selected `host.workers` seam declares this surface in its own provider
-            -- module, and the reorder below is a property of the surface rather than of
-            -- whichever module supplies it.
-            local workerSpawn = origin and backends.publicModule(
-                c.opts and c.opts.backendResolution,
+            -- A surface the compiler owns on the standard library's behalf. The
+            -- library signature of a child-starting call keeps the generic callable
+            -- first, because a variadic type pack cannot precede a named parameter,
+            -- while its source form puts the callable last. Reorder only the checker
+            -- view, then restore the tree so lowering can retain source evaluation
+            -- order. A selected `host.workers` seam declares the worker surface in its
+            -- own provider module, and the reorder is a property of the surface rather
+            -- than of whichever module supplies it, so the lookup goes through the
+            -- public module name.
+            local originModule = origin and (
                 origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
-            ) == "nupp.workers" and origin.name == "Scope" and member.text == "spawn"
-            local taskWorkers = origin and (
-                origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
-            ) == "nupp.tasks" and origin.name == "Scope" and member.text == "workers"
-            if taskWorkers and c.recordEffect then
-                c.recordEffect("native.workers");
-                (node as any).compilerFeatureEffect = "native.workers"
+            ) or nil
+            local publicName = originModule and (
+                backends.publicModule(c.opts and c.opts.backendResolution, originModule) or originModule
+            ) or nil
+            local surfaceModule = publicName and COMPILER_SURFACES[publicName] or nil
+            local surfaceNominal = surfaceModule and origin and surfaceModule[origin.name] or nil
+            local surface = surfaceNominal and surfaceNominal[member.text] or nil
+            if surface and surface.effect and c.recordEffect then
+                c.recordEffect(surface.effect);
+                (node as any).compilerFeatureEffect = surface.effect
             end
             local originalExprs = callArgs and callArgs.kind == "args" and (callArgs as cst.Args).exprs or nil
-            if workerSpawn and originalExprs and #originalExprs > 0 then
+            local rotated = surface ~= nil and surface.rotate == true and originalExprs ~= nil and #originalExprs > 0
+            if rotated and surface and originalExprs then
                 local callableArgument = originalExprs[#originalExprs]
-                if callableArgument.kind == "funcExpr" or callableArgument.kind == "shortfn" then
+                if surface.sendableLast and (
+                    callableArgument.kind == "funcExpr" or callableArgument.kind == "shortfn"
+                ) then
                     local sendableArgument: any = callableArgument
                     sendableArgument.sendableContext = true
                 end
@@ -1829,11 +1869,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     reordered[#reordered + 1] = originalExprs[index]
                 end
                 (callArgs as cst.Args).exprs = reordered
-                local workerNode: any = node
-                workerNode.workerSpawnTrailing = true
+                local rotatedNode: any = node
+                rotatedNode.trailingCallableCall = true
+                rotatedNode.trailingCallableMember = member.text
             end
             local first, rets, pack = c.inferCall(node, callable and dropSelf(methodType) or methodType, callArgs)
-            if workerSpawn and originalExprs then
+            if rotated and originalExprs then
                 (callArgs as cst.Args).exprs = originalExprs
             end
             local indexedProducer = callable and indexedViews.methodProducer(rawReceiver, member.text, first) or nil
