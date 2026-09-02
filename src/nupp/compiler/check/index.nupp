@@ -656,35 +656,6 @@ function index.install(c: state.Checker): state.ExprHandlers
             elseif access.adapter == "span" and writing then
                 node.fixedWidthPhysicalStore = true
             end
-        elseif kind == "dotIndex" and target.soaRow then
-            -- Kept only while older checked trees are accepted during bootstrap.
-            local row = target.soaRow
-            local element = row.element as Type
-            local ordinal = nil
-            if element.tag == "nominal" then
-                for position, name in ipairs(element.fieldOrder or {}) do
-                    if name == memberName then
-                        ordinal = position
-                        break
-                    end
-                end
-            end
-            if ordinal then
-                if writing and not row.writable then
-                    c.diag("NUPP2009", member, "SoA shared rows are read-only", nil, {
-                        help = "request an exclusive writable view from the owner"
-                    })
-                end
-                node.soaField = {name = memberName, ordinal = ordinal, writable = row.writable, element = element,}
-                member.soaColumn = {
-                    identity = (element as T.Nominal).name .. "." .. memberName,
-                    ordinal = ordinal,
-                    access = row.writable and "read-write" or "read-only",
-                }
-                if writing then
-                    node.fixedWidthPhysicalStore = true
-                end
-            end
         end
         if not writing and fixedWidth.isValue(out) then
             if not (base.tag == "nominal" and base.declKind == "record") or target.fixedWidthTrusted == true then
