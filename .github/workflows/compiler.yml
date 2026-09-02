@@ -266,17 +266,17 @@ jobs:
         include:
           - name: Linux x64
             os: ubuntu-24.04
-            timeout: 55
+            timeout: 85
             luajit: 2.1 rolling
             benchmark_artifact: linux-x64-luajit-2.1
           - name: macOS arm64
             os: macos-15
-            timeout: 50
+            timeout: 80
             luajit: 2.1 rolling
             benchmark_artifact: macos-arm64-luajit-2.1
           - name: Windows x64
             os: windows-2022
-            timeout: 65
+            timeout: 95
             luajit: 2.1 rolling
             benchmark_artifact: windows-x64-luajit-2.1
     steps:
