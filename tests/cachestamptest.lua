@@ -74,6 +74,21 @@ function M.anUnreadableSubsystemFallsBackToTheWholeCompiler()
       "an unknown module has to leave the stamp covering everything")
 end
 
+-- The first caller in a process may have nowhere to keep the graph -- a check with
+-- no build directory -- and used to be the only caller that could compute it, so a
+-- build in the same process never wrote the store and every later command lexed the
+-- compiler again.
+function M.aCallerWithSomewhereToKeepTheGraphKeepsItAfterOneThatHadNot()
+   assert(cache.subsystemFingerprint({"nupp.compiler.fmt"}), "computed with nowhere to keep it")
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   cache.subsystemFingerprint({"nupp.compiler.build.cache", "nupp.compiler.stable"}, dir)
+   assert(exists(dir .. "/modulegraph.buf"),
+      "the store handed to a later caller receives the graph the earlier one computed")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A build adds its generated directory to the include roots and nothing else does.
 -- Keyed on the roots, that made every header a build stored a header a check missed.
 function M.twoEnvironmentsAgreeOnAHeaderKeyWhenTheModuleNameAgrees()

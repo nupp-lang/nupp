@@ -288,13 +288,13 @@ local GRAPH_STAMP = "modules/2"
 
 local graphMemo: cache.ModuleGraph? = nil
 
---- Whether this process has read or computed the graph, and whether a store has
+--- Whether this process has read or computed the graph, and which stores have
 --- been given it. A caller with nowhere to write computes it in this process,
 --- which must not stop the next caller that has somewhere from keeping it for
---- the next command.
+--- the next command; keyed by directory so every store asked for gets it once.
 local graphAttempted = false
 
-local graphStored = false
+local graphStoredIn: {[string]: boolean} = {}
 
 --- The module name a file under `root` provides: the path, without its extension, with
 --- the separators spelled as dots. `init` is how a directory names itself.
@@ -385,7 +385,7 @@ end
 --- command; the store makes it once per compiler. Passing no directory computes it in
 --- this process, which is what a caller with nowhere to write does.
 local function moduleGraph(cacheDir: string?, digest: function(string): string): cache.ModuleGraph?
-    if graphAttempted and (graphMemo == nil or graphStored or cacheDir == nil) then
+    if graphAttempted and (graphMemo == nil or cacheDir == nil or graphStoredIn[cacheDir]) then
         return graphMemo
     end
     graphAttempted = true
@@ -403,7 +403,7 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
     local root = dirname(dirname(dir))
     local store = nil
     if cacheDir then
-        graphStored = true
+        graphStoredIn[cacheDir] = true
         store = require(
             "nupp.compiler.build.store"
         ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. toolFingerprint(digest))
