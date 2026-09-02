@@ -1507,7 +1507,9 @@ end
 --- gives,
 --- so the caller keeps whichever tables it passed.
 local function pushIntersectionMember(t: types.Type, seen: {[types.Type]: boolean}, flat: {types.Type})
-    if t == types.never then
+    if t == types.any then
+        seen[types.any] = true
+    elseif t == types.never then
         for index = #flat, 1, -1 do
             flat[index] = nil
         end
@@ -1520,7 +1522,7 @@ local function pushIntersectionMember(t: types.Type, seen: {[types.Type]: boolea
         for _, m in ipairs(t.members) do
             pushIntersectionMember(m, seen, flat)
         end
-    elseif t ~= types.unknown and t ~= types.any and not seen[t] and not seen[types.never] then
+    elseif t ~= types.unknown and not seen[t] and not seen[types.never] then
         seen[t] = true
         flat[#flat + 1] = t
     end
@@ -1530,6 +1532,8 @@ end
 ---
 --- Nested intersections flatten, duplicates drop by identity, and members sort by id.
 --- `never` annihilates the intersection; `unknown` and gradual `any` add no contract.
+--- An intersection nothing else survives is `any` when a member was `any`, so a
+--- gradual field stays gradual through the merge, and `unknown` otherwise.
 function types.intersection(members: {types.Type}): types.Type
     local seen: {[types.Type]: boolean} = {}
     local flat: {types.Type} = {}
@@ -1538,6 +1542,9 @@ function types.intersection(members: {types.Type}): types.Type
         pushIntersectionMember(m, seen, flat)
     end
     if #flat == 0 then
+        if seen[types.any] then
+            return types.any
+        end
         return types.unknown
     end
     if #flat == 1 then

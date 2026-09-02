@@ -160,6 +160,26 @@ function M.packGenericOverloadsPreserveHeterogeneousTails()
    }, "\n"))
 end
 
+-- `any` adds no contract to an intersection, but it is still gradual: a member every
+-- part reads as `any` stays `any` rather than collapsing to `unknown`, which nothing
+-- fits.
+function M.aGradualMemberStaysGradualThroughAnIntersection()
+   assertEq(T.intersection({T.any}), T.any)
+   assertEq(T.intersection({T.any, T.unknown}), T.any)
+   assertEq(T.intersection({T.unknown}), T.unknown)
+   assertEq(T.intersection({}), T.unknown)
+   assertEq(T.intersection({T.any, T.string}), T.string)
+   assertEq(T.intersection({T.never, T.any}), T.never)
+   clean(table.concat({
+      "local type A = {a: any}",
+      "local function f(x: A & {b: string}): string",
+      "   local s: string = x.a",
+      "   return s",
+      "end",
+      "print(f)",
+   }, "\n"))
+end
+
 function M.overloadFailuresAndAmbiguitiesHaveDedicatedDiagnostics()
    local prefix = table.concat({
       "local type F = function(value: integer): string",
