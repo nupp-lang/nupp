@@ -724,6 +724,43 @@ end
    assertEq(codes[1], "NUPP2416", "the final value graph has an item limit")
 end
 
+-- The parser fills `names` for `local {x, y} = t` as it does for a plain local, but
+-- the values live on `patternSource`, which the evaluator used to ignore, so every
+-- pattern-bound name was silently nil.
+function M.bindsAPatternFromItsSource()
+   local x, z = run([[
+local v = comptime do
+    local t: {x: integer, y: integer} = {x = 1, y = 2}
+    local {x, y as z} = t
+    return {x = x, z = z}
+end
+return v.x, v.z
+]])
+   assertEq(x, 1, "the first pattern field")
+   assertEq(z, 2, "an aliased pattern field")
+end
+
+-- A helper's optional parameter may be left out, exactly as the checker admits it:
+-- the missing argument is nil, and only a required one omitted is a mistake.
+function M.callsAHelperWithoutItsOptionalArgument()
+   assertEq(run([[
+local comptime function pick(a: integer, b: integer?): integer
+    return a + (b or 10)
+end
+local v = comptime do
+    return pick(5)
+end
+return v
+]]), 15, "the omitted optional argument is nil")
+   local codes = errorsOf([[
+local comptime function pick(a: integer, b: integer): integer
+    return a + b
+end
+return comptime do return pick(5) end
+]])
+   assertTrue(codes[1] ~= nil, "omitting a required argument is still refused")
+end
+
 function M.boundsComptimeHelperRecursion()
    local codes, diags = errorsOf([[
 local comptime function descend(value: number): number

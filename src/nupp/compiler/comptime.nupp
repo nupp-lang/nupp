@@ -662,12 +662,45 @@ end
 -- Calls and expressions
 ----------------------------------------------------------------------------
 
+--- Whether a parameter written with `annotation` accepts being left out of a call,
+--- which is the same question the checker answered when it admitted the call: an
+--- omitted argument supplies nil, so the annotation has to admit nil.
+local function admitsOmission(annotation)
+    if not annotation or isToken(annotation) then
+        return true
+    end
+    local kind = annotation.kind
+    if kind == "topt" then
+        return true
+    elseif kind == "tname" then
+        local base = annotation.base and annotation.base.text or ""
+        return base == "nil" or base == "any"
+    elseif kind == "tunion" then
+        for _, member in ipairs(annotation.types or {}) do
+            if admitsOmission(member) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 local function callValues(state, node, callee, args)
     local helper = state.comptimeFunctions[callee]
     if helper then
         local body = helper.node and helper.node.body or nil
         local params = body and body.params or {}
-        if args.n ~= #params then
+        local variadic = #params > 0 and params[#params].vararg
+        local missing
+        for index = args.n + 1, #params do
+            local param = params[index]
+            if not param.vararg and not admitsOmission(param.type) then
+                missing = index
+                break
+            end
+        end
+        if (args.n > #params and not variadic) or missing then
             fail(
                 "NUPP2412",
                 node,
@@ -1318,7 +1351,37 @@ execStatement = function(state, stat)
     end
     step(state, stat)
     local kind = stat.kind
-    if kind == "localStmt" then
+    if kind == "localStmt" and stat.pattern then
+        -- `local {x, y as z} = source` reads each field of one source value; the
+        -- parser fills `names` with the bound spellings, so only the values are
+        -- pattern-specific.
+        local source = evalExpr(state, stat.patternSource)
+        local opaque = materializeProviders.isOpaque(state, source)
+        if not opaque and type(source) ~= "table" then
+            fail(
+                "NUPP2412",
+                stat.patternSource or stat,
+                ("a binding pattern needs a table, got %s"):format(type(source))
+            )
+        end
+        for _, entry in ipairs(stat.pattern) do
+            if entry.typeOnly then
+                unsupported(entry, "a type selection in a binding pattern")
+            end
+            local field = entry.sourceName.text
+            local value
+            if opaque then
+                local indexFailure
+                value, indexFailure = materializeProviders.index(state, source, field, entry)
+                if indexFailure then
+                    fail(indexFailure.code, entry, indexFailure.message, indexFailure.help)
+                end
+            else
+                value = source[field]
+            end
+            declare(state.scope, (entry.alias or entry.sourceName).text, value)
+        end
+    elseif kind == "localStmt" then
         local values = evalList(state, stat.exprs or {})
         for index, name in ipairs(stat.names or {}) do
             declare(state.scope, name.text, values[index])
