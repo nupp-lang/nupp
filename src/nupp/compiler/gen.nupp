@@ -2396,6 +2396,18 @@ function gen.generate(
         return names
     end
 
+    -- Publishes cleanup terminals to the registry under their declaration identity.
+    -- `after` selects the registrations written: nil for all of them, and true or
+    -- false for the ones marked to follow the statement or to precede it.
+    function pluck.emitRegistrations(list, line, after: boolean?)
+        for _, registration in ipairs(list or {}) do
+            if after == nil or (registration.after and true or false) == after then
+                local cleanup = registration.cleanup
+                e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, cleanup.name), line)
+            end
+        end
+    end
+
     local function hotEmitImplementation(planned): nil
         local body = planned.node.body
         local names = pluck.paramNames(body.params, planned.implicitSelf)
@@ -5258,10 +5270,7 @@ function gen.generate(
             else
                 e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, name, ns, name), line)
             end
-            for _, registration in ipairs(x.name.cleanupRegistrations or {}) do
-                local cleanup = registration.cleanup
-                e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), line)
-            end
+            pluck.emitRegistrations(x.name.cleanupRegistrations, line)
             return
         end
 
@@ -5270,10 +5279,7 @@ function gen.generate(
             -- reference and must publish that function under its declaration identity.
             -- The assignment is metadata only; the affine value itself stays fully
             -- transparent and allocates nothing.
-            for _, registration in ipairs(x.cleanupRegistrations or {}) do
-                local cleanup = registration.cleanup
-                e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
-            end
+            pluck.emitRegistrations(x.cleanupRegistrations, sourceLine(x))
             return
 
         elseif kind == "castExpr" then
@@ -5681,12 +5687,7 @@ function gen.generate(
             -- only place they are declared to the runtime. The assignments precede the
             -- call, so the registry holds them by the time the helper reads it.
             local inner = x.expr
-            for _, registration in ipairs(inner.cleanupRegistrations or {}) do
-                if not registration.after then
-                    local cleanup = registration.cleanup
-                    e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
-                end
-            end
+            pluck.emitRegistrations(inner.cleanupRegistrations, sourceLine(x), false)
             e("do ", sourceLine(x))
             e("local " .. nextTemp() .. "=")
             emit(inner)
@@ -6280,10 +6281,7 @@ function gen.generate(
             local planned = dispatch and dispatch.byNode[x] or nil
             if dispatch and planned then
                 dispatch.emit(planned)
-                for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
-                    local cleanup = registration.cleanup
-                    e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
-                end
+                pluck.emitRegistrations(x.name and x.name.cleanupRegistrations, sourceLine(x))
                 return
             end
             local body = x.body
@@ -6328,10 +6326,7 @@ function gen.generate(
             emitDepth.fn = emitDepth.fn - 1
             local endTok = pluck.endToken(body)
             e("end", endTok and endTok.line or nil)
-            for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
-                local cleanup = registration.cleanup
-                e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
-            end
+            pluck.emitRegistrations(x.name and x.name.cleanupRegistrations, sourceLine(x))
             return
 
         elseif kind == "funcStmt" and x.structOwner and x.memberName then
@@ -7207,10 +7202,7 @@ function gen.generate(
                 pluck.constSpecialize.emitSpecialization(x, specialization)
             end
             pluck.constSpecialize.emitRegistrations(x)
-            for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
-                local cleanup = registration.cleanup
-                e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
-            end
+            pluck.emitRegistrations(x.name and x.name.cleanupRegistrations, sourceLine(x))
 
         elseif kind == "funcStmt" and x.exported and x.name and x.name.base and #x.name == 1 and not x.name.method then
             e(x.name.base.text .. "=function", sourceLine(x))
@@ -7234,28 +7226,15 @@ function gen.generate(
             -- `function module.close()` can publish a terminal just like a local
             -- function declaration can.
             for _, name in ipairs(x.name or {}) do
-                for _, registration in ipairs(name.cleanupRegistrations or {}) do
-                    local cleanup = registration.cleanup
-                    e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
-                end
+                pluck.emitRegistrations(name.cleanupRegistrations, sourceLine(x))
             end
 
         elseif kind == "pragmaStmt" then
-            for _, registration in ipairs(x.cleanupRegistrations or {}) do
-                if not registration.after then
-                    local cleanup = registration.cleanup
-                    e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
-                end
-            end
+            pluck.emitRegistrations(x.cleanupRegistrations, sourceLine(x), false)
             if x.stat then
                 emit(x.stat)
             end
-            for _, registration in ipairs(x.cleanupRegistrations or {}) do
-                if registration.after then
-                    local cleanup = registration.cleanup
-                    e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
-                end
-            end
+            pluck.emitRegistrations(x.cleanupRegistrations, sourceLine(x), true)
 
         elseif kind == "noSuspendStmt" then
             -- Erases to an ordinary block. The region is a promise the checker held the
