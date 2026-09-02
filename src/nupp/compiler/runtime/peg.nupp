@@ -798,7 +798,7 @@ export function compile(source: string, options: any): any
     if backend ~= "auto" and backend ~= "lpeg" then
         error("nupp: PEG compile backend must be 'auto' or 'lpeg'", 2)
     end
-    local definitions = given.definitions or given.defs or given.actions
+    local definitions = given.definitions or given.actions
     local pattern: any = nil
     if definitions == nil then
         pattern = patternCache[source]
