@@ -877,9 +877,11 @@ local function check(a: Type, b: Type): boolean, string?
         return true
     end
 
-    -- Two applications of the same generic declaration compare by their arguments, so
-    -- Box<integer> fits Box<number> exactly as integer fits number. Covariant, like the
-    -- array rule above.
+    -- Two applications of the same generic declaration. Const arguments must agree
+    -- exactly. An application that carries members compares them property by
+    -- property, so Box<integer> fits Box<number> only as far as a writable `value`
+    -- field lets it; an opaque application with no members of its own compares
+    -- argument by argument, covariantly.
     if atag == "nominal" and btag == "nominal" and a.origin and a.origin == b.origin then
         local aConsts, bConsts = a.constArgs or {}, b.constArgs or {}
         for j, value in ipairs(aConsts) do
@@ -1335,7 +1337,8 @@ local function check(a: Type, b: Type): boolean, string?
         return fail(a, b)
     end
 
-    -- nominal vs nominal: identity only (interface conformance lands later)
+    -- nominal vs nominal: identity only. Interface conformance was answered above,
+    -- so two distinct non-interface declarations never fit each other.
 
     return fail(a, b)
 end
