@@ -171,6 +171,41 @@ local function bindingConfig(dep)
     return nil
 end
 
+-- What a dependency's children contribute to a link that reaches through it:
+-- each child's own link outputs, or its single output when it recorded no link
+-- set (a Cargo crate's cdylib), and then its link flags. One reading for the
+-- three linkers that ask, so a prebuilt archive's readers link the same children
+-- a source-built one's do.
+local function appendChildLinkInputs(dep, childResults, outputs, flags)
+    for _, childName in ipairs(dep.dependencies or {}) do
+        local child = childResults and childResults[childName]
+        for _, childOutput in ipairs(child and child.linkOutputs or child and child.output and {child.output} or {}) do
+            outputs[#outputs + 1] = childOutput
+        end
+        for _, childFlag in ipairs(child and child.linkFlags or {}) do
+            flags[#flags + 1] = childFlag
+        end
+    end
+end
+
+-- One pkg-config query, parsed as shell words; `label` names the packages in
+-- a complaint.
+local function pkgConfigWords(argv, packages, label)
+    for _, packageName in ipairs(packages) do
+        argv[#argv + 1] = packageName
+    end
+    local code, flags = process.capture(argv)
+    if code ~= 0 then
+        return nil, "pkg-config failed for " .. label .. ": " .. flags
+    end
+    local parsed = syntax.shellWords:match(flags)
+    if not parsed then
+        return nil, "pkg-config returned invalid flags for " .. label
+    end
+
+    return parsed
+end
+
 -- `binding` is the dependency's own configuration unless the caller has a
 -- resolved copy to hand in, the way `buildCargo` does with the header cbindgen
 -- wrote; the manifest's table is never written to.
@@ -355,15 +390,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         local linkFlags = json.asArray({})
         if staticOutput then
             linkOutputs[#linkOutputs + 1] = staticOutput
-            for _, childName in ipairs(dep.dependencies or {}) do
-                local child = childResults and childResults[childName]
-                for _, childOutput in ipairs(child and child.linkOutputs or {}) do
-                    linkOutputs[#linkOutputs + 1] = childOutput
-                end
-                for _, childFlag in ipairs(child and child.linkFlags or {}) do
-                    linkFlags[#linkFlags + 1] = childFlag
-                end
-            end
+            appendChildLinkInputs(dep, childResults, linkOutputs, linkFlags)
             for _, flag in ipairs(dep.ldflags or {}) do
                 linkFlags[#linkFlags + 1] = flag
             end
@@ -412,43 +439,21 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
                 packages[#packages + 1] = packageName
             end
         end
-        local cflagsCommand = {"pkg-config", "--cflags"}
-        local libsCommand = {"pkg-config", "--libs"}
-        local staticLibsCommand = {"pkg-config", "--static", "--libs"}
-        for _, packageName in ipairs(packages) do
-            cflagsCommand[#cflagsCommand + 1] = packageName
-            libsCommand[#libsCommand + 1] = packageName
-            staticLibsCommand[#staticLibsCommand + 1] = packageName
-        end
         local label = table.concat(packages, ", ")
-        local code, flags = process.capture(cflagsCommand)
-        if code ~= 0 then
-            return nil, "pkg-config failed for " .. label .. ": " .. flags
+        local problem
+        pkgCflags, problem = pkgConfigWords({"pkg-config", "--cflags"}, packages, label)
+        if not pkgCflags then
+            return nil, problem
         end
-        local parsed = syntax.shellWords:match(flags)
-        if not parsed then
-            return nil, "pkg-config returned invalid flags for " .. label
+        pkgSharedLibs, problem = pkgConfigWords({"pkg-config", "--libs"}, packages, label)
+        if not pkgSharedLibs then
+            return nil, problem
         end
-        pkgCflags = parsed
-        code, flags = process.capture(libsCommand)
-        if code ~= 0 then
-            return nil, "pkg-config failed for " .. label .. ": " .. flags
-        end
-        parsed = syntax.shellWords:match(flags)
-        if not parsed then
-            return nil, "pkg-config returned invalid flags for " .. label
-        end
-        pkgSharedLibs = parsed
         if buildsStatic then
-            code, flags = process.capture(staticLibsCommand)
-            if code ~= 0 then
-                return nil, "pkg-config failed for " .. label .. ": " .. flags
+            pkgStaticLibs, problem = pkgConfigWords({"pkg-config", "--static", "--libs"}, packages, label)
+            if not pkgStaticLibs then
+                return nil, problem
             end
-            parsed = syntax.shellWords:match(flags)
-            if not parsed then
-                return nil, "pkg-config returned invalid flags for " .. label
-            end
-            pkgStaticLibs = parsed
         end
     end
     local cppflags = {}
@@ -597,17 +602,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
                 for _, object in ipairs(objects) do
                     argv[#argv + 1] = object
                 end
-                for _, childName in ipairs(dep.dependencies or {}) do
-                    local child = childResults and childResults[childName]
-                    for _, childOutput in ipairs(
-                        child and child.linkOutputs or child and child.output and {child.output} or {}
-                    ) do
-                        argv[#argv + 1] = childOutput
-                    end
-                    for _, childFlag in ipairs(child and child.linkFlags or {}) do
-                        argv[#argv + 1] = childFlag
-                    end
-                end
+                appendChildLinkInputs(dep, childResults, argv, argv)
                 for _, flag in ipairs(pkgSharedLibs) do
                     argv[#argv + 1] = flag
                 end
@@ -663,17 +658,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     local linkFlags = json.asArray({})
     if staticOutput then
         linkOutputs[#linkOutputs + 1] = staticOutput
-        for _, childName in ipairs(dep.dependencies or {}) do
-            local child = childResults and childResults[childName]
-            for _, childOutput in ipairs(
-                child and child.linkOutputs or child and child.output and {child.output} or {}
-            ) do
-                linkOutputs[#linkOutputs + 1] = childOutput
-            end
-            for _, childFlag in ipairs(child and child.linkFlags or {}) do
-                linkFlags[#linkFlags + 1] = childFlag
-            end
-        end
+        appendChildLinkInputs(dep, childResults, linkOutputs, linkFlags)
         for _, flag in ipairs(pkgStaticLibs) do
             linkFlags[#linkFlags + 1] = flag
         end
