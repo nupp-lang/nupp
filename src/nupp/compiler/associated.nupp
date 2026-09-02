@@ -143,8 +143,6 @@ local function settle(result: Lookup, head: Type): Lookup
         -- candidates are reported only so an implementor can be held to them.
         if result.answer and result.answer.kind == "fixed" then
             result.resolved = resolvedType(result.answer, head)
-
-            return result
         end
 
         return result
@@ -292,12 +290,10 @@ lookupInto = function(head: Type, name: string): Lookup
         if result.gradual then
             return result
         end
+        -- An alternative that is merely opaque -- an interface, say -- leaves the
+        -- whole projection opaque rather than wrong: nothing resolves.
         if settled and #resolvedArms > 0 then
             result.resolved = T.union(resolvedArms)
-        elseif not settled then
-            -- An alternative that is merely opaque -- an interface, say -- leaves the
-            -- whole projection opaque rather than wrong.
-            result.answer = nil
         end
 
         return result
@@ -367,19 +363,6 @@ end
 --- Whether `head` declares `contract` among the contracts it takes.
 function associated.declares(head: Type, contract: Type): boolean
     return declares(head, contract, {})
-end
-
---- Whether a projection of `name` through `head` is usable as written.
----
---- The narrow question the resolver asks: is this a type at all? Whether anything
---- answers it is a separate question, and an opaque projection is a normal form.
----
---- @param head what the projection is reached through
---- @param name the associated member
-function associated.projectable(head: Type, name: string): boolean
-    local result = lookupInto(head, name)
-
-    return result.gradual == true or #result.requirements > 0
 end
 
 export = associated
