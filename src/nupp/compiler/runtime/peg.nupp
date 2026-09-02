@@ -265,61 +265,16 @@ export function matcher(
         end
         error("nupp: PEG replacement must be a string or function", 2)
     end
-    -- An empty match cannot be allowed to stand still: the cursor steps past one byte
+    -- Every match from `at` on, each replaced by what `produce` answers for it. An
+    -- empty match cannot be allowed to stand still: the cursor steps past one byte
     -- and that byte is copied through, which is what keeps `a*` from looping forever
     -- and from eating the subject.
-    Matcher.__nuppPegReplaceAllLiteral = function(
-        self: any,
-        subject: string,
-        replacement: string,
-        init: integer?
-    ): string
-        local at = start(subject, init, 2)
-        if at == nil then
-            return subject
-        end
-        if directReplaceAll ~= nil then
-            return directReplaceAll(subject, replacement, at) as string
-        end
+    local function replaceAllFrom(subject: string, at: integer, produce: any): string
         local parts: {string} = {}
         local count: integer = 0
-        local cursor, copyAt = at as integer, 1
+        local cursor, copyAt = at, 1
         while cursor <= #subject + 1 do
-            local first, nextPosition = findAt(subject, cursor)
-            if first == nil then
-                break
-            end
-            count = count + 1
-            parts[#parts + 1] = subject:sub(copyAt, (first as integer) - 1)
-            parts[#parts + 1] = replacement
-            copyAt = nextPosition as integer
-            if (nextPosition as integer) > (first as integer) then
-                cursor = nextPosition as integer
-            elseif (first as integer) <= #subject then
-                parts[#parts + 1] = subject:sub(first as integer, first as integer)
-                copyAt = (first as integer) + 1
-                cursor = (first as integer) + 1
-            else
-                cursor = (first as integer) + 1
-            end
-        end
-        if count == 0 then
-            return subject
-        end
-        parts[#parts + 1] = subject:sub(copyAt)
-
-        return table.concat(parts)
-    end
-    Matcher.__nuppPegReplaceAllCallback = function(self: any, subject: string, replacement: any, init: integer?): string
-        local at = start(subject, init, 2)
-        if at == nil then
-            return subject
-        end
-        local parts: {string} = {}
-        local count: integer = 0
-        local cursor, copyAt = at as integer, 1
-        while cursor <= #subject + 1 do
-            local first, nextPosition, value = replacementAt(replacement, findAt(subject, cursor))
+            local first, nextPosition, value = produce(cursor)
             if first == nil then
                 break
             end
@@ -343,6 +298,37 @@ export function matcher(
         parts[#parts + 1] = subject:sub(copyAt)
 
         return table.concat(parts)
+    end
+
+    Matcher.__nuppPegReplaceAllLiteral = function(
+        self: any,
+        subject: string,
+        replacement: string,
+        init: integer?
+    ): string
+        local at = start(subject, init, 2)
+        if at == nil then
+            return subject
+        end
+        if directReplaceAll ~= nil then
+            return directReplaceAll(subject, replacement, at) as string
+        end
+
+        return replaceAllFrom(subject, at as integer, function(cursor: integer): (integer?, integer?, string?)
+            local first, nextPosition = findAt(subject, cursor)
+
+            return first, nextPosition, replacement
+        end)
+    end
+    Matcher.__nuppPegReplaceAllCallback = function(self: any, subject: string, replacement: any, init: integer?): string
+        local at = start(subject, init, 2)
+        if at == nil then
+            return subject
+        end
+
+        return replaceAllFrom(subject, at as integer, function(cursor: integer): (integer?, integer?, string?)
+            return replacementAt(replacement, findAt(subject, cursor))
+        end)
     end
     Matcher.replaceAll = function(self: any, subject: string, replacement: any, init: integer?): string
         if type(replacement) == "string" then
