@@ -472,12 +472,13 @@ function M.staticHostsRetainTheRustApplicationArchive()
         driver:find('[ "$PLATFORM" != windows ] || [ -f "$out/libnupp-host-imports.a" ]', 1, true),
         "a completed Windows host cache can omit its import companion"
     )
+    local function hasOneCodegenUnit(package)
+        local profile = "%[profile%.release%.package%." .. package:gsub("%-", "%%-") .. "%]"
+        return cargo:match(profile .. "%s+codegen%-units%s*=%s*1")
+    end
+
     assert(
-        cargo:find(
-            "[profile.release.package.nupp-native]\ncodegen-units = 1",
-            1,
-            true
-        ) and cargo:find("[profile.release.package.nupp-native-host]\ncodegen-units = 1", 1, true),
+        hasOneCodegenUnit("nupp-native") and hasOneCodegenUnit("nupp-native-host"),
         "the ordinary Windows host archive can split name-resolved Rust exports across codegen units"
     )
     local applications = assert(driver:find('if [ -n "$archives" ]; then', 1, true))
