@@ -986,12 +986,14 @@ function emit.mathFrom(intrinsic: string, parts: {string}): string
     return (name as string) .. "(" .. table.concat(parts, ", ") .. ")"
 end
 
---- How many lane temporaries this function has named so far.
+--- How many lane temporaries this unit has named so far.
 ---
---- Reset by `emit.begin`, because the same IR has to render the same C. A
---- counter that carried across functions would make one function's text depend
---- on what was compiled before it, and an artifact cache keyed on the source
---- would then be wrong rather than merely cold.
+--- Reset by `emit.begin`, which runs once per emitted unit, because the same
+--- IR has to render the same C. A counter that carried across units would make
+--- one unit's text depend on what was compiled before it, and an artifact cache
+--- keyed on the source would then be wrong rather than merely cold. Within a
+--- unit the numbering runs on across functions, which is deterministic for the
+--- same reason.
 local laneTemporary = 0
 
 local luaTemporary = 0
