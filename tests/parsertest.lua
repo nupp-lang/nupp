@@ -679,6 +679,23 @@ function M.halfClosedGenericsAcceptWhatFollows()
    assertEq(union.types[1].kind, "tunion")
 end
 
+-- An assignment to something that is not a place is reported at that target,
+-- not at whatever statement happens to follow the right-hand side.
+function M.unassignableTargetIsReportedAtTheTarget()
+   local plain = parser.parse("local t = {}\nf() = 1\nprint(2)\n")
+   assertEq(#plain.errors, 1, "one error for the call target")
+   assertEq(plain.errors[1].msg, "cannot assign to this expression")
+   assertEq(plain.errors[1].line, 2, "assignment target line")
+   assertEq(plain.errors[1].col, 1, "assignment target column")
+   local compound = parser.parse("local t = {}\nt.x, f() += 1\nprint(2)\n")
+   assert(compound.errors[1], "a compound assignment to a call went unreported")
+   assertEq(compound.errors[1].line, 2, "compound target line")
+   local second = parser.parse("local t = {}\nt.x, f() = 1, 2\nprint(2)\n")
+   assertEq(#second.errors, 1, "one error for the second target")
+   assertEq(second.errors[1].line, 2, "second target line")
+   assertEq(second.errors[1].col, 6, "second target column")
+end
+
 -- An unmatched second half is still reported rather than silently swallowed.
 function M.strayHalfCloseIsReported()
    local result = parser.parse("local w: Box<integer>> = 1\n")

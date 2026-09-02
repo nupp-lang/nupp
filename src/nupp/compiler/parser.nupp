@@ -3181,7 +3181,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.op = add(n, advance())
             n.value = add(n, parseExp())
             if not ASSIGN_TARGETS[e.kind] then
-                errAt(cur(), "cannot assign to this expression")
+                errAt(cst.firstToken(e) or cur(), "cannot assign to this expression")
             end
             return n
         end
@@ -3196,7 +3196,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.exprs = parseExplist(n)
             for _, target in ipairs(n.targets) do
                 if not ASSIGN_TARGETS[target.kind] then
-                    errAt(cur(), "cannot assign to this expression")
+                    errAt(cst.firstToken(target) or cur(), "cannot assign to this expression")
                 end
             end
             return n
