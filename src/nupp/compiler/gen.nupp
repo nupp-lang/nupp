@@ -314,7 +314,6 @@ local IS_TYPE = {
     uint16 = "number",
     uint32 = "number",
     uint64 = "number",
-    ["function"] = "function", -- spelled via tfunc, handled separately
 }
 
 -- Converts an interpolated-string literal chunk to a quoted Lua string. The lexer owns
@@ -3148,8 +3147,7 @@ function gen.generate(
 
     -- `...` cannot cross the protected region's function boundary, so a body that reads
     -- it makes the region variadic and the varargs are forwarded through xpcall. Nested
-    -- Nested cleanup bodies are searched too, so an inner region's varargs are
-    -- forwarded down
+    -- cleanup bodies are searched too, so an inner region's varargs are forwarded down
     -- through every enclosing region; nested functions are not, because they bind their
     -- own `...`.
     local function usesVararg(block)
@@ -3936,7 +3934,7 @@ function gen.generate(
                 else
                     emit(target.obj)
                 end
-                if target.indexedDirectAccess and not emitDepth.view.info(target.obj) then
+                if target.indexedDirectAccess then
                     e(".pointer[")
                     emit(target.obj)
                     e(".offset+")
