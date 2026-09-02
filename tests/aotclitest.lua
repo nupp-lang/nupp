@@ -36,15 +36,30 @@ local function project(files)
     return dir
 end
 
--- LuaJIT's `popen` close answers only whether the pipe shut, never the exit status, so
--- the status is carried back through the pipe itself.
+-- Keep command status separate from stdout. `--emit spirv` writes arbitrary binary,
+-- and a Windows text-mode pipe can translate it or treat Ctrl-Z as the end before a
+-- sentinel appended to that same stream. The artifact is always read in binary mode;
+-- failed commands still put their ordinary diagnostic in the same file.
 local function run(dir, argv)
-    local pipe = assert(io.popen(("cd %q && NO_COLOR= '%s' aot %s 2>&1; echo \"__exit__:$?\""):format(dir, NUPP, argv)))
-    local out = pipe:read("*a")
-    pipe:close()
-    local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")), "no exit status in:\n" .. out)
+    local outputPath = dir .. "/.nupp-aot-output"
+    local statusPath = dir .. "/.nupp-aot-status"
+    os.remove(outputPath)
+    os.remove(statusPath)
+    os.execute(
+        (
+            "cd %q && { NO_COLOR= '%s' aot %s > .nupp-aot-output 2>&1; code=$?; printf '%%s\\n' \"$code\" > .nupp-aot-status; }"
+        ):format(dir, NUPP, argv)
+    )
+    local output = assert(io.open(outputPath, "rb"), "aot command wrote no output file")
+    local out = output:read("*a")
+    output:close()
+    local status = assert(io.open(statusPath, "rb"), "aot command wrote no status file")
+    local code = assert(tonumber(status:read("*a")), "aot command wrote an invalid status")
+    status:close()
+    os.remove(outputPath)
+    os.remove(statusPath)
 
-    return (out:gsub("__exit__:%d+%s*$", "")), code
+    return out, code
 end
 
 local function spirvWord(module, offset)
