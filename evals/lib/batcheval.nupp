@@ -28,28 +28,28 @@ local function parallel(
     local answers: {any} = {}
     local nextIndex: integer = 1
     local doneCount: integer = 0
-    tasks.run(function(scope: tasks.Scope): nil
-        local function worker(): nil
-            while true do
-                local index = nextIndex
-                nextIndex = nextIndex + 1
-                local value = values[index]
-                if value == nil then
-                    return
-                end
-                local answer = body(value)
-                answers[index] = answer
-                doneCount = doneCount + 1
-                if completed ~= nil then
-                    completed(doneCount, answer)
-                end
+    local function worker(): nil
+        while true do
+            local index = nextIndex
+            nextIndex = nextIndex + 1
+            local value = values[index]
+            if value == nil then
+                return
+            end
+            local answer = body(value)
+            answers[index] = answer
+            doneCount = doneCount + 1
+            if completed ~= nil then
+                completed(doneCount, answer)
             end
         end
+    end
 
+    with scope = tasks.open() do
         for _ = 1, math.min(jobs, #values) do
             scope:spawn(worker)
         end
-    end)
+    end
 
     return answers
 end

@@ -89,11 +89,14 @@ with scope = workers.scope() do
     text("failedStatus", bad:status())
 end
 
-boolean("unobservedFailureRaised", raised(function(): nil
-    with scope = workers.scope() do
-        scope:spawn("gamma", jobs.refuse)
-    end
-end) ~= nil)
+boolean(
+    "unobservedFailureRaised",
+    raised(function(): nil
+        with scope = workers.scope() do
+            scope:spawn("gamma", jobs.refuse)
+        end
+    end) ~= nil
+)
 
 ----------------------------------------------------------------------------
 -- A lane refuses a result no copy could reproduce
@@ -113,6 +116,7 @@ with scope = workers.scope() do
     local function submitAnAlias(): nil
         scope:spawn({shared, shared}, jobs.count)
     end
+
     local problem = raised(submitAnAlias)
     boolean(
         "unsendableArgumentRefusedAtTheCallSite",
@@ -177,6 +181,7 @@ with scope = workers.scope() do
     local function submit(): nil
         scope:spawn("x", 1, jobs.checksum)
     end
+
     for _ = 1, 1100 do
         refused = raised(submit)
         if refused ~= nil then
@@ -210,7 +215,7 @@ end
 ----------------------------------------------------------------------------
 
 local coroutineChildren: integer = 0
-tasks.run(function(scope: tasks.Scope): nil
+with scope = tasks.open() do
     local first = scope:spawn(function(): integer
         tasks.checkpoint()
 
@@ -222,24 +227,23 @@ tasks.run(function(scope: tasks.Scope): nil
         return 2
     end)
     coroutineChildren = first:await() + second:await()
-end)
+end
 boolean("coroutineChildrenRan", coroutineChildren == 3)
 
 local owned: integer = 0
-tasks.run(function(scope: tasks.Scope): nil
-    local parallel = scope:workers()
-    owned = parallel:spawn("browser-worker", 1, jobs.checksum):await()
-end)
+with scope = tasks.open() do
+    owned = scope:fork("browser-worker", 1, jobs.checksum):await()
+end
 boolean("taskScopeOwnsWorkers", owned == jobs.checksum("browser-worker", 1))
 
 -- The scope's deadline reaches the lane, and the checkpoint is where it lands.
 local deadlineStarted = time.now()
 local function bounded(): nil
-    tasks.runFor(250, function(inner: tasks.Scope): nil
-        local parallel = inner:workers()
-        parallel:spawn(400, 25, jobs.cooperative):await()
-    end)
+    with inner = tasks.open(deadline = 250) do
+        inner:fork(400, 25, jobs.cooperative):await()
+    end
 end
+
 local deadlineProblem = raised(bounded)
 text(
     "deadlineOutcome",

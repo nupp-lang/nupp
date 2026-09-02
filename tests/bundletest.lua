@@ -797,7 +797,7 @@ local handler = {
 
 const app = coroutine.create(function(): nil
 with handling = suspension.install(handler) do
-tasks.run(function(scope: tasks.Scope): nil
+with scope = tasks.open() do
     const parallel = scope:workers()
     const running = parallel:spawn(1000000000, jobs.cancellable)
     while running:status() == "queued" do
@@ -807,19 +807,27 @@ tasks.run(function(scope: tasks.Scope): nil
     const ok, problem = pcall(function(): integer return running:await() end)
     print(requested, ok, tasks.isCancelled(problem),
         tostring(problem):find("stop running", 1, true) ~= nil)
-end)
+end
 
-tasks.run(function(scope: tasks.Scope): nil
+with scope = tasks.open() do
     const returning = scope:workers():spawn(jobs.returnsAfterCancellation)
     while returning:status() == "queued" do suspension.poll() end
     const requested = returning:cancel("observe at return")
     const ok, problem = pcall(function(): integer return returning:await() end)
     print(requested, ok, tasks.isCancelled(problem),
         tostring(problem):find("observe at return", 1, true) ~= nil)
-end)
+end
+
+-- A fork is a worker child with the task scope's own handle: it counts against the
+-- scope's limit until its lane answers, and its result pack comes back intact.
+with scope = tasks.open(limit = 2) do
+    const forked = scope:fork(3, jobs.cancellable)
+    const sibling = scope:fork(2, jobs.cancellable)
+    print(forked:await() + sibling:await(), forked:status(), sibling:isDone())
+end
 
 pcall(function(): nil
-tasks.run(function(scope: tasks.Scope): nil
+with scope = tasks.open() do
     const parallel = scope:workers()
     for _ = 1, 64 do
         parallel:spawn(1000000000, jobs.cancellable)
@@ -830,13 +838,13 @@ tasks.run(function(scope: tasks.Scope): nil
     const ok, problem = pcall(function(): integer return queued:await() end)
     print(wasQueued, requested, ok, tasks.isCancelled(problem))
     error("finish queued cancellation test", 0)
-end)
+end
 end)
 
 const deadlineOk, deadlineProblem = pcall(function(): nil
-    tasks.runFor(1, function(scope: tasks.Scope): nil
+    with scope = tasks.open(deadline = 1) do
         scope:workers():spawn(1000000000, jobs.cancellable):await()
-    end)
+    end
 end)
 print(deadlineOk, tasks.isCancelled(deadlineProblem),
     tostring(deadlineProblem):find("deadline", 1, true) ~= nil,
@@ -863,6 +871,7 @@ end
    -- there first a race. Both say the same thing about the same event, and the
    -- field before this one already asserts the message names the deadline.
    local head = "true\tfalse\ttrue\ttrue\ntrue\tfalse\ttrue\ttrue\n"
+      .. "5\tdone\ttrue\n"
       .. "true\ttrue\tfalse\ttrue\nfalse\ttrue\ttrue\t"
    local tail = "\ntrue\ttrue\n"
    assert(output:sub(1, #head) == head
@@ -935,9 +944,11 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
 ]],
       ["src/main.nupp"] = [[
 const tasks = require("nupp.tasks")
-print(tasks.run(function(scope: tasks.Scope): integer
-    return scope:spawn(function(): integer return 42 end):await()
-end))
+local answer = 0
+with scope = tasks.open() do
+    answer = scope:spawn(function(): integer return 42 end):await()
+end
+print(answer)
 ]],
    })
    local out, ok = run(dir, "'" .. NUPP .. "' build")

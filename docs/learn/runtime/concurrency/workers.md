@@ -492,10 +492,11 @@ native task registry. A normal result or application failure that wins the race
 remains that result or failure.
 
 `workers.scope()` itself has no deadline and cancelling one child does not
-cancel its siblings. `tasks.Scope:workers()` is the fail-fast application form:
-the task scope requests cancellation for every unfinished worker child when its
-body or a sibling fails, then awaits running cleanup through the installed
-suspension handler.
+cancel its siblings. `scope:fork` on an application task scope is the fail-fast
+form: the task scope requests cancellation for every unfinished worker child when
+a sibling fails, then awaits running cleanup through the installed suspension
+handler. `scope:workers()` is the same worker scope as a handle, for when the
+scope itself is wanted.
 
 The same rule applies to nontermination: an infinite worker task makes its
 scope infinite. Worker tasks are for bounded CPU work. Durable work, retries
@@ -532,8 +533,8 @@ buffer](#moving-owned-buffers) needs [](nupp.mem.heap), which the `lua51` dialec
 has no storage capability for, so every ownership mode keeps the copy refusal.
 
 Everything else is the same, [application task scopes](task-scopes.md) included:
-`tasks.Scope:workers()` gives a browser page the fail-fast form, a scope deadline
-reaches a lane, and `tasks.checkpoint()` is where a running lane observes that its
+`scope:fork` gives a browser page the fail-fast form, a scope deadline reaches a
+lane, and `nupp.tasks.checkpoint()` is where a running lane observes that its
 cancellation was requested.
 
 See [NEP 18](../../../neps/0018-structured-worker-tasks.md) for the design tradeoffs
