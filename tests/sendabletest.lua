@@ -154,4 +154,33 @@ function M.composesWithNosuspend()
    end
 end
 
+-- Instantiating a generic member closes its binders and nothing else: the guarantee
+-- a module member carries survives into the specialized signature.
+function M.survivesGenericInstantiation()
+   local generic = "local m = {}\n"
+      .. "function m.first<T>(xs: {T}): T?\n    return xs[1]\nend\n"
+   assertEq(#diagnose(generic
+      .. "local slot: sendable function(xs: {integer}): integer? = m.first"), 0,
+      "a generic module member is sendable once instantiated")
+end
+
+-- An interface that promises a member is reproducible holds every implementor to it.
+-- Conformance drops the receiver to compare the rest of a member's signature, and the
+-- guarantee has to survive that.
+function M.anInterfaceMemberHoldsImplementorsToIt()
+   local contract = "local m = {}\n"
+      .. "interface m.Job\n    run: sendable function(self: m.Job): nil\nend\n"
+   local good = contract
+      .. "record m.Good\n    run: sendable function(self: m.Good): nil\nend\n"
+      .. "local job: m.Job = new m.Good(run = nil as any)\nprint(job)"
+   assertEq(#diagnose(good), 0, "a sendable member conforms")
+   local bad = contract
+      .. "record m.Bad\n    run: function(self: m.Bad): nil\nend\n"
+      .. "local job: m.Job = new m.Bad(run = nil as any)\nprint(job)"
+   local errors = diagnose(bad)
+   assertEq(#errors, 1, "one refusal")
+   assertTrue(errors[1].msg:find('read member "run" does not match', 1, true) ~= nil,
+      "refused on the member: " .. errors[1].msg)
+end
+
 return M

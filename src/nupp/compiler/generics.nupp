@@ -343,38 +343,19 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
                 bounds[j] = substWith(b, map, unmapped)
             end
         end
-        return T.func(
-            params,
-            rets,
-            t.vararg,
-            t.paramModes,
-            t.predicate,
-            t.typeParams,
-            bounds,
-            t.borrowsParam,
-            t.borrowsSelf,
-            t.borrowsParams,
-            t.ffiOut,
-            t.varargType and substWith(t.varargType, map, unmapped) or nil,
-            t.noreturn,
-            paramPack,
-            retPack,
-            t.packParams,
-            t.yieldPack and substPackWith(t.yieldPack, map, unmapped) or nil,
-            t.resumePack and substPackWith(t.resumePack, map, unmapped) or nil,
-            -- Substitution changes what a function takes and answers, never whether
-            -- calling it may suspend. Dropping the qualifier here would silently
-            -- downgrade every generic call site to may-yield.
-            t.noYield,
-            t.paramNames,
-            t.preservesResults,
-            t.foreign,
-            t.constParams,
-            t.paramKinds,
-            t.partitionResults,
-            t.comptimeOnly,
-            t.explicitPreserves
-        )
+        -- Substitution changes what a function takes and answers, never whether
+        -- calling it may suspend or whether another Lua state can reproduce it:
+        -- every other field is copied, so neither guarantee is dropped here.
+        return T.funcWith(t, {
+            params = params,
+            rets = rets,
+            typeBounds = bounds,
+            varargType = t.varargType and substWith(t.varargType, map, unmapped) or nil,
+            paramPack = paramPack,
+            retPack = retPack,
+            yieldPack = t.yieldPack and substPackWith(t.yieldPack, map, unmapped) or nil,
+            resumePack = t.resumePack and substPackWith(t.resumePack, map, unmapped) or nil,
+        })
     end
 
     return t
@@ -1237,35 +1218,16 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
             resumePack = reduced
         end
         if changed then
-            out = T.func(
-                paramPack.head,
-                retPack.head,
-                t.vararg,
-                t.paramModes,
-                t.predicate,
-                t.typeParams,
-                bounds,
-                t.borrowsParam,
-                t.borrowsSelf,
-                t.borrowsParams,
-                t.ffiOut,
-                varargType,
-                t.noreturn,
-                paramPack,
-                retPack,
-                t.packParams,
-                yieldPack,
-                resumePack,
-                t.noYield,
-                t.paramNames,
-                t.preservesResults,
-                t.foreign,
-                t.constParams,
-                t.paramKinds,
-                t.partitionResults,
-                t.comptimeOnly,
-                t.explicitPreserves
-            )
+            out = T.funcWith(t, {
+                params = paramPack.head,
+                rets = retPack.head,
+                typeBounds = bounds,
+                varargType = varargType,
+                paramPack = paramPack,
+                retPack = retPack,
+                yieldPack = yieldPack,
+                resumePack = resumePack,
+            })
         end
     elseif t.tag == "shape" then
         local fields = {}
@@ -1466,36 +1428,14 @@ function generics.expandFunctionPacks(t: T.Func, control: generics.ReductionCont
         return t
     end
 
-    return T.func(
-        paramPack.head,
-        retPack.head,
-        paramPack.tail ~= nil,
-        paramPack.modes,
-        t.predicate,
-        t.typeParams,
-        t.typeBounds,
-        t.borrowsParam,
-        t.borrowsSelf,
-        t.borrowsParams,
-        t.ffiOut,
-        t.varargType,
-        t.noreturn,
-        paramPack,
-        retPack,
-        t.packParams,
-        t.yieldPack,
-        t.resumePack,
-        t.noYield,
-        t.paramNames,
-        t.preservesResults,
-        t.foreign,
-        t.constParams,
-        t.paramKinds,
-        t.partitionResults,
-        t.comptimeOnly,
-        t.explicitPreserves,
-        t.sendable
-    ) as T.Func
+    return T.funcWith(t, {
+        params = paramPack.head,
+        rets = retPack.head,
+        vararg = paramPack.tail ~= nil,
+        paramModes = paramPack.modes,
+        paramPack = paramPack,
+        retPack = retPack,
+    }) as T.Func
 end
 
 ----------------------------------------------------------------------------
@@ -1525,35 +1465,22 @@ function generics.instantiateFunction(t: T.Func, map: Bindings, control: generic
         return concrete, packError
     end
 
-    return T.func(
-        paramPack.head,
-        retPack.head,
-        paramPack.tail ~= nil,
-        paramPack.modes,
-        concrete.predicate,
-        nil,
-        nil,
-        concrete.borrowsParam,
-        concrete.borrowsSelf,
-        concrete.borrowsParams,
-        concrete.ffiOut,
-        concrete.varargType,
-        concrete.noreturn,
-        paramPack,
-        retPack,
-        nil,
-        concrete.yieldPack,
-        concrete.resumePack,
-        concrete.noYield,
-        concrete.paramNames,
-        concrete.preservesResults,
-        concrete.foreign,
-        nil,
-        nil,
-        concrete.partitionResults,
-        concrete.comptimeOnly,
-        concrete.explicitPreserves
-    ) as T.Func
+    -- Instantiation closes the binders, so the generic parameters go; everything else,
+    -- the sendable guarantee included, is what the declaration promised.
+
+    return T.funcWith(concrete, {
+        params = paramPack.head,
+        rets = retPack.head,
+        vararg = paramPack.tail ~= nil,
+        paramModes = paramPack.modes,
+        typeParams = false,
+        typeBounds = false,
+        paramPack = paramPack,
+        retPack = retPack,
+        packParams = false,
+        constParams = false,
+        paramKinds = false,
+    }) as T.Func
 end
 
 --- Structurally matches an actual value sequence against a declared pack.
@@ -2177,36 +2104,19 @@ function generics.dropSelf(ft: Type): Type
                 borrowsParams[#borrowsParams + 1] = source - 1
             end
         end
-        return T.func(
-            params,
-            ft.rets,
-            ft.vararg,
-            modes,
-            nil,
-            ft.typeParams,
-            ft.typeBounds,
-            borrowsParam,
-            borrowsSelf,
-            next(borrowsParams) and borrowsParams or nil,
-            ft.ffiOut,
-            ft.varargType,
-            ft.noreturn,
-            paramPack,
-            ft.retPack,
-            ft.packParams,
-            ft.yieldPack,
-            ft.resumePack,
-            -- Adjusting the receiver rewrites a parameter list, not an effect.
-            ft.noYield,
-            names,
-            next(preserves) and preserves or nil,
-            ft.foreign,
-            ft.constParams,
-            ft.paramKinds,
-            ft.partitionResults,
-            ft.comptimeOnly,
-            ft.explicitPreserves
-        )
+        -- Adjusting the receiver rewrites a parameter list, not an effect or a
+        -- guarantee; a predicate over the receiver has nothing to name any more.
+        return T.funcWith(ft, {
+            params = params,
+            paramModes = modes,
+            predicate = false,
+            borrowsParam = borrowsParam or false,
+            borrowsSelf = borrowsSelf or false,
+            borrowsParams = next(borrowsParams) and borrowsParams or false,
+            paramPack = paramPack,
+            paramNames = names,
+            preservesResults = next(preserves) and preserves or false,
+        })
     end
 
     return ft
@@ -2242,46 +2152,21 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
         names[#names + 1] = name
     end
     local paramPack = T.pack(params, ft.paramPack.tail, modes)
+    local shifted = {}
+    for result = 1, #ft.rets do
+        local source = ft.preservesResults and ft.preservesResults[result]
+        if source then
+            shifted[result] = source + 1
+        end
+    end
 
-    return T.func(
-        params,
-        ft.rets,
-        ft.vararg,
-        modes,
-        ft.predicate,
-        ft.typeParams,
-        ft.typeBounds,
-        ft.borrowsParam,
-        ft.borrowsSelf,
-        ft.borrowsParams,
-        ft.ffiOut,
-        ft.varargType,
-        ft.noreturn,
-        paramPack,
-        ft.retPack,
-        ft.packParams,
-        ft.yieldPack,
-        ft.resumePack,
-        ft.noYield,
-        names,
-        (function()
-            local shifted = {}
-            for result = 1, #ft.rets do
-                local source = ft.preservesResults and ft.preservesResults[result]
-                if source then
-                    shifted[result] = source + 1
-                end
-            end
-
-            return next(shifted) and shifted or nil
-        end)(),
-        ft.foreign,
-        ft.constParams,
-        ft.paramKinds,
-        ft.partitionResults,
-        ft.comptimeOnly,
-        ft.explicitPreserves
-    )
+    return T.funcWith(ft, {
+        params = params,
+        paramModes = modes,
+        paramPack = paramPack,
+        paramNames = names,
+        preservesResults = next(shifted) and shifted or false,
+    })
 end
 
 export = generics

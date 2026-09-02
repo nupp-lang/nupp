@@ -356,56 +356,35 @@ local function memberIsA(have: Type, want: Type): boolean
             return next(shifted) and shifted or nil
         end
 
-        return (isA(
-            T.func(
-                hp,
-                have.rets,
-                have.vararg,
-                hm,
-                nil,
-                nil,
-                nil,
-                nil,
-                nil,
-                nil,
-                nil,
-                have.varargType,
-                nil,
-                T.pack(hp, have.paramPack.tail, hm),
-                have.retPack,
-                have.packParams,
-                have.yieldPack,
-                have.resumePack,
-                -- Both sides keep the qualifier, so dropping the receiver to
-                -- compare shapes does not also drop the suspension check.
-                have.noYield,
-                hn,
-                shiftedPreserves(have)
-            ),
-            T.func(
-                wp,
-                want.rets,
-                want.vararg,
-                wm,
-                nil,
-                nil,
-                nil,
-                nil,
-                nil,
-                nil,
-                nil,
-                want.varargType,
-                nil,
-                T.pack(wp, want.paramPack.tail, wm),
-                want.retPack,
-                want.packParams,
-                want.yieldPack,
-                want.resumePack,
-                want.noYield,
-                wn,
-                shiftedPreserves(want)
-            )
-        ))
+        -- Only the receiver is dropped. The generic parameters go with it, since a
+        -- member's binders are compared by the receiver that declares them, and the
+        -- guarantees a member states -- no-yield, sendable -- stay, so an interface
+        -- that promises one holds every implementor to it.
+        local function withoutReceiver(ft: T.Func, params: {Type}, modes: {string}, names: {string}): Type
+            return T.funcWith(ft, {
+                params = params,
+                paramModes = modes,
+                predicate = false,
+                typeParams = false,
+                typeBounds = false,
+                borrowsParam = false,
+                borrowsSelf = false,
+                borrowsParams = false,
+                ffiOut = false,
+                noreturn = false,
+                paramPack = T.pack(params, ft.paramPack.tail, modes),
+                paramNames = names,
+                preservesResults = shiftedPreserves(ft) or false,
+                foreign = false,
+                constParams = false,
+                paramKinds = false,
+                partitionResults = false,
+                comptimeOnly = false,
+                explicitPreserves = false,
+            })
+        end
+
+        return (isA(withoutReceiver(have, hp, hm, hn), withoutReceiver(want, wp, wm, wn)))
     end
 
     return (isA(have, want))

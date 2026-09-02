@@ -1388,36 +1388,7 @@ local function pushUnionMember(
             -- guarantee neither branch promised alone is not promised by the choice
             -- between them, so sendability survives only when both readings carried it.
             local sendable = prior.sendable and (t as types.Func).sendable or nil
-            local merged = types.func(
-                prior.params,
-                prior.rets,
-                prior.vararg,
-                prior.paramModes,
-                prior.predicate,
-                prior.typeParams,
-                prior.typeBounds,
-                prior.borrowsParam,
-                prior.borrowsSelf,
-                prior.borrowsParams,
-                prior.ffiOut,
-                prior.varargType,
-                prior.noreturn,
-                prior.paramPack,
-                prior.retPack,
-                prior.packParams,
-                prior.yieldPack,
-                prior.resumePack,
-                prior.noYield,
-                nil,
-                prior.preservesResults,
-                prior.foreign,
-                prior.constParams,
-                prior.paramKinds,
-                prior.partitionResults,
-                prior.comptimeOnly,
-                prior.explicitPreserves,
-                sendable
-            )
+            local merged = types.funcWith(prior, {paramNames = false, sendable = sendable or false})
             seen[prior] = nil
             seen[merged] = true
             flat[at] = merged
@@ -2853,13 +2824,108 @@ function types.func(
     )
 end
 
---- The same function, with its suspension guarantee set.
+--- The field names `types.func` takes, in the order it takes them. `types.funcWith`
+--- reads a function's fields by these names, so a field added to `types.func` is added
+--- here and nowhere else.
+local FUNC_FIELDS: {
+    string
+} = {
+    "params",
+    "rets",
+    "vararg",
+    "paramModes",
+    "predicate",
+    "typeParams",
+    "typeBounds",
+    "borrowsParam",
+    "borrowsSelf",
+    "borrowsParams",
+    "ffiOut",
+    "varargType",
+    "noreturn",
+    "paramPack",
+    "retPack",
+    "packParams",
+    "yieldPack",
+    "resumePack",
+    "noYield",
+    "paramNames",
+    "preservesResults",
+    "foreign",
+    "constParams",
+    "paramKinds",
+    "partitionResults",
+    "comptimeOnly",
+    "explicitPreserves",
+    "sendable",
+}
+
+--- The same function with some of its fields replaced, interned as `types.func` would
+--- intern it.
 ---
---- Cloning rather than re-calling `types.func` with its whole argument list: the list
---- is
---- long, it grows, and a finalization that spelled it out would silently drop whatever
---- was added to it next. Everything a function carries -- packs, ownership modes,
---- predicates, generics, coroutine protocols -- is passed through here by name.
+--- Every field `fn` carries -- packs, ownership modes, predicates, generics, coroutine
+--- protocols, the sendable and no-yield guarantees -- is copied by name unless
+--- `overrides` names it. A rebuild that spelled the whole argument list out instead
+--- would silently drop whatever `types.func` learned to carry next, which is how the
+--- sendable guarantee went missing from every substituted signature. An override of
+--- `false` clears the field; `types.func` reads a boolean's `false` as absent already,
+--- so the spelling is one for every field.
+---
+--- @param fn the function to copy
+--- @param overrides the fields to replace, by the names `types.Func` declares
+--- @return the interned function
+--- @raises when `overrides` names a field no function has, which is a misspelling
+function types.funcWith(fn: types.Func, overrides: {[string]: any}): types.Type
+    local known: {[string]: boolean} = {}
+    local field: {[string]: any} = {}
+    for _, name in ipairs(FUNC_FIELDS) do
+        known[name] = true
+        local value = (fn as any)[name]
+        local override = overrides[name]
+        if override ~= nil then
+            value = override or nil
+        end
+        field[name] = value
+    end
+    for name in pairs(overrides) do
+        if not known[name] then
+            error("types.funcWith: a function has no field " .. tostring(name))
+        end
+    end
+
+    return types.func(
+        field.params,
+        field.rets,
+        field.vararg,
+        field.paramModes,
+        field.predicate,
+        field.typeParams,
+        field.typeBounds,
+        field.borrowsParam,
+        field.borrowsSelf,
+        field.borrowsParams,
+        field.ffiOut,
+        field.varargType,
+        field.noreturn,
+        field.paramPack,
+        field.retPack,
+        field.packParams,
+        field.yieldPack,
+        field.resumePack,
+        field.noYield,
+        field.paramNames,
+        field.preservesResults,
+        field.foreign,
+        field.constParams,
+        field.paramKinds,
+        field.partitionResults,
+        field.comptimeOnly,
+        field.explicitPreserves,
+        field.sendable
+    )
+end
+
+--- The same function, with its suspension guarantee set.
 ---
 --- @param ft the function type
 --- @param mayYield whether calling it may suspend
@@ -2874,36 +2940,7 @@ function types.withYields(ft: types.Type, mayYield: boolean): types.Type
         return ft
     end
 
-    return types.func(
-        fn.params,
-        fn.rets,
-        fn.vararg,
-        fn.paramModes,
-        fn.predicate,
-        fn.typeParams,
-        fn.typeBounds,
-        fn.borrowsParam,
-        fn.borrowsSelf,
-        fn.borrowsParams,
-        fn.ffiOut,
-        fn.varargType,
-        fn.noreturn,
-        fn.paramPack,
-        fn.retPack,
-        fn.packParams,
-        fn.yieldPack,
-        fn.resumePack,
-        want,
-        fn.paramNames,
-        fn.preservesResults,
-        fn.foreign,
-        fn.constParams,
-        fn.paramKinds,
-        fn.partitionResults,
-        fn.comptimeOnly,
-        fn.explicitPreserves,
-        fn.sendable
-    )
+    return types.funcWith(fn, {noYield = not mayYield})
 end
 
 --- The same function, marked reproducible in another isolated Lua state.
@@ -2922,36 +2959,7 @@ function types.withSendable(ft: types.Type): types.Type
         return ft
     end
 
-    return types.func(
-        fn.params,
-        fn.rets,
-        fn.vararg,
-        fn.paramModes,
-        fn.predicate,
-        fn.typeParams,
-        fn.typeBounds,
-        fn.borrowsParam,
-        fn.borrowsSelf,
-        fn.borrowsParams,
-        fn.ffiOut,
-        fn.varargType,
-        fn.noreturn,
-        fn.paramPack,
-        fn.retPack,
-        fn.packParams,
-        fn.yieldPack,
-        fn.resumePack,
-        fn.noYield,
-        fn.paramNames,
-        fn.preservesResults,
-        fn.foreign,
-        fn.constParams,
-        fn.paramKinds,
-        fn.partitionResults,
-        fn.comptimeOnly,
-        fn.explicitPreserves,
-        true
-    )
+    return types.funcWith(fn, {sendable = true})
 end
 
 --- Marks a callable as originating at the C boundary without dropping any other
@@ -2964,36 +2972,7 @@ function types.foreignFunction(ft: types.Type): types.Type
     end
     local fn = ft as types.Func
 
-    return types.func(
-        fn.params,
-        fn.rets,
-        fn.vararg,
-        fn.paramModes,
-        fn.predicate,
-        fn.typeParams,
-        fn.typeBounds,
-        fn.borrowsParam,
-        fn.borrowsSelf,
-        fn.borrowsParams,
-        fn.ffiOut,
-        fn.varargType,
-        fn.noreturn,
-        fn.paramPack,
-        fn.retPack,
-        fn.packParams,
-        fn.yieldPack,
-        fn.resumePack,
-        fn.noYield,
-        fn.paramNames,
-        fn.preservesResults,
-        true,
-        fn.constParams,
-        fn.paramKinds,
-        fn.partitionResults,
-        fn.comptimeOnly,
-        fn.explicitPreserves,
-        fn.sendable
-    )
+    return types.funcWith(fn, {foreign = true})
 end
 
 --- Replaces a callable's first fixed result without dropping any other contract fact.
@@ -3008,36 +2987,7 @@ function types.withFirstResult(ft: types.Type, first: types.Type): types.Type
     end
     local retPack = types.pack(rets, fn.retPack.tail, fn.retPack.modes)
 
-    return types.func(
-        fn.params,
-        rets,
-        fn.vararg,
-        fn.paramModes,
-        fn.predicate,
-        fn.typeParams,
-        fn.typeBounds,
-        fn.borrowsParam,
-        fn.borrowsSelf,
-        fn.borrowsParams,
-        fn.ffiOut,
-        fn.varargType,
-        fn.noreturn,
-        fn.paramPack,
-        retPack,
-        fn.packParams,
-        fn.yieldPack,
-        fn.resumePack,
-        fn.noYield,
-        fn.paramNames,
-        fn.preservesResults,
-        fn.foreign,
-        fn.constParams,
-        fn.paramKinds,
-        fn.partitionResults,
-        fn.comptimeOnly,
-        fn.explicitPreserves,
-        fn.sendable
-    )
+    return types.funcWith(fn, {rets = rets, retPack = retPack})
 end
 
 --- Adds trusted sibling-region metadata to a callable result without changing any
@@ -3049,36 +2999,7 @@ function types.withPartitionResults(ft: types.Type, partitionResults: {[integer]
     end
     local fn = ft as types.Func
 
-    return types.func(
-        fn.params,
-        fn.rets,
-        fn.vararg,
-        fn.paramModes,
-        fn.predicate,
-        fn.typeParams,
-        fn.typeBounds,
-        fn.borrowsParam,
-        fn.borrowsSelf,
-        fn.borrowsParams,
-        fn.ffiOut,
-        fn.varargType,
-        fn.noreturn,
-        fn.paramPack,
-        fn.retPack,
-        fn.packParams,
-        fn.yieldPack,
-        fn.resumePack,
-        fn.noYield,
-        fn.paramNames,
-        fn.preservesResults,
-        fn.foreign,
-        fn.constParams,
-        fn.paramKinds,
-        partitionResults,
-        fn.comptimeOnly,
-        fn.explicitPreserves,
-        fn.sendable
-    )
+    return types.funcWith(fn, {partitionResults = partitionResults})
 end
 
 -- A string literal's own type: a subtype of string, and the bridge that lets a bare
