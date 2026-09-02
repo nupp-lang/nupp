@@ -27,6 +27,17 @@ local function readLines(path)
     return (read(path):gsub("\r\n", "\n"))
 end
 
+local function shellPath(path)
+    if package.config:sub(1, 1) ~= "\\" then
+        return path
+    end
+    local pipe = assert(io.popen("cygpath -u " .. quote(path)))
+    local converted = assert(pipe:read("*l"))
+    assert(pipe:close())
+
+    return converted
+end
+
 local function countOccurrences(text, needle)
     local count = 0
     local cursor = 1
@@ -206,6 +217,7 @@ end
 
 function M.nativeBuildIsPinnedOfflineAndFeatureSelected()
     local directory = temporary()
+    local shellDirectory = shellPath(directory)
     local env, library = environment(directory)
     env.NUPP_HOST_OFFLINE = "1"
     local status, output = run(env, "native-rust zeta,alpha,zeta")
@@ -218,8 +230,11 @@ function M.nativeBuildIsPinnedOfflineAndFeatureSelected()
     assert(arguments:find("--no-default-features", 1, true), arguments)
     assert(arguments:find("--features alpha,zeta", 1, true), arguments)
     assert(arguments:find("source.crates-io.replace-with='nupp-vendored-sources'", 1, true), arguments)
-    assert(arguments:find("source.nupp-vendored-sources.directory='" .. directory .. "/vendor'", 1, true), arguments)
-    assert(arguments:find(directory .. "/build/rust/native/", 1, true), arguments)
+    assert(
+        arguments:find("source.nupp-vendored-sources.directory='" .. shellDirectory .. "/vendor'", 1, true),
+        arguments
+    )
+    assert(arguments:find(shellDirectory .. "/build/rust/native/", 1, true), arguments)
     assert(output:find(library, 1, true), output)
 end
 
@@ -248,6 +263,7 @@ end
 
 function M.hostBuildSelectsThePinnedWorkspaceBinary()
     local directory = temporary()
+    local shellDirectory = shellPath(directory)
     local env, _, host = environment(directory)
     local status, output = run(env, "host-rust")
 
@@ -257,7 +273,7 @@ function M.hostBuildSelectsThePinnedWorkspaceBinary()
     assert(arguments:find("--bin nupp-host-rust", 1, true), arguments)
     assert(arguments:find("--locked", 1, true), arguments)
     assert(not arguments:find("--offline", 1, true), arguments)
-    assert(arguments:find(directory .. "/build/rust/host-binary/", 1, true), arguments)
+    assert(arguments:find(shellDirectory .. "/build/rust/host-binary/", 1, true), arguments)
     assert(arguments:find("-C link-dead-code", 1, true), arguments)
     assert(
         arguments:find(
@@ -568,7 +584,7 @@ function M.hostShimUsesTheResolvedLuaJitCompiler()
 
     assert(status == 0, output)
     assert(
-        readLines(env.NUPP_TEST_CARGO_CC_RECORD):match("^" .. compiler:gsub("([^%w])", "%%%1") .. "\n$"),
+        readLines(env.NUPP_TEST_CARGO_CC_RECORD) == shellPath(compiler) .. "\n",
         "the Rust host build did not receive the compiler selected for LuaJIT"
     )
     local driver = read(DRIVER)
