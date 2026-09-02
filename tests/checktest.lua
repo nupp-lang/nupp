@@ -987,6 +987,42 @@ function M.refinementsAreEnforced()
    assertClean("local record F\n   matches: string\nend")
 end
 
+-- A bare field is a truthiness test, as the refinements page says, so it lowers
+-- to the access itself: `false` fails it, where `~= nil` would have let it through.
+function M.aBareFieldRefinementIsATruthinessTest()
+   local predicate = require("nupp.compiler.predicate")
+   assertEq(predicate.render({op = "truthy", path = {"enabled"}}, "v"), "v.enabled")
+   assertEq(predicate.render({op = "truthy", path = {"a", "b"}}, "v"), "v.a?.b")
+   assertEq(predicate.render({op = "not", a = {op = "truthy", path = {"off"}}}, "v"),
+      "not (v.off)")
+end
+
+-- A declaration is held to the refinements of the interfaces it declares, where
+-- its own fields settle the answer: a field typed `false` fails a truthiness test,
+-- and a `string` field fails `type() == "number"`. A `boolean` field settles
+-- nothing and stays silent.
+function M.aRefinementIsProvedAgainstDeclaredFields()
+   local enabled = table.concat({
+      "local interface Enabled",
+      "   enabled: boolean",
+      "   satisfies |self| -> self.enabled",
+      "end",
+   }, "\n")
+   assertEq((diagsOf(enabled .. "\nlocal record Off is Enabled\n   enabled: false\nend")),
+      "NUPP2122:5")
+   assertClean(enabled .. "\nlocal record On is Enabled\n   enabled: true\nend")
+   assertClean(enabled .. "\nlocal record Either is Enabled\n   enabled: boolean\nend")
+   local numbered = table.concat({
+      "local interface Numbered",
+      "   name: string",
+      "   satisfies |self| -> type(self.name) == 'number'",
+      "end",
+   }, "\n")
+   assertEq((diagsOf(numbered .. "\nlocal record Named is Numbered\n   name: string\nend")),
+      "NUPP2122:5")
+   assertClean(numbered .. "\nlocal record Counted is Numbered\n   name: integer\nend")
+end
+
 -- A record's identity is the metatable `new` stamps and a struct's is its
 -- ctype. A refinement beside either would be a second answer to a settled
 -- question, and which answer `is R` gave would depend on whether a body

@@ -391,6 +391,35 @@ local function luaTypeOf(t: any): string?
     return nil
 end
 
+--- Whether a value of `t` is always truthy, always falsy, or either.
+---
+--- Lua is falsy on `nil` and `false` and nothing else, so a type that admits neither
+--- is always truthy and one that is exactly one of them is always falsy. `boolean`, a
+--- union that admits nil, and the gradual types are undecided.
+local function truthinessOf(t: any): boolean?
+    if type(t) ~= "table" then
+        return nil
+    end
+    local tag = t.tag
+    if tag == "nil" then
+        return false
+    elseif tag == "literal" then
+        if t.constant == false then
+            return false
+        end
+        if t.constant == true then
+            return true
+        end
+        return truthinessOf(t.base)
+    elseif tag == "boolean" or tag == "any" or tag == "unknown" or tag == "union" or tag == "typevar" then
+        return nil
+    elseif luaTypeOf(t) ~= nil or tag == "affine" or tag == "borrowed" or tag == "pinned" or tag == "const" then
+        return true
+    end
+
+    return nil
+end
+
 --- Whether a declaration whose fields `fieldAt` reports must satisfy the refinement,
 --- must fail it, or cannot be told either way.
 ---
@@ -451,8 +480,9 @@ function predicate.satisfiedBy(node: predicate.Node?, fieldAt: function(path: {s
             return nil
         end
         return answer == node.luaType
-    end
-    if op == "cmp" and (node.cmp == "==" or node.cmp == "~=") then
+    elseif op == "truthy" then
+        return truthinessOf(t)
+    elseif op == "cmp" and (node.cmp == "==" or node.cmp == "~=") then
         -- Only a literal-typed field settles a comparison: it admits exactly one value,
         -- so the answer is known without running anything.
         if type(t) ~= "table" or t.tag ~= "literal" then
@@ -540,7 +570,9 @@ function predicate.render(node: predicate.Node?, subject: string): string
         return ("type(%s) == %q"):format(access, node.luaType or "nil")
     end
 
-    return access .. " ~= nil" -- truthy
+    -- a bare field is a truthiness test, which is what the access itself answers
+
+    return access
 end
 
 --- The whole test for `subject`, table check included.
