@@ -1662,7 +1662,7 @@ function gen.generate(
                 e("(")
                 emit(node)
                 e("-")
-                emit(view.first)
+                e(view.firstName)
                 e("+1)")
             else
                 emit(node)

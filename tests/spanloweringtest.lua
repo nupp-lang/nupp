@@ -161,6 +161,34 @@ return work
     assert(code:find("+index-1].value", 1, true), code)
 end
 
+function M.aSliceCountReadsTheBoundFirstIndex()
+    -- `#slice` is `last - first + 1`. The first index was bound to a temporary where
+    -- the slice was declared, and the count reads that binding rather than running
+    -- the index expression again.
+    local code = compile(
+        HEADER
+        .. [[
+local calls = 0
+local function start(): integer
+    calls = calls + 1
+    return 2
+end
+local function work(borrows input: span.Span<Cell>): int32
+    const outer = input:slice(start(), 4)
+    local total = 0 as int32
+    for index = 1, #outer do
+        total += outer[index].value
+    end
+    return total
+end
+return work
+]]
+    )
+    assert(not code:find(":slice(", 1, true), code)
+    assert(not code:find("outer.count", 1, true), "the slice count is computed from its bounds:\n" .. code)
+    assertEq(select(2, code:gsub("start%(%)", "")), 2, "start() is declared once and called once:\n" .. code)
+end
+
 function M.anEscapingSliceKeepsItsSafeWrapper()
     local code = compile(
         HEADER
