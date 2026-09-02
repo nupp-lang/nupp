@@ -232,11 +232,25 @@ local function readsMemory(operand: string): boolean
     return operand:find("%(%%") ~= nil
 end
 
+--- Whether an x86-64 instruction only reads its last operand: a comparison
+--- or a bit test writes flags, not the operand, so a memory operand in the
+--- destination position is a load and not a store.
+local function comparesOnly(mnemonic: string): boolean
+    return mnemonic:match(
+        "^cmp[bwlq]?$"
+    ) ~= nil or mnemonic:match(
+        "^test[bwlq]?$"
+    ) ~= nil or mnemonic:match(
+        "^bt[bwlq]?$"
+    ) ~= nil or mnemonic:match("^v?u?comis[sd]$") ~= nil or mnemonic:match("^v?ptest$") ~= nil
+end
+
 --- The x86-64 rules, over AT&T syntax.
 ---
 --- Which side of the instruction the memory operand is on decides load from
 --- store, because AT&T puts the destination last. An instruction that reads and
---- writes one address counts as a store, and `lea` computes an address without
+--- writes one address counts as a store; a comparison against memory only
+--- reads it, whichever side it is on; and `lea` computes an address without
 --- touching it, so it counts as neither. `push` and `pop` name no operand for
 --- the memory they move, and are counted for it anyway.
 ---
@@ -261,7 +275,7 @@ local function classifyX86(mnemonic: string, operands: string): {string}
         kinds[#kinds + 1] = "load"
     elseif mnemonic:find("^lea") == nil then
         local last = #parts > 0 and parts[#parts] or ""
-        if readsMemory(last) then
+        if readsMemory(last) and not comparesOnly(mnemonic) then
             kinds[#kinds + 1] = "store"
         else
             for _, part in ipairs(parts) do

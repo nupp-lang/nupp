@@ -160,6 +160,18 @@ function M.anElfLocalLabelIsALabelRatherThanADirective()
     test.equal(listing.instructions[4].label, nil)
 end
 
+function M.x86ComparisonsAgainstMemoryAreLoads()
+    -- The memory operand of a comparison is in the destination position, but a
+    -- comparison writes flags, not memory.
+    local listing = only(X86_LABELS, "x86_64", "linux")
+    for _, mnemonic in ipairs({"cmpq", "testb", "vucomisd"}) do
+        local kinds = kindsOf(listing, mnemonic)
+        assert(kinds.load and not kinds.store, mnemonic .. " reads memory")
+    end
+    local stored = kindsOf(listing, "movq")
+    assert(stored.store and not stored.load, "a move to memory is still a store")
+end
+
 -- A tab is what the compiler put between the two halves, and a listing that
 -- kept it would differ from one written by a compiler that used spaces.
 function M.anInstructionIsRespelledFromItsHalves()
