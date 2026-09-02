@@ -44,7 +44,7 @@ local function runRedirected(path, args, stderr)
     local output = read(outputPath)
     os.remove(outputPath)
 
-    return output
+    return (output:gsub("\r\n", "\n"))
 end
 
 local function run(path, args)
