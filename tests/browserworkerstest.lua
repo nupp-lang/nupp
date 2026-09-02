@@ -137,4 +137,38 @@ function M.malformedMessagesAreRefusedRatherThanDecoded()
    end
 end
 
+
+-- A task scope reaches whichever provider is selected through the same three hidden
+-- functions and holds a `fork` to that provider's own `Submitted`. The two
+-- implementations deliberately differ over what may cross -- native moves an
+-- engine-backed buffer, the browser refuses every ownership mode -- so each exports
+-- its own contract, and neither keeps a private copy the task scope could not see.
+function M.bothProvidersExportTheSubmissionContractAndTheScopeHooks()
+   local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+   local function read(path)
+      local file = assert(io.open(here .. "/../" .. path, "rb"))
+      local text = file:read("*a")
+      file:close()
+      return text
+   end
+   for _, path in ipairs({
+      "src/nupp/workers/init.nupp",
+      "src/nupp/runtime/provider/browserworkers.g.nupp",
+   }) do
+      local source = read(path)
+      check.assert(source:find("\ntype workers.Submittable = sendable function", 1, true),
+         path .. " exports Submittable")
+      check.assert(source:find("\ncomptime function workers.Submitted(F: type): typepack", 1, true),
+         path .. " exports Submitted as a direct member")
+      check.equal(source:find("local type Submittable", 1, true), nil,
+         path .. " keeps no private Submittable")
+      check.equal(source:find("local comptime function Submitted", 1, true), nil,
+         path .. " keeps no private Submitted")
+      for _, hook in ipairs({"__scope", "__settle", "__parallelism"}) do
+         check.assert(source:find('rawset(workers, "' .. hook .. '"', 1, true),
+            path .. " installs " .. hook)
+      end
+   end
+end
+
 return M
