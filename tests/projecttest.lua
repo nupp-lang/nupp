@@ -3310,6 +3310,26 @@ function M.docsDoNotInstallUnrunGeneratorTools()
    remove(dir)
 end
 
+function M.canonicalPathsFollowLinksAndKeepMissingOnesObservable()
+   local dir = tempProject({["real/file.txt"] = "x\n"})
+   local real = fs.canonical(dir .. "/real/file.txt")
+   assert(real:sub(1, 1) == "/" or real:match("^%a:/"), "a canonical path is absolute: " .. real)
+   assert(read(real) == "x\n", "the canonical path names the same file")
+   assertEq(fs.canonical(dir .. "/real/../real/./file.txt"), real, "dot segments are resolved")
+   local missing = fs.canonical(dir .. "/real/absent.txt")
+   assertEq(missing, fs.absolute(dir .. "/real/absent.txt"),
+      "a missing path keeps its absolute spelling")
+   if jit.os ~= "Windows" then
+      assertEq(process.run({"ln", "-s", "real", dir .. "/link"}), 0)
+      assertEq(fs.canonical(dir .. "/link/file.txt"), real, "a symbolic link is followed")
+      local _, printed = process.capture({"realpath", dir .. "/link/file.txt"})
+      assertEq(real, (printed:gsub("%s+$", "")), "the answer agrees with realpath")
+      assertEq(fs.canonical(dir .. "/link/absent.txt"), fs.absolute(dir .. "/link/absent.txt"),
+         "a missing path behind a link keeps its spelling")
+   end
+   remove(dir)
+end
+
 function M.luarocksDependencyInstallsIntoTheProjectTree()
    local files = tinyRockFiles()
    files["nupp.lua"] = [[
@@ -3326,6 +3346,9 @@ return {
    assertEq(project.build(dir), 0)
    assert(exists(dir .. "/.rocks/share/lua/5.1/tinyrock.lua"),
       "the rock is installed into a tree the project owns")
+   local state = json.decode(read(dir .. "/out/.nupp-state.json"))
+   assertEq(#state.dependencies.tiny.key, 32,
+      "a rock's cache key is the build digest, not the trailer's SHA-256")
    -- And into the running process's search path: a build that installs a
    -- renderer is a build that may render with it a moment later.
    assert(package.path:find(dir .. "/.rocks/share/lua/5.1/?.lua", 1, true),

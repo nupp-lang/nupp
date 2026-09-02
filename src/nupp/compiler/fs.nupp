@@ -81,15 +81,22 @@ end
 
 --- The filesystem identity of an existing path, following symbolic links. A
 --- missing path keeps its absolute spelling so it remains observable.
+---
+--- Asked of the path provider rather than of a `realpath` child: callers ask
+--- once per file, and a process for each was most of what walking a generator's
+--- inputs cost. Windows keeps the absolute spelling, as it always has -- the
+--- provider's answer there carries the verbatim prefix, which nothing that
+--- compares paths expects.
 local function canonical(path: string): string
     local fallback = absolute(path)
     if package.config:sub(1, 1) ~= "\\" then
-        local code, output = require("nupp.compiler.build.process").capture({"realpath", fallback})
-        if code == 0 then
-            local resolved = output:match("([^\r\n]+)")
-            if resolved then
-                return normalize(resolved)
-            end
+        local ok, resolved = pcall(function(): string?
+            local real = nupp.io.path.newPath(fallback):canonicalize()
+
+            return real and real:toString() or nil
+        end)
+        if ok and resolved then
+            return normalize(resolved)
         end
     end
 
