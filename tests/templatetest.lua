@@ -184,6 +184,18 @@ function M.aTemplateThatLoopsIsRefusedRatherThanWaitedFor()
    assert(err:find("too long", 1, true), err)
 end
 
+function M.loadingATemplateLeavesTheHostHookInPlace()
+   local function hostHook() end
+   local before = {debug.gethook()}
+   debug.sethook(hostHook, "r")
+   local manifest = template.manifest([[return {description = "d"}]], "template.lua")
+   local hook, mask = debug.gethook()
+   debug.sethook(before[1], before[2], before[3])
+   assert(manifest, "the template loaded")
+   assertEq(hook, hostHook, "the host's hook survives a template load")
+   assertEq(mask, "r", "with its mask")
+end
+
 function M.anUnknownFieldIsRefusedByName()
    local _, err = template.manifest([[return {hooks = {"rm -rf /"}}]], "template.lua")
    assert(err:find("hooks", 1, true), err)

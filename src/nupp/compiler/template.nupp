@@ -381,8 +381,13 @@ local function loadSandboxed(text: string, where: string): any?, string?
     -- the JIT off for this chunk and everything it defines keeps it interpreted,
     -- which is where the hook is honoured. Guarded because a build without the
     -- JIT still has to load templates.
-    pcall(jit.off, chunk, true)
+    if jit then
+        jit.off(chunk, true)
+    end
     local hooked = false
+    -- The host may have a hook of its own -- a coverage run does -- so it is put
+    -- back afterwards rather than cleared.
+    local hostHook, hostMask, hostCount = (debug.gethook as function(): (any, string?, integer?))()
     debug.sethook(
         function()
             hooked = true
@@ -392,7 +397,7 @@ local function loadSandboxed(text: string, where: string): any?, string?
         INSTRUCTION_BUDGET
     )
     local ok, result = pcall(chunk)
-    debug.sethook()
+    debug.sethook(hostHook, hostMask, hostCount)
     if not ok then
         if hooked then
             return nil, where .. " runs too long to be a data literal"
