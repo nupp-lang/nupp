@@ -13,6 +13,7 @@ local CONTRACT = common.contract("suspension", {
         "canSuspend",
         "create",
         "delegatedCanPark",
+        "delegatedPark",
         "destroyInstalled",
         "gather",
         "handled",
