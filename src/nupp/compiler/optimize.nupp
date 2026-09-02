@@ -1429,6 +1429,26 @@ end
 ----------------------------------------------------------------------------
 
 -- Checking has already attached one representation-independent proof to each
+-- Whether `node`, a name bound to a view, is used directly under `parent` in one of
+-- the forms every view lowering supports: its indexed length, an indexed element
+-- read, or seeding a const local. A caller adds the forms only it can lower.
+local function directViewUse(node, parent)
+    if not parent then
+        return false
+    end
+    if parent.kind == "unop" then
+        return parent.indexedLength and parent.operand == node
+    elseif parent.kind == "bracketIndex" then
+        return parent.obj == node and parent.indexedAccess ~= nil and (
+            not parent.soaRow or parent.indexedDirectAccess == true
+        )
+    elseif parent.kind == "localStmt" then
+        return parent.isConst and parent.exprs and parent.exprs[1] == node
+    end
+
+    return false
+end
+
 -- admitted access. Optimization merely selects the direct adapter; it does not
 -- rediscover length, receiver or induction relationships from source spelling.
 local function indexedRangeWalk(result, remarks)
@@ -1681,23 +1701,7 @@ local function indexedRangeWalk(result, remarks)
             end
             if node.kind == "name" and node.token and candidates[node.token.definition] then
                 local candidate = candidates[node.token.definition]
-                local allowed = parent and parent.kind == "unop" and parent.indexedLength and parent.operand == node
-                allowed = allowed
-                    or parent
-                    and parent.kind == "bracketIndex"
-                    and parent.obj == node
-                    and parent.indexedAccess ~= nil
-                    and (
-                    not parent.soaRow or parent.indexedDirectAccess == true
-                )
-                allowed = allowed
-                    or parent
-                    and parent.kind == "localStmt"
-                    and parent.isConst
-                    and parent.exprs
-                    and parent.exprs[
-                    1
-                ] == node
+                local allowed = directViewUse(node, parent)
                 if parent and parent.kind == "methodCall" and parent.obj == node and parent.indexedViewOperation then
                     local child = byConstructor[parent]
                     if child then
@@ -2009,28 +2013,12 @@ local function indexedViewParameterTransportPlan(result, remarks)
                 return
             end
             if node.kind == "name" and node.token and parameterDefinitions[node.token.definition] then
-                local allowed = parent and parent.kind == "unop" and parent.indexedLength and parent.operand == node
-                allowed = allowed
-                    or parent
-                    and parent.kind == "bracketIndex"
-                    and parent.obj == node
-                    and parent.indexedAccess ~= nil
-                    and (
-                    not parent.soaRow or parent.indexedDirectAccess == true
-                )
+                local allowed = directViewUse(node, parent)
                 allowed = allowed
                     or parent
                     and parent.kind == "methodCall"
                     and parent.obj == node
                     and parent.indexedViewOperation ~= nil
-                allowed = allowed
-                    or parent
-                    and parent.kind == "localStmt"
-                    and parent.isConst
-                    and parent.exprs
-                    and parent.exprs[
-                    1
-                ] == node
                 if not allowed then
                     plan.admitted = false
                     plan.decline = "unsupported-view-operation"
