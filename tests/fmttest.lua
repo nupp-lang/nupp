@@ -357,6 +357,18 @@ end
 -- A signature too long to fit is nearly always its parameters, so those are what break,
 -- and the `>` closing the list stays with the declaration rather than taking a
 -- continuation indent of its own.
+function M.halfClosedGenericsFormatStably()
+   local source = table.concat({
+      "local a: Box<Box<integer>>? = nil",
+      "local b: Box<Box<integer>> | nil = nil",
+      "local c: {Box<Box<integer>>, integer} = x",
+      "local d: Box<Box<integer>>[4] = x",
+      "",
+   }, "\n")
+   assertEq(fmt1(source), source)
+   assertEq(kinds(fmt1(source)), kinds(source))
+end
+
 function M.typeParametersStayOnTheSignatureLine()
    local src = "local xpcall: function<E, A..., R...>(scoped f: function(A...): R...,"
       .. " scoped handler: function(any): E, A...): ((true, R...) | (false, E))\n"

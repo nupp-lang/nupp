@@ -141,8 +141,24 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- The cursor
     ---------------------------------------------------------------------
 
+    -- Where a `>>` was half consumed. The lexer reads two generic closes as one
+    -- shift token, so the inner list takes the token itself and the outer sees a
+    -- zero-width stand-in at the position just past it. The cursor answers that
+    -- stand-in until something consumes it, so every reader that asks what comes
+    -- next sees the close a type postfix, a union bar or a comma would otherwise
+    -- have run into. Tying it to an index rather than to a flag keeps a half
+    -- consume from reaching a later `>` when an error moved the cursor in between.
+    -- The token stream is never rewritten, which is what leaves the formatter's
+    -- round trip comparing like with like.
+    local genericCloseHalfAt: integer? = nil
+    local genericCloseHalf: Token? = nil
+
     --- The token about to be consumed.
     local function cur(): Token
+        if genericCloseHalfAt == i and genericCloseHalf then
+            return genericCloseHalf
+        end
+
         return tokens[i]
     end
 
@@ -151,7 +167,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- everywhere else; only operand position gives it the other reading, and only the
     --- parser knows which position it is in.
     local function atEmptyPipes(): boolean
-        local tok = tokens[i]
+        local tok = cur()
         return tok.kind == "or" and tok.text == "||"
     end
 
@@ -166,12 +182,19 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     --- True when an expression could begin at the cursor.
     local function atExprStart(): boolean
-        local kind = tokens[i].kind
+        local kind = cur().kind
         return EXPR_START[kind] or UNOPS[kind] or kind == "error" or atEmptyPipes()
     end
 
-    --- Consumes the current token and returns it.
+    --- Consumes the current token and returns it. A pending half of a `>>` is
+    --- consumed without moving the cursor, since it occupies no token slot.
     local function advance(): Token
+        if genericCloseHalfAt == i and genericCloseHalf then
+            local half = genericCloseHalf
+            genericCloseHalfAt, genericCloseHalf = nil, nil
+
+            return half
+        end
         local tok = tokens[i]
         if tok.kind ~= "eof" then
             i = i + 1
@@ -262,23 +285,17 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return missing("name")
     end
 
-    -- Where a `>>` was half consumed. The lexer reads two generic closes as one
-    -- shift token, so the inner list takes the token itself and the outer takes a
-    -- zero-width stand-in at the position just past it. Tying that to an index
-    -- rather than to a flag keeps a half consume from reaching a later `>` when an
-    -- error moved the cursor in between. The token stream is never rewritten,
-    -- which is what leaves the formatter's round trip comparing like with like.
-    local genericCloseHalfAt: integer? = nil
-
     --- Closes a generic list, taking half of a `>>` when two of them close at once.
+    --- The other half becomes a zero-width `>` the cursor answers next, marked
+    --- missing so that it prints as nothing wherever the tree is reprinted.
     local function expectGenericClose(what: string): Token
-        if genericCloseHalfAt == i then
-            genericCloseHalfAt = nil
-            local at = cur()
-
-            return {
+        if cur().kind == ">>" then
+            local tok = advance()
+            local at = tokens[i]
+            genericCloseHalf = {
                 kind = ">",
                 text = "",
+                missing = true,
                 trivia = at.trivia,
                 triviaFirst = 1,
                 triviaCount = 0,
@@ -286,9 +303,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 line = at.line,
                 col = at.col
             }
-        end
-        if cur().kind == ">>" then
-            local tok = advance()
             genericCloseHalfAt = i
 
             return tok
@@ -1755,13 +1769,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
         local savedI, savedErrors = i, #errors
         local savedNoMethod = noMethod
-        local savedGenericClose = genericCloseHalfAt
+        local savedGenericClose, savedGenericHalf = genericCloseHalfAt, genericCloseHalf
         i = i + 1
         parseExp()
         local yes = cur().kind == "do"
         i = savedI
         noMethod = savedNoMethod
-        genericCloseHalfAt = savedGenericClose
+        genericCloseHalfAt, genericCloseHalf = savedGenericClose, savedGenericHalf
         while #errors > savedErrors do
             errors[#errors] = nil
         end

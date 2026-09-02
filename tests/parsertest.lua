@@ -651,4 +651,39 @@ function M.nestedGenericsParseWithoutErrors()
       .. (result.errors[1] and result.errors[1].msg or ""))
 end
 
+-- The second half of a `>>` closes the outer list whatever follows it: a postfix,
+-- a union or intersection, a separator, or a member projection all used to run
+-- into the shift token's leftover half and report a missing `>`.
+function M.halfClosedGenericsAcceptWhatFollows()
+   local sources = {
+      "local a: Box<Box<integer>>? = nil\n",
+      "local b: Box<Box<integer>> | nil = nil\n",
+      "local c: {Box<Box<integer>>, integer} = x\n",
+      "local d: Box<Box<integer>> & {x: integer} = x\n",
+      "local e: Box<Box<integer>>* = x\n",
+      "local f: Box<Box<integer>>[4] = x\n",
+      "local g: Box<Box<integer>>.[K] = x\n",
+      "local h = obj:m<Box<Box<T>>>()\n",
+      "local i = ffi.new<Box<Box<T>>>()\n",
+      "local function j<A is Box<Box<A>>>(): nil end\n",
+   }
+   for _, src in ipairs(sources) do
+      local result = assertRoundtrip(src)
+      assertEq(#result.errors, 0, src .. ": "
+         .. (result.errors[1] and result.errors[1].msg or ""))
+   end
+   local optional = parser.parse(sources[1]).root.blocks[1].stats[1]
+   assertEq(optional.types[1].kind, "topt", "the postfix belongs to the outer list")
+   assertEq(optional.types[1].inner.kind, "tname")
+   local union = parser.parse(sources[2]).root.blocks[1].stats[1]
+   assertEq(union.types[1].kind, "tunion")
+end
+
+-- An unmatched second half is still reported rather than silently swallowed.
+function M.strayHalfCloseIsReported()
+   local result = parser.parse("local w: Box<integer>> = 1\n")
+   assertEq(cst.textOf(result.root), "local w: Box<integer>> = 1\n")
+   assertEq(#result.errors > 0, true, "a stray > went unreported")
+end
+
 return M
