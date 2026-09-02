@@ -377,8 +377,8 @@ function narrow.install(c: state.Checker): narrow.Ops
                 if typeArg and member and member.text == "istype" then
                     local first = args[1]
                     local key = first and facts.pathKey(first)
-                    if key and first then
-                        local target = c.resolveType(typeArg)
+                    local target = cond.typeTestTarget as Type?
+                    if key and first and target then
                         local vt = c.refType(first)
                         local out = {t = {}, f = {}}
                         out.t[key] = target
@@ -391,8 +391,8 @@ function narrow.install(c: state.Checker): narrow.Ops
                 end
             end
             -- calling a predicate is the same fact as writing `arg is T`, which is what
-            -- lets the test live behind a named function
-            c.infer(cond)
+            -- lets the test live behind a named function. The call handler already
+            -- ran on this condition and recorded the callee's type.
             local ft = cond.calleeType as Type?
             local predicate = ft and ft.tag == "func" and ft.predicate or nil
             if predicate then
@@ -411,9 +411,10 @@ function narrow.install(c: state.Checker): narrow.Ops
             return none
         elseif kind == "isExpr" then
             local key = cond.expr and facts.pathKey(cond.expr)
-            if key then
+            -- resolved once by the `is` handler, which ran before this did
+            local target = cond.typeTestTarget as Type?
+            if key and target then
                 local vt = c.refType(cond.expr)
-                local target = c.resolveType(cond.type)
                 local out = {t = {}, f = {}}
                 out.t[key] = target
                 if vt then

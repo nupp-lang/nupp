@@ -1139,6 +1139,7 @@ function expr.install(c: state.Checker): nil
             local subject = node.expr
             local from = subject and c.infer(subject) or nil
             local target = c.resolveType(node.type)
+            node.typeTestTarget = target
             -- A test the declaration already answers is not worth running. This is what
             -- makes `is` on an interface work for a value already known to implement
             -- it, whatever the interface can or cannot test at run time.

@@ -159,6 +159,9 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             end
             local name = memberName
             local argT = c.resolveType(typeArg)
+            if name == "istype" then
+                node.typeTestTarget = argT
+            end
             if argT and argT.tag == "nominal" and argT.cdefIdentity then
                 node.cdefIdentity = argT.cdefIdentity
             end

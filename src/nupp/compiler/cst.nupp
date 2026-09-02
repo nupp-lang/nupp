@@ -354,6 +354,10 @@ interface cst.Hints
     --- ask at run time.
     provenNeedsNil: boolean?
 
+    --- The type an `is` or `ffi.istype<T>` tests against, resolved once by the
+    --- expression handler so narrowing reads it rather than resolving it again.
+    typeTestTarget: any
+
     --- Generator-owned runtime path for a nested record.
     recordRuntimeName: string?
 

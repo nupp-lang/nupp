@@ -160,6 +160,27 @@ function M.genericsInstantiation()
    }, "\n"))
 end
 
+-- Every caller of analyzeCond infers the condition first, so a condition the
+-- narrowing pass looked at a second time reported its problems twice.
+function M.conditionIsCheckedOnce()
+   assertEq((diagsOf(table.concat({
+      "local function f(s: string): boolean",
+      "   return #s > 0",
+      "end",
+      "local function g(s: number): number",
+      "   if f(s) then",
+      "      return 1",
+      "   end",
+      "   return f(s) and 1 or 2",
+      "end",
+   }, "\n"))), "NUPP2006:5 NUPP2006:8")
+   assertEq((diagsOf(table.concat({
+      "local x: any",
+      "if x is Unknowable then",
+      "end",
+   }, "\n"))), "NUPP2101:2")
+end
+
 function M.genericMapIteration()
    assertClean(table.concat({
       "local pairs2: function<K, V>(t: {[K]: V}): function(): (K, V)",
