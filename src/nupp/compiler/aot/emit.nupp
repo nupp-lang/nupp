@@ -450,9 +450,10 @@ function emit.scalar(node: scalarIR.Expr): string
         if operation == "simd_species_u8" or operation == "simd_lanes" then
             return "UINT32_C(" .. tostring(explicitWidth) .. ")"
         elseif operation == "simd_load_u8" then
+            local count = independentSpanCounts and "count_" .. tostring(simd.span) or "count"
             return helper .. "load_" .. suffix .. "(p_" .. tostring(
                 simd.span
-            ) .. ", count_" .. tostring(simd.span) .. ", " .. emit.scalar(args[2]) .. ")"
+            ) .. ", " .. count .. ", " .. emit.scalar(args[2]) .. ")"
         elseif operation == "simd_load_string_u8" then
             local bytes = args[2] as scalarIR.Name
             return helper .. "load_" .. suffix .. "(ks_bytes_" .. tostring(
