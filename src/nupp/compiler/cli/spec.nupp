@@ -351,11 +351,14 @@ function spec.command(raw: spec.Declaration): spec.Command
     for _, entry in ipairs(declared) do
         local option = normalize(entry)
         options[#options + 1] = option
+        -- A pattern option's name is a stem, not a spelling: `-O` is how `-O2` is
+        -- written up, and registering it would let `-O 2` and `-O=2` parse as levels.
         if option.pattern then
             patterned[#patterned + 1] = option
-        end
-        for _, name in ipairs(option.names) do
-            byName[name] = option
+        else
+            for _, name in ipairs(option.names) do
+                byName[name] = option
+            end
         end
     end
 

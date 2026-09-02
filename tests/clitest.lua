@@ -93,6 +93,10 @@ function M.choicesAreCheckedAndCanPhraseTheirOwnRefusal()
       "a pattern option phrases its own refusal, since -O is not a spelling")
    assert(parse({"-Oz"}) == "ERR: unknown option -Oz",
       "and what the pattern does not match is simply unknown")
+   assert(parse({"-O", "2"}) == "ERR: unknown option -O",
+      "the stem of a pattern option is not a spelling that takes a value")
+   assert(parse({"-O=2"}) == "ERR: unknown option -O=2",
+      "nor one that takes an attached value")
 end
 
 function M.spellingsOfOneChoiceRefuseEachOther()
