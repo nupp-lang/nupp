@@ -238,4 +238,45 @@ function M.cleanupContinueAndBreakUseTheStructuredLoopExit()
    assertEq(broken, true, "cleanup break exits the authored loop")
 end
 
+function M.wrappedRepeatLoopKeepsItsConditionInTheBodyScope()
+   -- The wrapper's `until true` ends the body's scope, so the authored condition
+   -- reads `done` inside it, and a `continue` reaches the condition the way it does
+   -- natively rather than restarting the loop unconditionally.
+   local source = table.concat({
+      "local i = 0",
+      "local skipped = 0",
+      "repeat",
+      "    i = i + 1",
+      "    local done = i >= 3",
+      "    if i == 1 then",
+      "        skipped = skipped + 1",
+      "        continue",
+      "    end",
+      "until done",
+      "local j = 0",
+      "repeat",
+      "    j = j + 1",
+      "    local last = j == 2",
+      "    if last then continue end",
+      "until last",
+      "return i, skipped, j",
+   }, "\n")
+   local result, diags = checked(source, "lua51")
+   assertEq(#diags, 0, "portable repeat source checks: " .. (diags[1] and diags[1].msg or ""))
+   local code, loweringDiags = gen.generate(result, "portable-repeat.nupp")
+   assertEq(#loweringDiags, 0, "portable repeat lowers cleanly")
+   assert(not code:find("until done", 1, true) and not code:find("until last", 1, true),
+      "the authored condition is read outside the body's scope:\n" .. code)
+   assert(select(2, code:gsub("=done;", "")) == 2,
+      "the condition is evaluated at the body's end and at the continue:\n" .. code)
+   local body = code:sub(assert(code:find("local i = 0", 1, true)), assert(code:find("return i ,", 1, true)))
+   assertEq(select(2, body:gsub("\n", "")), 16, "the statement after the loops keeps its line:\n" .. body)
+   local chunk, problem = loadstring(code, "@portable-repeat")
+   assert(chunk, "portable repeat generated code loads: " .. tostring(problem) .. "\n" .. code)
+   local i, skipped, j = chunk()
+   assertEq(i, 3, "repeat stops when its condition holds")
+   assertEq(skipped, 1, "continue skipped one iteration")
+   assertEq(j, 2, "continue in a repeat loop re-evaluates the condition")
+end
+
 return M

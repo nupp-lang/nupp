@@ -3118,6 +3118,34 @@ function gen.generate(
         return found
     end
 
+    -- The wrapper's `until true` closes the body's scope before an authored `until`
+    -- would run, so a wrapped repeat loop evaluates its condition inside the wrapper,
+    -- where the body's locals still are, into a flag the outer `until` reads. It is
+    -- spelled at every exit that reaches the condition natively: the end of the body
+    -- and each `continue`. The condition is rendered once, apart from the output and
+    -- on one line: the cursor starts past every source line, so no token advances it.
+    function pluck.portableUntilTest(portableLoop): string
+        if not portableLoop.untilTest then
+            local savedOut, savedLine, savedLineStart = out, curLine, atLineStart
+            out, curLine, atLineStart = {}, 0x7fffffff, true
+            emit(portableLoop.untilCond)
+            portableLoop.untilTest = table.concat(out)
+            out, curLine, atLineStart = savedOut, savedLine, savedLineStart
+        end
+
+        return ("%s=%s;"):format(portableLoop.untilFlag, portableLoop.untilTest)
+    end
+
+    -- Leaves the wrapper with the completion the authored statement asked for; the
+    -- test after the wrapper turns "break" into a real one.
+    function pluck.portableExit(portableLoop, completion: string, line)
+        if completion == "continue" and portableLoop.untilFlag then
+            e(pluck.portableUntilTest(portableLoop), line)
+            line = nil
+        end
+        e(("%s=%q;break"):format(portableLoop.action, completion), line)
+    end
+
     -- `...` cannot cross the protected region's function boundary, so a body that reads
     -- it makes the region variadic and the varargs are forwarded through xpcall. Nested
     -- Nested cleanup bodies are searched too, so an inner region's varargs are
@@ -6972,7 +7000,7 @@ function gen.generate(
                 else
                     local portableLoop = emitDepth.portableLoops[#emitDepth.portableLoops]
                     if pluck.portable and portableLoop and portableLoop.action then
-                        e(portableLoop.action .. "=\"break\";break")
+                        pluck.portableExit(portableLoop, "break")
                     else
                         e("break")
                     end
@@ -6987,7 +7015,7 @@ function gen.generate(
                 else
                     local portableLoop = emitDepth.portableLoops[#emitDepth.portableLoops]
                     if pluck.portable and portableLoop and portableLoop.action then
-                        e(portableLoop.action .. "=\"continue\";break")
+                        pluck.portableExit(portableLoop, "continue")
                     else
                         e("continue")
                     end
@@ -7049,8 +7077,7 @@ function gen.generate(
         elseif pluck.portable and (kind == "breakStmt" or kind == "continueStmt") then
             local portableLoop = emitDepth.portableLoops[#emitDepth.portableLoops]
             if portableLoop and portableLoop.action then
-                local completion = kind == "breakStmt" and "break" or "continue"
-                e(("%s=%q;break"):format(portableLoop.action, completion), sourceLine(x))
+                pluck.portableExit(portableLoop, kind == "breakStmt" and "break" or "continue", sourceLine(x))
             else
                 emitChildren(x)
             end
@@ -7115,11 +7142,20 @@ function gen.generate(
             end
             if pluck.portableLoopNeedsWrapper(x) then
                 portableLoop.action = nextTemp()
+                -- A body with automatic cleanup already evaluates the condition
+                -- inside its region and leaves it in cleanupConditionTemp, which
+                -- the until reads; a second flag would run the condition twice.
+                if kind == "repeatStmt" and x.cond and not x.cleanupConditionTemp then
+                    portableLoop.untilFlag = nextTemp()
+                    portableLoop.untilCond = x.cond
+                end
             end
             local lastLine = nil
             for _, child in ipairs(x) do
                 if child == x.body then
-                    if portableLoop.action then
+                    if portableLoop.untilFlag then
+                        e(("local %s,%s;repeat"):format(portableLoop.action, portableLoop.untilFlag), sourceLine(child))
+                    elseif portableLoop.action then
                         e(("local %s;repeat"):format(portableLoop.action), sourceLine(child))
                     end
                     emitDepth.soa.beginIteration(x)
@@ -7127,6 +7163,9 @@ function gen.generate(
                     emitDepth.loop = emitDepth.loop + 1
                     emitDepth.loopNodes[#emitDepth.loopNodes + 1] = x
                     emit(child)
+                    if portableLoop.untilFlag then
+                        e(pluck.portableUntilTest(portableLoop))
+                    end
                     emitDepth.loopNodes[#emitDepth.loopNodes] = nil
                     emitDepth.loop = emitDepth.loop - 1
                     emitDepth.portableLoops[#emitDepth.portableLoops] = nil
@@ -7136,6 +7175,8 @@ function gen.generate(
                     end
                 elseif child == x.cond and x.cleanupConditionTemp then
                     e(x.cleanupConditionTemp, sourceLine(child))
+                elseif child == x.cond and portableLoop.untilFlag then
+                    e(portableLoop.untilFlag, sourceLine(child))
                 else
                     emit(child)
                 end
