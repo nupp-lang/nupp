@@ -971,6 +971,34 @@ local function rootedBytesParam(value: scalarIR.Expr, kernel: lower.Kernel): boo
     return param ~= nil and param.kind == "scalar" and param.type == value.type and rooted.cName == param.cName
 end
 
+--- The names a block assigns anywhere inside it, so a loop knows which cursor
+--- proofs its body retires.
+local function assignedNames(body: cst.Node?, out: {[string]: boolean}): {[string]: boolean}
+    for _, stat in ipairs(body ~= nil and (body as cst.Block).stats or {}) do
+        local kind = stat.kind
+        if kind == "assignStmt" then
+            for _, target in ipairs((stat as cst.AssignStmt).targets or {}) do
+                local name = lower.nameOf(target)
+                if name ~= nil then
+                    out[name as string] = true
+                end
+            end
+        elseif kind == "ifStmt" then
+            local branch = stat as cst.IfStmt
+            for _, clause in ipairs(branch.clauses or {}) do
+                assignedNames((clause as cst.IfClause).body, out)
+            end
+            if branch.elseClause ~= nil then
+                assignedNames((branch.elseClause as cst.ElseClause).body, out)
+            end
+        elseif kind == "whileStmt" or kind == "doStmt" or kind == "fornumStmt" or kind == "repeatStmt" then
+            assignedNames((stat as any).body, out)
+        end
+    end
+
+    return out
+end
+
 --- The cursor a `candidate + 1` index names, when a dominating check bounded
 --- that cursor against this span.
 ---
@@ -4258,16 +4286,35 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         return nil, nil
     end
 
-    local function nestedWithCursor(body: cst.Node?, cursor: string?, spanName: string?): {scalarIR.Statement}
-        if cursor == nil or spanName == nil then
+    --- Lowers a nested block under the cursor bounds it runs with: the
+    --- enclosing ones, less any a loop body reassigns, plus the one its own
+    --- condition proves.
+    ---
+    --- A cursor the loop body assigns is bounded by the enclosing proof on the
+    --- first iteration only; from the second it holds whatever the body left in
+    --- it. So under a loop such a cursor keeps a bound only when the loop's own
+    --- condition re-proves it every time round, which is the same rule the
+    --- verifier applies -- refused here so the refusal names the read.
+    local function nestedWithCursor(
+        body: cst.Node?,
+        cursor: string?,
+        spanName: string?,
+        loop: boolean?
+    ): {scalarIR.Statement}
+        if loop ~= true and (cursor == nil or spanName == nil) then
             return nested(body)
         end
         local previous = kernel.cursorBounds
+        local reassigned = loop == true and assignedNames(body, {}) or {}
         local bounds: {[string]: string} = {}
         for name, span in pairs(previous) do
-            bounds[name] = span
+            if reassigned[name] ~= true then
+                bounds[name] = span
+            end
         end
-        bounds[cursor as string] = spanName as string
+        if cursor ~= nil and spanName ~= nil then
+            bounds[cursor as string] = spanName as string
+        end
         kernel.cursorBounds = bounds
         local lowered = nested(body)
         local invalidated: {string} = {}
@@ -4668,7 +4715,22 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             kernel.indexCName = binding.cName
             kernel.boundSpan = bounding
             kernel.mapEntry = false
+            local previousBounds = kernel.cursorBounds
+            local reassigned = assignedNames(loop.body, {})
+            local loopBounds: {[string]: string} = {}
+            for name, span in pairs(previousBounds) do
+                if reassigned[name] ~= true then
+                    loopBounds[name] = span
+                end
+            end
+            kernel.cursorBounds = loopBounds
             local loopBody = lower.block(loop.body ~= nil and (loop.body as cst.Block).stats or {}, inner, kernel)
+            for name in pairs(previousBounds) do
+                if loopBounds[name] == nil then
+                    previousBounds[name] = nil
+                end
+            end
+            kernel.cursorBounds = previousBounds
             kernel.index = previousIndex
             kernel.indexCName = previousCName
             kernel.boundSpan = previousBound
@@ -4702,7 +4764,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             ] = new scalarIR.While(
                 op = "while",
                 condition = condition,
-                body = nestedWithCursor(loop.body, cursor, spanName),
+                body = nestedWithCursor(loop.body, cursor, spanName, true),
                 cursorBounds = cursor ~= nil and {[cursor as string] = spanName as string} or nil,
                 source = lower.site(stat)
             )

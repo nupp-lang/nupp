@@ -2983,4 +2983,48 @@ return {first = first}
     )
 end
 
+function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
+    -- `cursor < #source` outside the loop bounds the read on the first pass
+    -- only: the body moves the cursor, and the second pass reads wherever it
+    -- left it. Both the lowerer and the verifier used to carry the enclosing
+    -- proof into every iteration.
+    local body = [[
+local span = require("nupp.mem.span")
+
+@aot(lanes = false)
+local function decode(borrows source: span.Span<uint8>): uint32
+    local cursor: uint32 = 0
+    local total: uint32 = 0
+    local rounds: uint32 = 0
+    if cursor < #source then
+        while CONDITION do
+            total = nupp.math.u32.add(total, source[(cursor + 1) as integer])
+            cursor = nupp.math.u32.add(cursor, 1)
+            rounds = nupp.math.u32.add(rounds, 1)
+        end
+    end
+    return total
+end
+
+return {decode = decode}
+]]
+    local dir = project{
+        ["outside.nupp"] = body:gsub("CONDITION", "rounds < 10"),
+        ["reproved.nupp"] = body:gsub("CONDITION", "cursor < #source"),
+    }
+    local out, code = run(dir, "outside.nupp")
+    test.equal(code, 1, "a proof the loop does not renew is not a proof\n" .. out)
+    assert(
+        out:find(
+            "outside.nupp:10:46: aot: span loads need a counted-loop index or cursor + 1 under cursor < #span",
+            1,
+            true
+        ),
+        "and the read is what is refused: " .. out
+    )
+
+    out, code = run(dir, "reproved.nupp")
+    test.equal(code, 0, "a loop whose own condition proves the cursor proves it every pass\n" .. out)
+end
+
 return M

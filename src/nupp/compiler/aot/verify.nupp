@@ -98,6 +98,41 @@ record verify.Context
     scope: verify.Scope
 end
 
+--- A scope for a nested block: this one, with `overrides` applied.
+---
+--- Every nested block sees what its parent saw except for the few facts the
+--- construct changes -- what proves an index, which cursors are bounded, how
+--- far a workgroup's local index may read. Written once so a field added to
+--- the scope reaches every nested block rather than the ones somebody
+--- remembered to copy it into.
+local function derive(scope: verify.Scope, overrides: {[string]: any}): verify.Scope
+    local nested = new verify.Scope(
+        spans = scope.spans,
+        layouts = scope.layouts,
+        helpers = scope.helpers,
+        writes = scope.writes,
+        index = scope.index,
+        boundSpan = scope.boundSpan,
+        mapIndex = scope.mapIndex,
+        indexSpans = scope.indexSpans,
+        cursorBounds = scope.cursorBounds,
+        resultTypes = scope.resultTypes,
+        entryMode = scope.entryMode,
+        builderMode = scope.builderMode,
+        workgroup = scope.workgroup,
+        inPhase = scope.inPhase,
+        shared = scope.shared,
+        sharedCounts = scope.sharedCounts,
+        localReadLimit = scope.localReadLimit,
+        localReadMinimum = scope.localReadMinimum
+    )
+    for field, value in pairs(overrides) do
+        (nested as any)[field] = value
+    end
+
+    return nested
+end
+
 ----------------------------------------------------------------------------
 -- Refusing
 ----------------------------------------------------------------------------
@@ -536,26 +571,7 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
                 cursorBounds[name] = root
             end
             cursorBounds[cursor as string] = scratch as string
-            rightScope = new verify.Scope(
-                spans = scope.spans,
-                layouts = scope.layouts,
-                helpers = scope.helpers,
-                writes = scope.writes,
-                index = scope.index,
-                boundSpan = scope.boundSpan,
-                mapIndex = scope.mapIndex,
-                indexSpans = scope.indexSpans,
-                cursorBounds = cursorBounds,
-                resultTypes = scope.resultTypes,
-                entryMode = scope.entryMode,
-                builderMode = scope.builderMode,
-                workgroup = scope.workgroup,
-                inPhase = scope.inPhase,
-                shared = scope.shared,
-                sharedCounts = scope.sharedCounts,
-                localReadLimit = scope.localReadLimit,
-                localReadMinimum = scope.localReadMinimum
-            )
+            rightScope = derive(scope, {cursorBounds = cursorBounds})
         end
     end
     scalarWalk(node.right, values, rightScope)
@@ -1666,6 +1682,88 @@ local function provesCursorBound(
     end
 end
 
+--- The locals a statement list assigns anywhere inside it.
+local function assignedLocals(statements: {scalarIR.Statement}, out: {[string]: boolean}): {[string]: boolean}
+    for _, statement in ipairs(statements) do
+        if statement.op == "assign" then
+            for _, entry in ipairs(statement.values) do
+                if entry.target.kind == "local" and entry.target.name ~= nil then
+                    out[entry.target.name as string] = true
+                end
+            end
+        elseif statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                assignedLocals(clause.body, out)
+            end
+            assignedLocals(statement.elseBody or {}, out)
+        elseif (statement as any).body ~= nil then
+            assignedLocals((statement as any).body as {scalarIR.Statement}, out)
+        end
+    end
+
+    return out
+end
+
+--- The cursor bounds a block runs under: the enclosing ones, less any a loop
+--- body reassigns, plus those `condition` proves.
+---
+--- A cursor the loop body assigns is bounded by the enclosing proof on the
+--- first iteration only; from the second it holds whatever the body left in
+--- it, which nothing checked. So under a loop such a cursor keeps a bound only
+--- when the loop's own condition re-proves it every time round. `declared` is
+--- what the lowerer claims the condition proves; each claim is held against
+--- the condition itself, because cursor metadata narrows the search and does
+--- not get to manufacture a bounds fact on its own.
+local function proveCursorBounds(
+    condition: scalarIR.Expr,
+    declared: {[string]: string}?,
+    values: {[string]: string},
+    scope: verify.Scope,
+    body: {scalarIR.Statement}?,
+    why: string
+): {[string]: string}
+    local reassigned = body ~= nil and assignedLocals(body as {scalarIR.Statement}, {}) or {}
+    local cursorBounds: {[string]: string} = {}
+    for name, spanName in pairs(scope.cursorBounds) do
+        if reassigned[name] ~= true then
+            cursorBounds[name] = spanName
+        end
+    end
+    for name, spanName in pairs(declared or {}) do
+        local root = scope.spans[spanName]
+        holds(
+            values[
+                name
+            ] == "u32" and (
+                root ~= nil and (
+                    (
+                        root as scalarIR.Param
+                    ).region ~= nil or (
+                        root as scalarIR.Param
+                    ).type == "lua_string" or (root as scalarIR.Param).type == "lua_bytes"
+                ) or values[spanName] == "lua_scratch_u32"
+            ) and provesCursorBound(condition, name, spanName, values),
+            why .. " for " .. name .. " against " .. spanName
+        )
+        cursorBounds[name] = spanName
+    end
+
+    return cursorBounds
+end
+
+--- Retires from `scope` every cursor bound the nested block retired.
+local function invalidateCursors(scope: verify.Scope, nested: verify.Scope): nil
+    local invalidated: {string} = {}
+    for name in pairs(scope.cursorBounds) do
+        if nested.cursorBounds[name] == nil then
+            invalidated[#invalidated + 1] = name
+        end
+    end
+    for _, name in ipairs(invalidated) do
+        scope.cursorBounds[name] = nil
+    end
+end
+
 --- Checks one block of scalar statements, and everything under it.
 ---
 --- `stored` accumulates which outputs were written, because a kernel whose
@@ -1853,25 +1951,7 @@ local function block(
                     "ordinary workgroup phase has a cross-lane scratch race"
                 )
             end
-            local nestedScope = new verify.Scope(
-                spans = scope.spans,
-                layouts = scope.layouts,
-                helpers = scope.helpers,
-                writes = scope.writes,
-                index = scope.index,
-                boundSpan = scope.boundSpan,
-                mapIndex = scope.mapIndex,
-                indexSpans = scope.indexSpans,
-                cursorBounds = {},
-                resultTypes = scope.resultTypes,
-                entryMode = scope.entryMode,
-                builderMode = scope.builderMode,
-                workgroup = true,
-                inPhase = true,
-                shared = scope.shared,
-                sharedCounts = scope.sharedCounts
-            )
-            block(phase.body, values, nestedScope, stored)
+            block(phase.body, values, derive(scope, {cursorBounds = {}, workgroup = true, inPhase = true}), stored)
         elseif statement.op == "lua_set_index" or statement.op == "lua_set_key" then
             local write = statement as scalarIR.LuaSet
             holds(scope.entryMode == "lua-builder", "Lua write outside a builder")
@@ -2131,46 +2211,15 @@ local function block(
             for _, clause in ipairs(statement.clauses) do
                 holds(clause.condition.type == "bool", "non-boolean branch")
                 scalarWalk(clause.condition, values, scope)
-                local cursorBounds: {[string]: string} = {}
-                for name, spanName in pairs(scope.cursorBounds) do
-                    cursorBounds[name] = spanName
-                end
-                for name, spanName in pairs(clause.cursorBounds or {}) do
-                    holds(
-                        values[
-                            name
-                        ] == "u32" and (
-                            scope.spans[
-                                spanName
-                            ] ~= nil and (
-                                (
-                                    scope.spans[spanName] as scalarIR.Param
-                                ).region ~= nil or (
-                                    scope.spans[spanName] as scalarIR.Param
-                                ).type == "lua_string" or (scope.spans[spanName] as scalarIR.Param).type == "lua_bytes"
-                            ) or values[spanName] == "lua_scratch_u32"
-                        ) and provesCursorBound(clause.condition, name, spanName, values),
-                        "invalid cursor bounds proof for " .. name .. " against " .. spanName
-                    )
-                    cursorBounds[name] = spanName
-                end
-                local nestedScope = new verify.Scope(
-                    spans = scope.spans,
-                    layouts = scope.layouts,
-                    helpers = scope.helpers,
-                    writes = scope.writes,
-                    index = scope.index,
-                    boundSpan = scope.boundSpan,
-                    mapIndex = scope.mapIndex,
-                    indexSpans = scope.indexSpans,
-                    cursorBounds = cursorBounds,
-                    resultTypes = scope.resultTypes,
-                    entryMode = scope.entryMode,
-                    builderMode = scope.builderMode,
-                    workgroup = scope.workgroup,
-                    inPhase = scope.inPhase,
-                    shared = scope.shared,
-                    sharedCounts = scope.sharedCounts,
+                local nestedScope = derive(scope, {
+                    cursorBounds = proveCursorBounds(
+                        clause.condition,
+                        clause.cursorBounds,
+                        values,
+                        scope,
+                        nil,
+                        "invalid cursor bounds proof"
+                    ),
                     localReadLimit = (function(): integer?
                         local condition = clause.condition
                         if condition.op == "lt" then
@@ -2192,8 +2241,8 @@ local function block(
                         end
 
                         return scope.localReadMinimum
-                    end)()
-                )
+                    end)(),
+                })
                 block(clause.body, values, nestedScope, stored)
                 for name in pairs(scope.cursorBounds) do
                     if nestedScope.cursorBounds[name] == nil then
@@ -2216,25 +2265,22 @@ local function block(
 
             local inner = inherit(values)
             inner[statement.binding.name] = "i32"
-            local nestedScope = new verify.Scope(
-                spans = scope.spans,
-                layouts = scope.layouts,
-                helpers = scope.helpers,
-                writes = scope.writes,
+            -- Only this loop's own bound proves an index under it, so the map's
+            -- guarded spans do not carry in.
+            local nestedScope = derive(scope, {
                 index = statement.binding.name,
                 boundSpan = statement.boundSpan,
                 mapIndex = false,
-                cursorBounds = scope.cursorBounds,
-                resultTypes = scope.resultTypes,
-                entryMode = scope.entryMode,
-                builderMode = scope.builderMode,
-                workgroup = scope.workgroup,
-                inPhase = scope.inPhase,
-                shared = scope.shared,
-                sharedCounts = scope.sharedCounts,
-                localReadLimit = scope.localReadLimit,
-                localReadMinimum = scope.localReadMinimum
-            )
+                cursorBounds = proveCursorBounds(
+                    statement.from,
+                    nil,
+                    values,
+                    scope,
+                    statement.body,
+                    "invalid loop cursor bounds proof"
+                ),
+            })
+            nestedScope.indexSpans = nil
             if statement.boundSpan ~= nil then
                 holds(
                     statement.from.op == "constant_i32" and (
@@ -2246,62 +2292,22 @@ local function block(
                 )
             end
             block(statement.body, inner, nestedScope, stored)
+            invalidateCursors(scope, nestedScope)
         elseif statement.op == "while" then
             holds(statement.condition.type == "bool", "non-boolean loop condition")
             scalarWalk(statement.condition, values, scope)
-            local cursorBounds: {[string]: string} = {}
-            for name, spanName in pairs(scope.cursorBounds) do
-                cursorBounds[name] = spanName
-            end
-            for name, spanName in pairs(statement.cursorBounds or {}) do
-                holds(
-                    values[
-                        name
-                    ] == "u32" and (
-                        scope.spans[
-                            spanName
-                        ] ~= nil and (
-                            (
-                                scope.spans[spanName] as scalarIR.Param
-                            ).region ~= nil or (
-                                scope.spans[spanName] as scalarIR.Param
-                            ).type == "lua_string" or (scope.spans[spanName] as scalarIR.Param).type == "lua_bytes"
-                        ) or values[spanName] == "lua_scratch_u32"
-                    ) and provesCursorBound(statement.condition, name, spanName, values),
+            local nestedScope = derive(scope, {
+                cursorBounds = proveCursorBounds(
+                    statement.condition,
+                    statement.cursorBounds,
+                    values,
+                    scope,
+                    statement.body,
                     "invalid loop cursor bounds proof"
-                )
-                cursorBounds[name] = spanName
-            end
-            local nestedScope = new verify.Scope(
-                spans = scope.spans,
-                layouts = scope.layouts,
-                helpers = scope.helpers,
-                writes = scope.writes,
-                index = scope.index,
-                boundSpan = scope.boundSpan,
-                mapIndex = scope.mapIndex,
-                indexSpans = scope.indexSpans,
-                cursorBounds = cursorBounds,
-                resultTypes = scope.resultTypes,
-                entryMode = scope.entryMode,
-                builderMode = scope.builderMode,
-                workgroup = scope.workgroup,
-                inPhase = scope.inPhase,
-                shared = scope.shared,
-                sharedCounts = scope.sharedCounts,
-                localReadLimit = scope.localReadLimit,
-                localReadMinimum = scope.localReadMinimum
-            )
+                ),
+            })
             block(statement.body, values, nestedScope, stored)
-            local invalidated: {string} = {}
-            for name in pairs(scope.cursorBounds) do
-                if nestedScope.cursorBounds[name] == nil then
-                    invalidated[#invalidated + 1] = name
-                end
-            end
-            for _, name in ipairs(invalidated) do
-                scope.cursorBounds[name] = nil
-            end
+            invalidateCursors(scope, nestedScope)
         elseif statement.op == "block" then
             block(statement.body, values, scope, stored)
         elseif statement.op == "return" then

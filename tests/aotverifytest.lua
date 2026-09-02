@@ -104,4 +104,35 @@ function M.aLengthAliasIsProvedByItsBindingRatherThanItsMetadata()
     refuses(program, "invalid cursor bounds proof for cursor against source")
 end
 
+function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
+    -- The `if` proves `cursor < #source` for its block. A loop inside that block
+    -- which moves the cursor is bounded by that proof on its first pass only,
+    -- so the read under it has no proof at all.
+    local program = lowered(CURSOR_READ, "cursor.g.nupp")
+    local branch = find(program.body, function(statement)
+        return statement.op == "if"
+    end)
+    local read = branch.clauses[1].body[1]
+    assert(read.op == "assign" and read.values[1].value.op == "lua_string_byte_at", "the guarded read")
+    local cursor = find(program.body, function(statement)
+        return statement.op == "let" and statement.name == "cursor"
+    end)
+    local advance = {
+        op = "assign",
+        values = {
+            {
+                target = {kind = "local", name = "cursor", cName = cursor.cName, type = "u32"},
+                value = {op = "constant_i32", value = "1", type = "u32"},
+            }
+        },
+    }
+    local loop = {op = "while", condition = {op = "bool", value = true, type = "bool"}, body = {read, advance}}
+    branch.clauses[1].body = {loop}
+    refuses(program, "direct rooted byte read lacks a bounds proof")
+
+    -- A loop that leaves the cursor alone keeps the proof on every pass.
+    loop.body = {read}
+    verify.program(program)
+end
+
 return M
