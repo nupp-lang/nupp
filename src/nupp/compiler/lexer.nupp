@@ -68,11 +68,9 @@ type lexer.Trivia = {
 
     --- The exact bytes, so reprinting is lossless.
     ---
-    --- Cut while lexing rather than on demand, which was tried: deferring it behind a
-    --- metatable raised the build's collector share from 3.3% to 5.2%, because the
-    --- build reads most of it after all -- `docblock`, `cst` and the incremental hash
-    --- all walk trivia -- and filling the field afterwards rehashes a table that was
-    --- sized without it.
+    --- The arena keeps only the span, so this is cut from the source when the record
+    --- is built; a reader that wants the bytes alone asks `lexer.triviaText`, which
+    --- makes no record at all.
     text: string,
 
     --- Byte offset of the first character, 1-based.
@@ -832,7 +830,32 @@ end
 
 --- The bytes a short string literal spells, or nothing for a token that spells
 --- none.
----
+--- The quoted Lua literal denoting one piece of a backtick string: the whole body
+--- of one without interpolation, or the text between two interpolations. Source
+--- escapes pass through, since Lua reads them the same; `\`` and `\$` lose their
+--- backslash, which Lua does not know; a bare `"` gains one, and a raw newline
+--- becomes `\n`. Every escape is stepped over as a pair, so a `\"` in the body is
+--- already the one escape it needs and a `\\` before a quote does not hide it.
+function lexer.quoteBacktickBody(body: string): string
+    local quoted = body:gsub("(\\?)(.)", function(backslash: string, char: string): string
+        if backslash ~= "" then
+            if char == "`" or char == "$" then
+                return char
+            end
+
+            return backslash .. char
+        elseif char == "\"" then
+            return "\\\""
+        elseif char == "\n" then
+            return "\\n"
+        end
+
+        return char
+    end)
+
+    return "\"" .. quoted .. "\""
+end
+
 --- A literal's value is the string it denotes, not the source that spells it, so
 --- `"\1"` is one byte and every reader of that value has to agree about it.
 --- Decoding is done by handing the text back to Lua, which is whose escape
@@ -846,8 +869,7 @@ function lexer.stringValue(text: string): string?
     if first == "\"" or first == "'" then
         quoted = text
     elseif first == "`" and #text >= 2 and text:sub(-1) == "`" then
-        local body = text:sub(2, -2):gsub("\\([`$])", "%1"):gsub("\"", "\\\""):gsub("\n", "\\n")
-        quoted = "\"" .. body .. "\""
+        quoted = lexer.quoteBacktickBody(text:sub(2, -2))
     end
     if quoted == nil then
         return nil

@@ -105,6 +105,16 @@ end
         "an exact primitive-field record publishes its schema: " .. code)
 end
 
+-- An escaped quote inside a backtick string is one escape in the Lua literal too,
+-- with or without an interpolation beside it.
+function M.escapedQuotesInBacktickStringsLoad()
+    local code = generate('local s = `a\\"b`\nlocal t = `x\\"${s}\\"y`\nreturn s, t')
+    local chunk = assert(loadstring(code))
+    local s, t = chunk()
+    assertEq(s, 'a"b', "plain backtick string")
+    assertEq(t, 'x"a"b"y', "interpolated backtick string")
+end
+
 function M.lineCountInvariant()
     local cases = {
         "local x: number = 1\nreturn x",

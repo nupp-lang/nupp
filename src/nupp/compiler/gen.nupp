@@ -36,6 +36,7 @@ represented.
 ]]
 
 local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
 local predicate = require("nupp.compiler.predicate")
 local switchplan = require("nupp.compiler.switchplan")
 local stdlib = require("nupp.compiler.stdlib")
@@ -316,16 +317,13 @@ local IS_TYPE = {
     ["function"] = "function", -- spelled via tfunc, handled separately
 }
 
--- Converts an interpolated-string literal chunk to a quoted Lua string. Source escapes
--- (\n, \t, ...) pass through; \` and \$ lose their backslash (Lua doesn't know them);
--- bare " and raw newlines get escaped.
+-- Converts an interpolated-string literal chunk to a quoted Lua string. The lexer owns
+-- the rule, since `lexer.stringValue` has to read the literal the same way this writes
+-- it.
 local literal = {}
 
 function literal.quote(s)
-    s = s:gsub("\\([`$])", "%1")
-    s = s:gsub('"', '\\"')
-    s = s:gsub("\n", "\\n")
-    return '"' .. s .. '"'
+    return lexer.quoteBacktickBody(s)
 end
 
 --- A long-string token's runtime bytes after `dedent` removes incidental indentation.

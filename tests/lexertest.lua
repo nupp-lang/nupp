@@ -233,4 +233,24 @@ function M.unexpectedCharacters()
    assertRoundtrip("a $ b")
 end
 
+-- A backtick body becomes the one Lua literal both the generator and the value
+-- reader agree on: an escaped quote is left as the escape it already is, and an
+-- escaped backslash before a quote does not hide the quote from escaping.
+function M.backtickBodiesQuoteEscapedQuotesOnce()
+   local cases = {
+      {[[a\"b]], [["a\"b"]], 'a"b'},
+      {[[a\\"b]], [["a\\\"b"]], [[a\"b]]},
+      {[[a"b]], [["a\"b"]], 'a"b'},
+      {[[a\`b\$c]], [["a`b$c"]], "a`b$c"},
+      {"a\nb", [["a\nb"]], "a\nb"},
+      {[[a\tb]], [["a\tb"]], "a\tb"},
+   }
+   for _, case in ipairs(cases) do
+      local body, quoted, value = case[1], case[2], case[3]
+      assertEq(lexer.quoteBacktickBody(body), quoted, "quoting " .. body)
+      assertEq(lexer.stringValue("`" .. body .. "`"), value, "value of " .. body)
+      assertEq(lexer.stringValue(quoted), value, "the quoted spelling agrees")
+   end
+end
+
 return M
