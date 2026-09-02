@@ -348,10 +348,9 @@ function control.install(c: state.Checker): state.StatHandlers
             c.diag("NUPP1002", stat, "a declared module exports declarations and has no top-level return")
             return
         end
-        local annotated = c.retStack[#c.retStack]
         local annotatedPack = c.retPackStack[#c.retPackStack]
         for index, returned in ipairs(stat.exprs or {}) do
-            local expected = annotatedPack and T.packAt(annotatedPack, index) or annotated and annotated[index] or nil
+            local expected = annotatedPack and T.packAt(annotatedPack, index) or nil
             local rawExpected = expected and rawType(expected) or nil
             if returned and rawExpected and rawExpected.tag == "func" and rawExpected.sendable then
                 local contextual: any = returned
@@ -479,10 +478,7 @@ function control.install(c: state.Checker): state.StatHandlers
             elseif ownershipKind(valueT) == "affine" or ownershipKind(valueT) == "pinned" then
                 -- The branch above is what proves it has one.
                 local valueKind = ownershipKind(valueT) as string
-                local expected = annotatedPack and T.packAt(
-                    annotatedPack,
-                    j
-                ) or (c.retStack[#c.retStack] and c.retStack[#c.retStack][j] or nil)
+                local expected = annotatedPack and T.packAt(annotatedPack, j) or nil
                 local ownReturns = c.ownReturnStack[#c.ownReturnStack]
                 local capabilityResult = expected and ownReturns and ownReturns[
                     j
@@ -583,35 +579,6 @@ function control.install(c: state.Checker): state.StatHandlers
             end
         end
         local ownReturns = c.ownReturnStack[#c.ownReturnStack]
-        if annotated and not annotatedPack then
-            for j, rt in ipairs(annotated) do
-                local got = ts[j] or T.nil_
-                local expected = rt
-                local expr = fixedExpression(j)
-                local freshConstruction = expr and (
-                    expr.kind == "newExpr" or expr.kind == "call" and expr.recordConstruct ~= nil
-                )
-                -- A fresh value satisfies an owning result: the declaration is what
-                -- makes
-                -- it one, so the body is checked against the raw type it actually
-                -- built.
-                if ownReturns and ownReturns[j] and (not ownershipKind(got) or freshConstruction) then
-                    expected = ownReturns[j]
-                    got = rawType(got)
-                end
-                local ok, why, reported = returnFits(got, expected, expr or stat)
-                if ok and relations.typevarMismatch(got, expected) then
-                    ok = false
-                    why = ("%s is not a value of the generic type %s"):format(T.tostring(got), T.tostring(expected))
-                end
-                if not ok and not reported then
-                    c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
-                end
-            end
-            if #ts > #annotated then
-                c.diag("NUPP2002", stat, ("too many return values (expected %d, got %d)"):format(#annotated, #ts))
-            end
-        end
         -- Equal static packs may still differ in fixed-width establishment evidence.
         -- The fact is intentionally not part of the interned type identity, so returns
         -- must consume it even when both packs print identically.
