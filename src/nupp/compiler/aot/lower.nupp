@@ -3391,33 +3391,41 @@ local function switchLocal(
         context.reject(lower.site(node.selector), "a native switch selector must be numeric")
     end
 
+    -- Every arm is an expression arm over integer-valued static cases,
+    -- whichever path lowers it. Checked once, before the paths part, so the
+    -- constant-selector path and the dynamic one cannot come to disagree.
+    for _, arm in ipairs(node.cases or {}) do
+        if arm.patternKind ~= "static" then
+            context.reject(lower.site(arm), "native switches do not admit type cases")
+        elseif arm.body ~= nil or arm.expr == nil then
+            context.reject(lower.site(arm), "native switches require expression arms")
+        end
+        for _, caseValue in ipairs(arm.values or {}) do
+            local constant = switchCaseNumber(caseValue)
+            if constant == nil or constant ~= math.floor(constant as number) then
+                context.reject(lower.site(caseValue), "native switch cases must be integer-valued numbers")
+            end
+        end
+    end
+    local otherwise = node.elseCase
+    if otherwise and (otherwise.body ~= nil or otherwise.expr == nil) then
+        context.reject(lower.site(otherwise), "native switches require expression arms")
+    end
+
     local staticSelector = fold.exactInteger(selector)
     if staticSelector ~= nil then
         -- The selector is a constant -- a monomorphized const carrier -- so
         -- the arm is decided here and the untaken arms are never lowered.
         local chosen: cst.Node? = nil
         for _, arm in ipairs(node.cases or {}) do
-            if arm.patternKind ~= "static" then
-                context.reject(lower.site(arm), "native switches do not admit type cases")
-            elseif arm.body ~= nil or arm.expr == nil then
-                context.reject(lower.site(arm), "native switches require expression arms")
-            end
             for _, caseValue in ipairs(arm.values or {}) do
-                local constant = switchCaseNumber(caseValue)
-                if constant == nil or constant ~= math.floor(constant as number) then
-                    context.reject(lower.site(caseValue), "native switch cases must be integer-valued numbers")
-                end
-                if chosen == nil and constant == staticSelector then
+                if chosen == nil and switchCaseNumber(caseValue) == staticSelector then
                     chosen = arm.expr
                 end
             end
         end
-        local otherwiseArm = node.elseCase
-        if otherwiseArm and (otherwiseArm.body ~= nil or otherwiseArm.expr == nil) then
-            context.reject(lower.site(otherwiseArm), "native switches require expression arms")
-        end
-        if chosen == nil and otherwiseArm ~= nil then
-            chosen = otherwiseArm.expr
+        if chosen == nil and otherwise ~= nil then
+            chosen = otherwise.expr
         end
         if chosen == nil then
             context.reject(lower.site(node), "a constant switch selector matches no arm")
@@ -3467,18 +3475,9 @@ local function switchLocal(
 
     local arms = {}
     for _, arm in ipairs(node.cases or {}) do
-        if arm.patternKind ~= "static" then
-            context.reject(lower.site(arm), "native switches do not admit type cases")
-        elseif arm.body ~= nil or arm.expr == nil then
-            context.reject(lower.site(arm), "native switches require expression arms")
-        end
         arms[
             #arms + 1
         ] = {case = arm, value = lower.expression(arm.expr as cst.Node, environment, kernel.index, kernel)}
-    end
-    local otherwise = node.elseCase
-    if otherwise and (otherwise.body ~= nil or otherwise.expr == nil) then
-        context.reject(lower.site(otherwise), "native switches require expression arms")
     end
     local elseValue = otherwise and lower.expression(
         otherwise.expr as cst.Node,
@@ -3527,14 +3526,7 @@ local function switchLocal(
         local condition: scalarIR.Expr? = nil
         local nativeLabels: {scalarIR.SwitchLabel} = {}
         for _, caseValue in ipairs(lowered.case.values or {}) do
-            local constant = switchCaseNumber(caseValue)
-            if constant == nil then
-                context.reject(lower.site(caseValue), "native switch cases must be integer-valued numbers")
-            end
-            local number = constant or 0
-            if number ~= math.floor(number) then
-                context.reject(lower.site(caseValue), "native switch cases must be integer-valued numbers")
-            end
+            local number = switchCaseNumber(caseValue) as number
             local right: scalarIR.Expr
             if nativePlan.tag == "NativeIntegerSwitch" then
                 if selector.type == "i32" and (number < -2147483648 or number > 2147483647) then
