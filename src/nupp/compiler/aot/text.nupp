@@ -358,6 +358,15 @@ local function target(assignment: any, lanes: integer): string
     return text.expression(assignment.target.object) .. "." .. assignment.target.field
 end
 
+--- One scratch write, as `label scratch[index] = value`.
+local function scratchWrite(label: string, statement: any): string
+    return label .. " " .. text.expression(
+        statement.scratch
+    ) .. "[" .. text.expression(
+        statement.index as scalarIR.Expr
+    ) .. "] = " .. text.expression(statement.value as scalarIR.Expr)
+end
+
 --- One block of statements, scalar or lane, indented by `depth`.
 ---
 --- @param lanes how wide a lane store is, for a body that was rewritten
@@ -413,21 +422,9 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
                 statement.buffer
             ) .. ", " .. text.expression(statement.value) .. ")"
         elseif op == "lua_scratch_u32_set" then
-            local write = statement as scalarIR.LuaScratchU32Set
-            lines[
-                #lines + 1
-            ] = prefix .. "lua.scratch_u32_set " .. text.expression(
-                write.scratch
-            ) .. "[" .. text.expression(write.index) .. "] = " .. text.expression(write.value)
+            lines[#lines + 1] = prefix .. scratchWrite("lua.scratch_u32_set", statement)
         elseif op == "lua_scratch_u8_set" then
-            local write = statement as scalarIR.LuaScratchU8Set
-            lines[
-                #lines + 1
-            ] = prefix .. "lua.scratch_u8_set " .. text.expression(
-                write.scratch
-            ) .. "[" .. text.expression(
-                write.index as scalarIR.Expr
-            ) .. "] = " .. text.expression(write.value as scalarIR.Expr)
+            lines[#lines + 1] = prefix .. scratchWrite("lua.scratch_u8_set", statement)
         elseif op == "simd_store4_u8" then
             local store = statement as scalarIR.Simd
             local rendered: {string} = {}
@@ -436,14 +433,7 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             end
             lines[#lines + 1] = prefix .. "simd.store4 " .. table.concat(rendered, ", ")
         elseif op == "lua_scratch_u8_set4" then
-            local write = statement as scalarIR.LuaScratchU8Set
-            lines[
-                #lines + 1
-            ] = prefix .. "lua.scratch_u8_set4 " .. text.expression(
-                write.scratch
-            ) .. "[" .. text.expression(
-                write.index as scalarIR.Expr
-            ) .. "] = " .. text.expression(write.value as scalarIR.Expr)
+            lines[#lines + 1] = prefix .. scratchWrite("lua.scratch_u8_set4", statement)
         elseif op == "lua_scratch_u8_reset" then
             lines[
                 #lines + 1

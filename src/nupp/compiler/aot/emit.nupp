@@ -4099,15 +4099,9 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. "(0u);",
         "    for (uint32_t i = 0u; i < " .. tostring(
             64 / width
-        )
-        .. "u; ++i) { uint32_t bits = ks_bits_"
-        .. suffix
-        .. "(~((block.part[i] & mask) == zero)); if (i * "
-        .. tostring(
+        ) .. "u; ++i) { uint32_t bits = ks_bits_" .. suffix .. "(~((block.part[i] & mask) == zero)); " .. collectBits(
             width
-        ) .. "u < 32u) { out.low |= bits << (i * " .. tostring(
-            width
-        ) .. "u); } else { out.high |= bits << (i * " .. tostring(width) .. "u - 32u); } } return out;",
+        ) .. " } return out;",
         "}",
         "static inline __attribute__((unused)) "
         .. vector
@@ -4167,11 +4161,7 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. "(240u)); uint32_t bits = ks_bits_"
         .. suffix
         .. "(~(((must & continuation) ^ special) == zero));",
-        "        if (i * " .. tostring(
-            width
-        ) .. "u < 32u) { out.low |= bits << (i * " .. tostring(
-            width
-        ) .. "u); } else { out.high |= bits << (i * " .. tostring(width) .. "u - 32u); } previous = current;",
+        "        " .. collectBits(width) .. " previous = current;",
         "    } return out;",
         "}",
         "static inline __attribute__((unused)) KsMaskBits64 ks_block64_eq_" .. suffix .. "(KsBlockU8x64x" .. tostring(
@@ -4185,12 +4175,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. suffix
         .. "(block.part[i] == ks_splat_"
         .. suffix
-        .. "(value)); if (i * "
-        .. tostring(
+        .. "(value)); "
+        .. collectBits(
             width
-        ) .. "u < 32u) { out.low |= bits << (i * " .. tostring(
-            width
-        ) .. "u); } else { out.high |= bits << (i * " .. tostring(width) .. "u - 32u); } } return out;",
+        ) .. " } return out;",
         "}",
         "static inline __attribute__((unused)) KsMaskBits64 ks_block64_eq_any6_"
         .. suffix
@@ -4218,12 +4206,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. suffix
         .. "(v4))) | (bytes == ks_splat_"
         .. suffix
-        .. "(v5))); if (i * "
-        .. tostring(
+        .. "(v5))); "
+        .. collectBits(
             width
-        ) .. "u < 32u) { out.low |= bits << (i * " .. tostring(
-            width
-        ) .. "u); } else { out.high |= bits << (i * " .. tostring(width) .. "u - 32u); } } return out;",
+        ) .. " } return out;",
         "}",
         "static inline __attribute__((unused)) KsMaskBits64 ks_block64_range_"
         .. suffix
@@ -4241,12 +4227,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. suffix
         .. "(low)) & (block.part[i] <= ks_splat_"
         .. suffix
-        .. "(high))); if (i * "
-        .. tostring(
+        .. "(high))); "
+        .. collectBits(
             width
-        ) .. "u < 32u) { out.low |= bits << (i * " .. tostring(
-            width
-        ) .. "u); } else { out.high |= bits << (i * " .. tostring(width) .. "u - 32u); } } return out;",
+        ) .. " } return out;",
         "}",
         "static inline __attribute__((unused)) KsMaskBits64 ks_block64_outside_range_"
         .. suffix
@@ -4264,12 +4248,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. suffix
         .. "(low)) | (block.part[i] > ks_splat_"
         .. suffix
-        .. "(high))); if (i * "
-        .. tostring(
+        .. "(high))); "
+        .. collectBits(
             width
-        ) .. "u < 32u) { out.low |= bits << (i * " .. tostring(
-            width
-        ) .. "u); } else { out.high |= bits << (i * " .. tostring(width) .. "u - 32u); } } return out;",
+        ) .. " } return out;",
         "}",
         "static inline __attribute__((unused)) uint32_t ks_any_" .. suffix .. "(" .. vector .. " mask) {",
         "#if defined(__aarch64__)",
@@ -4914,20 +4896,7 @@ local function luaPush(value: scalarIR.Expr, prefix: string): {string}
             return lines
         elseif value.op == "lua_substring" then
             local sliced = value as scalarIR.LuaSubstring
-            local bytes = sliced.bytes as scalarIR.Name
-            return {
-                prefix .. "ks_lua_substring(L, ks_bytes_" .. tostring(
-                    bytes.cName
-                ) .. ", ks_length_" .. tostring(
-                    bytes.cName
-                ) .. ", " .. emit.scalar(
-                    sliced.first
-                ) .. ", " .. (
-                    sliced.last ~= nil and emit.scalar(
-                        sliced.last as scalarIR.Expr
-                    ) or "(double)ks_length_" .. tostring(bytes.cName)
-                ) .. ");",
-            }
+            return {prefix .. "ks_lua_substring(L, " .. substringArguments(sliced) .. ");"}
         end
         return {prefix .. "lua_pushvalue(L, " .. tostring((value as scalarIR.Name).cName) .. ");"}
     elseif value.type == "lua_value" then
@@ -4973,19 +4942,8 @@ local function luaStringBufferAppend(buffer: scalarIR.Expr, value: scalarIR.Expr
         }
     elseif value.op == "lua_substring" then
         local sliced = value as scalarIR.LuaSubstring
-        local bytes = sliced.bytes as scalarIR.Name
         return {
-            prefix .. "ks_lua_string_buffer_append_slice(L, " .. target .. ", ks_bytes_" .. tostring(
-                bytes.cName
-            ) .. ", ks_length_" .. tostring(
-                bytes.cName
-            ) .. ", " .. emit.scalar(
-                sliced.first
-            ) .. ", " .. (
-                sliced.last ~= nil and emit.scalar(
-                    sliced.last as scalarIR.Expr
-                ) or "(double)ks_length_" .. tostring(bytes.cName)
-            ) .. ");",
+            prefix .. "ks_lua_string_buffer_append_slice(L, " .. target .. ", " .. substringArguments(sliced) .. ");",
         }
     elseif value.op == "local" then
         local rooted = value as scalarIR.Name
@@ -5188,29 +5146,9 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
             local appended = statement as scalarIR.LuaStringBufferAppend
             append(luaStringBufferAppend(appended.buffer, appended.value, prefix))
         elseif statement.op == "lua_scratch_u32_set" then
-            local write = statement as scalarIR.LuaScratchU32Set
-            local helper = write.fixedBound ~= nil
-                and "ks_lua_scratch_u32_set_fixed(L, &"
-                or "ks_lua_scratch_u32_set(L, &"
-            local bound = write.fixedBound ~= nil and (", " .. tostring(write.fixedBound) .. "u") or ""
-            lines[
-                #lines + 1
-            ] = prefix .. helper .. tostring(
-                (write.scratch as scalarIR.Name).cName
-            ) .. ", " .. emit.scalar(write.index) .. ", " .. emit.scalar(write.value) .. bound .. ");"
+            lines[#lines + 1] = scratchWrite("ks_lua_scratch_u32_set", statement, prefix)
         elseif statement.op == "lua_scratch_u8_set" then
-            local write = statement as scalarIR.LuaScratchU8Set
-            local byteHelper = write.fixedBound ~= nil
-                and "ks_lua_scratch_u8_set_fixed(L, &"
-                or "ks_lua_scratch_u8_set(L, &"
-            local byteBound = write.fixedBound ~= nil and (", " .. tostring(write.fixedBound) .. "u") or ""
-            lines[
-                #lines + 1
-            ] = prefix .. byteHelper .. tostring(
-                (write.scratch as scalarIR.Name).cName
-            ) .. ", " .. emit.scalar(
-                write.index as scalarIR.Expr
-            ) .. ", " .. emit.scalar(write.value as scalarIR.Expr) .. byteBound .. ");"
+            lines[#lines + 1] = scratchWrite("ks_lua_scratch_u8_set", statement, prefix)
         elseif statement.op == "simd_store4_u8" then
             local store = statement as scalarIR.Simd
             local operands: {string} = {"L", "&" .. tostring((store.args[1] as scalarIR.Name).cName)}
@@ -5223,18 +5161,7 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
                 explicitScalar and "ks_scalar_" or "ks_"
             ) .. "store4_u8x" .. tostring(explicitWidth) .. "(" .. table.concat(operands, ", ") .. ");"
         elseif statement.op == "lua_scratch_u8_set4" then
-            local write = statement as scalarIR.LuaScratchU8Set
-            local wordHelper = write.fixedBound ~= nil
-                and "ks_lua_scratch_u8_set4_fixed(L, &"
-                or "ks_lua_scratch_u8_set4(L, &"
-            local wordBound = write.fixedBound ~= nil and (", " .. tostring(write.fixedBound) .. "u") or ""
-            lines[
-                #lines + 1
-            ] = prefix .. wordHelper .. tostring(
-                (write.scratch as scalarIR.Name).cName
-            ) .. ", " .. emit.scalar(
-                write.index as scalarIR.Expr
-            ) .. ", " .. emit.scalar(write.value as scalarIR.Expr) .. wordBound .. ");"
+            lines[#lines + 1] = scratchWrite("ks_lua_scratch_u8_set4", statement, prefix)
         elseif statement.op == "lua_scratch_u8_reset" then
             local write = statement as scalarIR.LuaScratchU8Set
             lines[#lines + 1] = prefix .. tostring((write.scratch as scalarIR.Name).cName) .. ".length = 0u;"
