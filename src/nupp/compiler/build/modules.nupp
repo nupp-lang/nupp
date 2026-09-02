@@ -191,6 +191,11 @@ record modules.Session
     --- owner of the tree is also what keeps the second phase from emptying it under
     --- the first.
     stageBundled: function(string): string?
+
+    --- Stages the compiler-carried native GPU runtime -- the layout, the native
+    --- binding, its provider and the `nupp.gpu` facade -- for a source that
+    --- declares a GPU target under `aot = "require"`.
+    stageGpuRuntime: function(): nil
 end
 
 --- Canonical binder numbering for one fingerprint: the number each binder was given,
@@ -755,7 +760,19 @@ local function openSession(
         return path
     end
 
-    return new modules.Session(inc = inc, checkMs = checkMs, stageBundled = stageBundled)
+    local function stageGpuRuntime(): nil
+        stageBundled("nupp.gpulayout")
+        stageBundled("nupp.runtime.nativev2")
+        stageBundled("nupp.runtime.provider.nativegpu")
+        stageBundled("nupp.gpu")
+    end
+
+    return new modules.Session(
+        inc = inc,
+        checkMs = checkMs,
+        stageBundled = stageBundled,
+        stageGpuRuntime = stageGpuRuntime
+    )
 end
 
 local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, strict: boolean?, stats: modules.Stats?, diagnostics: {

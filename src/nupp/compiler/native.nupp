@@ -485,4 +485,19 @@ function native.features(effects: {[string]: any}?): {native.Feature}
     return out
 end
 
+--- The host features `effects` need, each named once and in order: what a stub
+--- is acquired with, and what a compiler-owned host is built with.
+function native.hostFeatureNames(effects: {[string]: any}?): {string}
+    local names, included = {}, {}
+    for _, feature in ipairs(native.features(effects)) do
+        if feature.host and not included[feature.host] then
+            names[#names + 1] = feature.host
+            included[feature.host] = true
+        end
+    end
+    table.sort(names)
+
+    return names
+end
+
 export = native

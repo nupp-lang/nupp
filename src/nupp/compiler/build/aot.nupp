@@ -415,9 +415,11 @@ end
 --- Allowed to answer yes for a comment or string, like `mentionsAot`; a false
 --- positive stages one unused source file, while a false negative makes a real GPU
 --- declaration impossible to type.
-local function mentionsGpuTarget(text: string): boolean
+function aot.mentionsGpuTarget(text: string): boolean
     return mentionsAot(text) and text:match("target%s*=%s*[\"']gpu[\"']") ~= nil
 end
+
+local mentionsGpuTarget = aot.mentionsGpuTarget
 
 --- One source's checked tree, or nothing when there is no sound one to lower.
 ---
@@ -854,14 +856,9 @@ function aot.link(
 
             return "compiling the generated " .. one.tier .. " C failed:\n" .. text .. hint
         end
-        local objectBytes, objectErr = fs.readFile(stagedObject)
-        os.remove(stagedObject)
-        if objectBytes == nil then
-            return tostring(objectErr)
-        end
-        local wrote, writeErr = fs.writeFile(object, objectBytes as string)
-        if not wrote then
-            return tostring(writeErr)
+        local installed, installErr = fs.installStaged(stagedObject, object)
+        if not installed then
+            return tostring(installErr)
         end
         one.object = object
         objects[#objects + 1] = object
@@ -885,14 +882,9 @@ function aot.link(
             os.remove(staged)
             return "archiving the generated C failed:\n" .. text
         end
-        local binary, readErr = fs.readFile(staged)
-        os.remove(staged)
-        if binary == nil then
-            return tostring(readErr)
-        end
-        local ok, writeErr = fs.writeFile(output, binary as string)
-        if not ok then
-            return tostring(writeErr)
+        local installed, installErr = fs.installStaged(staged, output)
+        if not installed then
+            return tostring(installErr)
         end
 
         return nil
@@ -929,14 +921,9 @@ function aot.link(
         return "linking the generated C failed:\n" .. text .. hint
     end
 
-    local binary, readErr = fs.readFile(staged)
-    os.remove(staged)
-    if binary == nil then
-        return tostring(readErr)
-    end
-    local ok, writeErr = fs.writeFile(output, binary as string)
-    if not ok then
-        return tostring(writeErr)
+    local installed, installErr = fs.installStaged(staged, output)
+    if not installed then
+        return tostring(installErr)
     end
 
     return nil
@@ -1050,10 +1037,7 @@ function aot.emitC(
     if selectedPolicy == "require" then
         for _, source in ipairs(sources) do
             if mentionsGpuTarget(sourceText[source] as string) then
-                session.stageBundled("nupp.gpulayout")
-                session.stageBundled("nupp.runtime.nativev2")
-                session.stageBundled("nupp.runtime.provider.nativegpu")
-                session.stageBundled("nupp.gpu")
+                session.stageGpuRuntime()
                 break
             end
         end

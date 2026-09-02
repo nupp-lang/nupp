@@ -296,6 +296,24 @@ end
 
 --- Writes only when the contents would differ, so a file that did not change keeps its
 --- modification time and anything watching it stays quiet.
+--- Puts a staged artifact in place: reads what a tool wrote beside its output,
+--- removes it, and writes the output. A tool writes beside its output so that a
+--- failure leaves the last good artifact untouched, and this is the one step that
+--- replaces it.
+local function installStaged(staged: string, output: string): boolean, string?
+    local bytes, readErr = readFile(staged)
+    os.remove(staged)
+    if bytes == nil then
+        return false, readErr
+    end
+    local wrote, writeErr = writeFile(output, bytes as string)
+    if not wrote then
+        return false, writeErr
+    end
+
+    return true, nil
+end
+
 local function writeFileIfChanged(path: string, text: string): boolean?, string?
     if readFile(path) == text then
         return true
@@ -314,6 +332,7 @@ fs.exists = exists
 fs.mkdir = mkdir
 fs.stagingSuffix = stagingSuffix
 fs.writeFile = writeFile
+fs.installStaged = installStaged
 fs.writeFileIfChanged = writeFileIfChanged
 fs.copyFile = copyFile
 fs.listFiles = listFiles
