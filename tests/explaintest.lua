@@ -171,6 +171,15 @@ function M.lookupIsCaseInsensitiveThroughTheCommand()
    assert(decoded.wrong and decoded.right, "with both examples")
 end
 
+function M.listRefusesACodeItWouldIgnore()
+   local pipe = assert(io.popen(
+      ("'%s' explain --list NUPP2004 2>&1; echo \"__exit__:$?\""):format(NUPP)))
+   local out = pipe:read("*a")
+   pipe:close()
+   assert(out:find("__exit__:2", 1, true), "a code beside --list is a usage error: " .. out)
+   assert(out:find("does not take one", 1, true), "and says why: " .. out)
+end
+
 function M.traceReasonsResolveThroughTheCommand()
    local pipe = assert(io.popen(
       ("'%s' explain jit/loop-function-construction --json 2>/dev/null"):format(NUPP)))

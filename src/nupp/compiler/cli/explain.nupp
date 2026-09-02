@@ -69,6 +69,9 @@ local function run(parsed: any): integer
     local asJson = values.format == "json"
     local positional: {string} = parsed.positional
     if values.list then
+        if #positional > 0 then
+            return command:usageError("--list lists every code; it does not take one")
+        end
         local codes = explain.codes()
         for _, reason in ipairs(require("nupp.profile.trace").records()) do
             codes[#codes + 1] = reason.id
