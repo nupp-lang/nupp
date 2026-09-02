@@ -239,10 +239,7 @@ local LUA_MUTATE_OPS: {
     lua_scratch_u32_append_bits = true,
     lua_scratch_u32_append_bits_eager = true,
     lua_scratch_u32_append_string_bits = true,
-    lua_set_index = true,
-    lua_set_key = true,
     lua_string_buffer_finish = true,
-    lua_string_buffer_append = true,
     lua_builder_open_array = true,
     lua_builder_open_object = true,
     lua_builder_key = true,
@@ -359,11 +356,7 @@ function effects.expressionOpcodes(): {[string]: boolean}
     merge(opcodes, NATIVE_READ_OPS)
     merge(opcodes, LUA_READ_OPS)
     merge(opcodes, LUA_ALLOCATE_OPS)
-    for op in pairs(LUA_MUTATE_OPS) do
-        if op ~= "lua_set_index" and op ~= "lua_set_key" and op ~= "lua_string_buffer_append" then
-            opcodes[op] = true
-        end
-    end
+    merge(opcodes, LUA_MUTATE_OPS)
 
     return opcodes
 end

@@ -1263,14 +1263,6 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     end
 end
 
-function verify.expressionOpcodes(): {[string]: boolean}
-    return effects.expressionOpcodes()
-end
-
-function verify.statementOpcodes(): {[string]: boolean}
-    return effects.statementOpcodes()
-end
-
 ----------------------------------------------------------------------------
 -- Lane expressions
 ----------------------------------------------------------------------------
