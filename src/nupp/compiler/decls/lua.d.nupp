@@ -21,7 +21,9 @@ the language server shows on hover.
 The comptime helpers that give `find`, `match`, `gmatch`, `gsub` and `format` their
 result and argument packs live here rather than beside the Nupp namespaces, because
 the library they type is here. `nupp.Debug` comes with them: `format` names it, and
-it has to be declared before anything that reads a format string.
+it has to be declared before anything that reads a format string. `os.date` reads its
+literal format the same way, and its helper sits beside `os` rather than with these,
+because the `DateFields` it answers with belongs there too.
 ]]
 
 ----------------------------------------------------------------------------
@@ -984,6 +986,78 @@ local math: {
     huge: number
 }
 
+--- The fields `os.date("*t")` answers.
+---
+--- Every one is present, which is what separates this from the table `os.time` accepts:
+--- there a partial civil time is completed for you, and here the platform has already
+--- done it. `wday` counts from Sunday and `yday` from January 1st, both from 1.
+local interface DateFields
+    --- The full year, not an offset from 1900.
+    year: integer
+
+    --- The month, 1 through 12.
+    month: integer
+
+    --- The day of the month, 1 through 31.
+    day: integer
+
+    --- The hour, 0 through 23.
+    hour: integer
+
+    --- The minute, 0 through 59.
+    min: integer
+
+    --- The second, 0 through 60, the last of which is a leap second.
+    sec: integer
+
+    --- The day of the week, 1 for Sunday.
+    wday: integer
+
+    --- The day of the year, 1 for January 1st.
+    yday: integer
+
+    --- Whether daylight saving time is in effect where the time was interpreted.
+    isdst: boolean
+end
+
+--- @local
+local comptime function __NuppDateResult(Format: type, Fields: type): type
+    local info = nupp.types.describe(Format)
+    local value = info.value
+    -- An omitted `fmt` leaves `Format` unbound, which arrives here as `any`. That call
+    -- formats with the default "%c" and so answers a string, and a gradual argument is
+    -- trusted the same way rather than widening every caller that has one.
+    if info.kind == "primitive" and info.name == "any" then
+        return nupp.types.string
+    end
+    if info.kind ~= "literal" or type(value) ~= "string" then
+        return nupp.types.union({nupp.types.string, Fields})
+    end
+    local literal = value as string
+    local format = literal
+    if format:sub(1, 1) == "!" then
+        format = format:sub(2)
+    end
+    if format:sub(1, 2) == "*t" then
+        if #format > 2 then
+            nupp.types.error('os.date reads "*t" and ignores the rest of "' .. literal .. '"')
+        end
+        return Fields
+    end
+    local index = 1
+    while index <= #format do
+        if format:sub(index, index) ~= "%" then
+            index = index + 1
+        elseif index == #format then
+            nupp.types.error('os.date format "' .. literal .. '" ends in a lone "%"')
+        else
+            index = index + 2
+        end
+    end
+
+    return nupp.types.string
+end
+
 ----------------------------------------------------------------------------
 -- os
 ----------------------------------------------------------------------------
@@ -1001,10 +1075,14 @@ local os: {
     --- rather than local time, and a `fmt` of "*t" returns a table of date fields
     --- instead of a string.
     ---
+    --- A literal `fmt` decides which of those two the call answers: "*t" and "!*t" give
+    --- `DateFields`, and every other literal gives a string. A `fmt` the compiler
+    --- cannot read gives either, so narrow it before use.
+    ---
     --- @param fmt the `strftime` format, "%c" by default
     --- @param t the time to format, the current time by default
     --- @return the formatted string, or the field table for "*t"
-    date: function(fmt: string?, t: number?): any,
+    date: function<Format is string>(fmt: Format?, t: number?): __NuppDateResult(Format, DateFields),
 
     --- Returns the number of seconds from `t1` to `t2`.
     ---

@@ -830,6 +830,42 @@ function M.luaDebugFormatLoweringUsesThePegRuntime()
     assertEq(invalid, 'invalid string.format directive starting at "%..f"')
 end
 
+function M.osDateDerivesItsResultFromALiteralFormat()
+    clean(
+        table.concat(
+            {
+                "local stamp: string = os.date('%Y-%m-%dT%H:%M:%S')",
+                "local default: string = os.date()",
+                "local fields = os.date('*t')",
+                "local utc = os.date('!*t')",
+                "const storedFormat = '*t'",
+                "local stored = os.date(storedFormat)",
+                "local chosen: DateFields | string = os.date(...)",
+                "local at: number = os.time(os.date('*t'))",
+                "local year: integer, dst: boolean = fields.year, fields.isdst",
+                "return stamp, default, utc.yday, stored.wday, chosen, at, year, dst",
+            },
+            "\n"
+        )
+    )
+    oneDiagnostic(
+        "local held: string = os.date('*t')\nprint(held)",
+        "NUPP2001",
+        "cannot initialize held: DateFields is not a string"
+    )
+    oneDiagnostic("local fields = os.date('*t')\nprint(fields.mnoth)", "NUPP2004", 'no field "mnoth" in DateFields')
+    oneDiagnostic(
+        "local bad = os.date('*t and more')\nprint(bad)",
+        "NUPP2006",
+        'os.date reads "*t" and ignores the rest of "*t and more"'
+    )
+    oneDiagnostic(
+        "local bad = os.date('%Y-%m-%')\nprint(bad)",
+        "NUPP2006",
+        'os.date format "%Y-%m-%" ends in a lone "%"'
+    )
+end
+
 function M.luaPatternsDeriveLiteralCaptureResults()
     clean(
         table.concat(

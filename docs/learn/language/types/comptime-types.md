@@ -350,6 +350,28 @@ local nextWord: function(): string = string.gmatch("one two", "[a-z]+")
 `(string, integer)`. An unparseable literal pattern is rejected wherever it
 appears, with the reason the capture reader found.
 
+## Calendar fields from `os.date`
+
+`os.date` answers a string for every format but `"*t"`, which answers a table
+of calendar fields instead. A literal format decides which, so the call has a
+result type rather than `any`:
+
+```nupp
+local stamp: string = os.date("%Y-%m-%dT%H:%M:%S")
+local fields: DateFields = os.date("*t")
+print(fields.year, fields.isdst)
+```
+
+A leading `!` selects UTC and does not change the result, so `"!*t"` is
+`DateFields` too. Omitting the format formats with `"%c"` and answers a string.
+A format the compiler cannot read answers `DateFields | string`, which narrows
+like any other union.
+
+Two literal formats are rejected rather than typed, both with `NUPP2006`. One
+ends in a lone `%`, which no conversion completes. The other writes something
+after `"*t"`, as in `os.date("*t local time")`: the call reads the `"*t"` and
+discards the rest, so the extra text is a request that never happens.
+
 ## Limits and isolation
 
 Type functions run in the isolated comptime worker under deterministic
