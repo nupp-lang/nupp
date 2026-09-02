@@ -37,9 +37,6 @@ local instructions = {}
 --- question nothing answered. So it is refused instead.
 const instructions.ARCHITECTURES = {"aarch64", "x86_64"}
 
---- Every category an instruction can be counted in.
-const instructions.KINDS = {"vector", "load", "store", "branch", "call", "stack"}
-
 --- What a symbol can be, in the order a listing shows them.
 ---
 --- The order is what the reader came for first. A compiled body is what the
@@ -74,8 +71,9 @@ record instructions.Instruction
 
     operands: string
 
-    --- Every category this instruction is in, in `KINDS` order. A vector load
-    --- is in two of them, which is why this is a list rather than a choice.
+    --- Every category this instruction is in, in the order vector, load, store, branch,
+    --- call, stack. A vector load is in two of them, which is why this is a list rather
+    --- than a choice.
     kinds: {string}
 end
 
