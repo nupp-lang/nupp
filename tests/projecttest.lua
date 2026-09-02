@@ -2495,6 +2495,88 @@ return {make = make}
    local component = read(dir .. "/out/component.lua")
    assert(component:find("__nuppAotBuilderModules", 1, true), "static builder reads host registration")
    assert(not component:find("package.loadlib", 1, true), "static builder does not dynamically load")
+
+   -- The host calls a tier-spelled registrar and registers what it returns
+   -- under the unsuffixed key the wrapper reads. The manifest names both.
+   local link = json.decode(assert(read(dir .. "/out/aot/link.json")))
+   assertEq(#link.builders, 1, "the one Lua-building entry is a registration the host owes")
+   local builder = link.builders[1]
+   assertEq(builder.entry, "make", "named after the entry it stands for")
+   assert(component:find(builder.key, 1, true), "the wrapper reads the registry key")
+   assert(builder.symbols[1]:find(builder.key, 1, true)
+      and builder.symbols[1] ~= builder.key,
+      "and the host calls a tier spelling of it: " .. builder.symbols[1])
+   remove(dir)
+end
+
+function M.staticAotComponentCarriesAProbeAndALinkManifest()
+   local dir = tempProject({
+      ["src/main.nupp"] = [[
+@aot(lanes = false)
+local function triangular(count: integer): number
+   local result = 0.0
+   for index = 1, count do result = result + index end
+   return result
+end
+return {triangular = triangular}
+]],
+   })
+   write(dir .. "/nupp.lua", ([=[return {include = {"src"}, build = {kind = "component",
+      aot = "require", aotLinkage = "static", outDir = %q,
+      output = %q, entries = {"main"}}}]=]):format(dir .. "/out", dir .. "/out/component.lua"))
+   if require("nupp.compiler.build.aot").toolchain() == nil then remove(dir); return require("assert").skip("C compiler is unavailable") end
+   assertEq(project.build(dir), 0)
+
+   local link = json.decode(assert(read(dir .. "/out/aot/link.json")))
+   assertEq(link.schemaVersion, 1, "the host handoff is versioned")
+   assertEq(link.component, "default", "and names the component it describes")
+   assertEq(link.archive, "lib/libdefault_aot.a", "and the archive to retain")
+   local probe = link.fingerprint.symbol
+   assert(probe:find("^ks_aot_archive_"), probe)
+   assertEq(link.symbols.probe, probe, "the probe is among the symbols to export")
+   assert(#link.symbols.kernels > 0, "so is every kernel")
+   assert(#link.retain.forceLoad > 0,
+      "a desktop linker extracts nothing from an archive nothing references")
+
+   local c = assert(read(dir .. "/out/aot/archive.c"))
+   assert(c:find("uint64_t " .. probe .. "(void)", 1, true), c)
+   assert(c:find("return UINT64_C(" .. ("%d"):format(link.fingerprint.value) .. ");", 1, true),
+      "the probe returns exactly what the manifest says it does")
+
+   -- The check stands ahead of every declaration in the module, because a
+   -- kernel `cdef` binds eagerly too and would raise LuaJIT's own message first.
+   local module = assert(read(dir .. "/out/main.lua"))
+   local at = module:find(probe, 1, true)
+   local kernel = module:find("ks_[0-9a-f]+_triangular")
+   assert(at and kernel and at < kernel, "the archive probe is checked first")
+   assert(module:find("was not linked into the host", 1, true),
+      "a missing probe says the archive was not linked")
+   assert(module:find("is not the one this module was compiled against", 1, true),
+      "and a mismatched one says which failure it is")
+   remove(dir)
+end
+
+function M.staticAotIsRefusedForATargetThatHasNoArchiveToLink()
+   local dir = tempProject({
+      ["src/main.nupp"] = [[
+@aot(lanes = false)
+local function double(value: number): number return value * 2.0 end
+return {double = double}
+]],
+   })
+   write(dir .. "/nupp.lua", ([=[return {include = {"src"}, build = {kind = "component",
+      aot = "require", aotLinkage = "static", aotTarget = "wasm32-unknown-emscripten",
+      outDir = %q, output = %q, entries = {"main"}}}]=]):format(dir .. "/out", dir .. "/out/component.lua"))
+   local errorPath = os.tmpname()
+   local originalStderr = io.stderr
+   io.stderr = assert(io.open(errorPath, "wb"))
+   local code = project.build(dir)
+   io.stderr:close()
+   io.stderr = originalStderr
+   local reported = read(errorPath) or ""
+   os.remove(errorPath)
+   assert(code ~= 0, "a target with no static archive cannot take static linkage")
+   assert(reported:find("produces static AOT archives", 1, true), reported)
    remove(dir)
 end
 

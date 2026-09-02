@@ -218,14 +218,31 @@ A component target selects static AOT with `aotLinkage = "static"` and
 archive under `outDir/lib`. The archive is input to the embedding application's
 link, not a file the component will discover at runtime.
 
-The host must force-link and retain that archive, make its symbols visible to
-LuaJIT's default C namespace, and construct the component with the same target
-ABI. Numeric and span kernels then resolve through the process image. A
-Lua-building AOT entry additionally requires
-`nupp_runtime_register_aot_builders` before `nupp_component_load`, as shown
-above. A missing archive, an archive stripped by the linker, or an unregistered
-builder is a host deployment error; substituting `ffi.load` would reintroduce
-the dynamic-loader dependency this mode avoids.
+The host contract is four items:
+
+1. Link and retain the archive.
+2. Expose its AOT and probe symbols to the VM's default C namespace.
+3. Call each builder registrar with the owned `lua_State *`.
+4. Call `nupp_runtime_register_aot_builders` before `nupp_component_load` for
+   each builder registrar.
+
+The build writes `outDir/aot/link.json` saying what those are for one archive:
+its path, the probe symbol and the value it must return, every exported kernel
+and registrar symbol, the builder keys the host owes, and the retain and export
+flags the target's linker takes. See
+[Static AOT components](build.md#static-aot-components) for its shape. The host
+also constructs the component with the same target ABI. Numeric and span kernels
+then resolve through the process image; substituting `ffi.load` would
+reintroduce the dynamic-loader dependency this mode avoids.
+
+Retention is a physical link requirement, not something a generated wrapper can
+recover from: an FFI lookup creates no undefined C reference, so a linker
+reading the archive normally extracts nothing from it. The archive therefore
+exports a probe every rewritten module checks first. An archive that was never
+linked, or one stripped by the linker, reports that it is not in the default C
+namespace; an archive from a different build of the component reports that
+instead. An unregistered builder reports itself the same way. All three are host
+deployment errors and all three say so at load.
 
 Use static AOT when the application owns the final link or cannot rely on a
 dynamic loader. Use the default shared AOT linkage when components must travel

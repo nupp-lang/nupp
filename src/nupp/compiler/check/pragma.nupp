@@ -318,6 +318,18 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 if targetBody.aotRequired then
                     c.diag("NUPP2901", annotationName, "@jit and @aot name different compilers for one body")
                 end
+                -- `@jit` asserts that a tracing contract exists. A target with
+                -- no trace compiler cannot meet it, and rereading the promise
+                -- as advice would let a program claim a property of its
+                -- destination that the destination does not have.
+                local profile = c.env and c.env.targetProfile or nil
+                if profile ~= nil and not (profile as any).tracingJit then
+                    c.diag(
+                        "NUPP2904",
+                        annotationName,
+                        "@jit needs a tracing JIT, and " .. tostring((profile as any).target) .. " has none"
+                    )
+                end
                 targetBody.jitRequired = true
             end
             if stat.stat then

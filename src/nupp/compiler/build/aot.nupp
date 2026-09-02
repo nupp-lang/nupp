@@ -46,6 +46,7 @@ local hash = require("nupp.compiler.build.hash")
 local process = require("nupp.compiler.build.process")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local targets = require("nupp.compiler.aot.target")
+local profiles = require("nupp.compiler.targetprofile")
 
 local isFatal = diagnosticMod.isFatal
 
@@ -291,8 +292,14 @@ record aot.Emitted
     --- The compiled object, when the policy links rather than only emitting C.
     object: string?
 
-    --- True for the compiler-owned baseline feature detector unit.
+    --- True for a compiler-owned unit, which came from no source and so has
+    --- no artifacts behind it: the baseline feature detector, and the archive
+    --- probe a static link needs.
     detector: boolean?
+
+    --- Which compiler-owned unit this is, for a manifest consumer that has to
+    --- tell them apart.
+    role: string?
 
     --- The side-module C and Wasm artifact when a Wasm policy selected them.
     wasmSource: string?
@@ -561,6 +568,8 @@ end
 --- reifies was declared.
 ---
 --- @param sites where each program was written, in the same order
+--- @param archive what a statically linked module checks the process image
+---   against, which a shared-library build does not have and does not need
 --- @return the rewritten source
 function aot.dispatch(
     source: string,
@@ -570,7 +579,8 @@ function aot.dispatch(
     library: string?,
     tiers: {string}?,
     constFamilies: {any}?,
-    browser: boolean?
+    browser: boolean?,
+    archive: nupp.compiler.aot.binding.Archive?
 ): string
     local rewritten = source
     local replacements: {any} = {}
@@ -588,7 +598,7 @@ function aot.dispatch(
             #replacements + 1
         ] = {
             site = family.site,
-            text = bindingRules.familyReplacement(family, library, tiers, family.site.from == detectorAt),
+            text = bindingRules.familyReplacement(family, library, tiers, family.site.from == detectorAt, archive),
         }
     end
     for position = 1, #programs do
@@ -601,7 +611,7 @@ function aot.dispatch(
                 assert(artifact ~= nil, "GPU program has no emitted shader")
                 replacement = gpuBinding.replacement(program, artifact, browser)
             else
-                replacement = bindingRules.replacement(program, library, tiers, site.from == detectorAt)
+                replacement = bindingRules.replacement(program, library, tiers, site.from == detectorAt, archive)
             end
             replacements[#replacements + 1] = {site = site, text = replacement,}
         end
@@ -1200,7 +1210,8 @@ function aot.emitC(
             cacheKey = cacheKey,
             output = output,
             key = key,
-            detector = true
+            detector = true,
+            role = "feature-detector"
         )
     end
 
@@ -1250,6 +1261,65 @@ record aot.Result
     gpuSources: {string}?
 end
 
+--- The component identity every symbol in a static archive carries.
+---
+--- A shared object has a linker namespace of its own; an archive linked into an
+--- executable has the one namespace that executable has. Two components whose
+--- source functions happen to share a name must not export the same symbol, and
+--- neither may collide with the host's own, so identity has to be in the
+--- symbols rather than in the file they arrived in.
+function aot.archiveIdentity(name: string): string
+    return hash.digest(name):sub(1, 16)
+end
+
+--- What one archive's contents come to.
+---
+--- Over the units' content keys rather than over the linked file, so an
+--- `emit-c` consumer that compiles and archives the C itself arrives at the
+--- same number the generated wrapper was given. Forty-eight bits, because the
+--- wrapper compares it as a Lua number.
+function aot.archiveFingerprint(emitted: {aot.Emitted}): integer
+    local keys: {string} = {}
+    for _, one in ipairs(emitted) do
+        keys[#keys + 1] = one.cacheKey .. "\0" .. one.key
+    end
+    table.sort(keys)
+
+    return tonumber(hash.digest(table.concat(keys, "\n")):sub(1, 12), 16) as integer
+end
+
+--- Writes the compiler-owned unit that says which archive this is.
+---
+--- Emitted last and keyed like any other unit, so it takes part in the link
+--- cache and in the archive it describes without describing itself.
+function aot.writeArchiveProbe(
+    outDir: string,
+    name: string,
+    selected: targets.Target,
+    emitted: {aot.Emitted}
+): (aot.Emitted?, nupp.compiler.aot.binding.Archive?, string?)
+    local symbol = "ks_aot_archive_" .. aot.archiveIdentity(name)
+    local fingerprint = aot.archiveFingerprint(emitted)
+    local unit = emitter.archiveProbe(symbol, fingerprint)
+    local output = outDir .. "/aot/archive.c"
+    if fs.readFile(output) ~= unit then
+        local ok, err = fs.writeFile(output, unit)
+        if not ok then
+            return nil, nil, tostring(err)
+        end
+    end
+
+    return new aot.Emitted(
+        source = "<archive-probe>",
+        tier = selected.tier,
+        cacheKey = "@archive-probe",
+        output = output,
+        key = hash.digest(cache.stable({c = unit, triple = selected.triple, compiler = cache.toolFingerprint(),})),
+        detector = true,
+        role = "archive-probe"
+    ), new bindingRules.Archive(symbol = symbol, fingerprint = fingerprint), nil
+end
+
 --- Writes the portable handoff for an `emit-c` consumer.
 function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Emitted}): (string?, string?)
     if #emitted == 0 then
@@ -1269,18 +1339,111 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
             source = one.output:gsub("^" .. prefix:gsub("%p", "%%%0"), ""),
             tier = one.tier,
             cflags = nupp.data.json.asArray(flags),
-            detector = one.detector == true,
+            detector = one.role == "feature-detector",
+            role = one.role,
             wasm = one.wasm and (one.wasm as string):gsub("^" .. prefix:gsub("%p", "%%%0"), "") or nil,
             registrar = one.registrar,
             unit = one.unit,
         }
     end
     local document = nupp.data.json.encode({
-        schemaVersion = 2,
+        schemaVersion = 3,
         target = triple,
         units = nupp.data.json.asArray(units),
     }) .. "\n"
     local output = outDir .. "/aot/units.json"
+    if fs.readFile(output) ~= document then
+        local ok, err = fs.writeFile(output, document)
+        if not ok then
+            return nil, tostring(err)
+        end
+    end
+
+    return output, nil
+end
+
+--- What a host has to be told about one static archive.
+---
+--- The C units manifest says how to compile the archive; this says what to do
+--- with it afterwards, which is the part an FFI declaration cannot express. An
+--- FFI lookup creates no undefined C reference, so a linker that reads the
+--- archive normally extracts nothing from it, and every symbol below then fails
+--- to resolve at load with no indication that a link option was the cause.
+---
+--- `<archive>` in the retain flags stands for the archive's path, which the host
+--- knows and this build does not: the file this describes may be copied into a
+--- vendor tree before it is ever linked. A profile with no retain flags is
+--- describing a target that has no linker to tell -- a console static symbol
+--- registry, for which `symbols` is the list that registry must contain.
+function aot.writeLinkManifest(
+    outDir: string,
+    name: string,
+    profile: profiles.Profile,
+    archive: nupp.compiler.aot.binding.Archive,
+    library: string?,
+    emitted: {aot.Emitted},
+    produced: {[string]: compile.Artifacts},
+    tiers: {string}
+): (string?, string?)
+    local kernels: {string} = {}
+    local registrars: {string} = {}
+    local builders: {unknown} = {}
+    local builderSymbols: {[string]: {string}} = {}
+    local builderEntries: {[string]: string} = {}
+    local builderOrder: {string} = {}
+    for _, one in ipairs(emitted) do
+        local artifacts = produced[one.cacheKey]
+        for _, program in ipairs(artifacts ~= nil and (artifacts as compile.Artifacts).programs or {}) do
+            if program.executionTarget ~= "gpu" then
+                kernels[#kernels + 1] = targets.symbol(program.symbol, one.tier)
+                local registrar = program.registrar
+                if registrar ~= nil then
+                    -- The key is the unsuffixed registrar, which is what the
+                    -- generated wrapper looks the returned table up under; the
+                    -- symbols are the tier spellings, which is what the host
+                    -- actually calls. They differ, so both are named.
+                    local key = registrar as string
+                    local symbol = targets.symbol(key, one.tier)
+                    registrars[#registrars + 1] = symbol
+                    if builderSymbols[key] == nil then
+                        builderSymbols[key] = {}
+                        builderEntries[key] = program.name
+                        builderOrder[#builderOrder + 1] = key
+                    end
+                    local symbols = builderSymbols[key] as {string}
+                    symbols[#symbols + 1] = symbol
+                end
+            end
+        end
+    end
+    table.sort(kernels)
+    table.sort(registrars)
+    table.sort(builderOrder)
+    for _, key in ipairs(builderOrder) do
+        builders[
+            #builders + 1
+        ] = {key = key, entry = builderEntries[key], symbols = nupp.data.json.asArray(builderSymbols[key] as {string}),}
+    end
+    local document = nupp.data.json.encode({
+        schemaVersion = 1,
+        component = name,
+        target = profile.target,
+        os = profile.os,
+        archive = library ~= nil and (library as string):gsub("^" .. outDir:gsub("%p", "%%%0") .. "/", "") or nil,
+        fingerprint = {symbol = archive.symbol, value = archive.fingerprint,},
+        symbols = {
+            probe = archive.symbol,
+            kernels = nupp.data.json.asArray(kernels),
+            registrars = nupp.data.json.asArray(registrars),
+        },
+        builders = nupp.data.json.asArray(builders),
+        retain = {
+            forceLoad = nupp.data.json.asArray(profile.forceLoad),
+            export = nupp.data.json.asArray(profile.export),
+        },
+        tiers = nupp.data.json.asArray(tiers),
+    }) .. "\n"
+    local output = outDir .. "/aot/link.json"
     if fs.readFile(output) ~= document then
         local ok, err = fs.writeFile(output, document)
         if not ok then
@@ -1354,13 +1517,73 @@ function aot.apply(
             return nil, flagErr
         end
     end
-    local manifest, manifestErr = aot.writeUnitsManifest(
-        outDir,
-        (selectedForManifest as {targets.Target})[1].triple,
-        emitted as {aot.Emitted}
-    )
+    local selectedTriple = (selectedForManifest as {targets.Target})[1].triple
+    local tierNames: {string} = {}
+    for _, tierTarget in ipairs(selectedForManifest as {targets.Target}) do
+        tierNames[#tierNames + 1] = tierTarget.tier
+    end
+
+    -- Static linkage is a claim about the destination, so the destination has
+    -- to have been described. Refusing here rather than at load keeps a build
+    -- from producing an archive for a VM that cannot resolve a symbol out of
+    -- one, which is a failure with no useful runtime symptom.
+    local archive: nupp.compiler.aot.binding.Archive? = nil
+    local staticProfile: profiles.Profile? = nil
+    if linkage == "static" then
+        local profile, profileErr = require("nupp.compiler.build.compilerpacks").profile(selectedTriple)
+        if profile == nil then
+            return nil, tostring(profileErr)
+        end
+        staticProfile = profile
+        local described = profile as profiles.Profile
+        if not described.staticAot then
+            return nil, "aotLinkage = \"static\" needs a target that produces static AOT archives; "
+                .. described.target
+                .. " ("
+                .. described.origin
+                .. ") does not"
+        end
+        if not described.staticSymbolResolver then
+            return nil, "aotLinkage = \"static\" needs a target whose VM resolves default-namespace "
+                .. "symbols from the process image; "
+                .. described.target
+                .. " ("
+                .. described.origin
+                .. ") does not"
+        end
+        if #(emitted as {aot.Emitted}) > 0 then
+            local unit, probed, probeErr = aot.writeArchiveProbe(
+                outDir,
+                name,
+                (selectedForManifest as {targets.Target})[1],
+                emitted as {aot.Emitted}
+            )
+            if unit == nil then
+                return nil, tostring(probeErr)
+            end
+            local units = emitted as {aot.Emitted}
+            units[#units + 1] = unit as aot.Emitted
+            archive = probed
+        end
+    end
+    local manifest, manifestErr = aot.writeUnitsManifest(outDir, selectedTriple, emitted as {aot.Emitted})
     if manifestErr ~= nil then
         return nil, manifestErr
+    end
+    if archive ~= nil then
+        local _, linkErr = aot.writeLinkManifest(
+            outDir,
+            name,
+            staticProfile as profiles.Profile,
+            archive as nupp.compiler.aot.binding.Archive,
+            aot.libraryPath(outDir, name, ".a"),
+            emitted as {aot.Emitted},
+            produced,
+            tierNames
+        )
+        if linkErr ~= nil then
+            return nil, linkErr
+        end
     end
     if wasmPolicy then
         local wasmModules, wasmErr, wasmKey, wasmToolchain = aot.compileWasm(emitted as {aot.Emitted}, produced, cflags)
@@ -1528,10 +1751,6 @@ function aot.apply(
     -- failed to link never leaves modules rewritten to call an object that is
     -- not there.
     local dispatch: {[string]: string} = {}
-    local tierNames: {string} = {}
-    for _, tierTarget in ipairs(selectedForManifest as {targets.Target}) do
-        tierNames[#tierNames + 1] = tierTarget.tier
-    end
     local dispatched: {[string]: boolean} = {}
     local dispatchSources: {string} = {}
     for _, one in ipairs(emitted as {aot.Emitted}) do
@@ -1561,7 +1780,8 @@ function aot.apply(
                 reference,
                 tierNames,
                 (artifacts as compile.Artifacts).constFamilies,
-                wasmPolicy
+                wasmPolicy,
+                archive
             )
         end
     end

@@ -1,6 +1,6 @@
 ---
 title: Embedded static AOT profiles
-status: Accepted
+status: Implemented
 created: 2026-08-30
 ---
 

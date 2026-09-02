@@ -1534,6 +1534,27 @@ function emit.featureDetector(): string
     return table.concat(lines, "\n") .. "\n"
 end
 
+--- The one symbol that says which archive a host actually linked.
+---
+--- An FFI lookup creates no undefined C reference, so nothing in a static
+--- archive is extracted by being called from Lua: the host has to force-load it
+--- and keep its symbols. That is a physical link requirement rather than
+--- something a generated wrapper can recover from, so the archive exports one
+--- function whose name is the component's and whose value is its contents. A
+--- name that does not resolve says the archive was not linked; a value that
+--- disagrees says the archive that was linked is a different build of it.
+---
+--- Forty-eight bits rather than sixty-four because the wrapper compares the
+--- answer against a Lua number, which is exact to fifty-three.
+function emit.archiveProbe(symbol: string, fingerprint: integer): string
+    local lines = emit.includes()
+    lines[#lines + 1] = "KS_API uint64_t " .. symbol .. "(void) {"
+    lines[#lines + 1] = "    return UINT64_C(" .. string.format("%d", fingerprint) .. ");"
+    lines[#lines + 1] = "}"
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
 --- The pinned public Lua 5.1 API surface used by VM-aware AOT entries.
 ---
 --- Kept self-contained so `emit-c` is useful without locating development

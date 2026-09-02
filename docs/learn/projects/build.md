@@ -403,6 +403,97 @@ numeric and span kernels need no registrar. A static component cannot make a
 sidecar-only native provider available: its native dependencies must already be
 linked into, or otherwise supplied by, the host.
 
+A static build writes two more things beside the archive. `outDir/aot/archive.c`
+defines one exported probe, `ks_aot_archive_<component>`, returning a number
+derived from the archive's contents, and every rewritten module checks it before
+anything else it declares. A name that does not resolve reports that the archive
+was not linked into the host; a value that disagrees reports that the archive
+which was linked is a different build of the component. Both are load errors
+naming the cause, in place of the `dlsym` failure an unretained archive
+otherwise produces on whichever kernel happened to be declared first.
+
+`outDir/aot/link.json` is the handoff for whoever performs that link. It names
+the component and target, the archive, the probe symbol and its expected value,
+every exported kernel and registrar symbol, the builder registrations the host
+owes, and the retain and export flags the target's linker takes, with
+`<archive>` standing for wherever the archive ends up:
+
+```json
+{
+  "schemaVersion": 1,
+  "component": "gameScripts",
+  "target": "aarch64-apple-darwin",
+  "archive": "lib/libgameScripts_aot.a",
+  "fingerprint": {"symbol": "ks_aot_archive_a91c2e...", "value": 54690558639838},
+  "retain": {
+    "forceLoad": ["-Wl,-force_load,<archive>"],
+    "export": ["-Wl,-export_dynamic"]
+  }
+}
+```
+
+Each entry in `builders` names both a `key` and the `symbols` behind it, because
+they are not the same string: the host calls a tier-spelled registrar symbol and
+registers what it returns under the unsuffixed key, which is what the generated
+wrapper looks the table up under.
+
+A target whose VM uses a vendor static symbol registry instead of a linker
+option has no retain flags to give; `symbols` is then the list that registry
+must contain. `aot = "emit-c"` with static linkage writes the same C units,
+probe, and link manifest without compiling any of them.
+
+### Target capability profiles
+
+A target profile says what a destination admits, as distinct from what its
+pointers are: whether it has a dynamic loader, a tracing JIT, working FFI
+callbacks, a VM that resolves default-namespace symbols out of the process
+image, and a toolchain that produces static AOT archives. Every publicly
+modelled triple has a built-in profile and answers yes to all of them, except
+`wasm32-unknown-emscripten`, which has no tracing JIT and no native archive.
+
+The profile is what static linkage is checked against. A build that selects
+`aotLinkage = "static"` for a target whose profile does not produce static
+archives, or whose VM does not resolve symbols out of the process image, is
+refused with that reason rather than producing an archive nothing can use.
+
+Three source constructs are refused the same way, as
+[NUPP2904](../../reference/diagnostics.md). `@jit` asserts that a tracing contract
+exists, so a target with no trace compiler rejects it instead of quietly
+rereading it as advice. A `cdef ... from "name"` asks the platform to load a
+library, so a target with no loader rejects it; the same C is reachable through
+the default namespace, which is what a static link puts there. An `ffi.cast` to
+a function type asks the VM for a callback trampoline, so a target that
+allocates none rejects it — ahead of the `unsafe` question, because `unsafe`
+says the author accepts what a callback costs rather than that the destination
+can make one, and unlike the `jit-callback` lint beside it this cannot be waved
+away with `@allow`. A target nothing describes refuses nothing.
+
+A vendor describes a private target in its compiler pack, so nothing about a
+confidential platform has to reach the public distribution catalog. `pack.json`
+takes an optional `profile`:
+
+```json
+"profile": {
+  "layoutModel": "aarch64-unknown-linux-gnu",
+  "os": "linux",
+  "capabilities": {
+    "dynamicLoader": false,
+    "tracingJit": false,
+    "ffiCallbacks": false,
+    "staticSymbolResolver": true,
+    "staticAot": true
+  },
+  "link": {"forceLoad": [], "export": []}
+}
+```
+
+Every capability must be stated: an omitted one is one nobody verified, and
+defaulting it to the permissive answer is the mistake profiles exist to
+prevent. `layoutModel` names an already modelled triple, so admitting a target
+does not also open the set of layout models. A descriptor wins over the
+built-in answer for the same triple, because a vendor port of a public triple is
+still that vendor's port.
+
 Current-platform source builds use the repository toolchain driver. Installed
 and cross-target builds use a compiler pack selected by host and target triple.
 Installed distributions discover packs under `lib/nupp/compiler-packs` beside

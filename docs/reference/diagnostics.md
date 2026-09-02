@@ -149,7 +149,7 @@ that page:
 | Ahead-of-time compilation | [ahead-of-time.md](../learn/performance/ahead-of-time/index.md) | `NUPP2901`, `NUPP2902`, `NUPP2903` |
 | Annotations | [annotations.md](annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2707`, `NUPP2901`, `NUPP2902`, `NUPP2903` |
 | Associated types | [associated-types.md](../learn/language/types/associated-types.md) | `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`, `NUPP2511` |
-| C interop | [c-interop.md](../learn/runtime/c-interop/index.md) | `NUPP2201`, `NUPP2402`, `NUPP2403` |
+| C interop | [c-interop.md](../learn/runtime/c-interop/index.md) | `NUPP2201`, `NUPP2402`, `NUPP2403`, `NUPP2904` |
 | Checked spans | [](nupp.mem.span) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
 | Comptime | [comptime.md](../learn/language/comptime.md) | `NUPP2410` through `NUPP2416`, `NUPP2419`, `NUPP2420`, `NUPP2421` |
 | Comptime types | [type-level-computation.md](../learn/language/types/comptime-types.md) | `NUPP2001` |
@@ -164,7 +164,7 @@ that page:
 | Intersections and overloads | [intersections.md](../learn/language/types/intersections.md) | `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
 | Lints | [lints.md](lints.md) | `NUPP2107`, `NUPP2120`, `NUPP2501`, `NUPP2502`, `NUPP2504` through `NUPP2515` |
 | Logging | [](nupp.log) | `NUPP2006` |
-| LuaJIT trace checking | [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) | `NUPP2502`, `NUPP2505`, `NUPP2514`, `NUPP2515`, `NUPP2707` |
+| LuaJIT trace checking | [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) | `NUPP2502`, `NUPP2505`, `NUPP2514`, `NUPP2515`, `NUPP2707`, `NUPP2904` |
 | Math | [](nupp.math) | `NUPP2011`, `NUPP2012` |
 | Metamethods | [metamethods.md](../learn/language/metamethods.md) | `NUPP2003`, `NUPP2005`, `NUPP2006`, `NUPP2007`, `NUPP2116`, `NUPP2117`, `NUPP2118` |
 | Modules | [modules.md](../learn/language/modules.md) | `NUPP1002`, `NUPP2004`, `NUPP2101`, `NUPP2105`, `NUPP2119` |
@@ -180,6 +180,7 @@ that page:
 | Structure-of-arrays storage | [structure-of-arrays.md](../learn/runtime/data/structure-of-arrays.md) | `NUPP2009`, `NUPP2403` |
 | Suspension | [suspension.md](../learn/runtime/concurrency/suspension.md) | `NUPP2603`, `NUPP2701`, `NUPP2702`, `NUPP2706` |
 | Switch expressions | [switch-expressions.md](../learn/language/switch-expressions.md) | `NUPP2137` through `NUPP2142`, `NUPP3001` |
+| Target capability profiles | [build.md](../learn/projects/build.md) | `NUPP2904` |
 | Type packs | [packs.md](../learn/language/types/packs.md) | `NUPP2007`, `NUPP2010`, `NUPP2121`, `NUPP2605` |
 | Type system | [overview.md](../learn/language/types/index.md) | `NUPP2001`, `NUPP2004`, `NUPP2011`, `NUPP2012`, `NUPP2105`, `NUPP2106` |
 | Unions | [unions.md](../learn/language/types/unions.md) | `NUPP2001`, `NUPP2107`, `NUPP2138`, `NUPP2139`, `NUPP2140` |

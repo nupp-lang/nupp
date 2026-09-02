@@ -185,6 +185,21 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                     return T.borrowed(argT)
                 end
                 if name == "cast" and c.pointerShaped(argT) and ffiArgs[1] and rawType(ffiArgs[1]).tag == "func" then
+                    -- Ahead of the `unsafe` question, because `unsafe` says the
+                    -- author accepts the cost of a callback rather than that the
+                    -- destination can allocate one. A port with no executable
+                    -- pages has no trampoline to hand out, and the `jit-callback`
+                    -- lint below is suppressible where this must not be.
+                    local profile = c.env and c.env.targetProfile or nil
+                    if profile ~= nil and not (profile as any).ffiCallbacks then
+                        c.diag(
+                            "NUPP2904",
+                            node,
+                            "an FFI callback needs a trampoline, and " .. tostring(
+                                (profile as any).target
+                            ) .. " allocates none"
+                        )
+                    end
                     if c.unsafeDepth == 0 then
                         c.diag(
                             "NUPP2604",

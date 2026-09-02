@@ -1426,6 +1426,26 @@ ENTRIES[
 ENTRIES[
     #ENTRIES + 1
 ] = {
+    code = "NUPP2904",
+    summary = "A construct needs a capability the selected target does not have",
+    rule = "A target profile states what a destination admits: a dynamic loader, a "
+    .. "tracing JIT, FFI callbacks, and a way to resolve a default-namespace symbol "
+    .. "out of a static archive. `@jit` on a target with no trace compiler asserts a "
+    .. "contract nothing there can meet, and a `cdef ... from \"name\"` on a target "
+    .. "with no loader asks the platform to load something it cannot; both are "
+    .. "refused where they are written rather than on the device. Reach the same C "
+    .. "through the default namespace, which a static link puts in the process image, "
+    .. "and drop `@jit` where nothing traces. Which target is selected is what decides "
+    .. "this, so no isolated file exhibits it on its own: a target is described by the "
+    .. "built-in profile for its triple or by a verified descriptor in a compiler "
+    .. "pack, and a target nothing describes refuses nothing.",
+    related = {"NUPP2707", "NUPP2901"},
+    docs = "docs/learn/projects/build.md",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
     code = "NUPP1001",
     summary = "The lexer could not read a token to completion",
     rule = "A string, long string, long comment, interpolation, or number must close or resolve within the input it is given: a quote must find its matching quote before the line ends, a long bracket must find its matching close, and a numeral must match the shape of a number. A byte that starts none of the lexer's tokens is reported the same way. Recovery marks the malformed span as an error token and resumes lexing from the next line.",

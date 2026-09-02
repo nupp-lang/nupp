@@ -518,6 +518,21 @@ function cdef.install(
             }
             cdefType = logicalType
         end
+        -- A named library is resolved by the platform's dynamic loader, and a
+        -- target that has none has nowhere to resolve it. Reported on the
+        -- declaration rather than at a call, because the declaration is what
+        -- asks for the loader: the default namespace is still reachable, so
+        -- dropping the clause and linking the code in is the fix.
+        if stat.fromLib ~= nil then
+            local profile = c.env and c.env.targetProfile or nil
+            if profile ~= nil and not (profile as any).dynamicLoader then
+                c.diag(
+                    "NUPP2904",
+                    stat.fromLib,
+                    "a named library needs a dynamic loader, and " .. tostring((profile as any).target) .. " has none"
+                )
+            end
+        end
         local cdefName = stat.name
         stat.signatureType = cdefType
         if not cdefName then

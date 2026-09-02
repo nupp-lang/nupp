@@ -13,6 +13,7 @@ compiler and set that variable in its launcher.
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.build.hash")
 local layouts = require("nupp.compiler.targetlayout")
+local profiles = require("nupp.compiler.targetprofile")
 
 local packs = {}
 
@@ -26,6 +27,12 @@ record packs.Pack
     linkHost: string?
     compileFlags: {string}
     linkFlags: {string}
+
+    --- What the pack says the target admits, when it carries a verified
+    --- descriptor. A pack without one leaves the built-in profile in place,
+    --- which is what a pack that only supplies a toolchain for a public triple
+    --- should do.
+    profile: nupp.compiler.targetprofile.Profile?
 end
 
 local function safeRelative(path: any): boolean
@@ -183,6 +190,14 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
     if not linkFlags then
         return nil, flagsErr
     end
+    local profile: nupp.compiler.targetprofile.Profile? = nil
+    if value.profile ~= nil then
+        local described, profileErr = profiles.fromDescriptor(target as string, value.profile, selectedManifest)
+        if described == nil then
+            return nil, profileErr
+        end
+        profile = described
+    end
 
     return new packs.Pack(
         host = host,
@@ -193,8 +208,32 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
         ar = ar as string,
         linkHost = linkHost,
         compileFlags = packFlags(compileFlags as {string}, selectedRoot),
-        linkFlags = packFlags(linkFlags as {string}, selectedRoot)
+        linkFlags = packFlags(linkFlags as {string}, selectedRoot),
+        profile = profile
     ), nil
+end
+
+--- The verified profile for one target.
+---
+--- A pack that carries a descriptor answers for its own target; every other
+--- target gets the built-in answer. The two are the same shape on purpose, so
+--- nothing downstream asks which one it got.
+function packs.profile(target: string?): (nupp.compiler.targetprofile.Profile?, string?)
+    if target == nil then
+        return nil, "a target profile needs a target triple"
+    end
+    local pack, packErr = packs.resolve(target)
+    if pack ~= nil and (pack as packs.Pack).profile ~= nil then
+        return (pack as packs.Pack).profile, nil
+    end
+    local described, describeErr = profiles.resolve(target, nil, nil)
+    if described ~= nil then
+        return described, nil
+    end
+    -- No built-in answer and no descriptor. A pack that could not be read is
+    -- the more useful of the two reasons when there is one.
+
+    return nil, packErr or describeErr
 end
 
 export = packs

@@ -499,6 +499,55 @@ function binding.featureDetector(library: string?): {string}
     return {"cdef function ks_aot_feature_tier(): int32 " .. from(library)}
 end
 
+--- What a module checks the archive linked in front of it against.
+record binding.Archive
+    --- The probe the archive exports, qualified by component so two archives
+    --- in one process image cannot answer for each other.
+    symbol: string
+
+    --- What that probe returns for exactly these contents.
+    fingerprint: integer
+end
+
+--- The load-time check that the host linked this component's archive.
+---
+--- Resolved through `ffi` rather than declared with `cdef`, which is the one
+--- place in this file that reaches past the typed layer on purpose. A `cdef`
+--- binds its symbol as the declaration is elaborated, so a missing one raises
+--- LuaJIT's `dlsym` message from a line nobody wrote -- and that is precisely
+--- the case this check exists to explain. Resolving it inside a `pcall` costs
+--- one closure at load and tells the two failures apart: a name that does not
+--- resolve was never linked, and a value that disagrees was linked from a
+--- different build of this component.
+---
+--- Emitted first in the module's earliest replacement, ahead of every other
+--- declaration, because the check is worth nothing behind one: a `cdef` for a
+--- kernel in the same archive binds eagerly too, and would raise its own
+--- unexplained message first. A `do` block is what makes that position safe.
+--- A replacement stands where a declaration was, so whatever it emits first
+--- inherits that declaration's doc comment; a block is not a declaration, so an
+--- authored `@param` above it names nothing and reports nothing. It also scopes
+--- the three names this needs, which is why they are spelled plainly.
+function binding.archiveProbe(archive: binding.Archive): {string}
+    return {
+        "do",
+        "    local archiveFfi: any = require(\"ffi\")",
+        "    pcall(archiveFfi.cdef, \"uint64_t " .. archive.symbol .. "(void);\")",
+        "    local archiveLinked, archiveProbe = pcall(function(): any",
+        "        return archiveFfi.C." .. archive.symbol,
+        "    end)",
+        "    if not archiveLinked then",
+        "        error(\"this module's AOT archive was not linked into the host: "
+        .. archive.symbol
+        .. " is not in the default C namespace\", 0)",
+        "    end",
+        "    if tonumber((archiveProbe as any)()) ~= " .. string.format("%d", archive.fingerprint) .. " then",
+        "        error(\"the linked AOT archive is not the one this module was compiled against\", 0)",
+        "    end",
+        "end",
+    }
+end
+
 --- Declares every physical tier entry and binds the widest admitted one.
 ---
 --- The local has the logical symbol plus a suffix so the source-level wrapper
@@ -562,7 +611,8 @@ function binding.replacement(
     program: scalarIR.Program,
     library: string?,
     tiers: {string}?,
-    includeDetector: boolean?
+    includeDetector: boolean?,
+    archive: binding.Archive?
 ): string
     local lines: {string} = {}
     -- Whether this replacement is the one carrying the module's feature query.
@@ -570,6 +620,15 @@ function binding.replacement(
     -- so that the declaration's doc comment lands on something that has its
     -- parameters -- see `binding.multiversion`.
     local detector = includeDetector == true and tiers ~= nil and #tiers > 1
+    -- The archive check is the module's, not the function's, and goes with the
+    -- same replacement for the same reason and in the same position.
+    local probe = includeDetector == true and archive ~= nil and archive or nil
+    if probe ~= nil then
+        for _, line in ipairs(binding.archiveProbe(probe as binding.Archive)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = ""
+    end
     if program.entryMode == "lua-builder" then
         for _, line in ipairs(binding.builderLoader(program, library, tiers, detector)) do
             lines[#lines + 1] = line
@@ -648,10 +707,18 @@ end
 --- The source signature remains the authored signature.  Only the body changes: a
 --- checked tuple tail-dispatches to its private wrapper and an unchecked tuple that
 --- was not part of the deliverable fails instead of silently crossing to Lua.
-function binding.familyReplacement(family: any, library: string?, tiers: {string}?, includeDetector: boolean?): string
+function binding.familyReplacement(
+    family: any,
+    library: string?,
+    tiers: {string}?,
+    includeDetector: boolean?,
+    archive: binding.Archive?
+): string
     local lines: {string} = {}
     for position, program in ipairs(family.programs) do
-        lines[#lines + 1] = binding.replacement(program, library, tiers, includeDetector == true and position == 1)
+        lines[
+            #lines + 1
+        ] = binding.replacement(program, library, tiers, includeDetector == true and position == 1, archive)
         lines[#lines + 1] = ""
     end
 

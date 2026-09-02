@@ -104,6 +104,10 @@ architecture, so asking aarch64 for `avx2` is refused where it is written.
 `(source, tier)`, the baseline feature detector where selection is needed, and
 `aot/units.json`. The manifest names every unit's tier and required instruction
 flag, which is the handoff when the compiler for a platform is somebody else's.
+A compiler-owned unit carries a `role` saying which one it is; `detector` stays
+true for the feature detector alone. Static linkage adds an `archive-probe`
+unit and `aot/link.json` beside it, described under
+[static AOT components](../../projects/build.md#static-aot-components).
 
 `aot = "require"` cross-compiles too, and then it needs the target's headers and
 libraries the way any cross build does. Give them through `aotCflags`, which is
