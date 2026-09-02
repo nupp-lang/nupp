@@ -151,4 +151,42 @@ function M.aRootedByteReadIsIndexedByTheCursorThatProvesIt()
     refuses(program, "direct rooted byte read lacks a bounds proof")
 end
 
+local NATIVE_SWITCH = [[
+@aot
+local function classify(value: int32): number
+    local selected = switch value do
+        case 0 -> 1.0
+        case 1, 2 -> 2.0
+        else -> 0.0
+    end
+    return selected
+end
+
+return {classify = classify}
+]]
+
+function M.aNativeSwitchSaysWhatItsBranchesSay()
+    -- The emitter dispatches on the switch and never reads the clause
+    -- conditions, so a switch that disagrees with them is a program that means
+    -- one thing in the IR and another in the C.
+    local program = lowered(NATIVE_SWITCH, "switch.nupp")
+    local branch = find(program.body, function(statement)
+        return statement.op == "if" and statement.nativeSwitch ~= nil
+    end)
+    assert(branch, "an int32 selector lowers to a native switch")
+    local arms = branch.nativeSwitch.arms
+    assert(#arms == 2 and #arms[2].labels == 2, "one arm per clause, with its labels")
+
+    local kept = arms[2].labels[2].value
+    arms[2].labels[2].value = "3"
+    refuses(program, "native switch label does not match its clause condition")
+    arms[2].labels[2].value = kept
+    verify.program(program)
+
+    local dropped = table.remove(arms)
+    refuses(program, "native switch arms do not match the branch clauses")
+    arms[#arms + 1] = dropped
+    verify.program(program)
+end
+
 return M

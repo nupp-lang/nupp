@@ -1712,6 +1712,59 @@ local function proveCursorBounds(
     return cursorBounds
 end
 
+--- Flattens an `or` chain into the conditions it joins, in order.
+local function disjuncts(condition: scalarIR.Expr, out: {scalarIR.Expr}): {scalarIR.Expr}
+    if condition.op == "or" then
+        local pair = condition as scalarIR.Binary
+        disjuncts(pair.left, out)
+        disjuncts(pair.right, out)
+    else
+        out[#out + 1] = condition
+    end
+
+    return out
+end
+
+--- Holds a native switch to the branch chain it stands in for.
+---
+--- The emitter dispatches on the switch wherever one is present and never
+--- reads the clause conditions, so the two have to say one thing: an arm per
+--- clause, and each clause's condition exactly `selector == label` over that
+--- arm's labels in order, joined by `or`.
+local function nativeSwitch(statement: scalarIR.If, values: {[string]: string}, scope: verify.Scope): nil
+    local switch = statement.nativeSwitch as scalarIR.NativeSwitch
+    scalarWalk(switch.selector, values, scope)
+    holds(
+        switch.selector.op == "local" and (switch.selector.type == "i32" or switch.selector.type == "u32"),
+        "native switch selector is not a fixed-width local"
+    )
+    holds(#switch.arms == #statement.clauses, "native switch arms do not match the branch clauses")
+    local selector = switch.selector as scalarIR.Name
+    for position, arm in ipairs(switch.arms) do
+        local tests = disjuncts(statement.clauses[position].condition, {})
+        holds(#arm.labels > 0 and #tests == #arm.labels, "native switch arm does not match its clause")
+        for index, label in ipairs(arm.labels) do
+            local test = tests[index]
+            local equal = test.op == "eq" and test as scalarIR.Binary or nil
+            local left = equal ~= nil and equal.left.op == "local" and equal.left as scalarIR.Name or nil
+            local right = equal ~= nil
+                and equal.right.op == "constant_i32"
+                and equal.right as scalarIR.IntConstant
+                or nil
+            holds(
+                label.type == selector.type
+                and left ~= nil
+                and left.name == selector.name
+                and left.cName == selector.cName
+                and right ~= nil
+                and right.type == label.type
+                and right.value == label.value,
+                "native switch label does not match its clause condition"
+            )
+        end
+    end
+end
+
 --- Retires from `scope` every cursor bound the nested block retired.
 local function invalidateCursors(scope: verify.Scope, nested: verify.Scope): nil
     local invalidated: {string} = {}
@@ -2169,6 +2222,9 @@ local function block(
             end
         elseif statement.op == "if" then
             local invalidated: {[string]: boolean} = {}
+            if statement.nativeSwitch ~= nil then
+                nativeSwitch(statement, values, scope)
+            end
             for _, clause in ipairs(statement.clauses) do
                 holds(clause.condition.type == "bool", "non-boolean branch")
                 scalarWalk(clause.condition, values, scope)
