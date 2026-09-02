@@ -2850,6 +2850,45 @@ return {acc = acc}
     )
 end
 
+function M.aLengthAliasDoesNotOutliveItsScope()
+    -- `n` was the string's length in the inner block. The outer `n` is a
+    -- number that has nothing to do with the string, and the read it guards
+    -- has no bounds proof. Lowering once kept the inner fact under the outer
+    -- name, and the verifier caught it -- as a traceback with no line in it.
+    local dir = project{
+        [
+            "stale.g.nupp"
+        ] = [[
+local builder = require("nupp.data.valuebuilder")
+@aot(lanes = false)
+local function decode(source: string): uint32
+    do
+        local n = builder.length(source)
+    end
+    local n: uint32 = nupp.math.u32.wrap(100)
+    local cursor: uint32 = nupp.math.u32.wrap(50)
+    local direct: uint32 = nupp.math.u32.wrap(0)
+    if cursor < n then
+        direct = builder.byteAt(source, cursor)
+    end
+    return direct
+end
+return {decode = decode}
+]],
+    }
+    local out, code = run(dir, "stale.g.nupp")
+    test.equal(code, 1, "an unproved read is refused\n" .. out)
+    assert(
+        out:find(
+            "stale.g.nupp:11:18: aot: valuebuilder.byteAt needs offset < length(bytes) to dominate the read",
+            1,
+            true
+        ),
+        "and refused at the read, by lowering: " .. out
+    )
+    assert(not out:find("traceback", 1, true), "rather than by the verifier: " .. out)
+end
+
 return {rows = rows}
 ]]
     local dir = project{["nested.nupp"] = body:gsub("BOUND", "#weights"), ["literal.nupp"] = body:gsub("BOUND", "10"),}

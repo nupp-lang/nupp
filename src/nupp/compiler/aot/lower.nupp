@@ -3309,6 +3309,7 @@ end
 --- would be checked against a bound the buffer it names does not have -- which
 --- is a read past the end of it rather than a refusal.
 local function noteBinding(name: string, value: scalarIR.Expr, binding: scalarIR.Binding, kernel: lower.Kernel): nil
+    kernel.lengthBounds[name] = nil
     if value.op == "lua_string_length" then
         local bytes = (value as scalarIR.LuaBytes).bytes as scalarIR.Name
         binding.lengthOf = bytes.name

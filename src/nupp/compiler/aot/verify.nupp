@@ -342,6 +342,14 @@ const FIXED_WIDTH = "fixed width "
 
 const SCRATCH_LENGTH = "scratch length "
 
+--- The `values` key under which a uint32 local initialized from one rooted
+--- string's length remembers that string. Kept in `values` beside the binding,
+--- as `SCRATCH_LENGTH` is, so the fact is established by the `let` the verifier
+--- saw and retired by the assignment that changes the local -- rather than read
+--- off a `Name`'s own metadata, which a lowerer could carry into a scope where
+--- it no longer holds.
+const LENGTH_OF = "length of "
+
 local function scratchLengthSource(value: scalarIR.Expr, values: {[string]: string}): string?
     if value.op == "lua_scratch_u32_length" or value.op == "lua_scratch_u32_escape_length" then
         return ((value as scalarIR.LuaScratchU32Length).scratch as scalarIR.Name).name
@@ -687,7 +695,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             holds(
                 bytes ~= nil and (
                     (bytes as scalarIR.Param).type == "lua_string" or (bytes as scalarIR.Param).type == "lua_bytes"
-                ),
+                ) and values[LENGTH_OF .. named.name] == named.lengthOf,
                 "invalid rooted length alias"
             )
         end
@@ -1648,9 +1656,9 @@ local function provesCursorBound(
             right.op == "span_count" and (
                 right as scalarIR.SpanCount
             ).span == spanName or right.op == "local" and (
-                (
-                    right as scalarIR.Name
-                ).lengthOf == spanName or values[SCRATCH_LENGTH .. (right as scalarIR.Name).name] == spanName
+                values[
+                    LENGTH_OF .. (right as scalarIR.Name).name
+                ] == spanName or values[SCRATCH_LENGTH .. (right as scalarIR.Name).name] == spanName
             )
         )
     else
@@ -1676,6 +1684,13 @@ local function block(
             holds(values[statement.name] == nil and statement.type == statement.value.type, "invalid local declaration")
             scalarWalk(statement.value, values, scope)
             values[statement.name] = statement.type
+            if statement.value.op == "lua_string_length" then
+                values[
+                    LENGTH_OF .. statement.name
+                ] = ((statement.value as scalarIR.LuaBytes).bytes as scalarIR.Name).name
+            else
+                values[LENGTH_OF .. statement.name] = nil
+            end
             local scratchLength = scratchLengthSource(statement.value, values)
             if scratchLength ~= nil then
                 values[SCRATCH_LENGTH .. statement.name] = scratchLength as string
@@ -2102,6 +2117,7 @@ local function block(
                 local target = entry.target
                 if target.kind == "local" and target.name ~= nil then
                     scope.cursorBounds[target.name as string] = nil
+                    values[LENGTH_OF .. (target.name as string)] = nil
                     local scratchLength = scratchLengthSource(entry.value, values)
                     if scratchLength ~= nil then
                         values[SCRATCH_LENGTH .. (target.name as string)] = scratchLength as string
