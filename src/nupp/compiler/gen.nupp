@@ -2408,6 +2408,40 @@ function gen.generate(
         end
     end
 
+    -- Spells what `slot op= value` stores, given `emitRead` spelling the slot's
+    -- current value: the bitops helper applied to it when the operator has no
+    -- spelling in this dialect, and the operator applied to it otherwise. The value
+    -- is parenthesised so its own operators bind before the compound one.
+    function pluck.emitCompoundValue(x, emitRead, bitMethod: string?)
+        if bitMethod then
+            e(pluck.bitops.name .. "." .. bitMethod .. "(")
+            emitRead()
+            e(",", x.op.line)
+            emit(x.value)
+            e(")")
+        else
+            emitRead()
+            e((" %s ("):format(x.op.kind:sub(1, -2)), x.op.line)
+            emit(x.value)
+            e(")")
+        end
+    end
+
+    -- `slot op= value` for a slot `emitSlot` spells, one cheap and safe to spell
+    -- twice. The choice between the native compound operator, the portable
+    -- expansion that reads the slot back, and the bitops helper is made here once
+    -- for every indexed target.
+    function pluck.emitCompoundInto(x, emitSlot, bitMethod: string?)
+        emitSlot()
+        if bitMethod or pluck.portable then
+            e("=")
+            pluck.emitCompoundValue(x, emitSlot, bitMethod)
+        else
+            e((" %s "):format(x.op.kind), x.op.line)
+            emit(x.value)
+        end
+    end
+
     local function hotEmitImplementation(planned): nil
         local body = planned.node.body
         local names = pluck.paramNames(body.params, planned.implicitSelf)
@@ -4037,92 +4071,58 @@ function gen.generate(
                     pluck.needRuntimeEffect(pluck.bitops.effect)
                 end
             end
-            if x.target.kind == "bracketIndex"
-                and x.target.indexedAccess
-                and x.target.indexedAccess.adapter == "span"
-            then
+            local target = x.target
+            if target.kind == "bracketIndex" and target.indexedAccess and target.indexedAccess.adapter == "span" then
                 e("do ", sourceLine(x))
-                if emitDepth.view.info(x.target.obj) then
+                if emitDepth.view.info(target.obj) then
                     local indexName = nextTemp()
                     e(("const %s="):format(indexName))
-                    emit(x.target.expr)
+                    emit(target.expr)
                     e(";")
-                    emitDepth.view.spanSlot(x.target.obj, indexName, nil, not x.target.indexedDirectAccess)
-                    e("=")
-                    if bitMethod then
-                        e(pluck.bitops.name .. "." .. bitMethod .. "(")
-                    end
-                    emitDepth.view.spanSlot(x.target.obj, indexName, nil, not x.target.indexedDirectAccess)
-                    if bitMethod then
-                        e(",", x.op.line)
-                    else
-                        e((" %s "):format(compoundBase), x.op.line)
-                    end
-                    emit(x.value)
-                    if bitMethod then
-                        e(")")
-                    end
-                elseif x.target.indexedDirectAccess then
-                    if bitMethod then
-                        emit(x.target.obj)
-                        e(".pointer[")
-                        emit(x.target.obj)
-                        e(".offset+")
-                        emit(x.target.expr)
-                        e("-1]=" .. pluck.bitops.name .. "." .. bitMethod .. "(")
-                        emit(x.target.obj)
-                        e(".pointer[")
-                        emit(x.target.obj)
-                        e(".offset+")
-                        emit(x.target.expr)
-                        e("-1]")
-                        e(",", x.op.line)
-                    else
-                        emit(x.target.obj)
-                        e(".pointer[")
-                        emit(x.target.obj)
-                        e(".offset+")
-                        emit(x.target.expr)
-                        e("-1]=")
-                        emit(x.target.obj)
-                        e(".pointer[")
-                        emit(x.target.obj)
-                        e(".offset+")
-                        emit(x.target.expr)
-                        e("-1]")
-                        e((" %s "):format(x.op.kind:sub(1, -2)), x.op.line)
-                    end
-                    emit(x.value)
-                    if bitMethod then
-                        e(")")
-                    end
+                    pluck.emitCompoundInto(
+                        x,
+                        function()
+                            emitDepth.view.spanSlot(target.obj, indexName, nil, not target.indexedDirectAccess)
+                        end,
+                        bitMethod
+                    )
+                elseif target.indexedDirectAccess then
+                    pluck.emitCompoundInto(
+                        x,
+                        function()
+                            emit(target.obj)
+                            e(".pointer[")
+                            emit(target.obj)
+                            e(".offset+")
+                            emit(target.expr)
+                            e("-1]")
+                        end,
+                        bitMethod
+                    )
                 else
                     local viewName, indexName = nextTemp(), nextTemp()
                     e(("const %s="):format(viewName))
-                    emit(x.target.obj)
+                    emit(target.obj)
                     e((";const %s="):format(indexName))
-                    emit(x.target.expr)
+                    emit(target.expr)
                     e((";%s:set(%s,"):format(viewName, indexName))
-                    if bitMethod then
-                        e(("%s.%s(%s:get(%s),"):format(pluck.bitops.name, bitMethod, viewName, indexName))
-                    else
-                        e(("%s:get(%s) %s "):format(viewName, indexName, compoundBase))
-                    end
-                    emit(x.value)
-                    if bitMethod then
-                        e(")")
-                    end
+                    pluck.emitCompoundValue(
+                        x,
+                        function()
+                            e(("%s:get(%s)"):format(viewName, indexName))
+                        end,
+                        bitMethod
+                    )
                     e(")")
                 end
                 e(" end")
                 return
-            elseif x.target.kind == "dotIndex"
-                and x.target.indexedField
-                and x.target.indexedField.adapter == "span"
-                and x.target.obj
-                and x.target.obj.indexedAccess
+            elseif target.kind == "dotIndex"
+                and target.indexedField
+                and target.indexedField.adapter == "span"
+                and target.obj
+                and target.obj.indexedAccess
             then
-                local target = x.target
                 local access = target.obj
                 if emitDepth.view.info(access.obj) then
                     e("do ", sourceLine(x))
@@ -4130,30 +4130,18 @@ function gen.generate(
                     e(("const %s="):format(indexName))
                     emit(access.expr)
                     e(";")
-                    if bitMethod then
-                        emitDepth.view.spanSlot(access.obj, indexName, target.name.text, not access.indexedDirectAccess)
-                        e("=" .. pluck.bitops.name .. "." .. bitMethod .. "(")
-                        emitDepth.view.spanSlot(access.obj, indexName, target.name.text, not access.indexedDirectAccess)
-                        e(",", x.op.line)
-                    else
-                        emitDepth.view.spanSlot(access.obj, indexName, target.name.text, not access.indexedDirectAccess)
-                        if pluck.portable then
-                            e("=")
+                    pluck.emitCompoundInto(
+                        x,
+                        function()
                             emitDepth.view.spanSlot(
                                 access.obj,
                                 indexName,
                                 target.name.text,
                                 not access.indexedDirectAccess
                             )
-                            e((" %s "):format(compoundBase), x.op.line)
-                        else
-                            e((" %s "):format(x.op.kind), x.op.line)
-                        end
-                    end
-                    emit(x.value)
-                    if bitMethod then
-                        e(")")
-                    end
+                        end,
+                        bitMethod
+                    )
                     e(" end")
                     return
                 end
@@ -4168,46 +4156,28 @@ function gen.generate(
                 else
                     slot = ("%s:getMut(%s).%s"):format(viewName, indexName, target.name.text)
                 end
-                if bitMethod then
-                    e(("; %s=%s.%s(%s,"):format(slot, pluck.bitops.name, bitMethod, slot), x.op.line)
-                elseif pluck.portable then
-                    e(("; %s=%s %s "):format(slot, slot, compoundBase), x.op.line)
-                else
-                    e(("; %s %s "):format(slot, x.op.kind), x.op.line)
-                end
-                emit(x.value)
-                if bitMethod then
-                    e(")")
-                end
+                e(";")
+                pluck.emitCompoundInto(
+                    x,
+                    function()
+                        e(slot)
+                    end,
+                    bitMethod
+                )
                 e(" end")
                 return
             end
-            local row, ordinal = soaFieldTarget(x.target)
+            local row, ordinal = soaFieldTarget(target)
             if row and ordinal then
-                if emitDepth.soa.boundSlot(row.obj, ordinal, row.expr) then
-                    if bitMethod then
-                        e(
-                            "=" .. pluck.bitops.name .. "." .. bitMethod .. "(" .. emitDepth.soa.requiredBoundName(
-                                row.obj,
-                                ordinal,
-                                row.expr
-                            ) .. ",",
-                            x.op.line
-                        )
-                    elseif pluck.portable then
-                        e(
-                            (
-                                "=%s %s "
-                            ):format(emitDepth.soa.requiredBoundName(row.obj, ordinal, row.expr), compoundBase),
-                            x.op.line
-                        )
-                    else
-                        e((" %s "):format(x.op.kind), x.op.line)
-                    end
-                    emit(x.value)
-                    if bitMethod then
-                        e(")")
-                    end
+                local bound = emitDepth.soa.boundName(row.obj, ordinal, row.expr)
+                if bound then
+                    pluck.emitCompoundInto(
+                        x,
+                        function()
+                            e(bound)
+                        end,
+                        bitMethod
+                    )
                     return
                 elseif emitDepth.view.info(row.obj) then
                     e("do ", sourceLine(x))
@@ -4215,25 +4185,13 @@ function gen.generate(
                     e(("const %s="):format(indexName))
                     emit(row.expr)
                     e(";")
-                    if bitMethod then
-                        emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
-                        e("=" .. pluck.bitops.name .. "." .. bitMethod .. "(")
-                        emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
-                        e(",", x.op.line)
-                    else
-                        emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
-                        if pluck.portable then
-                            e("=")
+                    pluck.emitCompoundInto(
+                        x,
+                        function()
                             emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
-                            e((" %s "):format(compoundBase), x.op.line)
-                        else
-                            e((" %s "):format(x.op.kind), x.op.line)
-                        end
-                    end
-                    emit(x.value)
-                    if bitMethod then
-                        e(")")
-                    end
+                        end,
+                        bitMethod
+                    )
                     e(" end")
                     return
                 end
@@ -4243,17 +4201,14 @@ function gen.generate(
                 e(("; const %s="):format(indexName))
                 emit(row.expr)
                 local slot = emitDepth.soa.slot(viewName, ordinal, indexName, emitDepth.soa.unchecked(row))
-                if bitMethod then
-                    e(("; %s=%s.%s(%s,"):format(slot, pluck.bitops.name, bitMethod, slot), x.op.line)
-                elseif pluck.portable then
-                    e(("; %s=%s %s "):format(slot, slot, compoundBase), x.op.line)
-                else
-                    e(("; %s %s "):format(slot, x.op.kind), x.op.line)
-                end
-                emit(x.value)
-                if bitMethod then
-                    e(")")
-                end
+                e(";")
+                pluck.emitCompoundInto(
+                    x,
+                    function()
+                        e(slot)
+                    end,
+                    bitMethod
+                )
                 e(" end")
                 return
             end
@@ -5534,14 +5489,15 @@ function gen.generate(
                     e(("%s=%s.%s(%s,"):format(slot, pluck.int64.name, wideMethod, slot), at)
                     emit(x.value)
                     e(")")
-                elseif bitMethod then
-                    e(("%s=%s.%s(%s,"):format(slot, pluck.bitops.name, bitMethod, slot), at)
-                    emit(x.value)
-                    e(")")
                 else
-                    e(("%s=%s %s ("):format(slot, slot, base), at)
-                    emit(x.value)
-                    e(")")
+                    e(slot .. "=", at)
+                    pluck.emitCompoundValue(
+                        x,
+                        function()
+                            e(slot)
+                        end,
+                        bitMethod
+                    )
                 end
             end
 
