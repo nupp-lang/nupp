@@ -71,6 +71,12 @@ local THEME = [[
 @media(max-width:760px){.nuppdoc-mobile-outline-toggle{display:grid}.nuppdoc-outline,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{position:fixed;z-index:42;top:var(--nuppdoc-header-height);right:0;bottom:0;display:block;width:min(86vw,320px);max-height:none;padding:1.25rem 1rem 2rem;border:0;border-left:1px solid var(--nuppdoc-border);background:var(--nuppdoc-background-alt);box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:1;pointer-events:auto;transform:translateX(105%);transition:transform 180ms ease}.is-mobile-outline-open .nuppdoc-outline{transform:translateX(0)}.nuppdoc-outline-backdrop{position:fixed;z-index:41;inset:var(--nuppdoc-header-height) 0 0;display:block;width:100%;height:auto;padding:0;border:0;background:rgba(0,0,0,.38);opacity:0;pointer-events:none;transition:opacity 180ms ease}.is-mobile-outline-open .nuppdoc-outline-backdrop{opacity:1;pointer-events:auto}}
 ]]
 
+-- Section labels which are also pages sit in their disclosure summary. Keep their
+-- links text-sized, leaving the rest of the summary to open and close the section.
+local SIDEBAR_SECTION_LINKS = [[
+.nuppdoc-sidebar-section>details>summary>a,.nuppdoc-module-branch>details>summary>a{display:inline;overflow:visible;padding:0;white-space:normal}
+]]
+
 local SCRIPT = [[
 (() => {
     "use strict";
@@ -382,7 +388,7 @@ local ICONS = {
     outline = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M8 6.5h12M8 12h12M8 17.5h12"/><circle cx="4" cy="6.5" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="17.5" r="1" fill="currentColor"/></svg>]],
 }
 
-assets.THEME = THEME
+assets.THEME = THEME .. "\n" .. SIDEBAR_SECTION_LINKS
 assets.SCRIPT = SCRIPT
 assets.ICONS = ICONS
 
