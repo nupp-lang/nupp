@@ -97,6 +97,14 @@ record verify.Context
     shape: lane.Shape
 
     scope: verify.Scope
+
+    --- What the gang admits, derived from `shape` once for the whole body
+    --- rather than again at every expression.
+    admitted: {[string]: boolean}
+
+    binaries: {[string]: any}
+
+    unaries: {[string]: any}
 end
 
 --- A scope for a nested block: this one, with `overrides` applied.
@@ -1352,8 +1360,7 @@ end
 
 laneWalk = function(node: lane.Expr, values: {[string]: string}, context: verify.Context): nil
     local shape = context.shape
-    local admitted = laneTypes(shape)
-    local binaries, unaries = laneSignatures(shape)
+    local admitted, binaries, unaries = context.admitted, context.binaries, context.unaries
     local mask = shape.mask
 
     laneHolds(node ~= nil and node.type ~= nil, "an expression with no type")
@@ -2344,7 +2351,9 @@ end
 --- `loopContext` is the lane loop this block is inside, or nothing at the top.
 --- A `break` or `continue` names the masks it retires from, and they have to be
 --- that loop's: retiring from a loop this statement is not in would be control
---- flow that no mask expresses.
+--- flow that no mask expresses. `direct` says whether this block is that
+--- loop's own body rather than one nested under a uniform loop inside it,
+--- which is the only place the emitter honours an exit-when-empty break.
 local function validImmediateExit(statements: {any}): boolean
     local hasImmediateExit = false
     for _, statement in ipairs(statements) do
@@ -2386,7 +2395,8 @@ local function laneBlock(
     statements: {any},
     inherited: {[string]: string},
     context: verify.Context,
-    loopContext: any
+    loopContext: any,
+    direct: boolean
 ): nil
     local mask = context.shape.mask
     local values = inherit(inherited)
@@ -2484,14 +2494,16 @@ local function laneBlock(
             local inner = inherit(values)
             inner[statement.live.name] = mask
             inner[statement.executing.name] = mask
-            laneBlock(statement.body, inner, context, statement)
+            laneBlock(statement.body, inner, context, statement, true)
         elseif statement.op == "vwhile_uniform" then
             -- No masks, because there is nothing for them to say: the condition
             -- is an ordinary scalar and every lane runs the loop the same
             -- number of times. It is checked as one, against the scalar rules.
             scalarWalk(statement.condition, values, context.scope)
             laneHolds(statement.condition.type == "bool", "a uniform lane loop without a boolean condition")
-            laneBlock(statement.body, values, context, loopContext)
+            -- Not a direct child of the lane loop: a break that exits when the
+            -- gang empties is only emitted at the loop body's own level.
+            laneBlock(statement.body, values, context, loopContext, false)
         elseif statement.op == "vbreak" or statement.op == "vcontinue" then
             laneHolds(
                 loopContext ~= nil
@@ -2502,7 +2514,10 @@ local function laneBlock(
             laneWalk(statement.mask, values, context)
             laneHolds(statement.mask.type == mask, "lane loop control needs a mask")
             laneHolds(
-                statement.exitWhenEmpty == nil or (statement.op == "vbreak" and statement.exitWhenEmpty == true),
+                statement.exitWhenEmpty == nil
+                or statement.op == "vbreak"
+                and statement.exitWhenEmpty == true
+                and direct == true,
                 "invalid immediate lane-loop exit"
             )
         else
@@ -3090,7 +3105,20 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
             program.wantsLanes == true and shape ~= nil and body.lanes == (shape as lane.Shape).lanes,
             "invalid lane width or missing SIMD contract"
         )
-        laneBlock(body.statements, uniforms, new verify.Context(shape = shape as lane.Shape, scope = scope), nil)
+        local binaries, unaries = laneSignatures(shape as lane.Shape)
+        laneBlock(
+            body.statements,
+            uniforms,
+            new verify.Context(
+                shape = shape as lane.Shape,
+                scope = scope,
+                admitted = laneTypes(shape as lane.Shape),
+                binaries = binaries,
+                unaries = unaries
+            ),
+            nil,
+            false
+        )
     end
 
     return program

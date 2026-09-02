@@ -189,4 +189,99 @@ function M.aNativeSwitchSaysWhatItsBranchesSay()
     verify.program(program)
 end
 
+local ESCAPES = [[
+local span = require("nupp.mem.span")
+
+local struct Point
+    re: number
+    im: number
+end
+
+local struct Escape
+    iterations: number
+    escaped: number
+end
+
+@aot
+local function escapes(
+    exclusive out: span.WriteSpan<Escape>,
+    borrows points: span.Span<Point>,
+    limit: integer
+): nil
+    if #out ~= #points then
+        error("length mismatch", 2)
+    end
+    for i = 1, #out do
+        local cell = out[i]
+        local point = points[i]
+        local zx = 0.0
+        local zy = 0.0
+        local zxSquared = 0.0
+        local zySquared = 0.0
+        local iteration = 0
+        local escaped = 0
+        while iteration < limit do
+            if zxSquared + zySquared > 4.0 then
+                escaped = 1
+                break
+            end
+            zy = 2.0 * zx * zy + point.im
+            zx = zxSquared - zySquared + point.re
+            zxSquared = zx * zx
+            zySquared = zy * zy
+            iteration = iteration + 1
+        end
+        cell.iterations = iteration
+        cell.escaped = escaped
+    end
+end
+
+return {escapes = escapes, Point = Point, Escape = Escape}
+]]
+
+--- One checked source taken through lane lowering on the host target.
+local function vectorised(source, filename)
+    local targets = require("nupp.compiler.aot.target")
+    local tree = parser.parse(source, filename)
+    assert(#tree.errors == 0, "syntax: " .. tostring(tree.errors[1] and tree.errors[1].msg))
+    for _, problem in ipairs(compilerCheck.check(tree, filename, environment)) do
+        assert(not diagnosticMod.isFatal(problem), problem.msg or problem.message)
+    end
+    local artifacts, problems = aotCompile.artifacts(
+        source,
+        filename,
+        tree,
+        "<object>",
+        assert(targets.select(nil, nil))
+    )
+    assert(artifacts, problems[1] and aotCompile.renderDiagnostic(problems[1]))
+    local program = artifacts.programs[1]
+    assert(program.lanes, "the loop ran in lanes")
+
+    return program
+end
+
+function M.anExitWhenEmptyBreakBelongsToTheLaneLoopsOwnBody()
+    -- The emitter honours `exitWhenEmpty` only on a break that is a direct
+    -- child of the lane loop. One nested under a uniform loop inside it used to
+    -- be admitted anyway, and would have exited nothing.
+    local program = vectorised(ESCAPES, "escapes.nupp")
+    local loop = find(program.lanes.statements, function(statement)
+        return statement.op == "vwhile"
+    end)
+    assert(loop, "the escape loop runs in lanes")
+    local exit, position
+    for index, statement in ipairs(loop.body) do
+        if statement.op == "vbreak" then
+            exit, position = statement, index
+        end
+    end
+    assert(exit, "the break survives as a lane break")
+    exit.exitWhenEmpty = true
+    verify.program(program)
+
+    loop.body[position] = {op = "vwhile_uniform", condition = {op = "bool", value = true, type = "bool"}, body = {exit}}
+    refuses(program, "invalid immediate lane-loop exit")
+end
+
 return M
