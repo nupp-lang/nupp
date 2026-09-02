@@ -767,15 +767,21 @@ const suspension = require("nupp.suspension")
 const tasks = require("nupp.tasks")
 
 local runnable: {thread} = {}
+local queued: {[thread]: boolean} = {}
 local polls = 0
 local shutdowns = 0
 local function enqueue(task: thread): nil
+    if queued[task] or coroutine.status(task) ~= "suspended" then
+        return
+    end
+    queued[task] = true
     runnable[#runnable + 1] = task
 end
 local function runReady(): nil
     local pass = runnable
     runnable = {}
     for _, task in ipairs(pass) do
+        queued[task] = nil
         -- A waker may run before the park that registered it yields, so a queued
         -- task can have moved on by the time its turn comes.
         if coroutine.status(task) == "suspended" then
@@ -884,12 +890,14 @@ end
       and output:find("cancelled: its deadline passed", 1, true) ~= nil,
       "running, queued, and deadline cancellation share one task identity: " .. output)
    local rustExecutable = stampRustHost(dir, dir .. "/build/app.payload.lua")
-   local rustOutput, rustRanOk = run(dir, rustExecutable)
-   assert(rustRanOk, "the Rust worker host runs task cancellation: " .. rustOutput)
-   assert(rustOutput:sub(1, #head) == head
-      and rustOutput:sub(-#tail) == tail
-      and rustOutput:find("cancelled: its deadline passed", 1, true) ~= nil,
-      "Rust-owned workers preserve queued, running, and deadline cancellation: " .. rustOutput)
+   for _ = 1, 32 do
+      local rustOutput, rustRanOk = run(dir, rustExecutable)
+      assert(rustRanOk, "the Rust worker host runs task cancellation: " .. rustOutput)
+      assert(rustOutput:sub(1, #head) == head
+         and rustOutput:sub(-#tail) == tail
+         and rustOutput:find("cancelled: its deadline passed", 1, true) ~= nil,
+         "Rust-owned workers preserve queued, running, and deadline cancellation: " .. rustOutput)
+   end
    os.execute("rm -rf '" .. dir .. "'")
 end
 
