@@ -598,12 +598,21 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                     ) or owner.failed or expired or (owner.cancellation ~= nil and not owner.deliberate)
                 end,
                 onResume = function(_: any, wake: function(): nil): nil
-                    waiting:onResume(wake)
+                    local woke = false
+                    const function wakeOnce(): nil
+                        if woke then
+                            return
+                        end
+                        woke = true
+                        wake()
+                    end
+
+                    waiting:onResume(wakeOnce)
                     if registered ~= nil then
                         removeWaker(owner, registered)
                     end
                     const waker = function(_: boolean): nil
-                        wake()
+                        wakeOnce()
                     end
                     registered = waker
                     owner.wakers[#owner.wakers + 1] = waker
@@ -643,6 +652,17 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                         error(problem, 0)
                     end
                 end
+            end
+            -- The underlying wait and the scope deadline may become ready in one
+            -- poll. The loop then ends without another header pass, so choose the
+            -- scope-owned problem here as well. Do not cancel an already-ready wait.
+            deadlinePassed(owner)
+            if owner.failed then
+                error(owner.failure, 0)
+            end
+            const cancelled = owner.cancellation
+            if cancelled ~= nil and not owner.deliberate then
+                error(cancelled as any, 0)
             end
         end,
         canPark = function(_: suspension.Handler): boolean
@@ -960,6 +980,11 @@ function ForkMT.await(self: any): ...any
     const status, values, count, problem = (
         owner.settleHook as function(any): (string, {any}?, integer, any)
     )(self._task)
+    -- A worker scope and its task scope share the same absolute deadline. The
+    -- worker can observe it first while this call is parked; claim it for the
+    -- owner before choosing which cancellation to raise, so automatic cleanup
+    -- re-raises the same nominal value instead of suppressing an equivalent one.
+    deadlinePassed(owner)
     settleAgainstScope(owner)
     if status == "failed" or status == "cancelled" then
         error(problem, 0)
