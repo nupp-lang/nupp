@@ -5444,22 +5444,6 @@ function gen.generate(
             emitDepth.fn = emitDepth.fn - 1
             e("end")
 
-        elseif kind == "funcbody" and x.varargParam then
-            emitDepth.fn = emitDepth.fn + 1
-            local openedActivation = false
-            for _, child in ipairs(x) do
-                if child == x.body then
-                    emitDepth.beginActivation()
-                    openedActivation = true
-                    e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
-                end
-                emit(child)
-            end
-            if openedActivation then
-                emitDepth.endActivation()
-            end
-            emitDepth.fn = emitDepth.fn - 1
-
         elseif kind == "istring" then
             local piecesOpen = false
             local line = x[1] and x[1].line

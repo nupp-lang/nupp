@@ -234,6 +234,36 @@ function M.coverageModeCountsStatementsFunctionsAndBranches()
     _G.__nuppCoverage = nil
 end
 
+function M.coverageModeCountsANamedVarargFunction()
+    -- A named vararg binds its pack at the top of the body; the body is still a
+    -- function site, recorded and hit like any other.
+    local code, metadata = generateCoverage(table.concat({
+        "local function count(...values: integer): integer",
+        "   return values.n",
+        "end",
+        "return count(1, 2, 3)",
+    }, "\n"))
+    assertEq(countLines(code), 4, "coverage generation changes line count")
+    local functions = 0
+    for _, site in ipairs(metadata.sites) do
+        if site.kind == "function" then functions = functions + 1 end
+    end
+    assertEq(functions, 1, "the vararg function is a function site")
+    _G.__nuppCoverage = nil
+    local chunk, err = loadstring(code, "@coverage_vararg")
+    assert(chunk, tostring(err) .. "\n" .. code)
+    assertEq(chunk(), 3, "instrumented program result")
+    local hits = assert(_G.__nuppCoverage and _G.__nuppCoverage.hits["coverage-test.nupp"])
+    local sawFunction = false
+    for _, site in ipairs(metadata.sites) do
+        if site.kind == "function" and (hits[tostring(site.id)] or 0) > 0 then
+            sawFunction = true
+        end
+    end
+    assert(sawFunction, "the instrumented run records the vararg function")
+    _G.__nuppCoverage = nil
+end
+
 function M.erasure()
     assertEq(run("local x: number = 21\nreturn x * 2"), 42)
     assertEq(run("local record P\n   x: number\nend\nlocal p = { x = 7 } as P\nreturn p.x"), 7)
