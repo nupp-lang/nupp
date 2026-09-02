@@ -148,6 +148,18 @@ function M.theSkillCarriesLoadableFrontmatter()
       "makes coverage data queryable by agents")
 end
 
+function M.aSectionCanBeEjectedAsASkill()
+   local text, ok = runCommand(HERE .. "/..", "--section types --format skill")
+   assert(ok, "the section renders as a skill: " .. text)
+   assertEq(text:sub(1, 4), "---\n", "opens with frontmatter")
+   assert(text:find("\nname: nupp-types\n", 1, true), "names itself after the section")
+   local closing = text:find("\n---\n", 4, true)
+   assert(closing, "closes its frontmatter")
+   assert(text:find("# Types", closing, true), "the section follows the frontmatter")
+   local byCode = runCommand(HERE .. "/..", "--for NUPP2004 --skill")
+   assertEq(byCode:sub(1, 4), "---\n", "--for honours the format too")
+end
+
 function M.chaptersAreDiscoverableAndFocused()
    local catalogue = reference.catalog()
    assert(catalogue:find("language", 1, true), "lists the language chapter")

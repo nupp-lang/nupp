@@ -3046,4 +3046,34 @@ function reference.skill(chapter: reference.Chapter?): string
     return table.concat(out, "\n")
 end
 
+--- One or more sections as an agent skill, the way `reference.skill` wraps a chapter:
+--- frontmatter naming the skill after the first section, then the sections themselves.
+function reference.sectionSkill(found: {{
+    section: reference.Section,
+    chapter: reference.Chapter
+}}): string
+    local titles: {string} = {}
+    for _, one in ipairs(found) do
+        titles[#titles + 1] = one.section.title
+    end
+    local slug = titles[1]:lower():gsub("[^%w]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
+    local out: {string} = {"---", "name: nupp-" .. slug, "description: >-"}
+    local description = "The Nupp reference on " .. table.concat(
+        titles,
+        ", "
+    ) .. ". Load when this is the only Nupp context needed."
+    for _, line in ipairs(wrapped(description)) do
+        out[#out + 1] = "  " .. line
+    end
+    out[#out + 1] = "---"
+    out[#out + 1] = ""
+    local parts: {string} = {}
+    for _, one in ipairs(found) do
+        parts[#parts + 1] = reference.sectionMarkdown(one.section, one.chapter)
+    end
+    out[#out + 1] = table.concat(parts, "\n\n")
+
+    return table.concat(out, "\n")
+end
+
 export = reference

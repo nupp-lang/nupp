@@ -180,7 +180,9 @@ local function run(parsed: any): integer
             parts[#parts + 1] = reference.sectionMarkdown(found.section, found.chapter)
         end
         local rendered = table.concat(parts, "\n\n")
-        if format == "json" then
+        if format == "skill" then
+            rendered = reference.sectionSkill(chosen)
+        elseif format == "json" then
             local sections: {any} = {}
             for _, found in ipairs(chosen) do
                 sections[
