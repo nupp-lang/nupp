@@ -148,6 +148,38 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
+--- Copies the members a declaration takes from an interface it claims: every
+--- readable and writable member the declaration does not state itself, and the
+--- interface's dispatch entries, each read with the interface's Self as this
+--- declaration's own.
+local function inheritMembers(n: any, super: any, selfMap: {[any]: any}): nil
+    for name, inherited in pairs(super.byname or {}) do
+        if not n.byname[name] then
+            n.byname[name] = substType(inherited, selfMap)
+        end
+    end
+    for name, inheritedEntries in pairs(super.methodDispatchEntries or super.methodEntries or {}) do
+        local into = n.methodDispatchEntries[name] or {}
+        for _, entry in ipairs(inheritedEntries) do
+            into[
+                #into + 1
+            ] = {
+                signature = substType(entry.signature, selfMap),
+                declaration = entry.declaration,
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = entry.definition,
+            }
+        end
+        n.methodDispatchEntries[name] = into
+    end
+    for name, inherited in pairs(super.writeByname or {}) do
+        if not n.writeByname[name] then
+            n.writeByname[name] = substType(inherited, selfMap)
+        end
+    end
+end
+
 --- Installs the declaration checking on one run. It answers through `c.checkTypedecl`
 --- and the publishing operations beside it, so there is nothing to hand back.
 ---
@@ -1391,11 +1423,7 @@ function declare.install(
                     -- out can be found again from the nominal.
                     superNode.resolvedSupertype = super
                     local selfMap = super.selfType and {[super.selfType] = n.selfType} or {}
-                    for name, inherited in pairs(super.byname or {}) do
-                        if not n.byname[name] then
-                            n.byname[name] = substType(inherited, selfMap)
-                        end
-                    end
+                    inheritMembers(n, super, selfMap)
                     for name in pairs(super.overloadedMethods or {}) do
                         n.overloadedMethods[name] = true
                     end
@@ -1444,31 +1472,7 @@ function declare.install(
             -- settled.
             for _, super in ipairs(n.deriveClaimedContracts or {}) do
                 local selfMap = super.selfType and {[super.selfType] = n.selfType} or {}
-                for name, inherited in pairs(super.byname or {}) do
-                    if not n.byname[name] then
-                        n.byname[name] = substType(inherited, selfMap)
-                    end
-                end
-                for name, inheritedEntries in pairs(super.methodDispatchEntries or super.methodEntries or {}) do
-                    local into = n.methodDispatchEntries[name] or {}
-                    for _, entry in ipairs(inheritedEntries) do
-                        into[
-                            #into + 1
-                        ] = {
-                            signature = substType(entry.signature, selfMap),
-                            declaration = entry.declaration,
-                            member = entry.member,
-                            parameterKey = entry.parameterKey,
-                            definition = entry.definition,
-                        }
-                    end
-                    n.methodDispatchEntries[name] = into
-                end
-                for name, inherited in pairs(super.writeByname or {}) do
-                    if not n.writeByname[name] then
-                        n.writeByname[name] = substType(inherited, selfMap)
-                    end
-                end
+                inheritMembers(n, super, selfMap)
             end
             -- Separate interfaces may each contribute one entry under the same name.
             -- Once inherited together those entries are an overload group too.
