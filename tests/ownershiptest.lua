@@ -3690,66 +3690,64 @@ function M.affineInterfacesRequireOneValidTerminal()
    assert(conflicts:find("NUPP2615", 1, true), conflicts)
 end
 
-function M.taskHandlesRemainRootedInTheirRunScope()
+function M.taskHandlesRemainRootedInTheirScope()
    assertEq(codes(table.concat({
-      'local tasks = require("nupp.tasks")',
-      "local escaped = tasks.run(function(scope: tasks.Scope)",
-      "   return scope:spawn(function(): integer return 1 end)",
-      "end)",
+      "local escaped: any = nil",
+      "with scope = nupp.tasks.open() do",
+      "   escaped = scope:spawn(function(): integer return 1 end)",
+      "end",
       "return escaped",
-   }, "\n")), "NUPP2608 NUPP2608")
+   }, "\n")), "NUPP2608")
 end
 
 function M.taskHandleAggregatesCarryTheirScopeProvenance()
    assertClean(table.concat({
-      'local tasks = require("nupp.tasks")',
-      "tasks.run(function(scope: tasks.Scope): nil",
+      "with scope = nupp.tasks.open() do",
       "   local handles = {scope:spawn(function(): integer return 1 end)}",
       "   handles[2] = scope:spawn(function(): integer return 2 end)",
       "   for _, handle in ipairs(handles) do print(handle:await()) end",
-      "end)",
+      "end",
    }, "\n"))
 
    local got = codes(table.concat({
-      'local tasks = require("nupp.tasks")',
-      "return tasks.run(function(scope: tasks.Scope)",
-      "   return {scope:spawn(function(): integer return 1 end)}",
-      "end)",
+      "local kept: any = nil",
+      "with scope = nupp.tasks.open() do",
+      "   kept = {scope:spawn(function(): integer return 1 end)}",
+      "end",
+      "return kept",
    }, "\n"))
    assert(got:find("NUPP2608", 1, true), got)
 end
 
 function M.returningTaskSpawnsRefuseBorrowedAffineCaptures()
    assertEq(codes(table.concat({
-      'local tasks = require("nupp.tasks")',
       "local record Resource is nupp.Closeable",
       "   function close(takes self): nil end",
       "end",
       "local resource = new Resource()",
-      "tasks.run(function(scope: tasks.Scope): nil",
+      "with scope = nupp.tasks.open() do",
       "   local callback = function(): nil borrows (resource)",
       "      print(resource)",
       "   end",
       "   scope:spawn(callback)",
-      "end)",
+      "end",
       "resource:close()",
-   }, "\n")), "NUPP2602 NUPP2602")
+   }, "\n")), "NUPP2602")
 end
 
 function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
    local source = table.concat({
-      'local tasks = require("nupp.tasks")',
       "local drops = 0",
       "local record Resource is nupp.Closeable",
       "   function close(takes self): nil drops = drops + 1 end",
       "end",
-      "tasks.run(function(scope: tasks.Scope): nil",
+      "with scope = nupp.tasks.open() do",
       "   local resource = new Resource()",
       "   local child = scope:spawn(function(): nil takes (resource)",
       "      resource:close()",
       "   end)",
       "   child:cancel()",
-      "end)",
+      "end",
       "return drops",
    }, "\n")
    local result, diags = checked(source)

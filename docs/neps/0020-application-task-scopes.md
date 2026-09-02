@@ -584,3 +584,34 @@ right shape and `borrows (self)` remains the way to spell it. What it says is
 that the task layer needs a way to name the worker scope without linking it,
 which is a module-graph question rather than an ownership one, and the decision
 belongs to whoever answers it.
+
+## 2026-09-02: one scope, opened with `with`
+
+Three things this proposal left open are now settled, and the answers belong
+here because each reverses a reason given above.
+
+**The module-graph question.** A task scope names the worker provider's
+submission contract through a checker-only edge: `nupp.workers.Submitted(F)` in
+a type position resolves through the selected provider's exports and emits
+nothing, and the runtime edge is still activated only by the `native.workers`
+effect the compiler records for `fork`. So `Scope:fork` exists beside `spawn`,
+with one argument shape and one `Task<F>`, and `Scope:workers()` is the
+lower-level handle rather than the way in.
+
+**The affine scope.** The alternative rejected above -- an affine scope from
+`tasks.scope()` -- was rejected because automatic terminal cleanup could not
+suspend. That was checker policy rather than a lowering limit, and it is gone: a
+terminal may suspend, and one that parks until the resource's work has settled
+is a settling terminal, refused only where suspending is refused. So the scope is
+opened with `with scope = nupp.tasks.open(...) do ... end` and `run` and `runFor`
+are no longer there; the block is the body. The block is not a coroutine child,
+so `open` installs a transparent driver in front of the host that runs the
+children while the block waits, and a failure the block itself raises drains the
+children rather than cancelling them.
+
+**Bounded fan-out.** A batch type with a pull-based iterator yielding completions
+was designed and rejected. A scope with a `limit`, which parks `spawn` and `fork`
+while it is full, gives the same backpressure with the loop as the source, no
+new type, no overloads over sources, and no completion queue, because a child
+holds its own result when it finishes. `scope:cancel()` is what first-result-wins
+needs, and it is the scope's own decision, so the block's exit stays quiet.

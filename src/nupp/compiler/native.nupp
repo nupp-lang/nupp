@@ -200,7 +200,6 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "time",
         module = "nupp.time",
-        exports = {"nupp.tasks.runFor"},
         runtimeModule = "nupp.time",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",

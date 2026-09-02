@@ -75,6 +75,29 @@ local COMPILER_SURFACES: {
     },
 }
 
+--- Whether a callee names `nupp.tasks.open`, reached by its qualified path or through
+--- a local bound to the required module.
+local function opensTaskScope(c: state.Checker, callee: any): boolean
+    if callee.kind ~= "dotIndex" then
+        return false
+    end
+    local member = callee.name
+    if member == nil or member.text ~= "open" then
+        return false
+    end
+    local base = callee.obj
+    if base == nil then
+        return false
+    end
+    if base.qualifiedModule == "nupp.tasks" and #(base.qualifiedMembers or {}) == 0 then
+        return true
+    end
+    local token = base.kind == "name" and base.token or nil
+    local holder = token and c.lookupEntry(token.text) or nil
+
+    return holder ~= nil and holder.requiredModule == "nupp.tasks"
+end
+
 ----------------------------------------------------------------------------
 -- Intrinsics
 ----------------------------------------------------------------------------
@@ -1635,6 +1658,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 if matcher then
                     first, rets, pack = matcher, {matcher}, T.pack({matcher})
                 end
+            end
+        end
+        -- `nupp.tasks.open(limit, deadline)` needs the monotonic clock only when a
+        -- deadline is passed, and a coroutine-only scope must not make `native.time` a
+        -- requirement of every program that opens one. So the effect is recorded here,
+        -- by the call's argument pack, rather than on the member as a whole.
+        if node.kind == "call" and callee and opensTaskScope(c, callee) and c.recordEffect then
+            local deadline = node.argumentPack and T.packAt(node.argumentPack, 2) or nil
+            if deadline ~= nil and deadline ~= T.nil_ then
+                c.recordEffect("native.time");
+                (node as any).compilerFeatureEffect = "native.time"
             end
         end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
