@@ -1364,7 +1364,9 @@ end
 -- only the small, proven straight-line kernels that Nupp can beat LPeg on.
 -- Nothing below constructs or interprets a second instruction language.
 local function compilePlan(validated)
-    if validated.general then
+    -- A general grammar and a forced LPeg backend both lower to native LPeg, which
+    -- reads the graph alone, so no specialization or prefilter is worth planning.
+    if validated.general or validated.backend ~= "auto" then
         return {graph = {nodes = validated.nodes, root = validated.root}, actions = validated.slots, captureful = true,}
     end
 
@@ -1520,25 +1522,55 @@ local function compilePlan(validated)
                     break
                 end
             end
-            if prefixFree and scan and #scan == 1 and suffix and #suffix > 0 and #suffix <= 16 then
+            -- The one kernel that consumes this plan packs a key of at most six bytes
+            -- from at most eight alternatives, compares the first eight suffix bytes as
+            -- two words, and tests the ninth alone, so only that shape is worth
+            -- emitting. It also scans greedily up to the suffix instead of
+            -- backtracking, so the suffix must begin with a byte the scan rejects:
+            -- otherwise the grammar's greedy repetition would swallow the suffix and
+            -- fail where the kernel would still match.
+            local kernelShaped = prefixFree
+                and scan
+                and #scan == 1
+                and suffix
+                and #suffix == 9
+                and maximum <= 6
+                and #prefixes <= 8
+                and #separator[
+                2
+            ] == 1
+            if kernelShaped then
+                for index = 1, 8 do
+                    if suffix[index] >= 256 then
+                        kernelShaped = false
+                    end
+                end
+            end
+            if kernelShaped then
+                local scanAccepts
+                if scan[1] < 256 then
+                    scanAccepts = scan[1] == suffix[1]
+                else
+                    scanAccepts = sets[scan[1] - 255]:byte(suffix[1] + 1) ~= 0
+                end
+                if scanAccepts then
+                    kernelShaped = false
+                end
+            end
+            if kernelShaped then
                 local keys, packedKeys, lengths = {}, {}, {}
-                local canPack = maximum <= 6 and #prefixes <= 8 and #separator[2] == 1
                 for index, text in ipairs(prefixes) do
                     local key, packed = 1, 0
                     for offset = 1, #text do
                         key = key * 257 + text:byte(offset)
-                        if canPack then
-                            packed = packed * 256 + text:byte(offset)
-                        end
+                        packed = packed * 256 + text:byte(offset)
                     end
                     keys[index], lengths[index] = key, #text
-                    if canPack then
-                        packedKeys[index] = packed * 8 + #text
-                    end
+                    packedKeys[index] = packed * 8 + #text
                 end
                 fastScan = {
                     keys = keys,
-                    packedKeys = canPack and packedKeys or nil,
+                    packedKeys = packedKeys,
                     lengths = lengths,
                     maximum = maximum,
                     separator = separator[2],
@@ -1616,13 +1648,17 @@ local function compilePlan(validated)
         return false
     end
 
+    -- Only the generated kernels consult the prefilter; the LPeg fallback runs the
+    -- graph from every position itself.
+    local search = (fastFixed or fastScan or fastRepeat) and searchPlan(validated) or nil
+
     return {
         graph = {nodes = nodes, root = validated.root},
         sets = sets,
         fastFixed = fastFixed,
         fastScan = fastScan,
         fastRepeat = fastRepeat,
-        search = searchPlan(validated),
+        search = search,
         actions = validated.slots,
         captureful = hasCaptures(validated.root, {}),
     }

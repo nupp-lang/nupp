@@ -1531,6 +1531,24 @@ end
    assertEq(ruleCodes[1], "NUPP2417", "a rule reference reports its unwrapped repetition")
 end
 
+function M.keepsGreedyScansOffThePackedPrefixKernel()
+   local source = [==[
+const Fast: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile("('a' / 'b') '=' [a-z]* 'abcdefghi' !.")
+end
+const Native: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile("('a' / 'b') '=' [a-z]* 'abcdefghi' !.", {backend = "lpeg"})
+end
+return Fast("a=abcdefghi"), Native("a=abcdefghi"), Fast("a=-abcdefghi"), Native("a=-abcdefghi")
+]==]
+   local code = compile(source)
+   assertEq(code:find("fastScan={", 1, true), nil, "a suffix the scan class accepts is not specialized")
+   local fast, native, fastMiss, nativeMiss = run(source)
+   assertEq(fast, native, "greedy repetition agrees with LPeg")
+   assertEq(fast, nil, "the greedy scan swallows the suffix")
+   assertEq(fastMiss, nativeMiss, "a rejected byte agrees with LPeg")
+end
+
 function M.rejectsAComptimeMatcherDeclaredAsAnotherType()
    local codes, diagnostics = errorsOf([[
 const Wrong: string = comptime do
