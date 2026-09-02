@@ -406,6 +406,15 @@ jobs:
         shell: bash
         run: ./bin/nupp check
 
+      # The Windows host ABI is selected through rustup, then shared by the
+      # Rust provider, application host, and embedding SDK. Exercise that
+      # contract before the expensive native and full-suite gates so a test
+      # fixture cannot accidentally model Windows as an invented Unix host.
+      - name: Check the Windows Rust toolchain contract
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ./bin/nupp test --jobs=1 rusttoolchaintest toolchaintest
+
       # Name the Rust-native release boundary before the broad suite. This runs
       # each resource owner's stress/cancellation tests, the aggregate C ABI
       # smoke, and C consumers of the executable, static application archive,
