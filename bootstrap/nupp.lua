@@ -186169,7 +186169,7 @@ const __nuppExportValue= checked ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.runtime.provider.browserstorage"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.provider.browserstorage"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.runtime.provider.browsersuspension"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;const __nuppT41={}; const function __nuppT38(...) return {n=select("#",...),...} end; const __nuppT42,__nuppT43,__nuppT44,__nuppT45,__nuppT46,__nuppT47,__nuppT48,__nuppT49=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT39(value) return value end; const function __nuppT40(primary,errors,start) const secondary={} for i=start,#errors do if errors[i]~=primary then secondary[#secondary+1]=errors[i] end end if #secondary==0 then return primary end return __nuppT47({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT48(v.primary) for _,reason in __nuppT49(v.suppressed) do text=text.."\ncleanup: "..__nuppT48(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.runtime.provider.browsersuspension#destroyInstalled"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.runtime.provider.browsersuspension#destroyInstalled") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;const __nuppT44={}; const function __nuppT41(...) return {n=select("#",...),...} end; const __nuppT45,__nuppT46,__nuppT47,__nuppT48,__nuppT49,__nuppT50,__nuppT51,__nuppT52=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT42(value) return value end; const function __nuppT43(primary,errors,start) const secondary={} for i=start,#errors do if errors[i]~=primary then secondary[#secondary+1]=errors[i] end end if #secondary==0 then return primary end return __nuppT50({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT51(v.primary) for _,reason in __nuppT52(v.suppressed) do text=text.."\ncleanup: "..__nuppT51(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.runtime.provider.browsersuspension#destroyInstalled"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.runtime.provider.browsersuspension#destroyInstalled") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -186216,26 +186216,7 @@ rawset ( suspension , "__isTaskCancellation" , isTaskCancellation )
 
 local ACTIVATIONS_PER_TURN = 64
 local turnRemaining = ACTIVATIONS_PER_TURN
-
-local function turnAvailable ( ) 
-return turnRemaining > 0
-end
-
-local function consumeTurn ( ) 
-if turnRemaining > 0 then
-turnRemaining = turnRemaining - 1
-end
-end
-
-local function deferTurn ( ) 
-turnRemaining = ACTIVATIONS_PER_TURN
-effects . park ( "nupp coroutine turn budget" )
-suspension . poll ( )
-end
-
-rawset ( suspension , "__turnAvailable" , turnAvailable )
-rawset ( suspension , "__consumeTurn" , consumeTurn )
-rawset ( suspension , "__deferTurn" , deferTurn )
+local turnHost = nil
 
 suspension.Source = {} suspension.Source.__index = suspension.Source
 
@@ -186320,6 +186301,7 @@ suspension.Installed = {} suspension.Installed.__index = suspension.Installed
 
 
 
+
 function suspension.Installed:release() 
 if self . released then
 return
@@ -186365,13 +186347,77 @@ end
 
 local function installation ( ) 
 local coroutine = running ( )
-return coroutine == nil and suspension . _main or suspension . _installed [ coroutine ]
+local current = coroutine == nil and suspension . _main or suspension . _installed [ coroutine ]
+while current ~= nil and current . released do
+current = current . previous
+end
+
+return current
 end
 
 local function handler ( ) 
 local current = installation ( )
 return current and current . handler or nil
 end
+
+local function boundedTurnHost ( ) 
+local host = installation ( )
+if host == nil then
+return nil
+end
+while true do
+local previous = host . previous
+while previous ~= nil and previous . released do
+previous = previous . previous
+end
+if previous == nil then
+break
+end
+host = previous
+end
+if host . transparent then
+return nil
+end
+
+return host
+end
+
+local function turnAvailable ( ) 
+local host = boundedTurnHost ( )
+if host == nil then
+return true
+end
+if turnHost ~= host then
+turnHost = host
+turnRemaining = ACTIVATIONS_PER_TURN
+end
+
+return turnRemaining > 0
+end
+
+local function consumeTurn ( ) 
+local host = boundedTurnHost ( )
+if host == nil then
+return
+end
+if turnHost ~= host then
+turnHost = host
+turnRemaining = ACTIVATIONS_PER_TURN
+end
+if turnRemaining > 0 then
+turnRemaining = turnRemaining - 1
+end
+end
+
+local function deferTurn ( ) 
+turnRemaining = ACTIVATIONS_PER_TURN
+effects . park ( "nupp coroutine turn budget" )
+suspension . poll ( )
+end
+
+rawset ( suspension , "__turnAvailable" , turnAvailable )
+rawset ( suspension , "__consumeTurn" , consumeTurn )
+rawset ( suspension , "__deferTurn" , deferTurn )
 
 function suspension . source (
 name ,
@@ -186430,12 +186476,38 @@ function suspension . delegatedCanPark ( )
 local captured = installation ( )
 
 return function ( ) 
-local outer = captured ~= nil and captured . handler or nil
+local current = captured
+while current ~= nil and current . released do
+current = current . previous
+end
+local outer = current ~= nil and current . handler or nil
 if outer == nil or outer . canPark == nil then
 return true
 end
 
 return outer . canPark ( outer ) ~= false
+end
+end
+
+
+function suspension . delegatedPark ( ) 
+local captured = installation ( )
+
+return function ( waiting , cancel ) 
+local current = captured
+while current ~= nil and current . released do
+current = current . previous
+end
+local outer = current ~= nil and current . handler or nil
+if outer ~= nil then
+outer . park ( outer , waiting , cancel )
+
+return
+end
+while not waiting : ready ( ) do
+effects . park ( waiting . operation )
+suspension . poll ( )
+end
 end
 end
 
@@ -186507,13 +186579,17 @@ self : drop ( )
 end ;__nuppCleanups["nupp.runtime.provider.browsersuspension#destroyInstalled"]=suspension.destroyInstalled
 
 
-function suspension . install ( value ) __nuppCleanups["nupp.runtime.provider.browsersuspension#destroyInstalled"]=suspension.destroyInstalled; 
+function suspension . install (
+value ,
+transparent
+) __nuppCleanups["nupp.runtime.provider.browsersuspension#destroyInstalled"]=suspension.destroyInstalled; 
 local coroutine = running ( )
 local previous = coroutine == nil and suspension . _main or suspension . _installed [ coroutine ]
 local installed = setmetatable({ coroutine =
 coroutine ,  previous =
 previous ,  handler =
-value ,  released =
+value ,  transparent =
+transparent == true ,  released =
 false }, suspension.Installed)
 
 if coroutine == nil then
@@ -186591,13 +186667,13 @@ end }, suspension.Handler)
 local function startNext ( ) 
 started = started + 1
 local index = started
-local co = suspension . create ( function ( ) local __nuppT37;
-do const  __nuppT56= suspension . install ( branchHandler ) ; __nuppT37=__nuppT37 or {} ; local __nuppT57=__nuppT37[1]; if not __nuppT57 then __nuppT57=function(installed) do
+local co = suspension . create ( function ( ) local __nuppT40;
+do const  __nuppT59= suspension . install ( branchHandler ) ; __nuppT40=__nuppT40 or {} ; local __nuppT60=__nuppT40[1]; if not __nuppT60 then __nuppT60=function(installed) do
 entered [ index ] = true
 local value = bodies [ index ] ( )
 installed : release ( )
 
-return "return",__nuppT38( value ) end; return "normal" end; __nuppT37[1]=__nuppT57 end; const __nuppT51,__nuppT52,__nuppT53=__nuppT43(__nuppT57,__nuppT39,__nuppT56); const __nuppT50=1; const __nuppT54={}; local __nuppT55=0; if __nuppT50>=1 then  const __nuppT58,__nuppT59=__nuppT42(__nuppCleanup1,__nuppT56);  if not __nuppT58 then __nuppT55=__nuppT55+1; __nuppT54[__nuppT55]=__nuppT59 end; end; if not __nuppT51 then if __nuppT55>0 then __nuppT44(__nuppT40(__nuppT52,__nuppT54,1),0) else __nuppT44(__nuppT52,0) end end; if __nuppT55>0 then if __nuppT55>1 then __nuppT44(__nuppT40(__nuppT54[1],__nuppT54,2),0) else __nuppT44(__nuppT54[1],0) end end; if __nuppT52=="return" then  return __nuppT45(__nuppT53,1,__nuppT53.n)  end; end
+return "return",__nuppT41( value ) end; return "normal" end; __nuppT40[1]=__nuppT60 end; const __nuppT54,__nuppT55,__nuppT56=__nuppT46(__nuppT60,__nuppT42,__nuppT59); const __nuppT53=1; const __nuppT57={}; local __nuppT58=0; if __nuppT53>=1 then  const __nuppT61,__nuppT62=__nuppT45(__nuppCleanup1,__nuppT59);  if not __nuppT61 then __nuppT58=__nuppT58+1; __nuppT57[__nuppT58]=__nuppT62 end; end; if not __nuppT54 then if __nuppT58>0 then __nuppT47(__nuppT43(__nuppT55,__nuppT57,1),0) else __nuppT47(__nuppT55,0) end end; if __nuppT58>0 then if __nuppT58>1 then __nuppT47(__nuppT43(__nuppT57[1],__nuppT57,2),0) else __nuppT47(__nuppT57[1],0) end end; if __nuppT55=="return" then  return __nuppT48(__nuppT56,1,__nuppT56.n)  end; end
 end )
 threads [ index ] = co
 indexOf [ co ] = index
@@ -193232,6 +193308,7 @@ requiredFunctions = {
 "canSuspend" ,
 "create" ,
 "delegatedCanPark" ,
+"delegatedPark" ,
 "destroyInstalled" ,
 "gather" ,
 "handled" ,
@@ -193373,6 +193450,62 @@ return 0
 end ,
 } )
 assert ( nested [ 1 ] == 42 , "a nested coroutine's park must wake the branch that owns it" )
+
+local resumed = nil
+local parkedOutward = false
+local outer = provider . install ( {
+park = function ( _ , _ , _ ) 
+parkedOutward = true
+resumed ( "delegated" )
+end ,
+canPark = function ( ) 
+return true
+end ,
+shutdown = function ( ) 
+end ,
+} )
+local parkOutward = provider . delegatedPark ( )
+local driver = provider . install (
+{
+park = function ( _ , waiting , cancel ) 
+parkOutward ( waiting , cancel )
+end ,
+canPark = provider . delegatedCanPark ( ) ,
+shutdown = function ( ) 
+end ,
+} ,
+true
+)
+local delegated = provider . suspend ( "contract.delegated" , function ( resume ) 
+resumed = resume
+
+return function ( ) 
+resumed = nil
+end
+end )
+assert ( parkedOutward and delegated == "delegated" , "a driver must park on the displaced handler" )
+driver : release ( )
+outer : release ( )
+
+local transparent = provider . install (
+{
+park = function ( ) 
+end ,
+canPark = function ( ) 
+return true
+end ,
+shutdown = function ( ) 
+end ,
+} ,
+true
+)
+local turnAvailable = rawget ( provider , "__turnAvailable" )
+local consumeTurn = rawget ( provider , "__consumeTurn" )
+for _ = 1 , 65 do
+assert ( turnAvailable ( ) , "a driver without a host must have an unbounded turn" )
+consumeTurn ( )
+end
+transparent : release ( )
 end )
 if not ok then
 return false , tostring ( problem )
@@ -234799,26 +234932,7 @@ rawset(suspension, "__isTaskCancellation", isTaskCancellation)
 -- rather than through whichever handler asked to defer.
 local ACTIVATIONS_PER_TURN: integer = 64
 local turnRemaining: integer = ACTIVATIONS_PER_TURN
-
-local function turnAvailable(): boolean
-    return turnRemaining > 0
-end
-
-local function consumeTurn(): nil
-    if turnRemaining > 0 then
-        turnRemaining = turnRemaining - 1
-    end
-end
-
-local function deferTurn(): nil
-    turnRemaining = ACTIVATIONS_PER_TURN
-    effects.park("nupp coroutine turn budget")
-    suspension.poll()
-end
-
-rawset(suspension, "__turnAvailable", turnAvailable)
-rawset(suspension, "__consumeTurn", consumeTurn)
-rawset(suspension, "__deferTurn", deferTurn)
+local turnHost: any = nil
 
 record suspension.Source
     name: string
@@ -234901,6 +235015,7 @@ record suspension.Installed
     coroutine: any
     previous: any
     handler: suspension.Handler
+    transparent: boolean
     released: boolean
 
     function release(self): nil
@@ -234948,13 +235063,77 @@ end
 
 local function installation(): any
     local coroutine = running()
-    return coroutine == nil and suspension._main or suspension._installed[coroutine]
+    local current = coroutine == nil and suspension._main or suspension._installed[coroutine]
+    while current ~= nil and current.released do
+        current = current.previous
+    end
+
+    return current
 end
 
 local function handler(): any
     local current = installation()
     return current and current.handler or nil
 end
+
+local function boundedTurnHost(): any
+    local host = installation()
+    if host == nil then
+        return nil
+    end
+    while true do
+        local previous = host.previous
+        while previous ~= nil and previous.released do
+            previous = previous.previous
+        end
+        if previous == nil then
+            break
+        end
+        host = previous
+    end
+    if host.transparent then
+        return nil
+    end
+
+    return host
+end
+
+local function turnAvailable(): boolean
+    local host = boundedTurnHost()
+    if host == nil then
+        return true
+    end
+    if turnHost ~= host then
+        turnHost = host
+        turnRemaining = ACTIVATIONS_PER_TURN
+    end
+
+    return turnRemaining > 0
+end
+
+local function consumeTurn(): nil
+    local host = boundedTurnHost()
+    if host == nil then
+        return
+    end
+    if turnHost ~= host then
+        turnHost = host
+        turnRemaining = ACTIVATIONS_PER_TURN
+    end
+    if turnRemaining > 0 then
+        turnRemaining = turnRemaining - 1
+    end
+end
+
+local function deferTurn(): nil
+    turnRemaining = ACTIVATIONS_PER_TURN
+    effects.park("nupp coroutine turn budget")
+    suspension.poll()
+end
+
+rawset(suspension, "__turnAvailable", turnAvailable)
+rawset(suspension, "__consumeTurn", consumeTurn)
+rawset(suspension, "__deferTurn", deferTurn)
 
 function suspension.source(
     name: string,
@@ -235013,12 +235192,38 @@ function suspension.delegatedCanPark(): function(): boolean
     local captured = installation()
 
     return function(): boolean
-        local outer = captured ~= nil and captured.handler or nil
+        local current = captured
+        while current ~= nil and current.released do
+            current = current.previous
+        end
+        local outer = current ~= nil and current.handler or nil
         if outer == nil or outer.canPark == nil then
             return true
         end
 
         return outer.canPark(outer) ~= false
+    end
+end
+
+--- Captures how a wait is parked here, for a driver about to displace the handler.
+function suspension.delegatedPark(): function(suspension.Waiting, function(): nil): nil
+    local captured = installation()
+
+    return function(waiting: suspension.Waiting, cancel: function(): nil): nil
+        local current = captured
+        while current ~= nil and current.released do
+            current = current.previous
+        end
+        local outer = current ~= nil and current.handler or nil
+        if outer ~= nil then
+            outer.park(outer, waiting, cancel)
+
+            return
+        end
+        while not waiting:ready() do
+            effects.park(waiting.operation)
+            suspension.poll()
+        end
     end
 end
 
@@ -235090,13 +235295,17 @@ function suspension.destroyInstalled(takes self: suspension.Installed): nil
 end
 
 --- Installs `value` for suspensions performed on this coroutine.
-function suspension.install(value: suspension.Handler): affine(suspension.Installed, suspension.destroyInstalled)
+function suspension.install(
+    value: suspension.Handler,
+    transparent: boolean?
+): affine(suspension.Installed, suspension.destroyInstalled)
     local coroutine = running()
     local previous = coroutine == nil and suspension._main or suspension._installed[coroutine]
     local installed = new suspension.Installed(
         coroutine = coroutine,
         previous = previous,
         handler = value,
+        transparent = transparent == true,
         released = false
     )
     if coroutine == nil then
@@ -241759,6 +241968,7 @@ local CONTRACT = common.contract("suspension", {
         "canSuspend",
         "create",
         "delegatedCanPark",
+        "delegatedPark",
         "destroyInstalled",
         "gather",
         "handled",
@@ -241899,6 +242109,62 @@ function suite.test(provider: any): (boolean, string?)
             end,
         })
         assert(nested[1] == 42, "a nested coroutine's park must wake the branch that owns it")
+
+        local resumed: any = nil
+        local parkedOutward = false
+        local outer = provider.install({
+            park = function(_: any, _: any, _: any): nil
+                parkedOutward = true
+                resumed("delegated")
+            end,
+            canPark = function(): boolean
+                return true
+            end,
+            shutdown = function(): nil
+            end,
+        })
+        local parkOutward = provider.delegatedPark()
+        local driver = provider.install(
+            {
+                park = function(_: any, waiting: any, cancel: any): nil
+                    parkOutward(waiting, cancel)
+                end,
+                canPark = provider.delegatedCanPark(),
+                shutdown = function(): nil
+                end,
+            },
+            true
+        )
+        local delegated = provider.suspend("contract.delegated", function(resume: function(string)): function()
+            resumed = resume
+
+            return function(): nil
+                resumed = nil
+            end
+        end)
+        assert(parkedOutward and delegated == "delegated", "a driver must park on the displaced handler")
+        driver:release()
+        outer:release()
+
+        local transparent = provider.install(
+            {
+                park = function(): nil
+                end,
+                canPark = function(): boolean
+                    return true
+                end,
+                shutdown = function(): nil
+                end,
+            },
+            true
+        )
+        local turnAvailable = rawget(provider, "__turnAvailable")
+        local consumeTurn = rawget(provider, "__consumeTurn")
+        for _ = 1, 65 do
+            assert(turnAvailable(), "a driver without a host must have an unbounded turn")
+            consumeTurn()
+        end
+        transparent:release()
     end)
     if not ok then
         return false, tostring(problem)

@@ -45,26 +45,7 @@ rawset(suspension, "__isTaskCancellation", isTaskCancellation)
 -- rather than through whichever handler asked to defer.
 local ACTIVATIONS_PER_TURN: integer = 64
 local turnRemaining: integer = ACTIVATIONS_PER_TURN
-
-local function turnAvailable(): boolean
-    return turnRemaining > 0
-end
-
-local function consumeTurn(): nil
-    if turnRemaining > 0 then
-        turnRemaining = turnRemaining - 1
-    end
-end
-
-local function deferTurn(): nil
-    turnRemaining = ACTIVATIONS_PER_TURN
-    effects.park("nupp coroutine turn budget")
-    suspension.poll()
-end
-
-rawset(suspension, "__turnAvailable", turnAvailable)
-rawset(suspension, "__consumeTurn", consumeTurn)
-rawset(suspension, "__deferTurn", deferTurn)
+local turnHost: any = nil
 
 record suspension.Source
     name: string
@@ -147,6 +128,7 @@ record suspension.Installed
     coroutine: any
     previous: any
     handler: suspension.Handler
+    transparent: boolean
     released: boolean
 
     function release(self): nil
@@ -194,13 +176,77 @@ end
 
 local function installation(): any
     local coroutine = running()
-    return coroutine == nil and suspension._main or suspension._installed[coroutine]
+    local current = coroutine == nil and suspension._main or suspension._installed[coroutine]
+    while current ~= nil and current.released do
+        current = current.previous
+    end
+
+    return current
 end
 
 local function handler(): any
     local current = installation()
     return current and current.handler or nil
 end
+
+local function boundedTurnHost(): any
+    local host = installation()
+    if host == nil then
+        return nil
+    end
+    while true do
+        local previous = host.previous
+        while previous ~= nil and previous.released do
+            previous = previous.previous
+        end
+        if previous == nil then
+            break
+        end
+        host = previous
+    end
+    if host.transparent then
+        return nil
+    end
+
+    return host
+end
+
+local function turnAvailable(): boolean
+    local host = boundedTurnHost()
+    if host == nil then
+        return true
+    end
+    if turnHost ~= host then
+        turnHost = host
+        turnRemaining = ACTIVATIONS_PER_TURN
+    end
+
+    return turnRemaining > 0
+end
+
+local function consumeTurn(): nil
+    local host = boundedTurnHost()
+    if host == nil then
+        return
+    end
+    if turnHost ~= host then
+        turnHost = host
+        turnRemaining = ACTIVATIONS_PER_TURN
+    end
+    if turnRemaining > 0 then
+        turnRemaining = turnRemaining - 1
+    end
+end
+
+local function deferTurn(): nil
+    turnRemaining = ACTIVATIONS_PER_TURN
+    effects.park("nupp coroutine turn budget")
+    suspension.poll()
+end
+
+rawset(suspension, "__turnAvailable", turnAvailable)
+rawset(suspension, "__consumeTurn", consumeTurn)
+rawset(suspension, "__deferTurn", deferTurn)
 
 function suspension.source(
     name: string,
@@ -259,12 +305,38 @@ function suspension.delegatedCanPark(): function(): boolean
     local captured = installation()
 
     return function(): boolean
-        local outer = captured ~= nil and captured.handler or nil
+        local current = captured
+        while current ~= nil and current.released do
+            current = current.previous
+        end
+        local outer = current ~= nil and current.handler or nil
         if outer == nil or outer.canPark == nil then
             return true
         end
 
         return outer.canPark(outer) ~= false
+    end
+end
+
+--- Captures how a wait is parked here, for a driver about to displace the handler.
+function suspension.delegatedPark(): function(suspension.Waiting, function(): nil): nil
+    local captured = installation()
+
+    return function(waiting: suspension.Waiting, cancel: function(): nil): nil
+        local current = captured
+        while current ~= nil and current.released do
+            current = current.previous
+        end
+        local outer = current ~= nil and current.handler or nil
+        if outer ~= nil then
+            outer.park(outer, waiting, cancel)
+
+            return
+        end
+        while not waiting:ready() do
+            effects.park(waiting.operation)
+            suspension.poll()
+        end
     end
 end
 
@@ -336,13 +408,17 @@ function suspension.destroyInstalled(takes self: suspension.Installed): nil
 end
 
 --- Installs `value` for suspensions performed on this coroutine.
-function suspension.install(value: suspension.Handler): affine(suspension.Installed, suspension.destroyInstalled)
+function suspension.install(
+    value: suspension.Handler,
+    transparent: boolean?
+): affine(suspension.Installed, suspension.destroyInstalled)
     local coroutine = running()
     local previous = coroutine == nil and suspension._main or suspension._installed[coroutine]
     local installed = new suspension.Installed(
         coroutine = coroutine,
         previous = previous,
         handler = value,
+        transparent = transparent == true,
         released = false
     )
     if coroutine == nil then

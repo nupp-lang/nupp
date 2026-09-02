@@ -110,6 +110,62 @@ function suite.test(provider: any): (boolean, string?)
             end,
         })
         assert(nested[1] == 42, "a nested coroutine's park must wake the branch that owns it")
+
+        local resumed: any = nil
+        local parkedOutward = false
+        local outer = provider.install({
+            park = function(_: any, _: any, _: any): nil
+                parkedOutward = true
+                resumed("delegated")
+            end,
+            canPark = function(): boolean
+                return true
+            end,
+            shutdown = function(): nil
+            end,
+        })
+        local parkOutward = provider.delegatedPark()
+        local driver = provider.install(
+            {
+                park = function(_: any, waiting: any, cancel: any): nil
+                    parkOutward(waiting, cancel)
+                end,
+                canPark = provider.delegatedCanPark(),
+                shutdown = function(): nil
+                end,
+            },
+            true
+        )
+        local delegated = provider.suspend("contract.delegated", function(resume: function(string)): function()
+            resumed = resume
+
+            return function(): nil
+                resumed = nil
+            end
+        end)
+        assert(parkedOutward and delegated == "delegated", "a driver must park on the displaced handler")
+        driver:release()
+        outer:release()
+
+        local transparent = provider.install(
+            {
+                park = function(): nil
+                end,
+                canPark = function(): boolean
+                    return true
+                end,
+                shutdown = function(): nil
+                end,
+            },
+            true
+        )
+        local turnAvailable = rawget(provider, "__turnAvailable")
+        local consumeTurn = rawget(provider, "__consumeTurn")
+        for _ = 1, 65 do
+            assert(turnAvailable(), "a driver without a host must have an unbounded turn")
+            consumeTurn()
+        end
+        transparent:release()
     end)
     if not ok then
         return false, tostring(problem)
