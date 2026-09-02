@@ -122,33 +122,36 @@ local function run(parsed: any): integer
         return 0
     end
 
-    local bridgeOut = parsed.values.bridgeOut
-    if bridgeOut and details and details.bridgeSource then
-        local bridgeHandle, bridgeErr = io.open(bridgeOut, "wb")
-        if not bridgeHandle then
-            -- Text mode has already printed the warnings above; routing this
-            -- through fail() would print them all again, restyled as errors.
-            if asJson then
-                warnings[#warnings + 1] = tostring(bridgeErr)
-                return fail()
-            end
-            io.stderr:write("nupp: " .. tostring(bridgeErr) .. "\n")
-            return 1
+    -- Written with the result checked, so a full disk is a failed command rather
+    -- than a truncated header reported as success. Text mode has already printed
+    -- the warnings above; routing a failure through fail() would print them all
+    -- again, restyled as errors.
+    local fs = require("nupp.compiler.fs")
+    local function write(path: string, content: string): integer?
+        local wrote, writeErr = fs.writeFile(path, content)
+        if wrote then
+            return nil
         end
-        bridgeHandle:write(details.bridgeSource)
-        bridgeHandle:close()
-    end
-    local handle, writeErr = io.open(out, "wb")
-    if not handle then
         if asJson then
             warnings[#warnings + 1] = tostring(writeErr)
             return fail()
         end
         io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+
         return 1
     end
-    handle:write(text)
-    handle:close()
+
+    local bridgeOut = parsed.values.bridgeOut
+    if bridgeOut and details and details.bridgeSource then
+        local stopped = write(bridgeOut, details.bridgeSource)
+        if stopped then
+            return stopped
+        end
+    end
+    local stopped = write(out, text)
+    if stopped then
+        return stopped
+    end
     if asJson then
         reportMod.write({
             ok = true,
