@@ -794,7 +794,12 @@ local handler = {
     park = function(_: any, waiting: suspension.Waiting): nil
         const task = assert(coroutine.running())
         while not waiting:ready() do
-            waiting:onResume(function(): nil enqueue(task) end)
+            local woke = false
+            waiting:onResume(function(): nil
+                assert(not woke, "one wait registration woke the host twice")
+                woke = true
+                enqueue(task)
+            end)
             if not waiting:ready() then coroutine.yield() end
         end
     end,
