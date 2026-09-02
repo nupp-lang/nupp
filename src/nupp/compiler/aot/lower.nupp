@@ -4153,12 +4153,15 @@ local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kerne
     if bound.op == "constant" then
         local number = tonumber((bound as scalarIR.Constant).value)
         if number ~= nil and number == math.floor(number as number) then
-            return new scalarIR.IntConstant(
-                op = "constant_i32",
-                value = tostring(number),
-                type = "i32",
-                source = bound.source
-            )
+            -- The C loop counts in int32, so a literal the counter cannot reach
+            -- is refused here rather than narrowed into a bound that means
+            -- something else. Spelled with %.0f: tostring writes 2^53 as
+            -- 9.007e+15, which is not a C integer.
+            local spelling = ("%.0f"):format(number as number)
+            if number < lower.INT32_MIN or number > lower.INT32_MAX then
+                kernel.context.reject(lower.site(at), "native for bound " .. spelling .. " is outside int32")
+            end
+            return new scalarIR.IntConstant(op = "constant_i32", value = spelling, type = "i32", source = bound.source)
         end
     end
     if bound.type ~= "i32" and bound.type ~= "u32" and bound.type ~= "f64" then

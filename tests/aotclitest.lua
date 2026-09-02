@@ -2822,4 +2822,64 @@ function M.aFileWithNoAotFunctionIsAnError()
     assert(out:find("no @aot function", 1, true), "which says so: " .. out)
 end
 
+function M.aForBoundOutsideInt32IsRefusedRatherThanNarrowed()
+    -- The generated loop counts in int32. A literal past that used to be
+    -- narrowed into whatever the C cast made of it, so the loop ran a different
+    -- number of times than the source said, or not at all.
+    local dir = project{
+        [
+            "bigbound.nupp"
+        ] = [[
+@aot
+local function acc(value: number): number
+    local total = value
+    for j = 1, 3000000000 do
+        total = total + 1
+    end
+    return total
+end
+
+return {acc = acc}
+]],
+    }
+    local out, code = run(dir, "bigbound.nupp")
+    test.equal(code, 1, "a bound the counter cannot reach is refused\n" .. out)
+    assert(
+        out:find("bigbound.nupp:4:5: aot: native for bound 3000000000 is outside int32", 1, true),
+        "the refusal names the bound in full at its line: " .. out
+    )
+end
+
+return {rows = rows}
+]]
+    local dir = project{["nested.nupp"] = body:gsub("BOUND", "#weights"), ["literal.nupp"] = body:gsub("BOUND", "10"),}
+    local out, code = run(dir, "--emit c nested.nupp")
+    test.equal(code, 0, out)
+    assert(out:find("count_weights", 1, true), "the nested loop counts the span it reads: " .. out)
+
+    out, code = run(dir, "literal.nupp")
+    test.equal(code, 1, "a literal bound proves nothing about the span\n" .. out)
+    assert(
+        out:find(
+            "literal.nupp:15:25: aot: the loop's bound is not a span count, so nothing proves weights is that long",
+            1,
+            true
+        ),
+        "and the refusal says what would: " .. out
+    )
+end
+
+@aot
+local function negFixed(value: uint32): number
+    return -value
+end
+
+return {neg = neg, negFixed = negFixed}
+]],
+    }
+    local out, code = run(dir, "--emit c neg.nupp")
+    test.equal(code, 0, out)
+    assert(out:find("(-(((double)p_value)))", 1, true), "the operand is widened, then negated: " .. out)
+end
+
 return M
