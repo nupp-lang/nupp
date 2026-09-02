@@ -972,7 +972,4 @@ function template.step(step: string, destination: string, nupp: string, env: {[s
     return process.run(argv, {cwd = destination, env = env}) == 0
 end
 
-template.STEPS = STEPS
-template.REMOTE_STEPS = REMOTE_STEPS
-
 export = template

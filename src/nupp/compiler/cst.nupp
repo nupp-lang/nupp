@@ -786,7 +786,6 @@ record cst.DoStmt is cst.Hints
     body: cst.Node?
 end
 
---- `unsafe do ... end`, where raw pointer use is permitted.
 --- `nosuspend do ... end`: a region in which suspending is a checked error.
 ---
 --- Lexical and static. It erases to an ordinary `do` block, having no run-time
@@ -824,6 +823,7 @@ record cst.EffectRegionStmt is cst.Hints
     endTok: lexer.Token?
 end
 
+--- `unsafe do ... end`, where raw pointer use is permitted.
 record cst.UnsafeStmt is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -915,9 +915,8 @@ record cst.FuncStmt is cst.Hints
     body: cst.Node?
 
     --- Compiler-only function metadata; none of it reaches generated Lua.
-    comptimeFunction: boolean?
-
     comptimeName: string?
+
     comptimeSignature: any
     comptimeDefinition: any
 end
@@ -1468,9 +1467,7 @@ record cst.CdefFunc is cst.Hints
     --- physically erased LuaJIT declaration.
     cAbiSignature: any
 
-    --- Canonical checked identity and ABI/ownership semantics for hot reload.
-    cdefIdentity: string?
-
+    --- The ABI and ownership semantics behind `cdefIdentity`, for hot reload.
     cdefSemantic: string?
 end
 
@@ -1490,9 +1487,7 @@ record cst.CdefStruct is cst.Hints
     --- Its fields.
     entries: {cst.Node}
 
-    --- Canonical checked identity and layout semantics for hot reload.
-    cdefIdentity: string?
-
+    --- The layout semantics behind `cdefIdentity`, for hot reload.
     cdefSemantic: string?
 end
 
@@ -1895,10 +1890,6 @@ record cst.MethodCall is cst.Hints
     --- Explicit type arguments written after the method name.
     typeArgs: {cst.Node}?
 
-    --- Intersection-overload selection and its direct runtime target.
-    overloadWinner: any
-
-    overloadMember: string?
     methodEntry: any
 end
 
@@ -2751,22 +2742,6 @@ type cst.Declaration = cst.TypeAlias | cst.RecordDecl
 
 --- What may take a generic parameter clause.
 type cst.Generic = cst.Funcbody | cst.Tfunc | cst.TypeAlias | cst.RecordDecl
-
---- Statements and expressions whose nested block a pass walks into.
-type cst.Bodied = cst.UnsafeStmt
-    | cst.WithStmt
-    | cst.DoStmt
-    | cst.WhileStmt
-    | cst.RepeatStmt
-    | cst.FornumStmt
-    | cst.ForinStmt
-    | cst.IfClause
-    | cst.ElseifClause
-    | cst.ElseClause
-    | cst.Funcbody
-    | cst.Shortfn
-    | cst.SwitchCase
-    | cst.SwitchElse
 
 ----------------------------------------------------------------------------
 -- Reading a tree
