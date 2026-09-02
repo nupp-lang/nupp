@@ -105,23 +105,36 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
             end
             local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
             local executable = compilerRoot and fs.join(compilerRoot, "bin/nupp") or tostring(arg[0] or "nupp")
-            local code = process.run({executable, "__generator-worker", requestPath, resultPath}, {
-                cwd = root,
-                timeoutMs = 120000,
-                memoryMb = 512
-            })
+            -- Isolated so the deadline and the address-space ceiling hold: `run`
+            -- would start the worker with neither, and a generator that hangs
+            -- would hang the build with it.
+            local code, captured = process.captureIsolated(
+                {executable, "__generator-worker", requestPath, resultPath},
+                {cwd = root, timeoutMs = 120000, memoryMb = 512}
+            )
             local responseText = fs.readFile(resultPath)
             local responseOk, response = false, nil
             if responseText then
                 responseOk, response = pcall(json.decode, responseText, json.NULL)
             end
+            if not responseOk or type(response) ~= "table" then
+                response = nil
+            end
             os.remove(requestPath)
             os.remove(resultPath)
-            if code ~= 0 or not responseOk or not response.ok then
+            if code ~= 0 or not response or not response.ok then
                 removeTree(staged)
-                return nil, "generator " .. name .. " failed: " .. tostring(
-                    response and response.error or "worker failed"
-                )
+                if captured ~= "" then
+                    io.stderr:write(captured)
+                    if captured:sub(-1) ~= "\n" then
+                        io.stderr:write("\n")
+                    end
+                end
+                local reason = response and response.error
+                if not reason then
+                    reason = code == 124 and "worker timed out" or "worker failed"
+                end
+                return nil, "generator " .. name .. " failed: " .. tostring(reason)
             end
             for _, diagnostic in ipairs(response.diagnostics or {}) do
                 io.stderr:write(

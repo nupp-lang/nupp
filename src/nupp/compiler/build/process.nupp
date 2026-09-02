@@ -13,20 +13,26 @@ local process = {}
 
 --- Where a command runs and what it runs with.
 ---
---- Both are folded into the command line rather than handed to a spawn call, because
---- there is no spawn call to hand them to: `cd` and the shell's own assignment syntax
---- are what a single string can say.
+--- `cwd` and `env` are folded into the command line rather than handed to a spawn
+--- call, because there is no spawn call to hand them to: `cd` and the shell's own
+--- assignment syntax are what a single string can say. They are the only two
+--- options `run` and `capture` honour. The rest describe a bounded child, which only
+--- `captureIsolated` and `startIsolated` can start; `run` and `capture` refuse them
+--- rather than silently run an unbounded child.
 type process.Options = {
     cwd: string?,
     env: {[string]: string}?,
+
+    --- Isolated entry points only: how long the host waits before killing the child.
     timeoutMs: integer?,
 
-    --- POSIX child address-space ceiling. Used for compiler workers whose inputs may
-    --- ask for large allocations; absent for ordinary subprocesses.
+    --- Isolated entry points only. POSIX child address-space ceiling, used for
+    --- compiler workers whose inputs may ask for large allocations; absent for
+    --- ordinary subprocesses.
     memoryMb: integer?,
 
-    --- Work the host may service while an isolated child is quiet, and a request
-    --- cancellation predicate checked after each service pass.
+    --- Isolated entry points only: work the host may service while the child is
+    --- quiet, and a request cancellation predicate checked after each service pass.
     pump: (function(): nil)?,
     cancelled: (function(): boolean)?
 }
@@ -119,9 +125,19 @@ local function isolatedArgs(argv: {string}): {string}
     return launchArgs(argv)
 end
 
+-- The shell-string entry points can only say `cd` and assignments; a bound they
+-- cannot honour is a caller that wanted `captureIsolated`.
+local function assertUnbounded(opts: process.Options, entry: string): nil
+    assert(
+        opts.timeoutMs == nil and opts.memoryMb == nil and opts.pump == nil and opts.cancelled == nil,
+        "process." .. entry .. " honours only cwd and env; use captureIsolated for a bounded child"
+    )
+end
+
 function process.command(argv: {string}, opts: process.Options?): string
     assert(type(argv) == "table" and #argv > 0, "argv must not be empty")
     opts = (opts or {}) as process.Options
+    assertUnbounded(opts, "command")
     argv = launchArgs(argv)
     local parts = {}
     if opts.env then
@@ -218,11 +234,9 @@ function process.capture(argv: {string}, opts: process.Options?): integer, strin
     return code, output
 end
 
---- Runs one command in its own process and bounds how long the caller waits. Output is
---- drained through the portable process provider, leaving the caller free to service
---- protocol input and cancel the child on every quiet wait.
-function process.captureIsolated(argv: {string}, opts: process.Options?): integer, string
-    opts = (opts or {}) as process.Options
+-- The argv an isolated child is started with: the worker itself, or a shell that
+-- lowers its address-space ceiling first where the platform has one.
+local function boundedArgs(argv: {string}, opts: process.Options): {string}
     local args = isolatedArgs(argv)
     if opts.memoryMb and not windows then
         local kilobytes = math.max(1, math.floor(opts.memoryMb * 1024))
@@ -232,6 +246,16 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
             "ulimit -v " .. tostring(kilobytes) .. " 2>/dev/null || true; exec " .. process.command(argv),
         }
     end
+
+    return args
+end
+
+--- Runs one command in its own process and bounds how long the caller waits. Output is
+--- drained through the portable process provider, leaving the caller free to service
+--- protocol input and cancel the child on every quiet wait.
+function process.captureIsolated(argv: {string}, opts: process.Options?): integer, string
+    opts = (opts or {}) as process.Options
+    local args = boundedArgs(argv, opts)
     local native = require("nupp.io.process")
     local nativeOptions: native.Options = {
         args = args,
@@ -297,15 +321,7 @@ end
 --- stdin/stdout open for a session service. The caller owns and must close it.
 function process.startIsolated(argv: {string}, opts: process.Options?): (affine(process.IsolatedProcess?), string?)
     opts = (opts or {}) as process.Options
-    local args = isolatedArgs(argv)
-    if opts.memoryMb and not windows then
-        local kilobytes = math.max(1, math.floor(opts.memoryMb * 1024))
-        args = {
-            "/bin/sh",
-            "-c",
-            "ulimit -v " .. tostring(kilobytes) .. " 2>/dev/null || true; exec " .. process.command(argv),
-        }
-    end
+    local args = boundedArgs(argv, opts)
     local native = require("nupp.io.process")
     local nativeOptions: native.Options = {
         args = args,

@@ -3157,6 +3157,76 @@ return {dependencies = {types = {kind = "types", format = "luacats",
    remove(explicitDir)
 end
 
+function M.aFailingGeneratorReportsWhatItPrinted()
+   local rockspec = [[
+rockspec_format = "3.0"
+package = "providerrock"
+version = "1.0-1"
+source = { url = "file://provider.lua" }
+description = { summary = "Generator fixture." }
+dependencies = { "lua >= 5.1" }
+build = {
+   type = "builtin",
+   modules = { ["provider.codegen"] = "codegen.lua" },
+   copy_directories = { "nupp" },
+}
+]]
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      provider = {kind = "luarocks", path = "vendor/provider",
+         rockspec = "vendor/provider/providerrock-1.0-1.rockspec"},
+   },
+   generators = {api = {using = "provider/codegen", inputs = {"model/*.txt"}}},
+   build = {outDir = "out", entries = {"main"}},
+}
+]],
+      ["src/main.nupp"] = "return true\n",
+      ["model/value.txt"] = "answer\n",
+      ["vendor/provider/providerrock-1.0-1.rockspec"] = rockspec,
+      -- Leaves through the exit rather than the worker's own reply, so the
+      -- only evidence is what it wrote before going.
+      ["vendor/provider/codegen.lua"] = [[
+return function(request)
+   io.stdout:write("codegen: model is on fire\n")
+   io.stdout:flush()
+   os.exit(3)
+end
+]],
+      ["vendor/provider/nupp/capabilities.json"] = [[
+{"schema":1,"capabilities":[
+ {"kind":"generator","name":"codegen","api":1,"entry":"provider.codegen"}
+]}
+]],
+   })
+   local errorPath = os.tmpname()
+   local originalStderr = io.stderr
+   io.stderr = assert(io.open(errorPath, "wb"))
+   local code = project.build(dir)
+   io.stderr:close()
+   io.stderr = originalStderr
+   local reported = read(errorPath) or ""
+   os.remove(errorPath)
+   assertEq(code, 1, "a generator that dies fails the build")
+   assert(reported:find("codegen: model is on fire", 1, true),
+      "the worker's captured output is reported: " .. reported)
+   assert(reported:find("generator api failed: worker failed", 1, true), reported)
+   assert(not exists(dir .. "/out/generated/api.nupp-staged"), "the staging directory is removed")
+   remove(dir)
+end
+
+function M.shellEntryPointsRefuseBoundedOptions()
+   local ok, err = pcall(process.run, {"true"}, {timeoutMs = 1000})
+   assert(not ok and tostring(err):find("captureIsolated", 1, true),
+      "run refuses a timeout it cannot honour: " .. tostring(err))
+   ok, err = pcall(process.capture, {"true"}, {memoryMb = 64})
+   assert(not ok and tostring(err):find("captureIsolated", 1, true),
+      "capture refuses a memory ceiling it cannot honour: " .. tostring(err))
+   assertEq(process.run({"true"}, {cwd = "."}), 0, "cwd is still honoured")
+end
+
 function M.generatorDeclarationsAreClosedAndPlainData()
    local unknown = tempProject({
       ["nupp.lua"] = [[
