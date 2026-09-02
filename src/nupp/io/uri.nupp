@@ -6,7 +6,7 @@ components from the parse rather than from a substring. Reach for it when a
 program routes, rewrites or inspects a resource identifier.
 
 ```nupp
-const uri = require("nupp.io.uri")
+const uri = nupp.io.uri
 
 local endpoint, reason = uri.newURI("https://user@example.com:8443/api?q=1#top")
 assert(endpoint, reason)
@@ -32,7 +32,7 @@ Every other component is optional and answers nil when the URI does not write
 it:
 
 ```nupp
-const uri = require("nupp.io.uri")
+const uri = nupp.io.uri
 
 local plain = assert(uri.newURI("mailto:someone@example.com"))
 assert(plain:host() == nil)
@@ -51,7 +51,7 @@ ordinary answer. `uri.validate` asks the same question without retaining an
 object, and `uri.isURI` separates a URI from a string or a record:
 
 ```nupp
-const uri = require("nupp.io.uri")
+const uri = nupp.io.uri
 
 local ok, why = uri.validate("http://[")
 assert(not ok and why)
@@ -74,7 +74,7 @@ Supplying a component equal to its current normalized value answers the
 receiver itself rather than reparsing:
 
 ```nupp
-const uri = require("nupp.io.uri")
+const uri = nupp.io.uri
 
 local endpoint = assert(uri.newURI("https://user:pass@example.com:8443/api?q=1"))
 local production = endpoint:withUserInfo(nil):withHost("api.example.com")
@@ -91,7 +91,7 @@ raises.
 `concatPath` appends path text without interpreting it as a reference:
 
 ```nupp
-const uri = require("nupp.io.uri")
+const uri = nupp.io.uri
 
 local api = assert(uri.newURI("https://api.example.com/v1"))
 assert(api:concatPath("users"):path() == "/v1/users")
@@ -108,7 +108,7 @@ against the page it is on. It answers nil and a reason when the reference
 cannot be resolved:
 
 ```nupp
-const uri = require("nupp.io.uri")
+const uri = nupp.io.uri
 
 local page = assert(uri.newURI("https://example.com/docs/guide/index.html"))
 local image, reason = page:resolve("../images/avatar.png")
@@ -122,7 +122,7 @@ assert(image:path() == "/docs/images/avatar.png")
 assembled into text and then parsed, so one grammar decides what is valid:
 
 ```nupp
-const uri = require("nupp.io.uri")
+const uri = nupp.io.uri
 
 local status = assert(uri.newURI({
     scheme = "https",
@@ -700,7 +700,7 @@ end
 --- Read a URI's parts:
 ---
 --- ```nupp
---- const uri = require("nupp.io.uri")
+--- const uri = nupp.io.uri
 ---
 --- local address = assert(uri.newURI("https://example.com/a?b=1"))
 --- assert(address:host() == "example.com" and address:query() == "b=1")

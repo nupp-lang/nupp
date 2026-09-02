@@ -68,9 +68,9 @@ operations and table-backed struct values:
 ```nupp
 module portable.backend
 
-const Backend = require("nupp.runtime.backend")
-const Bitops = require("nupp.runtime.seam.bitops")
-const Structvalue = require("nupp.runtime.seam.structvalue")
+const Backend = nupp.runtime.backend
+const Bitops = nupp.runtime.seam.bitops
+const Structvalue = nupp.runtime.seam.structvalue
 
 export = Backend.new("portable", {
     Bitops.seam("bit"),
@@ -134,8 +134,8 @@ can install this backend source as `nupp/acme/cryptobackend.nupp`:
 ```nupp
 module acme.cryptobackend
 
-const Backend = require("nupp.runtime.backend")
-const Hmac = require("nupp.runtime.seam.hmacsha256")
+const Backend = nupp.runtime.backend
+const Hmac = nupp.runtime.seam.hmacsha256
 
 export = Backend.new("acme.crypto", {
     Hmac.seam("acme.hmac_sha256"),

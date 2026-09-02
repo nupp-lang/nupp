@@ -22,7 +22,7 @@ end
 module main
 
 const jobs = require("jobs")
-const workers = require("nupp.workers")
+const workers = nupp.workers
 
 export function hashes(left: string, right: string): (string, string)
     with scope = workers.scope() do
@@ -205,7 +205,7 @@ internals across the heap boundary or risking that a lane waits on itself.
 ```nupp
 module jobs.index
 
-const workers = require("nupp.workers")
+const workers = nupp.workers
 
 -- Submitting this raises where it runs: a worker task cannot open another
 -- worker scope.
@@ -226,7 +226,7 @@ operation to the shared scheduler. A tree of work becomes a flat submission of
 its leaves:
 
 ```nupp
-const indexJobs = require("jobs.index")
+const indexJobs = jobs.index
 
 export function countAll(shards: {{string}}): number
     with scope = workers.scope() do
@@ -263,7 +263,7 @@ end
 ```
 
 ```nupp
-const imageJobs = require("image.jobs")
+const imageJobs = image.jobs
 const task = scope:spawn(bytes, 320, imageJobs.resize)
 ```
 
@@ -391,7 +391,7 @@ ownership back to whichever lane awaits the task.
 ```nupp
 module jobs
 
-const heap = require("nupp.mem.heap")
+const heap = nupp.mem.heap
 
 export function fill(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyArray)
     local writable = frame:write()
@@ -474,7 +474,7 @@ interruption point, so leaving a scope waits for a task that is already running.
 A bounded function can cooperate by calling `tasks.checkpoint()`:
 
 ```nupp
-const tasks = require("nupp.tasks")
+const tasks = nupp.tasks
 
 export function search(limit: integer): integer
     for index = 1, limit do

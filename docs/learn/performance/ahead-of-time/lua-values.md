@@ -88,7 +88,7 @@ barriers correct, and source slices or validated backslash and Unicode recipes
 become Lua-owned strings.
 
 ```nupp
-local valuebuilder = require("nupp.data.valuebuilder")
+local valuebuilder = nupp.data.valuebuilder
 
 --- @raises when the blobs do not describe a well-formed tree
 @aot
@@ -109,7 +109,7 @@ or objects with an estimated capacity, adds keys and primitive values, closes
 each container, and publishes exactly one root with `finish`.
 
 ```nupp
-local valuebuilder = require("nupp.data.valuebuilder")
+local valuebuilder = nupp.data.valuebuilder
 
 --- Reads `source` as fixed-width integer fields and returns them as an array.
 @aot
@@ -166,7 +166,7 @@ publish a checked initialized range directly. A string assembled byte by byte
 and published once looks like this:
 
 ```nupp
-local valuebuilder = require("nupp.data.valuebuilder")
+local valuebuilder = nupp.data.valuebuilder
 
 --- Uppercases each ASCII letter of `source` and publishes it as one string.
 @aot

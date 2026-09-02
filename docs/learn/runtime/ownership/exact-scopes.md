@@ -10,8 +10,7 @@ gives an affine value a stricter contract: one exact extent whose visible name
 is a borrow.
 
 ```nupp:playground
-local soa = require("nupp.mem.soa")
-local ffi = require("ffi")
+local soa = nupp.mem.soa
 
 local struct Position
     x: float

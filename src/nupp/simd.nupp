@@ -8,7 +8,7 @@ depends on cross-lane masks, as structural indexing and block validation do. An
 ordinary map loop needs none of it: `@aot` already chooses a width for one.
 
 ```nupp
-local simd = require("nupp.simd")
+local simd = nupp.simd
 
 @aot(lanes = false)
 local function quotes(source: string): uint32

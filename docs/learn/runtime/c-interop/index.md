@@ -105,7 +105,7 @@ cannot express.
 Use the generated module like any other:
 
 ```nupp
-local miniApi = require("native.mini")
+local miniApi = native.mini
 
 local total = miniApi.mini_add(20, 22)
 print(total)
@@ -569,7 +569,7 @@ For a larger or explicitly native-owned array, use the malloc-backed standard
 library allocation and give it bounds immediately:
 
 ```nupp
-local heap = require("nupp.mem.heap")
+local heap = nupp.mem.heap
 
 local values = heap.allocate(ffi.typeof<int32>(), 1000000)
 local writable = values:write()

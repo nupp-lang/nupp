@@ -7,7 +7,7 @@ filesystem name or takes one apart, rather than when it reads the bytes behind
 one.
 
 ```nupp:playground
-const path = require("nupp.io.path")
+const path = nupp.io.path
 
 local source = path.newPath("src", "app", "..", "main.nupp"):normalize()
 assert(source:toString() == "src" .. path.separator() .. "main.nupp")
@@ -35,7 +35,7 @@ another path. `Path` has no public constructor; creation goes through `newPath`,
 which interns recent paths in a bounded LRU cache.
 
 ```nupp
-const path = require("nupp.io.path")
+const path = nupp.io.path
 
 local native = path.newPath("out"):join("lib", "native")
 assert(native:fileName() == "native")
@@ -45,7 +45,7 @@ assert(native:fileName() == "native")
 record, because neither builds a path out of components:
 
 ```nupp
-const path = require("nupp.io.path")
+const path = nupp.io.path
 
 local current, reason = path.currentDirectory()
 assert(current, reason)
@@ -59,7 +59,7 @@ assert(log:extension() == "jsonl")
 filesystem, so it answers even for a path that does not exist:
 
 ```nupp
-const path = require("nupp.io.path")
+const path = nupp.io.path
 
 assert(path.newPath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
 ```
@@ -77,7 +77,7 @@ with a reason when it does.
   that stays where the base already is.
 
 ```nupp
-const path = require("nupp.io.path")
+const path = nupp.io.path
 
 local real, reason = path.newPath("src"):canonicalize()
 assert(real, reason)
@@ -91,7 +91,7 @@ the final component, that component without its extension, and the extension
 without its dot:
 
 ```nupp
-const path = require("nupp.io.path")
+const path = nupp.io.path
 
 local source = path.newPath("src", "main.nupp")
 assert(source:fileName() == "main.nupp")
@@ -106,7 +106,7 @@ into a file name is reported where it was written rather than carried into the
 path it would have produced:
 
 ```nupp
-const path = require("nupp.io.path")
+const path = nupp.io.path
 
 local report = path.newPath("out", "report.tmp"):withExtension("json")
 assert(report:fileName() == "report.json")
@@ -389,7 +389,7 @@ end
 --- #### Examples
 ---
 --- ```nupp
---- const path = require("nupp.io.path")
+--- const path = nupp.io.path
 --- local source = path.newPath("src", "main.nupp")
 --- ```
 --- @param first the first path component

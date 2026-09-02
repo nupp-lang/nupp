@@ -228,7 +228,7 @@ local utf8 = {}
 --- A malformed byte counts as one.
 ---
 --- ```nupp
---- const utf8 = require("nupp.data.utf8")
+--- const utf8 = nupp.data.utf8
 ---
 --- assert(utf8.length("A€") == 2)
 --- ```
@@ -254,7 +254,7 @@ end
 --- answers `0xFFFD` and still advances:
 ---
 --- ```nupp
---- const utf8 = require("nupp.data.utf8")
+--- const utf8 = nupp.data.utf8
 ---
 --- local at = 1
 --- while true do
@@ -281,7 +281,7 @@ end
 --- directions, so decoding forward and then back lands where it started:
 ---
 --- ```nupp
---- const utf8 = require("nupp.data.utf8")
+--- const utf8 = nupp.data.utf8
 ---
 --- local codepoint, nextByte = utf8.decodeAt("A€", 2)
 --- assert(codepoint == 0x20ac and nextByte == 5)
@@ -318,7 +318,7 @@ end
 --- Encodes one codepoint as UTF-8 bytes.
 ---
 --- ```nupp
---- const utf8 = require("nupp.data.utf8")
+--- const utf8 = nupp.data.utf8
 ---
 --- assert(utf8.encode(0x20ac) == "€")
 --- ```
@@ -360,7 +360,7 @@ end
 --- Reports whether the whole value is well-formed UTF-8.
 ---
 --- ```nupp
---- const utf8 = require("nupp.data.utf8")
+--- const utf8 = nupp.data.utf8
 ---
 --- assert(utf8.isValid("café"))
 --- assert(not utf8.isValid("\xff"))
@@ -377,7 +377,7 @@ end
 --- Measures the longest well-formed prefix no longer than `maxBytes`.
 ---
 --- ```nupp
---- const utf8 = require("nupp.data.utf8")
+--- const utf8 = nupp.data.utf8
 ---
 --- -- "A€B" is 5 bytes; the 4-byte budget stops just short of "B" rather
 --- -- than splitting "€" in half.
@@ -396,7 +396,7 @@ end
 --- Cuts text to at most `maxBytes`, never through a codepoint.
 ---
 --- ```nupp
---- const utf8 = require("nupp.data.utf8")
+--- const utf8 = nupp.data.utf8
 ---
 --- assert(utf8.truncate("A€B", 4) == "A€")
 --- ```

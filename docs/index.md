@@ -81,8 +81,8 @@ Structured task scopes and worker pools compose concurrent work at different
 isolation boundaries.
 
 ```nupp
-local suspension = require("nupp.suspension")
-local time = require("nupp.time")
+local suspension = nupp.suspension
+local time = nupp.time
 
 local function waitFor(milliseconds: number): number
     time.sleep(milliseconds)
@@ -128,7 +128,7 @@ span maps can become lane-parallel, while `target = "gpu"` produces typed
 resident-buffer kernels and native or WebGPU artifacts.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = nupp.mem.span
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil

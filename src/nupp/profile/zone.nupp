@@ -5,7 +5,7 @@ Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
 it.
 
 ```nupp
-local zone = require("nupp.profile.zone")
+local zone = nupp.profile.zone
 
 local function render(): nil
     zone.push("render")

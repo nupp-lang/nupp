@@ -9,9 +9,9 @@ is live. Uploads, dispatches, and downloads only enqueue commands;
 `synchronize()` is the explicit CPU boundary.
 
 ```nupp
-local gpu = require("nupp.gpu")
+local gpu = nupp.gpu
 local kernels = require("kernels")
-local ffi = require("nupp.runtime.nativev2").ffi
+local ffi = nupp.runtime.nativev2.ffi
 
 local context = gpu.open()
 local input = context:buffer(ffi.typeof<float>(), 1024)

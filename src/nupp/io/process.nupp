@@ -4,7 +4,7 @@ module nupp.io.process
 Starts a child process and drains its streams without deadlocking.
 
 ```nupp
-local process = require("nupp.io.process")
+local process = nupp.io.process
 
 local child = new process.Process({args = {"cc", "--version"}})
 local result = assert(child:communicate())

@@ -11,7 +11,7 @@ bytecode finding, an `@jit` contract error and an observed abort from acquiring
 three explanations.
 
 ```nupp
-local trace = require("nupp.profile.trace")
+local trace = nupp.profile.trace
 
 local reason = trace.forOpcode("FNEW")
 print(reason.id, reason.repair)

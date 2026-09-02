@@ -181,7 +181,7 @@ when:
   `else` arm.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = nupp.mem.span
 
 local struct Code
     value: int32

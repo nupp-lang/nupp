@@ -9,7 +9,7 @@ functions run as WebAssembly side modules in the same linear memory. Use
 `nupp.wasm` when Lua and compiled code need zero-copy arrays of Nupp structs:
 
 ```nupp
-local wasm = require("nupp.wasm")
+local wasm = nupp.wasm
 
 local struct Sample
     value: float
@@ -33,9 +33,9 @@ opaque Wasm memory:
 ```nupp
 module backend
 
-const Backend = require("nupp.runtime.backend")
-const Structvalue = require("nupp.runtime.seam.structvalue")
-const Wasm = require("nupp.runtime.seam.wasm")
+const Backend = nupp.runtime.backend
+const Structvalue = nupp.runtime.seam.structvalue
+const Wasm = nupp.runtime.seam.wasm
 
 export = Backend.new("app.wasm", {
     Structvalue.seam("nupp.runtime.provider.wasmstorage"),
@@ -198,9 +198,9 @@ URI, suspension, time, random bytes, SHA-256, HMAC-SHA256, UUIDs, and persistent
 string storage:
 
 ```nupp
-local crypto = require("nupp.browser.crypto")
-local storage = require("nupp.browser.storage")
-local time = require("nupp.time")
+local crypto = nupp.browser.crypto
+local storage = nupp.browser.storage
+local time = nupp.time
 
 time.sleep(10)
 local token = crypto.randomBytes(32)
@@ -236,8 +236,8 @@ these assets needs no cross-origin isolation headers.
 SHA-256, HMAC-SHA256, and UUIDs retain the standard Nupp APIs:
 
 ```nupp
-local data = require("nupp.data")
-local hmac = require("nupp.data.hmac")
+local data = nupp.data
+local hmac = nupp.data.hmac
 
 print(data.sha256("payload"))
 print(hmac.hex("key", "payload"))

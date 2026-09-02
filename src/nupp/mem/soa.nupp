@@ -7,8 +7,7 @@ Every top-level field of a reified struct gets its own contiguous column, so a
 loop that walks one field of many rows brings nothing else along.
 
 ```nupp
-local soa = require("nupp.mem.soa")
-local ffi = require("ffi")
+local soa = nupp.mem.soa
 
 local struct Position
     x: float

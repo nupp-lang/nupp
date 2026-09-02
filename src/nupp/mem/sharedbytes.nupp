@@ -9,7 +9,7 @@ through a borrowed [](nupp.mem.span) byte view; converting it to a Lua string
 is one explicit call. See NEP 22.
 
 ```nupp
-const sharedbytes = require("nupp.mem.sharedbytes")
+const sharedbytes = nupp.mem.sharedbytes
 
 const region = sharedbytes.copy("hello, region")
 const hello = region:slice(1, 5)
@@ -20,7 +20,7 @@ A producer that has bytes only behind a pointer writes into builder storage
 directly through a reserve-and-commit pair, with no intermediate chunk string:
 
 ```nupp
-const sharedbytes = require("nupp.mem.sharedbytes")
+const sharedbytes = nupp.mem.sharedbytes
 
 local builder = sharedbytes.builder()
 with writer = builder:reserve(5) do

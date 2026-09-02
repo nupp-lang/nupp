@@ -9,7 +9,7 @@ type. The same call blocks in a command-line program and parks its coroutine
 where a host installed a [suspension handler](#hosts-supply-scheduling-policy):
 
 ```nupp:playground
-local process = require("nupp.io.process")
+local process = nupp.io.process
 
 local child = new process.Process({args = {"cc", "--version"}} as process.Options)
 local result = assert(child:communicate())
@@ -52,7 +52,7 @@ park without accepting a scheduler parameter:
 
 ```nupp [main.nupp]
 local frame = require("scheduler")
-local process = require("nupp.io.process")
+local process = nupp.io.process
 
 local function printCompilerVersion(): nil
     local child = new process.Process({args = {"cc", "--version"}} as process.Options)
@@ -109,7 +109,7 @@ Waiting does not introduce `async function`, `await`, or a future return type.
 An ordinary wrapper returns the value produced after the wait:
 
 ```nupp
-local process = require("nupp.io.process")
+local process = nupp.io.process
 
 local function compilerVersion(): string
     local child = new process.Process({args = {"cc", "--version"}} as process.Options)
@@ -219,7 +219,7 @@ practice:
 
 ```nupp
 local frame = require("scheduler")
-local suspension = require("nupp.suspension")
+local suspension = nupp.suspension
 
 local function childWork(): nil
     assert(suspension.handled())
@@ -276,8 +276,8 @@ for more information.
 The suspension module runs several zero-argument functions concurrently:
 
 ```nupp
-local process = require("nupp.io.process")
-local suspension = require("nupp.suspension")
+local process = nupp.io.process
+local suspension = nupp.suspension
 
 local function version(program: string): string
     local child = new process.Process({args = {program, "--version"}} as process.Options)
@@ -318,7 +318,7 @@ A suspension-aware library calls `suspension.suspend` with a subscription. This
 example completes after its readiness source has been polled twice:
 
 ```nupp
-local suspension = require("nupp.suspension")
+local suspension = nupp.suspension
 
 local function after(polls: integer, value: string): string
     return suspension.suspend("counter", function(resume: function(string), context: suspension.Context): function()
@@ -361,7 +361,7 @@ This scheduler keeps a queue of runnable coroutines. Its event loop calls `tick`
 once per frame to poll readiness sources and resume the tasks they woke.
 
 ```nupp [scheduler.nupp]
-local suspension = require("nupp.suspension")
+local suspension = nupp.suspension
 
 local runnable: {thread} = {}
 

@@ -23,7 +23,7 @@ associated `Report` is whichever report the channel behind it produces, so a
 helper written once over the lifecycle still hands back the concrete one:
 
 ```nupp:playground
-local profile = require("nupp.profile")
+local profile = nupp.profile
 
 local function finish<S is profile.Session>(session: S): S.Report
     return session:stop()
@@ -94,7 +94,7 @@ rendering is two different problems.
 `nupp.profile.zone` is a stack of names that the profiler reads:
 
 ```nupp
-local zone = require("nupp.profile.zone")
+local zone = nupp.profile.zone
 
 local function frame()
     zone.push("frame")
@@ -136,7 +136,7 @@ the call itself, and a call on the hottest path can stop a trace forming.
 
 So `push`, and a `pop` whose result is discarded, are lowered rather than
 called. Written in statement position on a receiver that is a bare `local zone =
-require("nupp.profile.zone")`, they are generated inline against the module's
+nupp.profile.zone`, they are generated inline against the module's
 own state, leaving nothing on the hot path to pay for.
 
 | Written as | Lowered | Reason |
@@ -211,7 +211,7 @@ when the interesting window is not the whole run: a single frame, one request,
 or the part after warm-up.
 
 ```nupp
-local profile = require("nupp.profile")
+local profile = nupp.profile
 
 local session = profile.sample({intervalMs = 2, zone = "frame/render"})
 renderEverything()

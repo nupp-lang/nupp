@@ -9,7 +9,7 @@ isolated LuaJIT state. Arguments and results are copied; Lua heap identity is ne
 shared.
 
 ```nupp
-const workers = require("nupp.workers")
+const workers = nupp.workers
 const jobs = require("jobs")
 
 with scope = workers.scope() do

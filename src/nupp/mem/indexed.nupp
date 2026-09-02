@@ -8,7 +8,7 @@ checking them separately checks them twice and says nothing about the pair.
 `range` takes the views and answers bounds that are valid for all of them.
 
 ```nupp
-local indexed = require("nupp.mem.indexed")
+local indexed = nupp.mem.indexed
 
 const bounds = indexed.range(1, 4, left, right)
 for i = bounds.first, bounds.last do

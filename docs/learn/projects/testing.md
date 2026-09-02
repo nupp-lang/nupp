@@ -198,8 +198,8 @@ does:
 ```nupp:playground
 module tests.arithmetictest
 
-local fixture = require("tests.nuppfixture")
-local test = require("nupp.test")
+local fixture = tests.nuppfixture
+local test = nupp.test
 
 export function addsNumbers(): nil
     test.equal(20 + 22, 42)

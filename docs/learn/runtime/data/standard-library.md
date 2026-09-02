@@ -21,16 +21,17 @@ implementation from the members checked source actually reaches, so nothing is
 loaded on a program's behalf.
 
 Nupp-authored libraries outside that surface are ordinary declared modules on
-disk, bound with Lua's `require`:
+disk. A qualified module path loads one only when the source uses it:
 
 ```nupp
-const span = require("nupp.mem.span")
+const span = nupp.mem.span
 
 local storage = carray(int32, 4)
 local values = span.fromCarray(storage, 4)
 ```
 
-The qualified form reaches the same declared file without the binding:
+The full qualified form reaches the same declared file without the short
+binding:
 
 ```nupp
 local values = nupp.mem.span.fromCarray(storage, 4)

@@ -8,7 +8,7 @@ logical element count moves with the allocation and its pointer is available
 only through checked span views.
 
 ```nupp
-local heap = require("nupp.mem.heap")
+local heap = nupp.mem.heap
 
 do
     local values = heap.allocate(ffi.typeof<int32>(), 4)

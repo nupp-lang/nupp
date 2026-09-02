@@ -680,7 +680,7 @@ sequence. It is useful for throughput-oriented inference and simulation where
 the caller validates an error bound rather than an element-exact answer:
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = nupp.mem.span
 
 @relax("fp-transcendentals")
 @aot(target = "gpu")

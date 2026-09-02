@@ -14,7 +14,7 @@ ordinary Nupp: [spans](nupp.mem.span),
 `break`.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = nupp.mem.span
 
 local struct Point
     re: float

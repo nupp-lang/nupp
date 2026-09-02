@@ -7,7 +7,7 @@ access and an [affine lifetime](docs/learn/runtime/ownership/index.md), so the p
 cannot outlive or overlap its owner.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = nupp.mem.span
 
 const text = "hello"
 const bytes = span.fromString(text)
@@ -29,7 +29,7 @@ count. `fromString(source)` creates the byte-specialized `ByteSpan`. Both keep
 their source rooted for the lifetime of the view.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = nupp.mem.span
 
 local struct Point
     x: float
@@ -76,8 +76,8 @@ preserving the exact count for checks and generated code.
 `WriteSpan<T>` contract is what a function accepting exclusive access names:
 
 ```nupp
-local span = require("nupp.mem.span")
-local indexed = require("nupp.mem.indexed")
+local span = nupp.mem.span
+local indexed = nupp.mem.indexed
 
 local struct Point
     x: float
@@ -134,8 +134,8 @@ view](docs/learn/runtime/data/structure-of-arrays.md) and answers a record whose
 `first` and `last` are ordinary integers:
 
 ```nupp
-local span = require("nupp.mem.span")
-local indexed = require("nupp.mem.indexed")
+local span = nupp.mem.span
+local indexed = nupp.mem.indexed
 
 local struct Value
     n: integer

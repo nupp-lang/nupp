@@ -5,7 +5,7 @@ Two profiling channels: one for where the time went, one for whether it went
 there compiled.
 
 ```nupp
-local profile = require("nupp.profile")
+local profile = nupp.profile
 
 local session = profile.sample({intervalMs = 5})
 render()

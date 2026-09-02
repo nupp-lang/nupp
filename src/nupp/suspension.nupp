@@ -8,7 +8,7 @@ happens. Where a handler is installed, a scheduler or a game frame, the handler
 answers; where none is, the built-in one drives the registered sources.
 
 ```nupp
-local suspension = require("nupp.suspension")
+local suspension = nupp.suspension
 
 local function waitUntil(ready: function(): boolean): nil
     suspension.suspend("example.wait", function(

@@ -222,7 +222,7 @@ there are read without copying everything in it first, and the queue's own
 `get` stays usable over the same bytes.
 
 ```nupp
-local buffer = require("string.buffer")
+local buffer = string.buffer
 
 local queue = buffer.new()
 queue:put("header:")
@@ -240,7 +240,7 @@ Reading drains the queue, and `remaining()` reports what it still holds.
 contract already covers.
 
 ```nupp
-local buffer = require("string.buffer")
+local buffer = string.buffer
 
 local destination = nupp.io.newBuffer()
 local queue = buffer.new()
@@ -1714,7 +1714,7 @@ end
 --- content, and the buffer is still empty afterwards.
 ---
 --- ```nupp
---- const io = require("nupp.io")
+--- const io = nupp.io
 ---
 --- do
 ---     local buffer = io.newBuffer("hello")

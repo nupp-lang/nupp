@@ -9,8 +9,7 @@ contiguous column. Reach for it when a loop walks one or two fields of many
 rows and the ordinary array-of-structures layout brings the rest along.
 
 ```nupp:playground
-local soa = require("nupp.mem.soa")
-local ffi = require("ffi")
+local soa = nupp.mem.soa
 
 local struct Position
     x: float
@@ -131,7 +130,7 @@ view. A shared row view returns `span.Span<Field>`, and an exclusive row view
 returns `span.Writable<Field>`.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = nupp.mem.span
 
 with
     rows = particles:write(),

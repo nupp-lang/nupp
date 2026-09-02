@@ -32,7 +32,7 @@ not build the tree at all. Values are reported as they are reached and the
 intermediate representation never exists:
 
 ```nupp
-local valuebuilder = require("nupp.data.valuebuilder")
+local valuebuilder = nupp.data.valuebuilder
 
 --- Decodes the fixed document `{"id": 41}`.
 --- @raises when the stream is left incomplete
@@ -221,7 +221,7 @@ end
 --- bounded too, so a tree whose links form a cycle raises rather than hanging.
 ---
 --- ```nupp
---- local valuebuilder = require("nupp.data.valuebuilder")
+--- local valuebuilder = nupp.data.valuebuilder
 ---
 --- --- @raises when the blobs do not describe a well-formed tree
 --- @aot
@@ -373,7 +373,7 @@ end
 --- to reserve scratch for transformed strings, when the parser knows better.
 ---
 --- ```nupp
---- local valuebuilder = require("nupp.data.valuebuilder")
+--- local valuebuilder = nupp.data.valuebuilder
 ---
 --- --- Builds `[true, null]` without a source document.
 --- --- @raises when the stream is left incomplete

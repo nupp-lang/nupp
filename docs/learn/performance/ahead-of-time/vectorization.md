@@ -9,7 +9,7 @@ code without changing its source-level result. The backend reports its decision
 and the feature tier required to load the artifact.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = nupp.mem.span
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil
@@ -374,8 +374,8 @@ inside an `@aot` body. `preferredU8()` selects the artifact tier's packed byte
 species, 16 bytes for the x86-64 baseline and AArch64 NEON and 32 for AVX2:
 
 ```nupp
-local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local span = nupp.mem.span
+local simd = nupp.simd
 
 @aot(lanes = false)
 local function countQuotes(borrows source: span.Span<uint8>): uint32

@@ -321,7 +321,7 @@ standard library. A suspension-aware operation is an ordinary call with an
 ordinary result:
 
 ```nupp
-local process = require("nupp.io.process")
+local process = nupp.io.process
 
 local child = new process.Process({args = {"cc", "--version"}} as process.Options)
 local result = assert(child:communicate())

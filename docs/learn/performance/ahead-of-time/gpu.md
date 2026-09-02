@@ -9,7 +9,7 @@ specification. Native targets emit SPIR-V for the Rust WGPU provider, while
 browser targets emit WGSL from the same checked operation sequence.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = nupp.mem.span
 
 @aot(target = "gpu")
 local function scale(
@@ -35,10 +35,9 @@ specification. The application allocates buffers, compiles the specification,
 binds buffers in parameter order, and dispatches scalar uniforms separately:
 
 ```nupp
-local gpu = require("nupp.gpu")
+local gpu = nupp.gpu
 local kernels = require("kernels")
-local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = nupp.mem.span
 
 local context = gpu.open()
 local input = context:buffer(ffi.typeof<float>(), 1024)
@@ -76,8 +75,8 @@ The controller allocates bounded scratch and divides execution into immediate
 `phases:run` callbacks:
 
 ```nupp
-local gpu = require("nupp.gpu")
-local span = require("nupp.mem.span")
+local gpu = nupp.gpu
+local span = nupp.mem.span
 
 @aot(target = "gpu")
 local function reduce(
@@ -139,7 +138,7 @@ A browser target combines `dialect = "lua51"`, the browser backend, and
 `nupp.wasm.WriteSpan` so the Worker can transfer bounded Wasm-memory leases:
 
 ```nupp
-local wasm = require("nupp.wasm")
+local wasm = nupp.wasm
 
 @aot(target = "gpu")
 local function addMask(
@@ -168,7 +167,7 @@ host around this kernel.
 needs one checked WebGPU operation without owning a generated kernel binding:
 
 ```nupp:playground
-local gpu = require("nupp.browser.gpu")
+local gpu = nupp.browser.gpu
 local u32 = nupp.math.u32.wrap
 
 local values = {u32(0), u32(0x00ff00ff), u32(0xffffffff)}
