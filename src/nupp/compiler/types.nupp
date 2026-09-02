@@ -3101,7 +3101,7 @@ end
 -- a discriminant comparison.
 function types.literal(value: string | number | boolean, base: types.Type?): types.Type
     local of = base or types.string
-    local internKey = "lit(" .. of.tag .. ":" .. internSpelling(value) .. ")"
+    local internKey = "lit(" .. of.id .. ":" .. internSpelling(value) .. ")"
 
     local existing = interned(internKey)
     if existing then

@@ -95,6 +95,18 @@ function M.aStringLiteralTypeIsTheBytesItDenotes()
       "a numeric escape is padded where a digit follows it")
 end
 
+-- A literal is interned under its base's identity, not its base's tag: two nominals
+-- share a tag, and a blueprint may hand either one in as the base.
+function M.aLiteralIsInternedByItsBaseNotItsBaseTag()
+   local first = T.nominal("First", "record")
+   local second = T.nominal("Second", "record")
+   assertEq(T.literal("a", first), T.literal("a", first))
+   assert(T.literal("a", first) ~= T.literal("a", second),
+      "two nominal bases keep two literals")
+   assert(T.literal("a", first) ~= T.literal("a", T.string),
+      "a nominal base is not the string base")
+end
+
 ---------------------------------------------------------------------------
 -- relations.lua
 ---------------------------------------------------------------------------
