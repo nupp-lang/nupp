@@ -111,57 +111,47 @@ function surface.all(): {[string]: any}
     return copy
 end
 
---- Whether a target can reach a public standard module at all.
----
---- The same question `requireModule` answers by reporting, asked without reporting,
---- for a caller that has to decide what to do next rather than only what to say. A
---- module resolution is checking is one it will report about itself; asking first
---- is what keeps the report on the line that asked for the module.
-function surface.reachable(checker: any, moduleName: string): boolean
+--- The classification standing between this target and a module, or nil when
+--- nothing does: a module every dialect reaches, one this dialect reaches anyway, and
+--- one the compiler itself supplies are all open.
+local function gate(checker: any, moduleName: string): any
     local classification = MODULES[moduleName]
     if checker.opts.dialect ~= "lua51" and not (classification and classification.allDialects) then
-        return true
+        return nil
     end
     if classification == nil
         or classification.kind == "common"
         or classification.kind == "compiler"
         or classification.kind == "members"
     then
-        return true
-    end
-    if classification.kind == "unavailable" then
-        return require("nupp.compiler.capabilities").available(checker, classification.capability)
+        return nil
     end
 
-    return checker.opts.backendResolution
-        and checker.opts.backendResolution.seams
-        and checker.opts.backendResolution.seams[
-        classification.seam
-    ] ~= nil or false
+    return classification
 end
 
-function surface.requireModule(checker: any, moduleName: string, at: any): string?
-    local classification = MODULES[moduleName]
-    if checker.opts.dialect ~= "lua51" and not (classification and classification.allDialects) then
-        return nil
-    end
-    if classification == nil
-        or classification.kind == "common"
-        or classification.kind == "compiler"
-        or classification.kind == "members"
-    then
-        return nil
+--- Whether the target reaches a module, reporting at `at` when it does not and `at`
+--- was given. One ladder for both questions, so that what is reported is exactly what
+--- was answered.
+local function reach(checker: any, moduleName: string, at: any?): boolean
+    local classification = gate(checker, moduleName)
+    if classification == nil then
+        return true
     end
     if classification.kind == "unavailable" then
-        require("nupp.compiler.capabilities").require(checker, classification.capability, at)
-        return nil
+        local capabilities = require("nupp.compiler.capabilities")
+        if at then
+            return capabilities.require(checker, classification.capability, at)
+        end
+
+        return capabilities.available(checker, classification.capability)
     end
     local selected = checker.opts.backendResolution
         and checker.opts.backendResolution.seams
         and checker.opts.backendResolution.seams[
         classification.seam
     ]
-    if selected == nil then
+    if selected == nil and at then
         checker.diag(
             "NUPP3012",
             at,
@@ -171,10 +161,30 @@ function surface.requireModule(checker: any, moduleName: string, at: any): strin
             nil,
             {help = "select a checked backend whose exact runtime module implements the complete contract"}
         )
-        return nil
     end
 
-    return classification.effect
+    return selected ~= nil
+end
+
+--- Whether a target can reach a public standard module at all.
+---
+--- The same question `requireModule` answers by reporting, asked without reporting,
+--- for a caller that has to decide what to do next rather than only what to say. A
+--- module resolution is checking is one it will report about itself; asking first
+--- is what keeps the report on the line that asked for the module.
+function surface.reachable(checker: any, moduleName: string): boolean
+    return reach(checker, moduleName, nil)
+end
+
+--- Requires a module for the target, reporting at `at` what stands in the way, and
+--- answers the effect a seam-supplied module carries once it is reached.
+function surface.requireModule(checker: any, moduleName: string, at: any): string?
+    if not reach(checker, moduleName, at) then
+        return nil
+    end
+    local classification = gate(checker, moduleName)
+
+    return classification and classification.kind ~= "unavailable" and classification.effect or nil
 end
 
 --- Requires the seam owning one member of a mixed standard module.
