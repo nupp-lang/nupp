@@ -1477,12 +1477,9 @@ function calls.install(c: state.Checker): calls.Ops
                     else
                         valueType = c.infer(argument)
                     end
-                    local valuePack = not namedStarted and sourceIndex == #args and not cst.isToken(
-                        argument
-                    ) and argument.valuePack or nil
                     rawArguments[
                         #rawArguments + 1
-                    ] = {kind = "plain", node = argument, type = valueType, pack = valuePack, source = argument,}
+                    ] = {kind = "plain", node = argument, type = valueType, source = argument}
                 end
             end
 
@@ -1540,17 +1537,9 @@ function calls.install(c: state.Checker): calls.Ops
 
                 local types, nodes, lowered = {}, {}, {}
                 for _, argument in ipairs(positional) do
-                    local pack = argument.pack
-                    if pack and not pack.tail and #pack.head > 0 then
-                        for _, itemType in ipairs(pack.head) do
-                            types[#types + 1] = itemType
-                            nodes[#nodes + 1] = argument.node
-                        end
-                    else
-                        types[#types + 1] = argument.type
-                        nodes[#nodes + 1] = argument.node
-                    end
-                    lowered[#lowered + 1] = {generatedKind = "expr", expr = argument.node, pack = argument.pack}
+                    types[#types + 1] = argument.type
+                    nodes[#nodes + 1] = argument.node
+                    lowered[#lowered + 1] = {generatedKind = "expr", expr = argument.node}
                 end
 
                 if not firstNamed then

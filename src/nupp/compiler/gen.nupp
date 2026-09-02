@@ -2168,7 +2168,7 @@ function gen.generate(
                 if base then
                     plan.argFields[argument] = {base = base, field = argument.name}
                 end
-            elseif argument.generatedKind == "expr" and not argument.pack and index < lastDotted then
+            elseif argument.generatedKind == "expr" and index < lastDotted then
                 -- Only arguments that must stay ahead of a later path binding need a
                 -- temporary. The suffix can remain directly in the positional call.
                 local alias = nextTemp()
