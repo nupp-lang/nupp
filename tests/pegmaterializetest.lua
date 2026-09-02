@@ -1549,6 +1549,30 @@ return Fast("a=abcdefghi"), Native("a=abcdefghi"), Fast("a=-abcdefghi"), Native(
    assertEq(fastMiss, nativeMiss, "a rejected byte agrees with LPeg")
 end
 
+function M.typesNestedCollectsAsNestedArrays()
+   local outer, first, second, third = run([==[
+const Rows: nupp.peg.Peg<{{string}}> = comptime do
+    return nupp.peg.compile("{| {| { [a-z]+ } (',' { [a-z]+ })* |} (';' {| { [a-z]+ } (',' { [a-z]+ })* |})* |} !.")
+end
+const Inferred = comptime do
+    return nupp.peg.compile("{| {| { [a-z]+ } |} |} !.", {backend = "lpeg"})
+end
+local rows = assert(Rows("a,b;c"))
+local inner: {{string}} = assert(Inferred("x"))
+return #rows, rows[1][1], rows[1][2], rows[2][1] .. inner[1][1]
+]==])
+   assertEq(outer, 2, "outer collect length")
+   assertEq(first, "a", "first inner capture")
+   assertEq(second, "b", "second inner capture")
+   assertEq(third, "cx", "nested captures under both backends")
+   local codes = errorsOf([[
+const Bad: nupp.peg.Peg<{string}> = comptime do
+    return nupp.peg.compile("{| {| { [a-z]+ } |} |} !.")
+end
+]])
+   assertEq(codes[1], "NUPP2415", "a flattened declaration does not fit a nested collect")
+end
+
 function M.rejectsAComptimeMatcherDeclaredAsAnotherType()
    local codes, diagnostics = errorsOf([[
 const Wrong: string = comptime do
