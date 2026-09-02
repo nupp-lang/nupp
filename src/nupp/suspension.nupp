@@ -688,6 +688,13 @@ record suspension.Installed
     previous: any
     handler: suspension.Handler
 
+    --- Whether this extent is a driver standing in front of whatever hosts the frame
+    --- rather than a host of its own. A driver runs a family of coroutines while the
+    --- frame waits and hands outward what it cannot satisfy; it is not what bounds a
+    --- host turn, so where it is the outermost extent the turn is unbounded, exactly
+    --- as it is where nothing is installed at all.
+    transparent: boolean
+
     --- Whether the slot this displaced has been put back. Separate from `released`,
     --- which additionally means every park it accepted has finished: a release that
     --- could not drain its parks has restored the slot and is still retryable.
@@ -819,9 +826,17 @@ end
 --- The extent is dynamic and per-coroutine: a suspension at any depth, through any
 --- library, reaches the innermost handler installed on the coroutine performing it.
 ---
+--- A `transparent` installation is a driver rather than a host: a task scope opened
+--- in a frame installs one so the frame's own waits keep its children running, and
+--- it does not bound a host turn where no host is beneath it.
+---
 --- @param handler what answers suspensions inside the scope
+--- @param transparent whether this extent is a driver in front of the host, not a host
 --- @return the installation, owned by the caller
-function suspension.install(handler: suspension.Handler): affine(suspension.Installed, suspension.destroyInstalled)
+function suspension.install(
+    handler: suspension.Handler,
+    transparent: boolean?
+): affine(suspension.Installed, suspension.destroyInstalled)
     local co = running()
     local previous
     if co == nil then
@@ -835,6 +850,7 @@ function suspension.install(handler: suspension.Handler): affine(suspension.Inst
         co = co,
         previous = previous,
         handler = handler,
+        transparent = transparent == true,
         restored = false,
         released = false,
         parks = {}
@@ -930,6 +946,33 @@ function suspension.delegatedCanPark(): function(): boolean
     end
 end
 
+--- Captures how a wait is parked here, for a driver about to displace the handler.
+---
+--- A driver runs its own family while the frame waits, and what it cannot satisfy --
+--- a wait on the host's clock or sockets with no child left to run -- it hands to the
+--- handler it displaced, or to the blocking park where there is none. Captured before
+--- the driver installs, like `delegatedCanPark`, and resolved when called, stepping
+--- over extents that have since ended.
+---
+--- @return a park on the displaced handler, or on the blocking fallback
+function suspension.delegatedPark(): function(suspension.Waiting, function(): nil): nil
+    const captured = effectiveInstallation()
+
+    return function(waiting: suspension.Waiting, cancel: function(): nil): nil
+        local current = captured
+        while current ~= nil and current.restored do
+            current = current.previous
+        end
+        const outer = current and current.handler or nil
+        if outer == nil then
+            blockingPark(waiting)
+
+            return
+        end
+        outer.park(outer, waiting, cancel)
+    end
+end
+
 --- Whether a suspension performed here would be permitted, handler barriers included.
 ---
 --- The run-time backstop for what `nosuspend` checks while compiling, for the calls
@@ -993,6 +1036,10 @@ local function turnAvailable(): boolean
     local host = current
     while host.previous ~= nil do
         host = host.previous
+    end
+    if host.transparent then
+        -- A driver with no host beneath it: nothing to return a turn to.
+        return true
     end
     local owner = currentTurnOwner()
     local token = turnTokens[owner]

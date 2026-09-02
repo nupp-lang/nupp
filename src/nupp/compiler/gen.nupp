@@ -8173,11 +8173,13 @@ function gen.generate(
             cleanupIdName
         ) .. (
             "const function %s(primary,errors,start) "
-        ):format(
-            cleanupFailureName
-        ) .. "const secondary={} for i=start,#errors do " .. (
-            "secondary[#secondary+1]=errors[i] end return %s("
-        ):format(
+        ):format(cleanupFailureName) .. "const secondary={} for i=start,#errors do " .. (
+            -- A cleanup that raises the very failure being propagated -- a settling
+            -- terminal re-raising the scope's own failure the block already saw --
+            -- is not a second failure, and wrapping the primary would cost a nominal
+            -- error its identity. Only a distinct cleanup failure is suppressed text.
+            "if errors[i]~=primary then secondary[#secondary+1]=errors[i] end end "
+            .. "if #secondary==0 then return primary end return %s("):format(
             cleanupGlobals.setmetatable
         ) .. "{primary=primary,suppressed=secondary},{__tostring=function(v) " .. (
             "local text=%s(v.primary) for _,reason in %s("
