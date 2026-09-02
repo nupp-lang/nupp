@@ -164,7 +164,7 @@ function narrowing.truthiness(vt: Type): Type?, Type?
     local FALSE_T = T.literal(false, T.boolean)
     local truthy = narrowing.subtract(narrowing.subtract(vt, T.nil_), FALSE_T)
     local falsy: {Type} = {}
-    if vt == T.nil_ or (vt.tag == "union" and vt.hasNil) then
+    if vt.tag == "union" and vt.hasNil then
         falsy[#falsy + 1] = T.nil_
     end
     if isA(FALSE_T, vt) then
