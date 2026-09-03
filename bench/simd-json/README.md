@@ -1,8 +1,8 @@
 # SIMD JSON benchmark
 
 This benchmark retains the Nupp AOT experiment, differential decoders, and
-performance history behind `nupp.data.jsondecode`. Its C++ code is an external
-simdjson control only; none of it is part of the production runtime.
+performance history behind `nupp.data.json.internal.decode`. Its C++ code is
+an external simdjson control only; none of it is part of the production runtime.
 
 The benchmark uses Nupp's deliberately narrow C++ binding to the system
 `simdjson` package. It requires `pkg-config`, simdjson development files, and

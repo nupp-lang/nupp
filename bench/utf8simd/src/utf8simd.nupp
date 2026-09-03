@@ -42,7 +42,7 @@ local function validSimd(source: string): uint32
     local input = simd.paddedStringU8(source)
     local previous = species:splat(0)
     -- The three nibble tables the lookup4 classifier reads. They are the
-    -- algorithm's constants, and the same ones `nupp.data.jsondecode` names.
+    -- algorithm's constants, and the same ones `nupp.data.json.internal.decode` names.
     local byte1High = simd.tableU8x16(2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
     local byte1Low = simd.tableU8x16(231, 163, 131, 131, 139, 203, 203, 203, 203, 203, 203, 203, 203, 219, 203, 203)
     local byte2High = simd.tableU8x16(1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)

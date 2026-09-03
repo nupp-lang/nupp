@@ -1,6 +1,6 @@
-module nupp.data.jsondecoder.eager
+module nupp.data.json.internal.decode
 
-local _fused = require("nupp.data.jsondecoder.fused")
+local _fused = require("nupp.data.json.internal.decoder.fused")
 
 local fused = {}
 
@@ -13,12 +13,11 @@ const fused.TAPE = 5
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 ---
---- The body lives in `nupp.data.jsondecoder.fused`, monomorphized over the
---- eager builder, which materializes the whole document and validates
---- escapes as it does.
+--- The body lives in `nupp.data.json.internal.decoder.fused`, monomorphized over the
+--- pull builder.
 --- @raises when the native builder cannot be loaded, value allocation fails,
 --- or the builder rejects a malformed escaped string
-fused.decode = _fused.decodeEager as function(
+fused.decode = _fused.decodePull as function(
     string,
     unknown,
     unknown?,

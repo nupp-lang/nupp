@@ -1,4 +1,4 @@
-module nupp.data.jsondecoder.fused
+module nupp.data.json.internal.decoder.fused
 
 --[[
 The one fused JSON decoder, monomorphized per builder.
@@ -808,7 +808,7 @@ local function decodeFused<const Variant: integer>(
     return _valueBuilder.finish(values), 0, 0
 end
 
---- The pull entry `nupp.data.jsondecode` exports.
+--- The pull entry `nupp.data.json.internal.decode` exports.
 function fused.decodePull(
     source: string,
     nullValue: unknown,
@@ -821,7 +821,7 @@ function fused.decodePull(
     return decodeFused(source, 0, nullValue, arrayMarker, objectMarker, shape, arrayShapeMarker, serdeMarkers)
 end
 
---- The serde entry `nupp.data.jsondecoder.serde` exports. The schema argument
+--- The serde entry `nupp.data.json.internal.decoder.serde` exports. The schema argument
 --- carries compiled field targets; the native builder consumes those directly
 --- instead of resolving scalar shapes through Lua.
 function fused.decodeSerde(
@@ -836,7 +836,7 @@ function fused.decodeSerde(
     return decodeFused(source, 1, nullValue, arrayMarker, objectMarker, shape, arrayShapeMarker, serdeMarkers)
 end
 
---- The eager entry `nupp.data.jsondecoder.eager` exports.
+--- The eager entry `nupp.data.json.internal.decoder.eager` exports.
 function fused.decodeEager(
     source: string,
     nullValue: unknown,

@@ -1,6 +1,6 @@
-module nupp.data.jsondecoder.serde
+module nupp.data.json.internal.decoder.serde
 
-local _fused = require("nupp.data.jsondecoder.fused")
+local _fused = require("nupp.data.json.internal.decoder.fused")
 local {type Buffer} = require("string.buffer")
 
 local fused = {}
@@ -14,7 +14,7 @@ const fused.TAPE = 5
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 ---
---- The body lives in `nupp.data.jsondecoder.fused`, monomorphized over the
+--- The body lives in `nupp.data.json.internal.decoder.fused`, monomorphized over the
 --- serde builder: the schema argument carries compiled field targets that the
 --- native builder consumes directly instead of resolving scalar shapes
 --- through Lua.

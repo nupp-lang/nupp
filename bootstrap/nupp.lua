@@ -95470,7 +95470,7 @@ local THEME = [[
 .nuppdoc-logo{width:auto;height:28px;border-radius:5px}
 .nuppdoc-icon-link{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer;text-decoration:none}.nuppdoc-icon-link:hover,.nuppdoc-icon-link[aria-pressed="true"]{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-icon-link svg{width:18px;height:18px}.nuppdoc-panel-toggle-right svg{transform:scaleX(-1)}
 .nuppdoc-shell{transition:grid-template-columns 160ms ease}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) var(--nuppdoc-outline-width)}.nuppdoc-shell.is-outline-collapsed{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed.is-outline-collapsed{grid-template-columns:0 minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{overflow:hidden;padding-right:0;padding-left:0;border:0;opacity:0;pointer-events:none}
-.nuppdoc-sidebar{background:var(--nuppdoc-sidebar-background)}.nuppdoc-sidebar>ul{margin:0;padding:0;list-style:none}.nuppdoc-sidebar li{margin:0;padding:0}.nuppdoc-sidebar>ul>li+li{margin-top:1.1rem;padding-top:1.1rem;border-top:1px solid var(--nuppdoc-border)}.nuppdoc-sidebar-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-sidebar-section summary{position:relative;margin:0;padding:.24rem 1.2rem .24rem .55rem;color:var(--nuppdoc-text);font-size:.7rem;font-weight:700;line-height:1.3;cursor:pointer;list-style:none}.nuppdoc-sidebar-section summary::after{position:absolute;top:50%;right:.5rem;width:.36rem;height:.36rem;border-right:1.5px solid var(--nuppdoc-text-faint);border-bottom:1.5px solid var(--nuppdoc-text-faint);content:"";transform:translateY(-50%) rotate(45deg)}.nuppdoc-sidebar-section details:not([open]) summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-sidebar-section summary::-webkit-details-marker{display:none}.nuppdoc-sidebar-section summary::marker{content:""}.nuppdoc-sidebar-section>details>summary.nuppdoc-sidebar-section-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-sidebar-section>details>summary>a{font-weight:inherit;padding-right:.2rem}.nuppdoc-sidebar-section ul{padding:4px 0 0 .5rem}
+.nuppdoc-sidebar{background:var(--nuppdoc-sidebar-background)}.nuppdoc-sidebar>ul{margin:0;padding:0;list-style:none}.nuppdoc-sidebar li{margin:0;padding:0}.nuppdoc-sidebar>ul>li+li{margin-top:1.1rem;padding-top:1.1rem;border-top:1px solid var(--nuppdoc-border)}.nuppdoc-sidebar-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-sidebar-section summary{position:relative;margin:0;padding:.24rem 1.2rem .24rem .55rem;color:var(--nuppdoc-text);font-size:.7rem;font-weight:700;line-height:1.3;cursor:pointer;list-style:none}.nuppdoc-sidebar-section summary::after{position:absolute;top:50%;right:.5rem;width:.36rem;height:.36rem;border-right:1.5px solid var(--nuppdoc-text-faint);border-bottom:1.5px solid var(--nuppdoc-text-faint);content:"";transform:translateY(-50%) rotate(45deg)}.nuppdoc-sidebar-section details:not([open]) summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-sidebar-section summary::-webkit-details-marker{display:none}.nuppdoc-sidebar-section summary::marker{content:""}.nuppdoc-sidebar-section>details>summary.nuppdoc-sidebar-section-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-sidebar-section>details>summary>a{font-weight:inherit;padding-right:.2rem}.nuppdoc-sidebar-section ul{padding:4px 0 0 .25rem}
 .nuppdoc-module-tree{margin:0;padding:4px 0 0 .5rem;list-style:none}.nuppdoc-module-branch>details>summary{color:var(--nuppdoc-text-muted);font-weight:500}.nuppdoc-module-branch>details>summary.nuppdoc-module-branch-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-module-branch>details>summary>a{padding-right:.2rem}.nuppdoc-module-branch .nuppdoc-module-tree{padding:2px 0 0 .7rem}
 .nuppdoc-outline-title{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.66rem;font-weight:600}.nuppdoc-outline a[aria-current]{color:var(--nuppdoc-accent)}
 .nuppdoc-outline-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-outline-section summary{position:relative;margin:0;padding:0 1rem 0 0;cursor:pointer;list-style:none}.nuppdoc-outline-section summary::-webkit-details-marker{display:none}.nuppdoc-outline-section summary::marker{content:""}.nuppdoc-outline-section summary::after{position:absolute;top:50%;right:.15rem;width:.32rem;height:.32rem;border-right:1.5px solid var(--nuppdoc-text-muted);border-bottom:1.5px solid var(--nuppdoc-text-muted);content:"";transform:translateY(-65%) rotate(45deg);transition:transform 120ms ease}.nuppdoc-outline-section details:not([open])>summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-outline-section details>ol{margin:0;padding:0 0 0 .65rem;border:0;list-style:none}
@@ -103793,17 +103793,17 @@ local BUNDLED_SOURCE = {
 [ "nupp.mem.soa" ] = "/nupp/mem/soa.nupp" ,
 [ "nupp.random" ] = "/nupp/random.nupp" ,
 [ "nupp.wasm" ] = "/nupp/wasm.nupp" ,
-[ "nupp.data.json" ] = "/nupp/data/json.nupp" ,
+[ "nupp.data.json" ] = "/nupp/data/json/init.nupp" ,
 [ "nupp.data.json.provider" ] = "/nupp/data/json/provider.nupp" ,
 [ "nupp.data.json.aot" ] = "/nupp/data/json/aot.nupp" ,
-[ "nupp.data.jsondecode" ] = "/nupp/data/jsondecode.nupp" ,
-[ "nupp.data.jsondecoder.fused" ] = "/nupp/data/jsondecoder/fused.nupp" ,
-[ "nupp.data.jsondecoder.eager" ] = "/nupp/data/jsondecoder/eager.nupp" ,
-[ "nupp.data.jsondecoder.serde" ] = "/nupp/data/jsondecoder/serde.nupp" ,
+[ "nupp.data.json.internal.decode" ] = "/nupp/data/json/internal/decode.nupp" ,
+[ "nupp.data.json.internal.decoder.fused" ] = "/nupp/data/json/internal/decoder/fused.nupp" ,
+[ "nupp.data.json.internal.decoder.eager" ] = "/nupp/data/json/internal/decoder/eager.nupp" ,
+[ "nupp.data.json.internal.decoder.serde" ] = "/nupp/data/json/internal/decoder/serde.nupp" ,
 [ "nupp.data.serde" ] = "/nupp/data/serde.nupp" ,
 [ "nupp.data.hash" ] = "/nupp/data/hash.nupp" ,
 [ "nupp.data.hmac" ] = "/nupp/data/hmac.nupp" ,
-[ "nupp.runtime.backend" ] = "/nupp/runtime/backend.nupp" ,
+[ "nupp.runtime.backend" ] = "/nupp/runtime/backend/init.nupp" ,
 [ "nupp.runtime.backend.browser" ] = "/nupp/runtime/backend/browser.nupp" ,
 [ "nupp.runtime.backend.portable" ] = "/nupp/runtime/backend/portable.nupp" ,
 [ "nupp.runtime.backend.wasm" ] = "/nupp/runtime/backend/wasm.nupp" ,
@@ -162309,9 +162309,9 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-local eagerDecoder = require ( "nupp.data.jsondecoder.eager" )
-local pullDecoder = require ( "nupp.data.jsondecode" )
-local serdeDecoder = require ( "nupp.data.jsondecoder.serde" )
+local eagerDecoder = require ( "nupp.data.json.internal.decoder.eager" )
+local pullDecoder = require ( "nupp.data.json.internal.decode" )
+local serdeDecoder = require ( "nupp.data.json.internal.decoder.serde" )
 local newBuffer = require ( "string.buffer" ) . new
 local bit = require ( "bit" )
 local contracts = require ( "nupp.runtime.seam.contracts" )
@@ -163166,47 +163166,10 @@ decodeSerdeBuffer = json . decodeSerdeBuffer ,
 const __nuppExportValue= checked ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.data.json.aot"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.json.aot"]=__nuppExports;return __nuppExports
 end
-package.preload["nupp.data.json.provider"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-return require ( "nupp.data.json.aot" )
-
-end
-package.preload["nupp.data.jsondecode"] = function(...)
+package.preload["nupp.data.json.internal.decode"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
-local _fused = require ( "nupp.data.jsondecoder.fused" )
+local _fused = require ( "nupp.data.json.internal.decoder.fused" )
 
 local fused = { }
 
@@ -163234,12 +163197,12 @@ fused . decode = _fused . decodePull
 
 
 const __nuppExportValue= fused ;__nuppExports=__nuppExportValue
- end);if not __nuppOk then package.loaded["nupp.data.jsondecode"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.jsondecode"]=__nuppExports;return __nuppExports
+ end);if not __nuppOk then package.loaded["nupp.data.json.internal.decode"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.json.internal.decode"]=__nuppExports;return __nuppExports
 end
-package.preload["nupp.data.jsondecoder.eager"] = function(...)
+package.preload["nupp.data.json.internal.decoder.eager"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
-local _fused = require ( "nupp.data.jsondecoder.fused" )
+local _fused = require ( "nupp.data.json.internal.decoder.fused" )
 
 local fused = { }
 
@@ -163268,9 +163231,9 @@ fused . decode = _fused . decodeEager
 
 
 const __nuppExportValue= fused ;__nuppExports=__nuppExportValue
- end);if not __nuppOk then package.loaded["nupp.data.jsondecoder.eager"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.jsondecoder.eager"]=__nuppExports;return __nuppExports
+ end);if not __nuppOk then package.loaded["nupp.data.json.internal.decoder.eager"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.json.internal.decoder.eager"]=__nuppExports;return __nuppExports
 end
-package.preload["nupp.data.jsondecoder.fused"] = function(...)
+package.preload["nupp.data.json.internal.decoder.fused"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nuppBitBand=bit.band;local __nuppBitBnot=bit.bnot;local __nuppBitBor=bit.bor;local __nuppBitBxor=bit.bxor;local __nuppBitLshift=bit.lshift;local __nuppBitRshift=bit.rshift;local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"));const __nuppSwitchMap1={102,97,108,115};local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
@@ -164123,12 +164086,12 @@ return decodeFused ( source , 2 , nullValue , arrayMarker , objectMarker , shape
 end
 
 const __nuppExportValue= fused ;__nuppExports=__nuppExportValue
- end);if not __nuppOk then package.loaded["nupp.data.jsondecoder.fused"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.jsondecoder.fused"]=__nuppExports;return __nuppExports
+ end);if not __nuppOk then package.loaded["nupp.data.json.internal.decoder.fused"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.json.internal.decoder.fused"]=__nuppExports;return __nuppExports
 end
-package.preload["nupp.data.jsondecoder.serde"] = function(...)
+package.preload["nupp.data.json.internal.decoder.serde"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
-local _fused = require ( "nupp.data.jsondecoder.fused" )
+local _fused = require ( "nupp.data.json.internal.decoder.fused" )
 
 
 local fused = { }
@@ -164159,7 +164122,44 @@ fused . decode = _fused . decodeSerde
 
 
 const __nuppExportValue= fused ;__nuppExports=__nuppExportValue
- end);if not __nuppOk then package.loaded["nupp.data.jsondecoder.serde"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.jsondecoder.serde"]=__nuppExports;return __nuppExports
+ end);if not __nuppOk then package.loaded["nupp.data.json.internal.decoder.serde"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.json.internal.decoder.serde"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.data.json.provider"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+return require ( "nupp.data.json.aot" )
+
 end
 package.preload["nupp.data.serde"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();--[[nupp-backends: resolved=data.json|2|runtime|nupp.runtime.backend.lunajson|8bdff32722f35edeb5fe6f35b5917e55966222abcfab16b083c41e57e7b49121|nupp.runtime.provider.lunajson||]]local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end (require("nupp.runtime.backend.lunajson")):install();const __nuppT87={}; const function __nuppT84(...) return {n=select("#",...),...} end; const __nuppT88,__nuppT89,__nuppT90,__nuppT91,__nuppT92,__nuppT93,__nuppT94,__nuppT95=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT85(value) return value end; const function __nuppT86(primary,errors,start) const secondary={} for i=start,#errors do if errors[i]~=primary then secondary[#secondary+1]=errors[i] end end if #secondary==0 then return primary end return __nuppT93({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT94(v.primary) for _,reason in __nuppT95(v.suppressed) do text=text.."\ncleanup: "..__nuppT94(reason) end return text end}) end; const __nuppCleanup1 = function(__nuppV) return __nuppV:close() end;local __nuppExports={};package.loaded["nupp.data.serde"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local debugEntry;__nuppExports["debugEntry"]=function(...) return debugEntry(...) end;local dynamic;__nuppExports["dynamic"]=function(...) return dynamic(...) end;local json;__nuppExports["json"]=function(...) return json(...) end;local list;__nuppExports["list"]=function(...) return list(...) end;local map;__nuppExports["map"]=function(...) return map(...) end;local metadataKey;__nuppExports["metadataKey"]=function(...) return metadataKey(...) end;local of;__nuppExports["of"]=function(...) return of(...) end;local optional;__nuppExports["optional"]=function(...) return optional(...) end;local prepareDebug;__nuppExports["prepareDebug"]=function(...) return prepareDebug(...) end;
@@ -211049,748 +211049,6 @@ end
 
 export = data
 ]=],
-["/nupp/data/json.nupp"] = [===[
-module nupp.data.json
-
---[==[
-`nupp.data.json` is a strict Nupp JSON codec. Its performance provider is
-SIMD-accelerated through `@aot`; portable compiler and browser targets select a
-pure-Lua provider behind the same API. It parses, pulls selected fields,
-serializes, and streams.
-
-```nupp:playground
-local encoded = nupp.data.json.encode({name = "Nupp", ready = true})
-local decoded = nupp.data.json.decode(encoded)
-assert(decoded.name == "Nupp")
-```
-
-The codec accepts one complete UTF-8 JSON document and rejects invalid numbers,
-sparse arrays, mixed-key containers, cycles, and excessive nesting.
-`serialize` is an alias of `encode`.
-
-## Empty containers
-
-A plain empty Lua table has no shape to read, so it encodes as `{}`. Mark it
-when it must encode as an array, or use the two sentinels:
-
-```nupp
-const json = nupp.data.json
-
-assert(json.encode({}) == "{}")
-assert(json.encode(json.asArray({})) == "[]")
-assert(json.encode(json.EMPTY_ARRAY) == "[]")
-assert(json.encode(json.EMPTY_OBJECT) == "{}")
-
-local emptyArray = json.decode("[]")
-assert(json.isArray(emptyArray))
-assert(not json.isArray(json.decode("{}")))
-```
-
-`asObject` is the corresponding mark for a table that must encode as an object.
-`isArray` reads the shape retained by decoded containers, including when they
-are empty.
-
-## JSON null
-
-Decoding drops JSON null by default, including from inside an array. Pass a
-replacement value to preserve it. `NULL` is the round-trippable choice, because
-it encodes back as null:
-
-```nupp
-const json = nupp.data.json
-
-local value = json.decode([[{"items":[1,null,2]}]], json.NULL)
-assert(value.items[2] == json.NULL)
-assert(json.encode(value) == [[{"items":[1,null,2]}]])
-```
-
-::: deepdive Dropping null by default
-A Lua table cannot hold nil as a value, so a decoded null has to become either
-an absence or a sentinel. An absence is what most callers mean, and it keeps a
-decoded document indexable without every read testing against a sentinel first.
-A sentinel is what a caller round-tripping somebody else's document means, and
-that caller says so once, at the `decode` call, rather than everywhere the
-value is read.
-:::
-
-## Pulling selected values
-
-`pull` validates the complete document while applying its selection. `true`
-selects a complete value, `false` drops it, an object
-shape selects named fields, and `arrayOf(shape)` applies a shape to every member
-of an array. Missing and unselected fields are omitted:
-
-```nupp
-const json = nupp.data.json
-
-local users = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
-```
-
-This is the lower-level path for pull deserializers: it validates the complete
-input but constructs only the Lua values the shape asks for.
-
-## Streaming output
-
-The `nupp.Closeable` writer emits checked JSON into caller-owned storage without first
-building a Lua table or a complete result string. `endArray()` and
-`endObject()` end containers, `flush()` publishes a bounded staged batch while
-leaving the document open, and consuming `close()` requires one complete root:
-
-```nupp
-local out = string.buffer.new()
-local writer = nupp.data.json.writer(out)
-writer:startObject():key("items"):startArray():write(1):write(2):endArray():endObject()
-writer:close()
-```
-
-Lexical destruction closes a live writer automatically. The public writer
-identity is single-use. Closing publishes its final staged parts and leaves
-that identity closed; untyped stale references therefore cannot affect a later
-document.
-
-A prepared `nupp.data.serde` JSON traversal can write at the current value
-position. Its recursive walk drains completed fields and list members at
-the same threshold, so a large root does not need to exist as one staged string.
-
-`encoded(value)` performs ordinary encoding once. `verified(text)` instead
-validates an existing immutable JSON string without decoding or re-encoding it.
-Both return a value that `write` appends without another walk or validation.
-`encodedString(value)` and `verifiedString(text)` provide the corresponding
-string-only form accepted by both `key` and `write`; these handles are interned,
-so repeated schema keys share their encoded representation.
-
-## Derived records
-
-For a record deriving `nupp.derive.JSON`, `writeRecord(value, writer)` discovers
-the record's type witness from the value. `writeAs(Record, value, writer)` and
-`decodeAs(Record, text)` accept the visible record name directly. `encodeRecord`
-and `encodeAs` allocate and return a complete string for callers that
-specifically need one.
-
-The generated `writeJSON(writer)` member writes through the same checked API, so
-a derived record can occupy the root or any value position in a larger document.
-Derived schemas lazily cache their encoded field names and literal values.
-
-These five members are installed onto the module by the derive runtime rather
-than answered by the codec, so each raises when nothing derived JSON for the
-type it was handed.
-
-::: seealso
-- [reflection.md](docs/learn/language/reflection.md#json-through-a-type-witness) for
-  the derived schema and the generated `writeJSON` and `fromJSON` members
-- [derives.md](docs/reference/derives.md#json) for what `nupp.derive.JSON` adds
-  to a declaration
-- [](nupp.data) for the rest of the namespace, which also holds UUIDs, hashes
-  and checksums
-:::
-]==]
-
-const native = require("nupp.data.json.provider")
-
---- A complete JSON value whose immutable bytes have already been encoded or
---- validated.
----
---- Values come from `encoded` or `verified`; the private token prevents checked
---- callers from manufacturing an unverified fast-path value.
-export record EncodedValue
-    private _token: any
-end
-
---- A JSON string whose immutable encoded bytes have already been produced or
---- validated.
----
---- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
---- Values produced by `encodedString` and `verifiedString` are interned.
-export record EncodedString
-    private _token: any
-end
-
---- Values that can write one complete JSON value through a checked writer.
----
---- Declared here rather than aliased out of the host boundary, because this is the
---- name callers write: `derive.JSON` answers a contract in terms of it. `Writer`
---- below names the incremental encoder returned by `writer()`.
----
---- ```nupp
---- local record Money is nupp.data.json.JSONEncodable
----     cents: integer
----
----     function writeJSON(self, exclusive out: nupp.data.json.Writer): nil
----         out:startObject():key("cents"):write(self.cents):endObject()
----     end
---- end
---- ```
-export interface JSONEncodable
-    --- Writes this value at the writer's current value position.
-    --- @param self the value being encoded
-    --- @param out the checked destination
-    writeJSON: function(self, exclusive out: Writer): nil
-end
-
---- A checked incremental JSON writer.
----
---- ```nupp
---- local out = string.buffer.new()
---- local writer = nupp.data.json.writer(out)
---- writer:startObject():key("ok"):write(true):endObject()
---- writer:close()
---- assert(out:tostring() == [[{"ok":true}]])
---- ```
---- @export
-export affine interface Writer is nupp.Closeable
-    --- Starts an array value.
-    ---
-    --- ```nupp
-    --- local out = string.buffer.new()
-    --- local writer = nupp.data.json.writer(out)
-    --- writer:startArray():write("first"):endArray()
-    --- writer:close()
-    --- assert(out:tostring() == "[\"first\"]")
-    --- ```
-    --- @param self the writer
-    --- @return this writer
-    startArray: function(exclusive self: Writer): Writer borrows (self)
-
-    --- Starts an object value.
-    ---
-    --- ```nupp
-    --- local out = string.buffer.new()
-    --- local writer = nupp.data.json.writer(out)
-    --- writer:startObject():endObject()
-    --- writer:close()
-    --- assert(out:tostring() == "{}")
-    --- ```
-    --- @param self the writer
-    --- @return this writer
-    startObject: function(exclusive self: Writer): Writer borrows (self)
-
-    --- Selects the next object member.
-    ---
-    --- ```nupp
-    --- local out = string.buffer.new()
-    --- local writer = nupp.data.json.writer(out)
-    --- writer:startObject():key("answer"):write(42):endObject()
-    --- writer:close()
-    --- assert(out:tostring() == [[{"answer":42}]])
-    --- ```
-    --- @param self the writer
-    --- @param name the next member name
-    --- @return this writer
-    key: function(exclusive self: Writer, name: string): Writer borrows (self)
-        & function(exclusive self: Writer, name: EncodedString): Writer borrows (self)
-
-    --- Appends one complete Lua value.
-    ---
-    --- ```nupp
-    --- local out = string.buffer.new()
-    --- local writer = nupp.data.json.writer(out)
-    --- writer:startArray():write({id = 41}):endArray()
-    --- writer:close()
-    --- assert(out:tostring() == "[{\"id\":41}]")
-    --- ```
-    --- @param self the writer
-    --- @param value the next JSON value
-    --- @return this writer
-    write: function(
-        exclusive self: Writer,
-        value: string | number | boolean | {any} | {[string]: any}
-    ): Writer borrows (self)
-        & function(exclusive self: Writer, value: EncodedValue | EncodedString): Writer borrows (self)
-
-    --- Appends JSON null.
-    ---
-    --- ```nupp
-    --- local out = string.buffer.new()
-    --- local writer = nupp.data.json.writer(out)
-    --- writer:startArray():null():endArray()
-    --- writer:close()
-    --- assert(out:tostring() == "[null]")
-    --- ```
-    --- @param self the writer
-    --- @return this writer
-    null: function(exclusive self: Writer): Writer borrows (self)
-
-    --- Ends the current array.
-    ---
-    --- ```nupp
-    --- local out = string.buffer.new()
-    --- local writer = nupp.data.json.writer(out)
-    --- writer:startArray():startObject():endObject():endArray()
-    --- writer:close()
-    --- assert(out:tostring() == "[{}]")
-    --- ```
-    --- @param self the writer
-    --- @return this writer
-    endArray: function(exclusive self: Writer): Writer borrows (self)
-
-    --- Ends the current object.
-    ---
-    --- ```nupp
-    --- local out = string.buffer.new()
-    --- local writer = nupp.data.json.writer(out)
-    --- writer:startObject():key("items"):startArray():endArray():endObject()
-    --- writer:close()
-    --- assert(out:tostring() == [[{"items":[]}]])
-    --- ```
-    --- @param self the writer
-    --- @return this writer
-    endObject: function(exclusive self: Writer): Writer borrows (self)
-
-    --- Publishes staged bytes without ending the document.
-    ---
-    --- ```nupp
-    --- local out = string.buffer.new()
-    --- local writer = nupp.data.json.writer(out)
-    --- writer:startArray():write(1)
-    --- writer:flush()
-    --- assert(out:tostring() == "[1")
-    --- writer:endArray():close()
-    --- ```
-    --- @param self the writer
-    flush: nosuspend function(exclusive self: Writer): nil
-
-    --- Verifies and publishes one complete root, then releases backing state.
-    ---
-    --- ```nupp
-    --- local out = string.buffer.new()
-    --- local writer = nupp.data.json.writer(out)
-    --- writer:write({ok = true})
-    --- writer:close()
-    --- assert(out:tostring() == [[{"ok":true}]])
-    --- ```
-    --- @param self the writer
-    terminal close: nosuspend function(takes self: Writer): nil
-end
-
-local record WriterImpl is Writer
-    private raw: any
-
-    function startArray(exclusive self): Writer borrows (self)
-        self.raw:startArray()
-        return self
-    end
-
-    function startObject(exclusive self): Writer borrows (self)
-        self.raw:startObject()
-        return self
-    end
-
-    function key(exclusive self, name: string): Writer borrows (self)
-        self.raw:key(name)
-        return self
-    end
-
-    function key(exclusive self, name: EncodedString): Writer borrows (self)
-        self.raw:key(name)
-        return self
-    end
-
-    function write(exclusive self, value: string | number | boolean | {any} | {[string]: any}): Writer borrows (self)
-        self.raw:write(value)
-        return self
-    end
-
-    function write(exclusive self, value: EncodedValue | EncodedString): Writer borrows (self)
-        self.raw:write(value)
-        return self
-    end
-
-    function null(exclusive self): Writer borrows (self)
-        self.raw:null()
-        return self
-    end
-
-    function endArray(exclusive self): Writer borrows (self)
-        self.raw:endArray()
-        return self
-    end
-
-    function endObject(exclusive self): Writer borrows (self)
-        self.raw:endObject()
-        return self
-    end
-
-    function flush(exclusive self): nil
-        self.raw:flush()
-    end
-
-    function close(takes self): nil
-        self.raw:close()
-    end
-end
-
--- Overloaded methods occupy signature-specific slots in checked code. The ordinary
--- names keep the same object usable from Lua, where overload selection is dynamic.
-local function writerKey(exclusive self: WriterImpl, name: any): WriterImpl borrows (self)
-    self.raw:key(name)
-    return self
-end
-
-local function writerWrite(exclusive self: WriterImpl, value: any): WriterImpl borrows (self)
-    self.raw:write(value)
-    return self
-end
-
-rawset(WriterImpl, "key", writerKey)
-rawset(WriterImpl, "write", writerWrite)
-
---- Decodes one complete JSON document.
----
---- Null members are dropped unless a replacement value is supplied.
----
---- ```nupp
---- local value = nupp.data.json.decode([[{"id":41}]])
---- assert(value.id == 41)
---- ```
---- @param text the complete JSON document
---- @param nullValue the value used for JSON null, or nil to drop nulls
---- @return the decoded Lua value
---- @export
-export function decode(text: string, nullValue: any?): any
-    if nullValue == nil then
-        return native.decode(text)
-    end
-    return native.decode(text, nullValue)
-end
-
---- Materializes only the fields selected by an On-Demand pull shape.
----
---- ```nupp
---- local value = nupp.data.json.pull(
----     [[{"id":41,"profile":{"name":"Ada","admin":true}}]],
----     {id = true, profile = {name = true}}
---- )
---- assert(value.id == 41 and value.profile.name == "Ada")
---- assert(value.profile.admin == nil)
---- ```
---- @param text the complete JSON document
---- @param shape the fields and array members to materialize
---- @param nullValue the value used for JSON null, or nil to drop nulls
---- @return the selected Lua value
---- @export
-export function pull(text: string, shape: any, nullValue: any?): any
-    if nullValue == nil then
-        return native.pull(text, shape)
-    end
-    return native.pull(text, shape, nullValue)
-end
-
---- Applies one pull shape to every member of an array.
----
---- ```nupp
---- const json = nupp.data.json
---- local users = json.pull(
----     [[{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Lin"}]}]],
----     {users = json.arrayOf({id = true})}
---- )
---- assert(users.users[1].id == 1 and users.users[1].name == nil)
---- assert(users.users[2].id == 2)
---- ```
---- @param shape the selection applied to each member, or every value when omitted
---- @return an array pull shape
---- @export
-export function arrayOf(shape: any?): table
-    if shape == nil then
-        return native.arrayOf()
-    end
-    return native.arrayOf(shape)
-end
-
---- Marks a Lua table as a JSON array, including while it is empty.
----
---- ```nupp
---- local values = nupp.data.json.asArray({})
---- assert(nupp.data.json.encode(values) == "[]")
---- ```
---- @param value the table to mark
---- @return the same table
---- @export
-export function asArray<T is table>(takes value: T): T preserves value
-    return native.asArray(value)
-end
-
---- Marks a Lua table as a JSON object.
----
---- ```nupp
---- const json = nupp.data.json
---- local object = json.asObject(json.asArray({}))
---- assert(json.encode(object) == "{}")
---- ```
---- @param value the table to mark
---- @return the same table
---- @export
-export function asObject<T is table>(takes value: T): T preserves value
-    return native.asObject(value)
-end
-
---- Answers whether a value has JSON array shape.
----
---- Decoding retains container shape even when an array is empty. This predicate
---- reads that shape without exposing the private marker used by the codec.
----
---- ```nupp
---- const json = nupp.data.json
---- assert(json.isArray(json.decode("[]")))
---- assert(not json.isArray(json.decode("{}")))
---- assert(json.isArray({1, 2}))
---- ```
---- @param value the value whose JSON container shape to inspect
---- @return true for a JSON array and false for an object or scalar
---- @raises if a table mixes object and array keys or contains array holes
---- @export
-export function isArray(value: any): boolean
-    return native.isArray(value)
-end
-
---- Serializes one Lua value as JSON.
----
---- ```nupp
---- local text = nupp.data.json.encode({answer = 42})
---- assert(text == [[{"answer":42}]])
---- ```
---- @param value the value to serialize
---- @param nullValue an additional value treated as JSON null
---- @return the JSON document
---- @export
-export function encode(value: any, nullValue: any?): string
-    if nullValue == nil then
-        return native.encode(value)
-    end
-    return native.encode(value, nullValue)
-end
-
---- Serializes one Lua value as JSON; an alias of `encode`.
----
---- ```nupp
---- assert(nupp.data.json.serialize({ok = true}) == [[{"ok":true}]])
---- ```
---- @param value the value to serialize
---- @param nullValue an additional value treated as JSON null
---- @return the JSON document
---- @export
-export function serialize(value: any, nullValue: any?): string
-    if nullValue == nil then
-        return native.serialize(value)
-    end
-    return native.serialize(value, nullValue)
-end
-
---- Encodes a Lua value once for trusted raw insertion by a `Writer`.
----
---- The returned handle retains immutable encoded bytes. Each later write copies
---- those bytes directly to its destination without walking or validating the value.
----
---- ```nupp
---- local cached = nupp.data.json.encoded({1, 2, 3})
---- ```
---- @param value the value to encode
---- @param nullValue an additional value treated as JSON null
---- @return the reusable encoded value
---- @export
-export function encoded(value: any, nullValue: any?): EncodedValue
-    if nullValue == nil then
-        return native.encoded(value) as EncodedValue
-    end
-    return native.encoded(value, nullValue) as EncodedValue
-end
-
---- Encodes and interns one string for trusted use as either a key or value.
----
---- ```nupp
---- local key = nupp.data.json.encodedString("user_id")
---- ```
---- @param value the unencoded string
---- @return its reusable encoded representation
---- @export
-export function encodedString(value: string): EncodedString
-    return native.encodedString(value) as EncodedString
-end
-
---- Validates existing JSON bytes once without decoding or re-encoding them.
----
---- ```nupp
---- local cached = nupp.data.json.verified([[{"id":41}]])
---- ```
---- @param text one complete JSON value
---- @return a handle retaining the original immutable string
---- @export
-export function verified(text: string): EncodedValue
-    return native.verified(text) as EncodedValue
-end
-
---- Validates and interns existing bytes containing one complete JSON string.
----
---- ```nupp
---- local key = nupp.data.json.verifiedString([["user_id"]])
---- ```
---- @param text an encoded JSON string, including its quotes
---- @return a handle retaining the original immutable string
---- @export
-export function verifiedString(text: string): EncodedString
-    return native.verifiedString(text) as EncodedString
-end
-
---- Creates an incremental JSON writer over caller-owned storage.
----
---- ```nupp
---- local out = string.buffer.new()
---- local writer = nupp.data.json.writer(out)
---- writer:startObject():key("id"):write(41):endObject()
---- writer:close()
---- assert(out:tostring() == [[{"id":41}]])
---- ```
---- @param out the destination receiving bytes as operations complete
---- @param nullValue an additional value treated as JSON null
---- @return a new writer
---- @export
-export function writer(exclusive out: string.buffer.Buffer, nullValue: any?): Writer
-    if nullValue == nil then
-        return new WriterImpl(raw = native.writer(out))
-    end
-    return new WriterImpl(raw = native.writer(out, nullValue))
-end
-
---- Decodes JSON into the nominal record named by a type witness.
----
---- ```nupp
---- @derive(nupp.derive.JSON)
---- local record User
----     id: integer
---- end
----
---- local user, problem = nupp.data.json.decodeAs(User, [[{"id":41}]])
---- assert(problem == nil and user and user.id == 41)
---- ```
---- @param type the record type to decode
---- @param text the JSON document
---- @return the decoded record, or nil when it does not fit
---- @return the failure reason, when unsuccessful
---- @raises when JSON was not derived for the type
---- @export
-export function decodeAs<T>(type: Type<T>, text: string): (T?, string?)
-    error("nupp: JSON was not derived for this type", 2)
-end
-
---- Writes a nominal record after explicitly supplying its type witness.
----
---- ```nupp
---- @derive(nupp.derive.JSON)
---- local record User
----     id: integer
---- end
----
---- local out = string.buffer.new()
---- local writer = nupp.data.json.writer(out)
---- nupp.data.json.writeAs(User, new User(id = 41), writer)
---- writer:close()
---- assert(out:tostring() == [[{"id":41}]])
---- ```
---- @param type the record type being encoded
---- @param value the record value
---- @param out the checked destination
---- @raises when JSON was not derived for the type
---- @export
-export function writeAs<T>(type: Type<T>, borrows value: T, exclusive out: Writer): nil
-    error("nupp: JSON was not derived for this type", 2)
-end
-
---- Writes a nominal record using its own metatable as the type witness.
----
---- ```nupp
---- @derive(nupp.derive.JSON)
---- local record User
----     id: integer
---- end
----
---- local out = string.buffer.new()
---- local writer = nupp.data.json.writer(out)
---- nupp.data.json.writeRecord(new User(id = 41), writer)
---- writer:close()
---- assert(out:tostring() == [[{"id":41}]])
---- ```
---- @param value the record value
---- @param out the checked destination
---- @raises when JSON was not derived for the type
---- @export
-export function writeRecord<T>(borrows value: T, exclusive out: Writer): nil
-    error("nupp: JSON was not derived for this type", 2)
-end
-
---- Encodes a nominal record named by a type witness into a new string.
----
---- ```nupp
---- @derive(nupp.derive.JSON)
---- local record User
----     id: integer
---- end
----
---- local text = nupp.data.json.encodeAs(User, new User(id = 41))
---- assert(text == [[{"id":41}]])
---- ```
---- @param type the record type being encoded
---- @param value the record value
---- @return the JSON document
---- @raises when JSON was not derived for the type
---- @export
-export function encodeAs<T>(type: Type<T>, borrows value: T): string
-    error("nupp: JSON was not derived for this type", 2)
-end
-
---- Encodes a nominal record using its own metatable into a new string.
----
---- ```nupp
---- @derive(nupp.derive.JSON)
---- local record User
----     id: integer
---- end
----
---- local text = nupp.data.json.encodeRecord(new User(id = 41))
---- assert(text == [[{"id":41}]])
---- ```
---- @param value the record value
---- @return the JSON document
---- @raises when JSON was not derived for the type
---- @export
-export function encodeRecord<T>(borrows value: T): string
-    error("nupp: JSON was not derived for this type", 2)
-end
-
---- Creates a schema-driven JSON codec with one immutable wire profile.
----
---- The codec prepares a `nupp.data.serde.Binding<T>` once and then performs each
---- complete scalar structure traversal in one native call. Format-owning JSON derives
---- remain available as compatibility APIs.
----
---- ```nupp
---- @derive(nupp.derive.Serde)
---- local record User
----     id: uint32
---- end
----
---- local codec = nupp.data.json.newCodec()
---- local prepared = codec:prepare(nupp.data.serde.of(User))
---- assert(prepared:encode(new User(id = 41)) == [[{"id":41}]])
---- ```
---- @param options fieldNames and unknownMembers profile policy
---- @return the schema-driven codec
---- @raises when the profile is invalid
---- @export
-export function newCodec(options: any?): any
-    return _G.require("nupp.data.serde").json(options)
-end
-
---- Sentinel that decodes from and encodes as JSON null.
---- @export
-export const NULL: any = native.NULL
-
---- An explicit empty JSON array.
---- @export
-export const EMPTY_ARRAY: table = native.EMPTY_ARRAY
-
---- An explicit empty JSON object.
---- @export
-export const EMPTY_OBJECT: table = native.EMPTY_OBJECT
-]===],
 ["/nupp/data/json/aot.nupp"] = [[
 module nupp.data.json.aot
 
@@ -211799,9 +211057,9 @@ module nupp.data.json.aot
 -- remaining API is authored Nupp and has no C++
 -- boundary or simdjson dependency.
 
-local eagerDecoder = require("nupp.data.jsondecoder.eager")
-local pullDecoder = require("nupp.data.jsondecode")
-local serdeDecoder = require("nupp.data.jsondecoder.serde")
+local eagerDecoder = require("nupp.data.json.internal.decoder.eager")
+local pullDecoder = require("nupp.data.json.internal.decode")
+local serdeDecoder = require("nupp.data.json.internal.decoder.serde")
 local newBuffer = require("string.buffer").new
 local bit = require("bit")
 local contracts = require("nupp.runtime.seam.contracts")
@@ -212655,46 +211913,752 @@ local checked: contracts.JsonProvider = {
 
 export = checked
 ]],
-["/nupp/data/json/provider.nupp"] = [[
--- The internal binding for `nupp.data.json`. A selected runtime backend
--- preloads this name; otherwise production uses Nupp's SIMD AOT codec.
---
--- The shape below restates [](nupp.runtime.seam.contracts.JsonProvider), which
--- is what the `data.json` seam checks a provider against and what both
--- providers project themselves onto. Restated rather than named: this module is
--- part of the surface a consumer resolves `nupp.data.json` through, and a
--- declaration there naming an interface from another module does not survive
--- bundling -- the module resolves to `unknown`, `native.json` stops being
--- recorded, and a selected backend never reaches the generated program. The
--- two are held together by `dataJsonBindingAnswersItsContract`.
-local interface JsonProvider
-    decode: function(text: string, nullValue: any?): any
-    pull: function(text: string, shape: any, nullValue: any?): any
-    compileSerde: function(plan: any, unknownMembers: string): any
-    decodeSerde: function(schema: any, text: string): (any?, string?)
-    decodeSerdeBuffer: function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?)
-    arrayOf: function(shape: any?): table
-    asArray: function<T is table>(takes value: T): T preserves value
-    asObject: function<T is table>(takes value: T): T preserves value
-    isArray: function(value: any): boolean
-    encode: function(value: any, nullValue: any?): string
-    serialize: function(value: any, nullValue: any?): string
-    encoded: function(value: any, nullValue: any?): any
-    encodedString: function(value: string): any
-    verified: function(text: string): any
-    verifiedString: function(text: string): any
-    writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): any
-    NULL: any
-    EMPTY_ARRAY: table
-    EMPTY_OBJECT: table
+["/nupp/data/json/init.nupp"] = [===[
+module nupp.data.json
+
+--[==[
+`nupp.data.json` is a strict Nupp JSON codec. Its performance provider is
+SIMD-accelerated through `@aot`; portable compiler and browser targets select a
+pure-Lua provider behind the same API. It parses, pulls selected fields,
+serializes, and streams.
+
+```nupp:playground
+local encoded = nupp.data.json.encode({name = "Nupp", ready = true})
+local decoded = nupp.data.json.decode(encoded)
+assert(decoded.name == "Nupp")
+```
+
+The codec accepts one complete UTF-8 JSON document and rejects invalid numbers,
+sparse arrays, mixed-key containers, cycles, and excessive nesting.
+`serialize` is an alias of `encode`.
+
+## Empty containers
+
+A plain empty Lua table has no shape to read, so it encodes as `{}`. Mark it
+when it must encode as an array, or use the two sentinels:
+
+```nupp
+const json = nupp.data.json
+
+assert(json.encode({}) == "{}")
+assert(json.encode(json.asArray({})) == "[]")
+assert(json.encode(json.EMPTY_ARRAY) == "[]")
+assert(json.encode(json.EMPTY_OBJECT) == "{}")
+
+local emptyArray = json.decode("[]")
+assert(json.isArray(emptyArray))
+assert(not json.isArray(json.decode("{}")))
+```
+
+`asObject` is the corresponding mark for a table that must encode as an object.
+`isArray` reads the shape retained by decoded containers, including when they
+are empty.
+
+## JSON null
+
+Decoding drops JSON null by default, including from inside an array. Pass a
+replacement value to preserve it. `NULL` is the round-trippable choice, because
+it encodes back as null:
+
+```nupp
+const json = nupp.data.json
+
+local value = json.decode([[{"items":[1,null,2]}]], json.NULL)
+assert(value.items[2] == json.NULL)
+assert(json.encode(value) == [[{"items":[1,null,2]}]])
+```
+
+::: deepdive Dropping null by default
+A Lua table cannot hold nil as a value, so a decoded null has to become either
+an absence or a sentinel. An absence is what most callers mean, and it keeps a
+decoded document indexable without every read testing against a sentinel first.
+A sentinel is what a caller round-tripping somebody else's document means, and
+that caller says so once, at the `decode` call, rather than everywhere the
+value is read.
+:::
+
+## Pulling selected values
+
+`pull` validates the complete document while applying its selection. `true`
+selects a complete value, `false` drops it, an object
+shape selects named fields, and `arrayOf(shape)` applies a shape to every member
+of an array. Missing and unselected fields are omitted:
+
+```nupp
+const json = nupp.data.json
+
+local users = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
+```
+
+This is the lower-level path for pull deserializers: it validates the complete
+input but constructs only the Lua values the shape asks for.
+
+## Streaming output
+
+The `nupp.Closeable` writer emits checked JSON into caller-owned storage without first
+building a Lua table or a complete result string. `endArray()` and
+`endObject()` end containers, `flush()` publishes a bounded staged batch while
+leaving the document open, and consuming `close()` requires one complete root:
+
+```nupp
+local out = string.buffer.new()
+local writer = nupp.data.json.writer(out)
+writer:startObject():key("items"):startArray():write(1):write(2):endArray():endObject()
+writer:close()
+```
+
+Lexical destruction closes a live writer automatically. The public writer
+identity is single-use. Closing publishes its final staged parts and leaves
+that identity closed; untyped stale references therefore cannot affect a later
+document.
+
+A prepared `nupp.data.serde` JSON traversal can write at the current value
+position. Its recursive walk drains completed fields and list members at
+the same threshold, so a large root does not need to exist as one staged string.
+
+`encoded(value)` performs ordinary encoding once. `verified(text)` instead
+validates an existing immutable JSON string without decoding or re-encoding it.
+Both return a value that `write` appends without another walk or validation.
+`encodedString(value)` and `verifiedString(text)` provide the corresponding
+string-only form accepted by both `key` and `write`; these handles are interned,
+so repeated schema keys share their encoded representation.
+
+## Derived records
+
+For a record deriving `nupp.derive.JSON`, `writeRecord(value, writer)` discovers
+the record's type witness from the value. `writeAs(Record, value, writer)` and
+`decodeAs(Record, text)` accept the visible record name directly. `encodeRecord`
+and `encodeAs` allocate and return a complete string for callers that
+specifically need one.
+
+The generated `writeJSON(writer)` member writes through the same checked API, so
+a derived record can occupy the root or any value position in a larger document.
+Derived schemas lazily cache their encoded field names and literal values.
+
+These five members are installed onto the module by the derive runtime rather
+than answered by the codec, so each raises when nothing derived JSON for the
+type it was handed.
+
+::: seealso
+- [reflection.md](docs/learn/language/reflection.md#json-through-a-type-witness) for
+  the derived schema and the generated `writeJSON` and `fromJSON` members
+- [derives.md](docs/reference/derives.md#json) for what `nupp.derive.JSON` adds
+  to a declaration
+- [](nupp.data) for the rest of the namespace, which also holds UUIDs, hashes
+  and checksums
+:::
+]==]
+
+const native = require("nupp.data.json.provider")
+
+--- A complete JSON value whose immutable bytes have already been encoded or
+--- validated.
+---
+--- Values come from `encoded` or `verified`; the private token prevents checked
+--- callers from manufacturing an unverified fast-path value.
+export record EncodedValue
+    private _token: any
 end
 
-return require("nupp.data.json.aot") as JsonProvider
-]],
-["/nupp/data/jsondecode.nupp"] = [[
-module nupp.data.jsondecode
+--- A JSON string whose immutable encoded bytes have already been produced or
+--- validated.
+---
+--- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
+--- Values produced by `encodedString` and `verifiedString` are interned.
+export record EncodedString
+    private _token: any
+end
 
-local _fused = require("nupp.data.jsondecoder.fused")
+--- Values that can write one complete JSON value through a checked writer.
+---
+--- Declared here rather than aliased out of the host boundary, because this is the
+--- name callers write: `derive.JSON` answers a contract in terms of it. `Writer`
+--- below names the incremental encoder returned by `writer()`.
+---
+--- ```nupp
+--- local record Money is nupp.data.json.JSONEncodable
+---     cents: integer
+---
+---     function writeJSON(self, exclusive out: nupp.data.json.Writer): nil
+---         out:startObject():key("cents"):write(self.cents):endObject()
+---     end
+--- end
+--- ```
+export interface JSONEncodable
+    --- Writes this value at the writer's current value position.
+    --- @param self the value being encoded
+    --- @param out the checked destination
+    writeJSON: function(self, exclusive out: Writer): nil
+end
+
+--- A checked incremental JSON writer.
+---
+--- ```nupp
+--- local out = string.buffer.new()
+--- local writer = nupp.data.json.writer(out)
+--- writer:startObject():key("ok"):write(true):endObject()
+--- writer:close()
+--- assert(out:tostring() == [[{"ok":true}]])
+--- ```
+--- @export
+export affine interface Writer is nupp.Closeable
+    --- Starts an array value.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():write("first"):endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[\"first\"]")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    startArray: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Starts an object value.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startObject():endObject()
+    --- writer:close()
+    --- assert(out:tostring() == "{}")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    startObject: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Selects the next object member.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startObject():key("answer"):write(42):endObject()
+    --- writer:close()
+    --- assert(out:tostring() == [[{"answer":42}]])
+    --- ```
+    --- @param self the writer
+    --- @param name the next member name
+    --- @return this writer
+    key: function(exclusive self: Writer, name: string): Writer borrows (self)
+        & function(exclusive self: Writer, name: EncodedString): Writer borrows (self)
+
+    --- Appends one complete Lua value.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():write({id = 41}):endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[{\"id\":41}]")
+    --- ```
+    --- @param self the writer
+    --- @param value the next JSON value
+    --- @return this writer
+    write: function(
+        exclusive self: Writer,
+        value: string | number | boolean | {any} | {[string]: any}
+    ): Writer borrows (self)
+        & function(exclusive self: Writer, value: EncodedValue | EncodedString): Writer borrows (self)
+
+    --- Appends JSON null.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():null():endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[null]")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    null: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Ends the current array.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():startObject():endObject():endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[{}]")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    endArray: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Ends the current object.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startObject():key("items"):startArray():endArray():endObject()
+    --- writer:close()
+    --- assert(out:tostring() == [[{"items":[]}]])
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    endObject: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Publishes staged bytes without ending the document.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():write(1)
+    --- writer:flush()
+    --- assert(out:tostring() == "[1")
+    --- writer:endArray():close()
+    --- ```
+    --- @param self the writer
+    flush: nosuspend function(exclusive self: Writer): nil
+
+    --- Verifies and publishes one complete root, then releases backing state.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:write({ok = true})
+    --- writer:close()
+    --- assert(out:tostring() == [[{"ok":true}]])
+    --- ```
+    --- @param self the writer
+    terminal close: nosuspend function(takes self: Writer): nil
+end
+
+local record WriterImpl is Writer
+    private raw: any
+
+    function startArray(exclusive self): Writer borrows (self)
+        self.raw:startArray()
+        return self
+    end
+
+    function startObject(exclusive self): Writer borrows (self)
+        self.raw:startObject()
+        return self
+    end
+
+    function key(exclusive self, name: string): Writer borrows (self)
+        self.raw:key(name)
+        return self
+    end
+
+    function key(exclusive self, name: EncodedString): Writer borrows (self)
+        self.raw:key(name)
+        return self
+    end
+
+    function write(exclusive self, value: string | number | boolean | {any} | {[string]: any}): Writer borrows (self)
+        self.raw:write(value)
+        return self
+    end
+
+    function write(exclusive self, value: EncodedValue | EncodedString): Writer borrows (self)
+        self.raw:write(value)
+        return self
+    end
+
+    function null(exclusive self): Writer borrows (self)
+        self.raw:null()
+        return self
+    end
+
+    function endArray(exclusive self): Writer borrows (self)
+        self.raw:endArray()
+        return self
+    end
+
+    function endObject(exclusive self): Writer borrows (self)
+        self.raw:endObject()
+        return self
+    end
+
+    function flush(exclusive self): nil
+        self.raw:flush()
+    end
+
+    function close(takes self): nil
+        self.raw:close()
+    end
+end
+
+-- Overloaded methods occupy signature-specific slots in checked code. The ordinary
+-- names keep the same object usable from Lua, where overload selection is dynamic.
+local function writerKey(exclusive self: WriterImpl, name: any): WriterImpl borrows (self)
+    self.raw:key(name)
+    return self
+end
+
+local function writerWrite(exclusive self: WriterImpl, value: any): WriterImpl borrows (self)
+    self.raw:write(value)
+    return self
+end
+
+rawset(WriterImpl, "key", writerKey)
+rawset(WriterImpl, "write", writerWrite)
+
+--- Decodes one complete JSON document.
+---
+--- Null members are dropped unless a replacement value is supplied.
+---
+--- ```nupp
+--- local value = nupp.data.json.decode([[{"id":41}]])
+--- assert(value.id == 41)
+--- ```
+--- @param text the complete JSON document
+--- @param nullValue the value used for JSON null, or nil to drop nulls
+--- @return the decoded Lua value
+--- @export
+export function decode(text: string, nullValue: any?): any
+    if nullValue == nil then
+        return native.decode(text)
+    end
+    return native.decode(text, nullValue)
+end
+
+--- Materializes only the fields selected by an On-Demand pull shape.
+---
+--- ```nupp
+--- local value = nupp.data.json.pull(
+---     [[{"id":41,"profile":{"name":"Ada","admin":true}}]],
+---     {id = true, profile = {name = true}}
+--- )
+--- assert(value.id == 41 and value.profile.name == "Ada")
+--- assert(value.profile.admin == nil)
+--- ```
+--- @param text the complete JSON document
+--- @param shape the fields and array members to materialize
+--- @param nullValue the value used for JSON null, or nil to drop nulls
+--- @return the selected Lua value
+--- @export
+export function pull(text: string, shape: any, nullValue: any?): any
+    if nullValue == nil then
+        return native.pull(text, shape)
+    end
+    return native.pull(text, shape, nullValue)
+end
+
+--- Applies one pull shape to every member of an array.
+---
+--- ```nupp
+--- const json = nupp.data.json
+--- local users = json.pull(
+---     [[{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Lin"}]}]],
+---     {users = json.arrayOf({id = true})}
+--- )
+--- assert(users.users[1].id == 1 and users.users[1].name == nil)
+--- assert(users.users[2].id == 2)
+--- ```
+--- @param shape the selection applied to each member, or every value when omitted
+--- @return an array pull shape
+--- @export
+export function arrayOf(shape: any?): table
+    if shape == nil then
+        return native.arrayOf()
+    end
+    return native.arrayOf(shape)
+end
+
+--- Marks a Lua table as a JSON array, including while it is empty.
+---
+--- ```nupp
+--- local values = nupp.data.json.asArray({})
+--- assert(nupp.data.json.encode(values) == "[]")
+--- ```
+--- @param value the table to mark
+--- @return the same table
+--- @export
+export function asArray<T is table>(takes value: T): T preserves value
+    return native.asArray(value)
+end
+
+--- Marks a Lua table as a JSON object.
+---
+--- ```nupp
+--- const json = nupp.data.json
+--- local object = json.asObject(json.asArray({}))
+--- assert(json.encode(object) == "{}")
+--- ```
+--- @param value the table to mark
+--- @return the same table
+--- @export
+export function asObject<T is table>(takes value: T): T preserves value
+    return native.asObject(value)
+end
+
+--- Answers whether a value has JSON array shape.
+---
+--- Decoding retains container shape even when an array is empty. This predicate
+--- reads that shape without exposing the private marker used by the codec.
+---
+--- ```nupp
+--- const json = nupp.data.json
+--- assert(json.isArray(json.decode("[]")))
+--- assert(not json.isArray(json.decode("{}")))
+--- assert(json.isArray({1, 2}))
+--- ```
+--- @param value the value whose JSON container shape to inspect
+--- @return true for a JSON array and false for an object or scalar
+--- @raises if a table mixes object and array keys or contains array holes
+--- @export
+export function isArray(value: any): boolean
+    return native.isArray(value)
+end
+
+--- Serializes one Lua value as JSON.
+---
+--- ```nupp
+--- local text = nupp.data.json.encode({answer = 42})
+--- assert(text == [[{"answer":42}]])
+--- ```
+--- @param value the value to serialize
+--- @param nullValue an additional value treated as JSON null
+--- @return the JSON document
+--- @export
+export function encode(value: any, nullValue: any?): string
+    if nullValue == nil then
+        return native.encode(value)
+    end
+    return native.encode(value, nullValue)
+end
+
+--- Serializes one Lua value as JSON; an alias of `encode`.
+---
+--- ```nupp
+--- assert(nupp.data.json.serialize({ok = true}) == [[{"ok":true}]])
+--- ```
+--- @param value the value to serialize
+--- @param nullValue an additional value treated as JSON null
+--- @return the JSON document
+--- @export
+export function serialize(value: any, nullValue: any?): string
+    if nullValue == nil then
+        return native.serialize(value)
+    end
+    return native.serialize(value, nullValue)
+end
+
+--- Encodes a Lua value once for trusted raw insertion by a `Writer`.
+---
+--- The returned handle retains immutable encoded bytes. Each later write copies
+--- those bytes directly to its destination without walking or validating the value.
+---
+--- ```nupp
+--- local cached = nupp.data.json.encoded({1, 2, 3})
+--- ```
+--- @param value the value to encode
+--- @param nullValue an additional value treated as JSON null
+--- @return the reusable encoded value
+--- @export
+export function encoded(value: any, nullValue: any?): EncodedValue
+    if nullValue == nil then
+        return native.encoded(value) as EncodedValue
+    end
+    return native.encoded(value, nullValue) as EncodedValue
+end
+
+--- Encodes and interns one string for trusted use as either a key or value.
+---
+--- ```nupp
+--- local key = nupp.data.json.encodedString("user_id")
+--- ```
+--- @param value the unencoded string
+--- @return its reusable encoded representation
+--- @export
+export function encodedString(value: string): EncodedString
+    return native.encodedString(value) as EncodedString
+end
+
+--- Validates existing JSON bytes once without decoding or re-encoding them.
+---
+--- ```nupp
+--- local cached = nupp.data.json.verified([[{"id":41}]])
+--- ```
+--- @param text one complete JSON value
+--- @return a handle retaining the original immutable string
+--- @export
+export function verified(text: string): EncodedValue
+    return native.verified(text) as EncodedValue
+end
+
+--- Validates and interns existing bytes containing one complete JSON string.
+---
+--- ```nupp
+--- local key = nupp.data.json.verifiedString([["user_id"]])
+--- ```
+--- @param text an encoded JSON string, including its quotes
+--- @return a handle retaining the original immutable string
+--- @export
+export function verifiedString(text: string): EncodedString
+    return native.verifiedString(text) as EncodedString
+end
+
+--- Creates an incremental JSON writer over caller-owned storage.
+---
+--- ```nupp
+--- local out = string.buffer.new()
+--- local writer = nupp.data.json.writer(out)
+--- writer:startObject():key("id"):write(41):endObject()
+--- writer:close()
+--- assert(out:tostring() == [[{"id":41}]])
+--- ```
+--- @param out the destination receiving bytes as operations complete
+--- @param nullValue an additional value treated as JSON null
+--- @return a new writer
+--- @export
+export function writer(exclusive out: string.buffer.Buffer, nullValue: any?): Writer
+    if nullValue == nil then
+        return new WriterImpl(raw = native.writer(out))
+    end
+    return new WriterImpl(raw = native.writer(out, nullValue))
+end
+
+--- Decodes JSON into the nominal record named by a type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local user, problem = nupp.data.json.decodeAs(User, [[{"id":41}]])
+--- assert(problem == nil and user and user.id == 41)
+--- ```
+--- @param type the record type to decode
+--- @param text the JSON document
+--- @return the decoded record, or nil when it does not fit
+--- @return the failure reason, when unsuccessful
+--- @raises when JSON was not derived for the type
+--- @export
+export function decodeAs<T>(type: Type<T>, text: string): (T?, string?)
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Writes a nominal record after explicitly supplying its type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local out = string.buffer.new()
+--- local writer = nupp.data.json.writer(out)
+--- nupp.data.json.writeAs(User, new User(id = 41), writer)
+--- writer:close()
+--- assert(out:tostring() == [[{"id":41}]])
+--- ```
+--- @param type the record type being encoded
+--- @param value the record value
+--- @param out the checked destination
+--- @raises when JSON was not derived for the type
+--- @export
+export function writeAs<T>(type: Type<T>, borrows value: T, exclusive out: Writer): nil
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Writes a nominal record using its own metatable as the type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local out = string.buffer.new()
+--- local writer = nupp.data.json.writer(out)
+--- nupp.data.json.writeRecord(new User(id = 41), writer)
+--- writer:close()
+--- assert(out:tostring() == [[{"id":41}]])
+--- ```
+--- @param value the record value
+--- @param out the checked destination
+--- @raises when JSON was not derived for the type
+--- @export
+export function writeRecord<T>(borrows value: T, exclusive out: Writer): nil
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Encodes a nominal record named by a type witness into a new string.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local text = nupp.data.json.encodeAs(User, new User(id = 41))
+--- assert(text == [[{"id":41}]])
+--- ```
+--- @param type the record type being encoded
+--- @param value the record value
+--- @return the JSON document
+--- @raises when JSON was not derived for the type
+--- @export
+export function encodeAs<T>(type: Type<T>, borrows value: T): string
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Encodes a nominal record using its own metatable into a new string.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local text = nupp.data.json.encodeRecord(new User(id = 41))
+--- assert(text == [[{"id":41}]])
+--- ```
+--- @param value the record value
+--- @return the JSON document
+--- @raises when JSON was not derived for the type
+--- @export
+export function encodeRecord<T>(borrows value: T): string
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Creates a schema-driven JSON codec with one immutable wire profile.
+---
+--- The codec prepares a `nupp.data.serde.Binding<T>` once and then performs each
+--- complete scalar structure traversal in one native call. Format-owning JSON derives
+--- remain available as compatibility APIs.
+---
+--- ```nupp
+--- @derive(nupp.derive.Serde)
+--- local record User
+---     id: uint32
+--- end
+---
+--- local codec = nupp.data.json.newCodec()
+--- local prepared = codec:prepare(nupp.data.serde.of(User))
+--- assert(prepared:encode(new User(id = 41)) == [[{"id":41}]])
+--- ```
+--- @param options fieldNames and unknownMembers profile policy
+--- @return the schema-driven codec
+--- @raises when the profile is invalid
+--- @export
+export function newCodec(options: any?): any
+    return _G.require("nupp.data.serde").json(options)
+end
+
+--- Sentinel that decodes from and encodes as JSON null.
+--- @export
+export const NULL: any = native.NULL
+
+--- An explicit empty JSON array.
+--- @export
+export const EMPTY_ARRAY: table = native.EMPTY_ARRAY
+
+--- An explicit empty JSON object.
+--- @export
+export const EMPTY_OBJECT: table = native.EMPTY_OBJECT
+]===],
+["/nupp/data/json/internal/decode.nupp"] = [[
+module nupp.data.json.internal.decode
+
+local _fused = require("nupp.data.json.internal.decoder.fused")
 
 local fused = {}
 
@@ -212707,7 +212671,7 @@ const fused.TAPE = 5
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 ---
---- The body lives in `nupp.data.jsondecoder.fused`, monomorphized over the
+--- The body lives in `nupp.data.json.internal.decoder.fused`, monomorphized over the
 --- pull builder.
 --- @raises when the native builder cannot be loaded, value allocation fails,
 --- or the builder rejects a malformed escaped string
@@ -212723,10 +212687,10 @@ fused.decode = _fused.decodePull as function(
 
 export = fused
 ]],
-["/nupp/data/jsondecoder/eager.nupp"] = [[
-module nupp.data.jsondecoder.eager
+["/nupp/data/json/internal/decoder/eager.nupp"] = [[
+module nupp.data.json.internal.decoder.eager
 
-local _fused = require("nupp.data.jsondecoder.fused")
+local _fused = require("nupp.data.json.internal.decoder.fused")
 
 local fused = {}
 
@@ -212739,7 +212703,7 @@ const fused.TAPE = 5
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 ---
---- The body lives in `nupp.data.jsondecoder.fused`, monomorphized over the
+--- The body lives in `nupp.data.json.internal.decoder.fused`, monomorphized over the
 --- eager builder, which materializes the whole document and validates
 --- escapes as it does.
 --- @raises when the native builder cannot be loaded, value allocation fails,
@@ -212756,8 +212720,8 @@ fused.decode = _fused.decodeEager as function(
 
 export = fused
 ]],
-["/nupp/data/jsondecoder/fused.nupp"] = [=[
-module nupp.data.jsondecoder.fused
+["/nupp/data/json/internal/decoder/fused.nupp"] = [=[
+module nupp.data.json.internal.decoder.fused
 
 --[[
 The one fused JSON decoder, monomorphized per builder.
@@ -213567,7 +213531,7 @@ local function decodeFused<const Variant: integer>(
     return _valueBuilder.finish(values), 0, 0
 end
 
---- The pull entry `nupp.data.jsondecode` exports.
+--- The pull entry `nupp.data.json.internal.decode` exports.
 function fused.decodePull(
     source: string,
     nullValue: unknown,
@@ -213580,7 +213544,7 @@ function fused.decodePull(
     return decodeFused(source, 0, nullValue, arrayMarker, objectMarker, shape, arrayShapeMarker, serdeMarkers)
 end
 
---- The serde entry `nupp.data.jsondecoder.serde` exports. The schema argument
+--- The serde entry `nupp.data.json.internal.decoder.serde` exports. The schema argument
 --- carries compiled field targets; the native builder consumes those directly
 --- instead of resolving scalar shapes through Lua.
 function fused.decodeSerde(
@@ -213595,7 +213559,7 @@ function fused.decodeSerde(
     return decodeFused(source, 1, nullValue, arrayMarker, objectMarker, shape, arrayShapeMarker, serdeMarkers)
 end
 
---- The eager entry `nupp.data.jsondecoder.eager` exports.
+--- The eager entry `nupp.data.json.internal.decoder.eager` exports.
 function fused.decodeEager(
     source: string,
     nullValue: unknown,
@@ -213610,10 +213574,10 @@ end
 
 export = fused
 ]=],
-["/nupp/data/jsondecoder/serde.nupp"] = [[
-module nupp.data.jsondecoder.serde
+["/nupp/data/json/internal/decoder/serde.nupp"] = [[
+module nupp.data.json.internal.decoder.serde
 
-local _fused = require("nupp.data.jsondecoder.fused")
+local _fused = require("nupp.data.json.internal.decoder.fused")
 local {type Buffer} = require("string.buffer")
 
 local fused = {}
@@ -213627,7 +213591,7 @@ const fused.TAPE = 5
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 ---
---- The body lives in `nupp.data.jsondecoder.fused`, monomorphized over the
+--- The body lives in `nupp.data.json.internal.decoder.fused`, monomorphized over the
 --- serde builder: the schema argument carries compiled field targets that the
 --- native builder consumes directly instead of resolving scalar shapes
 --- through Lua.
@@ -213644,6 +213608,42 @@ fused.decode = _fused.decodeSerde as function(
 ): (unknown, uint32, uint32)
 
 export = fused
+]],
+["/nupp/data/json/provider.nupp"] = [[
+-- The internal binding for `nupp.data.json`. A selected runtime backend
+-- preloads this name; otherwise production uses Nupp's SIMD AOT codec.
+--
+-- The shape below restates [](nupp.runtime.seam.contracts.JsonProvider), which
+-- is what the `data.json` seam checks a provider against and what both
+-- providers project themselves onto. Restated rather than named: this module is
+-- part of the surface a consumer resolves `nupp.data.json` through, and a
+-- declaration there naming an interface from another module does not survive
+-- bundling -- the module resolves to `unknown`, `native.json` stops being
+-- recorded, and a selected backend never reaches the generated program. The
+-- two are held together by `dataJsonBindingAnswersItsContract`.
+local interface JsonProvider
+    decode: function(text: string, nullValue: any?): any
+    pull: function(text: string, shape: any, nullValue: any?): any
+    compileSerde: function(plan: any, unknownMembers: string): any
+    decodeSerde: function(schema: any, text: string): (any?, string?)
+    decodeSerdeBuffer: function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?)
+    arrayOf: function(shape: any?): table
+    asArray: function<T is table>(takes value: T): T preserves value
+    asObject: function<T is table>(takes value: T): T preserves value
+    isArray: function(value: any): boolean
+    encode: function(value: any, nullValue: any?): string
+    serialize: function(value: any, nullValue: any?): string
+    encoded: function(value: any, nullValue: any?): any
+    encodedString: function(value: string): any
+    verified: function(text: string): any
+    verifiedString: function(text: string): any
+    writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): any
+    NULL: any
+    EMPTY_ARRAY: table
+    EMPTY_OBJECT: table
+end
+
+return require("nupp.data.json.aot") as JsonProvider
 ]],
 ["/nupp/data/serde.nupp"] = [===[
 module nupp.data.serde
@@ -235730,7 +235730,54 @@ export function newRandom(seed: integer?): Random
     return new Random(seed)
 end
 ]=],
-["/nupp/runtime/backend.nupp"] = [=[
+["/nupp/runtime/backend/browser.nupp"] = [[
+module nupp.runtime.backend.browser
+
+-- The complete set of third-party and checked pure-Lua providers carried by the
+-- portable compiler host. Application backends remain an independent target choice.
+
+const Backend = require("nupp.runtime.backend")
+const Bitops = require("nupp.runtime.seam.bitops")
+const BrowserCrypto = require("nupp.runtime.seam.browsercrypto")
+const BrowserStorage = require("nupp.runtime.seam.browserstorage")
+const Time = require("nupp.runtime.seam.time")
+const Workers = require("nupp.runtime.seam.workers")
+const HTTP = require("nupp.runtime.seam.http")
+const HMAC = require("nupp.runtime.seam.hmacsha256")
+const GPU = require("nupp.runtime.seam.gpu")
+const JSON = require("nupp.runtime.seam.json")
+const Path = require("nupp.runtime.seam.path")
+const Peg = require("nupp.runtime.seam.peg")
+const Simd = require("nupp.runtime.seam.simd")
+const SHA256 = require("nupp.runtime.seam.sha256")
+const Suspension = require("nupp.runtime.seam.suspension")
+const TextBuffer = require("nupp.runtime.seam.textbuffer")
+const URI = require("nupp.runtime.seam.uri")
+const UUID = require("nupp.runtime.seam.uuid")
+const Wasm = require("nupp.runtime.seam.wasm")
+
+export = Backend.new("nupp.browser", {
+    Bitops.seam("nupp.runtime.provider.scalarbitops"),
+    JSON.seam("nupp.runtime.provider.lunajson"),
+    Path.seam("nupp.runtime.provider.browserpath"),
+    Peg.seam("re"),
+    Simd.seam("nupp.runtime.provider.scalarsimd"),
+    Suspension.seam("nupp.runtime.provider.browsersuspension"),
+    TextBuffer.seam("nupp.runtime.provider.tablebuffer"),
+    URI.seam("nupp.runtime.provider.browseruri"),
+    HTTP.seam("nupp.runtime.provider.browserhttp"),
+    Time.seam("nupp.runtime.provider.browsertime"),
+    BrowserCrypto.seam("nupp.runtime.provider.browsercrypto"),
+    BrowserStorage.seam("nupp.runtime.provider.browserstorage"),
+    Workers.seam("nupp.runtime.provider.browserworkers"),
+    Wasm.seam("nupp.runtime.provider.wasmstorage"),
+    SHA256.seam("nupp.runtime.provider.browsercrypto"),
+    HMAC.seam("nupp.runtime.provider.browsercrypto"),
+    UUID.seam("nupp.runtime.provider.browsercrypto"),
+    GPU.seam("nupp.runtime.provider.browserwebgpu"),
+})
+]],
+["/nupp/runtime/backend/init.nupp"] = [=[
 module nupp.runtime.backend
 
 --[[
@@ -235816,53 +235863,6 @@ end
 
 export = backend
 ]=],
-["/nupp/runtime/backend/browser.nupp"] = [[
-module nupp.runtime.backend.browser
-
--- The complete set of third-party and checked pure-Lua providers carried by the
--- portable compiler host. Application backends remain an independent target choice.
-
-const Backend = require("nupp.runtime.backend")
-const Bitops = require("nupp.runtime.seam.bitops")
-const BrowserCrypto = require("nupp.runtime.seam.browsercrypto")
-const BrowserStorage = require("nupp.runtime.seam.browserstorage")
-const Time = require("nupp.runtime.seam.time")
-const Workers = require("nupp.runtime.seam.workers")
-const HTTP = require("nupp.runtime.seam.http")
-const HMAC = require("nupp.runtime.seam.hmacsha256")
-const GPU = require("nupp.runtime.seam.gpu")
-const JSON = require("nupp.runtime.seam.json")
-const Path = require("nupp.runtime.seam.path")
-const Peg = require("nupp.runtime.seam.peg")
-const Simd = require("nupp.runtime.seam.simd")
-const SHA256 = require("nupp.runtime.seam.sha256")
-const Suspension = require("nupp.runtime.seam.suspension")
-const TextBuffer = require("nupp.runtime.seam.textbuffer")
-const URI = require("nupp.runtime.seam.uri")
-const UUID = require("nupp.runtime.seam.uuid")
-const Wasm = require("nupp.runtime.seam.wasm")
-
-export = Backend.new("nupp.browser", {
-    Bitops.seam("nupp.runtime.provider.scalarbitops"),
-    JSON.seam("nupp.runtime.provider.lunajson"),
-    Path.seam("nupp.runtime.provider.browserpath"),
-    Peg.seam("re"),
-    Simd.seam("nupp.runtime.provider.scalarsimd"),
-    Suspension.seam("nupp.runtime.provider.browsersuspension"),
-    TextBuffer.seam("nupp.runtime.provider.tablebuffer"),
-    URI.seam("nupp.runtime.provider.browseruri"),
-    HTTP.seam("nupp.runtime.provider.browserhttp"),
-    Time.seam("nupp.runtime.provider.browsertime"),
-    BrowserCrypto.seam("nupp.runtime.provider.browsercrypto"),
-    BrowserStorage.seam("nupp.runtime.provider.browserstorage"),
-    Workers.seam("nupp.runtime.provider.browserworkers"),
-    Wasm.seam("nupp.runtime.provider.wasmstorage"),
-    SHA256.seam("nupp.runtime.provider.browsercrypto"),
-    HMAC.seam("nupp.runtime.provider.browsercrypto"),
-    UUID.seam("nupp.runtime.provider.browsercrypto"),
-    GPU.seam("nupp.runtime.provider.browserwebgpu"),
-})
-]],
 ["/nupp/runtime/backend/portable.nupp"] = [=[
 module nupp.runtime.backend.portable
 

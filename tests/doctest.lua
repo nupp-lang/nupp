@@ -876,7 +876,7 @@ end
 -- The public JSON module documents its own complete surface; the host declaration is
 -- only an implementation boundary.
 function M.standardJsonApiHasCompleteDocumentation()
-    local path = "src/nupp/data/json.nupp"
+    local path = "src/nupp/data/json/init.nupp"
     local source = readFile(HERE .. "/../" .. path)
     local module, errors = doc.extract(source, path, "nupp.data.json")
     assert(module, errors and errors[1] and errors[1].msg)

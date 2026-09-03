@@ -5,9 +5,9 @@ module nupp.data.json.aot
 -- remaining API is authored Nupp and has no C++
 -- boundary or simdjson dependency.
 
-local eagerDecoder = require("nupp.data.jsondecoder.eager")
-local pullDecoder = require("nupp.data.jsondecode")
-local serdeDecoder = require("nupp.data.jsondecoder.serde")
+local eagerDecoder = require("nupp.data.json.internal.decoder.eager")
+local pullDecoder = require("nupp.data.json.internal.decode")
+local serdeDecoder = require("nupp.data.json.internal.decoder.serde")
 local newBuffer = require("string.buffer").new
 local bit = require("bit")
 local contracts = require("nupp.runtime.seam.contracts")
