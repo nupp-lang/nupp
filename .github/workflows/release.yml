@@ -717,6 +717,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
       - name: Download standalone binaries
         uses: actions/download-artifact@v4
         with:

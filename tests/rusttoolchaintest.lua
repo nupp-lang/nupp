@@ -827,6 +827,20 @@ function M.macosReleaseSigningIsOptionalButAtomic()
     )
 end
 
+function M.taggedReleaseChecksOutBeforePublishing()
+    local workflow = read(ROOT .. "/.github/workflows/release.yml")
+    local releaseJob = assert(workflow:match("\n  release:(.*)$"), "the release workflow has no publishing job")
+    local checkout = assert(
+        releaseJob:find("uses: actions/checkout@v4", 1, true),
+        "the publishing job does not check out the tagged repository"
+    )
+    local publish = assert(
+        releaseJob:find('gh release create "$GITHUB_REF_NAME"', 1, true),
+        "the publishing job does not create the tagged release"
+    )
+    assert(checkout < publish, "the publishing job verifies the tag before checking it out")
+end
+
 -- Every Cargo package can end up in a provider for some feature, platform or
 -- build mode. Releases copy host/notices without running Cargo, so the committed
 -- aggregate must cover the whole lock file rather than only this machine's
