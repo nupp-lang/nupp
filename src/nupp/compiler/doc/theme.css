@@ -1105,7 +1105,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-sidebar-section summary {
     position: relative;
     margin: 0;
-    padding: .24rem 1.2rem .24rem .55rem;
+    padding: .24rem .55rem;
     color: var(--nuppdoc-text);
     font-size: .7rem;
     font-weight: 500;
@@ -1165,11 +1165,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-module-branch>details>summary {
     color: var(--nuppdoc-text-muted);
     font-weight: 500
-}
-
-.nuppdoc-module-branch>details>summary.nuppdoc-module-branch-link {
-    padding-top: 0;
-    padding-bottom: 0
 }
 
 .nuppdoc-module-branch>details>summary>a {
