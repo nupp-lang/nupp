@@ -1033,8 +1033,16 @@ local function buildModules(root: string, outDir: string, config: Config, target
     for _, descriptor in ipairs(backendResolution.modules or {}) do
         linkedModules[descriptor.module] = true
         for _, seam in ipairs(descriptor.seams or {}) do
-            linkedModules[seam.factoryModule] = true
-            stageBundled(seam.factoryModule)
+            -- Only a backend written as a `Backend.new` call has a factory
+            -- module to link: it names one per seam, and an artifact reaches
+            -- the provider through it. A declaration names no factory, so
+            -- there is nothing here to stage and the seam's own installer --
+            -- already linked above with the rest of the seam layer -- is what
+            -- the artifact calls instead.
+            if seam.factoryModule ~= nil then
+                linkedModules[seam.factoryModule] = true
+                stageBundled(seam.factoryModule)
+            end
             local providerPath = inc.modulePath(seam.runtimeModule)
             if providerPath and providerPath:match("%.nupp$") then
                 linkedModules[seam.runtimeModule] = true

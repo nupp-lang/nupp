@@ -154,9 +154,7 @@ function backends.describe(name: string, seams: {[string]: string}, moduleName: 
     local descriptor = {name = name, module = moduleName, seams = {},}
     for _, contractName in ipairs(ordered) do
         local contract = registry.get(contractName)
-        descriptor.seams[
-            #descriptor.seams + 1
-        ] = {
+        descriptor.seams[#descriptor.seams + 1] = {
             name = contract.name,
             version = contract.version,
             effect = contract.effect,
@@ -165,7 +163,9 @@ function backends.describe(name: string, seams: {[string]: string}, moduleName: 
             implementationModules = contract.implementationModules,
             exports = contract.exports,
             binding = contract.binding or "runtime",
-            factoryModule = contract.factoryModule,
+            -- No factory module. A declaration names a provider per contract and
+            -- the seam layer installs it; the per-seam constructor a `Backend.new`
+            -- call reached for is what this replaces.
             suiteModule = contract.suiteModule,
             runtimeModule = seams[contractName],
         }

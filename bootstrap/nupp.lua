@@ -33051,9 +33051,7 @@ table . sort ( ordered )
 local descriptor = { name = name , module = moduleName , seams = { } , }
 for _ , contractName in ipairs ( ordered ) do
 local contract = registry . get ( contractName )
-descriptor . seams [
-# descriptor . seams + 1
-] = {
+descriptor . seams [ # descriptor . seams + 1 ] = {
 name = contract . name ,
 version = contract . version ,
 effect = contract . effect ,
@@ -33062,7 +33060,9 @@ modules = contract . modules ,
 implementationModules = contract . implementationModules ,
 exports = contract . exports ,
 binding = contract . binding or "runtime" ,
-factoryModule = contract . factoryModule ,
+
+
+
 suiteModule = contract . suiteModule ,
 runtimeModule = seams [ contractName ] ,
 }
@@ -41049,8 +41049,16 @@ end
 for _ , descriptor in ipairs ( backendResolution . modules or { } ) do
 linkedModules [ descriptor . module ] = true
 for _ , seam in ipairs ( descriptor . seams or { } ) do
+
+
+
+
+
+
+if seam . factoryModule ~= nil then
 linkedModules [ seam . factoryModule ] = true
 stageBundled ( seam . factoryModule )
+end
 local providerPath = inc . modulePath ( seam . runtimeModule )
 if providerPath and providerPath : match ( "%.nupp$" ) then
 linkedModules [ seam . runtimeModule ] = true
