@@ -1585,7 +1585,7 @@ directly and is checked against it, which is what the cast was standing in for.
 -- The native backend
 ----------------------------------------------------------------------------
 
-const native = require("nupp.runtime.nativev2")
+const native = require("nupp.runtime.native")
 
 native.ffi.cdef[[
 typedef struct {

@@ -1196,7 +1196,7 @@ return platform
       "the compiler-owned path implementation is materialized into the application")
    assert(read(dir .. "/out/nupp/runtime/provider/browserpath.lua"),
       "the browser backend supplies only the path environment")
-   assert(not exists(dir .. "/out/nupp/runtime/nativev2.lua"),
+   assert(not exists(dir .. "/out/nupp/runtime/native.lua"),
       "portable path arithmetic does not carry the native binding")
    assert(not exists(dir .. "/out/nupp/data.lua"),
       "the native data implementation is not compiled behind a projected facade")

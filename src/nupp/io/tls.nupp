@@ -652,7 +652,7 @@ function tls.server(takes stream: net.Stream, options: tls.ServerOptions): (affi
     return new tls.Session(_backend = chosen, _session = session, _closed = false, _ready = false, _ended = false)
 end
 
-const native = require("nupp.runtime.nativev2")
+const native = require("nupp.runtime.native")
 
 cdef struct NuppNativeV2TlsSlice
     data: cstring

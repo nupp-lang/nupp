@@ -1,6 +1,6 @@
 @!internal
 
-module nupp.runtime.nativev2
+module nupp.runtime.native
 
 --[[
 The loader for the versioned Rust-native provider.

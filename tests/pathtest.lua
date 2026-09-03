@@ -174,12 +174,12 @@ function M.pathStagesOnlyTheGenericFilesystemSlice()
    local source = assert(io.open("src/nupp/io/path/init.nupp", "rb"))
    local text = source:read("*a")
    source:close()
-   assert(not text:find("nupp.runtime.nativev2", 1, true),
+   assert(not text:find("nupp.runtime.native", 1, true),
       "the shared path implementation has no provider dependency")
    local provider = assert(io.open("src/nupp/io/path/provider.nupp", "rb"))
    local providerText = provider:read("*a")
    provider:close()
-   assert(providerText:find("nupp.runtime.nativev2", 1, true),
+   assert(providerText:find("nupp.runtime.native", 1, true),
       "the host path seam loads the ABI-v2 provider")
    assert(providerText:find("nuppNativeV2Files", 1, true),
       "the host path seam declares the Rust filesystem ABI it calls")

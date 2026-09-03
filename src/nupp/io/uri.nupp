@@ -146,7 +146,7 @@ through 65535. Every field is URI text rather than a filesystem name.
 :::
 ]]
 
-const native = require("nupp.runtime.nativev2")
+const native = require("nupp.runtime.native")
 
 native.ffi.cdef[[
 int32_t nuppNativeV2UriParse(const uint8_t *, size_t, uint64_t *);

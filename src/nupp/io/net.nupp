@@ -1345,7 +1345,7 @@ end
 --- Written here rather than in a module of its own because a module could not
 --- name `Backend` without the two requiring each other, and a resolved cycle
 --- answers `any` without reporting one.
-const native = require("nupp.runtime.nativev2")
+const native = require("nupp.runtime.native")
 
 native.ffi.cdef[[
 typedef struct {

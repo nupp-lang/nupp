@@ -16,7 +16,7 @@ print(time.now() - started)
 :::
 ]]
 
-local native = require("nupp.runtime.nativev2")
+local native = require("nupp.runtime.native")
 local suspension = require("nupp.suspension")
 
 native.ffi.cdef(

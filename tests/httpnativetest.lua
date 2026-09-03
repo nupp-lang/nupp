@@ -89,9 +89,9 @@ function M.beforeAll()
       ["native.process"] = true,
       ["native.files"] = true,
    })
-   priorPreload = package.preload["nupp.runtime.nativev2"]
-   priorLoaded = package.loaded["nupp.runtime.nativev2"]
-   preloadProvider("nupp.runtime.nativev2", "NUPP_NATIVE_V2_LIBRARY", libraryPath)
+   priorPreload = package.preload["nupp.runtime.native"]
+   priorLoaded = package.loaded["nupp.runtime.native"]
+   preloadProvider("nupp.runtime.native", "NUPP_NATIVE_V2_LIBRARY", libraryPath)
    assert(loadstring(stdlib.bootstrap(effects)))()
    process = require("nupp.io.process")
    http = require("nupp.io.http")
@@ -102,8 +102,8 @@ end
 
 function M.afterAll()
    if server then server:close() end
-   package.preload["nupp.runtime.nativev2"] = priorPreload
-   package.loaded["nupp.runtime.nativev2"] = priorLoaded
+   package.preload["nupp.runtime.native"] = priorPreload
+   package.loaded["nupp.runtime.native"] = priorLoaded
    if root then
       os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
       os.execute("rm -rf '" .. root .. "'")

@@ -5,7 +5,7 @@ module nupp.io.path.provider
 -- The default host implementation of the three environmental path questions.
 -- A portable backend preloads this module name with its own provider; path
 -- arithmetic never crosses this boundary.
-const native = require("nupp.runtime.nativev2")
+const native = require("nupp.runtime.native")
 
 cdef struct NuppNativeV2FilesystemSlice
     data: cstring

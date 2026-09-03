@@ -11,7 +11,7 @@ is live. Uploads, dispatches, and downloads only enqueue commands;
 ```nupp
 local gpu = nupp.gpu
 local kernels = require("kernels")
-local ffi = nupp.runtime.nativev2.ffi
+local ffi = nupp.runtime.native.ffi
 
 local context = gpu.open()
 local input = context:buffer(ffi.typeof<float>(), 1024)
@@ -36,7 +36,7 @@ applied with `gpu.view(buffer, layout)` without allocating. Transfers remain den
 layout-aware kernels consume the explicit metadata.
 ]]
 
-local native = require("nupp.runtime.nativev2")
+local native = require("nupp.runtime.native")
 local span = require("nupp.mem.span")
 local tensorlayout = require("nupp.gpulayout")
 local {type Layout as TensorLayout} = require("nupp.gpulayout")

@@ -62,7 +62,7 @@ local MODULES = {
     ["nupp.mem.sharedbytes"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.mem.soa"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
-    ["nupp.runtime.nativev2"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.runtime.native"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.owners"] = {kind = "common"},
     ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile.trace"] = {kind = "unavailable", capability = "cinterop"},

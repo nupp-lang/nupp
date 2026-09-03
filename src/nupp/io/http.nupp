@@ -142,7 +142,7 @@ It used to be a string in the compiler, installed as `nupp.io.httpnative` throug
 here it implements them, so the contracts above are checked against the code that
 answers them rather than asserted about a module the checker could not see.
 
-The library is not opened by requiring this module: `nupp.runtime.nativev2` opens on the first
+The library is not opened by requiring this module: `nupp.runtime.native` opens on the first
 symbol read, and nothing here reads one until a client is created.
 ]]
 
@@ -150,7 +150,7 @@ symbol read, and nothing here reads one until a client is created.
 -- The native binding
 ----------------------------------------------------------------------------
 
-const native = require("nupp.runtime.nativev2")
+const native = require("nupp.runtime.native")
 
 native.ffi.cdef[[
 typedef struct { const uint8_t *data; size_t length; } NuppNativeV2HttpSlice;

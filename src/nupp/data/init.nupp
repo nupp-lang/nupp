@@ -69,7 +69,7 @@ that, and the same digest on every target either way.
 local data = {}
 local ffi = require("ffi")
 const digest = require("nupp.data.digest")
-const native = require("nupp.runtime.nativev2")
+const native = require("nupp.runtime.native")
 
 native.ffi.cdef[[
 int32_t nuppNativeV2Uuid4(uint8_t *, size_t);

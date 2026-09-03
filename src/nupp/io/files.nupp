@@ -290,7 +290,7 @@ Scheduling a transfer costs more than those cost to run.
 -- The native binding
 ----------------------------------------------------------------------------
 
-const native = require("nupp.runtime.nativev2")
+const native = require("nupp.runtime.native")
 const suspension = require("nupp.suspension")
 const paths = require("nupp.io.path")
 const io = require("nupp.io")
@@ -300,7 +300,7 @@ const span = require("nupp.mem.span")
 -- `ffi.new` names it and the checker has to know the type to accept that. It reaches
 -- LuaJIT as a bare `struct` rather than a typedef, which is why the prototype below
 -- writes it that way. The functions stay in the runtime declaration: they are reached
--- through the handle `nupp.runtime.nativev2` opened, not the default namespace a `cdef
+-- through the handle `nupp.runtime.native` opened, not the default namespace a `cdef
 -- function` binds to.
 cdef struct NuppNativeV2FilesInfo
     kind: uint32

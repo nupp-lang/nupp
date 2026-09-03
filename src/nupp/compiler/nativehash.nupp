@@ -5,7 +5,7 @@ module nupp.compiler.nativehash
 -- The native spelling of the compiler's portable content digest. This lives in
 -- host services rather than build/hash because the portable lua51 compiler has
 -- no FFI and must remain able to compute every cache key itself.
-const native = require("nupp.runtime.nativev2")
+const native = require("nupp.runtime.native")
 
 native.ffi.cdef[[
 int32_t nuppNativeV2Xxh64Digest(const uint8_t *, size_t, uint8_t *, size_t);
