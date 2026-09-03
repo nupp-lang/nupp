@@ -144,7 +144,7 @@ local RESOURCES = {
     {source = "src/nupp/mem/indexed.nupp", output = "nupp/compiler/nupp/mem/indexed.nupp"},
     {source = "src/nupp/mem/span.nupp", output = "nupp/compiler/nupp/mem/span.nupp"},
     {source = "src/nupp/gpu.nupp", output = "nupp/compiler/nupp/gpu.nupp"},
-    {source = "src/nupp/gpulayout.nupp", output = "nupp/compiler/nupp/gpulayout.nupp"},
+    {source = "src/nupp/gpu/layout.nupp", output = "nupp/compiler/nupp/gpu/layout.nupp"},
     {source = "src/nupp/data/random.nupp", output = "nupp/compiler/nupp/data/random.nupp"},
     {source = "src/nupp/simd.nupp", output = "nupp/compiler/nupp/simd.nupp"},
     {source = "src/nupp/data/valuebuilder.nupp", output = "nupp/compiler/nupp/data/valuebuilder.nupp"},

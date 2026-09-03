@@ -761,7 +761,7 @@ local function openSession(
     end
 
     local function stageGpuRuntime(): nil
-        stageBundled("nupp.gpulayout")
+        stageBundled("nupp.gpu.layout")
         stageBundled("nupp.runtime.native")
         stageBundled("nupp.runtime.provider.nativegpu")
         stageBundled("nupp.gpu")

@@ -38,8 +38,8 @@ layout-aware kernels consume the explicit metadata.
 
 local native = require("nupp.runtime.native")
 local span = require("nupp.mem.span")
-local tensorlayout = require("nupp.gpulayout")
-local {type Layout as TensorLayout} = require("nupp.gpulayout")
+local tensorlayout = require("nupp.gpu.layout")
+local {type Layout as TensorLayout} = require("nupp.gpu.layout")
 local ffi = native.ffi
 local C = native.C
 local gpu = {}

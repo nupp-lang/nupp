@@ -56,7 +56,7 @@ local FEATURES: {[string]: native.Feature} = {
         -- feature on the implementation means an alternate backend can replace
         -- the facade without accidentally carrying the native library with it.
         module = "nupp.runtime.provider.nativegpu",
-        modules = {"nupp.gpulayout"},
+        modules = {"nupp.gpu.layout"},
         runtimeModule = "nupp.runtime.provider.nativegpu",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",

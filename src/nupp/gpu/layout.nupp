@@ -1,4 +1,4 @@
-module nupp.gpulayout
+module nupp.gpu.layout
 
 -- Checked non-generic tensor layout algebra used by nupp.gpu.
 

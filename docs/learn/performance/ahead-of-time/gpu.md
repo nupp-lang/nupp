@@ -198,5 +198,5 @@ host before dispatch.
 - [build-and-artifacts.md](build-and-artifacts.md) for AOT target policies and
   artifact caching
 - [](nupp.gpu) for the generated binding and resident-buffer API
-- [](nupp.gpulayout) for layout functions
+- [](nupp.gpu.layout) for layout functions
 :::
