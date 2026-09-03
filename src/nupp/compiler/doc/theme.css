@@ -1158,7 +1158,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 
 .nuppdoc-sidebar-section .nuppdoc-module-tree {
     margin: 0;
-    padding: 4px 0 0 1rem;
+    padding: 4px 0 0 0.6rem;
     list-style: none
 }
 
@@ -1177,7 +1177,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 }
 
 .nuppdoc-module-branch .nuppdoc-module-tree {
-    padding: 4px 0 0 1rem
+    padding: 4px 0 0 0.6rem
 }
 
 .nuppdoc-outline-title {
