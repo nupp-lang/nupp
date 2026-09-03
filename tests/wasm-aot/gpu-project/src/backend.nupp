@@ -1,6 +1,6 @@
 module backend
 
-const Backend = require("nupp.runtime.backend")
-const Structvalue = require("nupp.runtime.seam.structvalue")
-
-export = Backend.new("test.browser.gpu.wasm", {Structvalue.seam("nupp.runtime.provider.wasmstorage"),})
+export = {
+    name = "test.browser.gpu.wasm",
+    seams = {["representation.structvalue"] = "nupp.runtime.provider.wasmstorage",},
+}

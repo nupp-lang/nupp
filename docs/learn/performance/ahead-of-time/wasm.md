@@ -33,14 +33,13 @@ opaque Wasm memory:
 ```nupp
 module backend
 
-const Backend = nupp.runtime.backend
-const Structvalue = nupp.runtime.seam.structvalue
-const Wasm = nupp.runtime.seam.wasm
-
-export = Backend.new("app.wasm", {
-    Structvalue.seam("nupp.runtime.provider.wasmstorage"),
-    Wasm.seam("nupp.runtime.provider.wasmstorage"),
-})
+export = {
+    name = "app.wasm",
+    seams = {
+        ["representation.structvalue"] = "nupp.runtime.provider.wasmstorage",
+        ["host.wasm"] = "nupp.runtime.provider.wasmstorage",
+    },
+}
 ```
 
 `host.wasm` is a public runtime seam with an isolated conformance suite. Its

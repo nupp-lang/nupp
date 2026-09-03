@@ -1,45 +1,38 @@
 module nupp.runtime.backend.browser
 
--- The complete set of third-party and checked pure-Lua providers carried by the
--- portable compiler host. Application backends remain an independent target choice.
+--[[
+The complete set of third-party and checked pure-Lua providers carried by the
+portable compiler host. Application backends remain an independent target
+choice.
 
-const Backend = require("nupp.runtime.backend")
-const Bitops = require("nupp.runtime.seam.bitops")
-const BrowserCrypto = require("nupp.runtime.seam.browsercrypto")
-const BrowserStorage = require("nupp.runtime.seam.browserstorage")
-const Time = require("nupp.runtime.seam.time")
-const Workers = require("nupp.runtime.seam.workers")
-const HTTP = require("nupp.runtime.seam.http")
-const HMAC = require("nupp.runtime.seam.hmacsha256")
-const GPU = require("nupp.runtime.seam.gpu")
-const JSON = require("nupp.runtime.seam.json")
-const Path = require("nupp.runtime.seam.path")
-const Peg = require("nupp.runtime.seam.peg")
-const Simd = require("nupp.runtime.seam.simd")
-const SHA256 = require("nupp.runtime.seam.sha256")
-const Suspension = require("nupp.runtime.seam.suspension")
-const TextBuffer = require("nupp.runtime.seam.textbuffer")
-const URI = require("nupp.runtime.seam.uri")
-const UUID = require("nupp.runtime.seam.uuid")
-const Wasm = require("nupp.runtime.seam.wasm")
+`nupp.compiler.browser` requires this declaration rather than restating it. It
+used to hold a second copy, because the compiler resolves against a descriptor
+and could not require a module that pulled in eighteen seam factories to build
+one. The two then had to be kept saying the same thing, and once did not: a
+`text.buffer` entry present here and missing there made `nupp.derive`
+unreachable in a browser that had a buffer provider all along.
+]]
 
-export = Backend.new("nupp.browser", {
-    Bitops.seam("nupp.runtime.provider.scalarbitops"),
-    JSON.seam("nupp.runtime.provider.lunajson"),
-    Path.seam("nupp.runtime.provider.browserpath"),
-    Peg.seam("re"),
-    Simd.seam("nupp.runtime.provider.scalarsimd"),
-    Suspension.seam("nupp.runtime.provider.browsersuspension"),
-    TextBuffer.seam("nupp.runtime.provider.tablebuffer"),
-    URI.seam("nupp.runtime.provider.browseruri"),
-    HTTP.seam("nupp.runtime.provider.browserhttp"),
-    Time.seam("nupp.runtime.provider.browsertime"),
-    BrowserCrypto.seam("nupp.runtime.provider.browsercrypto"),
-    BrowserStorage.seam("nupp.runtime.provider.browserstorage"),
-    Workers.seam("nupp.runtime.provider.browserworkers"),
-    Wasm.seam("nupp.runtime.provider.wasmstorage"),
-    SHA256.seam("nupp.runtime.provider.browsercrypto"),
-    HMAC.seam("nupp.runtime.provider.browsercrypto"),
-    UUID.seam("nupp.runtime.provider.browsercrypto"),
-    GPU.seam("nupp.runtime.provider.browserwebgpu"),
-})
+export = {
+    name = "nupp.browser",
+    seams = {
+        ["numeric.bitops"] = "nupp.runtime.provider.scalarbitops",
+        ["text.buffer"] = "nupp.runtime.provider.tablebuffer",
+        ["data.json"] = "nupp.runtime.provider.lunajson",
+        ["host.path"] = "nupp.runtime.provider.browserpath",
+        ["peg"] = "re",
+        ["numeric.simd"] = "nupp.runtime.provider.scalarsimd",
+        ["suspension"] = "nupp.runtime.provider.browsersuspension",
+        ["io.uri"] = "nupp.runtime.provider.browseruri",
+        ["host.http"] = "nupp.runtime.provider.browserhttp",
+        ["host.time"] = "nupp.runtime.provider.browsertime",
+        ["host.browser_crypto"] = "nupp.runtime.provider.browsercrypto",
+        ["host.browser_storage"] = "nupp.runtime.provider.browserstorage",
+        ["host.workers"] = "nupp.runtime.provider.browserworkers",
+        ["host.wasm"] = "nupp.runtime.provider.wasmstorage",
+        ["data.sha256"] = "nupp.runtime.provider.browsercrypto",
+        ["crypto.hmac_sha256"] = "nupp.runtime.provider.browsercrypto",
+        ["data.uuid"] = "nupp.runtime.provider.browsercrypto",
+        ["compute.gpu"] = "nupp.runtime.provider.browserwebgpu",
+    },
+}

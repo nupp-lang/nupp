@@ -1,46 +1,87 @@
 @!internal
 module nupp.runtime.seam.registry
 
---[[Single source of seam identity, version, binding, effects and factory module.]]
+--[[
+Single source of seam identity, version, binding, effects and substitution.
 
+One entry per substitutable contract, and the entry is the whole statement. A
+seam used to be spread over three places -- identity here, the runtime member
+list in a per-contract factory module, and the declared interface in
+`nupp.runtime.seam.contracts` -- and the three drifted, because nothing
+compared them.
+
+The member list now comes from the declared interface wherever a contract has
+one, read with `nupp.reflect` at compile time. A contract whose real surface is
+affine names its checkable half in `members` below; see the note on
+`contracts.members` for why those three cannot be interfaces.
+
+`slug` is the one name a contract owns in the source tree: it names the
+conformance suite, and it is what a diagnostic and a backend declaration use to
+talk about the seam.
+]]
+
+local contracts = require("nupp.runtime.seam.contracts")
 local registry = {}
 
 local CONTRACTS: {any} = {
-    -- The provider module is what a selection replaces, which this seam's own install
-    -- has always done by preloading it. An implementation rather than a module: the
-    -- declared interface at that name is the contract every provider answers, and it
-    -- is what `nupp.data.json` is written against, so only the build's idea of what
-    -- to compile changes. Without it the default implementation was linked, and it
+    -- The provider module is what a selection replaces, which install has always
+    -- done by preloading it. An implementation rather than a module: the declared
+    -- interface at that name is the contract every provider answers, and it is what
+    -- `nupp.data.json` is written against, so only the build's idea of what to
+    -- compile changes. Without it the default implementation was linked, and it
     -- reaches an AOT decoder no `lua51` target can carry.
     {
         name = "data.json",
+        slug = "json",
         version = 2,
         effect = "native.json",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.json",
+        globalName = "__nuppJson",
         implementationModules = {["nupp.data.json.provider"] = true}
     },
     {
         name = "numeric.bitops",
+        slug = "bitops",
         effect = "runtime.bitops",
         binding = "compile",
-        factoryModule = "nupp.runtime.seam.bitops"
+        globalName = "__nuppBitops"
     },
     {
         name = "representation.structvalue",
+        slug = "structvalue",
         effect = "runtime.structvalue",
         binding = "compile",
-        factoryModule = "nupp.runtime.seam.structvalue"
+        globalName = "__nuppStructvalue"
     },
-    {name = "host.wasm", effect = "runtime.wasm", binding = "runtime", factoryModule = "nupp.runtime.seam.wasm"},
-    {name = "numeric.int64", effect = "runtime.int64", binding = "compile", factoryModule = "nupp.runtime.seam.int64"},
-    {name = "numeric.simd", effect = "runtime.simd", binding = "compile", factoryModule = "nupp.runtime.seam.simd"},
+    {name = "host.wasm", slug = "wasm", effect = "runtime.wasm", binding = "runtime", globalName = "__nuppWasm"},
+    {name = "numeric.int64", slug = "int64", effect = "runtime.int64", binding = "compile", globalName = "__nuppInt64"},
+    {name = "numeric.simd", slug = "simd", effect = "runtime.simd", binding = "compile", globalName = "__nuppSimd"},
     {
         name = "suspension",
+        slug = "suspension",
         effect = "runtime.suspension",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.suspension",
-        modules = {["nupp.suspension"] = ""}
+        globalName = "__nuppSuspensionProvider",
+        modules = {["nupp.suspension"] = ""},
+        members = {
+            functions = {
+                "all",
+                "batch",
+                "canSuspend",
+                "create",
+                "delegatedCanPark",
+                "delegatedPark",
+                "destroyInstalled",
+                "gather",
+                "handled",
+                "install",
+                "poll",
+                "race",
+                "source",
+                "suspend",
+            },
+            values = {"Context", "Handler", "Installed", "Source", "Waiting"},
+        }
     },
     -- The provider answers `string.buffer` itself rather than being projected into
     -- some other name: a program that builds a string writes `require("string.buffer")`
@@ -53,66 +94,43 @@ local CONTRACTS: {any} = {
     -- other -- which is what happened when this was written as `modules`.
     {
         name = "text.buffer",
+        slug = "textbuffer",
         effect = "runtime.text_buffer",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.textbuffer",
+        globalName = "__nuppTextBuffer",
         implementationModules = {["string.buffer"] = true}
     },
     {
         name = "data.sha256",
+        slug = "sha256",
         effect = "native.sha256",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.sha256",
+        globalName = "__nuppSha256",
         exports = {["nupp.data.sha256"] = "sha256",}
     },
     {
-        name = "data.hash",
-        effect = "runtime.data_hash",
-        binding = "runtime",
-        factoryModule = "nupp.runtime.seam.hash",
-        exports = {["nupp.data.crc32"] = "crc32", ["nupp.data.fnv1a64"] = "fnv1a64",}
-    },
-    {
-        name = "data.utf8",
-        effect = "runtime.data_utf8",
-        binding = "runtime",
-        factoryModule = "nupp.runtime.seam.utf8",
-        implementationModules = {["nupp.data.utf8"] = true}
-    },
-    -- A faster base64 than the one `nupp.data.base64` compiles to, where a
-    -- backend has one. The host's is measurably that in a browser, and a SIMD
-    -- kernel is that natively; `nupp.data.base64` is what answers when neither
-    -- is installed, which is why this seam is optional rather than required.
-    {
-        name = "data.base64",
-        effect = "runtime.data_base64",
-        binding = "runtime",
-        factoryModule = "nupp.runtime.seam.base64"
-    },
-    {
         name = "data.uuid",
+        slug = "uuid",
         effect = "native.uuid",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.uuid",
+        globalName = "__nuppUuid",
         exports = {["nupp.data.uuid4"] = "uuid4", ["nupp.data.uuid7"] = "uuid7",}
     },
     {
-        name = "data.bitset",
-        effect = "runtime.data_bitset",
-        binding = "runtime",
-        factoryModule = "nupp.runtime.seam.bitset",
-        exports = {["nupp.data.Bitset"] = "Bitset", ["nupp.data.WORD_BITS"] = "WORD_BITS",}
-    },
-    {
         name = "compute.gpu",
+        slug = "gpu",
         effect = "native.gpu",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.gpu",
+        globalName = "__nuppGpu",
         modules = {["nupp.gpu"] = ""},
+        members = {
+            functions = {"open", "workgroups", "destroyContext"},
+            values = {"Layout", "Buffer", "Kernel", "Binding", "ArtifactSet", "Shared", "Phases", "Context",},
+        }
     },
     {
         name = "peg",
-        effect = "native.lpeg",
+        slug = "peg",
         -- The engine, and only the engine. A provider stands in for the LPeg
         -- rock a native host would stage; it cannot stand in for `stdlib.peg`
         -- or `stdlib.peg.compile`, which bind the runtime module into locals of
@@ -120,94 +138,77 @@ local CONTRACTS: {any} = {
         -- has no way to become a local of its caller's chunk. Claiming those
         -- meant selecting this seam deleted the prologue the generated program
         -- calls, so every materialized matcher failed on a nil upvalue.
-        effects = {"native.lpeg"},
+        effect = "native.lpeg",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.peg",
-    },
-    {
-        name = "io.bytes",
-        effect = "stdlib.io",
-        binding = "runtime",
-        factoryModule = "nupp.runtime.seam.iobytes",
-        modules = {["nupp.io"] = ""}
+        globalName = "__nuppPeg"
     },
     {
         name = "host.path",
+        slug = "path",
         effect = "native.path",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.path",
+        globalName = "__nuppPathEnvironment",
         modules = {["nupp.io.path.provider"] = ""}
     },
     {
         name = "io.uri",
+        slug = "uri",
         effect = "native.uri",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.uri",
+        globalName = "__nuppUri",
         modules = {["nupp.io.uri"] = ""}
     },
     {
-        name = "host.files",
-        effect = "native.files",
-        binding = "runtime",
-        factoryModule = "nupp.runtime.seam.files",
-        modules = {["nupp.io.files"] = ""}
-    },
-    {
         name = "host.time",
+        slug = "time",
         effect = "native.time",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.time",
+        globalName = "__nuppTime",
         modules = {["nupp.time"] = ""}
     },
     {
         name = "host.http",
+        slug = "http",
         effect = "native.http",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.http",
+        globalName = "__nuppHttp",
         modules = {["nupp.io.http"] = ""}
     },
     {
         name = "host.browser_crypto",
+        slug = "browsercrypto",
         effect = "runtime.browser_crypto",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.browsercrypto",
+        globalName = "__nuppBrowserCrypto",
         modules = {["nupp.browser.crypto"] = ""}
     },
     {
         name = "host.browser_storage",
+        slug = "browserstorage",
         effect = "runtime.browser_storage",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.browserstorage",
+        globalName = "__nuppBrowserStorage",
         modules = {["nupp.browser.storage"] = ""}
     },
     {
-        name = "host.net",
-        effect = "native.net",
-        binding = "runtime",
-        factoryModule = "nupp.runtime.seam.net",
-        modules = {["nupp.io.net"] = ""}
-    },
-    {
-        name = "host.tls",
-        effect = "native.tls",
-        binding = "runtime",
-        factoryModule = "nupp.runtime.seam.tls",
-        modules = {["nupp.io.tls"] = ""}
-    },
-    {
-        name = "host.process",
-        effect = "native.process",
-        binding = "runtime",
-        factoryModule = "nupp.runtime.seam.process",
-        modules = {["nupp.io.process"] = ""}
-    },
-    {
         name = "host.workers",
+        slug = "workers",
         version = 2,
         effect = "native.workers",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.workers",
-        modules = {["nupp.workers"] = ""}
+        globalName = "__nuppWorkers",
+        modules = {["nupp.workers"] = ""},
+        -- `Scope` is a record and reaches the running program as its declaration
+        -- table. The cleanup contract it carries, `ScopeToken`, is affine: a promise
+        -- the checker holds a provider to, with nothing of it left at run time. So
+        -- this names the one of the two a loaded module can answer for.
+        --
+        -- The three underscored functions are what `nupp.tasks` reaches a provider
+        -- through without linking it: `__scope` opens a family for a task scope to
+        -- own, `__settle` waits on one task without raising, and `__parallelism`
+        -- sizes a bounded fan-out. A provider missing any of them fails selection
+        -- here rather than at the first `fork`. Version 2 is the one that names them.
+        members = {functions = {"scope", "__scope", "__settle", "__parallelism"}, values = {"Scope"},}
     },
     -- A faster HMAC-SHA256 than the one `nupp.data.hash` compiles to, where a
     -- backend has one -- WebCrypto in a browser, a host's own kernel natively.
@@ -215,35 +216,42 @@ local CONTRACTS: {any} = {
     -- this seam is optional rather than required.
     {
         name = "crypto.hmac_sha256",
+        slug = "hmacsha256",
         effect = "runtime.hmac_sha256",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.hmacsha256"
+        globalName = "__nuppHmacSha256"
     },
 }
 
-local byName, byFactory = {}, {}
+local byName, bySlug = {}, {}
 for _, untyped in ipairs(CONTRACTS) do
     local contract: any = untyped
     contract.version = contract.version or 1
     contract.effects = contract.effects or {contract.effect}
-    contract.suiteModule = contract.factoryModule .. "suite"
+    contract.suiteModule = "nupp.runtime.seam." .. contract.slug .. "suite"
+    -- The declared interface wins wherever there is one, so a member added to a
+    -- contract reaches the runtime check without being written down again.
+    const declared = contracts.members[contract.name] or contract.members
+    assert(declared ~= nil, "seam contract " .. contract.name .. " declares no members")
+    contract.requiredFunctions = declared.functions
+    contract.requiredValues = declared.values
+    contract.valueTypes = declared.valueTypes or {}
     assert(byName[contract.name] == nil, "duplicate seam contract " .. contract.name)
-    assert(byFactory[contract.factoryModule] == nil, "duplicate seam factory " .. contract.factoryModule)
+    assert(bySlug[contract.slug] == nil, "duplicate seam slug " .. contract.slug)
     byName[contract.name] = contract
-    byFactory[contract.factoryModule] = contract
+    bySlug[contract.slug] = contract
 end
 
 function registry.get(name: string): any
     return assert(byName[name], "unknown seam contract " .. name)
 end
 
---- The contract of that name, or nil where the compiler carries none.
 function registry.find(name: string): any?
     return byName[name]
 end
 
-function registry.forFactory(moduleName: string): any?
-    return byFactory[moduleName]
+function registry.forSlug(slug: string): any?
+    return bySlug[slug]
 end
 
 function registry.all(): {any}

@@ -180,10 +180,9 @@ local function runOnRuntime(
     if not fs.mkdir(scratch) then
         return nil, nil, "cannot create backend test directory " .. scratch
     end
-    local roots = {moduleName}
+    local roots = {moduleName, "nupp.runtime.backend", "nupp.runtime.seam.module"}
     for _, selected in ipairs(descriptor.seams or {}) do
         roots[#roots + 1] = selected.runtimeModule
-        roots[#roots + 1] = selected.factoryModule
         roots[#roots + 1] = selected.suiteModule
     end
     local compiled, compileProblem = compileRuntimeTree(env, scratch, roots, settings)
@@ -193,15 +192,19 @@ local function runOnRuntime(
     end
     local runner = (
         [[
+local runtime = require("nupp.runtime.backend")
+local seams = require("nupp.runtime.seam.module")
+local registry = require("nupp.runtime.seam.registry")
 local selected = require(%q)
-selected:install()
+runtime.install(selected)
 local focused = %s
 local found = false
 local failed = false
-for _, seam in ipairs(selected.seams or {}) do
-    if focused == nil or focused == seam.name then
+for _, chosen in ipairs(runtime.selections(selected)) do
+    if focused == nil or focused == chosen.name then
         found = true
-        local ok, problem = seam:test()
+        local seam = registry.get(chosen.name)
+        local ok, problem = seams.test(chosen.name, chosen.module)
         failed = failed or not ok
         -- %%q spells an embedded newline as a backslash and a literal newline, which
         -- would split this row across two physical lines; the reader is line-based,
@@ -395,24 +398,28 @@ local function run(argv: {string}): integer
     if not preloadChecked(moduleName, path) then
         return 1
     end
-    local loaded, backend = pcall(require, moduleName)
+    local loaded, declared = pcall(require, moduleName)
     if not loaded then
-        io.stderr:write("nupp: backend " .. moduleName .. " could not load: " .. tostring(backend) .. "\n")
+        io.stderr:write("nupp: backend " .. moduleName .. " could not load: " .. tostring(declared) .. "\n")
         return 1
     end
 
+    local runtime = require("nupp.runtime.backend")
+    local seams = require("nupp.runtime.seam.module")
+    local registry = require("nupp.runtime.seam.registry")
     local results = {}
     local failed = false
-    backend:install()
-    for _, selected in ipairs(backend.seams or {}) do
+    runtime.install(declared)
+    for _, selected in ipairs(runtime.selections(declared)) do
         if focused == nil or focused == selected.name then
-            local ok, problem = selected:test()
+            local contract = registry.get(selected.name)
+            local ok, problem = seams.test(selected.name, selected.module)
             results[
                 #results + 1
             ] = {
                 name = selected.name,
-                version = selected.version,
-                binding = selected.binding or "runtime",
+                version = contract.version,
+                binding = contract.binding,
                 ok = ok,
                 problem = problem,
             }

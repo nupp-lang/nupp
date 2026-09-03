@@ -4,21 +4,17 @@ module nupp.compiler.backends
 Static backend descriptors and generated backend selection.
 
 A manifest names checked modules, never individual provider strings. A backend
-module exports one declarative `Backend.new` expression whose seam constructors
-carry the exact runtime dependencies. This reader extracts only that restricted
-syntax after the ordinary checker has typed it; it never executes the backend or
-requires the third-party modules it names.
+module exports one constant declaration: a name, and the provider module that
+answers each seam contract it selects. This reader takes that value after the
+ordinary checker has typed it; it never executes the backend or requires the
+third-party modules it names.
 ]]
 
 local backends = {}
 
-local RUNTIME_BACKEND_MODULE = "nupp.runtime.backend"
+local registry = require("nupp.runtime.seam.registry")
 
-local FACTORIES = {}
-for _, contract in ipairs(require("nupp.runtime.seam.registry").all()) do
-    FACTORIES[contract.factoryModule] = {seam = contract,}
-end
-
+--- The Lua value of a string literal node, or nil for anything else.
 local function literalString(node: any): string?
     local token = node and node.kind == "string" and node.token or nil
     if not token then
@@ -33,71 +29,14 @@ local function literalString(node: any): string?
     return ok and type(value) == "string" and value or nil
 end
 
-local function callParts(node: any): any?, {any}
-    if not node or node.kind ~= "call" or not node.args or node.args.kind ~= "args" then
-        return nil, {}
-    end
-
-    return node.obj, node.args.exprs or {}
-end
-
-local function requiredModule(node: any): string?
-    -- The checker records this only when the callee resolves to the immutable
-    -- prelude `require` and its sole argument is a string literal. Reading that
-    -- annotation keeps descriptor discovery static without mistaking a local
-    -- function named `require` for a module import.
-    return node and node.requiredModule or nil
-end
-
-local function importsOf(root: any): {[string]: string}
-    local imports = {}
-    for _, block in ipairs(root.blocks or {}) do
-        for _, stat in ipairs(block.stats or {}) do
-            if stat.kind == "localStmt" and stat.isConst and #(stat.names or {}) == 1 and #(stat.exprs or {}) == 1 then
-                local moduleName = requiredModule(stat.exprs[1])
-                if moduleName then
-                    imports[stat.names[1].text] = moduleName
-                end
-            end
-        end
-    end
-
-    return imports
-end
-
-local function importedCall(node: any, imports: {[string]: string}): string?, string?, {any}
-    local callee, args = callParts(node)
-    if not callee or callee.kind ~= "dotIndex" or not callee.obj or callee.obj.kind ~= "name" then
-        return nil, nil, {}
-    end
-    local localToken = callee.obj.token
-    local memberToken = callee.name
-    if not localToken or not memberToken then
-        return nil, nil, {}
-    end
-    local moduleName = imports[localToken.text]
-    if not moduleName then
-        return nil, nil, {}
-    end
-
-    return moduleName, memberToken.text, args
-end
-
-local function fingerprint(descriptor: any): string
-    local parts = {descriptor.name}
-    for _, seam in ipairs(descriptor.seams) do
-        parts[
-            #parts + 1
-        ] = table.concat(
-            {seam.name, tostring(seam.version), seam.effect, seam.binding or "runtime", seam.runtimeModule},
-            "\0"
-        )
-    end
-
-    return table.concat(parts, "\0")
-end
-
 --- Reads `{["key"] = "value", ...}` as a constant map, or says why it is not one.
+---
+--- This is the whole of what reading a backend takes now. It used to be a
+--- restricted-syntax matcher over calls -- const `require` bindings collected
+--- into a local-name table, one `Backend.new`, positional constructor calls
+--- resolved back to compiler-owned factory modules -- roughly a hundred and
+--- fifty lines interpreting the shape of code the compiler then refused to run.
+--- A declaration has a value, so the compiler reads the value.
 local function constantMap(node: any, label: string): {[string]: string}?, string?
     if not node or node.kind ~= "tableExpr" then
         return nil, label .. " must be a table of constant entries"
@@ -126,16 +65,29 @@ local function constantMap(node: any, label: string): {[string]: string}?, strin
     return entries
 end
 
+local function fingerprint(descriptor: any): string
+    local parts = {descriptor.name}
+    for _, seam in ipairs(descriptor.seams) do
+        parts[
+            #parts + 1
+        ] = table.concat(
+            {seam.name, tostring(seam.version), seam.effect, seam.binding or "runtime", seam.runtimeModule},
+            "\0"
+        )
+    end
+
+    return table.concat(parts, "\0")
+end
+
 --- Builds the descriptor one already-read declaration resolves to.
 ---
---- A backend declaration is a value rather than a call, so a reader that has
---- one in hand -- this module from source, `nupp.compiler.browser` from the
---- module it requires -- resolves it the same way.
+--- Shared with `nupp.compiler.browser`, which has the browser backend's
+--- declaration in hand rather than its source, so the host and a build agree on
+--- what that backend is by construction instead of by two lists matching.
 function backends.describe(name: string, seams: {[string]: string}, moduleName: string?): any?, string?
     if name == "" then
         return nil, "a backend must have a non-empty name"
     end
-    local registry = require("nupp.runtime.seam.registry")
     local ordered = {}
     for contractName in pairs(seams) do
         if registry.find(contractName) == nil then
@@ -153,19 +105,18 @@ function backends.describe(name: string, seams: {[string]: string}, moduleName: 
 
     local descriptor = {name = name, module = moduleName, seams = {},}
     for _, contractName in ipairs(ordered) do
-        local contract = registry.get(contractName)
-        descriptor.seams[#descriptor.seams + 1] = {
+        const contract = registry.get(contractName)
+        descriptor.seams[
+            #descriptor.seams + 1
+        ] = {
             name = contract.name,
             version = contract.version,
             effect = contract.effect,
-            effects = contract.effects or {contract.effect},
+            effects = contract.effects,
             modules = contract.modules,
             implementationModules = contract.implementationModules,
             exports = contract.exports,
-            binding = contract.binding or "runtime",
-            -- No factory module. A declaration names a provider per contract and
-            -- the seam layer installs it; the per-seam constructor a `Backend.new`
-            -- call reached for is what this replaces.
+            binding = contract.binding,
             suiteModule = contract.suiteModule,
             runtimeModule = seams[contractName],
         }
@@ -176,13 +127,15 @@ function backends.describe(name: string, seams: {[string]: string}, moduleName: 
     return descriptor
 end
 
---- Reads a backend declaration: a constant name and a provider per contract.
+--- Reads a backend declaration. A non-backend module returns no problem.
 ---
---- Answers nil for anything that is not one, including the `Backend.new` call a
---- backend used to be, which `inspect` still reads below.
-local function declaration(value: any, moduleName: string?): any?, string?, boolean
+--- The declaration is a value, not a call: the compiler reads what the module
+--- exports rather than matching the shape of a constructor it will not execute.
+function backends.inspect(root: any, moduleName: string?): any?, string?
+    local exported = require("nupp.compiler.cst").exportAssignment(root)
+    local value = exported and exported.value or nil
     if not value or value.kind ~= "tableExpr" then
-        return nil, nil, false
+        return nil
     end
     local name: string? = nil
     local seamField: any = nil
@@ -197,94 +150,20 @@ local function declaration(value: any, moduleName: string?): any?, string?, bool
     -- Neither half present is an ordinary module that happens to export a table,
     -- not a malformed backend. One half is a backend somebody got wrong.
     if name == nil and seamField == nil then
-        return nil, nil, false
+        return nil
     end
     if name == nil or name == "" then
-        return nil, "a backend declaration must give a non-empty constant name", true
+        return nil, "a backend declaration must give a non-empty constant name"
     end
     if seamField == nil then
-        return nil, "backend " .. name .. " must declare its seams", true
+        return nil, "backend " .. name .. " must declare its seams"
     end
     local seams, problem = constantMap(seamField, "backend " .. name .. " seams")
     if not seams then
-        return nil, problem, true
-    end
-    local descriptor, failure = backends.describe(name, seams, moduleName)
-
-    return descriptor, failure, true
-end
-
---- Reads a declarative backend export. A non-backend module returns no problem.
-function backends.inspect(root: any, moduleName: string?): any?, string?
-    local imports = importsOf(root)
-    local exported = require("nupp.compiler.cst").exportAssignment(root)
-    local value = exported and exported.value or nil
-    local declared, declaredProblem, isDeclaration = declaration(value, moduleName)
-    if isDeclaration then
-        return declared, declaredProblem
-    end
-    local calledModule, member, args = importedCall(value, imports)
-    if calledModule ~= RUNTIME_BACKEND_MODULE or member ~= "new" then
-        return nil
-    end
-    if #args ~= 2 then
-        return nil, "Backend.new must receive a constant name and a literal seam list"
-    end
-    local name = literalString(args[1])
-    if not name or name == "" then
-        return nil, "Backend.new must receive a non-empty constant name"
-    end
-    local seamList = args[2]
-    if not seamList or seamList.kind ~= "tableExpr" then
-        return nil, "Backend.new must receive a literal seam list"
+        return nil, problem
     end
 
-    local descriptor = {name = name, module = moduleName, seams = {},}
-    local seen = {}
-    for _, field in ipairs(seamList.fields or {}) do
-        if field.kind ~= "fieldItem" then
-            return nil, "a backend seam list may contain only positional constructor calls"
-        end
-        local factoryModule, factoryMember, seamArgs = importedCall(field.value, imports)
-        local factory = factoryModule and FACTORIES[factoryModule]
-        local contract = factory and factory[factoryMember]
-        if not contract then
-            return nil, "backend seam entries must call a compiler-owned seam constructor"
-        end
-        if #seamArgs ~= 1 then
-            return nil, contract.name .. " must name exactly one runtime module"
-        end
-        local runtimeModule = literalString(seamArgs[1])
-        if not runtimeModule or runtimeModule == "" then
-            return nil, contract.name .. " must name a non-empty constant runtime module"
-        end
-        if seen[contract.name] then
-            return nil, "backend " .. name .. " supplies seam " .. contract.name .. " more than once"
-        end
-        seen[contract.name] = true
-        descriptor.seams[
-            #descriptor.seams + 1
-        ] = {
-            name = contract.name,
-            version = contract.version,
-            effect = contract.effect,
-            effects = contract.effects or {contract.effect},
-            modules = contract.modules,
-            implementationModules = contract.implementationModules,
-            exports = contract.exports,
-            binding = contract.binding or "runtime",
-            factoryModule = factoryModule,
-            suiteModule = contract.suiteModule,
-            runtimeModule = runtimeModule,
-        }
-    end
-    if #descriptor.seams == 0 then
-        return nil, "backend " .. name .. " must supply at least one seam"
-    end
-    descriptor.fingerprint = fingerprint(descriptor)
-    descriptor.digest = require("nupp.compiler.hash").digest(descriptor.fingerprint)
-
-    return descriptor
+    return backends.describe(name, seams, moduleName)
 end
 
 --- Validates the manifest's ordered collection of backend module names.
@@ -328,7 +207,7 @@ function backends.resolve(inc: any, selected: {string}?): any?, string?, any?
         local problem = checked and checked.backendProblem or nil
         if not descriptor then
             return nil, "backend module " .. moduleName .. ": " .. (
-                problem or "must export a declarative Backend.new value"
+                problem or "must export one constant backend declaration"
             ), {module = moduleName, path = path}
         end
         descriptor.module = moduleName
@@ -357,7 +236,6 @@ function backends.resolve(inc: any, selected: {string}?): any?, string?, any?
                 version = seam.version,
                 effect = seam.effect,
                 binding = seam.binding or "runtime",
-                factoryModule = seam.factoryModule,
                 suiteModule = seam.suiteModule,
                 modules = seam.modules,
                 implementationModules = seam.implementationModules,

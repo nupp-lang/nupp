@@ -1,11 +1,25 @@
 @!internal
 module nupp.runtime.seam.browsercryptosuite
 
+--[[
+The one seam whose suite asserts nothing beyond its shape.
+
+Everything `host.browser_crypto` promises is the host's -- WebCrypto's digest,
+its random bytes, its identifiers -- so a vector here would assert what a
+browser does rather than what a provider does, and it would have to reach a
+browser to do it. `nupp.runtime.seam.module` checks the shape before calling
+this, which is the whole of what a loaded module can be held to.
+
+This was the `validate` call the seam's own factory published. The factory is
+gone and the check it forwarded to now runs ahead of every suite, so the
+forwarding was the only thing left in it.
+]]
+
 local suite = {}
 
+@allow("unused-binding")
 function suite.test(provider: any): (boolean, string?)
-    local problem = require("nupp.runtime.seam.browsercrypto").validate(provider)
-    return problem == nil, problem
+    return true
 end
 
 export = suite

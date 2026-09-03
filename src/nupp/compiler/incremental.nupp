@@ -88,7 +88,7 @@ type incremental.CheckResult = {
     --- The parse this was checked from, kept so callers need not reparse.
     result: any,
 
-    --- Declarative Backend.new metadata extracted without executing the module.
+    --- The backend declaration's descriptor, read without executing the module.
     backend: any?,
     backendProblem: string?
 }

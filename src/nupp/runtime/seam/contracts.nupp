@@ -13,9 +13,9 @@ provider satisfying the string list installed cleanly while answering a
 different signature than the declaration promised.
 
 The interface here is the single statement. `members` reads it with
-`nupp.reflect` at compile time and hands the seam the same names it used to
-spell out, so a member added to a contract reaches the runtime check without
-being written down again. A provider states conformance by projecting itself
+`nupp.reflect` at compile time and hands `nupp.runtime.seam.registry` the same
+names each seam used to spell out, so a member added to a contract reaches the
+runtime check in `nupp.runtime.seam.module` without being written down again. A provider states conformance by projecting itself
 onto the interface, which is where a mismatched signature is now reported.
 ]]
 
@@ -113,16 +113,6 @@ export interface HmacSha256Provider
     hex: function(key: string, message: string): string
 end
 
---- `data.base64`, the faster codec a backend may have.
----
---- The seam is optional: `nupp.data.base64` answers when no backend installs
---- one, so a provider here replaces a working implementation rather than
---- supplying a missing one.
-export interface Base64Provider
-    encode: function(value: string): string
-    decode: function(text: string): string
-end
-
 --- `host.time`, which answers `nupp.time`.
 export interface TimeProvider
     now: function(): number
@@ -149,13 +139,161 @@ export interface BrowserStorageProvider
     clear: function(): nil
 end
 
+--- `data.sha256`, the digest projected onto `nupp.data.sha256`.
+export interface Sha256Provider
+    sha256: function(message: string): string
+end
+
+--- `host.browser_crypto`, the one host object behind three seams.
+---
+--- A browser answers SHA-256, HMAC-SHA256 and identifiers from the same
+--- WebCrypto surface, so the provider named for `host.browser_crypto` is also
+--- what `data.sha256`, `crypto.hmac_sha256` and `data.uuid` select.
+export interface BrowserCryptoProvider
+    digest: function(key: string, message: string): string
+    hex: function(key: string, message: string): string
+    randomBytes: function(count: integer): string
+    sha256: function(message: string): string
+    uuid4: function(): string
+    uuid7: function(): string
+end
+
+--- `numeric.bitops`, the BitOp surface compile-bound lowering emits against.
+---
+--- The folding operations are variadic because BitOp's are: `band(a, b, c)` is
+--- one call there, and a provider that took exactly two would fail the third
+--- argument rather than the declaration.
+export interface BitopsProvider
+    band: function(first: number, ...: number): number
+    bor: function(first: number, ...: number): number
+    bxor: function(first: number, ...: number): number
+    bnot: function(value: number): number
+    lshift: function(value: number, count: number): number
+    rshift: function(value: number, count: number): number
+    arshift: function(value: number, count: number): number
+end
+
+--- `numeric.int64`, the wide integers a dialect without cdata cannot represent.
+---
+--- A wide value is the provider's own representation and stays `any` here: it
+--- is a boxed table portably and a cdata natively, and the contract is what
+--- both answer rather than what either one is.
+export interface Int64Provider
+    int64: function(value: any): any
+    uint64: function(value: any): any
+    add: function(left: any, right: any): any
+    sub: function(left: any, right: any): any
+    mul: function(left: any, right: any): any
+    div: function(left: any, right: any): any
+    mod: function(left: any, right: any): any
+    pow: function(left: any, right: any): any
+    neg: function(value: any): any
+    band: function(left: any, right: any): any
+    bor: function(left: any, right: any): any
+    bxor: function(left: any, right: any): any
+    bnot: function(value: any): any
+    lshift: function(value: any, count: number): any
+    rshift: function(value: any, count: number): any
+    arshift: function(value: any, count: number): any
+    compare: function(left: any, right: any): number
+    toNumber: function(value: any): number
+    toString: function(value: any): string
+end
+
+--- `numeric.simd`, the lane species compile-bound vector lowering reaches.
+export interface SimdProvider
+    preferredU8: function(): any
+    tableU8x16: function(...: number): any
+    maskBits64: function(low: number, high: number): any
+    alignBytes: function(previous: any, current: any, offset: number): any
+    paddedStringU8: function(source: string): any
+    lanes: any
+end
+
+--- `representation.structvalue`, the table layout a dialect without cdata uses.
+export interface StructvalueProvider
+    scalar: function(kind: string): any
+    array: function(element: any, count: integer): any
+    define: function(layout: any, methods: table): any
+    referenceValued: any
+end
+
+--- `host.wasm`, the opaque linear memory a Lua-in-Wasm host owns.
+---
+--- A pointer is the host's, not Nupp's, which is why every member takes and
+--- returns `any`: the guarantee is the bounds check behind them, not a shape a
+--- program could construct for itself.
+export interface WasmProvider
+    allocate: function(bytes: integer): any
+    pointer: function(allocation: any, index: integer, stride: integer): any
+    offset: function(pointer: any, count: integer): any
+    load: function(pointer: any, byteOffset: integer, kind: string): any
+    store: function(pointer: any, byteOffset: integer, kind: string, value: any): nil
+    copy: function(destination: any, source: any, bytes: integer): nil
+    descriptor: function(value: any): any
+end
+
+--- `text.buffer`, the appending half of LuaJIT's `string.buffer`.
+---
+--- Only `new`, because that is what the standard library reaches a buffer for.
+--- A provider is free to answer the FIFO reads and the serializer beside it; a
+--- portable one has no way to answer the pointer methods, and nothing asks.
+export interface TextBufferProvider
+    new: function(size: (integer | table)?, options: table?): any
+end
+
+--- `peg`, the matching engine and only the engine.
+---
+--- A provider stands in for the LPeg rock a native host would stage. It cannot
+--- stand in for `stdlib.peg`, which binds the runtime module into locals of the
+--- chunk a materialized matcher is generated against.
+export interface PegProvider
+    compile: function(pattern: string): any
+    match: function(pattern: any, subject: string): any?
+end
+
+--- `io.uri`, which answers `nupp.io.uri`.
+export interface UriProvider
+    newURI: function(value: any): (any?, string?)
+    validate: function(value: string): (boolean, string?)
+    isURI: function(value: any): boolean
+    URI: any
+    Components: any
+end
+
+--- `host.http`, which answers `nupp.io.http`.
+---
+--- The record members are the provider's declarations rather than shapes
+--- restated here, because a body or a response is the type a program names and
+--- the seam only decides which module declares it.
+export interface HttpProvider
+    file: function(path: string, contentType: string?): any
+    reader: function(source: any, length: integer?, contentType: string?): any
+    Body: any
+    Client: any
+    FileBody: any
+    Options: any
+    ReaderBody: any
+    Request: any
+    Response: any
+end
+
 --- The members each contract requires, by the name the registry knows it as.
 ---
---- A contract absent here keeps the list its seam spells out. Adding one is
---- declaring the interface above and naming it in this table.
+--- A contract absent here keeps the `members` list its registry entry spells
+--- out. Three are: `compute.gpu`, `host.workers` and `suspension` each own a
+--- surface whose real contract is affine -- a scope token, a context, an
+--- installed handler -- and an interface restating it would either lie about
+--- the ownership or be something no loaded module could be checked against.
+--- The registry names what a loaded table can answer for, which is the half
+--- this file's `validate` tests. Adding a contract here is declaring the
+--- interface above and naming it in this table.
 contracts.members = {
     ["data.json"] = comptime do
         return memberNames(nupp.reflect(JsonProvider))
+    end,
+    ["data.sha256"] = comptime do
+        return memberNames(nupp.reflect(Sha256Provider))
     end,
     ["data.uuid"] = comptime do
         return memberNames(nupp.reflect(UuidProvider))
@@ -163,8 +301,26 @@ contracts.members = {
     ["crypto.hmac_sha256"] = comptime do
         return memberNames(nupp.reflect(HmacSha256Provider))
     end,
-    ["data.base64"] = comptime do
-        return memberNames(nupp.reflect(Base64Provider))
+    ["numeric.bitops"] = comptime do
+        return memberNames(nupp.reflect(BitopsProvider))
+    end,
+    ["numeric.int64"] = comptime do
+        return memberNames(nupp.reflect(Int64Provider))
+    end,
+    ["numeric.simd"] = comptime do
+        return memberNames(nupp.reflect(SimdProvider))
+    end,
+    ["representation.structvalue"] = comptime do
+        return memberNames(nupp.reflect(StructvalueProvider))
+    end,
+    ["text.buffer"] = comptime do
+        return memberNames(nupp.reflect(TextBufferProvider))
+    end,
+    ["host.wasm"] = comptime do
+        return memberNames(nupp.reflect(WasmProvider))
+    end,
+    ["peg"] = comptime do
+        return memberNames(nupp.reflect(PegProvider))
     end,
     ["host.time"] = comptime do
         return memberNames(nupp.reflect(TimeProvider))
@@ -172,41 +328,18 @@ contracts.members = {
     ["host.path"] = comptime do
         return memberNames(nupp.reflect(PathProvider))
     end,
+    ["io.uri"] = comptime do
+        return memberNames(nupp.reflect(UriProvider))
+    end,
+    ["host.http"] = comptime do
+        return memberNames(nupp.reflect(HttpProvider))
+    end,
+    ["host.browser_crypto"] = comptime do
+        return memberNames(nupp.reflect(BrowserCryptoProvider))
+    end,
     ["host.browser_storage"] = comptime do
         return memberNames(nupp.reflect(BrowserStorageProvider))
     end,
 }
-
---- Answers why one loaded value cannot satisfy a contract's runtime shape.
----
---- This repeats at run time what the provider's own conformance projection
---- already settled at compile time, for the provider nobody compiled against
---- the contract: a rock, a host-supplied table, a module reached through a
---- name the build never saw.
-function contracts.validate(name: string, value: any): string?
-    const required = contracts.members[name]
-    if required == nil then
-        return "no declared contract named " .. name
-    end
-    if type(value) ~= "table" then
-        return "module returned " .. type(value) .. ", expected table"
-    end
-    for _, member in ipairs(required.functions) do
-        if type(value[member]) ~= "function" then
-            return "member " .. member .. " is " .. type(value[member]) .. ", expected function"
-        end
-    end
-    for _, member in ipairs(required.values) do
-        if value[member] == nil then
-            return "member " .. member .. " is absent"
-        end
-        const expected = required.valueTypes[member]
-        if expected ~= nil and type(value[member]) ~= expected then
-            return "member " .. member .. " is " .. type(value[member]) .. ", expected " .. expected
-        end
-    end
-
-    return nil
-end
 
 export = contracts

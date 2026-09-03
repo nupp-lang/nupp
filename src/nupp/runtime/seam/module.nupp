@@ -2,73 +2,96 @@
 
 module nupp.runtime.seam.module
 
---[[Shared mechanics for exact third-party runtime-module seams.]]
+--[[
+The whole runtime half of seam substitution, for every contract.
 
-local runtimeBackend = require("nupp.runtime.backend")
+There used to be one ~23-line module per contract here, each restating the
+contract's member list, its global binding name and its suite module beside a
+`seam`, `validate`, `test` and `backend` that differed only in which constant
+they closed over. The constants belong to `nupp.runtime.seam.registry`, which
+already held the rest of the identity, so this reads them from there and every
+contract goes through one implementation.
+
+A caller names a contract, not a module: `seam("data.json", provider)` rather
+than `require("nupp.runtime.seam.json").seam(provider)`.
+]]
+
 -- Required here rather than where it is read: a require inside a body is not a
 -- require the module graph follows, so a build staging the seam sources would
--- carry this module without the contracts it reads.
-local contracts = require("nupp.runtime.seam.contracts")
+-- carry this module without the registry it reads.
+local registry = require("nupp.runtime.seam.registry")
 local moduleSeam = {}
 
+--- Every module `install` may load, for `nupp.compiler.build.cache`'s module graph.
+---
+--- The provider is whichever one a backend declaration names, so the graph cannot
+--- read it at the `require` below: the literal is in the declaration, not here.
+--- This says the range instead, and says it as a string because the graph reads
+--- the built module, where a comment is gone and this is not.
+@allow("unused-binding")
+const DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.*"
+
+--- One versioned unit of substitutable behavior and its conformance suite.
+---
+--- Declared here rather than in `nupp.runtime.backend`, which requires this
+--- module to install what a declaration selects; naming the type there would
+--- make the two require each other.
+--- @export
+export interface Seam
+    readonly name: string
+    readonly version: integer
+    readonly binding: string
+    install: function(self: Seam): nil
+    test: function(self: Seam): (boolean, string?)
+end
+
+--- One resolved contract, as `nupp.runtime.seam.registry` assembles it.
 export interface Contract
     readonly name: string
+    readonly slug: string
     readonly version: integer
     readonly binding: string
     readonly globalName: string
     readonly requiredFunctions: {string}
     readonly requiredValues: {string}
-    readonly valueTypes: {[string]: string}?
+    readonly valueTypes: {[string]: string}
     readonly suiteModule: string
     readonly modules: {[string]: string}?
     readonly implementationModules: {[string]: boolean}?
     readonly exports: {[string]: string}?
 end
 
---- Combines runtime shape with the compiler/runtime's single seam identity record.
---- @raises when the shape duplicates substitution metadata owned by the registry
----
---- A contract declared in `nupp.runtime.seam.contracts` supplies its own member
---- names, read off the interface at compile time. A seam whose contract is not
---- declared there yet keeps the list it spells out, so the two coexist while
---- the remaining contracts are written down.
-function moduleSeam.contract(name: string, shape: any): Contract
-    local identity = require("nupp.runtime.seam.registry").get(name)
-    for _, field in ipairs({"modules", "implementationModules", "exports"}) do
-        if shape[field] ~= nil then
-            error("nupp: seam " .. name .. " declares " .. field .. " outside the runtime seam registry", 2)
-        end
-        shape[field] = identity[field]
-    end
-    local declared = contracts.members[name]
-    if declared ~= nil then
-        shape.requiredFunctions = declared.functions
-        shape.requiredValues = declared.values
-        shape.valueTypes = declared.valueTypes
-    end
-    shape.name = identity.name
-    shape.version = identity.version
-    shape.binding = identity.binding
-
-    return shape as Contract
+local function contractOf(name: string): Contract
+    return registry.get(name) as Contract
 end
 
-function moduleSeam.validate(contract: Contract, value: any): string?
+--- Answers why one loaded value cannot satisfy a contract's runtime shape.
+---
+--- This repeats at run time what a provider's own conformance projection already
+--- settled at compile time, for the provider nobody compiled against the contract:
+--- a rock, a host-supplied table, a module reached through a name the build never
+--- saw.
+---
+--- Functions and values are checked differently: a function must be callable,
+--- where a value only has to be there. A value whose declared type names a Lua
+--- type is checked for that too.
+function moduleSeam.validate(name: string, value: any): string?
+    const contract = contractOf(name)
     if type(value) ~= "table" then
         return "module returned " .. type(value) .. ", expected table"
     end
-    for _, name in ipairs(contract.requiredFunctions) do
-        if type(value[name]) ~= "function" then
-            return "member " .. name .. " is " .. type(value[name]) .. ", expected function"
+    for _, member in ipairs(contract.requiredFunctions) do
+        if type(value[member]) ~= "function" then
+            return "member " .. member .. " is " .. type(value[member]) .. ", expected function"
         end
     end
-    for _, name in ipairs(contract.requiredValues) do
-        if value[name] == nil then
-            return "member " .. name .. " is absent"
+    for _, member in ipairs(contract.requiredValues) do
+        if value[member] == nil then
+            return "member " .. member .. " is absent"
         end
-        const expected = (contract.valueTypes or {})[name]
-        if expected ~= nil and type(value[name]) ~= expected then
-            return "member " .. name .. " is " .. type(value[name]) .. ", expected " .. expected
+        const expected = contract.valueTypes[member]
+        if expected ~= nil and type(value[member]) ~= expected then
+            return "member " .. member .. " is " .. type(value[member]) .. ", expected " .. expected
         end
     end
 
@@ -85,7 +108,7 @@ local function loadProvider(contract: Contract, moduleName: string): any
             0
         )
     end
-    local problem = moduleSeam.validate(contract, value)
+    local problem = moduleSeam.validate(contract.name, value)
     if problem ~= nil then
         error("nupp: runtime provider " .. moduleName .. " for " .. contract.name .. " is incompatible: " .. problem, 0)
     end
@@ -93,7 +116,10 @@ local function loadProvider(contract: Contract, moduleName: string): any
     return value
 end
 
-function moduleSeam.install(contract: Contract, moduleName: string): nil
+--- Installs one lazily loaded provider for a contract.
+--- @raises when a conflicting provider or binding is already installed
+function moduleSeam.install(name: string, moduleName: string): nil
+    const contract = contractOf(name)
     local selections = rawget(_G, "__nuppRuntimeProviders")
     if selections == nil then
         selections = {}
@@ -146,11 +172,11 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
             -- inherits an installed handler after the provider is available, but
             -- does not recursively load the suspension provider from the protected
             -- call that is loading it.
-            for _, name in ipairs(contract.requiredFunctions) do
-                rawset(binding, name, value[name])
+            for _, member in ipairs(contract.requiredFunctions) do
+                rawset(binding, member, value[member])
             end
-            for _, name in ipairs(contract.requiredValues) do
-                rawset(binding, name, value[name])
+            for _, member in ipairs(contract.requiredValues) do
+                rawset(binding, member, value[member])
             end
         end
 
@@ -159,9 +185,9 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
 
     selections[contract.name] = moduleName
     setmetatable(binding, {
-        __index = function(self, name)
-            local value = provider()[name]
-            rawset(self, name, value)
+        __index = function(self, member)
+            local value = provider()[member]
+            rawset(self, member, value)
 
             return value
         end,
@@ -232,12 +258,17 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
     end
 end
 
-function moduleSeam.test(contract: Contract, moduleName: string): (boolean, string?)
+--- Runs the compiler-owned behavioral suite against one provider module.
+---
+--- This command-facing suite is evidence rather than a build-time proof. It is
+--- deliberately explicit so checking and building never execute a dependency.
+function moduleSeam.test(name: string, moduleName: string): (boolean, string?)
+    const contract = contractOf(name)
     local ok, value = pcall(require, moduleName)
     if not ok then
         return false, "could not load module: " .. tostring(value)
     end
-    local problem = moduleSeam.validate(contract, value)
+    local problem = moduleSeam.validate(contract.name, value)
     if problem ~= nil then
         return false, problem
     end
@@ -246,17 +277,19 @@ function moduleSeam.test(contract: Contract, moduleName: string): (boolean, stri
     return suite.test(value)
 end
 
-function moduleSeam.seam(contract: Contract, moduleName: string): runtimeBackend.Seam
+--- Supplies the versioned seam binding one contract to one provider module.
+function moduleSeam.seam(name: string, moduleName: string): Seam
+    const contract = contractOf(name)
     local selected: any = {name = contract.name, version = contract.version, binding = contract.binding,}
     function selected:install(): nil
-        moduleSeam.install(contract, moduleName)
+        moduleSeam.install(contract.name, moduleName)
     end
 
     function selected:test(): (boolean, string?)
-        return moduleSeam.test(contract, moduleName)
+        return moduleSeam.test(contract.name, moduleName)
     end
 
-    return selected as runtimeBackend.Seam
+    return selected as Seam
 end
 
 export = moduleSeam

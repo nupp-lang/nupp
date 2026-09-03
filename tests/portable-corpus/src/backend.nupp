@@ -1,14 +1,11 @@
 module backend
 
-const Backend = require("nupp.runtime.backend")
-const Bitops = require("nupp.runtime.seam.bitops")
-const Int64 = require("nupp.runtime.seam.int64")
-const Simd = require("nupp.runtime.seam.simd")
-const Structvalue = require("nupp.runtime.seam.structvalue")
-
-export = Backend.new("portable-corpus", {
-    Bitops.seam("portable.bitops"),
-    Int64.seam("portable.int64"),
-    Simd.seam("nupp.runtime.provider.scalarsimd"),
-    Structvalue.seam("nupp.runtime.provider.tablestruct"),
-})
+export = {
+    name = "portable-corpus",
+    seams = {
+        ["numeric.bitops"] = "portable.bitops",
+        ["numeric.int64"] = "portable.int64",
+        ["numeric.simd"] = "nupp.runtime.provider.scalarsimd",
+        ["representation.structvalue"] = "nupp.runtime.provider.tablestruct",
+    },
+}

@@ -1,6 +1,3 @@
 module backend
 
-const Backend = require("nupp.runtime.backend")
-const Suspension = require("nupp.runtime.seam.suspension")
-
-export = Backend.new("test.browser.cancel", {Suspension.seam("nupp.runtime.provider.browsersuspension"),})
+export = {name = "test.browser.cancel", seams = {["suspension"] = "nupp.runtime.provider.browsersuspension",},}

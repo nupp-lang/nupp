@@ -1,148 +1,88 @@
 module nupp.runtime.backend
 
 --[[
-Runtime half of a backend assembled from independently testable seams.
+Runtime half of a backend: installing the providers one declaration selects.
 
-The compiler checks the same interfaces without executing a backend. An
+A backend is a declaration, not a module of code. It says its name and which
+provider module answers each seam, and nothing else -- no constructor call, no
+per-seam factory, no order for the reader to preserve. That is what lets the
+compiler resolve one by reading its value instead of pattern-matching the shape
+of a call it refuses to execute, and it is why a seam cannot be declared twice:
+the contract name is the key.
+
+The compiler checks the same contracts without executing any of this. An
 artifact calls `install` for the backend it selected, while backend authors and
-package CI call `test` explicitly to run every seam's behavioral contract.
+package CI call `test` explicitly to run every seam's behavioral suite.
 ]]
 
-local seamRegistry = require("nupp.runtime.seam.registry")
+local moduleSeam = require("nupp.runtime.seam.module")
+local registry = require("nupp.runtime.seam.registry")
 local backend = {}
 
 backend.moduleName = "nupp.runtime.backend"
 
---- One versioned unit of substitutable behavior and its conformance suite.
+--- One named selection of provider modules, by the contract each answers.
 --- @export
-export interface Seam
+export interface Declaration
     readonly name: string
-    readonly version: integer
-    readonly binding: string?
-    install: function(self: Seam): nil
-    test: function(self: Seam): (boolean, string?)
+    readonly seams: {[string]: string}
 end
 
---- One named collection of complete seam implementations.
+--- One contract and the module a declaration named for it.
 --- @export
-export interface Backend
+export interface Selection
     readonly name: string
-    readonly seams: {Seam}
-    install: function(self: Backend): nil
-    test: function(self: Backend): (boolean, string?)
+    readonly module: string
 end
 
---- Constructs a backend after rejecting duplicate seam names.
---- @raises when two seams have the same name
-function backend.new(name: string, seams: {Seam}): Backend
-    if name == "" then
-        error("nupp: a backend must have a non-empty name", 2)
-    end
-    if #seams == 0 then
-        error("nupp: backend " .. name .. " must supply at least one seam", 2)
-    end
-    local seen = {}
-    for _, seam in ipairs(seams) do
-        if seen[seam.name] then
-            error("nupp: backend " .. name .. " supplies seam " .. seam.name .. " more than once", 2)
-        end
-        seen[seam.name] = true
-    end
-
-    local selected: any = {name = name, seams = seams,}
-    function selected:install(): nil
-        for _, seam in ipairs(self.seams) do
-            seam:install()
-        end
-    end
-
-    function selected:test(): (boolean, string?)
-        for _, seam in ipairs(self.seams) do
-            local ok, problem = seam:test()
-            if not ok then
-                return false, (
-                    "backend %s failed %s contract %d: %s"
-                ):format(self.name, seam.name, seam.version, tostring(problem))
-            end
-        end
-
-        return true
-    end
-
-    return selected as Backend
-end
-
---- The contract names one declaration selects, in a stable order.
+--- What one declaration selects, in a stable order.
 --- @raises when the declaration is malformed or names an unknown contract
----
---- A declaration keys its providers by contract name, so a seam cannot be
---- selected twice and the order it was written in is not a fact about the
---- backend. Sorted, because installation, testing and the artifact's audit
---- comment all read this and all three should say the same thing twice.
-function backend.contracts(declared: any): {string}
+function backend.selections(declared: Declaration): {Selection}
     if declared.name == "" then
         error("nupp: a backend must have a non-empty name", 2)
     end
-    local names = {}
+    local selected = {}
     for name, moduleName in pairs(declared.seams) do
-        if seamRegistry.find(name) == nil then
+        if registry.find(name) == nil then
             error("nupp: backend " .. declared.name .. " selects unknown seam " .. name, 2)
         end
         if moduleName == "" then
             error("nupp: backend " .. declared.name .. " names no module for " .. name, 2)
         end
-        names[#names + 1] = name
+        selected[#selected + 1] = {name = name, module = moduleName,}
     end
-    if #names == 0 then
+    if #selected == 0 then
         error("nupp: backend " .. declared.name .. " must select at least one seam", 2)
     end
-    table.sort(names)
+    -- Sorted, because a declaration is a map and its iteration order is not a
+    -- fact about the backend. Installation, testing and the artifact's audit
+    -- comment all read this, and all three should say the same thing twice.
+    table.sort(selected, function(left: any, right: any): boolean
+        return left.name < right.name
+    end)
 
-    return names
+    return selected as {Selection}
 end
 
---- The seams one declaration selects, built through each contract's factory.
-function backend.seamsOf(declared: any): {Seam}
-    local built = {}
-    for _, name in ipairs(backend.contracts(declared)) do
-        local factory: any = require(seamRegistry.get(name).factoryModule)
-        built[#built + 1] = factory.seam(declared.seams[name])
+--- Installs every provider one declaration selects.
+function backend.install(declared: Declaration): nil
+    for _, selected in ipairs(backend.selections(declared)) do
+        moduleSeam.install(selected.name, selected.module)
     end
-
-    return built as {Seam}
 end
 
---- Installs every provider one selected backend supplies.
----
---- Takes either a declaration or the constructed `Backend` one used to be, so an
---- artifact generated by either compiler installs the backend it selected.
-function backend.install(selected: any): nil
-    if selected.seams ~= nil and selected.install == nil then
-        for _, seam in ipairs(backend.seamsOf(selected)) do
-            seam:install()
+--- Runs every selected seam's explicit behavioral suite.
+function backend.test(declared: Declaration): (boolean, string?)
+    for _, selected in ipairs(backend.selections(declared)) do
+        local ok, problem = moduleSeam.test(selected.name, selected.module)
+        if not ok then
+            return false, (
+                "backend %s failed %s contract %d: %s"
+            ):format(declared.name, selected.name, registry.get(selected.name).version, tostring(problem))
         end
-
-        return
-    end
-    selected:install()
-end
-
---- Runs every seam's explicit behavioral suite.
-function backend.test(selected: any): (boolean, string?)
-    if selected.seams ~= nil and selected.test == nil then
-        for _, seam in ipairs(backend.seamsOf(selected)) do
-            local ok, problem = seam:test()
-            if not ok then
-                return false, (
-                    "backend %s failed %s contract %d: %s"
-                ):format(selected.name, seam.name, seam.version, tostring(problem))
-            end
-        end
-
-        return true
     end
 
-    return selected:test()
+    return true
 end
 
 export = backend

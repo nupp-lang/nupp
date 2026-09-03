@@ -190,11 +190,7 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/wasmstorage.nupp",
     },
     {source = "src/nupp/wasm.nupp", output = "nupp/compiler/nupp/wasm.nupp"},
-    {source = "src/nupp/runtime/seam/base64.nupp", output = "nupp/compiler/nupp/runtime/seam/base64.nupp",},
-    {source = "src/nupp/runtime/seam/base64suite.nupp", output = "nupp/compiler/nupp/runtime/seam/base64suite.nupp",},
-    {source = "src/nupp/runtime/seam/json.nupp", output = "nupp/compiler/nupp/runtime/seam/json.nupp",},
     {source = "src/nupp/runtime/seam/jsonsuite.nupp", output = "nupp/compiler/nupp/runtime/seam/jsonsuite.nupp",},
-    {source = "src/nupp/runtime/seam/bitops.nupp", output = "nupp/compiler/nupp/runtime/seam/bitops.nupp",},
     {source = "src/nupp/runtime/seam/bitopssuite.nupp", output = "nupp/compiler/nupp/runtime/seam/bitopssuite.nupp",},
     {source = "src/nupp/data/utf8.nupp", output = "nupp/compiler/nupp/data/utf8.nupp"},
     {source = "src/nupp/data/base64.nupp", output = "nupp/compiler/nupp/data/base64.nupp"},
@@ -223,38 +219,12 @@ local RESOURCES = {
 -- but does not execute it itself. Keep an ordinary compiler build independent
 -- of WGPU; an application that reaches `nupp.gpu` still selects the provider.
 local COMPILER_NATIVE_FEATURES = {gpu = false}
-local SEAM_FACTORY_RESOURCES = {
-    "registry",
-    "module",
-    "contracts",
-    "bitset",
-    "browsercrypto",
-    "browserstorage",
-    "files",
-    "hash",
-    "hmacsha256",
-    "http",
-    "int64",
-    "iobytes",
-    "net",
-    "path",
-    "peg",
-    "process",
-    "sha256",
-    "simd",
-    "tls",
-    "structvalue",
-    "suspension",
-    "textbuffer",
-    "time",
-    "uri",
-    "utf8",
-    "uuid",
-    "gpu",
-    "wasm",
-    "workers",
-}
-for _, name in ipairs(SEAM_FACTORY_RESOURCES) do
+-- The seam layer proper: identity, declared contracts, and the one installer
+-- every contract goes through. There used to be a factory module per contract
+-- beside these, restating the contract's members, its global binding name and
+-- its suite; all three now come from the registry.
+local SEAM_RESOURCES = {"registry", "module", "contracts"}
+for _, name in ipairs(SEAM_RESOURCES) do
     RESOURCES[
         #RESOURCES + 1
     ] = {
@@ -262,30 +232,23 @@ for _, name in ipairs(SEAM_FACTORY_RESOURCES) do
         output = "nupp/compiler/nupp/runtime/seam/" .. name .. ".nupp",
     }
 end
+-- One conformance suite per contract, named by the contract's registry slug.
 local SEAM_SUITE_RESOURCES = {
-    "bitset",
     "browsercrypto",
     "browserstorage",
-    "files",
-    "hash",
     "hmacsha256",
     "http",
     "int64",
-    "iobytes",
-    "net",
     "path",
     "peg",
-    "process",
     "sha256",
     "simd",
     "structvalue",
     "textbuffer",
     "gpu",
-    "tls",
     "suspension",
     "time",
     "uri",
-    "utf8",
     "uuid",
     "wasm",
     "workers",

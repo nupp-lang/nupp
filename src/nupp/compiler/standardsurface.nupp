@@ -39,7 +39,10 @@ local MODULES = {
         "runtime.hmac_sha256"
     }),
     ["nupp.data.serde"] = selected("runtime", "text.buffer"),
-    ["nupp.data.utf8"] = selected("runtime", "data.utf8"),
+    -- Scalars out of ordinary strings, in ordinary Lua. This was gated on a
+    -- `data.utf8` seam nothing ever implemented, which made a portable module
+    -- refusable on a target that could have run it as written.
+    ["nupp.data.utf8"] = {kind = "common"},
     -- Portable given a buffer, which is the only thing in either of these that a
     -- `lua51` target could not answer: both build their output by appending into
     -- one. Classified through the seam that supplies it rather than as portable
@@ -49,17 +52,20 @@ local MODULES = {
     ["nupp.gpu"] = selected("runtime", "compute.gpu"),
     ["nupp.runtime.provider.nativegpu"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.runtime.hotreload"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.io"] = selected("runtime", "io.bytes"),
+    -- The core byte types are cdata: a view is a pointer and a length, and no
+    -- table stands in for one. A dialect without C storage cannot have them,
+    -- which is what this says now that no seam claims otherwise.
+    ["nupp.io"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.path.provider"] = selected("host", "host.path"),
     ["nupp.io.path.pathtext"] = {kind = "common"},
-    ["nupp.io.files"] = selected("host", "host.files"),
+    ["nupp.io.files"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.io.http"] = selected("host", "host.http"),
     ["nupp.io.path"] = {kind = "common"},
     ["nupp.data.base64"] = {kind = "common"},
     ["nupp.data.valuebuilder"] = {kind = "common"},
-    ["nupp.io.net"] = selected("host", "host.net"),
-    ["nupp.io.process"] = selected("host", "host.process"),
-    ["nupp.io.tls"] = selected("host", "host.tls"),
+    ["nupp.io.net"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.io.process"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.io.tls"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.io.uri"] = selected("runtime", "io.uri"),
     ["nupp.log"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.compiler.runtime.extensions"] = {kind = "compiler"},
@@ -91,10 +97,14 @@ local MODULES = {
 
 local FACILITIES = {
     ["task.deadline"] = selected("host", "host.time"),
-    ["data.hash"] = selected("runtime", "data.hash"),
+    -- The digests `nupp.data.hash` computes, projected onto `nupp.data`. They
+    -- are written against bit operations and nothing else, so that is what a
+    -- portable target has to select for them.
+    ["data.hash"] = selected("runtime", "numeric.bitops"),
     ["data.sha256"] = selected("runtime", "data.sha256"),
     ["data.uuid"] = selected("runtime", "data.uuid"),
-    ["data.bitset"] = selected("runtime", "data.bitset"),
+    -- A bitset is a `uint32[?]`, so it needs C storage rather than a provider.
+    ["data.bitset"] = {kind = "unavailable", capability = "cstorage"},
 }
 
 local MODULE_MEMBERS = {

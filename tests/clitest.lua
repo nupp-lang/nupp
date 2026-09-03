@@ -646,9 +646,7 @@ function M.backendRuntimePreservesMultilineSeamFailures()
    local backend = assert(io.open(dir .. "/brokenbackend.g.nupp", "wb"))
    backend:write([[
 module brokenbackend
-const Backend = require("nupp.runtime.backend")
-const JSON = require("nupp.runtime.seam.json")
-export = Backend.new("broken", {JSON.seam("brokenprovider"),})
+export = {name = "broken", seams = {["data.json"] = "brokenprovider"}}
 ]])
    backend:close()
    local provider = assert(io.open(dir .. "/brokenprovider.g.nupp", "wb"))

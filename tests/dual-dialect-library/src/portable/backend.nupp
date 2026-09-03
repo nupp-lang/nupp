@@ -1,10 +1,9 @@
 module portable.backend
 
-const Backend = require("nupp.runtime.backend")
-const Bitops = require("nupp.runtime.seam.bitops")
-const Structvalue = require("nupp.runtime.seam.structvalue")
-
-export = Backend.new("dual-dialect-portable", {
-    Bitops.seam("portable.bitops"),
-    Structvalue.seam("nupp.runtime.provider.tablestruct"),
-})
+export = {
+    name = "dual-dialect-portable",
+    seams = {
+        ["numeric.bitops"] = "portable.bitops",
+        ["representation.structvalue"] = "nupp.runtime.provider.tablestruct",
+    },
+}

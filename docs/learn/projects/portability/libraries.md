@@ -61,35 +61,34 @@ as its exact third-party runtime dependency.
 
 ## Backend composition
 
-A backend is a checked module that exports one `Backend` assembled from
-compiler-owned `Seam` constructors. This backend supplies portable bit
-operations and table-backed struct values:
+A backend is a checked module that exports one declaration: a constant name,
+and the provider module that answers each seam it selects. This backend
+supplies portable bit operations and table-backed struct values:
 
 ```nupp
 module portable.backend
 
-const Backend = nupp.runtime.backend
-const Bitops = nupp.runtime.seam.bitops
-const Structvalue = nupp.runtime.seam.structvalue
-
-export = Backend.new("portable", {
-    Bitops.seam("bit"),
-    Structvalue.seam("nupp.runtime.provider.tablestruct"),
-})
+export = {
+    name = "portable",
+    seams = {
+        ["numeric.bitops"] = "bit",
+        ["representation.structvalue"] = "nupp.runtime.provider.tablestruct",
+    },
+}
 ```
 
-`Backend.new` receives a constant name and a literal, nonempty list of seam
-constructor calls. Every constructor receives one constant runtime module
-name. The checker rejects duplicate seam names inside one backend, and the
-build rejects two selected backends that supply the same seam.
+Every key is a seam the compiler carries and every value is a constant module
+name. A seam cannot be selected twice, because it is a key; the build rejects
+two selected backends that supply the same seam, and it rejects a key that
+names no known contract.
 
 The manifest names backend modules explicitly. Nupp does not scan the source
 tree, the Lua module path, or installed rocks for providers. Checking reads the
-backend descriptor without executing its top level or requiring the provider
-module.
+declaration as a value, without executing the module's top level or requiring
+the provider it names.
 
 Each seam has a compiler-owned name, version, structural contract, installer,
-and behavioral suite. A backend may contain any subset of the known seams, but
+and behavioral suite. A backend may select any subset of the known seams, but
 each selected seam supplies its whole contract. There is no partial seam that
 inherits unspecified behavior from another backend.
 
@@ -120,8 +119,8 @@ contract. Installation creates a lazy binding, and the first reached member
 requires and validates the selected module. A missing module or incompatible
 shape reports the seam and module that failed.
 
-The adapter, installer, and conformance suite are ordinary checked `.nupp`
-source files. Provider implementations are ordinary `.nupp` or `.lua` modules.
+The installer and every conformance suite are ordinary checked `.nupp` source
+files. Provider implementations are ordinary `.nupp` or `.lua` modules.
 Generated Lua contains the selected installation and calls, not fallback source
 stored in compiler strings.
 
@@ -134,12 +133,10 @@ can install this backend source as `nupp/acme/cryptobackend.nupp`:
 ```nupp
 module acme.cryptobackend
 
-const Backend = nupp.runtime.backend
-const Hmac = nupp.runtime.seam.hmacsha256
-
-export = Backend.new("acme.crypto", {
-    Hmac.seam("acme.hmac_sha256"),
-})
+export = {
+    name = "acme.crypto",
+    seams = {["crypto.hmac_sha256"] = "acme.hmac_sha256"},
+}
 ```
 
 The same rock installs `acme.hmac_sha256` as a runtime Lua module. That module
@@ -258,21 +255,26 @@ provider when the recorded module is absent.
 
 ## Seam catalog
 
-Every seam currently has contract version 1. The factory module owns its
-installer and conformance suite; backend source calls that module's `seam`
-constructor.
+A seam is one entry in `nupp.runtime.seam.registry`, which owns its identity,
+its binding, and which module a selection replaces. Its members come from the
+interface declared for it in `nupp.runtime.seam.contracts`, and its behaviour is
+pinned by one conformance suite named after it. Installing any of them is
+`nupp.runtime.seam.module`. Backend source names the seam, not a module: there
+is no per-contract factory to call.
+
+Contract versions are 1 except where the table says otherwise.
 
 ### Compile-bound contracts
 
 Compile-bound contracts preserve source operations through a representation
 selected during lowering.
 
-| Seam | Factory module | Source surface |
-| --- | --- | --- |
-| `numeric.bitops` | `nupp.runtime.seam.bitops` | Integer bitwise operators |
-| `numeric.int64` | `nupp.runtime.seam.int64` | Wide integers and numerals |
-| `numeric.simd` | `nupp.runtime.seam.simd` | SIMD values and operations |
-| `representation.structvalue` | `nupp.runtime.seam.structvalue` | Table-backed structs |
+| Seam | Source surface |
+| --- | --- |
+| `numeric.bitops` | Integer bitwise operators |
+| `numeric.int64` | Wide integers and numerals |
+| `numeric.simd` | SIMD values and operations |
+| `representation.structvalue` | Table-backed structs |
 
 `text.buffer` supplies `string.buffer`, which is LuaJIT's. The standard library
 builds strings by appending into one, so it is what `nupp.data.serde` and the
@@ -292,35 +294,39 @@ reason a target performing an explicit XOR does.
 Runtime contracts project a provider module into a standard or host module
 after the selected backend installs it.
 
-| Seam | Factory module | Standard or host surface |
-| --- | --- | --- |
-| `data.json` | `nupp.runtime.seam.json` | `nupp.data.json` |
-| `data.sha256` | `nupp.runtime.seam.sha256` | `nupp.data.sha256` |
-| `text.buffer` | `nupp.runtime.seam.textbuffer` | `string.buffer` |
-| `data.hash` | `nupp.runtime.seam.hash` | `nupp.data.crc32` and `fnv1a64` |
-| `data.utf8` | `nupp.runtime.seam.utf8` | `nupp.data.utf8` |
-| `data.uuid` | `nupp.runtime.seam.uuid` | `nupp.data.uuid4` and `uuid7` |
-| `data.bitset` | `nupp.runtime.seam.bitset` | Bitsets and word width |
-| `peg` | `nupp.runtime.seam.peg` | `nupp.peg`, LPeg, and `re` |
-| `suspension` | `nupp.runtime.seam.suspension` | `nupp.suspension` management |
-| `io.bytes` | `nupp.runtime.seam.iobytes` | Core `nupp.io` byte types |
-| `host.path` | `nupp.runtime.seam.path` | The environment behind `nupp.io.path` |
-| `io.uri` | `nupp.runtime.seam.uri` | `nupp.io.uri` |
-| `host.files` | `nupp.runtime.seam.files` | `nupp.io.files` |
-| `host.http` | `nupp.runtime.seam.http` | `nupp.io.http` |
-| `host.process` | `nupp.runtime.seam.process` | `nupp.io.process` |
-| `host.workers` | `nupp.runtime.seam.workers` | `nupp.workers` |
+| Seam | Standard or host surface |
+| --- | --- |
+| `data.json` | `nupp.data.json` (contract 2) |
+| `data.sha256` | `nupp.data.sha256` |
+| `text.buffer` | `string.buffer` |
+| `data.uuid` | `nupp.data.uuid4` and `uuid7` |
+| `peg` | `nupp.peg`, LPeg, and `re` |
+| `suspension` | `nupp.suspension` management |
+| `host.path` | The environment behind `nupp.io.path` |
+| `io.uri` | `nupp.io.uri` |
+| `host.http` | `nupp.io.http` |
+| `host.time` | `nupp.time` |
+| `host.wasm` | `nupp.wasm` |
+| `host.workers` | `nupp.workers` (contract 2) |
+| `host.browser_crypto` | `nupp.browser.crypto` |
+| `host.browser_storage` | `nupp.browser.storage` |
+| `compute.gpu` | `nupp.gpu` |
 
-Two runtime contracts are accelerators rather than contracts a program needs
-filled: `data.base64` and `crypto.hmac_sha256`. Both name no module in the
-table above, because [](nupp.data.base64) and [](nupp.data.hash) answer on
-every target without one -- the former compiles its own codec, and the latter
-is SHA-256 and HMAC-SHA256 written in Nupp against `numeric.bitops` alone. A
-backend that installs one replaces a working implementation with a faster one,
-which is why neither seam is required and neither refuses a program that
-selected nothing. `nupp.data.hash` prefers an installed provider from its
-one-shot `hmacDigest` and `hmacHex`; its streaming constructors have none to
-prefer, the seam being one-shot.
+One runtime contract is an accelerator rather than a contract a program needs
+filled: `crypto.hmac_sha256` names no module in the table above, because
+[](nupp.data.hash) answers on every target without one, being SHA-256 and
+HMAC-SHA256 written in Nupp against `numeric.bitops` alone. A backend that
+installs one replaces a working implementation with a faster one, which is why
+the seam is not required and does not refuse a program that selected nothing.
+`nupp.data.hash` prefers an installed provider from its one-shot `hmacDigest`
+and `hmacHex`; its streaming constructors have none to prefer, the seam being
+one-shot.
+
+A facility that no backend can currently supply has no seam. `nupp.io`,
+[](nupp.io.files), [](nupp.io.net), [](nupp.io.tls) and [](nupp.io.process)
+name a capability a `lua51` target lacks rather than a contract nobody
+implements, and [](nupp.data.utf8) needs neither: it reads scalars out of
+ordinary strings and is portable as written.
 
 The other runtime contracts use existing LuaJIT or compiler-provided
 implementations under `luajit` and require seams when `lua51` reaches them.

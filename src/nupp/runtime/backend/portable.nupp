@@ -2,13 +2,11 @@ module nupp.runtime.backend.portable
 
 --[[Recommended representation backend; runtime library rocks remain explicit.]]
 
-const Backend = require("nupp.runtime.backend")
-const Bitops = require("nupp.runtime.seam.bitops")
-const Structvalue = require("nupp.runtime.seam.structvalue")
-const Simd = require("nupp.runtime.seam.simd")
-
-export = Backend.new("nupp.portable", {
-    Bitops.seam("bit"),
-    Structvalue.seam("nupp.runtime.provider.tablestruct"),
-    Simd.seam("nupp.runtime.provider.scalarsimd"),
-})
+export = {
+    name = "nupp.portable",
+    seams = {
+        ["numeric.bitops"] = "bit",
+        ["representation.structvalue"] = "nupp.runtime.provider.tablestruct",
+        ["numeric.simd"] = "nupp.runtime.provider.scalarsimd",
+    },
+}

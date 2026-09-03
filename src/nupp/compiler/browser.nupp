@@ -50,59 +50,24 @@ local type HoverResponse = {
     length: integer?
 }
 
-local BROWSER_DESCRIPTOR = {
-    name = "nupp.browser",
-    module = "nupp.runtime.backend.browser",
-    digest = "portable-browser-providers-5",
-    seams = {},
-}
+-- The browser backend's own declaration, resolved the way a build resolves one.
+-- This used to be a second copy of that provider list, because a backend was a
+-- module of constructor calls and requiring it here would have pulled in
+-- eighteen seam factories to learn eighteen strings. A declaration is data, so
+-- there is one list and the host and a build cannot disagree about it.
+local BROWSER_MODULE = "nupp.runtime.backend.browser"
+local declared: any = require(BROWSER_MODULE)
+local BROWSER_DESCRIPTOR = assert(
+    require("nupp.compiler.backends").describe(declared.name, declared.seams, BROWSER_MODULE)
+)
+BROWSER_DESCRIPTOR.digest = "portable-browser-providers-6"
 local BACKENDS = {modules = {BROWSER_DESCRIPTOR}, seams = {}, byEffect = {},}
-
--- The same providers `nupp.runtime.backend.browser` selects, spelled out here
--- because the compiler resolves against a descriptor rather than requiring the
--- backend it describes. The two lists have to say the same thing: a seam the
--- backend carries and this one omits is a module the checker refuses to reach,
--- which is how `text.buffer` came to make `nupp.derive` unreachable in a
--- browser that had a buffer provider all along.
-local BROWSER_SEAMS = {
-    {"numeric.bitops", "nupp.runtime.provider.scalarbitops"},
-    {"text.buffer", "nupp.runtime.provider.tablebuffer"},
-    {"data.json", "nupp.runtime.provider.lunajson"},
-    {"host.path", "nupp.runtime.provider.browserpath"},
-    {"peg", "re"},
-    {"numeric.simd", "nupp.runtime.provider.scalarsimd"},
-    {"suspension", "nupp.runtime.provider.browsersuspension"},
-    {"io.uri", "nupp.runtime.provider.browseruri"},
-    {"host.http", "nupp.runtime.provider.browserhttp"},
-    {"host.time", "nupp.runtime.provider.browsertime"},
-    {"host.browser_crypto", "nupp.runtime.provider.browsercrypto"},
-    {"host.browser_storage", "nupp.runtime.provider.browserstorage"},
-    {"host.workers", "nupp.runtime.provider.browserworkers"},
-    {"host.wasm", "nupp.runtime.provider.wasmstorage"},
-    {"data.sha256", "nupp.runtime.provider.browsercrypto"},
-    {"crypto.hmac_sha256", "nupp.runtime.provider.browsercrypto"},
-    {"data.uuid", "nupp.runtime.provider.browsercrypto"},
-    {"compute.gpu", "nupp.runtime.provider.browserwebgpu"},
-}
-local seamRegistry = require("nupp.runtime.seam.registry")
-for _, values in ipairs(BROWSER_SEAMS) do
-    local contract = seamRegistry.get(values[1])
-    local selected = {
-        name = contract.name,
-        version = contract.version,
-        effect = contract.effect,
-        effects = contract.effects,
-        binding = contract.binding,
-        runtimeModule = values[2],
-        backend = "nupp.browser",
-        module = "nupp.runtime.backend.browser",
-        modules = contract.modules,
-        exports = contract.exports,
-    }
-    BROWSER_DESCRIPTOR.seams[#BROWSER_DESCRIPTOR.seams + 1] = selected
-    BACKENDS.seams[contract.name] = selected
-    for _, effect in ipairs(contract.effects) do
-        BACKENDS.byEffect[effect] = "nupp.runtime.backend.browser"
+for _, selected in ipairs(BROWSER_DESCRIPTOR.seams) do
+    selected.backend = declared.name
+    selected.module = BROWSER_MODULE
+    BACKENDS.seams[selected.name] = selected
+    for _, effect in ipairs(selected.effects) do
+        BACKENDS.byEffect[effect] = BROWSER_MODULE
     end
 end
 

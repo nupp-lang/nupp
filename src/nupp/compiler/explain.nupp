@@ -1256,7 +1256,7 @@ local ENTRIES: {any} = {
     {
         code = "NUPP3008",
         summary = "A selected backend module is missing or has an invalid descriptor",
-        rule = "A target names backend modules explicitly. Each selected module must be a compiler-carried built-in, available from project source, or available from a selected dependency's checked Nupp root; it must pass ordinary checking and export one declarative Backend.new value containing complete compiler-owned seam constructors. Fix the named module or remove it from the target; Nupp does not execute backend top levels to discover metadata.",
+        rule = "A target names backend modules explicitly. Each selected module must be a compiler-carried built-in, available from project source, or available from a selected dependency's checked Nupp root; it must pass ordinary checking and export one constant declaration -- a name, and a provider module for each compiler-owned seam contract it selects. Fix the named module or remove it from the target; Nupp does not execute backend top levels to discover metadata.",
         related = {"NUPP3006", "NUPP3012"},
         docs = "docs/neps/0013-dialects-and-capability-backends.md",
     },
