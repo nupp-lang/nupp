@@ -237,6 +237,11 @@ function registry.get(name: string): any
     return assert(byName[name], "unknown seam contract " .. name)
 end
 
+--- The contract of that name, or nil where the compiler carries none.
+function registry.find(name: string): any?
+    return byName[name]
+end
+
 function registry.forFactory(moduleName: string): any?
     return byFactory[moduleName]
 end

@@ -97,11 +97,132 @@ local function fingerprint(descriptor: any): string
     return table.concat(parts, "\0")
 end
 
+--- Reads `{["key"] = "value", ...}` as a constant map, or says why it is not one.
+local function constantMap(node: any, label: string): {[string]: string}?, string?
+    if not node or node.kind ~= "tableExpr" then
+        return nil, label .. " must be a table of constant entries"
+    end
+    local entries = {}
+    for _, field in ipairs(node.fields or {}) do
+        local key: string? = nil
+        if field.kind == "fieldBracket" then
+            key = literalString(field.key)
+        elseif field.kind == "fieldNamed" and field.name then
+            key = field.name.text
+        end
+        if not key then
+            return nil, label .. " must name each entry with a constant string key"
+        end
+        if entries[key] ~= nil then
+            return nil, label .. " names " .. key .. " more than once"
+        end
+        local value = literalString(field.value)
+        if not value or value == "" then
+            return nil, label .. " entry " .. key .. " must be a non-empty constant string"
+        end
+        entries[key] = value
+    end
+
+    return entries
+end
+
+--- Builds the descriptor one already-read declaration resolves to.
+---
+--- A backend declaration is a value rather than a call, so a reader that has
+--- one in hand -- this module from source, `nupp.compiler.browser` from the
+--- module it requires -- resolves it the same way.
+function backends.describe(name: string, seams: {[string]: string}, moduleName: string?): any?, string?
+    if name == "" then
+        return nil, "a backend must have a non-empty name"
+    end
+    local registry = require("nupp.runtime.seam.registry")
+    local ordered = {}
+    for contractName in pairs(seams) do
+        if registry.find(contractName) == nil then
+            return nil, "backend " .. name .. " selects unknown seam " .. contractName
+        end
+        ordered[#ordered + 1] = contractName
+    end
+    if #ordered == 0 then
+        return nil, "backend " .. name .. " must select at least one seam"
+    end
+    -- A declaration is a map, so the order it is read in is not a fact about the
+    -- backend. Sorting here is what keeps the fingerprint -- and the build cache
+    -- key that carries it -- from moving when only the source order does.
+    table.sort(ordered)
+
+    local descriptor = {name = name, module = moduleName, seams = {},}
+    for _, contractName in ipairs(ordered) do
+        local contract = registry.get(contractName)
+        descriptor.seams[
+            #descriptor.seams + 1
+        ] = {
+            name = contract.name,
+            version = contract.version,
+            effect = contract.effect,
+            effects = contract.effects or {contract.effect},
+            modules = contract.modules,
+            implementationModules = contract.implementationModules,
+            exports = contract.exports,
+            binding = contract.binding or "runtime",
+            factoryModule = contract.factoryModule,
+            suiteModule = contract.suiteModule,
+            runtimeModule = seams[contractName],
+        }
+    end
+    descriptor.fingerprint = fingerprint(descriptor)
+    descriptor.digest = require("nupp.compiler.hash").digest(descriptor.fingerprint)
+
+    return descriptor
+end
+
+--- Reads a backend declaration: a constant name and a provider per contract.
+---
+--- Answers nil for anything that is not one, including the `Backend.new` call a
+--- backend used to be, which `inspect` still reads below.
+local function declaration(value: any, moduleName: string?): any?, string?, boolean
+    if not value or value.kind ~= "tableExpr" then
+        return nil, nil, false
+    end
+    local name: string? = nil
+    local seamField: any = nil
+    for _, field in ipairs(value.fields or {}) do
+        local key = field.kind == "fieldNamed" and field.name and field.name.text or nil
+        if key == "name" then
+            name = literalString(field.value)
+        elseif key == "seams" then
+            seamField = field.value
+        end
+    end
+    -- Neither half present is an ordinary module that happens to export a table,
+    -- not a malformed backend. One half is a backend somebody got wrong.
+    if name == nil and seamField == nil then
+        return nil, nil, false
+    end
+    if name == nil or name == "" then
+        return nil, "a backend declaration must give a non-empty constant name", true
+    end
+    if seamField == nil then
+        return nil, "backend " .. name .. " must declare its seams", true
+    end
+    local seams, problem = constantMap(seamField, "backend " .. name .. " seams")
+    if not seams then
+        return nil, problem, true
+    end
+    local descriptor, failure = backends.describe(name, seams, moduleName)
+
+    return descriptor, failure, true
+end
+
 --- Reads a declarative backend export. A non-backend module returns no problem.
 function backends.inspect(root: any, moduleName: string?): any?, string?
     local imports = importsOf(root)
     local exported = require("nupp.compiler.cst").exportAssignment(root)
     local value = exported and exported.value or nil
+    local declared, declaredProblem, isDeclaration = declaration(value, moduleName)
+    if isDeclaration then
+        return declared, declaredProblem
+    end
     local calledModule, member, args = importedCall(value, imports)
     if calledModule ~= RUNTIME_BACKEND_MODULE or member ~= "new" then
         return nil
@@ -370,7 +491,9 @@ function backends.bootstrap(effects: {[string]: any}?, resolved: any?): string
     table.sort(selected)
     local out = {}
     for _, moduleName in ipairs(selected) do
-        out[#out + 1] = ("(require(%q)):install();"):format(moduleName)
+        -- A backend is data, so installing one is the runtime module's business
+        -- rather than a method the declaration carries.
+        out[#out + 1] = ("require(\"nupp.runtime.backend\").install(require(%q));"):format(moduleName)
     end
 
     return table.concat(out)

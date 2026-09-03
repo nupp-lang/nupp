@@ -616,7 +616,7 @@ function M.runtimeJsonProviderIsOptInLazyAndChecked()
    local backendModule = "fixtures.portable_backend"
    local resolution = jsonResolution(backendModule)
    local bootstrap = backends.bootstrap({["native.json"] = true}, resolution)
-   assertEq(bootstrap, ('(require(%q)):install();'):format(backendModule),
+   assertEq(bootstrap, ('require("nupp.runtime.backend").install(require(%q));'):format(backendModule),
       "generated output contains composition only, not adapter source")
    assertEq(backends.bootstrap({["native.json"] = true}, nil), "",
       "the default native path emits no backend bootstrap")
@@ -969,7 +969,8 @@ function M.generatedBackendSelectionDoesNotTouchDefaultOutput()
       "native output contains no compatibility registry")
    assert(portable:find("fixtures.portable_backend", 1, true),
       "portable output names the selected backend")
-   local installAt = assert(portable:find('(require("fixtures.portable_backend")):install()', 1, true))
+   local installAt = assert(portable:find(
+      'require("nupp.runtime.backend").install(require("fixtures.portable_backend"))', 1, true))
    local jsonAt = assert(portable:find('require("nupp.data.json")', 1, true))
    assert(installAt < jsonAt,
       "the selected backend is installed before a projected standard module loads")
