@@ -53,6 +53,7 @@ local EXPECTED_REASONS = {
    move = "the body clears this site's own move flag",
    cheader = "a C header is declared once where it is imported",
    region = "the protected body reads and writes this region's own owners and flags",
+   lazy = "the body defers an operand until the test that guards it has passed",
 }
 
 function M.theInventoryOfReasonsIsExactlyWhatIsExpected()

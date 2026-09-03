@@ -103,7 +103,7 @@ end
 function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()
     local ordinary = runWorkerHost("lexertest --timings=0")
     test.matches(ordinary, "1 suites across 1 Nupp workers")
-    test.matches(ordinary, "17 tests, 17 passed")
+    test.matches(ordinary, "18 tests, 18 passed")
     test.equal(
         ordinary:find(".................", 1, true),
         nil,
