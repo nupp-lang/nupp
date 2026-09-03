@@ -301,7 +301,6 @@ after the selected backend installs it.
 | `data.utf8` | `nupp.runtime.seam.utf8` | `nupp.data.utf8` |
 | `data.uuid` | `nupp.runtime.seam.uuid` | `nupp.data.uuid4` and `uuid7` |
 | `data.bitset` | `nupp.runtime.seam.bitset` | Bitsets and word width |
-| `crypto.hmac_sha256` | `nupp.runtime.seam.hmacsha256` | `nupp.data.hmac` |
 | `peg` | `nupp.runtime.seam.peg` | `nupp.peg`, LPeg, and `re` |
 | `suspension` | `nupp.runtime.seam.suspension` | `nupp.suspension` management |
 | `io.bytes` | `nupp.runtime.seam.iobytes` | Core `nupp.io` byte types |
@@ -312,9 +311,17 @@ after the selected backend installs it.
 | `host.process` | `nupp.runtime.seam.process` | `nupp.io.process` |
 | `host.workers` | `nupp.runtime.seam.workers` | `nupp.workers` |
 
-`crypto.hmac_sha256` remains open on both dialects because it supplies the
-backend-selected one-shot [](nupp.data.hmac) module. The portable incremental
-implementation is [](nupp.data.hash), which depends only on `numeric.bitops`.
+Two runtime contracts are accelerators rather than contracts a program needs
+filled: `data.base64` and `crypto.hmac_sha256`. Both name no module in the
+table above, because [](nupp.data.base64) and [](nupp.data.hash) answer on
+every target without one -- the former compiles its own codec, and the latter
+is SHA-256 and HMAC-SHA256 written in Nupp against `numeric.bitops` alone. A
+backend that installs one replaces a working implementation with a faster one,
+which is why neither seam is required and neither refuses a program that
+selected nothing. `nupp.data.hash` prefers an installed provider from its
+one-shot `hmacDigest` and `hmacHex`; its streaming constructors have none to
+prefer, the seam being one-shot.
+
 The other runtime contracts use existing LuaJIT or compiler-provided
 implementations under `luajit` and require seams when `lua51` reaches them.
 

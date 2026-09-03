@@ -2,7 +2,7 @@ local browserCrypto = require("nupp.browser.crypto")
 local browserStorage = require("nupp.browser.storage")
 local browserTime = require("nupp.time")
 local data = require("nupp.data")
-local hmac = require("nupp.data.hmac")
+local hash = require("nupp.data.hash")
 local json = require("nupp.data.json")
 
 local started = browserTime.now()
@@ -16,7 +16,7 @@ return json.encode({
     elapsed = elapsed,
     randomBytes = #browserCrypto.randomBytes(32),
     sha256 = data.sha256("abc"),
-    hmac = hmac.hex("key", "abc"),
+    hmac = hash.hmacHex("key", "abc"),
     uuid4 = data.uuid4(),
     uuid7 = data.uuid7(),
     stored = stored,

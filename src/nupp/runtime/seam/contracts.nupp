@@ -106,7 +106,8 @@ export interface UuidProvider
     uuid7: function(): string
 end
 
---- `crypto.hmac_sha256`, which `nupp.data.hmac` is written against.
+--- `crypto.hmac_sha256`, the accelerator `nupp.data.hash` prefers where a
+--- backend installs one.
 export interface HmacSha256Provider
     digest: function(key: string, message: string): string
     hex: function(key: string, message: string): string

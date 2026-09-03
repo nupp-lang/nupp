@@ -209,12 +209,15 @@ local CONTRACTS: {any} = {
         factoryModule = "nupp.runtime.seam.workers",
         modules = {["nupp.workers"] = ""}
     },
+    -- A faster HMAC-SHA256 than the one `nupp.data.hash` compiles to, where a
+    -- backend has one -- WebCrypto in a browser, a host's own kernel natively.
+    -- `nupp.data.hash` is what answers when neither is installed, which is why
+    -- this seam is optional rather than required.
     {
         name = "crypto.hmac_sha256",
         effect = "runtime.hmac_sha256",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.hmacsha256",
-        implementationModules = {["nupp.data.hmac"] = true}
+        factoryModule = "nupp.runtime.seam.hmacsha256"
     },
 }
 

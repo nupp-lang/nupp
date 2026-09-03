@@ -54444,6 +54444,19 @@ if effect and c . recordEffect then
 ( node ) . compilerFeatureEffect = effect
 c . recordEffect ( effect )
 end
+
+
+
+
+local accelerators = require ( "nupp.compiler.standardsurface" ) . accelerators ( modname )
+if accelerators and c . recordEffect then
+local carried = ( node ) . compilerFeatureEffects or { }
+for _ , accelerated in ipairs ( accelerators ) do
+carried [ # carried + 1 ] = accelerated
+c . recordEffect ( accelerated )
+end
+( node ) . compilerFeatureEffects = carried
+end
 local mt = c . env . resolveModule ( c . env , modname )
 if mt then
 return mt
@@ -93557,7 +93570,7 @@ local namespaceModules = extractMod . namespaces
 local internalModuleName = extractMod . internalModuleName
 local configureScintillua = highlightMod . configureScintillua
 local markdownHtml , markdownOutline = htmlMod . markdownHtml , htmlMod . markdownOutline
-local THEME , SCRIPT = assetsMod . THEME , assetsMod . SCRIPT
+local THEME , SCRIPT = assert ( assetsMod . theme ( ) ) , assetsMod . SCRIPT
 local moduleFile , routeFile = urlsMod . moduleFile , urlsMod . routeFile
 local relativePrefix , cleanRoute = urlsMod . relativePrefix , urlsMod . cleanRoute
 local symbolLinkIndex , symbolLinks = urlsMod . symbolLinkIndex , urlsMod . symbolLinks
@@ -95424,76 +95437,12 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
+
+local bundled = require ( "nupp.compiler.bundled" )
+
 local assets = { }
-local THEME = [[
-:root{color-scheme:light;--nuppdoc-light-accent:#087f8c;--nuppdoc-light-accent-hover:#086a75;--nuppdoc-light-accent-soft:#dff3f5;--nuppdoc-light-background:#fff;--nuppdoc-light-background-alt:#f6f6f7;--nuppdoc-light-border:#e2e2e3;--nuppdoc-light-code-background:#e9e7ec;--nuppdoc-light-text:#213547;--nuppdoc-light-muted:#67676c;--nuppdoc-dark-accent:#5ad9e0;--nuppdoc-dark-accent-hover:#7ce4e9;--nuppdoc-dark-accent-soft:#173a3f;--nuppdoc-dark-background:#1b1b1f;--nuppdoc-dark-background-alt:#161618;--nuppdoc-dark-border:#2e2e32;--nuppdoc-dark-code-background:#252330;--nuppdoc-dark-text:#dfdfd6;--nuppdoc-dark-muted:#a8a8a3;--nuppdoc-accent:var(--nuppdoc-light-accent);--nuppdoc-accent-hover:var(--nuppdoc-light-accent-hover);--nuppdoc-accent-soft:var(--nuppdoc-light-accent-soft);--nuppdoc-background:var(--nuppdoc-light-background);--nuppdoc-background-alt:var(--nuppdoc-light-background-alt);--nuppdoc-border:var(--nuppdoc-light-border);--nuppdoc-code-background:var(--nuppdoc-light-code-background);--nuppdoc-text:var(--nuppdoc-light-text);--nuppdoc-text-muted:var(--nuppdoc-light-muted);--nuppdoc-font:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--nuppdoc-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;--nuppdoc-header-height:64px;--nuppdoc-layout-max-width:1480px;--nuppdoc-content-width:688px;--nuppdoc-sidebar-width:272px;--nuppdoc-outline-width:256px}
-:root{--nuppdoc-syntax-foreground:#3760bf;--nuppdoc-syntax-boolean:#b15c00;--nuppdoc-syntax-comment:#848cb5;--nuppdoc-syntax-function:#2e7de9;--nuppdoc-syntax-keyword:#9854f1;--nuppdoc-syntax-meta:#007197;--nuppdoc-syntax-number:#b15c00;--nuppdoc-syntax-operator:#006a83;--nuppdoc-syntax-property:#387068;--nuppdoc-syntax-punctuation:#6172b0;--nuppdoc-syntax-string:#587539;--nuppdoc-syntax-type:#007197;--nuppdoc-syntax-variable:#3760bf}
-@media(prefers-color-scheme:dark){:root{color-scheme:dark;--nuppdoc-accent:var(--nuppdoc-dark-accent);--nuppdoc-accent-hover:var(--nuppdoc-dark-accent-hover);--nuppdoc-accent-soft:var(--nuppdoc-dark-accent-soft);--nuppdoc-background:var(--nuppdoc-dark-background);--nuppdoc-background-alt:var(--nuppdoc-dark-background-alt);--nuppdoc-border:var(--nuppdoc-dark-border);--nuppdoc-code-background:var(--nuppdoc-dark-code-background);--nuppdoc-text:var(--nuppdoc-dark-text);--nuppdoc-text-muted:var(--nuppdoc-dark-muted)}}
-@media(prefers-color-scheme:dark){:root{--nuppdoc-syntax-foreground:#c0caf5;--nuppdoc-syntax-boolean:#ff9e64;--nuppdoc-syntax-comment:#565f89;--nuppdoc-syntax-function:#7aa2f7;--nuppdoc-syntax-keyword:#bb9af7;--nuppdoc-syntax-meta:#7dcfff;--nuppdoc-syntax-number:#ff9e64;--nuppdoc-syntax-operator:#89ddff;--nuppdoc-syntax-property:#73daca;--nuppdoc-syntax-punctuation:#a9b1d6;--nuppdoc-syntax-string:#9ece6a;--nuppdoc-syntax-type:#2ac3de;--nuppdoc-syntax-variable:#c0caf5}}
-:root[data-theme="dark"]{color-scheme:dark;--nuppdoc-accent:var(--nuppdoc-dark-accent);--nuppdoc-accent-hover:var(--nuppdoc-dark-accent-hover);--nuppdoc-accent-soft:var(--nuppdoc-dark-accent-soft);--nuppdoc-background:var(--nuppdoc-dark-background);--nuppdoc-background-alt:var(--nuppdoc-dark-background-alt);--nuppdoc-border:var(--nuppdoc-dark-border);--nuppdoc-code-background:var(--nuppdoc-dark-code-background);--nuppdoc-text:var(--nuppdoc-dark-text);--nuppdoc-text-muted:var(--nuppdoc-dark-muted)}
-:root[data-theme="dark"]{--nuppdoc-syntax-foreground:#c0caf5;--nuppdoc-syntax-boolean:#ff9e64;--nuppdoc-syntax-comment:#565f89;--nuppdoc-syntax-function:#7aa2f7;--nuppdoc-syntax-keyword:#bb9af7;--nuppdoc-syntax-meta:#7dcfff;--nuppdoc-syntax-number:#ff9e64;--nuppdoc-syntax-operator:#89ddff;--nuppdoc-syntax-property:#73daca;--nuppdoc-syntax-punctuation:#a9b1d6;--nuppdoc-syntax-string:#9ece6a;--nuppdoc-syntax-type:#2ac3de;--nuppdoc-syntax-variable:#c0caf5}
-:root[data-theme="light"]{color-scheme:light;--nuppdoc-accent:var(--nuppdoc-light-accent);--nuppdoc-accent-hover:var(--nuppdoc-light-accent-hover);--nuppdoc-accent-soft:var(--nuppdoc-light-accent-soft);--nuppdoc-background:var(--nuppdoc-light-background);--nuppdoc-background-alt:var(--nuppdoc-light-background-alt);--nuppdoc-border:var(--nuppdoc-light-border);--nuppdoc-code-background:var(--nuppdoc-light-code-background);--nuppdoc-text:var(--nuppdoc-light-text);--nuppdoc-text-muted:var(--nuppdoc-light-muted)}
-:root[data-theme="light"]{--nuppdoc-syntax-foreground:#3760bf;--nuppdoc-syntax-boolean:#b15c00;--nuppdoc-syntax-comment:#848cb5;--nuppdoc-syntax-function:#2e7de9;--nuppdoc-syntax-keyword:#9854f1;--nuppdoc-syntax-meta:#007197;--nuppdoc-syntax-number:#b15c00;--nuppdoc-syntax-operator:#006a83;--nuppdoc-syntax-property:#387068;--nuppdoc-syntax-punctuation:#6172b0;--nuppdoc-syntax-string:#587539;--nuppdoc-syntax-type:#007197;--nuppdoc-syntax-variable:#3760bf}
-*{box-sizing:border-box}html{font-size:16px}
-/* Every fragment destination clears the sticky header itself. Doing it here rather
- * than with scroll-padding on the scrollport is what makes a link land in the same
- * place in browsers that skip scroll-padding on a load-time fragment; the two would
- * otherwise add up to twice the gap where both are honored. */
-.nuppdoc-api-item,.nuppdoc-api-member,.nuppdoc-content :is(h1,h2,h3,h4,h5,h6)[id]{scroll-margin-top:calc(var(--nuppdoc-header-height) + 1.4rem)}body{margin:0;color:var(--nuppdoc-text);background:var(--nuppdoc-background);font-family:var(--nuppdoc-font);line-height:1.6}a{color:var(--nuppdoc-accent);text-decoration-color:currentColor}a:hover{color:var(--nuppdoc-accent-hover)}button,input{font:inherit}.nuppdoc-header{position:sticky;z-index:30;top:0;height:var(--nuppdoc-header-height);border-bottom:1px solid var(--nuppdoc-border);background:color-mix(in srgb,var(--nuppdoc-background) 92%,transparent);backdrop-filter:blur(12px)}.nuppdoc-nav{display:flex;width:100%;max-width:var(--nuppdoc-layout-max-width);height:100%;align-items:center;gap:1rem;margin:auto;padding:0 1rem}.nuppdoc-brand{display:flex;align-items:center;gap:.55rem;color:var(--nuppdoc-text);font-weight:700;text-decoration:none}.nuppdoc-mark{display:grid;width:29px;height:29px;place-items:center;color:#fff;border-radius:7px;background:var(--nuppdoc-accent);font-family:var(--nuppdoc-font-mono);font-size:.7rem}.nuppdoc-top-nav{display:flex;flex:1;gap:.2rem}.nuppdoc-top-nav a{padding:.45rem .65rem;color:var(--nuppdoc-text-muted);border-radius:7px;font-size:.76rem;text-decoration:none}.nuppdoc-top-nav a:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-top-nav a[aria-current="page"]{color:var(--nuppdoc-accent)}.nuppdoc-actions{display:flex;align-items:center;gap:.25rem}.nuppdoc-search{width:min(190px,18vw);height:32px;padding:.25rem .6rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);font-size:.75rem}.nuppdoc-theme{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer}.nuppdoc-theme:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}
-.nuppdoc-shell{display:grid;width:100%;max-width:var(--nuppdoc-layout-max-width);min-height:calc(100vh - var(--nuppdoc-header-height));grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) var(--nuppdoc-outline-width);margin:auto}.nuppdoc-sidebar,.nuppdoc-outline{position:sticky;top:var(--nuppdoc-header-height);overflow:auto;max-height:calc(100vh - var(--nuppdoc-header-height));padding:1.25rem 1rem 2rem}.nuppdoc-sidebar{border-right:1px solid var(--nuppdoc-border);background:var(--nuppdoc-background-alt);box-shadow:-100vw 0 0 100vw var(--nuppdoc-background-alt)}.nuppdoc-sidebar h2,.nuppdoc-outline h2{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em}.nuppdoc-sidebar ul,.nuppdoc-outline ol{margin:0;padding:0;list-style:none}.nuppdoc-sidebar a,.nuppdoc-outline a{display:block;overflow:hidden;padding:.24rem .55rem;color:var(--nuppdoc-text-muted);border-radius:6px;font-size:.7rem;font-weight:500;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.nuppdoc-sidebar a:hover{color:var(--nuppdoc-text);background:color-mix(in srgb,var(--nuppdoc-accent-soft) 55%,transparent)}.nuppdoc-sidebar a[aria-current="page"],.nuppdoc-outline a:hover{color:var(--nuppdoc-accent);font-weight:650}.nuppdoc-outline{padding-left:1.25rem}.nuppdoc-outline ol{padding-left:1rem;border-left:1px solid var(--nuppdoc-border)}.nuppdoc-outline a{padding:.16rem 0;font-size:.66rem}
-.nuppdoc-content{width:min(100% - 10rem,var(--nuppdoc-content-width));margin:0 auto;padding:1.25rem 0 6rem;font-size:.88rem}.nuppdoc-content h1,.nuppdoc-content h2,.nuppdoc-content h3{font-weight:700;line-height:1.25;letter-spacing:-.02em}.nuppdoc-content h1{margin-top:0;font-size:1.8rem}.nuppdoc-content h2{margin-top:2.5rem;padding-top:2.5rem;border-top:1px solid var(--nuppdoc-border);font-size:1.575rem}.nuppdoc-content h3{margin-top:2.25rem;font-size:1.35rem}.nuppdoc-content h4{margin-top:1.5rem;font-size:1rem}.nuppdoc-content h5{margin-top:1.25rem;color:var(--nuppdoc-text-muted);font-size:.88rem;font-weight:650}.nuppdoc-breadcrumbs{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.75rem}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-muted)}.nuppdoc-kind-badge{display:inline-flex;margin-left:.45rem;padding:.12rem .42rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:999px;background:var(--nuppdoc-background-alt);font-size:.62rem;font-weight:650;letter-spacing:.035em;text-transform:uppercase;vertical-align:middle}.nuppdoc-kind-function,.nuppdoc-kind-method{color:var(--nuppdoc-accent);border-color:color-mix(in srgb,var(--nuppdoc-accent) 35%,var(--nuppdoc-border));background:var(--nuppdoc-accent-soft)}.nuppdoc-header-anchor{margin-left:.4rem;opacity:0;text-decoration:none}.nuppdoc-content h2:hover .nuppdoc-header-anchor,.nuppdoc-content h3:hover .nuppdoc-header-anchor{opacity:1}.nuppdoc-code-block{position:relative}.nuppdoc-code-block[data-lang]::before{position:absolute;z-index:1;top:8px;right:10px;color:var(--nuppdoc-text-muted);content:attr(data-lang);font-family:var(--nuppdoc-font-mono);font-size:.66rem}.nuppdoc-content pre{overflow:auto;padding:.8rem .9rem;border:1px solid var(--nuppdoc-border);border-radius:8px;background:var(--nuppdoc-code-background);line-height:1.55}.nuppdoc-content pre code{padding:0;background:transparent;font-family:var(--nuppdoc-font-mono);font-size:14px}.nuppdoc-content :not(pre)>code{padding:.1em .35em;border-radius:4px;background:var(--nuppdoc-code-background);font-family:var(--nuppdoc-font-mono);font-size:.91em}.nuppdoc-content table{width:100%;margin:1rem 0;border-collapse:collapse;font-size:.76rem}.nuppdoc-content th,.nuppdoc-content td{padding:.55rem .65rem;border-bottom:1px solid var(--nuppdoc-border);text-align:left;vertical-align:top}.nuppdoc-content th{color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase}.nuppdoc-empty{padding:2rem;color:var(--nuppdoc-text-muted);border:1px dashed var(--nuppdoc-border);border-radius:8px;text-align:center}.nuppdoc-module-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:1.5rem}.nuppdoc-module-card{display:block;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;background:var(--nuppdoc-background-alt);text-decoration:none}.nuppdoc-module-card:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-accent);transform:translateY(-1px)}.nuppdoc-module-card code{display:block;margin-bottom:.35rem;color:var(--nuppdoc-accent);font-size:.85rem}.nuppdoc-module-card span{color:var(--nuppdoc-text-muted);font-size:.72rem}.nuppdoc-footer{padding:1.25rem;color:var(--nuppdoc-text-muted);border-top:1px solid var(--nuppdoc-border);font-size:.68rem;text-align:center}
-.nuppdoc-token-comment{color:var(--nuppdoc-syntax-comment);font-style:italic}.nuppdoc-token-boolean{color:var(--nuppdoc-syntax-boolean)}.nuppdoc-token-keyword{color:var(--nuppdoc-syntax-keyword)}.nuppdoc-token-meta{color:var(--nuppdoc-syntax-meta)}.nuppdoc-token-number{color:var(--nuppdoc-syntax-number)}.nuppdoc-token-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-token-operator{color:var(--nuppdoc-syntax-operator)}.nuppdoc-token-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-token-punctuation{color:var(--nuppdoc-syntax-punctuation)}.nuppdoc-token-string{color:var(--nuppdoc-syntax-string)}.nuppdoc-token-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-token-variable{color:var(--nuppdoc-syntax-variable)}.nuppdoc-code-link,.nuppdoc-code-link:visited,.nuppdoc-code-link:hover{border-bottom:1px dotted currentColor;text-decoration:none}.nuppdoc-code-link:hover{border-bottom-style:solid}.nuppdoc-code-link-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-code-link-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-code-link-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-code-link-variable{color:var(--nuppdoc-syntax-variable)}
-@media(max-width:1100px){.nuppdoc-shell{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr)}.nuppdoc-outline{display:none}.nuppdoc-content{width:min(100% - 5rem,var(--nuppdoc-content-width))}}@media(max-width:760px){.nuppdoc-top-nav{display:none}.nuppdoc-search{width:140px}.nuppdoc-shell{display:block}.nuppdoc-sidebar{position:static;max-height:none;padding:.7rem 1rem;border-right:0;border-bottom:1px solid var(--nuppdoc-border);box-shadow:none}.nuppdoc-sidebar h2{display:none}.nuppdoc-sidebar ul{display:flex;overflow:auto;gap:.25rem}.nuppdoc-content{width:auto;padding:1.5rem 1.25rem 4rem}}@media(max-width:480px){.nuppdoc-search{display:none}.nuppdoc-brand span:last-child{display:none}.nuppdoc-content table{display:block;overflow:auto}}
-/* The custom properties a site is meant to override. They are named and grouped
- * deliberately: this is the part of the stylesheet a project stylesheet targets. */
-:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-playground-border:color-mix(in srgb,var(--nuppdoc-border) 70%,var(--nuppdoc-text));--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e;--nuppdoc-light-admonition-seealso:#0550ae;--nuppdoc-dark-admonition-seealso:#388bfd;--nuppdoc-light-admonition-deepdive:#8b4c24;--nuppdoc-dark-admonition-deepdive:#d19a66;--nuppdoc-admonition-seealso:var(--nuppdoc-light-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-light-admonition-deepdive)}
-@media(prefers-color-scheme:dark){:root{--nuppdoc-admonition-seealso:var(--nuppdoc-dark-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-dark-admonition-deepdive)}}
-:root[data-theme="dark"]{--nuppdoc-admonition-seealso:var(--nuppdoc-dark-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-dark-admonition-deepdive)}
-:root[data-theme="light"]{--nuppdoc-admonition-seealso:var(--nuppdoc-light-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-light-admonition-deepdive)}
-.nuppdoc-admonition{--nuppdoc-admonition-color:var(--nuppdoc-admonition-note);margin:1.25rem 0;padding:.85rem 1rem;border:1px solid color-mix(in srgb,var(--nuppdoc-admonition-color) 45%,var(--nuppdoc-border));border-left:4px solid var(--nuppdoc-admonition-color);border-radius:8px;background:color-mix(in srgb,var(--nuppdoc-admonition-color) 9%,var(--nuppdoc-background))}.nuppdoc-admonition-info{--nuppdoc-admonition-color:var(--nuppdoc-admonition-info)}.nuppdoc-admonition-tip{--nuppdoc-admonition-color:var(--nuppdoc-admonition-tip)}.nuppdoc-admonition-warning{--nuppdoc-admonition-color:var(--nuppdoc-admonition-warning)}.nuppdoc-admonition-danger{--nuppdoc-admonition-color:var(--nuppdoc-admonition-danger)}.nuppdoc-admonition-seealso{--nuppdoc-admonition-color:var(--nuppdoc-admonition-seealso)}.nuppdoc-admonition-deepdive{--nuppdoc-admonition-color:var(--nuppdoc-admonition-deepdive);padding:0;border-left-width:1px}details.nuppdoc-admonition>summary{cursor:pointer;padding:.7rem 1rem;list-style:none}details.nuppdoc-admonition>summary::-webkit-details-marker{display:none}details.nuppdoc-admonition>summary::before{content:'\25B8';display:inline-block;width:1em;transition:transform .12s ease}details.nuppdoc-admonition[open]>summary::before{transform:rotate(90deg)}details.nuppdoc-admonition>.nuppdoc-admonition-body{padding:0 1rem .85rem 2rem}.nuppdoc-admonition-title{margin:0;color:var(--nuppdoc-admonition-color);font-size:.78rem;font-weight:750;text-transform:uppercase;letter-spacing:.04em}.nuppdoc-admonition-body>:first-child{margin-top:.35rem}.nuppdoc-admonition-body>:last-child{margin-bottom:0}
-/* Tab inputs live in their own .nuppdoc-code-tabs row so a long caption scrolls
- * the row instead of wrapping every tab after it, which means a panel is no
- * longer its input's next sibling: :has() re-pairs each panel with the input
- * at the same position. Fifteen slots is more tabs than any group wants. */
-.nuppdoc-code-group{position:relative;display:block;overflow:hidden;margin:1.25rem 0;border:1px solid var(--nuppdoc-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);box-shadow:none}.nuppdoc-code-tabs{display:flex;overflow-x:auto;flex-wrap:nowrap}.nuppdoc-code-tabs .nuppdoc-code-tab{flex:none;white-space:nowrap}.nuppdoc-code-tab-input{position:absolute;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;appearance:none;clip-path:inset(50%);pointer-events:none;-webkit-appearance:none}.nuppdoc-code-tab{padding:var(--nuppdoc-code-tab-padding);border-bottom:2px solid transparent;color:var(--nuppdoc-code-tab-text);cursor:pointer;font-family:var(--nuppdoc-font);font-size:var(--nuppdoc-code-tab-font-size);font-weight:var(--nuppdoc-code-tab-font-weight)}.nuppdoc-code-tab:hover{color:var(--nuppdoc-code-tab-hover-text)}.nuppdoc-code-panel{display:none;width:100%;margin:0;border-top:1px solid var(--nuppdoc-code-tab-divider)}.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(1):checked) .nuppdoc-code-panel:nth-of-type(1),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(2):checked) .nuppdoc-code-panel:nth-of-type(2),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(3):checked) .nuppdoc-code-panel:nth-of-type(3),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(4):checked) .nuppdoc-code-panel:nth-of-type(4),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(5):checked) .nuppdoc-code-panel:nth-of-type(5),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(6):checked) .nuppdoc-code-panel:nth-of-type(6),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(7):checked) .nuppdoc-code-panel:nth-of-type(7),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(8):checked) .nuppdoc-code-panel:nth-of-type(8),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(9):checked) .nuppdoc-code-panel:nth-of-type(9),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(10):checked) .nuppdoc-code-panel:nth-of-type(10),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(11):checked) .nuppdoc-code-panel:nth-of-type(11),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(12):checked) .nuppdoc-code-panel:nth-of-type(12),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(13):checked) .nuppdoc-code-panel:nth-of-type(13),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(14):checked) .nuppdoc-code-panel:nth-of-type(14),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(15):checked) .nuppdoc-code-panel:nth-of-type(15){display:block}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab{border-bottom-color:var(--nuppdoc-code-tab-active-bar);color:var(--nuppdoc-code-tab-active-text)}.nuppdoc-code-tab-input:focus-visible+.nuppdoc-code-tab{outline:2px solid var(--nuppdoc-accent);outline-offset:-2px}.nuppdoc-code-group>.nuppdoc-code-block{width:100%}.nuppdoc-code-group>.nuppdoc-code-block pre,.nuppdoc-code-panel .nuppdoc-code-block pre{margin:0;border:0;border-radius:0}.nuppdoc-labeled-code{margin:1.25rem 0}.nuppdoc-code-group>.nuppdoc-labeled-code{margin:0}.nuppdoc-code-group>.nuppdoc-labeled-code+.nuppdoc-labeled-code{border-top:1px solid var(--nuppdoc-border)}.nuppdoc-labeled-code figcaption{padding:.45rem .6rem;color:var(--nuppdoc-text-muted);font-family:var(--nuppdoc-font);font-size:.72rem;font-weight:600}.nuppdoc-labeled-code pre{margin:0;border-radius:0}.nuppdoc-code-group>.nuppdoc-labeled-code pre{border:0}@media print{.nuppdoc-code-panel{display:block}}
-/* The gutter and the code are siblings sharing the pre's line box metrics, so the
- * numbers stay level with their lines. The code scrolls inside itself, which keeps
- * a long line from sliding out under the numbers. */
-.nuppdoc-code-block.has-line-numbers pre{display:flex;overflow:hidden;gap:.9rem}
-.nuppdoc-code-block.has-line-numbers pre>code{overflow:auto;flex:1;min-width:0}
-.nuppdoc-line-numbers{flex:none;padding-right:.9rem;border-right:1px solid var(--nuppdoc-border);color:var(--nuppdoc-text-faint);font-family:var(--nuppdoc-font-mono);font-size:14px;line-height:1.55;text-align:right;user-select:none;-webkit-user-select:none}
-.nuppdoc-line-numbers span{display:block}
-/* A Nupp or ```playground fence. The custom element owns its editor chrome and
- * sizes naturally in the page; long sources scroll inside CodeMirror. */
-.nuppdoc-playground{display:block;width:100%;margin:3rem 0 1rem}
-.nuppdoc-code-group>.nuppdoc-playground,.nuppdoc-code-panel>.nuppdoc-playground{margin:0}
-.nuppdoc-logo{width:auto;height:28px;border-radius:5px}
-.nuppdoc-icon-link{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer;text-decoration:none}.nuppdoc-icon-link:hover,.nuppdoc-icon-link[aria-pressed="true"]{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-icon-link svg{width:18px;height:18px}.nuppdoc-panel-toggle-right svg{transform:scaleX(-1)}
-.nuppdoc-shell{transition:grid-template-columns 160ms ease}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) var(--nuppdoc-outline-width)}.nuppdoc-shell.is-outline-collapsed{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed.is-outline-collapsed{grid-template-columns:0 minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{overflow:hidden;padding-right:0;padding-left:0;border:0;opacity:0;pointer-events:none}
-.nuppdoc-sidebar{background:var(--nuppdoc-sidebar-background)}.nuppdoc-sidebar>ul{margin:0;padding:0;list-style:none}.nuppdoc-sidebar li{margin:0;padding:0}.nuppdoc-sidebar>ul>li+li{margin-top:1.1rem;padding-top:1.1rem;border-top:1px solid var(--nuppdoc-border)}.nuppdoc-sidebar-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-sidebar-section summary{position:relative;margin:0;padding:.24rem 1.2rem .24rem .55rem;color:var(--nuppdoc-text);font-size:.7rem;font-weight:700;line-height:1.3;cursor:pointer;list-style:none}.nuppdoc-sidebar-section summary::after{position:absolute;top:50%;right:.5rem;width:.36rem;height:.36rem;border-right:1.5px solid var(--nuppdoc-text-faint);border-bottom:1.5px solid var(--nuppdoc-text-faint);content:"";transform:translateY(-50%) rotate(45deg)}.nuppdoc-sidebar-section details:not([open]) summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-sidebar-section summary::-webkit-details-marker{display:none}.nuppdoc-sidebar-section summary::marker{content:""}.nuppdoc-sidebar-section>details>summary.nuppdoc-sidebar-section-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-sidebar-section>details>summary>a{font-weight:inherit;padding-right:.2rem}.nuppdoc-sidebar-section ul{padding:4px 0 0 .25rem}
-.nuppdoc-module-tree{margin:0;padding:4px 0 0 .5rem;list-style:none}.nuppdoc-module-branch>details>summary{color:var(--nuppdoc-text-muted);font-weight:500}.nuppdoc-module-branch>details>summary.nuppdoc-module-branch-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-module-branch>details>summary>a{padding-right:.2rem}.nuppdoc-module-branch .nuppdoc-module-tree{padding:2px 0 0 .7rem}
-.nuppdoc-outline-title{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.66rem;font-weight:600}.nuppdoc-outline a[aria-current]{color:var(--nuppdoc-accent)}
-.nuppdoc-outline-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-outline-section summary{position:relative;margin:0;padding:0 1rem 0 0;cursor:pointer;list-style:none}.nuppdoc-outline-section summary::-webkit-details-marker{display:none}.nuppdoc-outline-section summary::marker{content:""}.nuppdoc-outline-section summary::after{position:absolute;top:50%;right:.15rem;width:.32rem;height:.32rem;border-right:1.5px solid var(--nuppdoc-text-muted);border-bottom:1.5px solid var(--nuppdoc-text-muted);content:"";transform:translateY(-65%) rotate(45deg);transition:transform 120ms ease}.nuppdoc-outline-section details:not([open])>summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-outline-section details>ol{margin:0;padding:0 0 0 .65rem;border:0;list-style:none}
-.nuppdoc-breadcrumbs{margin:0 0 .75rem}.nuppdoc-breadcrumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0;padding:0;list-style:none}.nuppdoc-breadcrumbs li{display:inline-flex;align-items:center;margin:0;padding:0;color:var(--nuppdoc-text-faint);font-size:.82rem;line-height:1.2}.nuppdoc-breadcrumbs li+li::before{margin:0 .45rem;color:var(--nuppdoc-border);content:"/"}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-faint);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.16em}.nuppdoc-breadcrumbs .nuppdoc-breadcrumb-home{font-size:.9rem;text-decoration:none}.nuppdoc-breadcrumbs [aria-current="page"]{color:var(--nuppdoc-text-muted)}
-.nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table,.nuppdoc-module-modules table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2):not(:last-child){width:19%}.nuppdoc-module-modules th:first-child{width:32%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}.nuppdoc-kind-comptime-function,.nuppdoc-kind-comptime-type{color:#bc4c00;border-color:color-mix(in srgb,#bc4c00 35%,var(--nuppdoc-border));background:color-mix(in srgb,#bc4c00 12%,var(--nuppdoc-background))}.nuppdoc-annotations{display:flex;flex-wrap:wrap;gap:.3rem;margin:.35rem 0 .1rem}.nuppdoc-annotation{padding:.12rem .42rem;color:#bc4c00;border:1px solid color-mix(in srgb,#bc4c00 35%,var(--nuppdoc-border));border-radius:999px;background:color-mix(in srgb,#bc4c00 12%,var(--nuppdoc-background));font-family:var(--nuppdoc-font-mono);font-size:.66rem;font-weight:650}
-.nuppdoc-home-shell{display:block;max-width:none}.nuppdoc-home-content{width:min(calc(100% - 2 * var(--nuppdoc-home-gutter)),var(--nuppdoc-home-width));padding-top:4.5rem}.nuppdoc-home-hero{margin:0 0 4rem}.nuppdoc-hero-main{display:grid;align-items:start;gap:3rem;grid-template-columns:minmax(0,1fr)}.nuppdoc-hero-main.has-image{grid-template-columns:minmax(0,1fr) minmax(280px,.8fr)}.nuppdoc-hero-copy{position:relative;z-index:1}.nuppdoc-hero-copy h1{max-width:720px;margin:0;color:var(--nuppdoc-accent);font-size:5.5rem;letter-spacing:-.04em;line-height:.95}.nuppdoc-hero-text{max-width:650px;margin:1.08rem 0 0;color:var(--nuppdoc-text-muted);font-size:1.6rem;line-height:1.35}.nuppdoc-hero-actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:2rem}.nuppdoc-hero-action{display:inline-flex;align-items:center;justify-content:center;padding:.52rem .95rem;border:1px solid transparent;border-radius:16px;font-size:.9rem;font-weight:650;line-height:1;text-decoration:none}.nuppdoc-hero-action.brand{color:var(--nuppdoc-accent-contrast);background:var(--nuppdoc-accent)}.nuppdoc-hero-action.alt{color:var(--nuppdoc-text);border-color:var(--nuppdoc-border);background:var(--nuppdoc-background-alt)}.nuppdoc-hero-image{position:relative;display:grid;align-self:center;place-items:center}.nuppdoc-hero-starburst{position:absolute;width:var(--nuppdoc-hero-glow-size);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 38%,transparent) 0,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 20%,transparent) 34%,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 8%,transparent) 58%,transparent 76%);filter:blur(var(--nuppdoc-hero-glow-blur));opacity:var(--nuppdoc-hero-glow-opacity)}.nuppdoc-hero-image img{position:relative;z-index:1;width:min(100%,390px);max-height:330px;border-radius:20px;box-shadow:0 24px 70px rgb(0 0 0 / 22%);object-fit:contain}.nuppdoc-features{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:2rem}.nuppdoc-feature{margin:0;padding:1.4rem;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background-alt)}.nuppdoc-feature-icon,.nuppdoc-feature-image{display:inline-grid;width:40px;height:40px;place-items:center;margin-bottom:1rem;border-radius:8px;background:var(--nuppdoc-accent-soft);font-size:1.25rem;object-fit:contain}.nuppdoc-feature h2{margin:0 0 .55rem;padding:0;border:0;font-size:1rem;letter-spacing:0}.nuppdoc-feature-details{margin:0;color:var(--nuppdoc-text-muted);font-size:.86rem;line-height:1.55}.nuppdoc-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem}.nuppdoc-footer a{color:var(--nuppdoc-text-muted)}
-.nuppdoc-hero-content{font-size:1.05rem}.nuppdoc-hero-starburst{overflow:hidden;clip-path:circle(50% at 50% 50%)}.nuppdoc-hero-image img{box-shadow:none;filter:drop-shadow(0 24px 35px rgb(0 0 0 / 22%))}
-@media(max-width:1100px){.nuppdoc-panel-toggle-right{display:none}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr)}.nuppdoc-features{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.nuppdoc-search-button{display:inline-flex;width:min(190px,18vw);min-width:0;min-height:32px;align-items:center;justify-content:flex-start;gap:.35rem;margin:0;padding:.25rem .5rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);box-shadow:none;font-size:.76rem;cursor:pointer}.nuppdoc-search-button:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-text-muted)}.nuppdoc-search-button kbd{margin-left:auto;padding:.06rem .28rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:4px;background:transparent;font-size:.62rem}.nuppdoc-search-dialog{width:min(94vw,680px);max-width:none;padding:0;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background);color:var(--nuppdoc-text);box-shadow:0 24px 80px rgb(0 0 0 / 28%)}.nuppdoc-search-dialog::backdrop{background:rgb(0 0 0 / 46%);backdrop-filter:blur(3px)}.nuppdoc-search-panel{margin:0;padding:0}.nuppdoc-search-panel>header{display:flex;align-items:center;gap:.65rem;margin:0;padding:.8rem;border-bottom:1px solid var(--nuppdoc-border);background:transparent}.nuppdoc-search-panel label{display:flex;flex:1;align-items:center;gap:.5rem;margin:0}.nuppdoc-search-panel input{width:100%;height:42px;margin:0;padding:0 .75rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-accent);border-radius:7px;background:var(--nuppdoc-background);box-shadow:0 0 0 3px var(--nuppdoc-accent-soft)}.nuppdoc-search-panel [data-nuppdoc-search-close]{width:auto;margin:0;padding:.32rem .5rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:5px;background:var(--nuppdoc-background-alt);box-shadow:none;font-size:.72rem;cursor:pointer}.nuppdoc-search-results{display:grid;overflow:auto;max-height:min(60vh,520px);gap:.35rem;padding:.65rem}.nuppdoc-search-results a{display:grid;gap:.15rem;padding:.7rem .8rem;color:var(--nuppdoc-text);border:1px solid transparent;border-radius:7px;text-decoration:none}.nuppdoc-search-results a:hover,.nuppdoc-search-results a:focus{border-color:var(--nuppdoc-border);background:var(--nuppdoc-accent-soft)}.nuppdoc-search-results strong{font-size:.9rem}.nuppdoc-search-results small{overflow:hidden;color:var(--nuppdoc-text-faint);font-size:.72rem;text-overflow:ellipsis;white-space:nowrap}.nuppdoc-search-empty{margin:0;padding:1.5rem;color:var(--nuppdoc-text-muted);text-align:center}
-.nuppdoc-mobile-nav-toggle,.nuppdoc-sidebar-backdrop{display:none}.nuppdoc-page-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--nuppdoc-border)}.nuppdoc-page-nav a{display:flex;flex-direction:column;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;text-decoration:none}.nuppdoc-page-nav a:hover{border-color:var(--nuppdoc-accent);background:var(--nuppdoc-background-alt)}.nuppdoc-page-nav-next{grid-column:2;text-align:right}.nuppdoc-page-nav-label{color:var(--nuppdoc-text-faint);font-size:.68rem;font-weight:650;text-transform:uppercase;letter-spacing:.05em}.nuppdoc-page-nav-title{color:var(--nuppdoc-accent);font-size:.85rem;font-weight:650}
-@media(max-width:760px){.nuppdoc-panel-toggle{display:none}.nuppdoc-mobile-nav-toggle{display:grid}.nuppdoc-search-button span:nth-child(2),.nuppdoc-search-button kbd{display:none}.nuppdoc-search-button{width:34px;justify-content:center}.nuppdoc-home-content{width:auto;padding:3rem 1.25rem 4rem}.nuppdoc-hero-copy h1{font-size:4rem}.nuppdoc-hero-text{font-size:1.2rem}.nuppdoc-hero-main.has-image{grid-template-columns:1fr}.nuppdoc-hero-starburst{width:min(78vw,340px)}.nuppdoc-features{grid-template-columns:1fr}.nuppdoc-sidebar,.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar{position:fixed;z-index:42;top:var(--nuppdoc-header-height);bottom:0;left:0;width:min(86vw,var(--nuppdoc-sidebar-width));max-height:none;padding:1.25rem 1rem 2rem;border-right:1px solid var(--nuppdoc-border);border-bottom:0;box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:1;pointer-events:auto;transform:translateX(-105%);transition:transform 180ms ease}.nuppdoc-sidebar>ul{display:block;overflow:visible}.nuppdoc-sidebar-section ul{display:block;overflow:visible}.is-mobile-nav-open .nuppdoc-sidebar{transform:translateX(0)}.nuppdoc-sidebar-backdrop{position:fixed;z-index:41;inset:var(--nuppdoc-header-height) 0 0;display:block;width:100%;height:auto;padding:0;border:0;background:rgba(0,0,0,.38);opacity:0;pointer-events:none;transition:opacity 180ms ease}.is-mobile-nav-open .nuppdoc-sidebar-backdrop{opacity:1;pointer-events:auto}.is-mobile-nav-open{overflow:hidden}.nuppdoc-page-nav{grid-template-columns:1fr}.nuppdoc-page-nav-next{grid-column:1}}
-@media(max-width:760px){.nuppdoc-sidebar a,.nuppdoc-sidebar-section summary{font-size:.77rem}}
-@media(max-width:760px){.nuppdoc-content{font-size:1rem}}
-.nuppdoc-mobile-outline-toggle,.nuppdoc-outline-backdrop{display:none}
-@media(max-width:760px){.nuppdoc-mobile-outline-toggle{display:grid}.nuppdoc-outline,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{position:fixed;z-index:42;top:var(--nuppdoc-header-height);right:0;bottom:0;display:block;width:min(86vw,320px);max-height:none;padding:1.25rem 1rem 2rem;border:0;border-left:1px solid var(--nuppdoc-border);background:var(--nuppdoc-background-alt);box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:1;pointer-events:auto;transform:translateX(105%);transition:transform 180ms ease}.is-mobile-outline-open .nuppdoc-outline{transform:translateX(0)}.nuppdoc-outline-backdrop{position:fixed;z-index:41;inset:var(--nuppdoc-header-height) 0 0;display:block;width:100%;height:auto;padding:0;border:0;background:rgba(0,0,0,.38);opacity:0;pointer-events:none;transition:opacity 180ms ease}.is-mobile-outline-open .nuppdoc-outline-backdrop{opacity:1;pointer-events:auto}}
-]]
-
-
-
-local SIDEBAR_SECTION_LINKS = [[
-.nuppdoc-sidebar-section>details>summary>a,.nuppdoc-module-branch>details>summary>a{display:inline;overflow:visible;padding:0;white-space:normal}
-]]
-
 local SCRIPT = [[
 (() => {
     "use strict";
@@ -95805,7 +95754,21 @@ menu = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="c
 outline = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M8 6.5h12M8 12h12M8 17.5h12"/><circle cx="4" cy="6.5" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="17.5" r="1" fill="currentColor"/></svg>]] ,
 }
 
-assets . THEME = THEME .. "\n" .. SIDEBAR_SECTION_LINKS
+
+
+
+
+
+
+function assets . theme ( ) 
+local css = bundled . source ( "/doc/theme.css" )
+if not css then
+return nil , "this compiler carries no /doc/theme.css"
+end
+
+return css
+end
+
 assets . SCRIPT = SCRIPT
 assets . ICONS = ICONS
 
@@ -103802,7 +103765,6 @@ local BUNDLED_SOURCE = {
 [ "nupp.data.json.internal.decoder.serde" ] = "/nupp/data/json/internal/decoder/serde.nupp" ,
 [ "nupp.data.serde" ] = "/nupp/data/serde.nupp" ,
 [ "nupp.data.hash" ] = "/nupp/data/hash.nupp" ,
-[ "nupp.data.hmac" ] = "/nupp/data/hmac.nupp" ,
 [ "nupp.runtime.backend" ] = "/nupp/runtime/backend/init.nupp" ,
 [ "nupp.runtime.backend.browser" ] = "/nupp/runtime/backend/browser.nupp" ,
 [ "nupp.runtime.backend.portable" ] = "/nupp/runtime/backend/portable.nupp" ,
@@ -152123,10 +152085,16 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local surface = { }
 local seamRegistry = require ( "nupp.runtime.seam.registry" )
 
-local function selected ( kind , name , allDialects ) 
+local function selected ( kind , name , allDialects , accelerators ) 
 local seam = seamRegistry . get ( name )
 
-return { kind = kind , seam = seam . name , effect = seam . effect , allDialects = allDialects , }
+return {
+kind = kind ,
+seam = seam . name ,
+effect = seam . effect ,
+allDialects = allDialects ,
+accelerators = accelerators ,
+}
 end
 
 
@@ -152141,8 +152109,15 @@ local MODULES = {
 [ "nupp.browser.storage" ] = selected ( "host" , "host.browser_storage" , true ) ,
 [ "nupp.data" ] = { kind = "members" } ,
 [ "nupp.data.json" ] = selected ( "runtime" , "data.json" ) ,
-[ "nupp.data.hash" ] = selected ( "runtime" , "numeric.bitops" ) ,
-[ "nupp.data.hmac" ] = selected ( "runtime" , "crypto.hmac_sha256" , true ) ,
+
+
+
+
+
+
+[ "nupp.data.hash" ] = selected ( "runtime" , "numeric.bitops" , nil , {
+"runtime.hmac_sha256"
+} ) ,
 [ "nupp.data.serde" ] = selected ( "runtime" , "text.buffer" ) ,
 [ "nupp.data.utf8" ] = selected ( "runtime" , "data.utf8" ) ,
 
@@ -152293,6 +152268,24 @@ end
 
 function surface . reachable ( checker , moduleName ) 
 return reach ( checker , moduleName , nil )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+function surface . accelerators ( moduleName ) 
+local classification = MODULES [ moduleName ]
+
+return classification and classification . accelerators or nil
 end
 
 
@@ -159656,6 +159649,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
 local data = { }
 local ffi = require ( "ffi" )
 const digest = require ( "nupp.data.digest" )
@@ -161148,6 +161142,16 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
+
+
+
+
+
+
+
+
 local hash = { }
 
 
@@ -161520,43 +161524,50 @@ function hash . hmac ( key )
 return Hmac.__nuppCtor1 ( key )
 end
 
-const __nuppExportValue= hash ;__nuppExports=__nuppExportValue
- end);if not __nuppOk then package.loaded["nupp.data.hash"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.hash"]=__nuppExports;return __nuppExports
-end
-package.preload["nupp.data.hmac"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
-
-local hmac = { }
 
 local function provider ( ) 
-local selected = rawget ( _G , "__nuppHmacSha256" )
-if selected == nil then
-error ( "nupp: crypto.hmac_sha256 has no installed runtime provider" , 2 )
+return rawget ( _G , "__nuppHmacSha256" )
 end
 
-return selected
-end
+local function oneShot ( key , message ) 
+local mac = Hmac.__nuppCtor1 ( key )
+mac : update ( message )
 
-
-
-
-
-function hmac . digest ( key , message ) 
-return provider ( ) . digest ( key , message )
+return mac
 end
 
 
 
 
 
-function hmac . hex ( key , message ) 
-return provider ( ) . hex ( key , message )
+
+function hash . hmacDigest ( key , message ) 
+local selected = provider ( )
+if selected ~= nil then
+return selected . digest ( key , message )
 end
 
-const __nuppExportValue= hmac ;__nuppExports=__nuppExportValue
- end);if not __nuppOk then package.loaded["nupp.data.hmac"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.hmac"]=__nuppExports;return __nuppExports
+return oneShot ( key , message ) : digest ( )
+end
+
+
+
+
+
+
+function hash . hmacHex ( key , message ) 
+local selected = provider ( )
+if selected ~= nil then
+return selected . hex ( key , message )
+end
+
+return oneShot ( key , message ) : hex ( )
+end
+
+const __nuppExportValue= hash ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.data.hash"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.hash"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.data.json"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();--[[nupp-backends: resolved=data.json|2|runtime|nupp.runtime.backend.lunajson|8bdff32722f35edeb5fe6f35b5917e55966222abcfab16b083c41e57e7b49121|nupp.runtime.provider.lunajson||]]local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end (require("nupp.runtime.backend.lunajson")):install();local __nuppExports={};package.loaded["nupp.data.json"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local arrayOf;__nuppExports["arrayOf"]=function(...) return arrayOf(...) end;local asArray;__nuppExports["asArray"]=function(...) return asArray(...) end;local asObject;__nuppExports["asObject"]=function(...) return asObject(...) end;local decode;__nuppExports["decode"]=function(...) return decode(...) end;local decodeAs;__nuppExports["decodeAs"]=function(...) return decodeAs(...) end;local encode;__nuppExports["encode"]=function(...) return encode(...) end;local encodeAs;__nuppExports["encodeAs"]=function(...) return encodeAs(...) end;local encodeRecord;__nuppExports["encodeRecord"]=function(...) return encodeRecord(...) end;local encoded;__nuppExports["encoded"]=function(...) return encoded(...) end;local encodedString;__nuppExports["encodedString"]=function(...) return encodedString(...) end;local isArray;__nuppExports["isArray"]=function(...) return isArray(...) end;local newCodec;__nuppExports["newCodec"]=function(...) return newCodec(...) end;local pull;__nuppExports["pull"]=function(...) return pull(...) end;local serialize;__nuppExports["serialize"]=function(...) return serialize(...) end;local verified;__nuppExports["verified"]=function(...) return verified(...) end;local verifiedString;__nuppExports["verifiedString"]=function(...) return verifiedString(...) end;local writeAs;__nuppExports["writeAs"]=function(...) return writeAs(...) end;local writeRecord;__nuppExports["writeRecord"]=function(...) return writeRecord(...) end;local writer;__nuppExports["writer"]=function(...) return writer(...) end;
@@ -193469,6 +193480,7 @@ local contracts = { }
 
 
 
+
 contracts . members = {
 [ "data.json" ] = {functions = {"arrayOf", "asArray", "asObject", "isArray", "decode", "encode", "serialize", "encoded", "encodedString", "pull", "verified", "verifiedString", "writer"}, valueTypes = {EMPTY_ARRAY = "table", EMPTY_OBJECT = "table"}, values = {"NULL", "EMPTY_ARRAY", "EMPTY_OBJECT"}}
 
@@ -194898,12 +194910,15 @@ binding = "runtime" ,
 factoryModule = "nupp.runtime.seam.workers" ,
 modules = { [ "nupp.workers" ] = "" }
 } ,
+
+
+
+
 {
 name = "crypto.hmac_sha256" ,
 effect = "runtime.hmac_sha256" ,
 binding = "runtime" ,
-factoryModule = "nupp.runtime.seam.hmacsha256" ,
-implementationModules = { [ "nupp.data.hmac" ] = true }
+factoryModule = "nupp.runtime.seam.hmacsha256"
 } ,
 }
 
@@ -207870,6 +207885,1919 @@ local decode: function(s: string): any
 
 return {new = new, encode = encode, decode = decode}
 ]=],
+["/doc/theme.css"] = [[
+:root {
+    color-scheme: light;
+    --nuppdoc-light-accent: #087f8c;
+    --nuppdoc-light-accent-hover: #086a75;
+    --nuppdoc-light-accent-soft: #dff3f5;
+    --nuppdoc-light-background: #fff;
+    --nuppdoc-light-background-alt: #f6f6f7;
+    --nuppdoc-light-border: #e2e2e3;
+    --nuppdoc-light-code-background: #e9e7ec;
+    --nuppdoc-light-text: #213547;
+    --nuppdoc-light-muted: #67676c;
+    --nuppdoc-dark-accent: #5ad9e0;
+    --nuppdoc-dark-accent-hover: #7ce4e9;
+    --nuppdoc-dark-accent-soft: #173a3f;
+    --nuppdoc-dark-background: #1b1b1f;
+    --nuppdoc-dark-background-alt: #161618;
+    --nuppdoc-dark-border: #2e2e32;
+    --nuppdoc-dark-code-background: #252330;
+    --nuppdoc-dark-text: #dfdfd6;
+    --nuppdoc-dark-muted: #a8a8a3;
+    --nuppdoc-accent: var(--nuppdoc-light-accent);
+    --nuppdoc-accent-hover: var(--nuppdoc-light-accent-hover);
+    --nuppdoc-accent-soft: var(--nuppdoc-light-accent-soft);
+    --nuppdoc-background: var(--nuppdoc-light-background);
+    --nuppdoc-background-alt: var(--nuppdoc-light-background-alt);
+    --nuppdoc-border: var(--nuppdoc-light-border);
+    --nuppdoc-code-background: var(--nuppdoc-light-code-background);
+    --nuppdoc-text: var(--nuppdoc-light-text);
+    --nuppdoc-text-muted: var(--nuppdoc-light-muted);
+    --nuppdoc-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --nuppdoc-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --nuppdoc-header-height: 64px;
+    --nuppdoc-layout-max-width: 1480px;
+    --nuppdoc-content-width: 688px;
+    --nuppdoc-sidebar-width: 272px;
+    --nuppdoc-outline-width: 256px
+}
+
+:root {
+    --nuppdoc-syntax-foreground: #3760bf;
+    --nuppdoc-syntax-boolean: #b15c00;
+    --nuppdoc-syntax-comment: #848cb5;
+    --nuppdoc-syntax-function: #2e7de9;
+    --nuppdoc-syntax-keyword: #9854f1;
+    --nuppdoc-syntax-meta: #007197;
+    --nuppdoc-syntax-number: #b15c00;
+    --nuppdoc-syntax-operator: #006a83;
+    --nuppdoc-syntax-property: #387068;
+    --nuppdoc-syntax-punctuation: #6172b0;
+    --nuppdoc-syntax-string: #587539;
+    --nuppdoc-syntax-type: #007197;
+    --nuppdoc-syntax-variable: #3760bf
+}
+
+@media(prefers-color-scheme:dark) {
+    :root {
+        color-scheme: dark;
+        --nuppdoc-accent: var(--nuppdoc-dark-accent);
+        --nuppdoc-accent-hover: var(--nuppdoc-dark-accent-hover);
+        --nuppdoc-accent-soft: var(--nuppdoc-dark-accent-soft);
+        --nuppdoc-background: var(--nuppdoc-dark-background);
+        --nuppdoc-background-alt: var(--nuppdoc-dark-background-alt);
+        --nuppdoc-border: var(--nuppdoc-dark-border);
+        --nuppdoc-code-background: var(--nuppdoc-dark-code-background);
+        --nuppdoc-text: var(--nuppdoc-dark-text);
+        --nuppdoc-text-muted: var(--nuppdoc-dark-muted)
+    }
+}
+
+@media(prefers-color-scheme:dark) {
+    :root {
+        --nuppdoc-syntax-foreground: #c0caf5;
+        --nuppdoc-syntax-boolean: #ff9e64;
+        --nuppdoc-syntax-comment: #565f89;
+        --nuppdoc-syntax-function: #7aa2f7;
+        --nuppdoc-syntax-keyword: #bb9af7;
+        --nuppdoc-syntax-meta: #7dcfff;
+        --nuppdoc-syntax-number: #ff9e64;
+        --nuppdoc-syntax-operator: #89ddff;
+        --nuppdoc-syntax-property: #73daca;
+        --nuppdoc-syntax-punctuation: #a9b1d6;
+        --nuppdoc-syntax-string: #9ece6a;
+        --nuppdoc-syntax-type: #2ac3de;
+        --nuppdoc-syntax-variable: #c0caf5
+    }
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --nuppdoc-accent: var(--nuppdoc-dark-accent);
+    --nuppdoc-accent-hover: var(--nuppdoc-dark-accent-hover);
+    --nuppdoc-accent-soft: var(--nuppdoc-dark-accent-soft);
+    --nuppdoc-background: var(--nuppdoc-dark-background);
+    --nuppdoc-background-alt: var(--nuppdoc-dark-background-alt);
+    --nuppdoc-border: var(--nuppdoc-dark-border);
+    --nuppdoc-code-background: var(--nuppdoc-dark-code-background);
+    --nuppdoc-text: var(--nuppdoc-dark-text);
+    --nuppdoc-text-muted: var(--nuppdoc-dark-muted)
+}
+
+:root[data-theme="dark"] {
+    --nuppdoc-syntax-foreground: #c0caf5;
+    --nuppdoc-syntax-boolean: #ff9e64;
+    --nuppdoc-syntax-comment: #565f89;
+    --nuppdoc-syntax-function: #7aa2f7;
+    --nuppdoc-syntax-keyword: #bb9af7;
+    --nuppdoc-syntax-meta: #7dcfff;
+    --nuppdoc-syntax-number: #ff9e64;
+    --nuppdoc-syntax-operator: #89ddff;
+    --nuppdoc-syntax-property: #73daca;
+    --nuppdoc-syntax-punctuation: #a9b1d6;
+    --nuppdoc-syntax-string: #9ece6a;
+    --nuppdoc-syntax-type: #2ac3de;
+    --nuppdoc-syntax-variable: #c0caf5
+}
+
+:root[data-theme="light"] {
+    color-scheme: light;
+    --nuppdoc-accent: var(--nuppdoc-light-accent);
+    --nuppdoc-accent-hover: var(--nuppdoc-light-accent-hover);
+    --nuppdoc-accent-soft: var(--nuppdoc-light-accent-soft);
+    --nuppdoc-background: var(--nuppdoc-light-background);
+    --nuppdoc-background-alt: var(--nuppdoc-light-background-alt);
+    --nuppdoc-border: var(--nuppdoc-light-border);
+    --nuppdoc-code-background: var(--nuppdoc-light-code-background);
+    --nuppdoc-text: var(--nuppdoc-light-text);
+    --nuppdoc-text-muted: var(--nuppdoc-light-muted)
+}
+
+:root[data-theme="light"] {
+    --nuppdoc-syntax-foreground: #3760bf;
+    --nuppdoc-syntax-boolean: #b15c00;
+    --nuppdoc-syntax-comment: #848cb5;
+    --nuppdoc-syntax-function: #2e7de9;
+    --nuppdoc-syntax-keyword: #9854f1;
+    --nuppdoc-syntax-meta: #007197;
+    --nuppdoc-syntax-number: #b15c00;
+    --nuppdoc-syntax-operator: #006a83;
+    --nuppdoc-syntax-property: #387068;
+    --nuppdoc-syntax-punctuation: #6172b0;
+    --nuppdoc-syntax-string: #587539;
+    --nuppdoc-syntax-type: #007197;
+    --nuppdoc-syntax-variable: #3760bf
+}
+
+* {
+    box-sizing: border-box
+}
+
+html {
+    font-size: 16px
+}
+
+/* Every fragment destination clears the sticky header itself. Doing it here rather
+ * than with scroll-padding on the scrollport is what makes a link land in the same
+ * place in browsers that skip scroll-padding on a load-time fragment; the two would
+ * otherwise add up to twice the gap where both are honored. */
+.nuppdoc-api-item,
+.nuppdoc-api-member,
+.nuppdoc-content :is(h1, h2, h3, h4, h5, h6)[id] {
+    scroll-margin-top: calc(var(--nuppdoc-header-height) + 1.4rem)
+}
+
+body {
+    margin: 0;
+    color: var(--nuppdoc-text);
+    background: var(--nuppdoc-background);
+    font-family: var(--nuppdoc-font);
+    line-height: 1.6
+}
+
+a {
+    color: var(--nuppdoc-accent);
+    text-decoration-color: currentColor
+}
+
+a:hover {
+    color: var(--nuppdoc-accent-hover)
+}
+
+button,
+input {
+    font: inherit
+}
+
+.nuppdoc-header {
+    position: sticky;
+    z-index: 30;
+    top: 0;
+    height: var(--nuppdoc-header-height);
+    border-bottom: 1px solid var(--nuppdoc-border);
+    background: color-mix(in srgb, var(--nuppdoc-background) 92%, transparent);
+    backdrop-filter: blur(12px)
+}
+
+.nuppdoc-nav {
+    display: flex;
+    width: 100%;
+    max-width: var(--nuppdoc-layout-max-width);
+    height: 100%;
+    align-items: center;
+    gap: 1rem;
+    margin: auto;
+    padding: 0 1rem
+}
+
+.nuppdoc-brand {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    color: var(--nuppdoc-text);
+    font-weight: 700;
+    text-decoration: none
+}
+
+.nuppdoc-mark {
+    display: grid;
+    width: 29px;
+    height: 29px;
+    place-items: center;
+    color: #fff;
+    border-radius: 7px;
+    background: var(--nuppdoc-accent);
+    font-family: var(--nuppdoc-font-mono);
+    font-size: .7rem
+}
+
+.nuppdoc-top-nav {
+    display: flex;
+    flex: 1;
+    gap: .2rem
+}
+
+.nuppdoc-top-nav a {
+    padding: .45rem .65rem;
+    color: var(--nuppdoc-text-muted);
+    border-radius: 7px;
+    font-size: .76rem;
+    text-decoration: none
+}
+
+.nuppdoc-top-nav a:hover {
+    color: var(--nuppdoc-text);
+    background: var(--nuppdoc-background-alt)
+}
+
+.nuppdoc-top-nav a[aria-current="page"] {
+    color: var(--nuppdoc-accent)
+}
+
+.nuppdoc-actions {
+    display: flex;
+    align-items: center;
+    gap: .25rem
+}
+
+.nuppdoc-search {
+    width: min(190px, 18vw);
+    height: 32px;
+    padding: .25rem .6rem;
+    color: var(--nuppdoc-text-muted);
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 6px;
+    background: var(--nuppdoc-background-alt);
+    font-size: .75rem
+}
+
+.nuppdoc-theme {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    padding: 0;
+    color: var(--nuppdoc-text-muted);
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    cursor: pointer
+}
+
+.nuppdoc-theme:hover {
+    color: var(--nuppdoc-text);
+    background: var(--nuppdoc-background-alt)
+}
+
+.nuppdoc-shell {
+    display: grid;
+    width: 100%;
+    max-width: var(--nuppdoc-layout-max-width);
+    min-height: calc(100vh - var(--nuppdoc-header-height));
+    grid-template-columns: var(--nuppdoc-sidebar-width) minmax(0, 1fr) var(--nuppdoc-outline-width);
+    margin: auto
+}
+
+.nuppdoc-sidebar,
+.nuppdoc-outline {
+    position: sticky;
+    top: var(--nuppdoc-header-height);
+    overflow: auto;
+    max-height: calc(100vh - var(--nuppdoc-header-height));
+    padding: 1.25rem 1rem 2rem
+}
+
+.nuppdoc-sidebar {
+    border-right: 1px solid var(--nuppdoc-border);
+    background: var(--nuppdoc-background-alt);
+    box-shadow: -100vw 0 0 100vw var(--nuppdoc-background-alt)
+}
+
+.nuppdoc-sidebar h2,
+.nuppdoc-outline h2 {
+    margin: 0 0 .75rem;
+    color: var(--nuppdoc-text-muted);
+    font-size: .68rem;
+    text-transform: uppercase;
+    letter-spacing: .06em
+}
+
+.nuppdoc-sidebar ul,
+.nuppdoc-outline ol {
+    margin: 0;
+    padding: 0;
+    list-style: none
+}
+
+.nuppdoc-sidebar a,
+.nuppdoc-outline a {
+    display: block;
+    overflow: hidden;
+    padding: .24rem .55rem;
+    color: var(--nuppdoc-text-muted);
+    border-radius: 6px;
+    font-size: .7rem;
+    font-weight: 500;
+    text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap
+}
+
+.nuppdoc-sidebar a:hover {
+    color: var(--nuppdoc-text);
+    background: color-mix(in srgb, var(--nuppdoc-accent-soft) 55%, transparent)
+}
+
+.nuppdoc-sidebar a[aria-current="page"],
+.nuppdoc-outline a:hover {
+    color: var(--nuppdoc-accent);
+    font-weight: 650
+}
+
+.nuppdoc-outline {
+    padding-left: 1.25rem
+}
+
+.nuppdoc-outline ol {
+    padding-left: 1rem;
+    border-left: 1px solid var(--nuppdoc-border)
+}
+
+.nuppdoc-outline a {
+    padding: .16rem 0;
+    font-size: .66rem
+}
+
+.nuppdoc-content {
+    width: min(100% - 10rem, var(--nuppdoc-content-width));
+    margin: 0 auto;
+    padding: 1.25rem 0 6rem;
+    font-size: .88rem
+}
+
+.nuppdoc-content h1,
+.nuppdoc-content h2,
+.nuppdoc-content h3 {
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -.02em
+}
+
+.nuppdoc-content h1 {
+    margin-top: 0;
+    font-size: 1.8rem
+}
+
+.nuppdoc-content h2 {
+    margin-top: 2.5rem;
+    padding-top: 2.5rem;
+    border-top: 1px solid var(--nuppdoc-border);
+    font-size: 1.575rem
+}
+
+.nuppdoc-content h3 {
+    margin-top: 2.25rem;
+    font-size: 1.35rem
+}
+
+.nuppdoc-content h4 {
+    margin-top: 1.5rem;
+    font-size: 1rem
+}
+
+.nuppdoc-content h5 {
+    margin-top: 1.25rem;
+    color: var(--nuppdoc-text-muted);
+    font-size: .88rem;
+    font-weight: 650
+}
+
+.nuppdoc-breadcrumbs {
+    margin: 0 0 .75rem;
+    color: var(--nuppdoc-text-muted);
+    font-size: .75rem
+}
+
+.nuppdoc-breadcrumbs a {
+    color: var(--nuppdoc-text-muted)
+}
+
+.nuppdoc-kind-badge {
+    display: inline-flex;
+    margin-left: .45rem;
+    padding: .12rem .42rem;
+    color: var(--nuppdoc-text-muted);
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 999px;
+    background: var(--nuppdoc-background-alt);
+    font-size: .62rem;
+    font-weight: 650;
+    letter-spacing: .035em;
+    text-transform: uppercase;
+    vertical-align: middle
+}
+
+.nuppdoc-kind-function,
+.nuppdoc-kind-method {
+    color: var(--nuppdoc-accent);
+    border-color: color-mix(in srgb, var(--nuppdoc-accent) 35%, var(--nuppdoc-border));
+    background: var(--nuppdoc-accent-soft)
+}
+
+.nuppdoc-header-anchor {
+    margin-left: .4rem;
+    opacity: 0;
+    text-decoration: none
+}
+
+.nuppdoc-content h2:hover .nuppdoc-header-anchor,
+.nuppdoc-content h3:hover .nuppdoc-header-anchor {
+    opacity: 1
+}
+
+.nuppdoc-code-block {
+    position: relative
+}
+
+.nuppdoc-code-block[data-lang]::before {
+    position: absolute;
+    z-index: 1;
+    top: 8px;
+    right: 10px;
+    color: var(--nuppdoc-text-muted);
+    content: attr(data-lang);
+    font-family: var(--nuppdoc-font-mono);
+    font-size: .66rem
+}
+
+.nuppdoc-content pre {
+    overflow: auto;
+    padding: .8rem .9rem;
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 8px;
+    background: var(--nuppdoc-code-background);
+    line-height: 1.55
+}
+
+.nuppdoc-content pre code {
+    padding: 0;
+    background: transparent;
+    font-family: var(--nuppdoc-font-mono);
+    font-size: 14px
+}
+
+.nuppdoc-content :not(pre)>code {
+    padding: .1em .35em;
+    border-radius: 4px;
+    background: var(--nuppdoc-code-background);
+    font-family: var(--nuppdoc-font-mono);
+    font-size: .91em
+}
+
+.nuppdoc-content table {
+    width: 100%;
+    margin: 1rem 0;
+    border-collapse: collapse;
+    font-size: .76rem
+}
+
+.nuppdoc-content th,
+.nuppdoc-content td {
+    padding: .55rem .65rem;
+    border-bottom: 1px solid var(--nuppdoc-border);
+    text-align: left;
+    vertical-align: top
+}
+
+.nuppdoc-content th {
+    color: var(--nuppdoc-text-muted);
+    font-size: .68rem;
+    text-transform: uppercase
+}
+
+.nuppdoc-empty {
+    padding: 2rem;
+    color: var(--nuppdoc-text-muted);
+    border: 1px dashed var(--nuppdoc-border);
+    border-radius: 8px;
+    text-align: center
+}
+
+.nuppdoc-module-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem
+}
+
+.nuppdoc-module-card {
+    display: block;
+    padding: 1rem;
+    color: var(--nuppdoc-text);
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 10px;
+    background: var(--nuppdoc-background-alt);
+    text-decoration: none
+}
+
+.nuppdoc-module-card:hover {
+    color: var(--nuppdoc-text);
+    border-color: var(--nuppdoc-accent);
+    transform: translateY(-1px)
+}
+
+.nuppdoc-module-card code {
+    display: block;
+    margin-bottom: .35rem;
+    color: var(--nuppdoc-accent);
+    font-size: .85rem
+}
+
+.nuppdoc-module-card span {
+    color: var(--nuppdoc-text-muted);
+    font-size: .72rem
+}
+
+.nuppdoc-footer {
+    padding: 1.25rem;
+    color: var(--nuppdoc-text-muted);
+    border-top: 1px solid var(--nuppdoc-border);
+    font-size: .68rem;
+    text-align: center
+}
+
+.nuppdoc-token-comment {
+    color: var(--nuppdoc-syntax-comment);
+    font-style: italic
+}
+
+.nuppdoc-token-boolean {
+    color: var(--nuppdoc-syntax-boolean)
+}
+
+.nuppdoc-token-keyword {
+    color: var(--nuppdoc-syntax-keyword)
+}
+
+.nuppdoc-token-meta {
+    color: var(--nuppdoc-syntax-meta)
+}
+
+.nuppdoc-token-number {
+    color: var(--nuppdoc-syntax-number)
+}
+
+.nuppdoc-token-function {
+    color: var(--nuppdoc-syntax-function)
+}
+
+.nuppdoc-token-operator {
+    color: var(--nuppdoc-syntax-operator)
+}
+
+.nuppdoc-token-property {
+    color: var(--nuppdoc-syntax-property)
+}
+
+.nuppdoc-token-punctuation {
+    color: var(--nuppdoc-syntax-punctuation)
+}
+
+.nuppdoc-token-string {
+    color: var(--nuppdoc-syntax-string)
+}
+
+.nuppdoc-token-type {
+    color: var(--nuppdoc-syntax-type)
+}
+
+.nuppdoc-token-variable {
+    color: var(--nuppdoc-syntax-variable)
+}
+
+.nuppdoc-code-link,
+.nuppdoc-code-link:visited,
+.nuppdoc-code-link:hover {
+    border-bottom: 1px dotted currentColor;
+    text-decoration: none
+}
+
+.nuppdoc-code-link:hover {
+    border-bottom-style: solid
+}
+
+.nuppdoc-code-link-type {
+    color: var(--nuppdoc-syntax-type)
+}
+
+.nuppdoc-code-link-function {
+    color: var(--nuppdoc-syntax-function)
+}
+
+.nuppdoc-code-link-property {
+    color: var(--nuppdoc-syntax-property)
+}
+
+.nuppdoc-code-link-variable {
+    color: var(--nuppdoc-syntax-variable)
+}
+
+@media(max-width:1100px) {
+    .nuppdoc-shell {
+        grid-template-columns: var(--nuppdoc-sidebar-width) minmax(0, 1fr)
+    }
+
+    .nuppdoc-outline {
+        display: none
+    }
+
+    .nuppdoc-content {
+        width: min(100% - 5rem, var(--nuppdoc-content-width))
+    }
+}
+
+@media(max-width:760px) {
+    .nuppdoc-top-nav {
+        display: none
+    }
+
+    .nuppdoc-search {
+        width: 140px
+    }
+
+    .nuppdoc-shell {
+        display: block
+    }
+
+    .nuppdoc-sidebar {
+        position: static;
+        max-height: none;
+        padding: .7rem 1rem;
+        border-right: 0;
+        border-bottom: 1px solid var(--nuppdoc-border);
+        box-shadow: none
+    }
+
+    .nuppdoc-sidebar h2 {
+        display: none
+    }
+
+    .nuppdoc-sidebar ul {
+        display: flex;
+        overflow: auto;
+        gap: .25rem
+    }
+
+    .nuppdoc-content {
+        width: auto;
+        padding: 1.5rem 1.25rem 4rem
+    }
+}
+
+@media(max-width:480px) {
+    .nuppdoc-search {
+        display: none
+    }
+
+    .nuppdoc-brand span:last-child {
+        display: none
+    }
+
+    .nuppdoc-content table {
+        display: block;
+        overflow: auto
+    }
+}
+
+/* The custom properties a site is meant to override. They are named and grouped
+ * deliberately: this is the part of the stylesheet a project stylesheet targets. */
+:root {
+    --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 72%, transparent);
+    --nuppdoc-sidebar-background: var(--nuppdoc-background-alt);
+    --nuppdoc-accent-contrast: #fff;
+    --nuppdoc-home-width: 1152px;
+    --nuppdoc-home-gutter: 2rem;
+    --nuppdoc-hero-glow-color: var(--nuppdoc-accent);
+    --nuppdoc-hero-glow-size: 520px;
+    --nuppdoc-hero-glow-blur: 24px;
+    --nuppdoc-hero-glow-opacity: .68;
+    --nuppdoc-code-block-radius: 8px;
+    --nuppdoc-playground-border: color-mix(in srgb, var(--nuppdoc-border) 70%, var(--nuppdoc-text));
+    --nuppdoc-code-tab-text: var(--nuppdoc-text-muted);
+    --nuppdoc-code-tab-hover-text: var(--nuppdoc-text);
+    --nuppdoc-code-tab-active-text: var(--nuppdoc-text);
+    --nuppdoc-code-tab-active-bar: var(--nuppdoc-accent);
+    --nuppdoc-code-tab-divider: var(--nuppdoc-border);
+    --nuppdoc-code-tab-font-size: .72rem;
+    --nuppdoc-code-tab-font-weight: 600;
+    --nuppdoc-code-tab-padding: .45rem .75rem;
+    --nuppdoc-admonition-note: var(--nuppdoc-accent);
+    --nuppdoc-admonition-info: #0969da;
+    --nuppdoc-admonition-tip: #1a7f37;
+    --nuppdoc-admonition-warning: #9a6700;
+    --nuppdoc-admonition-danger: #cf222e;
+    --nuppdoc-light-admonition-seealso: #0550ae;
+    --nuppdoc-dark-admonition-seealso: #388bfd;
+    --nuppdoc-light-admonition-deepdive: #8b4c24;
+    --nuppdoc-dark-admonition-deepdive: #d19a66;
+    --nuppdoc-admonition-seealso: var(--nuppdoc-light-admonition-seealso);
+    --nuppdoc-admonition-deepdive: var(--nuppdoc-light-admonition-deepdive)
+}
+
+@media(prefers-color-scheme:dark) {
+    :root {
+        --nuppdoc-admonition-seealso: var(--nuppdoc-dark-admonition-seealso);
+        --nuppdoc-admonition-deepdive: var(--nuppdoc-dark-admonition-deepdive)
+    }
+}
+
+:root[data-theme="dark"] {
+    --nuppdoc-admonition-seealso: var(--nuppdoc-dark-admonition-seealso);
+    --nuppdoc-admonition-deepdive: var(--nuppdoc-dark-admonition-deepdive)
+}
+
+:root[data-theme="light"] {
+    --nuppdoc-admonition-seealso: var(--nuppdoc-light-admonition-seealso);
+    --nuppdoc-admonition-deepdive: var(--nuppdoc-light-admonition-deepdive)
+}
+
+.nuppdoc-admonition {
+    --nuppdoc-admonition-color: var(--nuppdoc-admonition-note);
+    margin: 1.25rem 0;
+    padding: .85rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--nuppdoc-admonition-color) 45%, var(--nuppdoc-border));
+    border-left: 4px solid var(--nuppdoc-admonition-color);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--nuppdoc-admonition-color) 9%, var(--nuppdoc-background))
+}
+
+.nuppdoc-admonition-info {
+    --nuppdoc-admonition-color: var(--nuppdoc-admonition-info)
+}
+
+.nuppdoc-admonition-tip {
+    --nuppdoc-admonition-color: var(--nuppdoc-admonition-tip)
+}
+
+.nuppdoc-admonition-warning {
+    --nuppdoc-admonition-color: var(--nuppdoc-admonition-warning)
+}
+
+.nuppdoc-admonition-danger {
+    --nuppdoc-admonition-color: var(--nuppdoc-admonition-danger)
+}
+
+.nuppdoc-admonition-seealso {
+    --nuppdoc-admonition-color: var(--nuppdoc-admonition-seealso)
+}
+
+.nuppdoc-admonition-deepdive {
+    --nuppdoc-admonition-color: var(--nuppdoc-admonition-deepdive);
+    padding: 0;
+    border-left-width: 1px
+}
+
+details.nuppdoc-admonition>summary {
+    cursor: pointer;
+    padding: .7rem 1rem;
+    list-style: none
+}
+
+details.nuppdoc-admonition>summary::-webkit-details-marker {
+    display: none
+}
+
+details.nuppdoc-admonition>summary::before {
+    content: '\25B8';
+    display: inline-block;
+    width: 1em;
+    transition: transform .12s ease
+}
+
+details.nuppdoc-admonition[open]>summary::before {
+    transform: rotate(90deg)
+}
+
+details.nuppdoc-admonition>.nuppdoc-admonition-body {
+    padding: 0 1rem .85rem 2rem
+}
+
+.nuppdoc-admonition-title {
+    margin: 0;
+    color: var(--nuppdoc-admonition-color);
+    font-size: .78rem;
+    font-weight: 750;
+    text-transform: uppercase;
+    letter-spacing: .04em
+}
+
+.nuppdoc-admonition-body>:first-child {
+    margin-top: .35rem
+}
+
+.nuppdoc-admonition-body>:last-child {
+    margin-bottom: 0
+}
+
+/* Tab inputs live in their own .nuppdoc-code-tabs row so a long caption scrolls
+ * the row instead of wrapping every tab after it, which means a panel is no
+ * longer its input's next sibling: :has() re-pairs each panel with the input
+ * at the same position. Fifteen slots is more tabs than any group wants. */
+.nuppdoc-code-group {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    margin: 1.25rem 0;
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: var(--nuppdoc-code-block-radius);
+    background: var(--nuppdoc-code-background);
+    box-shadow: none
+}
+
+.nuppdoc-code-tabs {
+    display: flex;
+    overflow-x: auto;
+    flex-wrap: nowrap
+}
+
+.nuppdoc-code-tabs .nuppdoc-code-tab {
+    flex: none;
+    white-space: nowrap
+}
+
+.nuppdoc-code-tab-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    appearance: none;
+    clip-path: inset(50%);
+    pointer-events: none;
+    -webkit-appearance: none
+}
+
+.nuppdoc-code-tab {
+    padding: var(--nuppdoc-code-tab-padding);
+    border-bottom: 2px solid transparent;
+    color: var(--nuppdoc-code-tab-text);
+    cursor: pointer;
+    font-family: var(--nuppdoc-font);
+    font-size: var(--nuppdoc-code-tab-font-size);
+    font-weight: var(--nuppdoc-code-tab-font-weight)
+}
+
+.nuppdoc-code-tab:hover {
+    color: var(--nuppdoc-code-tab-hover-text)
+}
+
+.nuppdoc-code-panel {
+    display: none;
+    width: 100%;
+    margin: 0;
+    border-top: 1px solid var(--nuppdoc-code-tab-divider)
+}
+
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(1):checked) .nuppdoc-code-panel:nth-of-type(1),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(2):checked) .nuppdoc-code-panel:nth-of-type(2),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(3):checked) .nuppdoc-code-panel:nth-of-type(3),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(4):checked) .nuppdoc-code-panel:nth-of-type(4),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(5):checked) .nuppdoc-code-panel:nth-of-type(5),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(6):checked) .nuppdoc-code-panel:nth-of-type(6),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(7):checked) .nuppdoc-code-panel:nth-of-type(7),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(8):checked) .nuppdoc-code-panel:nth-of-type(8),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(9):checked) .nuppdoc-code-panel:nth-of-type(9),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(10):checked) .nuppdoc-code-panel:nth-of-type(10),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(11):checked) .nuppdoc-code-panel:nth-of-type(11),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(12):checked) .nuppdoc-code-panel:nth-of-type(12),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(13):checked) .nuppdoc-code-panel:nth-of-type(13),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(14):checked) .nuppdoc-code-panel:nth-of-type(14),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(15):checked) .nuppdoc-code-panel:nth-of-type(15) {
+    display: block
+}
+
+.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab {
+    border-bottom-color: var(--nuppdoc-code-tab-active-bar);
+    color: var(--nuppdoc-code-tab-active-text)
+}
+
+.nuppdoc-code-tab-input:focus-visible+.nuppdoc-code-tab {
+    outline: 2px solid var(--nuppdoc-accent);
+    outline-offset: -2px
+}
+
+.nuppdoc-code-group>.nuppdoc-code-block {
+    width: 100%
+}
+
+.nuppdoc-code-group>.nuppdoc-code-block pre,
+.nuppdoc-code-panel .nuppdoc-code-block pre {
+    margin: 0;
+    border: 0;
+    border-radius: 0
+}
+
+.nuppdoc-labeled-code {
+    margin: 1.25rem 0
+}
+
+.nuppdoc-code-group>.nuppdoc-labeled-code {
+    margin: 0
+}
+
+.nuppdoc-code-group>.nuppdoc-labeled-code+.nuppdoc-labeled-code {
+    border-top: 1px solid var(--nuppdoc-border)
+}
+
+.nuppdoc-labeled-code figcaption {
+    padding: .45rem .6rem;
+    color: var(--nuppdoc-text-muted);
+    font-family: var(--nuppdoc-font);
+    font-size: .72rem;
+    font-weight: 600
+}
+
+.nuppdoc-labeled-code pre {
+    margin: 0;
+    border-radius: 0
+}
+
+.nuppdoc-code-group>.nuppdoc-labeled-code pre {
+    border: 0
+}
+
+@media print {
+    .nuppdoc-code-panel {
+        display: block
+    }
+}
+
+/* The gutter and the code are siblings sharing the pre's line box metrics, so the
+ * numbers stay level with their lines. The code scrolls inside itself, which keeps
+ * a long line from sliding out under the numbers. */
+.nuppdoc-code-block.has-line-numbers pre {
+    display: flex;
+    overflow: hidden;
+    gap: .9rem
+}
+
+.nuppdoc-code-block.has-line-numbers pre>code {
+    overflow: auto;
+    flex: 1;
+    min-width: 0
+}
+
+.nuppdoc-line-numbers {
+    flex: none;
+    padding-right: .9rem;
+    border-right: 1px solid var(--nuppdoc-border);
+    color: var(--nuppdoc-text-faint);
+    font-family: var(--nuppdoc-font-mono);
+    font-size: 14px;
+    line-height: 1.55;
+    text-align: right;
+    user-select: none;
+    -webkit-user-select: none
+}
+
+.nuppdoc-line-numbers span {
+    display: block
+}
+
+/* A Nupp or ```playground fence. The custom element owns its editor chrome and
+ * sizes naturally in the page; long sources scroll inside CodeMirror. */
+.nuppdoc-playground {
+    display: block;
+    width: 100%;
+    margin: 3rem 0 1rem
+}
+
+.nuppdoc-code-group>.nuppdoc-playground,
+.nuppdoc-code-panel>.nuppdoc-playground {
+    margin: 0
+}
+
+.nuppdoc-logo {
+    width: auto;
+    height: 28px;
+    border-radius: 5px
+}
+
+.nuppdoc-icon-link {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    padding: 0;
+    color: var(--nuppdoc-text-muted);
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    cursor: pointer;
+    text-decoration: none
+}
+
+.nuppdoc-icon-link:hover,
+.nuppdoc-icon-link[aria-pressed="true"] {
+    color: var(--nuppdoc-text);
+    background: var(--nuppdoc-background-alt)
+}
+
+.nuppdoc-icon-link svg {
+    width: 18px;
+    height: 18px
+}
+
+.nuppdoc-panel-toggle-right svg {
+    transform: scaleX(-1)
+}
+
+.nuppdoc-shell {
+    transition: grid-template-columns 160ms ease
+}
+
+.nuppdoc-shell.is-sidebar-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr) var(--nuppdoc-outline-width)
+}
+
+.nuppdoc-shell.is-outline-collapsed {
+    grid-template-columns: var(--nuppdoc-sidebar-width) minmax(0, 1fr) 0
+}
+
+.nuppdoc-shell.is-sidebar-collapsed.is-outline-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr) 0
+}
+
+.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar,
+.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline {
+    overflow: hidden;
+    padding-right: 0;
+    padding-left: 0;
+    border: 0;
+    opacity: 0;
+    pointer-events: none
+}
+
+.nuppdoc-sidebar {
+    background: var(--nuppdoc-sidebar-background)
+}
+
+.nuppdoc-sidebar>ul {
+    margin: 0;
+    padding: 0;
+    list-style: none
+}
+
+.nuppdoc-sidebar li {
+    margin: 0;
+    padding: 0
+}
+
+.nuppdoc-sidebar>ul>li+li {
+    margin-top: 1.1rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--nuppdoc-border)
+}
+
+.nuppdoc-sidebar-section details {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent
+}
+
+.nuppdoc-sidebar-section summary {
+    position: relative;
+    margin: 0;
+    padding: .24rem .55rem;
+    color: var(--nuppdoc-text);
+    font-size: .7rem;
+    font-weight: 500;
+    cursor: pointer;
+    list-style: none
+}
+
+.nuppdoc-sidebar-section summary::after {
+    position: absolute;
+    top: 50%;
+    right: .5rem;
+    width: .36rem;
+    height: .36rem;
+    border-right: 1.5px solid var(--nuppdoc-text-faint);
+    border-bottom: 1.5px solid var(--nuppdoc-text-faint);
+    content: "";
+    transform: translateY(-50%) rotate(45deg)
+}
+
+.nuppdoc-sidebar-section details:not([open]) summary::after {
+    transform: translateY(-50%) rotate(-45deg)
+}
+
+.nuppdoc-sidebar-section summary::-webkit-details-marker {
+    display: none
+}
+
+.nuppdoc-sidebar-section summary::marker {
+    content: ""
+}
+
+.nuppdoc-sidebar-section>details>summary.nuppdoc-sidebar-section-link {
+    padding-top: 0;
+    padding-bottom: 0
+}
+
+.nuppdoc-sidebar>ul>li.nuppdoc-sidebar-section>details>summary {
+    padding-left: 0;
+    font-weight: 700
+}
+
+.nuppdoc-sidebar-section>details>summary>a {
+    font-weight: inherit;
+    padding-right: .2rem
+}
+
+.nuppdoc-sidebar-section ul {
+    padding: 4px 0 0 0.6rem
+}
+
+.nuppdoc-sidebar-section .nuppdoc-module-tree {
+    margin: 0;
+    padding: 4px 0 0 0.6rem;
+    list-style: none
+}
+
+.nuppdoc-module-branch>details>summary {
+    color: var(--nuppdoc-text-muted);
+    font-weight: 500
+}
+
+.nuppdoc-module-branch>details>summary>a {
+    padding-right: .2rem
+}
+
+.nuppdoc-module-branch .nuppdoc-module-tree {
+    padding: 4px 0 0 0.6rem
+}
+
+.nuppdoc-outline-title {
+    margin: 0 0 .75rem;
+    color: var(--nuppdoc-text-muted);
+    font-size: .66rem;
+    font-weight: 600
+}
+
+.nuppdoc-outline a[aria-current] {
+    color: var(--nuppdoc-accent)
+}
+
+.nuppdoc-outline-section details {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent
+}
+
+.nuppdoc-outline-section summary {
+    position: relative;
+    margin: 0;
+    padding: 0 1rem 0 0;
+    cursor: pointer;
+    list-style: none
+}
+
+.nuppdoc-outline-section summary::-webkit-details-marker {
+    display: none
+}
+
+.nuppdoc-outline-section summary::marker {
+    content: ""
+}
+
+.nuppdoc-outline-section summary::after {
+    position: absolute;
+    top: 50%;
+    right: .15rem;
+    width: .32rem;
+    height: .32rem;
+    border-right: 1.5px solid var(--nuppdoc-text-muted);
+    border-bottom: 1.5px solid var(--nuppdoc-text-muted);
+    content: "";
+    transform: translateY(-65%) rotate(45deg);
+    transition: transform 120ms ease
+}
+
+.nuppdoc-outline-section details:not([open])>summary::after {
+    transform: translateY(-50%) rotate(-45deg)
+}
+
+.nuppdoc-outline-section details>ol {
+    margin: 0;
+    padding: 0 0 0 .65rem;
+    border: 0;
+    list-style: none
+}
+
+.nuppdoc-breadcrumbs {
+    margin: 0 0 .75rem
+}
+
+.nuppdoc-breadcrumbs ol {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none
+}
+
+.nuppdoc-breadcrumbs li {
+    display: inline-flex;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    color: var(--nuppdoc-text-faint);
+    font-size: .82rem;
+    line-height: 1.2
+}
+
+.nuppdoc-breadcrumbs li+li::before {
+    margin: 0 .45rem;
+    color: var(--nuppdoc-border);
+    content: "/"
+}
+
+.nuppdoc-breadcrumbs a {
+    color: var(--nuppdoc-text-faint);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: .16em
+}
+
+.nuppdoc-breadcrumbs .nuppdoc-breadcrumb-home {
+    font-size: .9rem;
+    text-decoration: none
+}
+
+.nuppdoc-breadcrumbs [aria-current="page"] {
+    color: var(--nuppdoc-text-muted)
+}
+
+.nuppdoc-module-summary h3 {
+    margin-top: 1.65rem;
+    font-size: 1rem
+}
+
+.nuppdoc-module-summary table,
+.nuppdoc-module-modules table {
+    table-layout: fixed
+}
+
+.nuppdoc-module-summary th:first-child {
+    width: 28%
+}
+
+.nuppdoc-module-summary th:nth-child(2):not(:last-child) {
+    width: 19%
+}
+
+.nuppdoc-module-modules th:first-child {
+    width: 32%
+}
+
+.nuppdoc-module-summary .nuppdoc-kind-badge {
+    margin-left: 0
+}
+
+.nuppdoc-kind-record,
+.nuppdoc-kind-interface,
+.nuppdoc-kind-struct,
+.nuppdoc-kind-type {
+    color: #8250df;
+    border-color: color-mix(in srgb, #8250df 35%, var(--nuppdoc-border));
+    background: color-mix(in srgb, #8250df 12%, var(--nuppdoc-background))
+}
+
+.nuppdoc-kind-variable {
+    color: #9a6700;
+    border-color: color-mix(in srgb, #9a6700 35%, var(--nuppdoc-border));
+    background: color-mix(in srgb, #9a6700 12%, var(--nuppdoc-background))
+}
+
+.nuppdoc-kind-comptime-function,
+.nuppdoc-kind-comptime-type {
+    color: #bc4c00;
+    border-color: color-mix(in srgb, #bc4c00 35%, var(--nuppdoc-border));
+    background: color-mix(in srgb, #bc4c00 12%, var(--nuppdoc-background))
+}
+
+.nuppdoc-annotations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .3rem;
+    margin: .35rem 0 .1rem
+}
+
+.nuppdoc-annotation {
+    padding: .12rem .42rem;
+    color: #bc4c00;
+    border: 1px solid color-mix(in srgb, #bc4c00 35%, var(--nuppdoc-border));
+    border-radius: 999px;
+    background: color-mix(in srgb, #bc4c00 12%, var(--nuppdoc-background));
+    font-family: var(--nuppdoc-font-mono);
+    font-size: .66rem;
+    font-weight: 650
+}
+
+.nuppdoc-home-shell {
+    display: block;
+    max-width: none
+}
+
+.nuppdoc-home-content {
+    width: min(calc(100% - 2 * var(--nuppdoc-home-gutter)), var(--nuppdoc-home-width));
+    padding-top: 4.5rem
+}
+
+.nuppdoc-home-hero {
+    margin: 0 0 4rem
+}
+
+.nuppdoc-hero-main {
+    display: grid;
+    align-items: start;
+    gap: 3rem;
+    grid-template-columns: minmax(0, 1fr)
+}
+
+.nuppdoc-hero-main.has-image {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr)
+}
+
+.nuppdoc-hero-copy {
+    position: relative;
+    z-index: 1
+}
+
+.nuppdoc-hero-copy h1 {
+    max-width: 720px;
+    margin: 0;
+    color: var(--nuppdoc-accent);
+    font-size: 5.5rem;
+    letter-spacing: -.04em;
+    line-height: .95
+}
+
+.nuppdoc-hero-text {
+    max-width: 650px;
+    margin: 1.08rem 0 0;
+    color: var(--nuppdoc-text-muted);
+    font-size: 1.6rem;
+    line-height: 1.35
+}
+
+.nuppdoc-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-top: 2rem
+}
+
+.nuppdoc-hero-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: .52rem .95rem;
+    border: 1px solid transparent;
+    border-radius: 16px;
+    font-size: .9rem;
+    font-weight: 650;
+    line-height: 1;
+    text-decoration: none
+}
+
+.nuppdoc-hero-action.brand {
+    color: var(--nuppdoc-accent-contrast);
+    background: var(--nuppdoc-accent)
+}
+
+.nuppdoc-hero-action.alt {
+    color: var(--nuppdoc-text);
+    border-color: var(--nuppdoc-border);
+    background: var(--nuppdoc-background-alt)
+}
+
+.nuppdoc-hero-image {
+    position: relative;
+    display: grid;
+    align-self: center;
+    place-items: center
+}
+
+.nuppdoc-hero-starburst {
+    position: absolute;
+    width: var(--nuppdoc-hero-glow-size);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--nuppdoc-hero-glow-color) 38%, transparent) 0, color-mix(in srgb, var(--nuppdoc-hero-glow-color) 20%, transparent) 34%, color-mix(in srgb, var(--nuppdoc-hero-glow-color) 8%, transparent) 58%, transparent 76%);
+    filter: blur(var(--nuppdoc-hero-glow-blur));
+    opacity: var(--nuppdoc-hero-glow-opacity)
+}
+
+.nuppdoc-hero-image img {
+    position: relative;
+    z-index: 1;
+    width: min(100%, 390px);
+    max-height: 330px;
+    border-radius: 20px;
+    box-shadow: 0 24px 70px rgb(0 0 0 / 22%);
+    object-fit: contain
+}
+
+.nuppdoc-features {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 2rem
+}
+
+.nuppdoc-feature {
+    margin: 0;
+    padding: 1.4rem;
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 12px;
+    background: var(--nuppdoc-background-alt)
+}
+
+.nuppdoc-feature-icon,
+.nuppdoc-feature-image {
+    display: inline-grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    background: var(--nuppdoc-accent-soft);
+    font-size: 1.25rem;
+    object-fit: contain
+}
+
+.nuppdoc-feature h2 {
+    margin: 0 0 .55rem;
+    padding: 0;
+    border: 0;
+    font-size: 1rem;
+    letter-spacing: 0
+}
+
+.nuppdoc-feature-details {
+    margin: 0;
+    color: var(--nuppdoc-text-muted);
+    font-size: .86rem;
+    line-height: 1.55
+}
+
+.nuppdoc-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: .45rem
+}
+
+.nuppdoc-footer a {
+    color: var(--nuppdoc-text-muted)
+}
+
+.nuppdoc-hero-content {
+    font-size: 1.05rem
+}
+
+.nuppdoc-hero-starburst {
+    overflow: hidden;
+    clip-path: circle(50% at 50% 50%)
+}
+
+.nuppdoc-hero-image img {
+    box-shadow: none;
+    filter: drop-shadow(0 24px 35px rgb(0 0 0 / 22%))
+}
+
+@media(max-width:1100px) {
+    .nuppdoc-panel-toggle-right {
+        display: none
+    }
+
+    .nuppdoc-shell.is-sidebar-collapsed {
+        grid-template-columns: 0 minmax(0, 1fr)
+    }
+
+    .nuppdoc-features {
+        grid-template-columns: repeat(2, minmax(0, 1fr))
+    }
+}
+
+.nuppdoc-search-button {
+    display: inline-flex;
+    width: min(190px, 18vw);
+    min-width: 0;
+    min-height: 32px;
+    align-items: center;
+    justify-content: flex-start;
+    gap: .35rem;
+    margin: 0;
+    padding: .25rem .5rem;
+    color: var(--nuppdoc-text-muted);
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 6px;
+    background: var(--nuppdoc-background-alt);
+    box-shadow: none;
+    font-size: .76rem;
+    cursor: pointer
+}
+
+.nuppdoc-search-button:hover {
+    color: var(--nuppdoc-text);
+    border-color: var(--nuppdoc-text-muted)
+}
+
+.nuppdoc-search-button kbd {
+    margin-left: auto;
+    padding: .06rem .28rem;
+    color: var(--nuppdoc-text-muted);
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 4px;
+    background: transparent;
+    font-size: .62rem
+}
+
+.nuppdoc-search-dialog {
+    width: min(94vw, 680px);
+    max-width: none;
+    padding: 0;
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 12px;
+    background: var(--nuppdoc-background);
+    color: var(--nuppdoc-text);
+    box-shadow: 0 24px 80px rgb(0 0 0 / 28%)
+}
+
+.nuppdoc-search-dialog::backdrop {
+    background: rgb(0 0 0 / 46%);
+    backdrop-filter: blur(3px)
+}
+
+.nuppdoc-search-panel {
+    margin: 0;
+    padding: 0
+}
+
+.nuppdoc-search-panel>header {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    margin: 0;
+    padding: .8rem;
+    border-bottom: 1px solid var(--nuppdoc-border);
+    background: transparent
+}
+
+.nuppdoc-search-panel label {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: .5rem;
+    margin: 0
+}
+
+.nuppdoc-search-panel input {
+    width: 100%;
+    height: 42px;
+    margin: 0;
+    padding: 0 .75rem;
+    color: var(--nuppdoc-text);
+    border: 1px solid var(--nuppdoc-accent);
+    border-radius: 7px;
+    background: var(--nuppdoc-background);
+    box-shadow: 0 0 0 3px var(--nuppdoc-accent-soft)
+}
+
+.nuppdoc-search-panel [data-nuppdoc-search-close] {
+    width: auto;
+    margin: 0;
+    padding: .32rem .5rem;
+    color: var(--nuppdoc-text-muted);
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 5px;
+    background: var(--nuppdoc-background-alt);
+    box-shadow: none;
+    font-size: .72rem;
+    cursor: pointer
+}
+
+.nuppdoc-search-results {
+    display: grid;
+    overflow: auto;
+    max-height: min(60vh, 520px);
+    gap: .35rem;
+    padding: .65rem
+}
+
+.nuppdoc-search-results a {
+    display: grid;
+    gap: .15rem;
+    padding: .7rem .8rem;
+    color: var(--nuppdoc-text);
+    border: 1px solid transparent;
+    border-radius: 7px;
+    text-decoration: none
+}
+
+.nuppdoc-search-results a:hover,
+.nuppdoc-search-results a:focus {
+    border-color: var(--nuppdoc-border);
+    background: var(--nuppdoc-accent-soft)
+}
+
+.nuppdoc-search-results strong {
+    font-size: .9rem
+}
+
+.nuppdoc-search-results small {
+    overflow: hidden;
+    color: var(--nuppdoc-text-faint);
+    font-size: .72rem;
+    text-overflow: ellipsis;
+    white-space: nowrap
+}
+
+.nuppdoc-search-empty {
+    margin: 0;
+    padding: 1.5rem;
+    color: var(--nuppdoc-text-muted);
+    text-align: center
+}
+
+.nuppdoc-mobile-nav-toggle,
+.nuppdoc-sidebar-backdrop {
+    display: none
+}
+
+.nuppdoc-page-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--nuppdoc-border)
+}
+
+.nuppdoc-page-nav a {
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    color: var(--nuppdoc-text);
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 10px;
+    text-decoration: none
+}
+
+.nuppdoc-page-nav a:hover {
+    border-color: var(--nuppdoc-accent);
+    background: var(--nuppdoc-background-alt)
+}
+
+.nuppdoc-page-nav-next {
+    grid-column: 2;
+    text-align: right
+}
+
+.nuppdoc-page-nav-label {
+    color: var(--nuppdoc-text-faint);
+    font-size: .68rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: .05em
+}
+
+.nuppdoc-page-nav-title {
+    color: var(--nuppdoc-accent);
+    font-size: .85rem;
+    font-weight: 650
+}
+
+@media(max-width:760px) {
+    .nuppdoc-panel-toggle {
+        display: none
+    }
+
+    .nuppdoc-mobile-nav-toggle {
+        display: grid
+    }
+
+    .nuppdoc-search-button span:nth-child(2),
+    .nuppdoc-search-button kbd {
+        display: none
+    }
+
+    .nuppdoc-search-button {
+        width: 34px;
+        justify-content: center
+    }
+
+    .nuppdoc-home-content {
+        width: auto;
+        padding: 3rem 1.25rem 4rem
+    }
+
+    .nuppdoc-hero-copy h1 {
+        font-size: 4rem
+    }
+
+    .nuppdoc-hero-text {
+        font-size: 1.2rem
+    }
+
+    .nuppdoc-hero-main.has-image {
+        grid-template-columns: 1fr
+    }
+
+    .nuppdoc-hero-starburst {
+        width: min(78vw, 340px)
+    }
+
+    .nuppdoc-features {
+        grid-template-columns: 1fr
+    }
+
+    .nuppdoc-sidebar,
+    .nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar {
+        position: fixed;
+        z-index: 42;
+        top: var(--nuppdoc-header-height);
+        bottom: 0;
+        left: 0;
+        width: min(86vw, var(--nuppdoc-sidebar-width));
+        max-height: none;
+        padding: 1.25rem 1rem 2rem;
+        border-right: 1px solid var(--nuppdoc-border);
+        border-bottom: 0;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateX(-105%);
+        transition: transform 180ms ease
+    }
+
+    .nuppdoc-sidebar>ul {
+        display: block;
+        overflow: visible
+    }
+
+    .nuppdoc-sidebar-section ul {
+        display: block;
+        overflow: visible
+    }
+
+    .is-mobile-nav-open .nuppdoc-sidebar {
+        transform: translateX(0)
+    }
+
+    .nuppdoc-sidebar-backdrop {
+        position: fixed;
+        z-index: 41;
+        inset: var(--nuppdoc-header-height) 0 0;
+        display: block;
+        width: 100%;
+        height: auto;
+        padding: 0;
+        border: 0;
+        background: rgba(0, 0, 0, .38);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease
+    }
+
+    .is-mobile-nav-open .nuppdoc-sidebar-backdrop {
+        opacity: 1;
+        pointer-events: auto
+    }
+
+    .is-mobile-nav-open {
+        overflow: hidden
+    }
+
+    .nuppdoc-page-nav {
+        grid-template-columns: 1fr
+    }
+
+    .nuppdoc-page-nav-next {
+        grid-column: 1
+    }
+}
+
+@media(max-width:760px) {
+
+    .nuppdoc-sidebar a,
+    .nuppdoc-sidebar-section summary {
+        font-size: .77rem
+    }
+}
+
+@media(max-width:760px) {
+    .nuppdoc-content {
+        font-size: 1rem
+    }
+}
+
+.nuppdoc-mobile-outline-toggle,
+.nuppdoc-outline-backdrop {
+    display: none
+}
+
+@media(max-width:760px) {
+    .nuppdoc-mobile-outline-toggle {
+        display: grid
+    }
+
+    .nuppdoc-outline,
+    .nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline {
+        position: fixed;
+        z-index: 42;
+        top: var(--nuppdoc-header-height);
+        right: 0;
+        bottom: 0;
+        display: block;
+        width: min(86vw, 320px);
+        max-height: none;
+        padding: 1.25rem 1rem 2rem;
+        border: 0;
+        border-left: 1px solid var(--nuppdoc-border);
+        background: var(--nuppdoc-background-alt);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateX(105%);
+        transition: transform 180ms ease
+    }
+
+    .is-mobile-outline-open .nuppdoc-outline {
+        transform: translateX(0)
+    }
+
+    .nuppdoc-outline-backdrop {
+        position: fixed;
+        z-index: 41;
+        inset: var(--nuppdoc-header-height) 0 0;
+        display: block;
+        width: 100%;
+        height: auto;
+        padding: 0;
+        border: 0;
+        background: rgba(0, 0, 0, .38);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease
+    }
+
+    .is-mobile-outline-open .nuppdoc-outline-backdrop {
+        opacity: 1;
+        pointer-events: auto
+    }
+}
+
+.nuppdoc-sidebar-section>details>summary>a,
+.nuppdoc-module-branch>details>summary>a {
+    display: inline;
+    overflow: visible;
+    padding: 0;
+    white-space: normal
+}]],
 ["/nupp/browser/gpu.g.nupp"] = [[
 module nupp.browser.gpu
 
@@ -209785,7 +211713,7 @@ export = digest
 module nupp.data.hash
 
 --[[
-Incremental SHA-256 and HMAC-SHA256 over byte strings.
+SHA-256 and HMAC-SHA256 over byte strings, streaming or in one shot.
 
 ```nupp
 local hash = require("nupp.data.hash")
@@ -209794,6 +211722,8 @@ local mac = hash.hmac("secret")
 mac:update(header)
 mac:update(body)
 print(mac:hex())
+
+print(hash.hmacHex("secret", header .. body))
 ```
 
 `update` compresses complete 64-byte blocks immediately. A hasher retains its
@@ -209801,9 +211731,17 @@ eight SHA-256 state words and at most 63 uncompressed bytes, regardless of the
 message length. `digest` and `hex` take a snapshot: they do not finish or reset
 the object, so more bytes may be appended afterwards.
 
-Use [](nupp.data.sha256) and [](nupp.data.hmac) for one-shot operations. The
-latter remains backend-selected; this module is the portable streaming
-implementation and needs only the target's 32-bit operations.
+Everything here is implemented in Nupp and needs only the target's 32-bit
+operations. The two one-shot HMAC functions additionally prefer an installed
+`crypto.hmac_sha256` provider -- a browser's WebCrypto, a backend's own kernel
+-- so that seam replaces a working implementation rather than supplying a
+missing one, and a program that never selects a backend still gets an answer.
+The streaming constructors have no provider to defer to, because the seam is
+one-shot: a caller who has the whole message and wants the host's
+implementation is calling `hmacDigest` or `hmacHex` already.
+
+Use [](nupp.data.sha256) for a one-shot SHA-256, which is compiled ahead of
+time where the build asks for it.
 ]]
 
 local hash = {}
@@ -210178,41 +212116,49 @@ function hash.hmac(key: string): hash.Hasher
     return new Hmac(key)
 end
 
-export = hash
-]=],
-["/nupp/data/hmac.nupp"] = [=[
-module nupp.data.hmac
-
---[[Typed surface for a backend-selected HMAC-SHA256 implementation.]]
-
-local hmac = {}
-
+-- The installed `crypto.hmac_sha256` provider, or nil where no backend
+-- selected one. Read per call rather than once at load time: a module reached
+-- during bootstrap can be loaded before the backend installs itself.
 local function provider(): any
-    local selected = rawget(_G, "__nuppHmacSha256")
-    if selected == nil then
-        error("nupp: crypto.hmac_sha256 has no installed runtime provider", 2)
-    end
-
-    return selected
+    return rawget(_G, "__nuppHmacSha256")
 end
 
---- Computes the raw 32-byte HMAC-SHA256 digest.
+local function oneShot(key: string, message: string): Hmac
+    local mac = new Hmac(key)
+    mac:update(message)
+
+    return mac
+end
+
+--- Computes the raw 32-byte HMAC-SHA256 of `message` under `key`.
 --- @param key the secret key bytes
 --- @param message the message bytes
 --- @return the raw digest bytes
-function hmac.digest(key: string, message: string): string
-    return provider().digest(key, message)
+--- @export
+function hash.hmacDigest(key: string, message: string): string
+    local selected = provider()
+    if selected ~= nil then
+        return selected.digest(key, message)
+    end
+
+    return oneShot(key, message):digest()
 end
 
---- Computes the lowercase hexadecimal HMAC-SHA256 digest.
+--- Computes the HMAC-SHA256 of `message` under `key` as hexadecimal.
 --- @param key the secret key bytes
 --- @param message the message bytes
---- @return the sixty-four hexadecimal digits
-function hmac.hex(key: string, message: string): string
-    return provider().hex(key, message)
+--- @return the sixty-four lowercase hexadecimal digits
+--- @export
+function hash.hmacHex(key: string, message: string): string
+    local selected = provider()
+    if selected ~= nil then
+        return selected.hex(key, message)
+    end
+
+    return oneShot(key, message):hex()
 end
 
-export = hmac
+export = hash
 ]=],
 ["/nupp/data/init.nupp"] = [=[
 module nupp.data
@@ -210237,7 +212183,8 @@ modules of their own.
 
 - See [](nupp.data.json) for JSON encoding and decoding, and the values a Lua
   table cannot express by itself.
-- See [](nupp.data.hash) for incremental SHA-256 and HMAC-SHA256 over chunks.
+- See [](nupp.data.hash) for SHA-256 and HMAC-SHA256, over chunks or in one
+  shot.
 - See [](nupp.data.serde) for format-neutral schemas, typed bindings, dynamic
   values, and prepared codecs.
 - See [](nupp.data.utf8) for codepoint operations over strings and byte views.
@@ -242345,7 +244292,8 @@ export interface UuidProvider
     uuid7: function(): string
 end
 
---- `crypto.hmac_sha256`, which `nupp.data.hmac` is written against.
+--- `crypto.hmac_sha256`, the accelerator `nupp.data.hash` prefers where a
+--- backend installs one.
 export interface HmacSha256Provider
     digest: function(key: string, message: string): string
     hex: function(key: string, message: string): string
@@ -243794,12 +245742,15 @@ local CONTRACTS: {any} = {
         factoryModule = "nupp.runtime.seam.workers",
         modules = {["nupp.workers"] = ""}
     },
+    -- A faster HMAC-SHA256 than the one `nupp.data.hash` compiles to, where a
+    -- backend has one -- WebCrypto in a browser, a host's own kernel natively.
+    -- `nupp.data.hash` is what answers when neither is installed, which is why
+    -- this seam is optional rather than required.
     {
         name = "crypto.hmac_sha256",
         effect = "runtime.hmac_sha256",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.hmacsha256",
-        implementationModules = {["nupp.data.hmac"] = true}
+        factoryModule = "nupp.runtime.seam.hmacsha256"
     },
 }
 

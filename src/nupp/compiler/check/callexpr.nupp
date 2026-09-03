@@ -1070,6 +1070,19 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         (node as any).compilerFeatureEffect = effect
                         c.recordEffect(effect)
                     end
+                    -- The seams this module prefers where a backend installs
+                    -- one and answers without where none does. Carried beside
+                    -- the effect that gates the module rather than instead of
+                    -- it, because a module can have both.
+                    local accelerators = require("nupp.compiler.standardsurface").accelerators(modname)
+                    if accelerators and c.recordEffect then
+                        local carried = (node as any).compilerFeatureEffects or {}
+                        for _, accelerated in ipairs(accelerators) do
+                            carried[#carried + 1] = accelerated
+                            c.recordEffect(accelerated)
+                        end
+                        (node as any).compilerFeatureEffects = carried
+                    end
                     local mt = c.env.resolveModule(c.env, modname)
                     if mt then
                         return mt

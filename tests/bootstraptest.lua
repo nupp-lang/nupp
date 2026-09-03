@@ -24,7 +24,11 @@ function M.trackedBootstrapCarriesAdmonitions()
    local source = readFile(ROOT .. "/bootstrap/nupp.lua")
    assert(source:find("ADMONITION_TITLES", 1, true),
       "tracked bootstrap lacks the admonition container renderer")
-   assert(source:find(".nuppdoc-admonition{", 1, true),
+   -- Matched with the brace loose from the selector, because how the bundled
+   -- stylesheet is spelled is not what this is about: the CSS was inlined and
+   -- minified when it lived in Lua source and is an ordinary stylesheet
+   -- resource now that it lives in a .css file.
+   assert(source:find("%.nuppdoc%-admonition%s*{"),
       "tracked bootstrap lacks admonition styling")
 end
 

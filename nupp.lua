@@ -169,7 +169,6 @@ local RESOURCES = {
     {source = "src/nupp/data/json/aot.nupp", output = "nupp/compiler/nupp/data/json/aot.nupp",},
     {source = "src/nupp/data/serde.nupp", output = "nupp/compiler/nupp/data/serde.nupp"},
     {source = "src/nupp/data/hash.nupp", output = "nupp/compiler/nupp/data/hash.nupp"},
-    {source = "src/nupp/data/hmac.nupp", output = "nupp/compiler/nupp/data/hmac.nupp"},
     {source = "src/nupp/runtime/backend/init.nupp", output = "nupp/compiler/nupp/runtime/backend/init.nupp",},
     {source = "src/nupp/runtime/backend/browser.nupp", output = "nupp/compiler/nupp/runtime/backend/browser.nupp",},
     {source = "src/nupp/runtime/backend/portable.nupp", output = "nupp/compiler/nupp/runtime/backend/portable.nupp",},

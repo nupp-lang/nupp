@@ -1,7 +1,7 @@
 module nupp.data.hash
 
 --[[
-Incremental SHA-256 and HMAC-SHA256 over byte strings.
+SHA-256 and HMAC-SHA256 over byte strings, streaming or in one shot.
 
 ```nupp
 local hash = require("nupp.data.hash")
@@ -10,6 +10,8 @@ local mac = hash.hmac("secret")
 mac:update(header)
 mac:update(body)
 print(mac:hex())
+
+print(hash.hmacHex("secret", header .. body))
 ```
 
 `update` compresses complete 64-byte blocks immediately. A hasher retains its
@@ -17,9 +19,17 @@ eight SHA-256 state words and at most 63 uncompressed bytes, regardless of the
 message length. `digest` and `hex` take a snapshot: they do not finish or reset
 the object, so more bytes may be appended afterwards.
 
-Use [](nupp.data.sha256) and [](nupp.data.hmac) for one-shot operations. The
-latter remains backend-selected; this module is the portable streaming
-implementation and needs only the target's 32-bit operations.
+Everything here is implemented in Nupp and needs only the target's 32-bit
+operations. The two one-shot HMAC functions additionally prefer an installed
+`crypto.hmac_sha256` provider -- a browser's WebCrypto, a backend's own kernel
+-- so that seam replaces a working implementation rather than supplying a
+missing one, and a program that never selects a backend still gets an answer.
+The streaming constructors have no provider to defer to, because the seam is
+one-shot: a caller who has the whole message and wants the host's
+implementation is calling `hmacDigest` or `hmacHex` already.
+
+Use [](nupp.data.sha256) for a one-shot SHA-256, which is compiled ahead of
+time where the build asks for it.
 ]]
 
 local hash = {}
@@ -392,6 +402,48 @@ end
 --- @export
 function hash.hmac(key: string): hash.Hasher
     return new Hmac(key)
+end
+
+-- The installed `crypto.hmac_sha256` provider, or nil where no backend
+-- selected one. Read per call rather than once at load time: a module reached
+-- during bootstrap can be loaded before the backend installs itself.
+local function provider(): any
+    return rawget(_G, "__nuppHmacSha256")
+end
+
+local function oneShot(key: string, message: string): Hmac
+    local mac = new Hmac(key)
+    mac:update(message)
+
+    return mac
+end
+
+--- Computes the raw 32-byte HMAC-SHA256 of `message` under `key`.
+--- @param key the secret key bytes
+--- @param message the message bytes
+--- @return the raw digest bytes
+--- @export
+function hash.hmacDigest(key: string, message: string): string
+    local selected = provider()
+    if selected ~= nil then
+        return selected.digest(key, message)
+    end
+
+    return oneShot(key, message):digest()
+end
+
+--- Computes the HMAC-SHA256 of `message` under `key` as hexadecimal.
+--- @param key the secret key bytes
+--- @param message the message bytes
+--- @return the sixty-four lowercase hexadecimal digits
+--- @export
+function hash.hmacHex(key: string, message: string): string
+    local selected = provider()
+    if selected ~= nil then
+        return selected.hex(key, message)
+    end
+
+    return oneShot(key, message):hex()
 end
 
 export = hash

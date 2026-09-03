@@ -63,10 +63,10 @@ return function(Browser)
 local crypto = require("nupp.browser.crypto")
 local storage = require("nupp.browser.storage")
 local time = require("nupp.time")
-local hmac = require("nupp.data.hmac")
+local hash = require("nupp.data.hash")
 time.sleep(1)
 storage.set("key", crypto.sha256(crypto.randomBytes(16)))
-print(storage.get("key"), hmac.hex("key", "message"), crypto.uuid4())
+print(storage.get("key"), hash.hmacHex("key", "message"), crypto.uuid4())
 ]]
    local browser = session:compile(browserSource, "browser-platform.nupp", {
       strict = true,

@@ -1168,7 +1168,7 @@ local crypto = require("nupp.browser.crypto")
 local storage = require("nupp.browser.storage")
 local time = require("nupp.time")
 local data = require("nupp.data")
-local hmac = require("nupp.data.hmac")
+local hash = require("nupp.data.hash")
 local path = require("nupp.io.path")
 
 local function platform(): string
@@ -1176,7 +1176,7 @@ local function platform(): string
    assert(path.currentDirectory() == nil)
    time.sleep(1)
    storage.set("digest", data.sha256(crypto.randomBytes(16)))
-   return hmac.hex("key", assert(storage.get("digest"))) .. data.uuid4()
+   return hash.hmacHex("key", assert(storage.get("digest"))) .. data.uuid4()
 end
 
 return platform
@@ -3494,14 +3494,15 @@ return {
       rockspec = "vendor/crypto/acme-crypto-1.0-1.rockspec"}},
    build = {targets = {
       portable = {outDir = "out", entries = {"main"}, dialect = "lua51",
-         dependencies = {"crypto"}, backends = {"acme.cryptobackend"}},
+         dependencies = {"crypto"},
+         backends = {"acme.cryptobackend", "nupp.runtime.backend.portable"}},
       native = {outDir = "native", entries = {"main"}, dialect = "luajit"},
    }},
 }
 ]],
       ["src/main.nupp"] = [[
-local hmac = require("nupp.data.hmac")
-return hmac.hex("key", "The quick brown fox jumps over the lazy dog")
+local hash = require("nupp.data.hash")
+return hash.hmacHex("key", "The quick brown fox jumps over the lazy dog")
 ]],
       ["vendor/crypto/acme-crypto-1.0-1.rockspec"] = rockspec,
       ["vendor/crypto/provider.lua"] = provider,
@@ -3513,11 +3514,19 @@ return hmac.hex("key", "The quick brown fox jumps over the lazy dog")
    local produced = {}
    assertEq(project.build(dir, {target = "portable", produced = produced}), 0,
       "a checked backend can name a provider from its target dependency")
-   assertEq(produced.backendResolution[1].name, "crypto.hmac_sha256",
-      "requiring HMAC reaches the dependency-backed seam")
-   assertEq(produced.backendResolution[1].runtimeDependency.package, "acme-crypto",
+   -- `nupp.data.hash` is one module over two seams: the rock supplies the HMAC
+   -- accelerator, and `numeric.bitops` is what the portable digest underneath
+   -- it needs on this dialect, which is why the target names both backends.
+   local hmacSeam
+   for _, resolved in ipairs(produced.backendResolution) do
+      if resolved.name == "crypto.hmac_sha256" then
+         hmacSeam = resolved
+      end
+   end
+   assert(hmacSeam, "requiring HMAC reaches the dependency-backed seam")
+   assertEq(hmacSeam.runtimeDependency.package, "acme-crypto",
       "artifact accounting names the provider package rather than its manifest alias")
-   assertEq(produced.backendResolution[1].runtimeDependency.version, "1.0-1",
+   assertEq(hmacSeam.runtimeDependency.version, "1.0-1",
       "artifact accounting pins the provider package version")
    assert(exists(dir .. "/.rocks/lib/luarocks/rocks-5.1/acme-crypto/1.0-1/"
       .. "nupp/acme/cryptobackend.nupp"),

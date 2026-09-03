@@ -286,6 +286,16 @@ function M.streamingHashUsesOnlyThePortableBitopsSeam()
    })
 end
 
+function M.oneShotHmacNeedsNoCryptoSeam()
+   assertClean(table.concat({
+      "local hash = require('nupp.data.hash')",
+      "return hash.hmacHex('key', 'message'), #hash.hmacDigest('key', 'message')",
+   }, "\n"), {
+      dialect = "lua51",
+      backendResolution = bitopsResolution("fixtures.bitops_backend"),
+   })
+end
+
 function M.mixedDataSeamsComposeOneLazyPublicModule()
    local backendName = "fixtures.mixed_data_backend"
    local providerNames = {
@@ -570,7 +580,6 @@ function M.seamRegistryOwnsEveryRuntimeModuleSubstitution()
 
    local implementations = {
       ["data.utf8"] = "nupp.data.utf8",
-      ["crypto.hmac_sha256"] = "nupp.data.hmac",
    }
    for seamName, moduleName in pairs(implementations) do
       local contract = seamRegistry.get(seamName)
@@ -578,6 +587,16 @@ function M.seamRegistryOwnsEveryRuntimeModuleSubstitution()
          seamName .. " implements its compiler-owned public interface")
       assertEq(contract.modules, nil,
          seamName .. " does not substitute the interface used for checking")
+   end
+
+   -- The accelerators. Each replaces a working implementation rather than
+   -- supplying a missing one, so neither claims a module: a program reaching
+   -- the module without selecting a backend is answered, not refused.
+   for _, seamName in ipairs({"data.base64", "crypto.hmac_sha256"}) do
+      local contract = seamRegistry.get(seamName)
+      assertEq(contract.modules, nil, seamName .. " substitutes no module")
+      assertEq(contract.implementationModules, nil,
+         seamName .. " implements no module, because its module stands alone")
    end
 
    local accepted, problem = pcall(moduleSeam.contract, "data.utf8", {
@@ -1250,6 +1269,7 @@ function M.streamingHashSurfaceIsBundledOutsideThisCheckout()
    local source = table.concat({
       "local hash = require('nupp.data.hash')",
       "assert(#hash.hmac('key'):update('message'):digest() == 32)",
+      "assert(#hash.hmacHex('key', 'message') == 64)",
    }, "\n")
    local result = parser.parse(source, "outside.g.nupp")
    assertEq(#result.errors, 0, "the external consumer parses")

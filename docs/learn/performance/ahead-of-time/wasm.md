@@ -237,10 +237,10 @@ SHA-256, HMAC-SHA256, and UUIDs retain the standard Nupp APIs:
 
 ```nupp
 local data = nupp.data
-local hmac = nupp.data.hmac
+local hash = require("nupp.data.hash")
 
 print(data.sha256("payload"))
-print(hmac.hex("key", "payload"))
+print(hash.hmacHex("key", "payload"))
 print(data.uuid4(), data.uuid7())
 ```
 

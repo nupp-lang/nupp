@@ -5,10 +5,16 @@ module nupp.compiler.standardsurface
 local surface = {}
 local seamRegistry = require("nupp.runtime.seam.registry")
 
-local function selected(kind: string, name: string, allDialects: boolean?): any
+local function selected(kind: string, name: string, allDialects: boolean?, accelerators: {string}?): any
     local seam = seamRegistry.get(name)
 
-    return {kind = kind, seam = seam.name, effect = seam.effect, allDialects = allDialects,}
+    return {
+        kind = kind,
+        seam = seam.name,
+        effect = seam.effect,
+        allDialects = allDialects,
+        accelerators = accelerators,
+    }
 end
 
 -- This registry is deliberately positive. Adding a public module requires an
@@ -23,8 +29,15 @@ local MODULES = {
     ["nupp.browser.storage"] = selected("host", "host.browser_storage", true),
     ["nupp.data"] = {kind = "members"},
     ["nupp.data.json"] = selected("runtime", "data.json"),
-    ["nupp.data.hash"] = selected("runtime", "numeric.bitops"),
-    ["nupp.data.hmac"] = selected("runtime", "crypto.hmac_sha256", true),
+    -- Two seams, and only the first stands between a target and this module.
+    -- `numeric.bitops` is what the digests are written against and a `lua51`
+    -- target has to select. `crypto.hmac_sha256` is an accelerator the one-shot
+    -- HMAC prefers where a backend installs one, so it is recorded as reached
+    -- -- a target that names such a backend gets it installed -- and never
+    -- gated on, because the module answers without it.
+    ["nupp.data.hash"] = selected("runtime", "numeric.bitops", nil, {
+        "runtime.hmac_sha256"
+    }),
     ["nupp.data.serde"] = selected("runtime", "text.buffer"),
     ["nupp.data.utf8"] = selected("runtime", "data.utf8"),
     -- Portable given a buffer, which is the only thing in either of these that a
@@ -175,6 +188,24 @@ end
 --- is what keeps the report on the line that asked for the module.
 function surface.reachable(checker: any, moduleName: string): boolean
     return reach(checker, moduleName, nil)
+end
+
+--- The accelerator seams a module prefers but does not need, or nil.
+---
+--- Reaching the module is what reaches them: a program that requires it may
+--- call the member a provider would answer, and the build has to install the
+--- backend the target named for that to be true. Nothing is gated on them, so
+--- an accelerator no backend supplies costs a reached effect with no provider
+--- behind it, which is what an optional seam is.
+---
+--- The caller attaches these to the requiring node rather than recording them
+--- on the checker, because generation is the last word on reachability: it
+--- rebuilds the effect set from the nodes that survived, and an effect no node
+--- carries is one packaging is right to drop.
+function surface.accelerators(moduleName: string): {string}?
+    local classification = MODULES[moduleName]
+
+    return classification and classification.accelerators or nil
 end
 
 --- Requires a module for the target, reporting at `at` what stands in the way, and

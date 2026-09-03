@@ -57,7 +57,7 @@ The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
 - [](nupp.data) owns JSON, UTF-8, identifiers, hashes and checksums.
-- [](nupp.data.hash) provides incremental SHA-256 and HMAC-SHA256.
+- [](nupp.data.hash) provides SHA-256 and HMAC-SHA256, streaming or one-shot.
 - [](nupp.io) owns byte buffers, readers, writers, and typed scalar reads and
   writes over them.
 - [](nupp.io.files) owns filesystem metadata and directories.
