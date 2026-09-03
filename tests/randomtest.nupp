@@ -1,0 +1,102 @@
+local random = require("nupp.random")
+
+local M = {}
+
+local function assertSame(left: {number}, right: {number}): nil
+    assert(#left == #right)
+    for index = 1, #left do
+        assert(left[index] == right[index], "values differ at " .. tostring(index))
+    end
+end
+
+function M.reproducesTheTecsSequenceAndState(): nil
+    local generator = random.newRandom(12345)
+    local expected: {
+        number
+    } = {
+        0.25454781646840274,
+        0.047265402274206281,
+        0.87110176053829491,
+        0.88562377681955695,
+        0.97293841186910868,
+        0.18865043367259204,
+        0.31380670145153999,
+        0.94012095988728106,
+    }
+    for index = 1, #expected do
+        assert(generator:next() == expected[index], "draw differs at " .. tostring(index))
+    end
+    assertSame(generator:state(), {522211826, 1785743282, 676026232, -1112538433})
+end
+
+function M.reproducesTheTecsIntegerSequence(): nil
+    local generator = random.newRandom(12345)
+    local expected = {26, 5, 88, 89, 98, 19, 32, 95, 87, 90, 75, 51}
+    for index = 1, #expected do
+        assert(generator:integer(1, 100) == expected[index], "integer differs at " .. tostring(index))
+    end
+end
+
+function M.restoresStateAndReseedsInPlace(): nil
+    local generator = random.newRandom(9)
+    for _ = 1, 12 do
+        generator:next()
+    end
+    local checkpoint = generator:state()
+    local expected = {generator:next(), generator:next(), generator:next()}
+    generator:setState(checkpoint)
+    assertSame({generator:next(), generator:next(), generator:next()}, expected)
+
+    generator:reseed(9)
+    local fresh = random.newRandom(9)
+    assert(generator:next() == fresh:next())
+end
+
+function M.readsSeedsAndStateAsSigned32BitWords(): nil
+    local positive = random.newRandom(2147483648)
+    local negative = random.newRandom(-2147483648)
+    for _ = 1, 20 do
+        assert(positive:next() == negative:next())
+    end
+
+    local generator = random.newRandom(1)
+    assert(
+        not pcall(function(): nil
+            generator:setState({0, 0, 0, 0})
+        end)
+    )
+    assert(
+        not pcall(function(): nil
+            generator:setState({1, 2, 3})
+        end)
+    )
+end
+
+function M.drawsRangesAndDeterministicPermutations(): nil
+    local generator = random.newRandom(11)
+    local seen: {[integer]: boolean} = {}
+    for _ = 1, 2000 do
+        local value = generator:integer(-3, 3)
+        assert(value >= -3 and value <= 3)
+        seen[value] = true
+        local fraction = generator:range(-2.5, 7.5)
+        assert(fraction >= -2.5 and fraction < 7.5)
+    end
+    for value = -3, 3 do
+        assert(seen[value] == true)
+    end
+    assert(
+        not pcall(function(): nil
+            generator:integer(5, 3)
+        end)
+    )
+
+    local first = {1, 2, 3, 4, 5, 6, 7, 8}
+    local second = {1, 2, 3, 4, 5, 6, 7, 8}
+    local returned = random.newRandom(99):shuffle(first)
+    random.newRandom(99):shuffle(second)
+    assert(returned == first)
+    assertSame(first, second)
+end
+
+return M

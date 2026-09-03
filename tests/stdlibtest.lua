@@ -251,7 +251,7 @@ function M.standardSurfaceRequiresExactPortableSeams()
       "nupp.browser.crypto", "nupp.browser.storage", "nupp.data.json",
       "nupp.data.serde", "nupp.data.utf8", "nupp.io.files",
       "nupp.io.http", "nupp.io.process", "nupp.io.path", "nupp.io.uri",
-      "nupp.mem", "nupp.runtime.nativev2", "nupp.simd", "nupp.time", "nupp.wasm",
+      "nupp.mem", "nupp.random", "nupp.runtime.nativev2", "nupp.simd", "nupp.time", "nupp.wasm",
       "nupp.test", "nupp.workers",
    }) do
       assert(classified[name], "public standard module is classified: " .. name)
@@ -265,6 +265,16 @@ function M.standardSurfaceRequiresExactPortableSeams()
    assertEq(serde, "NUPP3012:1", "serde asks for the buffer seam it renders through")
 end
 
+function M.randomUsesOnlyThePortableBitopsSeam()
+   assertClean(table.concat({
+      "local random = require('nupp.random')",
+      "local generator = random.newRandom(12345)",
+      "return generator:next(), generator:integer(1, 100)",
+   }, "\n"), {
+      dialect = "lua51",
+      backendResolution = bitopsResolution("fixtures.bitops_backend"),
+   })
+end
 
 function M.mixedDataSeamsComposeOneLazyPublicModule()
    local backendName = "fixtures.mixed_data_backend"
@@ -1210,6 +1220,19 @@ function M.processSurfaceIsBundledOutsideThisCheckout()
    assertEq(#result.errors, 0, "the external consumer parses")
    local diags = check.check(result, "outside.g.nupp", isolated)
    assertEq(#diags, 0, "the shipped process source supplies its typed surface")
+end
+
+function M.randomSurfaceIsBundledOutsideThisCheckout()
+   local isolated = envMod.new(os.tmpname() .. "-nupp-random-surface")
+   local source = table.concat({
+      "local random = require('nupp.random')",
+      "local generator = random.newRandom(12345)",
+      "assert(generator:next() >= 0)",
+   }, "\n")
+   local result = parser.parse(source, "outside.g.nupp")
+   assertEq(#result.errors, 0, "the external consumer parses")
+   local diags = check.check(result, "outside.g.nupp", isolated)
+   assertEq(#diags, 0, "the shipped random source supplies its typed surface")
 end
 
 function M.optimizedDeadCodeDropsItsNativeFeatures()

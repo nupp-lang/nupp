@@ -73,6 +73,8 @@ intrinsic namespaces and the declared modules:
   reified struct in its own column.
 - [](nupp.gpu) owns native resident buffers, compiled kernels, dispatches, and
   tensor views; [](nupp.gpulayout) owns the checked layout algebra.
+- [](nupp.random) owns deterministic pseudo-random sequences with explicit,
+  serializable state.
 - [](nupp.suspension), [](nupp.tasks), and [](nupp.workers) provide waiting,
   application task scopes, and isolated worker lanes.
 - [](nupp.time) owns monotonic time, wall time, sleeps, and deadlines.
