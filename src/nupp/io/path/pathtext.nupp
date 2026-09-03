@@ -1,6 +1,6 @@
 @!internal
 
-module nupp.io.pathtext
+module nupp.io.path.pathtext
 
 --[[
 Path text, as rules about characters.

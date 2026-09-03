@@ -124,7 +124,7 @@ assert(report:fileName() == "report.json")
 ]]
 
 const environment = require("nupp.io.path.provider")
-const pathtext = require("nupp.io.pathtext")
+const pathtext = require("nupp.io.path.pathtext")
 
 -- Which set of rules this platform spells paths with, read once. The rules take
 -- it as an argument rather than choosing at compile time, so a machine of either

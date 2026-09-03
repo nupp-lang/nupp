@@ -137,7 +137,7 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
         requires = {"runtime.pathtext"},
     },
-    ["runtime.pathtext"] = {name = "pathtext", runtimeModule = "nupp.io.pathtext", portableRuntime = true,},
+    ["runtime.pathtext"] = {name = "pathtext", runtimeModule = "nupp.io.path.pathtext", portableRuntime = true,},
     [
         "native.uri"
     ] = {

@@ -12,7 +12,7 @@ local test = require("assert")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
 local nativeStage = require("nupp.compiler.build.native")
-local pathtext = require("nupp.io.pathtext")
+local pathtext = require("nupp.io.path.pathtext")
 
 local M = {}
 

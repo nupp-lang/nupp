@@ -203,7 +203,7 @@ local RESOURCES = {
     {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},
     {source = "src/nupp/io/path/init.nupp", output = "nupp/compiler/nupp/io/path/init.nupp"},
     {source = "src/nupp/io/path/provider.nupp", output = "nupp/compiler/nupp/io/path/provider.nupp"},
-    {source = "src/nupp/io/pathtext.nupp", output = "nupp/compiler/nupp/io/pathtext.nupp"},
+    {source = "src/nupp/io/path/pathtext.nupp", output = "nupp/compiler/nupp/io/path/pathtext.nupp"},
     {source = "src/nupp/io/uri.nupp", output = "nupp/compiler/nupp/io/uri.nupp"},
     {source = "src/nupp/io/files.nupp", output = "nupp/compiler/nupp/io/files.nupp"},
     {source = "src/nupp/io/init.nupp", output = "nupp/compiler/nupp/io/init.nupp"},

@@ -38,7 +38,7 @@ local MODULES = {
     ["nupp.runtime.hotreload"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.io"] = selected("runtime", "io.bytes"),
     ["nupp.io.path.provider"] = selected("host", "host.path"),
-    ["nupp.io.pathtext"] = {kind = "common"},
+    ["nupp.io.path.pathtext"] = {kind = "common"},
     ["nupp.io.files"] = selected("host", "host.files"),
     ["nupp.io.http"] = selected("host", "host.http"),
     ["nupp.io.path"] = {kind = "common"},

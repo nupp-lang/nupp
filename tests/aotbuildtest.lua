@@ -858,9 +858,9 @@ return {
 }
 ]=]):format(policy))
    manifest:close()
-   local authored = assert(read(NATIVE_HERE .. "/../src/nupp/io/pathtext.nupp"))
+   local authored = assert(read(NATIVE_HERE .. "/../src/nupp/io/path/pathtext.nupp"))
    authored = authored:gsub("^@!internal%s*", "")
-      :gsub("module nupp%.io%.pathtext", "module pathnormalizer", 1)
+      :gsub("module nupp%.io%.path%.pathtext", "module pathnormalizer", 1)
    local source = assert(io.open(dir .. "/src/pathnormalizer.nupp", "wb"))
    source:write(authored)
    source:close()
