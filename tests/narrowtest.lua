@@ -178,7 +178,7 @@ function M.conditionIsCheckedOnce()
       "local x: any",
       "if x is Unknowable then",
       "end",
-   }, "\n"))), "NUPP2101:2")
+   }, "\n"))), "NUPP2101:2 NUPP3001:2")
 end
 
 function M.genericMapIteration()
