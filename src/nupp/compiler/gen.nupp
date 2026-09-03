@@ -2417,14 +2417,17 @@ function gen.generate(
     -- current value: the bitops helper applied to it when the operator has no
     -- spelling in this dialect, and the operator applied to it otherwise. The value
     -- is parenthesised so its own operators bind before the compound one.
-    function pluck.emitCompoundValue(x, emitRead, bitMethod: string?)
+    function pluck.emitCompoundValue(x, emitRead, bitMethod: string?, lead: string?)
         if bitMethod then
-            e(pluck.bitops.name .. "." .. bitMethod .. "(")
+            e((lead or "") .. pluck.bitops.name .. "." .. bitMethod .. "(")
             emitRead()
             e(",", x.op.line)
             emit(x.value)
             e(")")
         else
+            if lead then
+                e(lead)
+            end
             emitRead()
             e((" %s ("):format(x.op.kind:sub(1, -2)), x.op.line)
             emit(x.value)
@@ -2439,8 +2442,7 @@ function gen.generate(
     function pluck.emitCompoundInto(x, emitSlot, bitMethod: string?)
         emitSlot()
         if bitMethod or pluck.portable then
-            e("=")
-            pluck.emitCompoundValue(x, emitSlot, bitMethod)
+            pluck.emitCompoundValue(x, emitSlot, bitMethod, "=")
         else
             e((" %s "):format(x.op.kind), x.op.line)
             emit(x.value)
