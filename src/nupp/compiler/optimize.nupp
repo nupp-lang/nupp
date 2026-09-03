@@ -2710,7 +2710,6 @@ type optimize.Options = {
     --- deliberately do not carry a competing name.
     readonly filename: string?,
     readonly disabled: {[string]: boolean}?,
-    readonly relaxed: {[string]: boolean}?,
 
     --- The dialect the result is generated for. `OPT-5` lowers to `string.buffer`,
     --- which is LuaJIT's, so a Lua 5.1 target does not get that pass.

@@ -118,6 +118,23 @@ function M.authoredCodeOnLineOneIsNotFoldedWithThePreamble()
       "the structural marker is not part of the listing")
 end
 
+function M.declaredModulesFoldTheirPreambleInsideTheLoader()
+   local source = table.concat({
+      "module declared",
+      "export function answer(): integer",
+      "    return 42",
+      "end",
+      "",
+   }, "\n")
+   local dir = project{["declared.g.nupp"] = source}
+   local out, code = run(dir, "declared.g.nupp")
+   test.equal(code, 0, out)
+   assert(out:find("instructions of runtime preamble", 1, true),
+      "the declared module's preamble is folded:\n" .. out)
+   assert(out:find("3 |     return 42", 1, true),
+      "the declared module's authored source remains visible:\n" .. out)
+end
+
 -- What the annotations cost, answered by the instructions rather than by a benchmark:
 -- an indexed multiply-accumulate over a declared `{number}` is three instructions with
 -- no call, no check and no boxing among them.

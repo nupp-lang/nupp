@@ -100,7 +100,7 @@ command's own `--schema`, so a schema cannot drift from what the command emits.
 
 `--format`, `--json` and `--text` share one setting, and giving two of them is
 an error. No option repeats unless it says so, and three do: `--set` on `init`,
-and `--relax` and `-Zno-opt` on `build` and `run`.
+and `-Zno-opt` on `build` and `run`.
 
 A command writes its JSON as one line with no ordering guarantee across keys.
 The `json` blocks on this page are indented so they can be read; the `text`
@@ -798,8 +798,6 @@ Options:
   -O0, -O1, -O2      Optimization level; ad-hoc builds default to -O0,
                      deliverable targets to -O2
   --remarks          Report what the optimizer did and what it declined to do
-  --relax=GUARANTEE  Allow optimizations to change one named observable
-                     guarantee
   -Zno-opt=CODE      Turn off one pass, named by its stable code, to bisect a
                      miscompile. Unstable: the spelling may change or go away
   --progress[=WHEN]  When to report progress and timing on standard error:
@@ -862,17 +860,15 @@ nupp build -O1 -Zno-opt=OPT-3
 
 `--remarks` reports what the optimizer did and what it declined to do.
 `-Zno-opt=CODE` turns off one pass by its stable code, and the `-Z` prefix marks
-it as unstable: the option's name may change or go away. `--relax=GUARANTEE`
-opts in to a named observable tradeoff and may be given more than once; no
-current pass requires one. See
+it as unstable: the option's name may change or go away. See
 [performance.md](../learn/performance/index.md#optimization-passes) for what each
 pass rewrites and what it measured.
 
 ::: deepdive
-`-Zno-opt` and `--relax` reach the build key as well, not only `-O`. That is
-what makes `-Zno-opt=CODE` a usable bisection tool: turning a pass off and
-building again produces a tree compiled entirely without it, rather than one
-where whichever modules happened to be cached still carry it.
+`-Zno-opt` reaches the build key as well, not only `-O`. That is what makes it
+a usable bisection tool: turning a pass off and building again produces a tree
+compiled entirely without it, rather than one where whichever modules happened
+to be cached still carry it.
 :::
 
 #### Progress and timing
@@ -1700,8 +1696,6 @@ Options:
   -O0, -O1, -O2        Optimization level; ad-hoc builds default to -O0,
                        deliverable targets to -O2
   --remarks            Report what the optimizer did and what it declined to do
-  --relax=GUARANTEE    Allow optimizations to change one named observable
-                       guarantee
   -Zno-opt=CODE        Turn off one pass, named by its stable code, to bisect a
                        miscompile. Unstable: the spelling may change or go away
   --watch              Keep named function identities patchable at cooperative

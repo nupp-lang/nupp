@@ -106,17 +106,6 @@ function options.optimize(): {any}
         },
         {name = "--remarks", help = "Report what the optimizer did and what it declined to do"},
         {
-            name = "--relax",
-            value = "GUARANTEE",
-            form = "attached",
-            key = "relaxed",
-            repeats = true,
-            set = true,
-            choices = {"function-identity", "load-order", "error-site", "frames", "gc-timing", "table-order"},
-            display = "--relax=GUARANTEE",
-            help = "Allow optimizations to change one named observable guarantee"
-        },
-        {
             name = "-Zno-opt",
             value = "CODE",
             form = "attached",

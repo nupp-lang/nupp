@@ -108,6 +108,14 @@ function M.recordDeclarations()
       "   writeonly [string]: string | integer",
       "end",
    }, "\n"))
+   local mixed = firstStat(table.concat({
+      "local interface Opt",
+      "   secret: string",
+      "   [string]: integer",
+      "end",
+   }, "\n"))
+   assertEq(mixed.entries[1].kind, "fieldDecl")
+   assertEq(mixed.entries[2].kind, "indexerDecl")
 end
 
 function M.contractDeclarationsAndInlineMethods()

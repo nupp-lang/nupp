@@ -684,12 +684,11 @@ declarations invalidate the project index, while body-only edits preserve it.
 Deleting the state file, changing compiler or configuration inputs, or
 modifying an emitted artifact safely falls back to the required cold work.
 
-The optimization level and the set of `--relax` guarantees are among those
-keys. `nupp build -O2` reaches the configuration before it is hashed, so
-changing either invalidates every artifact built with the old optimizer
-contract rather than leaving a project half compiled under each. Switching
-therefore costs a cold build, and cannot produce a mixture. `-O0` is the
-default and performs no rewrite; see the [performance
+The optimization level is among those keys. `nupp build -O2` reaches the
+configuration before it is hashed, so changing it invalidates every artifact
+built with the old optimizer contract rather than leaving a project half
+compiled under each. Switching therefore costs a cold build, and cannot
+produce a mixture. `-O0` is the default and performs no rewrite; see the [performance
 guide](../performance/index.md#optimization-passes) for what the levels above it do.
 
 ### Compiler identity

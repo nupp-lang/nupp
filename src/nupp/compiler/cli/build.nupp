@@ -375,7 +375,6 @@ local function run(parsed: any): integer
             optLevel = settings.optLevel,
             remarks = settings.remarks,
             disabled = settings.disabled,
-            relaxed = settings.relaxed,
             diagnostics = asJson and diagnostics or nil,
             produced = asJson and produced or nil,
             progress = progressMode

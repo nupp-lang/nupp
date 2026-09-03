@@ -1046,9 +1046,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 n.inner = add(n, t)
                 add(n, advance()).typePostfix = true
                 t = n
-            elseif k == "[" then
+            elseif k == "[" and tokens[i - 1] and tokens[i - 1].line == cur().line then
                 -- C array types: T[?] is variable-length, T[N] fixed. Both are
-                -- zero-based cdata, unlike the one-based new Lua {T}.
+                -- zero-based cdata, unlike the one-based new Lua {T}. A postfix
+                -- stays on its type's line, so a declaration-body indexer beginning
+                -- on the next line cannot be absorbed as T[K].
                 local n = new cst.Tcarray(kind = "tcarray")
                 n.element = add(n, t)
                 add(n, advance()).typePostfix = true

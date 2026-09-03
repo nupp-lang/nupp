@@ -111,7 +111,6 @@ optimize.run(parsed, {
    level = 1,
    filename = filename,
    disabled = {},
-   relaxed = {},
    dialect = "lua51",
 })
 parsed.effects = optimize.liveEffects(parsed)

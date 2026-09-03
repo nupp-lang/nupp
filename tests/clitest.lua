@@ -123,18 +123,13 @@ function M.anAttachedOnlyOptionRefusesItsBareForm()
    assert(disabled.a and disabled.b, "repeats accumulate into a set")
 end
 
-function M.optimizerRelaxationsAreRepeatableAndClosed()
+function M.buildWideRelaxationIsNoLongerAnOptimizerOption()
    local command = spec.command{
       name = "opt", summary = "optimizer", usage = {"nupp opt"},
       options = sharedOptions.optimize(),
    }
-   local parsed = assert(command:parse({
-      "--relax=frames", "--relax=function-identity",
-   }))
-   assert(parsed.values.relaxed.frames, "records frames")
-   assert(parsed.values.relaxed["function-identity"], "records identity")
-   local invalid, err = command:parse({"--relax=magic"})
-   assert(invalid == nil and err:find("expected", 1, true), tostring(err))
+   local parsed, err = command:parse({"--relax=frames"})
+   assert(parsed == nil and err:find("unknown option", 1, true), tostring(err))
 end
 
 function M.theLiteralTerminatorEndsOptionParsing()
@@ -194,8 +189,6 @@ function M.completionsAreRenderedFromTheRegisteredCommandGrammar()
    assert(bash:find("--strict", 1, true), "completes command options")
    assert(bash:find("text json", 1, true),
       "completes closed option values")
-   assert(not bash:find("--relax)", 1, true),
-      "attached-only choices are not offered as a following word")
    assert(not bash:find("--color)", 1, true),
       "optional choices are not offered as a following word")
    assert(bash:find("complete -F _nupp nupp", 1, true), "installs Bash completion")
@@ -215,9 +208,6 @@ function M.completionsAreRenderedFromTheRegisteredCommandGrammar()
       "has a guard dedicated to top-level command completion")
    assert(fish:find("-n '__fish_nupp_needs_command' -a check", 1, true),
       "offers command names before a command is present")
-   assert(fish:find("-l relax -a 'function-identity", 1, true)
-      and not fish:find("-l relax -r", 1, true),
-      "attached-only choices do not consume the following word")
    assert(fish:find("-l color -a 'always never auto'", 1, true)
       and not fish:find("-l color -r", 1, true),
       "optional choices do not consume the following word")

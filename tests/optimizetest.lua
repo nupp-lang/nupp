@@ -24,7 +24,6 @@ local function runOptimizer(result, options)
       level = options and options.level or 0,
       filename = options and options.filename or "test.g.nupp",
       disabled = options and options.disabled or {},
-      relaxed = options and options.relaxed or {},
       dialect = options and options.dialect or "luajit",
       constSelection = options and options.constSelection or nil,
    }

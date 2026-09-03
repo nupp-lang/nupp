@@ -75,10 +75,8 @@ type project.BuildOptions = {
     optLevel: integer?,
     remarks: boolean?,
 
-    --- Optimization codes to skip, and the guarantees a pass may change, each as a set
-    --- keyed by the code.
+    --- Optimization codes to skip, keyed by the code.
     disabled: {[string]: boolean}?,
-    relaxed: {[string]: boolean}?,
 
     --- How many modules were checked, generated and reused.
     stats: nupp.compiler.build.modules.Stats?,
@@ -298,7 +296,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     config._optLevel = opts.optLevel or target.optimize as integer? or defaultLevel
     config._remarks = opts.remarks and true or false
     config._disabledPasses = opts.disabled or {}
-    config._relaxedGuarantees = opts.relaxed or {}
     -- Coverage affects emitted Lua, therefore belongs in the configuration before the
     -- build key is calculated. A normal cache entry can never satisfy a coverage run.
     config._coverage = opts.coverage == true

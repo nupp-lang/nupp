@@ -1293,7 +1293,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 level = config._optLevel or 0,
                 filename = path,
                 disabled = config._disabledPasses,
-                relaxed = config._relaxedGuarantees,
                 dialect = (config._target or {}).dialect,
                 constSelection = constSelection,
             })

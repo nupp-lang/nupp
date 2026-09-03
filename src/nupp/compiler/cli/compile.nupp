@@ -35,9 +35,6 @@ record compile.Settings
     --- Passes turned off by -Zno-opt, keyed by their stable code.
     disabled: {[string]: boolean}
 
-    --- Observable guarantees the user explicitly allowed optimizations to change.
-    relaxed: {[string]: boolean}
-
     --- Where diagnostics go when the caller is reporting them itself. Present for
     --- `--json`, which has to put them in a document rather than let each one say
     --- itself as it is found. Same favour `nupp.compiler.build.project` already does.
@@ -76,7 +73,6 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
         optLevel = LEVELS[values.optLevel],
         remarks = values.remarks and true or false,
         disabled = values.disabled or {},
-        relaxed = values.relaxed or {},
         diagnostics = collected,
         coverage = values.coverage == true or os.getenv("NUPP_COVERAGE") == "1",
         bytecodeBoundary = nil
@@ -143,8 +139,7 @@ function compile.module(path: string, env: table, settings: compile.Settings): s
     local remarks, specializedBodies = require("nupp.compiler.optimize").run(result, {
         level = settings.optLevel or 0,
         filename = path,
-        disabled = settings.disabled,
-        relaxed = settings.relaxed
+        disabled = settings.disabled
     })
     -- The file shape reaches its modules one at a time and has no module graph to
     -- total, so the count is accumulated here the way materializations are.

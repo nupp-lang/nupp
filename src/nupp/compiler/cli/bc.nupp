@@ -159,14 +159,14 @@ local function run(parsed: any): integer
     local functions = analysis.functions
 
     local boundaryPc: integer? = nil
+    local boundaryFunction: any? = nil
     if boundary ~= nil then
         for _, fn in ipairs(functions) do
-            if fn.depth == 0 then
-                for _, ins in ipairs(fn.instructions) do
-                    if ins.text:find(boundary as string, 1, true) then
-                        boundaryPc = ins.pc
-                        break
-                    end
+            for _, ins in ipairs(fn.instructions) do
+                if ins.text:find(boundary as string, 1, true) then
+                    boundaryFunction = fn
+                    boundaryPc = ins.pc
+                    break
                 end
             end
             if boundaryPc ~= nil then
@@ -212,8 +212,11 @@ local function run(parsed: any): integer
             local shown: integer? = nil
             local folded = 0
             for _, ins in ipairs(fn.instructions) do
-                local isBoundary = fn.depth == 0 and boundaryPc ~= nil and ins.pc == boundaryPc
-                local isPreamble = fn.depth == 0 and boundaryPc ~= nil and ins.pc < boundaryPc
+                -- A declared module puts its generated preamble inside the loader's
+                -- protected wrapper, while a legacy module leaves it at depth zero.
+                -- The boundary belongs to its exact function in either form.
+                local isBoundary = fn == boundaryFunction and boundaryPc ~= nil and ins.pc == boundaryPc
+                local isPreamble = fn == boundaryFunction and boundaryPc ~= nil and ins.pc < boundaryPc
                 if isBoundary then
                     -- Structural instrumentation for this listing, not an
                     -- instruction in either the runtime preamble or user source.

@@ -698,21 +698,6 @@ The grant is per function. It does not enable reassociation, unordered
 reductions, flush-to-zero, or contraction; those guarantees remain unchanged
 unless separately relaxed.
 
-### Opting in
-
-A function opts in for itself with `@relax`. A whole compilation opts in with
-`--relax=GUARANTEE`, which repeats:
-
-```bash
-nupp build --relax=frames --relax=function-identity
-```
-
-The flag takes the six guarantees in the table above and neither numeric grant,
-which stay per function because a build-wide permission to change answers is
-not something a reader of any one function could see was in effect. A name
-outside the accepted set reports `NUPP2112`, so a typo is refused rather than
-silently granting nothing.
-
 ### Grants do not request rewrites
 
 `@relax` widens what a pass is allowed to do; it never asks for anything. A pass

@@ -33469,7 +33469,6 @@ optimize . run ( result , {
 level = options and options . optimize == true and 1 or 0 ,
 filename = filename ,
 disabled = { } ,
-relaxed = { } ,
 dialect = "lua51" ,
 } )
 result . effects = optimize . liveEffects ( result )
@@ -41120,7 +41119,6 @@ local remarks = optimize . run ( result . result , {
 level = config . _optLevel or 0 ,
 filename = path ,
 disabled = config . _disabledPasses ,
-relaxed = config . _relaxedGuarantees ,
 dialect = ( config . _target or { } ) . dialect ,
 constSelection = constSelection ,
 } )
@@ -43551,8 +43549,6 @@ local project = { }
 
 
 
-
-
 local CHECK_STATE_STAMP = "checks/1"
 
 local normalize , join = fs . normalize , fs . join
@@ -43713,7 +43709,6 @@ end
 config . _optLevel = opts . optLevel or target . optimize or defaultLevel
 config . _remarks = opts . remarks and true or false
 config . _disabledPasses = opts . disabled or { }
-config . _relaxedGuarantees = opts . relaxed or { }
 
 
 config . _coverage = opts . coverage == true
@@ -79048,14 +79043,14 @@ local analysis = traceBytecode . analyze ( chunk )
 local functions = analysis . functions
 
 local boundaryPc = nil
+local boundaryFunction = nil
 if boundary ~= nil then
 for _ , fn in ipairs ( functions ) do
-if fn . depth == 0 then
 for _ , ins in ipairs ( fn . instructions ) do
 if ins . text : find ( boundary , 1 , true ) then
+boundaryFunction = fn
 boundaryPc = ins . pc
 break
-end
 end
 end
 if boundaryPc ~= nil then
@@ -79101,8 +79096,11 @@ io . write ( ( "%s-- %s, lines %s-%s\n" ) : format ( indent , fn . what , tostri
 local shown = nil
 local folded = 0
 for _ , ins in ipairs ( fn . instructions ) do
-local isBoundary = fn . depth == 0 and boundaryPc ~= nil and ins . pc == boundaryPc
-local isPreamble = fn . depth == 0 and boundaryPc ~= nil and ins . pc < boundaryPc
+
+
+
+local isBoundary = fn == boundaryFunction and boundaryPc ~= nil and ins . pc == boundaryPc
+local isPreamble = fn == boundaryFunction and boundaryPc ~= nil and ins . pc < boundaryPc
 if isBoundary then
 
 
@@ -79532,7 +79530,6 @@ strict = settings . strict ,
 optLevel = settings . optLevel ,
 remarks = settings . remarks ,
 disabled = settings . disabled ,
-relaxed = settings . relaxed ,
 diagnostics = asJson and diagnostics or nil ,
 produced = asJson and produced or nil ,
 progress = progressMode
@@ -80081,9 +80078,6 @@ compile.Settings = {} compile.Settings.__index = compile.Settings
 
 
 
-
-
-
 local LEVELS = { [ "0" ] = 0 , [ "1" ] = 1 , [ "2" ] = 2 }
 
 
@@ -80094,8 +80088,7 @@ values . strict ,  dialect =
 assert ( require ( "nupp.compiler.dialects" ) . resolve ( values . dialect ) ) ,  optLevel =
 LEVELS [ values . optLevel ] ,  remarks =
 values . remarks and true or false ,  disabled =
-values . disabled or { } ,  relaxed =
-values . relaxed or { } ,  diagnostics =
+values . disabled or { } ,  diagnostics =
 collected ,  coverage =
 values . coverage == true or os . getenv ( "NUPP_COVERAGE" ) == "1" ,  bytecodeBoundary =
 nil }, compile.Settings)
@@ -80162,8 +80155,7 @@ end
 local remarks , specializedBodies = require ( "nupp.compiler.optimize" ) . run ( result , {
 level = settings . optLevel or 0 ,
 filename = path ,
-disabled = settings . disabled ,
-relaxed = settings . relaxed
+disabled = settings . disabled
 } )
 
 
@@ -83683,17 +83675,6 @@ invalid = "the optimization level is -O0, -O1 or -O2" ,
 help = "Optimization level; ad-hoc builds default to -O0, deliverable targets to -O2"
 } ,
 { name = "--remarks" , help = "Report what the optimizer did and what it declined to do" } ,
-{
-name = "--relax" ,
-value = "GUARANTEE" ,
-form = "attached" ,
-key = "relaxed" ,
-repeats = true ,
-set = true ,
-choices = { "function-identity" , "load-order" , "error-site" , "frames" , "gc-timing" , "table-order" } ,
-display = "--relax=GUARANTEE" ,
-help = "Allow optimizations to change one named observable guarantee"
-} ,
 {
 name = "-Zno-opt" ,
 value = "CODE" ,
@@ -139707,7 +139688,6 @@ end
 
 
 
-
 function optimize . run ( result , opts ) 
 opts = opts or { }
 local level = opts . level or 0
@@ -140850,7 +140830,9 @@ end
 n . inner = add ( n , t )
 add ( n , advance ( ) ) . typePostfix = true
 t = n
-elseif k == "[" then
+elseif k == "[" and tokens [ i - 1 ] and tokens [ i - 1 ] . line == cur ( ) . line then
+
+
 
 
 local n = setmetatable({ kind =  "tcarray" }, cst.Tcarray)

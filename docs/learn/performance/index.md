@@ -1244,9 +1244,9 @@ form is an unstable debugging interface, and `-O0` disables every rewrite.
 ## Observable behavior
 
 Passes preserve answers. One that trades a non-answer guarantee for speed must
-explicitly check a named `--relax` or
+explicitly check a named
 [`@relax`](../../reference/annotations.md#relaxing-observable-guarantees)
-permission; `OPT-6` requires `frames`. The compiler fixpoint verifies that
+permission. The compiler fixpoint verifies that
 compiling the compiler at `-O1` produces output byte-identical to compiling it
 at `-O0` while its guarantees are held.
 
@@ -1255,7 +1255,7 @@ at `-O0` while its guarantees are held.
 ### Does `-O1` change what a program answers?
 
 No. Every pass preserves answers, and a pass that would trade a non-answer
-guarantee has to find a named `--relax` or `@relax` permission first. The
+guarantee has to find a named `@relax` permission first. The
 compiler fixpoint checks that by compiling itself at both levels.
 
 ### Which level should a project ship?

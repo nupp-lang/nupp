@@ -483,7 +483,7 @@ Four mechanisms answer four different questions:
 
 - `@effects`: what may happen while this value is called.
 - `const`: whether a bodyless binding keeps the same value.
-- `@relax` and `--relax`: which observable guarantee an optimization may change.
+- `@relax`: which observable guarantee an optimization may change.
 - affine and borrowed types: who must release a resource, and what it may
   outlive.
 

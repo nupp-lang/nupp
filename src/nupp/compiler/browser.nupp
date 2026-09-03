@@ -214,7 +214,6 @@ function Session:compile(source: string, filename: string, options: BrowserOptio
         level = options and options.optimize == true and 1 or 0,
         filename = filename,
         disabled = {},
-        relaxed = {},
         dialect = "lua51",
     })
     result.effects = optimize.liveEffects(result)

@@ -24,7 +24,6 @@ local function compile(src, level, dialect)
    local remarks = optimize.run(result, {
       level = level,
       filename = "test.g.nupp",
-      relaxed = {},
       dialect = dialect or "luajit",
    })
    local code, diags = gen.generate(result, "test")
@@ -278,7 +277,6 @@ return out
       level = 1,
       filename = "test.g.nupp",
       disabled = {["OPT-5"] = true},
-      relaxed = {},
       dialect = "luajit",
    })
    for _, entry in ipairs(remarks) do
