@@ -3086,8 +3086,13 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(compact:find("is%-mobile%-outline%-open"), css)
     assert(compact:find("nuppdoc%-content%{font%-size:1rem%}"), css)
     -- one mechanism clears the sticky header; two would stack into twice the gap
-    assert(compact:find("scroll-margin-top:calc(var(--nuppdoc-header-height)+1.4rem)", 1, true), css)
+    assert(compact:find("scroll%-margin%-top:calc%(var%(%-%-nuppdoc%-header%-height%) ?%+ ?1%.4rem%)"), css)
     assert(not compact:find("scroll-padding-top", 1, true), css)
+    -- The spaces around that `+` are load-bearing: `calc(a+b)` is not valid CSS.
+    -- `compact` closes up the one before the operator and leaves the one after it,
+    -- so it cannot say whether the declaration a browser receives is well formed,
+    -- and the source is what answers that.
+    assert(css:find("calc(var(--nuppdoc-header-height) + 1.4rem)", 1, true), css)
 
     local legacy = readFile(dir .. "/site/modules/math.html")
     assert(legacy:find("math/index.html", 1, true), legacy)
