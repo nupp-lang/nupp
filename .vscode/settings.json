@@ -2,5 +2,15 @@
   "files.associations": {
     "*.nupp": "nupp"
   },
-  "nupp.serverPath": "${workspaceFolder}/bin/nupp"
+  "nupp.serverPath": "${workspaceFolder}/bin/nupp",
+  "editor.tokenColorCustomizations": {
+    "textMateRules": [
+      {
+        "scope": "storage.type.declaration.nupp",
+        "settings": {
+          "foreground": "#B07A45"
+        }
+      }
+    ]
+  }
 }
