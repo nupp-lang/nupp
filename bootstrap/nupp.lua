@@ -103799,6 +103799,7 @@ local BUNDLED_SOURCE = {
 [ "nupp.data.jsondecoder.eager" ] = "/nupp/data/jsondecoder/eager.nupp" ,
 [ "nupp.data.jsondecoder.serde" ] = "/nupp/data/jsondecoder/serde.nupp" ,
 [ "nupp.data.serde" ] = "/nupp/data/serde.nupp" ,
+[ "nupp.data.hash" ] = "/nupp/data/hash.nupp" ,
 [ "nupp.data.hmac" ] = "/nupp/data/hmac.nupp" ,
 [ "nupp.runtime.backend" ] = "/nupp/runtime/backend.nupp" ,
 [ "nupp.runtime.backend.browser" ] = "/nupp/runtime/backend/browser.nupp" ,
@@ -152138,6 +152139,7 @@ local MODULES = {
 [ "nupp.browser.storage" ] = selected ( "host" , "host.browser_storage" , true ) ,
 [ "nupp.data" ] = { kind = "members" } ,
 [ "nupp.data.json" ] = selected ( "runtime" , "data.json" ) ,
+[ "nupp.data.hash" ] = selected ( "runtime" , "numeric.bitops" ) ,
 [ "nupp.data.hmac" ] = selected ( "runtime" , "crypto.hmac_sha256" , true ) ,
 [ "nupp.data.serde" ] = selected ( "runtime" , "text.buffer" ) ,
 [ "nupp.data.utf8" ] = selected ( "runtime" , "data.utf8" ) ,
@@ -159651,6 +159653,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
 local data = { }
 local ffi = require ( "ffi" )
 const digest = require ( "nupp.data.digest" )
@@ -161117,6 +161120,406 @@ end
 
 const __nuppExportValue= digest ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.data.digest"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.digest"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.data.hash"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nuppBitBand=bit.band;local __nuppBitBnot=bit.bnot;local __nuppBitBor=bit.bor;local __nuppBitBxor=bit.bxor;local __nuppBitLshift=bit.lshift;local __nuppBitRor=bit.ror;local __nuppBitRshift=bit.rshift;local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local hash = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+const ROUND_CONSTANTS
+
+= {
+0x428A2F98 ,
+0x71374491 ,
+0xB5C0FBCF ,
+0xE9B5DBA5 ,
+0x3956C25B ,
+0x59F111F1 ,
+0x923F82A4 ,
+0xAB1C5ED5 ,
+0xD807AA98 ,
+0x12835B01 ,
+0x243185BE ,
+0x550C7DC3 ,
+0x72BE5D74 ,
+0x80DEB1FE ,
+0x9BDC06A7 ,
+0xC19BF174 ,
+0xE49B69C1 ,
+0xEFBE4786 ,
+0x0FC19DC6 ,
+0x240CA1CC ,
+0x2DE92C6F ,
+0x4A7484AA ,
+0x5CB0A9DC ,
+0x76F988DA ,
+0x983E5152 ,
+0xA831C66D ,
+0xB00327C8 ,
+0xBF597FC7 ,
+0xC6E00BF3 ,
+0xD5A79147 ,
+0x06CA6351 ,
+0x14292967 ,
+0x27B70A85 ,
+0x2E1B2138 ,
+0x4D2C6DFC ,
+0x53380D13 ,
+0x650A7354 ,
+0x766A0ABB ,
+0x81C2C92E ,
+0x92722C85 ,
+0xA2BFE8A1 ,
+0xA81A664B ,
+0xC24B8B70 ,
+0xC76C51A3 ,
+0xD192E819 ,
+0xD6990624 ,
+0xF40E3585 ,
+0x106AA070 ,
+0x19A4C116 ,
+0x1E376C08 ,
+0x2748774C ,
+0x34B0BCB5 ,
+0x391C0CB3 ,
+0x4ED8AA4A ,
+0x5B9CCA4F ,
+0x682E6FF3 ,
+0x748F82EE ,
+0x78A5636F ,
+0x84C87814 ,
+0x8CC70208 ,
+0x90BEFFFA ,
+0xA4506CEB ,
+0xBEF9A3F7 ,
+0xC67178F2 ,
+}
+
+local function i32 ( value ) 
+return __nuppBitTobit( value )
+end
+
+local function add ( a , b ) 
+return __nuppBitTobit(( a )+( b ))
+end
+
+local function xor ( a , b ) 
+return __nuppBitBxor( a , b )
+end
+
+local function logicalRight ( value , count ) 
+return __nuppBitTobit( (__nuppBitRshift( (__nuppBitTobit( value )%4294967296) ,__nuppBitBand( count ,31))%4294967296) )
+end
+
+local function rotateRight ( value , count ) 
+return __nuppBitRor( value ,__nuppBitBand( count ,31))
+end
+
+local function smallSigmaZero ( word ) 
+return xor ( xor ( rotateRight ( word , 7 ) , rotateRight ( word , 18 ) ) , logicalRight ( word , 3 ) )
+end
+
+local function smallSigmaOne ( word ) 
+return xor ( xor ( rotateRight ( word , 17 ) , rotateRight ( word , 19 ) ) , logicalRight ( word , 10 ) )
+end
+
+local function bigSigmaZero ( word ) 
+return xor ( xor ( rotateRight ( word , 2 ) , rotateRight ( word , 13 ) ) , rotateRight ( word , 22 ) )
+end
+
+local function bigSigmaOne ( word ) 
+return xor ( xor ( rotateRight ( word , 6 ) , rotateRight ( word , 11 ) ) , rotateRight ( word , 25 ) )
+end
+
+local function choose ( e , f , g ) 
+return xor ( __nuppBitBand( e , f ) , __nuppBitBand( __nuppBitBnot( e ) , g ) )
+end
+
+local function majority ( a , b , c ) 
+return xor ( xor ( __nuppBitBand( a , b ) , __nuppBitBand( a , c ) ) , __nuppBitBand( b , c ) )
+end
+
+local function wordAt ( words , index ) 
+return i32 ( words [ index ] )
+end
+
+local function unsignedWordAt ( words , index ) 
+return (__nuppBitTobit( words [ index ] )%4294967296)
+end
+
+const Sha256 = {} Sha256.__index = Sha256
+
+
+
+
+
+function Sha256.__nuppCtor1() local self = setmetatable({}, Sha256) 
+self . state = {
+i32 ( 0x6A09E667 ) ,
+i32 ( 0xBB67AE85 ) ,
+i32 ( 0x3C6EF372 ) ,
+i32 ( 0xA54FF53A ) ,
+i32 ( 0x510E527F ) ,
+i32 ( 0x9B05688C ) ,
+i32 ( 0x1F83D9AB ) ,
+i32 ( 0x5BE0CD19 ) ,
+}
+self . tail = ""
+self . length = { (__nuppBitTobit( 0 )%4294967296) , (__nuppBitTobit( 0 )%4294967296) }
+self . schedule = { }
+return self end
+
+
+
+
+
+
+local function compress ( self , source , offset ) 
+local words = self . schedule
+for index = 1 , 16 do
+local a , b , c , d = source : byte ( offset , offset + 3 )
+words [ index ] = i32 ( ( ( a * 256 + b ) * 256 + c ) * 256 + d )
+offset = offset + 4
+end
+for index = 17 , 64 do
+words [
+index
+] = add (
+add ( wordAt ( words , index - 16 ) , smallSigmaZero ( wordAt ( words , index - 15 ) ) ) ,
+add ( wordAt ( words , index - 7 ) , smallSigmaOne ( wordAt ( words , index - 2 ) ) )
+)
+end
+
+local state = self . state
+local a = wordAt ( state , 1 )
+local b = wordAt ( state , 2 )
+local c = wordAt ( state , 3 )
+local d = wordAt ( state , 4 )
+local e = wordAt ( state , 5 )
+local f = wordAt ( state , 6 )
+local g = wordAt ( state , 7 )
+local h = wordAt ( state , 8 )
+for index = 1 , 64 do
+local first = add (
+add ( h , bigSigmaOne ( e ) ) ,
+add ( add ( choose ( e , f , g ) , i32 ( ROUND_CONSTANTS [ index ] ) ) , wordAt ( words , index ) )
+)
+local second = add ( bigSigmaZero ( a ) , majority ( a , b , c ) )
+h , g , f = g , f , e
+e = add ( d , first )
+d , c , b = c , b , a
+a = add ( first , second )
+end
+
+state [ 1 ] = add ( wordAt ( state , 1 ) , a )
+state [ 2 ] = add ( wordAt ( state , 2 ) , b )
+state [ 3 ] = add ( wordAt ( state , 3 ) , c )
+state [ 4 ] = add ( wordAt ( state , 4 ) , d )
+state [ 5 ] = add ( wordAt ( state , 5 ) , e )
+state [ 6 ] = add ( wordAt ( state , 6 ) , f )
+state [ 7 ] = add ( wordAt ( state , 7 ) , g )
+state [ 8 ] = add ( wordAt ( state , 8 ) , h )
+end
+
+local function addLength ( self , count ) 
+local before = unsignedWordAt ( self . length , 1 )
+local after = (__nuppBitTobit(( before )+( (__nuppBitTobit( count )%4294967296) ))%4294967296)
+self . length [ 1 ] = after
+if after < before then
+self . length [ 2 ] = (__nuppBitTobit(( unsignedWordAt ( self . length , 2 ) )+( (__nuppBitTobit( 1 )%4294967296) ))%4294967296)
+end
+end
+
+function Sha256 : update ( bytes ) 
+addLength ( self , # bytes )
+local offset = 1
+if # self . tail > 0 then
+local needed = 64 - # self . tail
+if # bytes < needed then
+self . tail = self . tail .. bytes
+return self
+end
+compress ( self , self . tail .. bytes : sub ( 1 , needed ) , 1 )
+self . tail = ""
+offset = needed + 1
+end
+while offset + 63 <= # bytes do
+compress ( self , bytes , offset )
+offset = offset + 64
+end
+if offset <= # bytes then
+self . tail = bytes : sub ( offset )
+end
+
+return self
+end
+
+local function copy ( source ) 
+local target = Sha256.__nuppCtor1 ( )
+for index = 1 , 8 do
+target . state [ index ] = wordAt ( source . state , index )
+end
+target . tail = source . tail
+target . length [ 1 ] = unsignedWordAt ( source . length , 1 )
+target . length [ 2 ] = unsignedWordAt ( source . length , 2 )
+
+return target
+end
+
+local function lengthBytes ( high , low ) 
+local bytes = { }
+local highNumber = high
+local lowNumber = low
+for shift = 24 , 0 , - 8 do
+bytes [ # bytes + 1 ] = string . char ( math . floor ( highNumber / 2 ^ shift ) % 256 )
+end
+for shift = 24 , 0 , - 8 do
+bytes [ # bytes + 1 ] = string . char ( math . floor ( lowNumber / 2 ^ shift ) % 256 )
+end
+
+return table . concat ( bytes )
+end
+
+local function rawDigest ( source ) 
+local state = copy ( source )
+local byteLengthLow = unsignedWordAt ( state . length , 1 )
+local byteLengthHigh = unsignedWordAt ( state . length , 2 )
+local high = (__nuppBitBor(
+(__nuppBitLshift( byteLengthHigh ,__nuppBitBand( 3 ,31))%4294967296) ,
+(__nuppBitRshift( byteLengthLow ,__nuppBitBand( 29 ,31))%4294967296) )%4294967296)
+
+local low = (__nuppBitLshift( byteLengthLow ,__nuppBitBand( 3 ,31))%4294967296)
+local tail = state . tail .. "\128"
+tail = tail .. string . rep ( "\0" , ( 56 - # tail % 64 ) % 64 ) .. lengthBytes ( high , low )
+for offset = 1 , # tail , 64 do
+compress ( state , tail , offset )
+end
+
+local bytes = { }
+for index = 1 , 8 do
+local value = (__nuppBitTobit( wordAt ( state . state , index ) )%4294967296)
+for shift = 24 , 0 , - 8 do
+bytes [ # bytes + 1 ] = string . char ( math . floor ( value / 2 ^ shift ) % 256 )
+end
+end
+
+return table . concat ( bytes )
+end
+
+local function hexadecimal ( raw ) 
+local encoded = { }
+for index = 1 , # raw do
+encoded [ index ] = ( "%02x" ) : format ( raw : byte ( index ) )
+end
+
+return table . concat ( encoded )
+end
+
+function Sha256 : digest ( ) 
+return rawDigest ( self )
+end
+
+function Sha256 : hex ( ) 
+return hexadecimal ( rawDigest ( self ) )
+end
+
+local function sha256 ( ) 
+return Sha256.__nuppCtor1 ( )
+end
+
+local function xorPad ( key , pad ) 
+local bytes = { }
+local mask = (__nuppBitTobit( pad )%4294967296)
+for index = 1 , 64 do
+bytes [ index ] = string . char ( (__nuppBitBxor( (__nuppBitTobit( key : byte ( index ) )%4294967296) , mask )%4294967296) )
+end
+
+return table . concat ( bytes )
+end
+
+const Hmac = {} Hmac.__index = Hmac
+
+
+
+function Hmac.__nuppCtor1(key) local self = setmetatable({}, Hmac) 
+if # key > 64 then
+key = sha256 ( ) : update ( key ) : digest ( )
+end
+key = key .. string . rep ( "\0" , 64 - # key )
+self . inner = sha256 ( )
+self . inner : update ( xorPad ( key , 0x36 ) )
+self . outerPad = xorPad ( key , 0x5C )
+return self end
+
+
+
+
+
+
+function Hmac : update ( bytes ) 
+self . inner : update ( bytes )
+return self
+end
+
+function Hmac : digest ( ) 
+local outer = sha256 ( )
+outer : update ( self . outerPad )
+outer : update ( self . inner : digest ( ) )
+return outer : digest ( )
+end
+
+function Hmac : hex ( ) 
+return hexadecimal ( self : digest ( ) )
+end
+
+
+
+function hash . sha256 ( ) 
+return sha256 ( )
+end
+
+
+
+function hash . hmac ( key ) 
+return Hmac.__nuppCtor1 ( key )
+end
+
+const __nuppExportValue= hash ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.data.hash"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.hash"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.data.hmac"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -209376,6 +209779,405 @@ end
 
 export = digest
 ]=],
+["/nupp/data/hash.nupp"] = [=[
+module nupp.data.hash
+
+--[[
+Incremental SHA-256 and HMAC-SHA256 over byte strings.
+
+```nupp
+local hash = require("nupp.data.hash")
+
+local mac = hash.hmac("secret")
+mac:update(header)
+mac:update(body)
+print(mac:hex())
+```
+
+`update` compresses complete 64-byte blocks immediately. A hasher retains its
+eight SHA-256 state words and at most 63 uncompressed bytes, regardless of the
+message length. `digest` and `hex` take a snapshot: they do not finish or reset
+the object, so more bytes may be appended afterwards.
+
+Use [](nupp.data.sha256) and [](nupp.data.hmac) for one-shot operations. The
+latter remains backend-selected; this module is the portable streaming
+implementation and needs only the target's 32-bit operations.
+]]
+
+local hash = {}
+
+--- A mutable incremental digest. Final reads snapshot the current state.
+interface hash.Hasher
+    --- Adds one chunk and returns this same hasher for chaining.
+    update: function(self: Hasher, bytes: string): Hasher
+
+    --- Returns the current raw 32-byte digest without changing the hasher.
+    digest: function(self: Hasher): string
+
+    --- Returns the current digest as 64 lowercase hexadecimal digits.
+    hex: function(self: Hasher): string
+end
+
+const ROUND_CONSTANTS: {
+    integer
+} = {
+    0x428A2F98,
+    0x71374491,
+    0xB5C0FBCF,
+    0xE9B5DBA5,
+    0x3956C25B,
+    0x59F111F1,
+    0x923F82A4,
+    0xAB1C5ED5,
+    0xD807AA98,
+    0x12835B01,
+    0x243185BE,
+    0x550C7DC3,
+    0x72BE5D74,
+    0x80DEB1FE,
+    0x9BDC06A7,
+    0xC19BF174,
+    0xE49B69C1,
+    0xEFBE4786,
+    0x0FC19DC6,
+    0x240CA1CC,
+    0x2DE92C6F,
+    0x4A7484AA,
+    0x5CB0A9DC,
+    0x76F988DA,
+    0x983E5152,
+    0xA831C66D,
+    0xB00327C8,
+    0xBF597FC7,
+    0xC6E00BF3,
+    0xD5A79147,
+    0x06CA6351,
+    0x14292967,
+    0x27B70A85,
+    0x2E1B2138,
+    0x4D2C6DFC,
+    0x53380D13,
+    0x650A7354,
+    0x766A0ABB,
+    0x81C2C92E,
+    0x92722C85,
+    0xA2BFE8A1,
+    0xA81A664B,
+    0xC24B8B70,
+    0xC76C51A3,
+    0xD192E819,
+    0xD6990624,
+    0xF40E3585,
+    0x106AA070,
+    0x19A4C116,
+    0x1E376C08,
+    0x2748774C,
+    0x34B0BCB5,
+    0x391C0CB3,
+    0x4ED8AA4A,
+    0x5B9CCA4F,
+    0x682E6FF3,
+    0x748F82EE,
+    0x78A5636F,
+    0x84C87814,
+    0x8CC70208,
+    0x90BEFFFA,
+    0xA4506CEB,
+    0xBEF9A3F7,
+    0xC67178F2,
+}
+
+local function i32(value: integer): int32
+    return nupp.math.i32.wrap(value)
+end
+
+local function add(a: int32, b: int32): int32
+    return nupp.math.i32.add(a, b)
+end
+
+local function xor(a: int32, b: int32): int32
+    return nupp.math.i32.xorBits(a, b)
+end
+
+local function logicalRight(value: int32, count: integer): int32
+    return nupp.math.i32.fromU32(nupp.math.u32.shiftRightLogical(nupp.math.u32.fromI32(value), count))
+end
+
+local function rotateRight(value: int32, count: integer): int32
+    return nupp.math.i32.rotateRight(value, count)
+end
+
+local function smallSigmaZero(word: int32): int32
+    return xor(xor(rotateRight(word, 7), rotateRight(word, 18)), logicalRight(word, 3))
+end
+
+local function smallSigmaOne(word: int32): int32
+    return xor(xor(rotateRight(word, 17), rotateRight(word, 19)), logicalRight(word, 10))
+end
+
+local function bigSigmaZero(word: int32): int32
+    return xor(xor(rotateRight(word, 2), rotateRight(word, 13)), rotateRight(word, 22))
+end
+
+local function bigSigmaOne(word: int32): int32
+    return xor(xor(rotateRight(word, 6), rotateRight(word, 11)), rotateRight(word, 25))
+end
+
+local function choose(e: int32, f: int32, g: int32): int32
+    return xor(nupp.math.i32.andBits(e, f), nupp.math.i32.andBits(nupp.math.i32.notBits(e), g))
+end
+
+local function majority(a: int32, b: int32, c: int32): int32
+    return xor(xor(nupp.math.i32.andBits(a, b), nupp.math.i32.andBits(a, c)), nupp.math.i32.andBits(b, c))
+end
+
+local function wordAt(words: {int32}, index: integer): int32
+    return i32(words[index] as integer)
+end
+
+local function unsignedWordAt(words: {uint32}, index: integer): uint32
+    return nupp.math.u32.wrap(words[index] as integer)
+end
+
+local record Sha256 is hash.Hasher
+    private state: {int32}
+    private tail: string
+    private length: {uint32}
+    private schedule: {int32}
+
+    constructor(self)
+        self.state = {
+            i32(0x6A09E667),
+            i32(0xBB67AE85),
+            i32(0x3C6EF372),
+            i32(0xA54FF53A),
+            i32(0x510E527F),
+            i32(0x9B05688C),
+            i32(0x1F83D9AB),
+            i32(0x5BE0CD19),
+        }
+        self.tail = ""
+        self.length = {nupp.math.u32.wrap(0), nupp.math.u32.wrap(0)}
+        self.schedule = {}
+    end
+
+    update: function(self: Sha256, bytes: string): hash.Hasher
+    digest: function(self: Sha256): string
+    hex: function(self: Sha256): string
+end
+
+local function compress(self: Sha256, source: string, offset: integer): nil
+    local words = self.schedule
+    for index = 1, 16 do
+        local a, b, c, d = source:byte(offset, offset + 3)
+        words[index] = i32(((a * 256 + b) * 256 + c) * 256 + d)
+        offset = offset + 4
+    end
+    for index = 17, 64 do
+        words[
+            index
+        ] = add(
+            add(wordAt(words, index - 16), smallSigmaZero(wordAt(words, index - 15))),
+            add(wordAt(words, index - 7), smallSigmaOne(wordAt(words, index - 2)))
+        )
+    end
+
+    local state = self.state
+    local a = wordAt(state, 1)
+    local b = wordAt(state, 2)
+    local c = wordAt(state, 3)
+    local d = wordAt(state, 4)
+    local e = wordAt(state, 5)
+    local f = wordAt(state, 6)
+    local g = wordAt(state, 7)
+    local h = wordAt(state, 8)
+    for index = 1, 64 do
+        local first = add(
+            add(h, bigSigmaOne(e)),
+            add(add(choose(e, f, g), i32(ROUND_CONSTANTS[index])), wordAt(words, index))
+        )
+        local second = add(bigSigmaZero(a), majority(a, b, c))
+        h, g, f = g, f, e
+        e = add(d, first)
+        d, c, b = c, b, a
+        a = add(first, second)
+    end
+
+    state[1] = add(wordAt(state, 1), a)
+    state[2] = add(wordAt(state, 2), b)
+    state[3] = add(wordAt(state, 3), c)
+    state[4] = add(wordAt(state, 4), d)
+    state[5] = add(wordAt(state, 5), e)
+    state[6] = add(wordAt(state, 6), f)
+    state[7] = add(wordAt(state, 7), g)
+    state[8] = add(wordAt(state, 8), h)
+end
+
+local function addLength(self: Sha256, count: integer): nil
+    local before = unsignedWordAt(self.length, 1)
+    local after = nupp.math.u32.add(before, nupp.math.u32.wrap(count))
+    self.length[1] = after
+    if after < before then
+        self.length[2] = nupp.math.u32.add(unsignedWordAt(self.length, 2), nupp.math.u32.wrap(1))
+    end
+end
+
+function Sha256:update(bytes: string): hash.Hasher
+    addLength(self, #bytes)
+    local offset: integer = 1
+    if #self.tail > 0 then
+        local needed = 64 - #self.tail
+        if #bytes < needed then
+            self.tail = self.tail .. bytes
+            return self
+        end
+        compress(self, self.tail .. bytes:sub(1, needed), 1)
+        self.tail = ""
+        offset = needed + 1
+    end
+    while offset + 63 <= #bytes do
+        compress(self, bytes, offset)
+        offset = offset + 64
+    end
+    if offset <= #bytes then
+        self.tail = bytes:sub(offset)
+    end
+
+    return self
+end
+
+local function copy(source: Sha256): Sha256
+    local target = new Sha256()
+    for index = 1, 8 do
+        target.state[index] = wordAt(source.state, index)
+    end
+    target.tail = source.tail
+    target.length[1] = unsignedWordAt(source.length, 1)
+    target.length[2] = unsignedWordAt(source.length, 2)
+
+    return target
+end
+
+local function lengthBytes(high: uint32, low: uint32): string
+    local bytes: {string} = {}
+    local highNumber = high as number
+    local lowNumber = low as number
+    for shift = 24, 0, -8 do
+        bytes[#bytes + 1] = string.char(math.floor(highNumber / 2 ^ shift) % 256)
+    end
+    for shift = 24, 0, -8 do
+        bytes[#bytes + 1] = string.char(math.floor(lowNumber / 2 ^ shift) % 256)
+    end
+
+    return table.concat(bytes)
+end
+
+local function rawDigest(source: Sha256): string
+    local state = copy(source)
+    local byteLengthLow = unsignedWordAt(state.length, 1)
+    local byteLengthHigh = unsignedWordAt(state.length, 2)
+    local high = nupp.math.u32.orBits(
+        nupp.math.u32.shiftLeft(byteLengthHigh, 3),
+        nupp.math.u32.shiftRightLogical(byteLengthLow, 29)
+    )
+    local low = nupp.math.u32.shiftLeft(byteLengthLow, 3)
+    local tail = state.tail .. "\128"
+    tail = tail .. string.rep("\0", (56 - #tail % 64) % 64) .. lengthBytes(high, low)
+    for offset = 1, #tail, 64 do
+        compress(state, tail, offset)
+    end
+
+    local bytes: {string} = {}
+    for index = 1, 8 do
+        local value = nupp.math.u32.fromI32(wordAt(state.state, index)) as number
+        for shift = 24, 0, -8 do
+            bytes[#bytes + 1] = string.char(math.floor(value / 2 ^ shift) % 256)
+        end
+    end
+
+    return table.concat(bytes)
+end
+
+local function hexadecimal(raw: string): string
+    local encoded: {string} = {}
+    for index = 1, #raw do
+        encoded[index] = ("%02x"):format(raw:byte(index))
+    end
+
+    return table.concat(encoded)
+end
+
+function Sha256:digest(): string
+    return rawDigest(self)
+end
+
+function Sha256:hex(): string
+    return hexadecimal(rawDigest(self))
+end
+
+local function sha256(): Sha256
+    return new Sha256()
+end
+
+local function xorPad(key: string, pad: integer): string
+    local bytes: {string} = {}
+    local mask = nupp.math.u32.wrap(pad)
+    for index = 1, 64 do
+        bytes[index] = string.char(nupp.math.u32.xorBits(nupp.math.u32.wrap(key:byte(index)), mask) as integer)
+    end
+
+    return table.concat(bytes)
+end
+
+local record Hmac is hash.Hasher
+    private inner: Sha256
+    private outerPad: string
+
+    constructor(self, key: string)
+        if #key > 64 then
+            key = sha256():update(key):digest()
+        end
+        key = key .. string.rep("\0", 64 - #key)
+        self.inner = sha256()
+        self.inner:update(xorPad(key, 0x36))
+        self.outerPad = xorPad(key, 0x5C)
+    end
+
+    update: function(self: Hmac, bytes: string): hash.Hasher
+    digest: function(self: Hmac): string
+    hex: function(self: Hmac): string
+end
+
+function Hmac:update(bytes: string): hash.Hasher
+    self.inner:update(bytes)
+    return self
+end
+
+function Hmac:digest(): string
+    local outer = sha256()
+    outer:update(self.outerPad)
+    outer:update(self.inner:digest())
+    return outer:digest()
+end
+
+function Hmac:hex(): string
+    return hexadecimal(self:digest())
+end
+
+--- Starts a streaming SHA-256 digest.
+--- @export
+function hash.sha256(): hash.Hasher
+    return sha256()
+end
+
+--- Starts a streaming HMAC-SHA256 digest with `key`.
+--- @export
+function hash.hmac(key: string): hash.Hasher
+    return new Hmac(key)
+end
+
+export = hash
+]=],
 ["/nupp/data/hmac.nupp"] = [=[
 module nupp.data.hmac
 
@@ -209433,6 +210235,7 @@ modules of their own.
 
 - See [](nupp.data.json) for JSON encoding and decoding, and the values a Lua
   table cannot express by itself.
+- See [](nupp.data.hash) for incremental SHA-256 and HMAC-SHA256 over chunks.
 - See [](nupp.data.serde) for format-neutral schemas, typed bindings, dynamic
   values, and prepared codecs.
 - See [](nupp.data.utf8) for codepoint operations over strings and byte views.

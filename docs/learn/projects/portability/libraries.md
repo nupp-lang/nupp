@@ -312,10 +312,11 @@ after the selected backend installs it.
 | `host.process` | `nupp.runtime.seam.process` | `nupp.io.process` |
 | `host.workers` | `nupp.runtime.seam.workers` | `nupp.workers` |
 
-`crypto.hmac_sha256` is open on both dialects because Nupp has no built-in
-HMAC implementation. The other runtime contracts use existing LuaJIT or
-compiler-provided implementations under `luajit` and require seams when
-`lua51` reaches them.
+`crypto.hmac_sha256` remains open on both dialects because it supplies the
+backend-selected one-shot [](nupp.data.hmac) module. The portable incremental
+implementation is [](nupp.data.hash), which depends only on `numeric.bitops`.
+The other runtime contracts use existing LuaJIT or compiler-provided
+implementations under `luajit` and require seams when `lua51` reaches them.
 
 ## Runtime cost
 

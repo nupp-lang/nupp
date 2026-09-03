@@ -23,6 +23,7 @@ local MODULES = {
     ["nupp.browser.storage"] = selected("host", "host.browser_storage", true),
     ["nupp.data"] = {kind = "members"},
     ["nupp.data.json"] = selected("runtime", "data.json"),
+    ["nupp.data.hash"] = selected("runtime", "numeric.bitops"),
     ["nupp.data.hmac"] = selected("runtime", "crypto.hmac_sha256", true),
     ["nupp.data.serde"] = selected("runtime", "text.buffer"),
     ["nupp.data.utf8"] = selected("runtime", "data.utf8"),

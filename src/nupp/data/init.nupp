@@ -20,6 +20,7 @@ modules of their own.
 
 - See [](nupp.data.json) for JSON encoding and decoding, and the values a Lua
   table cannot express by itself.
+- See [](nupp.data.hash) for incremental SHA-256 and HMAC-SHA256 over chunks.
 - See [](nupp.data.serde) for format-neutral schemas, typed bindings, dynamic
   values, and prepared codecs.
 - See [](nupp.data.utf8) for codepoint operations over strings and byte views.

@@ -248,7 +248,7 @@ function M.standardSurfaceRequiresExactPortableSeams()
    }, "\n"), {dialect = "lua51", backendResolution = selected})
    local classified = standardsurface.all()
    for _, name in ipairs({
-      "nupp.browser.crypto", "nupp.browser.storage", "nupp.data.json",
+      "nupp.browser.crypto", "nupp.browser.storage", "nupp.data.hash", "nupp.data.json",
       "nupp.data.serde", "nupp.data.utf8", "nupp.io.files",
       "nupp.io.http", "nupp.io.process", "nupp.io.path", "nupp.io.uri",
       "nupp.mem", "nupp.random", "nupp.runtime.nativev2", "nupp.simd", "nupp.time", "nupp.wasm",
@@ -270,6 +270,16 @@ function M.randomUsesOnlyThePortableBitopsSeam()
       "local random = require('nupp.random')",
       "local generator = random.newRandom(12345)",
       "return generator:next(), generator:integer(1, 100)",
+   }, "\n"), {
+      dialect = "lua51",
+      backendResolution = bitopsResolution("fixtures.bitops_backend"),
+   })
+end
+
+function M.streamingHashUsesOnlyThePortableBitopsSeam()
+   assertClean(table.concat({
+      "local hash = require('nupp.data.hash')",
+      "return hash.hmac('key'):update('message'):hex()",
    }, "\n"), {
       dialect = "lua51",
       backendResolution = bitopsResolution("fixtures.bitops_backend"),
@@ -1233,6 +1243,18 @@ function M.randomSurfaceIsBundledOutsideThisCheckout()
    assertEq(#result.errors, 0, "the external consumer parses")
    local diags = check.check(result, "outside.g.nupp", isolated)
    assertEq(#diags, 0, "the shipped random source supplies its typed surface")
+end
+
+function M.streamingHashSurfaceIsBundledOutsideThisCheckout()
+   local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
+   local source = table.concat({
+      "local hash = require('nupp.data.hash')",
+      "assert(#hash.hmac('key'):update('message'):digest() == 32)",
+   }, "\n")
+   local result = parser.parse(source, "outside.g.nupp")
+   assertEq(#result.errors, 0, "the external consumer parses")
+   local diags = check.check(result, "outside.g.nupp", isolated)
+   assertEq(#diags, 0, "the shipped streaming hash source supplies its typed surface")
 end
 
 function M.optimizedDeadCodeDropsItsNativeFeatures()

@@ -1,0 +1,57 @@
+local data = require("nupp.data")
+local hash = require("nupp.data.hash")
+
+local M = {}
+
+function M.sha256MatchesPublishedVectorsAcrossChunkBoundaries(): nil
+    assert(hash.sha256():hex() == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    assert(hash.sha256():update("abc"):hex() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+
+    for length = 0, 130 do
+        local input = string.rep("abcdefghij", 14):sub(1, length)
+        local streaming = hash.sha256()
+        for index = 1, #input do
+            streaming:update(input:sub(index, index))
+        end
+        assert(streaming:hex() == data.sha256(input), "SHA-256 differs at length " .. tostring(length))
+    end
+end
+
+function M.digestSnapshotsWithoutFinishingTheHasher(): nil
+    local streaming = hash.sha256()
+    assert(streaming:update("a") == streaming)
+    local first = streaming:hex()
+    streaming:update("bc")
+    assert(first == data.sha256("a"))
+    assert(streaming:hex() == data.sha256("abc"))
+    assert(#streaming:digest() == 32)
+end
+
+function M.hmacMatchesRfc4231Vectors(): nil
+    local first = hash.hmac(string.rep("\11", 20))
+    first:update("Hi "):update("There")
+    assert(first:hex() == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
+
+    local second = hash.hmac("Jefe")
+    second:update("what do ya want "):update("for nothing?")
+    assert(second:hex() == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+
+    local longKey = hash.hmac(string.rep("\170", 131))
+    longKey:update("Test Using Larger Than Block-Size Key - Hash Key First")
+    assert(longKey:hex() == "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54")
+end
+
+function M.hmacSnapshotsAndAcceptsBinaryChunks(): nil
+    local mac = hash.hmac("k\0ey")
+    assert(mac:update("one\0") == mac)
+    local first = mac:hex()
+    mac:update("two\255")
+
+    local one = hash.hmac("k\0ey"):update("one\0")
+    local two = hash.hmac("k\0ey"):update("one\0two\255")
+    assert(first == one:hex())
+    assert(mac:hex() == two:hex())
+    assert(#mac:digest() == 32)
+end
+
+return M
