@@ -103483,7 +103483,9 @@ env . layoutTarget = selectedTarget and selectedTarget . layoutTarget or nil
 
 
 
-if env . layoutTarget ~= nil then
+
+
+if env . layoutTarget ~= nil and env . nativeCompilerServices then
 env . targetProfile = ( buildPrivate ( "compilerpacks" ) . profile ( env . layoutTarget ) )
 end
 
