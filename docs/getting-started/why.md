@@ -215,7 +215,8 @@ hole admits.
 ::: seealso
 - [tour.md](tour.md) for the core language in one pass
 - [features.md](features.md) for the broader feature map
-- [installation.md](installation.md) for source-checkout requirements
+- [installation.md](installation.md) for released binaries and package managers
+- [contributing.md](../contributing.md) for source-checkout requirements
 - [strictness.md](../learn/language/gradual-typing.md) for how an existing `.lua` file
   becomes a checked one
 - [overview.md](../learn/language/types/index.md) for the type system as a whole

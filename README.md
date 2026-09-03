@@ -19,6 +19,24 @@ end
 print(scale(new Point(x = 3, y = 4), 2).x)
 ```
 
+## Install
+
+On Apple-silicon macOS:
+
+```bash
+brew install nupp-lang/tap/nupp
+```
+
+On 64-bit Windows:
+
+```powershell
+scoop bucket add nupp https://github.com/nupp-lang/scoop-bucket
+scoop install nupp
+```
+
+Linux archives and manual installation options are in the
+[installation guide](docs/getting-started/installation.md).
+
 ## Start a project
 
 The built-in application template includes a manifest, a checked module, a
@@ -35,7 +53,7 @@ nupp task start
 See [Getting started](docs/getting-started/index.md) for the daily loop
 and the browser, library, SIMD, and LÖVE templates. Building Nupp itself from a
 source checkout is documented separately in
-[Installation](docs/getting-started/installation.md).
+[Contributing to Nupp](docs/contributing.md).
 
 ## Language and runtime
 
