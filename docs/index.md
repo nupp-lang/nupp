@@ -116,10 +116,9 @@ local value: Optional(string) = "ready"
 ```
 
 The standard library includes files, networking, TLS, HTTP, processes, JSON,
-hashes, parsing, memory spans, GPU storage, SafeTensors, tokenization, and
-quantized numeric helpers. See [comptime](learn/language/comptime.md),
-[serde](learn/runtime/data/serde.md), and the [standard
-library](learn/runtime/data/standard-library.md).
+hashes, parsing, memory spans, and GPU storage. See
+[comptime](learn/language/comptime.md), [serde](learn/runtime/data/serde.md),
+and the [standard library](learn/runtime/data/standard-library.md).
 
 ## CPU, SIMD, and GPU compilation
 

@@ -518,12 +518,11 @@ are refused.
 
 Binary16 and bfloat16 storage conversions are explicit through
 `nupp.math.f32.fromF16Bits`, `toF16Bits`, `fromBF16Bits`, and `toBF16Bits`.
-`nupp.quant` supplies affine signed-int8 and packed signed-int4 dequantization;
-the narrow integer names remain physical span/buffer element types while
-accumulation uses explicit binary32. These portable paths require no optional
-device feature. Native half arithmetic and cooperative matrix instructions are
-separate capability-selected optimizations rather than silent changes to these
-operations.
+The narrow integer names remain physical span and buffer element types, so a
+kernel can define its own dequantization while accumulation uses explicit
+binary32. These portable paths require no optional device feature. Native half
+arithmetic and cooperative matrix instructions are separate capability-selected
+optimizations rather than silent changes to these operations.
 
 ## Contracts in type position
 

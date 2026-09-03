@@ -113,7 +113,7 @@ writes are structurally disjoint. `reduceSumF32` and `inclusiveScanU32` expand
 to fixed trees whose stage order is the same in the CPU definition and the GPU
 artifact; unordered and atomic reductions are not part of this contract.
 
-## Tensor layouts and quantized storage
+## Tensor layouts and fixed-width storage
 
 `Context:tensor(element, shape)` allocates dense row-major storage.
 `gpu.subviewLayout`, `gpu.transposeLayout`, `gpu.broadcastLayout`, and
@@ -126,10 +126,9 @@ scalar uniforms. Writable views also require disjoint coordinates and a
 complete span extent, so broadcast and overlapping writes are refused.
 
 The fixed-width math modules make binary16 and bfloat16 conversion explicit.
-`nupp.quant` provides signed-int8 and packed signed-int4 dequantization while
-accumulation remains explicit binary32. `nupp.ml.safetensors` exposes checked
-zero-copy model regions, and `nupp.ml.tokenizer` supplies deterministic
-vocabulary encoding for applications that build inference pipelines.
+Narrow integer names remain available as physical span and buffer element types,
+so applications can define their storage interpretation while keeping
+accumulation explicit binary32.
 
 ## Browser GPU kernels
 
@@ -199,5 +198,5 @@ host before dispatch.
 - [build-and-artifacts.md](build-and-artifacts.md) for AOT target policies and
   artifact caching
 - [](nupp.gpu) for the generated binding and resident-buffer API
-- [](nupp.gpulayout) and [](nupp.quant) for layout and quantization functions
+- [](nupp.gpulayout) for layout functions
 :::

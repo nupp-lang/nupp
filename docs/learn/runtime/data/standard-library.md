@@ -73,10 +73,6 @@ intrinsic namespaces and the declared modules:
   reified struct in its own column.
 - [](nupp.gpu) owns native resident buffers, compiled kernels, dispatches, and
   tensor views; [](nupp.gpulayout) owns the checked layout algebra.
-- [](nupp.quant) owns portable signed-int8 and packed signed-int4
-  dequantization.
-- [](nupp.ml) loads SafeTensors weights and vocabularies as one model bundle;
-  [](nupp.ml.safetensors) and [](nupp.ml.tokenizer) expose those parts directly.
 - [](nupp.suspension), [](nupp.tasks), and [](nupp.workers) provide waiting,
   application task scopes, and isolated worker lanes.
 - [](nupp.time) owns monotonic time, wall time, sleeps, and deadlines.
