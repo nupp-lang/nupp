@@ -270,4 +270,25 @@ return M
     )
 end
 
+-- A module name the file computes. The checker reads a constant argument to
+-- resolve the module and returned there without inferring anything else, so a
+-- binding whose only reader was inside the call looked unread -- and every
+-- other name in that argument went unresolved with it.
+function M.aRequireArgumentIsAUseOfWhatItReads()
+    assertQuiet(
+        [[
+local names = require("names")
+
+local M = {}
+
+function M.load(key: string): any
+    return require(names.moduleFor(key))
+end
+
+return M
+]],
+        "a computed module name reads the binding that computes it"
+    )
+end
+
 return M

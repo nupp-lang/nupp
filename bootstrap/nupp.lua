@@ -54363,6 +54363,11 @@ local requireGlobal = c . env and c . env . globals and c . env . globals . requ
 local requireEntry = calleeName == "require" and c . lookupEntry ( "require" ) or nil
 local stableRequire = requireGlobal and requireEntry and requireGlobal . definition == requireEntry . definition
 if calleeName == "require" and stableRequire and c . env and c . env . resolveModule then
+
+
+if # argExprs > 1 then
+c . diag ( "NUPP2007" , node , ( "require takes 1 arguments, got %d" ) : format ( # argExprs ) )
+end
 local tok = nil
 if argsNode then
 local e1 = argExprs [ 1 ]
@@ -54427,6 +54432,23 @@ return mt
 end
 end
 end
+
+
+
+
+
+
+
+for index , argument in ipairs ( argExprs ) do
+local argumentType = c . infer ( argument )
+if index == 1 then
+local fits , why = isA ( argumentType , T . string )
+if not fits then
+c . diag ( "NUPP2006" , argument , ( "require argument 1: %s" ) : format ( why ) )
+end
+end
+end
+
 return c . opts and c . opts . strict and T . unknown or T . any
 end
 

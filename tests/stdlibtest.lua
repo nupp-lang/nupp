@@ -290,6 +290,45 @@ function M.bundledSuspensionPassesTheReplaceableSeamContract()
     assert(passed, "the bundled suspension policy passes the public seam suite: " .. tostring(why))
 end
 
+-- A module name the file computes rather than spells. The checker resolves a
+-- constant argument and returned there having inferred nothing else, so
+-- everything written inside the call went unchecked: an undefined name, a field
+-- no value has, the argument's own type, how many arguments there were.
+function M.aComputedRequireArgumentIsChecked()
+    assertEq(
+        (
+            diagsOf(
+                table.concat(
+                    {
+                        "local registry = require('nupp.runtime.seam.registry')",
+                        "return require(registry.get('data.json').suiteModule)",
+                    },
+                    "\n"
+                )
+            )
+        ),
+        "",
+        "a computed name of the right type checks"
+    )
+    assertEq(
+        (
+            diagsOf(
+                table.concat(
+                    {
+                        "local registry = require('nupp.runtime.seam.registry')",
+                        "return require(registry.absent('data.json'))",
+                    },
+                    "\n"
+                )
+            )
+        ),
+        "NUPP2004:2",
+        "a field no value has is reported inside the call"
+    )
+    assertEq((diagsOf("local n: integer = 5\nreturn require(n)")), "NUPP2006:2", "require takes a string")
+    assertEq((diagsOf("return require('nupp.data', 'extra')")), "NUPP2007:1", "and takes one of them")
+end
+
 function M.standardSurfaceRequiresExactPortableSeams()
     local missing = diagsOf("local json = require('nupp.data.json')", {dialect = "lua51"})
     assertEq(missing, "NUPP3012:1", "a reached standard facility needs its exact seam")

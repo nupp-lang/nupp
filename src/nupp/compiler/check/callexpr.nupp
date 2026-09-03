@@ -1025,6 +1025,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local requireEntry = calleeName == "require" and c.lookupEntry("require") or nil
         local stableRequire = requireGlobal and requireEntry and requireGlobal.definition == requireEntry.definition
         if calleeName == "require" and stableRequire and c.env and c.env.resolveModule then
+            -- Ahead of reading the name, because a second argument is wrong
+            -- whether or not the first one is a constant this can resolve.
+            if #argExprs > 1 then
+                c.diag("NUPP2007", node, ("require takes 1 arguments, got %d"):format(#argExprs))
+            end
             local tok = nil
             if argsNode then
                 local e1 = argExprs[1]
@@ -1089,6 +1094,23 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     end
                 end
             end
+            -- A module name this could not read as a constant is still an
+            -- expression the file wrote, and returning without inferring it
+            -- left everything inside unchecked: an undefined global, a field no
+            -- value has, a name whose only reader was this argument. All three
+            -- were silent, because nothing in the argument ever resolved --
+            -- which is also how `unused-binding` came to report a require whose
+            -- module name a local computed.
+            for index, argument in ipairs(argExprs) do
+                local argumentType = c.infer(argument)
+                if index == 1 then
+                    local fits, why = isA(argumentType, T.string)
+                    if not fits then
+                        c.diag("NUPP2006", argument, ("require argument 1: %s"):format(why))
+                    end
+                end
+            end
+
             return c.opts and c.opts.strict and T.unknown or T.any
         end
         -- The same operations written the way LuaJIT has always been written: a
