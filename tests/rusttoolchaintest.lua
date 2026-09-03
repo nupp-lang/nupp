@@ -780,6 +780,53 @@ function M.retainedPlatformsGateTheExactRustNativeArtifacts()
     assert(release:find("release archive checksum mismatch", 1, true), "Windows packaging has no archive fixpoint")
 end
 
+function M.macosReleaseSigningIsOptionalButAtomic()
+    local selector = ROOT .. "/.github/scripts/select-macos-release-signing.sh"
+    local workflow = read(ROOT .. "/.github/workflows/release.yml")
+    local directory = temporary()
+    local output = directory .. "/output"
+    local names = {
+        "APPLE_CERTIFICATE",
+        "APPLE_CERTIFICATE_PASSWORD",
+        "APPLE_SIGNING_IDENTITY",
+        "APPLE_ID",
+        "APPLE_APP_PASSWORD",
+        "APPLE_TEAM_ID",
+    }
+
+    local function select(values)
+        local environment = {"GITHUB_OUTPUT=" .. quote(output)}
+        for _, name in ipairs(names) do
+            environment[#environment + 1] = name .. "=" .. quote(values[name] or "")
+        end
+        os.remove(output)
+
+        return os.execute(table.concat(environment, " ") .. " bash " .. quote(selector) .. " >/dev/null 2>&1")
+    end
+
+    assert(os.execute("bash -n " .. quote(selector)) == 0, "the macOS signing selector is not valid Bash")
+    assert(select({}) == 0, "a release without Apple credentials did not select unsigned packaging")
+    assert(read(output) == "enabled=false\n", "an uncredentialed release enabled signing")
+    assert(select({APPLE_ID = "configured"}) ~= 0, "partial Apple credentials did not stop the release")
+    assert(not io.open(output, "rb"), "partial Apple credentials selected a signing mode")
+
+    local complete = {}
+    for _, name in ipairs(names) do
+        complete[name] = "configured"
+    end
+    assert(select(complete) == 0, "complete Apple credentials did not enable signing")
+    assert(read(output) == "enabled=true\n", "complete Apple credentials selected unsigned packaging")
+
+    assert(
+        workflow:find("if: steps.macos-signing.outputs.enabled == 'true'", 1, true),
+        "Developer ID work is not gated by the selected signing mode"
+    )
+    assert(
+        workflow:find("This archive is not Developer ID signed or notarized.", 1, true),
+        "the unsigned archive does not disclose its signing state"
+    )
+end
+
 -- Every Cargo package can end up in a provider for some feature, platform or
 -- build mode. Releases copy host/notices without running Cargo, so the committed
 -- aggregate must cover the whole lock file rather than only this machine's

@@ -282,7 +282,9 @@ executable:
 codesign --force --sign - <binary>
 ```
 
-Release CI uses a Developer ID identity and notarizes the final stamped bytes.
+Release CI uses a Developer ID identity and notarizes the final stamped bytes
+when its optional Apple credentials are configured. Without them it publishes
+the same macOS bytes unsigned.
 
 ## Third-party notices
 
@@ -327,18 +329,20 @@ Explicit cross-target output is the same unsigned bytes regardless of compiler
 host. Windows developer artifacts remain unsigned unless a release policy
 supplies Authenticode; ELF needs no signing step.
 
-### Release credentials
+### Optional release credentials
 
-Tagged release CI requires these GitHub Actions secrets:
+Tagged release CI can use these GitHub Actions secrets:
 
 - `APPLE_CERTIFICATE`: the base64-encoded Developer ID Application `.p12`;
 - `APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY`;
 - `APPLE_ID`, `APPLE_APP_PASSWORD` and `APPLE_TEAM_ID` for `notarytool`.
 
-The job refuses a tag when any credential is absent, verifies the final code
-signature, waits for notarization, and assesses the executable before release
-assets are created. Windows release binaries are intentionally unsigned; the
-archive says so rather than implying Authenticode was applied.
+With none of them configured, the job publishes an unsigned macOS archive and
+records that fact in its `SIGNING.txt`. With all six configured, it verifies the
+final code signature, waits for notarization, and assesses the executable before
+release assets are created. A partial credential set is an error rather than a
+silent fallback. Windows release binaries are intentionally unsigned; their
+archive likewise says so rather than implying Authenticode was applied.
 
 ## Packaging fixpoint
 

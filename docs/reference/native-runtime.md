@@ -151,8 +151,8 @@ compiler payloads, unpacked release artifacts, and byte-identical compiler and
 binary packaging fixpoints. The Windows gate also exercises the DirectX 12 WGPU
 adapter rather than relying only on the cross-platform software adapter.
 Manual release rehearsals do not hold Apple Developer ID credentials and cannot
-exercise tag-only signing and notarization; those remain gates of an actual
-tagged release.
+exercise optional tag-only signing and notarization. The same release matrix
+still builds and verifies an unsigned macOS archive without those credentials.
 
 ## Migration breaks
 

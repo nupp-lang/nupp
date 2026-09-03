@@ -332,8 +332,9 @@ deterministic `.tar` which records mode `0755`.
 
 An explicit macOS result is unsigned and build JSON reports
 `distributionReady = false` with a signing notice. Sign it on macOS with
-`codesign --force --sign - <binary>` for local execution; the release workflow
-uses Developer ID signing and notarization instead.
+`codesign --force --sign - <binary>` for local execution. The release workflow
+uses Developer ID signing and notarization when its optional Apple credentials
+are configured; otherwise its macOS archive remains unsigned and says so.
 
 Platform selection sets `layoutTarget` for that build and separates its cache
 and completion state. The selected compiler-owned catalog stub satisfies every

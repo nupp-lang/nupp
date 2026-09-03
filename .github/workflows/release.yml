@@ -113,16 +113,27 @@ jobs:
           export NUPP_TOOLCHAIN_PREFIX NUPP_LUAROCKS
           ./bin/nupp fixpoint --binary
 
-      - name: Import the macOS Developer ID certificate
+      - name: Select macOS release signing
+        id: macos-signing
         if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: .github/scripts/select-macos-release-signing.sh
+
+      - name: Import the macOS Developer ID certificate
+        if: steps.macos-signing.outputs.enabled == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$APPLE_CERTIFICATE"
-          test -n "$APPLE_CERTIFICATE_PASSWORD"
           certificate="$RUNNER_TEMP/nupp-signing.p12"
           keychain="$RUNNER_TEMP/nupp-signing.keychain-db"
           keychain_password="$(uuidgen)"
@@ -139,6 +150,7 @@ jobs:
       - name: Build Nupp
         env:
           ARTIFACT_NAME: ${{ matrix.artifact }}
+          MACOS_RELEASE_SIGNING: ${{ steps.macos-signing.outputs.enabled }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         shell: bash
         run: |
@@ -171,8 +183,7 @@ jobs:
           mv build/dist/nupp "release/$ARTIFACT_NAME"
           chmod +x "release/$ARTIFACT_NAME"
 
-          if [[ "$RUNNER_OS" == macOS && "$GITHUB_REF" == refs/tags/* ]]; then
-            test -n "$APPLE_SIGNING_IDENTITY"
+          if [[ "$RUNNER_OS" == macOS && "$MACOS_RELEASE_SIGNING" == true ]]; then
             codesign --force --options runtime --timestamp \
               --sign "$APPLE_SIGNING_IDENTITY" "release/$ARTIFACT_NAME"
           fi
@@ -205,10 +216,16 @@ jobs:
           (cd "release/package-${{ matrix.platform }}" && \
             shasum -a 256 nupp > SHA256SUMS)
           if [[ "$RUNNER_OS" == macOS ]]; then
-            printf '%s\n' \
-              'Tagged archives are Developer ID signed and notarized by release CI.' \
-              'Cross-target development output must be signed on macOS before execution.' \
-              > "release/package-${{ matrix.platform }}/SIGNING.txt"
+            if [[ "$MACOS_RELEASE_SIGNING" == true ]]; then
+              printf '%s\n' \
+                'This archive is Developer ID signed and notarized by release CI.' \
+                > "release/package-${{ matrix.platform }}/SIGNING.txt"
+            else
+              printf '%s\n' \
+                'This archive is not Developer ID signed or notarized.' \
+                'macOS may require explicit approval before the executable can run.' \
+                > "release/package-${{ matrix.platform }}/SIGNING.txt"
+            fi
           else
             printf '%s\n' 'Linux executables do not use a platform code signature.' \
               > "release/package-${{ matrix.platform }}/SIGNING.txt"
@@ -255,7 +272,7 @@ jobs:
           if-no-files-found: error
 
       - name: Notarize the macOS distribution
-        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
+        if: steps.macos-signing.outputs.enabled == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
@@ -263,9 +280,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$APPLE_ID"
-          test -n "$APPLE_APP_PASSWORD"
-          test -n "$APPLE_TEAM_ID"
           codesign --verify --strict --verbose=2 release/nupp-macos-arm64
           ditto -c -k --keepParent release/package-aarch64-apple-darwin \
             "$RUNNER_TEMP/nupp-macos-notarization.zip"
