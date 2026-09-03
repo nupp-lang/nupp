@@ -103744,7 +103744,7 @@ local BUNDLED_SOURCE = {
 [ "nupp.services" ] = "/nupp/services.nupp" ,
 [ "nupp.derive" ] = "/nupp/derive.nupp" ,
 [ "nupp.compiler.runtime.extensions" ] = "/nupp/compiler/runtime/extensions.nupp" ,
-[ "nupp.test" ] = "/nupp/test.g.nupp" ,
+[ "nupp.test" ] = "/nupp/test.nupp" ,
 [ "nupp.profile.zone" ] = "/nupp/profile/zone.nupp" ,
 [ "nupp.profile.trace" ] = "/nupp/profile/trace.nupp" ,
 [ "nupp.profile" ] = "/nupp/profile/init.nupp" ,
@@ -220639,7 +220639,7 @@ end
 
 export = derive
 ]=],
-["/nupp/gpu.nupp"] = [=[
+["/nupp/gpu/init.nupp"] = [=[
 module nupp.gpu
 
 --[[
@@ -250633,7 +250633,7 @@ end
 
 export = tasks
 ]=],
-["/nupp/test.g.nupp"] = [=[
+["/nupp/test.nupp"] = [=[
 module nupp.test
 
 --[[

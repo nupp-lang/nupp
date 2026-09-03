@@ -132,7 +132,7 @@ local TEMPLATE_FILES = {
 local RESOURCES = {
     "src/nupp/compiler/decls/*.d.nupp",
     "src/nupp/compiler/decls/jit/*.d.nupp",
-    {source = "src/nupp/test.g.nupp", output = "nupp/compiler/nupp/test.g.nupp"},
+    {source = "src/nupp/test.nupp", output = "nupp/compiler/nupp/test.nupp"},
     {source = "tests/run.lua", output = "nupp/compiler/nupp/test/runner.lua"},
     {source = "src/nupp/compiler/build/stub-catalog.json", output = "nupp/compiler/build/stub-catalog.json",},
     {source = "src/nupp/compiler/doc/theme.css", output = "nupp/compiler/doc/theme.css"},
