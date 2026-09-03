@@ -1,4 +1,4 @@
-local random = require("nupp.random")
+local random = require("nupp.data.random")
 
 local M = {}
 

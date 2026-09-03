@@ -251,7 +251,7 @@ function M.standardSurfaceRequiresExactPortableSeams()
       "nupp.browser.crypto", "nupp.browser.storage", "nupp.data.hash", "nupp.data.json",
       "nupp.data.serde", "nupp.data.utf8", "nupp.io.files",
       "nupp.io.http", "nupp.io.process", "nupp.io.path", "nupp.io.uri",
-      "nupp.mem", "nupp.random", "nupp.runtime.nativev2", "nupp.simd", "nupp.time", "nupp.wasm",
+      "nupp.data.random", "nupp.mem", "nupp.runtime.nativev2", "nupp.simd", "nupp.time", "nupp.wasm",
       "nupp.test", "nupp.workers",
    }) do
       assert(classified[name], "public standard module is classified: " .. name)
@@ -267,7 +267,7 @@ end
 
 function M.randomUsesOnlyThePortableBitopsSeam()
    assertClean(table.concat({
-      "local random = require('nupp.random')",
+      "local random = require('nupp.data.random')",
       "local generator = random.newRandom(12345)",
       "return generator:next(), generator:integer(1, 100)",
    }, "\n"), {
@@ -1235,7 +1235,7 @@ end
 function M.randomSurfaceIsBundledOutsideThisCheckout()
    local isolated = envMod.new(os.tmpname() .. "-nupp-random-surface")
    local source = table.concat({
-      "local random = require('nupp.random')",
+      "local random = require('nupp.data.random')",
       "local generator = random.newRandom(12345)",
       "assert(generator:next() >= 0)",
    }, "\n")
