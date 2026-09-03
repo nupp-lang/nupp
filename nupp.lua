@@ -135,6 +135,7 @@ local RESOURCES = {
     {source = "src/nupp/test.g.nupp", output = "nupp/compiler/nupp/test.g.nupp"},
     {source = "tests/run.lua", output = "nupp/compiler/nupp/test/runner.lua"},
     {source = "src/nupp/compiler/build/stub-catalog.json", output = "nupp/compiler/build/stub-catalog.json",},
+    {source = "src/nupp/compiler/doc/theme.css", output = "nupp/compiler/doc/theme.css"},
     {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
     {source = "src/nupp/services.nupp", output = "nupp/compiler/nupp/services.nupp"},
     {source = "src/nupp/profile/zone.nupp", output = "nupp/compiler/nupp/profile/zone.nupp"},
