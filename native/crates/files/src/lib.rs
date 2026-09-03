@@ -43,9 +43,11 @@ pub struct FileInfo {
     pub modified: Option<SystemTime>,
 }
 
+/// One directory entry. The name is the platform's own bytes: what the
+/// kernel returned on Unix, and UTF-8 on Windows.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DirectoryEntry {
-    pub name: String,
+    pub name: Vec<u8>,
     pub kind: FileKind,
 }
 
@@ -212,8 +214,8 @@ pub fn info(path: &Path, follow: bool) -> io::Result<FileInfo> {
     })
 }
 
-pub fn read_link(path: &Path) -> io::Result<String> {
-    path_text(fs::read_link(path)?)
+pub fn read_link(path: &Path) -> io::Result<Vec<u8>> {
+    path_bytes(fs::read_link(path)?)
 }
 
 pub fn create_symlink(target: &Path, link: &Path, directory: bool) -> io::Result<()> {
@@ -268,12 +270,7 @@ pub fn list(path: &Path) -> io::Result<Vec<DirectoryEntry>> {
     fs::read_dir(path)?
         .map(|entry| {
             let entry = entry?;
-            let name = entry.file_name().into_string().map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "directory entry name is not valid UTF-8",
-                )
-            })?;
+            let name = name_bytes(entry.file_name())?;
             let file_type = entry.file_type()?;
             let kind = if file_type.is_symlink() {
                 FileKind::Symlink
@@ -331,7 +328,7 @@ pub fn create_temporary(
     prefix: &str,
     suffix: &str,
     kind: TemporaryKind,
-) -> io::Result<String> {
+) -> io::Result<Vec<u8>> {
     let root = directory.map_or_else(std::env::temp_dir, Path::to_path_buf);
     let mut collision = None;
     for _ in 0..TEMPORARY_ATTEMPTS {
@@ -348,7 +345,7 @@ pub fn create_temporary(
             TemporaryKind::Directory => platform::create_private_directory(&candidate),
         };
         match made {
-            Ok(()) => return path_text(candidate),
+            Ok(()) => return path_bytes(candidate),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => collision = Some(error),
             Err(error) => return Err(error),
         }
@@ -361,21 +358,21 @@ pub fn create_temporary(
     }))
 }
 
-pub fn current_directory() -> io::Result<String> {
-    path_text(std::env::current_dir()?)
+pub fn current_directory() -> io::Result<Vec<u8>> {
+    path_bytes(std::env::current_dir()?)
 }
 
-pub fn canonicalize(path: &Path) -> io::Result<String> {
-    path_text(fs::canonicalize(path)?)
+pub fn canonicalize(path: &Path) -> io::Result<Vec<u8>> {
+    path_bytes(fs::canonicalize(path)?)
 }
 
-pub fn user_folder(which: u32) -> io::Result<String> {
+pub fn user_folder(which: u32) -> io::Result<Vec<u8>> {
     let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the home directory is not set"))?;
     if which == 0 {
-        return path_text(home);
+        return path_bytes(home);
     }
     let (variable, macos, other) = match which {
         1 => ("XDG_DOCUMENTS_DIR", "Documents", "Documents"),
@@ -412,17 +409,57 @@ pub fn user_folder(which: u32) -> io::Result<String> {
             "the platform has no such folder",
         ));
     }
-    path_text(folder)
+    path_bytes(folder)
 }
 
-fn path_text(path: PathBuf) -> io::Result<String> {
-    let mut text = path.into_os_string().into_string().map_err(|_: OsString| {
-        io::Error::new(io::ErrorKind::InvalidData, "path result is not valid UTF-8")
-    })?;
-    if cfg!(windows) {
-        text = text.replace('\\', "/");
+/// Builds a path from the bytes the ABI carries: the platform's own on Unix,
+/// where a name need not be UTF-8, and UTF-8 on Windows.
+pub fn path_from_bytes(bytes: &[u8]) -> io::Result<PathBuf> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        Ok(PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
     }
-    Ok(text)
+    #[cfg(not(unix))]
+    {
+        std::str::from_utf8(bytes)
+            .map(PathBuf::from)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path is not valid UTF-8"))
+    }
+}
+
+/// The bytes the ABI carries for one entry name, the inverse of
+/// [`path_from_bytes`] for a single component.
+pub(crate) fn name_bytes(name: OsString) -> io::Result<Vec<u8>> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        Ok(name.into_vec())
+    }
+    #[cfg(not(unix))]
+    {
+        name.into_string().map(String::into_bytes).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "directory entry name is not valid UTF-8",
+            )
+        })
+    }
+}
+
+fn path_bytes(path: PathBuf) -> io::Result<Vec<u8>> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        Ok(path.into_os_string().into_vec())
+    }
+    #[cfg(not(unix))]
+    {
+        let text = path.into_os_string().into_string().map_err(|_: OsString| {
+            io::Error::new(io::ErrorKind::InvalidData, "path result is not valid UTF-8")
+        })?;
+        Ok(text.replace('\\', "/").into_bytes())
+    }
 }
 
 #[cfg(test)]
@@ -463,7 +500,7 @@ mod tests {
         assert!(
             entries
                 .iter()
-                .any(|entry| entry.name == "link" && entry.kind == FileKind::Symlink)
+                .any(|entry| entry.name == b"link" && entry.kind == FileKind::Symlink)
         );
         remove(&root.join("nested"), true).unwrap();
         assert!(!root.join("nested").exists());
@@ -510,9 +547,38 @@ mod tests {
         let file = create_temporary(Some(&root), "before-", ".tmp", TemporaryKind::File).unwrap();
         let directory =
             create_temporary(Some(&root), "directory-", "", TemporaryKind::Directory).unwrap();
-        assert!(Path::new(&file).is_file());
-        assert!(Path::new(&directory).is_dir());
+        assert!(path_from_bytes(&file).unwrap().is_file());
+        assert!(path_from_bytes(&directory).unwrap().is_dir());
+        let file = String::from_utf8(file).unwrap();
         assert!(file.contains("before-") && file.ends_with(".tmp"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_bytes_need_not_be_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+        let path = path_from_bytes(b"caf\xe9.txt").unwrap();
+        assert_eq!(path.as_os_str().as_bytes(), b"caf\xe9.txt");
+        assert_eq!(name_bytes(path.into_os_string()).unwrap(), b"caf\xe9.txt");
+    }
+
+    // Only Linux filesystems accept a name that is not UTF-8; APFS refuses it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn names_that_are_not_utf8_round_trip_as_bytes() {
+        let root = root("bytes");
+        let name = b"caf\xe9.txt";
+        let path =
+            path_from_bytes(&[root.as_os_str().as_encoded_bytes(), b"/", name].concat()).unwrap();
+        fs::write(&path, b"x").unwrap();
+        assert_eq!(info(&path, true).unwrap().kind, FileKind::File);
+        let entries = list(&root).unwrap();
+        assert!(entries.iter().any(|entry| entry.name == name));
+        let found = glob(&format!("{}/*.txt", root.display())).unwrap();
+        assert_eq!(found.len(), 1);
+        assert!(found[0].ends_with(name));
+        assert!(canonicalize(&path).unwrap().ends_with(name));
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -543,7 +609,7 @@ mod tests {
             list(&root)
                 .unwrap()
                 .iter()
-                .any(|entry| entry.name == "MixedCase.txt")
+                .any(|entry| entry.name == b"MixedCase.txt")
         );
 
         if folds_case {
@@ -555,8 +621,8 @@ mod tests {
         } else {
             fs::write(&alternate, b"alternate").unwrap();
             let entries = list(&root).unwrap();
-            assert!(entries.iter().any(|entry| entry.name == "MixedCase.txt"));
-            assert!(entries.iter().any(|entry| entry.name == "mixedcase.txt"));
+            assert!(entries.iter().any(|entry| entry.name == b"MixedCase.txt"));
+            assert!(entries.iter().any(|entry| entry.name == b"mixedcase.txt"));
             assert_ne!(
                 canonicalize(&exact).unwrap(),
                 canonicalize(&alternate).unwrap()

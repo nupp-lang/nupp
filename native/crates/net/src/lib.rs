@@ -721,7 +721,10 @@ impl Listener {
             self.shared.queue_space.notify_one();
             return Ok(Some(stream));
         }
-        if let Some(error) = state.error.take() {
+        // A listener whose accept loop failed stays failed: reporting it once
+        // and then answering "nothing yet" forever would look like an idle
+        // server rather than a dead one.
+        if let Some(error) = state.error.clone() {
             Err(error)
         } else {
             Ok(None)
@@ -790,6 +793,14 @@ pub fn listen_tcp(
         .map_err(|error| error.to_string())?;
     socket
         .set_nonblocking(true)
+        .map_err(|error| error.to_string())?;
+    // What the standard library and Tokio set on every listener: without it a
+    // server restarted on its port fails to bind while the last run's
+    // connections sit in TIME_WAIT. On Windows the option means something
+    // else, so it stays off there.
+    #[cfg(unix)]
+    socket
+        .set_reuse_address(true)
         .map_err(|error| error.to_string())?;
     if reuse_port {
         #[cfg(target_os = "linux")]
@@ -935,6 +946,9 @@ async fn accept_tcp_connections(listener: TokioTcpListener, shared: Arc<Listener
                     return;
                 }
             },
+            Err(error) if accept_error_is_transient(&error) => {
+                tokio::time::sleep(ACCEPT_RETRY_DELAY).await;
+            }
             Err(error) => {
                 set_listener_error(&shared, error.to_string());
                 return;
@@ -965,11 +979,43 @@ async fn accept_unix_connections(listener: TokioUnixListener, shared: Arc<Listen
                     return;
                 }
             },
+            Err(error) if accept_error_is_transient(&error) => {
+                tokio::time::sleep(ACCEPT_RETRY_DELAY).await;
+            }
             Err(error) => {
                 set_listener_error(&shared, error.to_string());
                 return;
             }
         }
+    }
+}
+
+const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(50);
+
+/// Whether an `accept` failure says something about one connection or a
+/// passing shortage rather than about the listener. A peer that reset
+/// before it was accepted, or a process briefly out of descriptors, leaves
+/// the listener able to accept the next connection once it retries.
+fn accept_error_is_transient(error: &io::Error) -> bool {
+    if matches!(
+        error.kind(),
+        io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::Interrupted
+            | io::ErrorKind::WouldBlock
+    ) {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        matches!(
+            error.raw_os_error(),
+            Some(libc::EMFILE | libc::ENFILE | libc::ENOBUFS | libc::ENOMEM)
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        false
     }
 }
 

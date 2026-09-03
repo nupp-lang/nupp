@@ -8,6 +8,7 @@ use nupp_native_http as transport;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 const HEAD_PENDING: u32 = 0;
@@ -29,9 +30,26 @@ pub struct HttpReady {
     pub tokens: u32,
 }
 
+/// The facade handles registered for one transport transfer address.
+///
+/// Readiness is reported against the request handle while it exists and
+/// against the body handle once the request has been released, so a caller
+/// that keeps only the body keeps receiving its `TOKEN_BODY` notifications.
+#[derive(Default)]
+struct Registered {
+    request: Option<Handle>,
+    body: Option<Handle>,
+}
+
+impl Registered {
+    fn reported(&self) -> Option<Handle> {
+        self.request.or(self.body)
+    }
+}
+
 struct ClientEntry {
     address: usize,
-    transfers: Mutex<HashMap<usize, Handle>>,
+    transfers: Mutex<HashMap<usize, Registered>>,
 }
 
 impl ClientEntry {
@@ -58,6 +76,10 @@ struct TransferEntry {
     address: usize,
     client: Weak<ClientEntry>,
     kind: TransferKind,
+    /// Set on a request entry once its body handle has been created, so the
+    /// body is owned by exactly one handle and releasing one handle cannot
+    /// close a body another still reads.
+    body_taken: AtomicBool,
 }
 
 impl TransferEntry {
@@ -68,20 +90,35 @@ impl TransferEntry {
 
 impl Drop for TransferEntry {
     fn drop(&mut self) {
-        if matches!(self.kind, TransferKind::Request)
-            && let Some(client) = self.client.upgrade()
-        {
-            client
+        if let Some(client) = self.client.upgrade() {
+            let mut known = client
                 .transfers
                 .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .remove(&self.address);
+                .unwrap_or_else(|error| error.into_inner());
+            if let Some(registered) = known.get_mut(&self.address) {
+                match self.kind {
+                    TransferKind::Request => registered.request = None,
+                    TransferKind::Body => registered.body = None,
+                }
+                if registered.reported().is_none() {
+                    known.remove(&self.address);
+                }
+            }
         }
         // SAFETY: each transport reference is inserted into exactly one arena
         // entry and released by that entry's destructor.
         unsafe {
             match self.kind {
-                TransferKind::Request => transport::nuppHttpTransferDestroy(self.pointer()),
+                TransferKind::Request => {
+                    // A request released before its body was taken can never
+                    // be read again; without a cancel the transport would
+                    // keep its connection and admission until the body ran
+                    // out on its own, which a body nobody reads may never do.
+                    if !self.body_taken.load(Ordering::Acquire) {
+                        transport::nuppHttpTransferCancel(self.pointer());
+                    }
+                    transport::nuppHttpTransferDestroy(self.pointer());
+                }
                 TransferKind::Body => transport::nuppHttpBodyDestroy(self.pointer()),
             }
         }
@@ -101,6 +138,16 @@ fn transfers() -> &'static Mutex<Arena<Arc<TransferEntry>>> {
 fn failed(status: Status, message: &str) -> i32 {
     set_last_error(message);
     status.code()
+}
+
+fn create_failure_status() -> Status {
+    // SAFETY: the ABI crate always retains a NUL-terminated thread-local error.
+    let message = unsafe { CStr::from_ptr(last_error_ptr()) }.to_bytes();
+    if message == b"HTTP connection timeouts and limits must be positive" {
+        Status::InvalidArgument
+    } else {
+        Status::Internal
+    }
 }
 
 fn send_failure_status() -> Status {
@@ -196,7 +243,7 @@ pub unsafe extern "C" fn nuppNativeV2HttpClientCreate(
     // SAFETY: pointers were validated above and the transport copies options.
     let pointer = unsafe { transport::nuppHttpClientCreate(options) };
     if pointer.is_null() {
-        return Status::Internal.code();
+        return create_failure_status().code();
     }
     let entry = Arc::new(ClientEntry {
         address: pointer as usize,
@@ -258,6 +305,7 @@ pub unsafe extern "C" fn nuppNativeV2HttpClientSend(
         address: pointer as usize,
         client: Arc::downgrade(&owner),
         kind: TransferKind::Request,
+        body_taken: AtomicBool::new(false),
     });
     let handle = match transfers().lock() {
         Ok(mut arena) => match arena.insert(entry) {
@@ -270,7 +318,13 @@ pub unsafe extern "C" fn nuppNativeV2HttpClientSend(
         .transfers
         .lock()
         .unwrap_or_else(|error| error.into_inner())
-        .insert(pointer as usize, handle);
+        .insert(
+            pointer as usize,
+            Registered {
+                request: Some(handle),
+                body: None,
+            },
+        );
     // SAFETY: output is writable by contract.
     unsafe { output.write(handle.raw()) };
     Status::Ok.code()
@@ -445,15 +499,20 @@ pub unsafe extern "C" fn nuppNativeV2HttpTransferTakeBody(raw: u64, output: *mut
         Ok(entry) => entry,
         Err(status) => return status,
     };
+    if request.body_taken.swap(true, Ordering::AcqRel) {
+        return failed(Status::Closed, "the HTTP response body was already taken");
+    }
     // SAFETY: the request entry owns a live transport reference.
     let pointer = unsafe { transport::nuppHttpTransferTakeBody(request.pointer()) };
     if pointer.is_null() {
+        request.body_taken.store(false, Ordering::Release);
         return failed(Status::Closed, "the HTTP response has no body");
     }
     let body = Arc::new(TransferEntry {
         address: pointer as usize,
         client: request.client.clone(),
         kind: TransferKind::Body,
+        body_taken: AtomicBool::new(false),
     });
     let handle = match transfers().lock() {
         Ok(mut arena) => match arena.insert(body) {
@@ -462,6 +521,15 @@ pub unsafe extern "C" fn nuppNativeV2HttpTransferTakeBody(raw: u64, output: *mut
         },
         Err(_) => return failed(Status::Internal, "HTTP transfer store is poisoned"),
     };
+    if let Some(client) = request.client.upgrade() {
+        client
+            .transfers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .entry(pointer as usize)
+            .or_default()
+            .body = Some(handle);
+    }
     // SAFETY: output was checked above.
     unsafe { output.write(handle.raw()) };
     Status::Ok.code()
@@ -595,7 +663,10 @@ unsafe fn poll_ready(
         .unwrap_or_else(|error| error.into_inner());
     let mut written = 0;
     for item in raw.into_iter().take(raw_count) {
-        if let Some(handle) = known.get(&(item.transfer as usize)) {
+        if let Some(handle) = known
+            .get(&(item.transfer as usize))
+            .and_then(Registered::reported)
+        {
             // SAFETY: output has capacity entries and written is bounded by raw_count.
             unsafe {
                 output.add(written).write(HttpReady {

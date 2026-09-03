@@ -99,14 +99,25 @@ impl TaskControl {
     }
 
     fn start(&self) -> Cancellation {
-        let cancellation = self.cancellation();
+        // Read and transition under one lock: a cancel that lands between a
+        // separate read and the transition would be missed, and the queued
+        // work shutdown believed it had prevented would run.
+        let deadline = self.deadline.is_some_and(|at| Instant::now() >= at);
         let mut state = lock(&self.state);
-        if cancellation.cancelled {
+        let cancelled = deadline
+            || matches!(
+                *state,
+                TaskState::CancellationRequested | TaskState::Cancelled
+            );
+        if cancelled {
             *state = TaskState::Cancelled;
         } else if *state == TaskState::Queued {
             *state = TaskState::Running;
         }
-        cancellation
+        Cancellation {
+            cancelled,
+            deadline,
+        }
     }
 
     fn cancel(&self) -> bool {

@@ -500,9 +500,11 @@ fn stdout_destination(mode: StdioMode) -> Result<Stdio, String> {
 #[cfg(unix)]
 fn duplicate_stdout() -> Result<Stdio, String> {
     use std::os::fd::FromRawFd;
-    // SAFETY: `dup` returns a new owned descriptor or -1. `Stdio` takes
-    // ownership of the successful descriptor exactly once.
-    let descriptor = unsafe { libc::dup(libc::STDOUT_FILENO) };
+    // SAFETY: `fcntl` returns a new owned descriptor or -1. `Stdio` takes
+    // ownership of the successful descriptor exactly once. Close-on-exec keeps
+    // a spawn racing on another thread from inheriting the copy; the child
+    // this one is for receives it through `dup2`, which clears the flag.
+    let descriptor = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_DUPFD_CLOEXEC, 0) };
     if descriptor < 0 {
         return Err(io::Error::last_os_error().to_string());
     }
@@ -659,11 +661,25 @@ const F_SETNOSIGPIPE: libc::c_int = 73;
 const F_SETNOSIGPIPE: libc::c_int = 14;
 
 #[cfg(unix)]
-fn prepare_input(_descriptor: std::os::fd::RawFd) -> io::Result<()> {
+fn prepare_input(descriptor: std::os::fd::RawFd) -> io::Result<()> {
+    // Tokio hands the descriptor back in blocking mode. `AsyncFd` only reports
+    // readiness; the write itself is a raw syscall, so unless the descriptor
+    // is nonblocking a child that stops reading parks the executor thread
+    // for as long as the pipe stays full.
+    // SAFETY: fcntl operates only on this provider-owned descriptor.
+    let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if flags & libc::O_NONBLOCK == 0
+        && unsafe { libc::fcntl(descriptor, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
     #[cfg(any(target_os = "macos", target_os = "ios", target_os = "netbsd"))]
     {
-        // SAFETY: fcntl operates only on this provider-owned descriptor.
-        if unsafe { libc::fcntl(_descriptor, F_SETNOSIGPIPE, 1) } < 0 {
+        // SAFETY: as above.
+        if unsafe { libc::fcntl(descriptor, F_SETNOSIGPIPE, 1) } < 0 {
             return Err(io::Error::last_os_error());
         }
     }
@@ -769,6 +785,13 @@ where
     };
     let mut scratch = vec![0_u8; READ_CHUNK];
     loop {
+        // `notify_waiters` stores no permit, so the wait must be registered
+        // before the buffer is measured: a consumer draining it between the
+        // measurement and the wait would otherwise notify nobody, and the
+        // reader would sleep with the child blocked on a full pipe.
+        let notified = output.space.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
         let allowance = {
             let state = output
                 .state
@@ -781,7 +804,7 @@ where
         };
         if allowance == 0 {
             tokio::select! {
-                _ = output.space.notified() => continue,
+                _ = notified => continue,
                 _ = output.cancel.cancelled() => return,
             }
         }
@@ -835,10 +858,13 @@ async fn supervise_child(
     pid: u32,
 ) {
     let mut killed = false;
+    // Once every sender is gone `recv` answers `None` immediately and forever;
+    // polling it again would spin this task until the child exits.
+    let mut closed = false;
     let exit = loop {
         tokio::select! {
             result = child.wait() => break result,
-            control = controls.recv() => match control {
+            control = controls.recv(), if !closed => match control {
                 Some(()) => {
                     killed = true;
                     if let Err(error) = signal_child(&mut child, pid, force.load(Ordering::Acquire)) {
@@ -852,6 +878,7 @@ async fn supervise_child(
                     }
                 }
                 None => {
+                    closed = true;
                     killed = true;
                     let _ = child.start_kill();
                 }

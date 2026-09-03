@@ -229,6 +229,7 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
     [1, {pointer: 8, bytes: 8}],
     [2, {pointer: 16, bytes: 8}],
     [3, {pointer: 24, bytes: 24}],
+    [4, {pointer: 48, bytes: 8}],
   ]);
   new Uint32Array(heap.buffer, 8, 2).set([4, 9]);
   // count, input count, output count, input offset, output offset, scalar.
@@ -314,6 +315,16 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
 
   assert.deepEqual(Array.from(new Uint32Array(heap.buffer, 16, 2)), [11, 16]);
   assert.deepEqual(released, [1, 3, 2]);
+
+  // A failed operation releases its lease too: the Lua side only releases
+  // after a successful answer, and the slots are few.
+  const failed = await handleBrowserEffects({
+    kind: "effects",
+    requests: [{id: 9, kind: "gpu", operation: "runtime-upload", buffer: 999, lease: 4}],
+  }, options);
+  assert.equal(failed.responses[0].ok, false);
+  assert.match(failed.responses[0].error, /buffer handle is unknown/);
+  assert.deepEqual(released, [1, 3, 2, 4]);
 });
 
 test("browser WebGPU effects reject invalid uint32 input before opening a device", async () => {

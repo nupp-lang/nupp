@@ -8,6 +8,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(clippy::undocumented_unsafe_blocks)]
 
+use crate::workers::DEFAULT_QUEUE_BYTES;
 use crate::{
     CancellationToken, HostRuntime, SharedBytes, SharedBytesBuilder, Worker, WorkerEvent,
     WorkerJob, WorkerLimits,
@@ -302,6 +303,10 @@ fn write_error(buffer: *mut c_char, capacity: usize, message: &str) {
     }
 }
 
+/// Converts the shim's attachment array. Moved blocks belong to this call
+/// from here on: a rejected array frees every one of them, including those
+/// after the entry that was rejected, so the shim never has to guess which
+/// blocks a failed push still owns.
 fn attachments(raw: *const RawAttachment, count: usize) -> Option<Vec<Option<Attachment>>> {
     if count > MAX_ATTACHMENTS || (raw.is_null() && count != 0) {
         return None;
@@ -313,7 +318,22 @@ fn attachments(raw: *const RawAttachment, count: usize) -> Option<Vec<Option<Att
         // keeps it live and immutable until this synchronous conversion returns.
         unsafe { slice::from_raw_parts(raw, count) }
     };
-    let mut answer = Vec::with_capacity(count);
+    let answer = convert_attachments(raw);
+    if answer.is_none() {
+        for item in raw
+            .iter()
+            .filter(|item| item.kind == 1 && !item.block.is_null())
+        {
+            // SAFETY: a moved block is an exclusive malloc owner handed to this
+            // call; nothing else frees it once the array was passed to Rust.
+            unsafe { free(item.block) };
+        }
+    }
+    answer
+}
+
+fn convert_attachments(raw: &[RawAttachment]) -> Option<Vec<Option<Attachment>>> {
+    let mut answer = Vec::with_capacity(raw.len());
     for item in raw {
         if item.kind == 0 {
             let region = borrowed_arc(item.block.cast::<Region>())?;
@@ -988,9 +1008,12 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
         let thread_tasks = Arc::clone(&tasks);
         let worker = Worker::spawn(
             "nupp.worker.scheduler",
+            // One ingress job, the payload; the same byte bound also holds
+            // the result queue, so it must leave room for a result or a
+            // failure's text, not only for the payload.
             WorkerLimits {
                 messages: 1,
-                bytes: payload.len().saturating_add(1).max(1),
+                bytes: DEFAULT_QUEUE_BYTES.max(payload.len().saturating_add(1)),
             },
             move || {
                 let mut runtime = HostRuntime::owned(true, executable.as_deref())

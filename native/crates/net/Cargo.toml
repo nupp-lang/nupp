@@ -10,3 +10,6 @@ nupp-native-runtime = { path = "../runtime", features = ["async"] }
 socket2 = { version = "0.6", features = ["all"] }
 tokio = { version = "1", features = ["io-util", "macros", "net", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

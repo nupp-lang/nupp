@@ -954,24 +954,23 @@ impl GpuContext {
                     ));
                 }
             };
-            let slice = staging.slice(..);
-            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-            slice.map_async(wgpu::MapMode::Read, move |result| {
-                let _ = sender.send(result);
-            });
-            self.poll_wait()?;
-            receiver
-                .recv()
-                .map_err(|error| GpuError::Map(error.to_string()))?
-                .map_err(|error| GpuError::Map(error.to_string()))?;
-            let mapped = slice
-                .get_mapped_range()
-                .map_err(|error| GpuError::Map(error.to_string()))?;
-            let bytes = mapped.to_vec();
-            drop(mapped);
-            staging.unmap();
-            self.resources.buffer_mut(handle)?.download = Some(Download::Ready { offset, bytes });
+            let outcome = self.map_download(&staging);
+            // The download is settled either way. A failed map must not stay
+            // pending: its map request is already in flight, so a retry would
+            // fail again, and a pending download refuses to release its buffer.
             self.pending_downloads.remove(0);
+            match outcome {
+                Ok(bytes) => {
+                    self.resources.buffer_mut(handle)?.download =
+                        Some(Download::Ready { offset, bytes });
+                }
+                Err(error) => {
+                    if let Ok(entry) = self.resources.buffer_mut(handle) {
+                        entry.download = None;
+                    }
+                    return Err(error);
+                }
+            }
         }
         let errors = self.take_device_errors();
         if errors.is_empty() {
@@ -979,6 +978,27 @@ impl GpuContext {
         } else {
             Err(GpuError::Device(errors))
         }
+    }
+
+    /// Maps one staging buffer, waits for the device, and copies it out.
+    fn map_download(&self, staging: &wgpu::Buffer) -> Result<Vec<u8>, GpuError> {
+        let slice = staging.slice(..);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        self.poll_wait()?;
+        receiver
+            .recv()
+            .map_err(|error| GpuError::Map(error.to_string()))?
+            .map_err(|error| GpuError::Map(error.to_string()))?;
+        let mapped = slice
+            .get_mapped_range()
+            .map_err(|error| GpuError::Map(error.to_string()))?;
+        let bytes = mapped.to_vec();
+        drop(mapped);
+        staging.unmap();
+        Ok(bytes)
     }
 
     pub fn read_download(
@@ -1184,12 +1204,14 @@ mod tests {
     fn device_faults_survive_a_poisoned_callback_queue() {
         let errors = DeviceErrorQueue::default();
         let poisoned = errors.clone();
-        assert!(std::thread::spawn(move || {
-            let _guard = poisoned.messages.lock().unwrap();
-            panic!("simulated callback failure");
-        })
-        .join()
-        .is_err());
+        assert!(
+            std::thread::spawn(move || {
+                let _guard = poisoned.messages.lock().unwrap();
+                panic!("simulated callback failure");
+            })
+            .join()
+            .is_err()
+        );
         errors.record("device lost after callback failure".to_owned());
         assert_eq!(
             errors.take(),

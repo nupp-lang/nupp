@@ -251,8 +251,15 @@ function gpuLease(effect, options, expectedBytes) {
   return {id, bytes, view: module.HEAPU8.subarray(pointer, pointer + bytes), module};
 }
 
-function releaseGpuLease(lease) {
-  if (lease) lease.module._nupp_wasm_release_lease(lease.id);
+// Releases the lease an effect names, whether or not gpuLease returned it:
+// the Lua side only releases after a successful answer, so every failed
+// operation would otherwise strand one of the fixed lease slots.
+function releaseEffectLease(effect, options) {
+  const module = options.wasmModule;
+  const id = effect.lease;
+  if (module && module._nupp_wasm_release_lease && Number.isInteger(id) && id > 0) {
+    module._nupp_wasm_release_lease(id);
+  }
 }
 
 function gpuBuffer(runtime, id) {
@@ -262,6 +269,16 @@ function gpuBuffer(runtime, id) {
 }
 
 async function performGpuRuntimeEffect(effect, options) {
+  try {
+    return await performGpuOperation(effect, options);
+  } finally {
+    if (GPU_LEASE_OPERATIONS.has(effect.operation)) releaseEffectLease(effect, options);
+  }
+}
+
+const GPU_LEASE_OPERATIONS = new Set(["runtime-upload", "runtime-dispatch", "runtime-download"]);
+
+async function performGpuOperation(effect, options) {
   const usage = webGpuUsage(options);
   const device = await gpuDevice(options);
   if (options.gpuFailure) throw new Error(options.gpuFailure);
@@ -309,58 +326,47 @@ async function performGpuRuntimeEffect(effect, options) {
     return null;
   }
   if (effect.operation === "runtime-upload") {
-    let lease;
-    try {
-      const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
-      lease = gpuLease(effect, options, resource.bytes);
-      device.queue.writeBuffer(resource.buffer, 0, lease.view);
-      return null;
-    } finally {
-      releaseGpuLease(lease);
-    }
+    const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
+    const lease = gpuLease(effect, options, resource.bytes);
+    device.queue.writeBuffer(resource.buffer, 0, lease.view);
+    return null;
   }
   if (effect.operation === "runtime-dispatch") {
-    let lease;
-    try {
-      const kernel = runtime.kernels.get(uint32(effect.kernel, "kernel handle"));
-      if (!kernel || !Array.isArray(effect.read) || !Array.isArray(effect.write)) {
-        throw new Error("browser GPU dispatch names an unknown kernel or buffers");
-      }
-      if (effect.read.length !== kernel.readonly || effect.write.length !== kernel.writable) {
-        throw new Error("browser GPU dispatch has the wrong binding count");
-      }
-      const count = uint32(effect.count, "dispatch count");
-      lease = gpuLease(effect, options, kernel.uniformBytes);
-      const entries = [];
-      let binding = 0;
-      for (const id of effect.read) entries.push({binding: binding++, resource: {buffer: gpuBuffer(runtime, uint32(id, "read buffer")).buffer}});
-      for (const id of effect.write) entries.push({binding: binding++, resource: {buffer: gpuBuffer(runtime, uint32(id, "write buffer")).buffer}});
-      const uniform = device.createBuffer({size: kernel.uniformBytes, usage: usage.UNIFORM | usage.COPY_DST});
-      try {
-        device.queue.writeBuffer(uniform, 0, lease.view);
-        entries.push({binding, resource: {buffer: uniform}});
-        const bindGroup = device.createBindGroup({layout: kernel.pipeline.getBindGroupLayout(0), entries});
-        const encoder = device.createCommandEncoder();
-        const pass = encoder.beginComputePass();
-        pass.setPipeline(kernel.pipeline);
-        pass.setBindGroup(0, bindGroup);
-        pass.dispatchWorkgroups(Math.ceil(count / kernel.threads));
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-      } finally {
-        uniform.destroy();
-      }
-      return null;
-    } finally {
-      releaseGpuLease(lease);
+    const kernel = runtime.kernels.get(uint32(effect.kernel, "kernel handle"));
+    if (!kernel || !Array.isArray(effect.read) || !Array.isArray(effect.write)) {
+      throw new Error("browser GPU dispatch names an unknown kernel or buffers");
     }
+    if (effect.read.length !== kernel.readonly || effect.write.length !== kernel.writable) {
+      throw new Error("browser GPU dispatch has the wrong binding count");
+    }
+    const count = uint32(effect.count, "dispatch count");
+    const lease = gpuLease(effect, options, kernel.uniformBytes);
+    const entries = [];
+    let binding = 0;
+    for (const id of effect.read) entries.push({binding: binding++, resource: {buffer: gpuBuffer(runtime, uint32(id, "read buffer")).buffer}});
+    for (const id of effect.write) entries.push({binding: binding++, resource: {buffer: gpuBuffer(runtime, uint32(id, "write buffer")).buffer}});
+    const uniform = device.createBuffer({size: kernel.uniformBytes, usage: usage.UNIFORM | usage.COPY_DST});
+    try {
+      device.queue.writeBuffer(uniform, 0, lease.view);
+      entries.push({binding, resource: {buffer: uniform}});
+      const bindGroup = device.createBindGroup({layout: kernel.pipeline.getBindGroupLayout(0), entries});
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(kernel.pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.dispatchWorkgroups(Math.ceil(count / kernel.threads));
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+    } finally {
+      uniform.destroy();
+    }
+    return null;
   }
   if (effect.operation === "runtime-download") {
-    let lease;
     let readback;
     try {
       const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
-      lease = gpuLease(effect, options, resource.bytes);
+      const lease = gpuLease(effect, options, resource.bytes);
       readback = device.createBuffer({size: resource.bytes, usage: usage.MAP_READ | usage.COPY_DST});
       const encoder = device.createCommandEncoder();
       encoder.copyBufferToBuffer(resource.buffer, 0, readback, 0, resource.bytes);
@@ -371,7 +377,6 @@ async function performGpuRuntimeEffect(effect, options) {
       return null;
     } finally {
       if (readback) readback.destroy();
-      releaseGpuLease(lease);
     }
   }
   if (effect.operation === "runtime-synchronize") {

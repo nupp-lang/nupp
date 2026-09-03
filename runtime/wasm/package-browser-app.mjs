@@ -96,7 +96,11 @@ function runtimePackage(directory, luaSource, environment) {
   const expectedSource = runtimeSourceDigest();
   // A check with no Lua tree in hand can only vouch for the runtime's own
   // sources; one with a tree must not reuse a module built from another Lua.
-  const expectedLua = luaSource ? luaSourceDigest(path.resolve(luaSource)) : undefined;
+  // A named tree that is not there counts as none in hand: a fresh runtime
+  // is still reusable without it, and a rebuild reports the missing tree.
+  const luaSourcePresent =
+    luaSource && existsSync(path.join(path.resolve(luaSource), "lapi.c"));
+  const expectedLua = luaSourcePresent ? luaSourceDigest(path.resolve(luaSource)) : undefined;
   // LPeg comes from the pinned toolchain rather than from a caller, so it can
   // always be compared: a module built from another LPeg is as stale as one
   // built from another Lua.

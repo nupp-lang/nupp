@@ -651,6 +651,16 @@ pub unsafe extern "C" fn nupp_call(
     }
 }
 
+/// Releases a managed handle's registry reference. After shutdown there is no
+/// reference left to release, and the handle's own storage is all that
+/// remains, so the caller still gets to free it.
+fn release_managed(runtime: &mut HostRuntime, managed: ManagedHandle) -> Result<(), Failure> {
+    match runtime.release_handle(managed) {
+        Ok(()) | Err(HostError::Closed) => Ok(()),
+        Err(error) => Err(Failure::runtime(ERROR_RUNTIME, error)),
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nupp_handle_release(
     runtime: *mut NuppRuntime,
@@ -661,9 +671,7 @@ pub unsafe extern "C" fn nupp_handle_release(
         status_boundary(error, || {
             let runtime = runtime_mut(runtime)?;
             let managed = handle_for(runtime, handle)?;
-            runtime
-                .release_handle(managed)
-                .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
+            release_managed(runtime, managed)?;
             drop(Box::from_raw(handle));
             Ok(())
         })
@@ -688,9 +696,7 @@ pub unsafe extern "C" fn nupp_value_release(
             } else if value.kind == VALUE_HANDLE && !value.handle.is_null() {
                 let runtime = runtime_mut(runtime)?;
                 let managed = handle_for(runtime, value.handle)?;
-                runtime
-                    .release_handle(managed)
-                    .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
+                release_managed(runtime, managed)?;
                 drop(Box::from_raw(value.handle));
             }
             *value = NuppValue::default();

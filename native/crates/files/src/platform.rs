@@ -126,9 +126,19 @@ pub fn replace(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
+/// The directory holding `path`. A bare file name has the empty path as its
+/// parent, which opens as nothing; it lives in the working directory.
+#[cfg(feature = "lane")]
+pub fn parent_directory(path: &Path) -> &Path {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    }
+}
+
 #[cfg(all(feature = "lane", unix))]
 pub fn sync_parent(path: &Path) -> io::Result<()> {
-    File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()
+    File::open(parent_directory(path))?.sync_all()
 }
 
 #[cfg(all(feature = "lane", not(unix)))]

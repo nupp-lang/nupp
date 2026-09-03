@@ -350,15 +350,24 @@ static int push_buffer(lua_State *state, int kind, int task) {
     double count = lua_tonumber(state, count_index);
     const char *value = lua_tolstring(state, value_index, &value_length);
     RawAttachment attachments[MAX_ATTACHMENTS];
-    size_t attachment_count = read_attachments(state, attachments_index, attachments);
-    int accepted = channel != NULL && value != NULL
-        && (!task || (module != NULL && member != NULL))
-        && attachment_count != (size_t)-1
-        && nupp_rust_worker_channel_push(channel, kind, id, count,
+    size_t attachment_count;
+    int accepted = 0;
+    /* Moved blocks are owned by whoever reads them: by read_attachments until
+     * it returns, and by the Rust push from the moment it is called. Reject
+     * the fixed arguments first so the blocks are read only when the push
+     * will run to take them. */
+    if (channel == NULL || value == NULL || (task && (module == NULL || member == NULL))) {
+        lua_pushboolean(state, 0);
+        return 1;
+    }
+    attachment_count = read_attachments(state, attachments_index, attachments);
+    if (attachment_count != (size_t)-1) {
+        accepted = nupp_rust_worker_channel_push(channel, kind, id, count,
             (const uint8_t *)module, module_length,
             (const uint8_t *)member, member_length,
             (const uint8_t *)value, value_length,
             attachments, attachment_count);
+    }
     lua_pushboolean(state, accepted);
     return 1;
 }

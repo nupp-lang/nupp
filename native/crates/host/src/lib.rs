@@ -451,6 +451,9 @@ impl HostRuntime {
                 "the managed handle belongs to another Nupp runtime".to_owned(),
             ));
         }
+        // Shutdown released every registry reference; a handle outliving it
+        // is closed, not double-released, and its caller can still free it.
+        self.lua()?;
         let reference = self.handles.remove(&handle.id).ok_or_else(|| {
             HostError::Lua("the managed handle has already been released".to_owned())
         })?;
@@ -581,6 +584,12 @@ impl Drop for HostRuntime {
             // safe than leaking the state. Explicit shutdown reports the cause.
             if let Some(lua) = self.lua.take() {
                 std::mem::forget(lua);
+            }
+            // The state's worker context was not cleared on this path, so an
+            // attached state can still reach the workers host through it; the
+            // host leaks with the state rather than being freed under it.
+            if let Some(host) = self.worker_host.take() {
+                std::mem::forget(host);
             }
         }
     }

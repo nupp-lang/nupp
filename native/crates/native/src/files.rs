@@ -56,8 +56,22 @@ unsafe fn text<'a>(slice: FilesSlice, what: &str) -> Result<&'a str, i32> {
     })
 }
 
+/// Decodes a path the way the header promises: length-delimited
+/// platform-native bytes, so a Unix name that is not UTF-8 still opens.
 unsafe fn path(slice: FilesSlice, what: &str) -> Result<PathBuf, i32> {
-    unsafe { text(slice, what) }.map(PathBuf::from)
+    let value = unsafe { bytes(slice, what) }?;
+    if value.contains(&0) {
+        return Err(super::failed(
+            Status::InvalidArgument,
+            &format!("{what} contains an embedded NUL"),
+        ));
+    }
+    filesystem::path_from_bytes(value).map_err(|_| {
+        super::failed(
+            Status::InvalidArgument,
+            &format!("{what} is not valid UTF-8"),
+        )
+    })
 }
 
 fn io_failed(error: std::io::Error) -> i32 {
@@ -181,7 +195,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesReadLink(input: FilesSlice, output: *m
         Err(status) => return status,
     };
     match filesystem::read_link(&path) {
-        Ok(value) => store(value.into_bytes(), output, "link output is null"),
+        Ok(value) => store(value, output, "link output is null"),
         Err(error) => io_failed(error),
     }
 }
@@ -262,7 +276,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesList(input: FilesSlice, output: *mut u
             filesystem::FileKind::Symlink => b'l',
             filesystem::FileKind::Other => b'o',
         });
-        encoded.extend_from_slice(entry.name.as_bytes());
+        encoded.extend_from_slice(&entry.name);
         encoded.push(0);
     }
     store(encoded, output, "directory listing output is null")
@@ -280,7 +294,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesGlob(input: FilesSlice, output: *mut u
     };
     let mut encoded = Vec::new();
     for value in matches {
-        encoded.extend_from_slice(value.as_bytes());
+        encoded.extend_from_slice(&value);
         encoded.push(0);
     }
     store(encoded, output, "glob output is null")
@@ -294,9 +308,9 @@ pub unsafe extern "C" fn nuppNativeV2FilesCreateTemporary(
     as_directory: i32,
     output: *mut u64,
 ) -> i32 {
-    let directory = match unsafe { text(directory, "temporary directory") } {
-        Ok("") => None,
-        Ok(value) => Some(PathBuf::from(value)),
+    let directory = match unsafe { path(directory, "temporary directory") } {
+        Ok(value) if value.as_os_str().is_empty() => None,
+        Ok(value) => Some(value),
         Err(status) => return status,
     };
     let prefix = match unsafe { text(prefix, "temporary prefix") } {
@@ -313,7 +327,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesCreateTemporary(
         filesystem::TemporaryKind::File
     };
     match filesystem::create_temporary(directory.as_deref(), prefix, suffix, kind) {
-        Ok(value) => store(value.into_bytes(), output, "temporary path output is null"),
+        Ok(value) => store(value, output, "temporary path output is null"),
         Err(error) => io_failed(error),
     }
 }
@@ -321,11 +335,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesCreateTemporary(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeV2FilesCurrentDirectory(output: *mut u64) -> i32 {
     match filesystem::current_directory() {
-        Ok(value) => store(
-            value.into_bytes(),
-            output,
-            "working directory output is null",
-        ),
+        Ok(value) => store(value, output, "working directory output is null"),
         Err(error) => io_failed(error),
     }
 }
@@ -337,7 +347,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesCanonicalize(input: FilesSlice, output
         Err(status) => return status,
     };
     match filesystem::canonicalize(&path) {
-        Ok(value) => store(value.into_bytes(), output, "canonical path output is null"),
+        Ok(value) => store(value, output, "canonical path output is null"),
         Err(error) => io_failed(error),
     }
 }
@@ -345,7 +355,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesCanonicalize(input: FilesSlice, output
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeV2FilesUserFolder(which: u32, output: *mut u64) -> i32 {
     match filesystem::user_folder(which) {
-        Ok(value) => store(value.into_bytes(), output, "user folder output is null"),
+        Ok(value) => store(value, output, "user folder output is null"),
         Err(error) => io_failed(error),
     }
 }

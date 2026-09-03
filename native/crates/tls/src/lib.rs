@@ -360,6 +360,10 @@ fn server_config(options: &ServerOptions<'_>) -> Result<Arc<ServerConfig>, Strin
 struct State {
     connection: Connection,
     pending_tls: VecDeque<u8>,
+    /// Transport bytes rustls has not taken yet. `read_tls` takes at most one
+    /// record buffer per call and none while decrypted plaintext waits to be
+    /// read, so what one transport read returned outlives one call to it.
+    inbound: VecDeque<u8>,
     failed: Option<String>,
     closed: bool,
     verified: bool,
@@ -395,6 +399,7 @@ impl Session {
             state: Mutex::new(State {
                 connection: Connection::Client(connection),
                 pending_tls: VecDeque::new(),
+                inbound: VecDeque::new(),
                 failed: None,
                 closed: false,
                 verified: options.verify,
@@ -415,6 +420,7 @@ impl Session {
             state: Mutex::new(State {
                 connection: Connection::Server(connection),
                 pending_tls: VecDeque::new(),
+                inbound: VecDeque::new(),
                 failed: None,
                 closed: false,
                 verified: false,
@@ -491,6 +497,15 @@ impl Session {
             return Write::Failed(error);
         }
         let accepted = match state.connection.writer().write(bytes) {
+            // rustls answers zero rather than WouldBlock once its outbound
+            // record buffer is full. Nothing was taken, so this is a wait for
+            // the transport to drain, not progress.
+            Ok(0) if !bytes.is_empty() => {
+                if let Err(error) = state.drive(&self.stream) {
+                    return Write::Failed(error);
+                }
+                return Write::Pending;
+            }
             Ok(accepted) => accepted,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Write::Pending,
             Err(error) => {
@@ -616,29 +631,28 @@ impl State {
     fn drive(&mut self, stream: &Stream) -> Result<(), String> {
         for _ in 0..64 {
             let mut progressed = self.flush_tls(stream)?;
-            match stream.try_read(TLS_READ_CHUNK) {
-                NetRead::Data(bytes) => {
-                    let mut input = Cursor::new(bytes);
-                    self.connection.read_tls(&mut input).map_err(|error| {
-                        self.failed(format!("could not read TLS records: {error}"))
-                    })?;
-                    self.connection.process_new_packets().map_err(|error| {
-                        self.failed(format!("could not process TLS records: {error}"))
-                    })?;
-                    progressed = true;
+            // rustls stops wanting transport bytes while plaintext it already
+            // decrypted waits to be read. That is backpressure on the peer,
+            // not a failure, so the transport is left alone until it wants
+            // more, and bytes it has not taken stay buffered here.
+            if self.connection.wants_read() {
+                if self.inbound.is_empty() && !self.transport_eof {
+                    match stream.try_read(TLS_READ_CHUNK) {
+                        NetRead::Data(bytes) => self.inbound.extend(bytes),
+                        NetRead::Pending => {}
+                        NetRead::Eof => {
+                            let mut input = Cursor::new(&[]);
+                            self.connection.read_tls(&mut input).map_err(|error| {
+                                self.failed(format!("could not finish TLS input: {error}"))
+                            })?;
+                            self.transport_eof = true;
+                        }
+                        NetRead::Failed(error) => {
+                            return Err(self.failed(format!("the TLS transport failed: {error}")));
+                        }
+                    }
                 }
-                NetRead::Pending => {}
-                NetRead::Eof if !self.transport_eof => {
-                    let mut input = Cursor::new(&[]);
-                    self.connection.read_tls(&mut input).map_err(|error| {
-                        self.failed(format!("could not finish TLS input: {error}"))
-                    })?;
-                    self.transport_eof = true;
-                }
-                NetRead::Eof => {}
-                NetRead::Failed(error) => {
-                    return Err(self.failed(format!("the TLS transport failed: {error}")));
-                }
+                progressed |= self.consume_inbound()?;
             }
             progressed |= self.flush_tls(stream)?;
             if !progressed {
@@ -646,6 +660,35 @@ impl State {
             }
         }
         Ok(())
+    }
+
+    /// Feeds buffered transport bytes to rustls until it takes no more, which
+    /// is when the buffer is empty or decrypted plaintext is waiting.
+    fn consume_inbound(&mut self) -> Result<bool, String> {
+        let mut progressed = false;
+        while !self.inbound.is_empty() && self.connection.wants_read() {
+            let taken = {
+                let mut input = Cursor::new(&*self.inbound.make_contiguous());
+                self.connection.read_tls(&mut input)
+            };
+            let taken = match taken {
+                Ok(count) => count,
+                // The received-plaintext buffer is full: a reader will make room.
+                Err(error) if error.kind() == io::ErrorKind::Other => break,
+                Err(error) => {
+                    return Err(self.failed(format!("could not read TLS records: {error}")));
+                }
+            };
+            if taken == 0 {
+                break;
+            }
+            self.inbound.drain(..taken);
+            self.connection
+                .process_new_packets()
+                .map_err(|error| self.failed(format!("could not process TLS records: {error}")))?;
+            progressed = true;
+        }
+        Ok(progressed)
     }
 
     fn flush_tls(&mut self, stream: &Stream) -> Result<bool, String> {
@@ -792,6 +835,84 @@ mod tests {
             wait_activity(Duration::from_millis(1));
         }
         Read::Failed("the TLS read did not finish".to_owned())
+    }
+
+    fn write_all(session: &Session, bytes: &[u8]) {
+        let mut at = 0;
+        for _ in 0..50000 {
+            if at == bytes.len() {
+                return;
+            }
+            match session.try_write(&bytes[at..]) {
+                Write::Accepted(count) => at += count,
+                Write::Pending => {
+                    wait_activity(Duration::from_millis(1));
+                }
+                other => panic!("the TLS write did not finish: {other:?}"),
+            }
+        }
+        panic!("the TLS write did not finish")
+    }
+
+    fn read_all(session: &Session, total: usize, maximum: usize) -> Vec<u8> {
+        let mut received = Vec::with_capacity(total);
+        while received.len() < total {
+            match read_eventually(session, maximum) {
+                Read::Data(bytes) => received.extend(bytes),
+                other => panic!("the TLS read did not finish: {other:?}"),
+            }
+        }
+        received
+    }
+
+    #[test]
+    fn one_transport_read_may_carry_many_records() {
+        let listener = listen_tcp("127.0.0.1", 0, 16, false).unwrap();
+        let (client, server) = sessions(&listener, &[], &[], "localhost", true);
+        shake(&client, &server).unwrap();
+        let payload: Vec<u8> = (0..20_480u32).map(|value| (value % 251) as u8).collect();
+        write_all(&server, &payload);
+        // Let the whole flight reach the client's transport before it is
+        // driven once, so one transport read carries every record.
+        wait_until(|| server.pending_write() == 0, "the server flush");
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(read_all(&client, payload.len(), 64 * 1024), payload);
+    }
+
+    #[test]
+    fn a_reader_slower_than_the_records_is_backpressure_not_failure() {
+        let listener = listen_tcp("127.0.0.1", 0, 16, false).unwrap();
+        let (client, server) = sessions(&listener, &[], &[], "localhost", true);
+        shake(&client, &server).unwrap();
+        let mut payload = Vec::new();
+        for round in 0..64u8 {
+            let record = vec![round; 1000];
+            write_all(&server, &record);
+            payload.extend(record);
+        }
+        wait_until(|| server.pending_write() == 0, "the server flush");
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(read_all(&client, payload.len(), 16), payload);
+    }
+
+    #[test]
+    fn a_full_outbound_buffer_is_pending_rather_than_zero_progress() {
+        let listener = listen_tcp("127.0.0.1", 0, 16, false).unwrap();
+        let (client, server) = sessions(&listener, &[], &[], "localhost", true);
+        shake(&client, &server).unwrap();
+        let chunk = vec![7u8; 64 * 1024];
+        for _ in 0..4096 {
+            match client.try_write(&chunk) {
+                Write::Accepted(0) => panic!("a full buffer reported zero bytes as progress"),
+                Write::Accepted(_) => {}
+                Write::Pending => {
+                    drop(server);
+                    return;
+                }
+                other => panic!("the TLS write failed: {other:?}"),
+            }
+        }
+        panic!("a peer that never reads did not make the writer pend");
     }
 
     fn wait_until(mut condition: impl FnMut() -> bool, what: &str) {

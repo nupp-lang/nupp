@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::PathBuf;
 
 pub const MAX_WALK_DEPTH: usize = 512;
 
@@ -11,10 +11,13 @@ struct Pattern<'a> {
     root: &'a str,
 }
 
-pub fn expand(pattern: &str) -> io::Result<Vec<String>> {
+/// Expands one pattern to the sorted, unique paths it names. The pattern is
+/// text; the matches are platform path bytes, since an entry a wildcard
+/// matched need not be UTF-8 on Unix.
+pub fn expand(pattern: &str) -> io::Result<Vec<Vec<u8>>> {
     let pattern = parse(pattern)?;
     let mut matches = BTreeSet::new();
-    let mut prefix = pattern.root.to_owned();
+    let mut prefix = pattern.root.as_bytes().to_vec();
     descend(&pattern, &mut prefix, 0, MAX_WALK_DEPTH, &mut matches)?;
     Ok(matches.into_iter().collect())
 }
@@ -35,6 +38,14 @@ fn parse(text: &str) -> io::Result<Pattern<'_>> {
     }
     if components.is_empty() && root.is_empty() {
         return Err(invalid("the pattern names no path"));
+    }
+    // Matching recurses once per wildcard component, and no tree the walk
+    // accepts is deeper than this, so a pattern with more components than
+    // that names nothing reachable and would only deepen the stack.
+    if components.len() > MAX_WALK_DEPTH {
+        return Err(invalid(
+            "the pattern has more components than a path may have",
+        ));
     }
     Ok(Pattern { components, root })
 }
@@ -115,9 +126,7 @@ fn class_accepts(pattern: &[u8], mut at: usize, end: usize, candidate: u8) -> bo
     if negated { !found } else { found }
 }
 
-fn matches_name(pattern: &str, name: &str) -> bool {
-    let pattern = pattern.as_bytes();
-    let name = name.as_bytes();
+fn matches_name(pattern: &[u8], name: &[u8]) -> bool {
     let mut pattern_at = 0;
     let mut name_at = 0;
     let mut star_at = None;
@@ -176,13 +185,13 @@ fn has_wildcard(component: &str) -> bool {
 
 fn descend(
     pattern: &Pattern<'_>,
-    prefix: &mut String,
+    prefix: &mut Vec<u8>,
     component: usize,
     depth: usize,
-    matches: &mut BTreeSet<String>,
+    matches: &mut BTreeSet<Vec<u8>>,
 ) -> io::Result<()> {
     if component == pattern.components.len() {
-        if !prefix.is_empty() && fs::symlink_metadata(opening(prefix)).is_ok() {
+        if !prefix.is_empty() && fs::symlink_metadata(opening(prefix)?).is_ok() {
             matches.insert(prefix.clone());
         }
         return Ok(());
@@ -193,10 +202,24 @@ fn descend(
         return recurse(pattern, prefix, component, depth, matches);
     }
     if !has_wildcard(text) {
-        return with_child(pattern, prefix, text, component + 1, depth, matches);
+        // A run of literal components is one path, so it costs one frame
+        // rather than one per component: recursion depth then follows the
+        // wildcards in the pattern, not its length.
+        let restore = prefix.len();
+        let mut next = component;
+        while next < pattern.components.len()
+            && pattern.components[next] != "**"
+            && !has_wildcard(pattern.components[next])
+        {
+            push_component(prefix, pattern.components[next].as_bytes());
+            next += 1;
+        }
+        let answer = descend(pattern, prefix, next, depth, matches);
+        prefix.truncate(restore);
+        return answer;
     }
 
-    let entries = match fs::read_dir(opening(prefix)) {
+    let entries = match fs::read_dir(opening(prefix)?) {
         Ok(entries) => entries,
         // The existing provider treats an unreadable branch as having no
         // matches rather than failing an otherwise useful recursive query.
@@ -204,10 +227,8 @@ fn descend(
     };
     for entry in entries {
         let entry = entry?;
-        let name = entry.file_name().into_string().map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidData, "glob entry is not valid UTF-8")
-        })?;
-        if matches_name(text, &name) {
+        let name = super::name_bytes(entry.file_name())?;
+        if matches_name(text.as_bytes(), &name) {
             with_child(pattern, prefix, &name, component + 1, depth, matches)?;
         }
     }
@@ -216,10 +237,10 @@ fn descend(
 
 fn recurse(
     pattern: &Pattern<'_>,
-    prefix: &mut String,
+    prefix: &mut Vec<u8>,
     component: usize,
     depth: usize,
-    matches: &mut BTreeSet<String>,
+    matches: &mut BTreeSet<Vec<u8>>,
 ) -> io::Result<()> {
     if depth == 0 {
         return Err(io::Error::new(
@@ -229,7 +250,7 @@ fn recurse(
     }
 
     descend(pattern, prefix, component + 1, depth, matches)?;
-    let entries = match fs::read_dir(opening(prefix)) {
+    let entries = match fs::read_dir(opening(prefix)?) {
         Ok(entries) => entries,
         Err(_) => return Ok(()),
     };
@@ -238,9 +259,7 @@ fn recurse(
         if !entry.file_type()?.is_dir() {
             continue;
         }
-        let name = entry.file_name().into_string().map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidData, "glob entry is not valid UTF-8")
-        })?;
+        let name = super::name_bytes(entry.file_name())?;
         let restore = prefix.len();
         push_component(prefix, &name);
         recurse(pattern, prefix, component, depth - 1, matches)?;
@@ -251,11 +270,11 @@ fn recurse(
 
 fn with_child(
     pattern: &Pattern<'_>,
-    prefix: &mut String,
-    name: &str,
+    prefix: &mut Vec<u8>,
+    name: &[u8],
     component: usize,
     depth: usize,
-    matches: &mut BTreeSet<String>,
+    matches: &mut BTreeSet<Vec<u8>>,
 ) -> io::Result<()> {
     let restore = prefix.len();
     push_component(prefix, name);
@@ -264,18 +283,18 @@ fn with_child(
     answer
 }
 
-fn push_component(prefix: &mut String, name: &str) {
-    if !prefix.is_empty() && !prefix.ends_with('/') {
-        prefix.push('/');
+fn push_component(prefix: &mut Vec<u8>, name: &[u8]) {
+    if !prefix.is_empty() && !prefix.ends_with(b"/") {
+        prefix.push(b'/');
     }
-    prefix.push_str(name);
+    prefix.extend_from_slice(name);
 }
 
-fn opening(prefix: &str) -> &Path {
+fn opening(prefix: &[u8]) -> io::Result<PathBuf> {
     if prefix.is_empty() {
-        Path::new(".")
+        Ok(PathBuf::from("."))
     } else {
-        Path::new(prefix)
+        super::path_from_bytes(prefix)
     }
 }
 
@@ -297,13 +316,21 @@ mod tests {
 
     #[test]
     fn grammar_is_explicit_and_bytewise() {
-        assert!(matches_name("a?c", "abc"));
-        assert!(matches_name("[!a]bc", "xbc"));
-        assert!(matches_name("[a-c]x", "bx"));
-        assert!(!matches_name("[!a]bc", "abc"));
+        assert!(matches_name(b"a?c", b"abc"));
+        assert!(matches_name(b"[!a]bc", b"xbc"));
+        assert!(matches_name(b"[a-c]x", b"bx"));
+        assert!(!matches_name(b"[!a]bc", b"abc"));
         assert!(parse("root/**/file?.nupp").is_ok());
         assert!(parse("root/a**b").is_err());
         assert!(parse("root/[").is_err());
+    }
+
+    #[test]
+    fn long_literal_patterns_neither_overflow_nor_match() {
+        let deep = "a/".repeat(MAX_WALK_DEPTH - 1) + "b";
+        assert!(parse(&deep).is_ok());
+        assert!(expand(&deep).unwrap().is_empty());
+        assert!(parse(&("a/".repeat(MAX_WALK_DEPTH) + "b")).is_err());
     }
 
     #[test]

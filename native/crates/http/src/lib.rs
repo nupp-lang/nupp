@@ -377,6 +377,16 @@ impl Transfer {
     }
 }
 
+impl Drop for Transfer {
+    fn drop(&mut self) {
+        // Nothing can read or cancel this transfer any more. A client still
+        // counting it as active would count it until the client itself went.
+        if let Some(client) = self.client.upgrade() {
+            client.retire(self);
+        }
+    }
+}
+
 struct TaskGuard(Arc<Transfer>);
 
 impl Drop for TaskGuard {
@@ -422,6 +432,15 @@ unsafe fn owned_text(slice: NuppHttpSlice, what: &str) -> Result<String, String>
         return Err(format!("{what} contains a NUL byte"));
     }
     Ok(value.to_owned())
+}
+
+/// The first of the variable's spellings that names a proxy, the way the
+/// environment proxies reqwest would otherwise register read them.
+fn environment_proxy(names: [&str; 2]) -> Option<String> {
+    names
+        .into_iter()
+        .find_map(|name| std::env::var(name).ok())
+        .filter(|value| !value.is_empty())
 }
 
 fn proxy_with_options(
@@ -474,7 +493,26 @@ unsafe fn configure_client(
         reqwest::NoProxy::from_env()
     };
     match options.proxy_mode {
-        0 => {}
+        0 => {
+            if options.no_proxy_set != 0 {
+                // Reqwest's environment proxies consult the process NO_PROXY,
+                // not this list. Registering the same proxies explicitly is
+                // what lets the caller's exceptions apply to them.
+                builder = builder.no_proxy();
+                if let Some(url) = environment_proxy(["HTTPS_PROXY", "https_proxy"]) {
+                    let configured = Proxy::https(&url).map_err(|error| error.to_string())?;
+                    builder = builder.proxy(proxy_with_options(configured, "", no_proxy.clone()));
+                }
+                if let Some(url) = environment_proxy(["HTTP_PROXY", "http_proxy"]) {
+                    let configured = Proxy::http(&url).map_err(|error| error.to_string())?;
+                    builder = builder.proxy(proxy_with_options(configured, "", no_proxy.clone()));
+                }
+                if let Some(url) = environment_proxy(["ALL_PROXY", "all_proxy"]) {
+                    let configured = Proxy::all(&url).map_err(|error| error.to_string())?;
+                    builder = builder.proxy(proxy_with_options(configured, "", no_proxy));
+                }
+            }
+        }
         1 => builder = builder.no_proxy(),
         2 => {
             let configured = Proxy::all(&proxy).map_err(|error| error.to_string())?;
@@ -1045,7 +1083,10 @@ pub unsafe fn nuppHttpClientSend(
     let owned = match unsafe { own_request(&*request, &transfer) } {
         Ok(request) => request,
         Err(error) => {
-            client.inner.active.fetch_sub(1, Ordering::AcqRel);
+            // Retire rather than decrement: the transfer's own destructor
+            // retires it too, and retiring is idempotent where a bare
+            // decrement is not.
+            client.inner.retire(&transfer);
             set_error(error);
             return ptr::null();
         }

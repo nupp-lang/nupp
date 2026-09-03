@@ -1003,6 +1003,7 @@ dependencies = [
 name = "nupp-native-net"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "nupp-native-runtime",
  "socket2",
  "tokio",

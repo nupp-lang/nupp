@@ -482,7 +482,7 @@ fn read_whole(path: &Path, admission: &mut AdmissionGuard) -> io::Result<Vec<u8>
             .min(MAX_REQUEST_BYTES);
         admission.grow_to(next)?;
         bytes
-            .try_reserve_exact(next - bytes.capacity())
+            .try_reserve_exact(next.saturating_sub(bytes.len()))
             .map_err(|error| {
                 io::Error::other(format!("cannot reserve file transfer storage: {error}"))
             })?;
@@ -496,7 +496,7 @@ fn read_whole(path: &Path, admission: &mut AdmissionGuard) -> io::Result<Vec<u8>
 }
 
 fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
-    let directory = path.parent().unwrap_or_else(|| Path::new("."));
+    let directory = platform::parent_directory(path);
     let preserved = fs::metadata(path)
         .ok()
         .map(|metadata| metadata.permissions());
@@ -771,6 +771,29 @@ mod tests {
             platform::read_only(&fs::metadata(&path).unwrap().permissions()),
             platform::read_only(&permissions)
         );
+        assert!(fs::read_dir(&root).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".nupp-write-")
+        }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn atomic_write_to_a_bare_file_name_settles_as_done() {
+        let root = std::env::temp_dir().join(format!(
+            "nupp-lane-bare-{:016x}",
+            std::process::id() as u64 ^ 0x5eed
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&root).unwrap();
+        let written = write_atomic(Path::new("bare.txt"), b"hello");
+        std::env::set_current_dir(previous).unwrap();
+        written.unwrap();
+        assert_eq!(fs::read(root.join("bare.txt")).unwrap(), b"hello");
         assert!(fs::read_dir(&root).unwrap().all(|entry| {
             !entry
                 .unwrap()
