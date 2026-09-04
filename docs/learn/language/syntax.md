@@ -440,8 +440,9 @@ them slower than the Lua somebody would have written by hand.
 
 The floor is a build rather than a version because the extensions were
 backported into 2.1 rather than released with 3.0. See
-[contributing.md](../../contributing.md#luajit) for the source-checkout
-requirement. Released Nupp binaries carry their own LuaJIT host.
+[CONTRIBUTING.md](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md#luajit)
+for the source-checkout requirement. Released Nupp binaries carry their own
+LuaJIT host.
 :::
 
 ### Pass-through syntax

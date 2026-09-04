@@ -190,7 +190,6 @@ See [tooling](learn/tooling/index.md) for the guided map and
 - [Feature map](getting-started/features.md)
 - [Why use Nupp](getting-started/why.md)
 - [Installation](getting-started/installation.md)
-- [Contributing to Nupp](contributing.md)
 
 ## Learn
 

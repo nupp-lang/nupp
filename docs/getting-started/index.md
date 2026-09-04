@@ -56,4 +56,4 @@ compute, portable targets, embedding, and the standard library. The
 
 [Install a release](installation.md) to get `nupp` on `PATH`. Building Nupp
 itself from a source checkout is a contributor workflow covered in
-[Contributing to Nupp](../contributing.md).
+[CONTRIBUTING.md](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md).

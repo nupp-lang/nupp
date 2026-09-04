@@ -118,7 +118,7 @@ artifacts use the public `x86_64-pc-windows-msvc` target spelling and layout.
 The Nupp host itself embeds a LuaJIT built by its GNU make and MinGW toolchain.
 The base release host and ordinary Windows source checkout therefore use the
 ABI-compatible `x86_64-pc-windows-gnu` Rust host named in
-[`contributing.md`](../contributing.md#requirements).
+[`CONTRIBUTING.md`](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md#requirements).
 The authenticated compiler pack instead pairs LLVM-MinGW/UCRT with Rust's
 `x86_64-pc-windows-gnullvm` host so the Rust application archive and the pack's
 linker agree on their runtime ABI. The toolchain driver selects these pairs

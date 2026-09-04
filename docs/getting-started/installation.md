@@ -71,9 +71,10 @@ include the native compiler pack used for C FFI and ahead-of-time compilation.
 ## Build from source
 
 Clone the repository only when you want to contribute to Nupp or work on the
-compiler itself. The [contributing guide](../contributing.md) covers the pinned
-Rust, C/C++, LuaJIT, LPeg, bootstrap, and worktree requirements without making
-them prerequisites for ordinary users.
+compiler itself. The
+[contributing guide](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md)
+covers the pinned Rust, C/C++, LuaJIT, LPeg, bootstrap, and worktree
+requirements without making them prerequisites for ordinary users.
 
 ## Start a project
 

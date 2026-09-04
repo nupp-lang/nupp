@@ -2,7 +2,8 @@
 
 Build Nupp from a source checkout when you want to change the compiler,
 runtime, tooling, or documentation. To install a released binary for ordinary
-project work, use the [installation guide](getting-started/installation.md).
+project work, use the
+[installation guide](https://nupp.dev/getting-started/installation/).
 
 ## Clone and build
 
@@ -42,7 +43,7 @@ beside the repository so every worktree shares one build. Cargo resolves the
 Rust-native crates, including networking and TLS, through the committed
 lockfile. The toolchain driver builds Nupp's Rust native providers, executable
 host, and embedding libraries; `bin/nupp` runs it for what is missing and
-nothing more. See [Native runtime and support](reference/native-runtime.md)
+nothing more. See [Native runtime and support](https://nupp.dev/reference/native-runtime/)
 for the feature mapping, retained non-Rust boundaries, and release matrix.
 
 ### LuaJIT
@@ -165,8 +166,8 @@ into its host. Nupp supplies Lunamark's entity encoder and reference-label
 normalizer from the payload. Their Lua files, including LPeg's official
 `re.lua`, remain in the payload. Two checkouts can hold different rock versions
 without either disturbing the other, and nothing lands in a global tree. See
-[rock dependencies](learn/projects/build.md#rock-dependencies) for declaring your
-own.
+[rock dependencies](https://nupp.dev/learn/projects/build/#rock-dependencies)
+for declaring your own.
 
 `nupp doc` needs lunamark and stops with a message when it cannot install or
 load it. Scintillua degrades instead: a fence in a language it cannot load
@@ -203,9 +204,10 @@ The lexers are a chosen set rather than all hundred and sixty Scintillua ships.
 They are the languages a technical document actually fences, listed at the top
 of `nupp.lua`. A fence in something else renders as escaped text, which is what
 it does with no Scintillua at all. See
-[distribution](reference/distribution.md) for the stub-and-payload format,
-and [carrying a rock into a
-bundle](learn/projects/build.md#carrying-a-rock-into-a-bundle) for carrying your own.
+[distribution](https://nupp.dev/reference/distribution/) for the
+stub-and-payload format, and
+[carrying a rock into a bundle](https://nupp.dev/learn/projects/build/#carrying-a-rock-into-a-bundle)
+for carrying your own.
 
 ## Running checks
 
@@ -231,12 +233,16 @@ nupp task start
 ```
 
 `nupp init --list` also shows the library, browser, browser SIMD, and LÖVE
-templates. See [Getting started](getting-started/index.md) for the project loop
-and what each template contains.
+templates. See [Getting started](https://nupp.dev/getting-started/) for the
+project loop and what each template contains.
 
-::: seealso
-- [build.md](learn/projects/build.md) for every manifest key, target kind, and cache
-- [tour.md](getting-started/tour.md) for the language itself, one construct at a time
-- [tooling.md](learn/tooling/index.md) for what the rest of the binary does
-- [testing.md](learn/projects/testing.md) for configuring a suite of your own
-:::
+## See also
+
+- [build.md](https://nupp.dev/learn/projects/build/) for every manifest key,
+  target kind, and cache
+- [tour.md](https://nupp.dev/getting-started/tour/) for the language itself,
+  one construct at a time
+- [tooling.md](https://nupp.dev/learn/tooling/) for what the rest of the
+  binary does
+- [testing.md](https://nupp.dev/learn/projects/testing/) for configuring a
+  suite of your own
