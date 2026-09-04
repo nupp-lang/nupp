@@ -21,14 +21,8 @@ return {
             kind = "modules",
             description = "Build ${name} for LÖVE",
             dialect = "luajit-compat",
-            entries = { "main" },
          },
       },
-   },
-
-   test = {
-      build = "game",
-      argv = { "nupp", "test-runner" },
    },
 
    tasks = {

@@ -985,6 +985,21 @@ function M.aMisspelledDocsKeyIsRejectedWithTheNameItMeant()
     reject('{kind = "docs", sources = {"src"}, wibble = 1}', 'has no key "wibble"')
 end
 
+function M.deliverableTargetsStillRequireAnEntry()
+    local cases = {
+        bundle = '{kind = "bundle"}',
+        binary = '{kind = "binary", stub = "nupp"}',
+        component = '{kind = "component", exports = {"app.run"}}',
+    }
+    for kind, target in pairs(cases) do
+        local dir = tempProject({["nupp.lua"] = 'return {include = {"src"}, build = ' .. target .. '}\n',})
+        local config, err = project.loadManifest(dir)
+        assertEq(config, nil, kind .. " without an entry is refused")
+        assert(err and err:find("build.entries is required", 1, true), tostring(err))
+        remove(dir)
+    end
+end
+
 -- `fmt` gets the same treatment as any other manifest table: a typo names
 -- itself rather than configuring nothing.
 function M.fmtManifestKeyIsValidated()
@@ -4139,6 +4154,32 @@ return {
     assertEq(project.test(dir), 0)
     assertEq(read(dir .. "/test-ran"), "yes")
     assert(exists(dir .. "/out/main.lua"), "test builds first")
+    remove(dir)
+end
+
+function M.testCommandDefaultsToBundledRunner()
+    local dir = tempProject({
+        ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", entries = {"main"}},
+}
+]],
+        ["src/main.nupp"] = "return true\n",
+    })
+    local originalRun = process.run
+    local ran
+    process.run = function(argv, options)
+        ran = {argv = argv, options = options}
+        return 0
+    end
+    local ok, result = pcall(project.test, dir)
+    process.run = originalRun
+    assert(ok, result)
+    assertEq(result, 0)
+    assertEq(ran.argv[2], "test-runner", "the default test command is Nupp's bundled runner")
+    assertEq(ran.options.cwd, dir, "the default runner starts in the project")
+    assert(exists(dir .. "/out/main.lua"), "the default test command builds first")
     remove(dir)
 end
 

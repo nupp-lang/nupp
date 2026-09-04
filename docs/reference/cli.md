@@ -32,7 +32,7 @@ The commands, in the order `nupp help` lists them:
 - [`explain`](#explain): describe a diagnostic code, with an example either way
 - [`reference`](#reference): list or print a focused Nupp reference chapter
 - [`completions`](#completions): print a shell completion script
-- [`test`](#test): build and run the configured test command
+- [`test`](#test): build and run project tests
 - [`test-runner`](#test-runner): run test suites with the bundled runner
 - [`coverage`](#coverage): run tests and write a source coverage report
 - [`task`](#task): build, then run a named task from `nupp.lua`
@@ -1026,7 +1026,7 @@ Options:
   --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 
-With no name, lists build targets plus configured test and self-host actions.
+With no name, lists build targets plus the test and configured self-host actions.
 With a name, prints the task's effective configuration.
 ```
 
@@ -1405,7 +1405,7 @@ _nupp() {
 ### `test`
 
 ```text [nupp test --help]
-Build and run the configured test command
+Build and run project tests
 
 Usage:
   nupp test [args...]
@@ -1422,16 +1422,16 @@ Options:
   -h, --help      Show this help
   --schema        Print the JSON Schema of --json output and exit
 
-Additional arguments are appended to test.argv from nupp.lua. Use '--' before
-a test argument named --help.
+Additional arguments are appended to the bundled runner or test.argv from
+nupp.lua. Use '--' before a test argument named --help.
 
 --json is passed along to the test command rather than interpreted here, since
 the arguments past this point are that command's. --schema describes what the
 bundled runner writes for it.
 ```
 
-The example project configures no test command, so these two run in Nupp's own
-repository, whose runner takes a suite name. Progress prints `.` when a unit
+These examples run in Nupp's own repository, whose runner takes a suite name.
+Progress prints `.` when a unit
 passes, `S` when all of it is skipped, and `E` when it contains a failure. A
 parallel unit is a suite slice rather than one test, which keeps large runs
 compact; the failure report still names every failing test:
@@ -2226,7 +2226,7 @@ Commands:
   explain          Describe a diagnostic code, with an example either way
   reference        List or print a focused Nupp reference chapter
   completions      Print a shell completion script
-  test             Build and run the configured test command
+  test             Build and run project tests
   test-runner      Run test suites with the bundled runner
   coverage         Run tests and write a source coverage report
   task             Build, then run a named task from nupp.lua

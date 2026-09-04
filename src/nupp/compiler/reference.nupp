@@ -2636,7 +2636,7 @@ local TOOLCHAIN_SECTIONS: {
 does not need every flag in context.
 
 - `check`, `build`, `run`, and `fmt` work with source and generated Lua.
-- `test` runs the configured test command; `coverage` runs it against a separate
+- `test` runs the bundled or configured test command; `coverage` runs it against a separate
   instrumented build and writes a report.
 - `lsp` answers semantic source questions; `explain` expands a diagnostic; and
   `reference` returns focused language, CLI, and performance skills.
@@ -2654,7 +2654,7 @@ inferring fields from an example. The CLI uses 1-based byte lines and columns.
         codes = {},
         body = [=[
 Run `nupp coverage` to build a separate instrumented artifact, run the
-configured tests, and write `build/reports/coverage/index.html`. It never
+project tests, and write `build/reports/coverage/index.html`. It never
 changes an ordinary build or its cache. Pass a suite name or other test
 arguments to focus a run.
 

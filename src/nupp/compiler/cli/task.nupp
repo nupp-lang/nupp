@@ -5,10 +5,10 @@ module nupp.compiler.cli.task
 
 The general case `test` is one fixed instance of: a task names an argv, an
 optional build target to build first, and optional environment. Unlike
-`test`, which always means the one configured test command, this takes which
-task by name, so a project can have any number of them -- a dev server, a
-release script, whatever it runs by hand often enough to want a name for it
-rather than a comment saying what to type.
+`test`, which always means the project's test command, this takes which task
+by name, so a project can have any number of them -- a dev server, a release
+script, whatever it runs by hand often enough to want a name for it rather
+than a comment saying what to type.
 
 Like `test`, arguments past the task's name are not this command's to read:
 they are appended to the task's own argv and belong to whatever ends up

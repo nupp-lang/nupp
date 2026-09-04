@@ -1141,7 +1141,7 @@ end
 --- The search-path entries the rocks a target depends on are installed under.
 ---
 --- A build installs into a tree that belongs to the project, so a program the toolchain
---- starts afterwards -- the configured test command above all -- has to be told where
+--- starts afterwards -- the project test command above all -- has to be told where
 --- that tree is; inside this process the provider has already said so. Returns nil when
 --- the target depends on no rocks.
 local function rockPaths(

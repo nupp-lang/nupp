@@ -8,13 +8,8 @@ return {
          app = {
             kind = "modules",
             description = "Build ${name}",
-            entries = { "main" },
          },
       },
-   },
-
-   test = {
-      argv = { "nupp", "test-runner" },
    },
 
    tasks = {

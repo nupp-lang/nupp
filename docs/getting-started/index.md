@@ -28,7 +28,7 @@ The generated project uses the same commands as a larger one:
 ```bash
 nupp check       # check the configured source graph
 nupp fmt --write # format project source
-nupp test        # build and run configured tests
+nupp test        # build and run project tests
 nupp build       # build the default deliverable
 nupp task start  # run the project's start task
 ```

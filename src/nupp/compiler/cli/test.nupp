@@ -1,7 +1,7 @@
 module nupp.compiler.cli.test
 
 --[[
-`nupp test`: build, then run whatever the project calls its test command.
+`nupp test`: build, then run the bundled runner or the project's test command.
 
 The one command whose arguments are mostly not its own. Everything after the
 name is appended to `test.argv` from nupp.lua and belongs to the program that
@@ -14,7 +14,7 @@ local ansi = require("nupp.compiler.ansi")
 
 local command = spec.command{
     name = "test",
-    summary = "Build and run the configured test command",
+    summary = "Build and run project tests",
     usage = {"nupp test [args...]"},
     universal = false,
     options = {
@@ -158,8 +158,8 @@ local command = spec.command{
         },
         required = {"ok", "total", "passed", "skipped", "failed", "tests"},
     },
-    detail = [[Additional arguments are appended to test.argv from nupp.lua. Use '--' before
-a test argument named --help.
+    detail = [[Additional arguments are appended to the bundled runner or test.argv from
+nupp.lua. Use '--' before a test argument named --help.
 
 --json is passed along to the test command rather than interpreted here, since
 the arguments past this point are that command's. --schema describes what the

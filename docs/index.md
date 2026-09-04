@@ -171,7 +171,7 @@ ship in one executable.
 ```text
 nupp check                 # check the configured source graph
 nupp fmt --write           # format project source
-nupp test                  # build and run configured tests
+nupp test                  # build and run project tests
 nupp build                 # build the default deliverable
 nupp explain NUPP2119      # expand one diagnostic
 nupp reference --for CODE  # print the relevant language section

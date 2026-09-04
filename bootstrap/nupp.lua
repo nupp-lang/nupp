@@ -38470,6 +38470,16 @@ local manifest = { }
 
 
 
+
+
+
+
+
+
+function manifest . testConfig ( config ) 
+return config . test or ( { argv = { "nupp" , "test-runner" } } )
+end
+
 local function validateArray ( value , label , itemType , required ) 
 if value == nil then
 if required then
@@ -39142,7 +39152,7 @@ local valid , err = validateArray (
 target . entries ,
 label .. ".entries" ,
 "string" ,
-kind == "modules" or kind == "bundle" or kind == "binary" or kind == "component"
+kind == "bundle" or kind == "binary" or kind == "component"
 )
 if not valid then
 return nil , err
@@ -40951,6 +40961,7 @@ and oldState . configHash == newState . configHash
 
 
 
+
 local queue , queuedPaths = { } , { }
 local function seed ( name , path ) 
 path = normalize ( path )
@@ -41000,7 +41011,7 @@ return nil , "cannot determine module name for " .. path
 end
 seed ( name , path )
 end
-if # queue == 0 then
+if # queue == 0 and ( target . kind or "modules" ) ~= "modules" then
 return nil , "build.entries must contain at least one entry"
 end
 
@@ -44477,13 +44488,7 @@ if not config then
 io . stderr : write ( tostring ( err ) .. "\n" ) ;
 return 1
 end
-
-
-local test = config . test
-if type ( test ) ~= "table" or type ( test . argv ) ~= "table" then
-io . stderr : write ( "nupp: test.argv is not configured\n" ) ;
-return 1
-end
+local test = manifest . testConfig ( config )
 if project . build ( root , { target = test . build , outDir = asked . outDir , coverage = asked . coverage } ) ~= 0 then
 return 1
 end
@@ -46176,7 +46181,8 @@ end
 return name
 end
 
-if not buildOnly and config . test then
+if not buildOnly then
+local test = manifest . testConfig ( config )
 local name = actionName ( "test" )
 tasks [
 # tasks + 1
@@ -46184,11 +46190,11 @@ tasks [
 name = name ,
 default = false ,
 category = "project" ,
-description = "Build and run the configured test command" ,
+description = "Build and run project tests" ,
 kind = "test" ,
-buildTarget = config . test . build ,
-argv = copyStrings ( config . test . argv ) ,
-env = config . test . env ,
+buildTarget = test . build ,
+argv = copyStrings ( test . argv ) ,
+env = test . env ,
 command = jsonArray ( { "nupp" , "test" } ) ,
 }
 used [ name ] = true
@@ -85578,7 +85584,7 @@ required = { "name" } ,
 } ,
 } ,
 } ,
-detail = [[With no name, lists build targets plus configured test and self-host actions.
+detail = [[With no name, lists build targets plus the test and configured self-host actions.
 With a name, prints the task's effective configuration.]] ,
 }
 
@@ -85721,7 +85727,7 @@ local ansi = require ( "nupp.compiler.ansi" )
 
 local command = spec . command {
 name = "test" ,
-summary = "Build and run the configured test command" ,
+summary = "Build and run project tests" ,
 usage = { "nupp test [args...]" } ,
 universal = false ,
 options = {
@@ -85865,8 +85871,8 @@ required = { "index" , "durationMs" } ,
 } ,
 required = { "ok" , "total" , "passed" , "skipped" , "failed" , "tests" } ,
 } ,
-detail = [[Additional arguments are appended to test.argv from nupp.lua. Use '--' before
-a test argument named --help.
+detail = [[Additional arguments are appended to the bundled runner or test.argv from
+nupp.lua. Use '--' before a test argument named --help.
 
 --json is passed along to the test command rather than interpreted here, since
 the arguments past this point are that command's. --schema describes what the
@@ -146958,7 +146964,7 @@ setmetatable({ title =
 does not need every flag in context.
 
 - `check`, `build`, `run`, and `fmt` work with source and generated Lua.
-- `test` runs the configured test command; `coverage` runs it against a separate
+- `test` runs the bundled or configured test command; `coverage` runs it against a separate
   instrumented build and writes a report.
 - `lsp` answers semantic source questions; `explain` expands a diagnostic; and
   `reference` returns focused language, CLI, and performance skills.
@@ -146976,7 +146982,7 @@ setmetatable({ title =
 { } ,  body =
 [=[
 Run `nupp coverage` to build a separate instrumented artifact, run the
-configured tests, and write `build/reports/coverage/index.html`. It never
+project tests, and write `build/reports/coverage/index.html`. It never
 changes an ordinary build or its cache. Pass a suite name or other test
 arguments to focus a run.
 
@@ -252637,13 +252643,8 @@ return {
          app = {
             kind = "modules",
             description = "Build ${name}",
-            entries = { "main" },
          },
       },
-   },
-
-   test = {
-      argv = { "nupp", "test-runner" },
    },
 
    tasks = {
@@ -253256,11 +253257,7 @@ return {
    include = { "src" },
    build = {
       outDir = "build",
-      entries = { "${moduleName}" },
-   },
-   test = {
-      argv = { "nupp", "test-runner" },
-   },
+   }
 }
 ]],
 ["/templates/lib/nupp/${moduleName}.d.nupp"] = [[
@@ -253354,14 +253351,8 @@ return {
             kind = "modules",
             description = "Build ${name} for LÖVE",
             dialect = "luajit-compat",
-            entries = { "main" },
          },
       },
-   },
-
-   test = {
-      build = "game",
-      argv = { "nupp", "test-runner" },
    },
 
    tasks = {

@@ -1,6 +1,6 @@
 module nupp.compiler.cli.coverage
 
---[[ Run the configured test command against a separate coverage build. ]]
+--[[ Run the project test command against a separate coverage build. ]]
 
 local spec = require("nupp.compiler.cli.spec")
 local fs = require("nupp.compiler.fs")

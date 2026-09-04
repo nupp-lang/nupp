@@ -4,9 +4,9 @@ order: 580
 
 # Testing
 
-`nupp test` builds the configured target, then runs the command the manifest
-names, so a test never runs against stale output. New projects use Nupp's
-bundled runner; another harness remains a manifest choice in `test.argv`.
+`nupp test` builds the default target, then runs Nupp's bundled test runner, so
+a test never runs against stale output. A manifest can select another build
+target or harness with its optional `test` table.
 
 ```bash
 nupp test
@@ -17,8 +17,9 @@ nupp test sometest        # extra arguments reach the test command
 
 ## Test configuration
 
-`test` is a table in the manifest holding the command and what to build before
-it:
+No test configuration is needed for the bundled runner and the default build
+target. A `test` table replaces the command and can also select another target
+to build first or add environment variables:
 
 ```lua
 return {
@@ -40,16 +41,16 @@ return {
 
 | Key | Required | Means |
 | --- | --- | --- |
-| `argv` | yes | The command, as an argv array |
+| `argv` | yes | The replacement command, as an argv array |
 | `build` | no | The target to build first |
 | `env` | no | Environment variables, as string to string |
 
-`test` requires a `build` table to exist in the manifest, and a manifest
-without one reports `test requires build configuration`. The command runs with
-the project root as its working directory, and anything you pass after
-`nupp test` is appended to `argv`. The rock tree the built target depends on is
-added to `LUA_PATH` and `LUA_CPATH` for it, since the test command is a fresh
-interpreter that has never heard of that tree. See [rock
+An explicit `test` table requires a `build` table, and a manifest without one
+reports `test requires build configuration`. The command runs with the project
+root as its working directory, and anything you pass after `nupp test` is
+appended to the bundled runner or configured `argv`. The rock tree the built
+target depends on is added to `LUA_PATH` and `LUA_CPATH` for it, since the test
+command is a fresh interpreter that has never heard of that tree. See [rock
 dependencies](build.md#rock-dependencies) for where that tree comes from.
 
 ## Arguments
@@ -66,8 +67,8 @@ command. The consequences:
 
 ## Nupp's runner
 
-`nupp test-runner` is the runner Nupp ships and uses in its project templates;
-the compiler's own suite uses the same implementation. It loads every
+`nupp test-runner` is the runner Nupp uses when the manifest does not select
+another harness; the compiler's own suite uses the same implementation. It loads every
 `tests/*test.lua` and compiles every `tests/*test.nupp`, and both kinds return a
 table of test functions. `nupp test --schema` describes its JSON report.
 
@@ -113,10 +114,10 @@ floor no number of further shards moves.
 prints N of them, and `--timings=0` prints none. Under `--json` the same
 measurements are `suites` and `shards` beside `tests`.
 
-The `app`, `lib`, and `love` templates configure this runner and include a real
-suite using `nupp.test`. Running `nupp test-runner` directly skips the build;
-the normal project command is `nupp test`, which builds first and forwards its
-remaining arguments to the runner.
+The `app`, `lib`, and `love` templates include a real suite using `nupp.test`.
+Running `nupp test-runner` directly skips the build; the normal project command
+is `nupp test`, which builds first and forwards its remaining arguments to the
+runner.
 
 ::: deepdive
 The runner is written in Lua rather than Nupp because it loads the compiler
@@ -336,7 +337,7 @@ What stays: the build, the working directory, `test.env`, and the rock paths.
 ## Coverage
 
 `nupp coverage` builds a separate instrumented artifact under `build/coverage`,
-runs the configured test command, and writes a static report to
+runs the project test command, and writes a static report to
 `build/reports/coverage/index.html` by default:
 
 ```bash

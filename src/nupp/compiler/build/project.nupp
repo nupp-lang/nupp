@@ -1001,13 +1001,7 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
         io.stderr:write(tostring(err) .. "\n");
         return 1
     end
-    -- The manifest has been validated, so a `test` that is there is a table; the guard
-    -- below is still what decides whether there is one at all.
-    local test = config.test as manifest.Test
-    if type(test) ~= "table" or type(test.argv) ~= "table" then
-        io.stderr:write("nupp: test.argv is not configured\n");
-        return 1
-    end
+    local test = manifest.testConfig(config)
     if project.build(root, {target = test.build, outDir = asked.outDir, coverage = asked.coverage}) ~= 0 then
         return 1
     end

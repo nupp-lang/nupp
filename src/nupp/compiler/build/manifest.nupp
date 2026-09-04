@@ -65,6 +65,8 @@ type manifest.Target = {
     platforms: {string}?,
     platformOutputs: {[string]: string}?,
 
+    --- Entry modules for a deliverable target. A modules target compiles its whole
+    --- source set and needs no entry.
     entries: {string}?,
 
     --- The optimization level this target builds at when the command line does
@@ -127,7 +129,7 @@ type manifest.Build = {
 
 --- The command `nupp test` runs, and what it runs with.
 type manifest.Test = {
-    --- Required: a test section that names no command configures nothing.
+    --- The test command. An omitted test section uses Nupp's bundled runner.
     argv: {string},
 
     --- Which target to build first.
@@ -188,6 +190,14 @@ type manifest.Config = {
     selfHost: manifest.SelfHost?,
     [string]: any
 }
+
+--- Returns the configured test action, or the built-in runner against the default
+--- target.
+--- @param config The validated project manifest.
+--- @return The effective test action.
+function manifest.testConfig(config: manifest.Config): manifest.Test
+    return config.test or ({argv = {"nupp", "test-runner"}} as manifest.Test)
+end
 
 local function validateArray(value, label, itemType, required)
     if value == nil then
@@ -861,7 +871,7 @@ local function validateTarget(target, label, dependencies)
         target.entries,
         label .. ".entries",
         "string",
-        kind == "modules" or kind == "bundle" or kind == "binary" or kind == "component"
+        kind == "bundle" or kind == "binary" or kind == "component"
     )
     if not valid then
         return nil, err

@@ -16,8 +16,7 @@ return {
       default = "app",
       targets = {
          app = {
-            kind = "modules",
-            entries = { "app.main" }
+            kind = "modules"
          }
       }
    }
@@ -31,10 +30,11 @@ project's source set: every `.nupp` under the manifest's include roots, minus
 the build output. Explicit source builds remain available as
 `nupp build file.nupp`.
 
-`entries` says where execution starts, and for a bundle which chunk becomes the
-body. It does not say what exists. A build compiles what the project is written
-in, the way a compiler compiles a source set, rather than walking `require`
-edges out from an entry.
+A `modules` build executes nothing, so it needs no entry and compiles the whole
+source set. A bundle, binary or component requires `entries` to say where
+execution starts and which chunk becomes the body. Entries do not say what
+exists. A build compiles what the project is written in, the way a compiler
+compiles a source set, rather than walking `require` edges out from an entry.
 
 ::: deepdive
 The walk answers three questions at once and gets two of them wrong:
@@ -99,8 +99,10 @@ build = {
 }
 ```
 
-Entries may be module names or `.nupp` paths. Generated Lua preserves module
-paths beneath `outDir`, so `app.main` becomes `build/app/main.lua`.
+Entries are optional for a `modules` target and required for a bundle, binary,
+or component. They may be module names or `.nupp` paths. Generated Lua
+preserves module paths beneath `outDir`, so `app.main` becomes
+`build/app/main.lua`.
 
 ### Dialect selection
 
@@ -159,8 +161,9 @@ and [type dependencies](#type-dependencies). Dependency acquisition and usage ar
 separate: target dependencies ship with the target, `compileDependencies` are visible
 only while compiling, and a dependency selected by `generators.*.using` is a host
 tool. See [Service Providers](service-providers.md) for generators, runtime service
-lookup, and the compatibility rule for ambient type dependencies. The `test` action names the target
-to build first and the command to run:
+lookup, and the compatibility rule for ambient type dependencies. `nupp test`
+uses the default target and bundled runner. The optional `test` action names a
+different target to build first and command to run:
 
 ```lua
 test = {
@@ -218,7 +221,7 @@ is that a setting appears not to work.
 
 ## Listing targets
 
-`nupp tasks` lists the manifest's build targets, configured test action,
+`nupp tasks` lists the manifest's build targets, default or configured test action,
 self-host and fixpoint action, and any named `tasks` entries, and marks the
 default build target. `nupp tasks <name>` prints the effective target
 configuration, including manifest-level defaults such as `outDir`. Both forms

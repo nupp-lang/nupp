@@ -191,7 +191,8 @@ local function configuredTasks(config: manifest.Config, buildOnly: boolean?): {t
         return name
     end
 
-    if not buildOnly and config.test then
+    if not buildOnly then
+        local test = manifest.testConfig(config)
         local name = actionName("test")
         tasks[
             #tasks + 1
@@ -199,11 +200,11 @@ local function configuredTasks(config: manifest.Config, buildOnly: boolean?): {t
             name = name,
             default = false,
             category = "project",
-            description = "Build and run the configured test command",
+            description = "Build and run project tests",
             kind = "test",
-            buildTarget = config.test.build,
-            argv = copyStrings(config.test.argv),
-            env = config.test.env,
+            buildTarget = test.build,
+            argv = copyStrings(test.argv),
+            env = test.env,
             command = jsonArray({"nupp", "test"}),
         }
         used[name] = true
@@ -262,7 +263,7 @@ end
 ---
 --- @param root the project directory, "." by default
 --- @param requested one task's name, or nil for all of them
---- @param opts `buildOnly` leaves out the configured test and self-host actions
+--- @param opts `buildOnly` leaves out the test and self-host actions
 --- @return the task, or the whole list
 --- @return why not, ready to print
 function tasks.describe(root: string?, requested: string?, opts: {buildOnly: boolean?}?): tasks.Description?, string?

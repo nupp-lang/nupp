@@ -523,6 +523,24 @@ return {
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.cliListsTheDefaultTestAction()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {entries = {"main"}},
+}
+]],
+      ["src/main.nupp"] = "return true\n",
+   })
+   local encoded = capture(("cd '%s' && '%s' tasks test --json"):format(dir, NUPP))
+   local decoded = require("testjson").decode(encoded)
+   assertEq(decoded.kind, "test", "JSON identifies the default test action")
+   assertEq(decoded.argv[1], "nupp", "the default test action uses Nupp")
+   assertEq(decoded.argv[2], "test-runner", "the default test action uses the bundled runner")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.cliReportsManifestValidationErrorsWhenListingTasks()
    local dir = tempProject({
       ["nupp.lua"] = [[
@@ -552,10 +570,24 @@ return {
    build = {
       outDir = "build",
       default = "app",
-      targets = { app = { entries = { "app.main" } } },
+      targets = { app = {} },
    },
 }
 ]]
+
+function M.modulesBuildNeedsNoEntry()
+   local dir = tempProject({
+      ["nupp.lua"] = SOURCE_SET_MANIFEST,
+      ["src/app/first.nupp"] = "return 'first'\n",
+      ["src/app/second.nupp"] = "return 'second'\n",
+   })
+   local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
+   assert(exists(dir .. "/build/app/first.lua"),
+      "an entryless modules build compiles the first source: " .. out)
+   assert(exists(dir .. "/build/app/second.lua"),
+      "an entryless modules build compiles the second source: " .. out)
+   os.execute("rm -rf '" .. dir .. "'")
+end
 
 function M.compilesModulesNothingRequires()
    local dir = tempProject({

@@ -3,7 +3,7 @@ module nupp.compiler.cli.tasks
 --[[
 `nupp tasks`: what the manifest configured, and what each of those means.
 
-With no name, the build targets plus the configured test and self-host actions.
+With no name, the build targets plus the test and configured self-host actions.
 With a name, that task's effective configuration, meaning what a build would actually
 use, after the defaults have been filled in.
 ]]
@@ -67,7 +67,7 @@ local command = spec.command{
             },
         },
     },
-    detail = [[With no name, lists build targets plus configured test and self-host actions.
+    detail = [[With no name, lists build targets plus the test and configured self-host actions.
 With a name, prints the task's effective configuration.]],
 }
 

@@ -172,8 +172,8 @@ directory you invoked `nupp task` from.
 
 ## Listing tasks and targets
 
-`nupp tasks` covers everything the manifest configured, not only the `tasks`
-table: each build target, with the default one marked, the configured test
+`nupp tasks` covers everything the project can run, not only the `tasks` table:
+each build target, with the default one marked, the default or configured test
 command, the self-host action `nupp fixpoint` runs, and each named task.
 
 ```text [nupp tasks]

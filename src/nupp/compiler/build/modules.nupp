@@ -1090,8 +1090,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- Eliminating dead code is a linker's job and should be invisible when it happens.
     -- Measured on this compiler, the walk was removing one module out of seventy-one.
     --
-    -- Entries still say where execution starts, and for a bundle which chunk becomes
-    -- the body. They no longer say what exists.
+    -- Deliverable entries still say where execution starts, and for a bundle which
+    -- chunk becomes the body. A modules build executes nothing and therefore needs no
+    -- entry. Entries never say what exists.
     local queue, queuedPaths = {}, {}
     local function seed(name, path)
         path = normalize(path)
@@ -1141,7 +1142,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
             seed(name, path)
         end
-        if #queue == 0 then
+        if #queue == 0 and (target.kind or "modules") ~= "modules" then
             return nil, "build.entries must contain at least one entry"
         end
 
