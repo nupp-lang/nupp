@@ -17,16 +17,6 @@ assert(source:fileName() == "main.nupp")
 Every operation answers a new path, and two paths are equal when their native
 text is. `tostring(path)` and `path:toString()` return that same text.
 
-::: deepdive Paths live in a module of their own
-Every path spelling rule is Nupp, and a required AOT build compiles
-normalization while an AOT-off build retains its allocation-light scalar body.
-Only current-directory and canonical-path queries cross a three-function host
-provider, because those answers are environment state rather than path
-arithmetic. `nupp.io.uri` is separated from `nupp.io` for the same reason. See [Compiler-native
-features](docs/learn/projects/build.md#compiler-native-features) for how a reached
-module selects the feature it needs.
-:::
-
 ## Building a path
 
 `path.newPath(first, parts...)` joins its components using the current platform's
