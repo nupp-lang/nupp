@@ -81,18 +81,19 @@ Structured task scopes and worker pools compose concurrent work at different
 isolation boundaries.
 
 ```nupp
-local suspension = nupp.suspension
+local tasks = nupp.tasks
 local time = nupp.time
 
-local function waitFor(milliseconds: number): number
+local function waitFor(results: {number}, index: integer, milliseconds: number): nil
     time.sleep(milliseconds)
-    return milliseconds
+    results[index] = milliseconds
 end
 
-local results = suspension.all({
-    || -> waitFor(20),
-    || -> waitFor(10),
-})
+local results: {number} = {}
+with scope = tasks.open() do
+    scope:spawn(results, 1, 20, waitFor)
+    scope:spawn(results, 2, 10, waitFor)
+end
 
 print(results[1], results[2])
 ```

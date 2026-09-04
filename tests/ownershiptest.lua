@@ -3442,11 +3442,11 @@ end
 function M.raceDropsATakingLoserThatWasNeverEntered()
    local source = CLOSURE_RESOURCE .. table.concat({
       "",
-      "local suspension = require('nupp.suspension')",
+      "local tasks = require('nupp.tasks')",
       "local entered = 0",
       "local first = openClosureResource(1)",
       "local second = openClosureResource(2)",
-      "local answer, winner = suspension.race({",
+      "local answer, winner = tasks.race({",
       "   function(): integer takes (first)",
       "      return first.value",
       "   end,",
@@ -3473,9 +3473,9 @@ end
 function M.raceAcceptsBorrowedClosuresWithoutRetainingThem()
    assertClean(CLOSURE_RESOURCE .. table.concat({
       "",
-      "local suspension = require('nupp.suspension')",
+      "local tasks = require('nupp.tasks')",
       "local resource = openClosureResource(7)",
-      "local answer = suspension.race({",
+      "local answer = tasks.race({",
       "   function(): integer borrows (resource)",
       "      return resource.value",
       "   end,",

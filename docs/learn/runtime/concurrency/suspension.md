@@ -271,46 +271,12 @@ See [NEP 5](../../../neps/0005-suspension.md#handled-suspension-is-not-a-raw-cor
 for more information.
 :::
 
-## Combinators interleave waits
+## Running several waits together
 
-The suspension module runs several zero-argument functions concurrently:
-
-```nupp
-local process = nupp.io.process
-local suspension = nupp.suspension
-
-local function version(program: string): string
-    local child = new process.Process({args = {program, "--version"}} as process.Options)
-    local result = assert(child:communicate())
-    child:close()
-    return result.output
-end
-
-local outputs = suspension.all({function(): string
-    return version("cc")
-end, function(): string
-    return version("lua")
-end,})
-
-print(outputs[1], outputs[2])
-```
-
-Each body runs in a coroutine. One body parking lets another run, and when every
-body is parked the driver parks on the surrounding handler or drives the
-readiness sources itself.
-
-- `all` returns values in input order and raises the first branch error after
-  every branch settles.
-- `gather` returns parallel value and error arrays for a caller that handles
-  every failure.
-- `race` returns the first settled value and its one-based index, then cancels
-  and unwinds the other branches.
-- `batch` has the behavior of `all` with at most `limit` branches in flight.
-
-These helpers provide concurrency, not CPU parallelism. Their coroutines share
-one LuaJIT state and run one at a time between suspensions. See
-[Workers](workers.md) for running CPU work on native threads with isolated
-heaps.
+Waiting on more than one thing at a time is a
+[task scope](task-scopes.md), which owns the coroutines it starts and settles
+them before it returns. This module supplies the effect those coroutines wait
+through, and nothing that starts one.
 
 ## Libraries register readiness
 

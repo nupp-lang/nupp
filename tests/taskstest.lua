@@ -496,4 +496,270 @@ function M.aHostBarrierStaysVisibleThroughAScope()
       "the barrier was not visible inside the scope: " .. tostring(problem))
 end
 
+-- Whole-family calls: `gather` and `race` over a family that is complete at the call.
+--
+-- These need branches that really wait, because a family over work that never
+-- suspends proves only that a loop can call functions in order. The gate below is a
+-- pump plus a wait that settles after a given number of passes, which is the smallest
+-- thing that makes interleaving observable.
+local function gate()
+   local pending, cancelled = {}, {}
+   local source = suspension.source("gate", 10, function()
+      local settled = 0
+      for index = #pending, 1, -1 do
+         local entry = pending[index]
+         entry.left = entry.left - 1
+         if entry.left <= 0 then
+            table.remove(pending, index)
+            entry.resume(entry.value)
+            settled = settled + 1
+         end
+      end
+      return settled
+   end)
+
+   return {
+      -- Waits `ticks` passes of the pump, then answers `value`.
+      wait = function(ticks, value)
+         return suspension.suspend("gate-wait", function(resume)
+            local entry = {resume = resume, left = ticks, value = value}
+            pending[#pending + 1] = entry
+            return function()
+               cancelled[tostring(value)] = true
+               for index, candidate in ipairs(pending) do
+                  if candidate == entry then
+                     table.remove(pending, index)
+                     break
+                  end
+               end
+            end
+         end)
+      end,
+      wasCancelled = function(value) return cancelled[tostring(value)] == true end,
+      outstanding = function() return #pending end,
+      release = function() source:release() end,
+   }
+end
+
+local function handled(handler, body, ...)
+   local installation = suspension.install(handler)
+   local answers = {pcall(body, ...)}
+   installation:release()
+   if not answers[1] then error(answers[2], 0) end
+   return unpack(answers, 2, table.maxn(answers))
+end
+
+function M.gatherAnswersEveryBranchInTheOrderItWasGiven()
+   local g = gate()
+   -- Deliberately settling backwards: if the driver answered in completion order this
+   -- would come back reversed.
+   local values = tasks.gather({
+      function() return g.wait(3, "first") end,
+      function() return g.wait(2, "second") end,
+      function() return g.wait(1, "third") end,
+   })
+   g.release()
+   assertEq(values[1], "first", "branch one")
+   assertEq(values[2], "second", "branch two")
+   assertEq(values[3], "third", "branch three")
+end
+
+function M.gatherRunsBranchesTogetherRatherThanInTurn()
+   local g = gate()
+   local trace = {}
+   tasks.gather({
+      function()
+         trace[#trace + 1] = "a:start"
+         g.wait(2)
+         trace[#trace + 1] = "a:end"
+      end,
+      function()
+         trace[#trace + 1] = "b:start"
+         g.wait(1)
+         trace[#trace + 1] = "b:end"
+      end,
+   })
+   g.release()
+   -- Run in turn, this would be a:start a:end b:start b:end. Together, b starts while a
+   -- is parked and finishes first, because it asked for less waiting.
+   assertEq(table.concat(trace, " "), "a:start b:start b:end a:end", "interleaved")
+end
+
+function M.gatherReportsFailuresBesideValues()
+   local g = gate()
+   local values, errors = tasks.gather({
+      function() return g.wait(1, "fine") end,
+      function()
+         g.wait(1)
+         error("no good", 0)
+      end,
+   })
+   g.release()
+   assertEq(values[1], "fine", "the branch that returned")
+   assertEq(errors[1], nil, "and had no error")
+   assertEq(values[2], nil, "the branch that raised produced no value")
+   assertEq(errors[2], "no good", "and its error is reported rather than raised")
+end
+
+-- The one thing a scope will not do. A scope is fail-fast, so this is the whole
+-- reason `gather` is a separate call rather than a spelling of one.
+function M.gatherLetsASiblingFinishAfterABranchFails()
+   local g = gate()
+   local finished = 0
+   local values, errors = tasks.gather({
+      function()
+         g.wait(1)
+         error("branch one failed", 0)
+      end,
+      function()
+         g.wait(3)
+         finished = finished + 1
+         return "late"
+      end,
+   })
+   g.release()
+   assertEq(errors[1], "branch one failed", "the branch that raised")
+   assertEq(finished, 1, "the sibling still ran to completion")
+   assertEq(values[2], "late", "and reported its value")
+   assertEq(g.outstanding(), 0, "no subscription was left waiting")
+end
+
+function M.raceAnswersWhicheverSettlesFirst()
+   local g = gate()
+   local value, index = tasks.race({
+      function() return g.wait(5, "slow") end,
+      function() return g.wait(1, "quick") end,
+   })
+   g.release()
+   assertEq(value, "quick", "the winner's value")
+   assertEq(index, 2, "and which branch won")
+end
+
+function M.raceAnswersAFalseWinnerRatherThanNothing()
+   local g = gate()
+   -- An `and`/`or` over the winner's value would turn this into a loss with no index.
+   local value, index = tasks.race({
+      function() return g.wait(4, "slow") end,
+      function() g.wait(1) return false end,
+   })
+   g.release()
+   assertEq(value, false, "the winner's value")
+   assertEq(index, 2, "and which branch won")
+end
+
+function M.raceCancelsTheBranchesItAbandons()
+   local g = gate()
+   tasks.race({
+      function() return g.wait(4, "slow") end,
+      function() return g.wait(1, "quick") end,
+   })
+   -- The loser was parked, so abandoning it has to unsubscribe: a subscription left in
+   -- place would keep the pump polling for a wait nobody is doing.
+   assertTrue(g.wasCancelled("slow"), "the loser unsubscribed")
+   assertTrue(not g.wasCancelled("quick"), "the winner did not")
+   assertEq(g.outstanding(), 0, "and nothing was left pending")
+   g.release()
+end
+
+function M.raceUnwindsTheLoserThroughItsCleanup()
+   local g = gate()
+   local cleaned = false
+   tasks.race({
+      function()
+         local ok = pcall(function() return g.wait(4, "slow") end)
+         cleaned = not ok
+         return "slow"
+      end,
+      function() return g.wait(1, "quick") end,
+   })
+   g.release()
+   assertTrue(cleaned, "the abandoned branch was raised through, not dropped")
+end
+
+function M.raceRaisesWhereTheWinnerWonByFailing()
+   local g = gate()
+   local problem = raises(function()
+      tasks.race({
+         function()
+            g.wait(1)
+            error("first out of the gate", 0)
+         end,
+         function() return g.wait(4, "slow") end,
+      })
+   end)
+   g.release()
+   assertEq(problem, "first out of the gate", "the winner's failure is the call's")
+end
+
+function M.aFamilyCallNestsInsideAnInstalledHandler()
+   -- The driver parks on whoever is above it, so under a handler its own wait must
+   -- reach that handler rather than itself. This is the case that deadlocks if the
+   -- handler is installed around the driver instead of inside each branch.
+   local g = gate()
+   local parks = 0
+   local handler = {
+      park = function(_, waiting)
+         parks = parks + 1
+         while not waiting:ready() do
+            suspension.poll()
+         end
+      end,
+      canPark = function() return true end,
+      shutdown = function() end,
+   }
+   local values = handled(handler, function()
+      return tasks.gather({
+         function() return g.wait(2, "x") end,
+         function() return g.wait(1, "y") end,
+      })
+   end)
+   g.release()
+   assertEq(values[1], "x", "the nested family answered")
+   assertEq(values[2], "y", "both branches")
+   assertTrue(parks > 0, "and the driver parked on the outer handler")
+end
+
+function M.nestedFamilyCallsPreserveAnOuterBarrier()
+   -- A family call installs a private driver, but that driver owns only branch
+   -- scheduling. It must not turn a host barrier back into a place that can park, and
+   -- a second family inside the first must keep forwarding the same refusal.
+   local cancelled = false
+   local handler = {
+      park = function()
+         error("the refused wait reached the outer park", 0)
+      end,
+      canPark = function()
+         return false
+      end,
+      shutdown = function() end,
+   }
+   local saw = nil
+   local _, errors = handled(handler, function()
+      return tasks.gather({function()
+         local inner = select(2, tasks.gather({function()
+            saw = suspension.canSuspend()
+            return suspension.suspend("barred branch", function()
+               return function()
+                  cancelled = true
+               end
+            end)
+         end,}))
+         error(inner[1], 0)
+      end,})
+   end)
+   assertEq(saw, false, "the outer barrier remained visible through both drivers")
+   assertEq(cancelled, true, "the refused subscription was cancelled")
+   assertTrue(tostring(errors[1]):find("cannot suspend here", 1, true) ~= nil,
+      "the barrier reported the attempted suspension: " .. tostring(errors[1]))
+end
+
+function M.aFamilyOverNothingAnswersNothing()
+   local values, errors = tasks.gather({})
+   assertEq(#values, 0, "no branches, no values")
+   assertEq(#errors, 0, "and no errors")
+   local value, index = tasks.race({})
+   assertEq(value, nil, "racing nothing has no winner")
+   assertEq(index, nil, "and no index")
+end
+
 return M

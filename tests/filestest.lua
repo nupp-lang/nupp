@@ -356,14 +356,14 @@ end
 -- every later transfer may hold until nothing fits at all.
 function M.aCancelledTransferGivesItsLaneSlotBack()
    local files = ready()
-   local suspension = require("nupp.suspension")
+   local tasks = require("nupp.tasks")
    assert(files.createDirectory(inRoot("cancel")))
    assert(files.write(inRoot("cancel/large.bin"), ("drop"):rep(1000000)))
    test.equal(files.pendingTransfers(), 0, "the lane starts idle")
 
    -- The read is large enough to park, and the other branch settles at once, so
    -- the race abandons the read while it is still in flight.
-   local value = suspension.race({
+   local value = tasks.race({
       function() return assert(files.read(inRoot("cancel/large.bin"))) end,
       function() return "settled first" end,
    })

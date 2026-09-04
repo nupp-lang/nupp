@@ -7,6 +7,7 @@
 -- could break it.
 local time = require("nupp.time")
 local suspension = require("nupp.suspension")
+local tasks = require("nupp.tasks")
 local native = require("nupp.compiler.native")
 
 local M = {}
@@ -88,7 +89,7 @@ end
 function M.concurrentSleepsShareOneSourceAndFireInDeadlineOrder()
    local order = {}
    local started = time.now()
-   suspension.all({
+   tasks.gather({
       function() time.sleep(60) order[#order + 1] = 60 end,
       function() time.sleep(20) order[#order + 1] = 20 end,
       function() time.sleep(40) order[#order + 1] = 40 end,
@@ -106,7 +107,7 @@ end
 
 function M.anAbandonedWaitTakesItsTimerWithIt()
    local started = time.now()
-   local answer, which = suspension.race({
+   local answer, which = tasks.race({
       function() time.sleep(2000) return "slow" end,
       function() time.sleep(20) return "fast" end,
    })

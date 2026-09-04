@@ -6,6 +6,7 @@ local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
 local nativeStage = require("nupp.compiler.build.native")
 local suspension = require("nupp.suspension")
+local tasks = require("nupp.tasks")
 
 local M = {}
 
@@ -272,7 +273,7 @@ end
 -- connection until the client itself closes.
 function M.aCancelledPlainRequestReleasesItsTransfer()
    local client = ready()
-   local value = suspension.race({
+   local value = tasks.race({
       function() return client:send({url = endpoint("/slow")}) end,
       function() return "settled first" end,
    })
@@ -296,7 +297,7 @@ function M.aCancelledStreamingUploadReleasesItsReaderAndTransfer()
       read = function() error("readInto is the upload path") end,
       close = function() return true end,
    }
-   local value = suspension.race({
+   local value = tasks.race({
       function()
          return client:send({
             url = endpoint("/slow-upload"), method = "POST",
@@ -317,7 +318,7 @@ function M.closingAResponseCancelsItsPendingBody()
    local client = ready()
    local response, reason = client:send({url = endpoint("/slow-body")})
    assert(response, reason)
-   local value = suspension.race({
+   local value = tasks.race({
       function() return response.body:read(64) end,
       function() return "settled first" end,
    })

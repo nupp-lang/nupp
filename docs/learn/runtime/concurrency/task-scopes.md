@@ -152,12 +152,53 @@ raises it rather than the scope waiting for the block's next task operation.
 
 An await settles against the scope before its named task. It can therefore
 raise a sibling's failure: the application scope is fail-fast, rather than a
-supervisor. Use [`suspension.gather`](suspension.md#combinators-interleave-waits)
-when failures should remain beside individual results.
+supervisor. Use [`gather`](#whole-family-calls) when failures should remain
+beside individual results.
 
 The block is not a child of the scope, so a failure the block itself raises does
 not cancel the children: they run to completion before the failure propagates.
 Call `scope:cancel()` first where that is not wanted.
+
+## Whole-family calls
+
+A family that is complete at the call does not need a block to hold it.
+`nupp.tasks.gather` and `nupp.tasks.race` take the bodies, run each in a
+coroutine of its own, and settle every one before returning, so neither answers
+a scope a caller has to discharge.
+
+`gather` returns parallel value and error arrays, indexed as the bodies were,
+for a caller who has to see every outcome:
+
+```nupp
+const values, errors = nupp.tasks.gather({
+    function(): string return fetch(primary) end,
+    function(): string return fetch(mirror) end,
+})
+```
+
+Its branches are fail-soft, which is the one thing a scope will not do: a
+branch that raises reports its error beside its siblings' values rather than
+cancelling them.
+
+`race` returns the first settled value and its one-based index, then cancels
+and unwinds the rest:
+
+```nupp
+const answer, which = nupp.tasks.race({
+    function(): Head return upload(transfer) end,
+    function(): Head return head(transfer) end,
+})
+```
+
+A loser is resumed once so its park cancels and its branch unwinds through
+whatever cleanup it had, and one that had not started never starts. Because the
+call does not return until every body it entered has settled, a body may be
+moved into it: an owner captured by a `race` branch is consumed or dropped
+exactly once, which is what `spawn` cannot promise for a handle that outlives
+it.
+
+A family opened inside a bounded scope inherits that scope's deadline, and
+raises its cancellation rather than its branch outcomes where it passes.
 
 ## Deadlines
 

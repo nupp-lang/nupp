@@ -57,59 +57,38 @@ function suite.test(provider: any): (boolean, string?)
         added:release()
         middle:release()
 
-        local values = provider.all({
-            function(): integer
-                return 1
+        -- A coroutine created through the provider inherits the installed handler, so a
+        -- park performed inside one -- a protected call's forwarder, a generated
+        -- cleanup wrapper -- reaches the driver that owns the coroutine that made it,
+        -- rather than the blocking fallback.
+        local inheritedResume: any = nil
+        local parkedInside: any = nil
+        local inheriting = provider.install({
+            park = function(_: any, waiting: any): nil
+                parkedInside = coroutine.running()
+                inheritedResume(7)
+                assert(waiting:ready(), "the resumed subscription must report itself ready")
             end,
-            function(): integer
-                return 2
+            canPark = function(): boolean
+                return true
+            end,
+            shutdown = function(): nil
             end,
         })
-        assert(values[1] == 1 and values[2] == 2, "all must preserve branch order")
-        local gathered, errors = provider.gather({
-            function(): integer
-                return 3
-            end,
-            function(): integer
-                error("contract failure")
-            end,
-        })
-        assert(gathered[1] == 3 and errors[1] == nil and errors[2] ~= nil, "gather must isolate branch failures")
+        local child = provider.create(function(): any
+            return provider.suspend("contract.inherited", function(resume: function(any)): function()
+                inheritedResume = resume
 
-        -- A branch may run part of its body on a coroutine it creates through the
-        -- provider -- a protected call's forwarder, a generated cleanup wrapper --
-        -- and a park from that coroutine must still wake the branch it belongs to.
-        local nestedResume: any = nil
-        local nested = provider.all({
-            function(): any
-                local child = provider.create(function(): any
-                    return provider.suspend("contract.nested", function(resume: function(any)): function()
-                        nestedResume = resume
-                        return function(): nil
-                            nestedResume = nil
-                        end
-                    end)
-                end)
-                local passed: any = nil
-                while true do
-                    local resumed, value = coroutine.resume(child, passed)
-                    assert(resumed, tostring(value))
-                    if coroutine.status(child) == "dead" then
-                        return value
-                    end
-                    passed = coroutine.yield(value)
+                return function(): nil
+                    inheritedResume = nil
                 end
-            end,
-            function(): any
-                assert(nestedResume ~= nil, "the nested park must subscribe before its sibling runs")
-                local resume = nestedResume
-                nestedResume = nil
-                resume(42)
-
-                return 0
-            end,
-        })
-        assert(nested[1] == 42, "a nested coroutine's park must wake the branch that owns it")
+            end)
+        end)
+        local ranChild, produced = coroutine.resume(child)
+        inheriting:release()
+        assert(ranChild, tostring(produced))
+        assert(produced == 7, "an inherited handler must answer a park made inside the coroutine")
+        assert(parkedInside == child, "and must be reached from the coroutine that parked")
 
         local resumed: any = nil
         local parkedOutward = false

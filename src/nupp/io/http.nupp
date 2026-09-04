@@ -31,31 +31,30 @@ a limit rather than assembled first.
 ## Requests that go out together
 
 Requests share a client and go out together when something drives them
-together. `nupp.suspension` runs each body in a coroutine of its own, and the
-one waiting on the network is what lets the next one send:
+together. A [task scope](docs/learn/runtime/concurrency/task-scopes.md) runs each body in a
+coroutine of its own, and the one waiting on the network is what lets the next
+one send:
 
 ```nupp
 local http = nupp.io.http
-local suspension = nupp.suspension
+local tasks = nupp.tasks
 local uri = nupp.io.uri
 
 local client = new http.Client()
 
-local function status(url: string): integer
+local function storeStatus(codes: {integer}, index: integer, url: string): nil
     local response = assert(client:send(new http.Request(
         url = assert(uri.newURI(url))
     )))
-    local code = response.status
+    codes[index] = response.status
     response:close()
-
-    return code
 end
 
-local codes = suspension.all({function(): integer
-    return status("https://example.com/")
-end, function(): integer
-    return status("https://example.org/")
-end,})
+local codes: {integer} = {}
+with scope = tasks.open() do
+    scope:spawn(codes, 1, "https://example.com/", storeStatus)
+    scope:spawn(codes, 2, "https://example.org/", storeStatus)
+end
 
 print(codes[1], codes[2])
 client:close()
@@ -65,7 +64,7 @@ A body calls a function holding the client rather than capturing the client
 itself, because a closure that captures an owner directly cannot be stored.
 
 Two bounds decide how much of that happens at once. `maxConnectionsPerHost`
-bounds what one host is asked to carry, and `suspension.batch` bounds how many
+bounds what one host is asked to carry, and a scope's `limit` bounds how many
 requests are in flight at all.
 
 ## Ownership
@@ -84,6 +83,7 @@ reader body transferred into it.
 ]]
 
 local suspension = require("nupp.suspension")
+local tasks = require("nupp.tasks")
 -- The byte contracts, paths and URIs are reached through the modules that declare
 -- them rather than through `nupp.io`, which re-exports them: this is one of the
 -- modules `nupp.io` is assembled from, and naming the assembly from inside it would
@@ -1878,7 +1878,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
         end
 
         local ok, value = pcall(function(): any takes (uploadAndWait)
-            local answer = suspension.race({
+            local answer = tasks.race({
                 uploadAndWait,
                 function(): any
                     return waitHead(self, transfer, false)

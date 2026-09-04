@@ -65,18 +65,14 @@ local CONTRACTS: {any} = {
         modules = {["nupp.suspension"] = ""},
         members = {
             functions = {
-                "all",
-                "batch",
                 "canSuspend",
                 "create",
                 "delegatedCanPark",
                 "delegatedPark",
                 "destroyInstalled",
-                "gather",
                 "handled",
                 "install",
                 "poll",
-                "race",
                 "source",
                 "suspend",
             },

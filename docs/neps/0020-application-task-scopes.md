@@ -63,7 +63,7 @@ pretending their heaps or scheduling are the same.
 ### Neither existing family is an application scope
 
 `nupp.suspension` runs a fixed family through its
-[combinators](../learn/runtime/concurrency/suspension.md#combinators-interleave-waits), each call
+[combinators](../learn/runtime/concurrency/task-scopes.md#whole-family-calls), each call
 owning its complete family and returning only after that family has settled,
 while `suspension.create` supplies the lower-level operation and deliberately
 says nothing about the created coroutine's result, failure or lifetime.

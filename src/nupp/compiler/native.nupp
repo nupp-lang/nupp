@@ -283,9 +283,7 @@ local FEATURES: {[string]: native.Feature} = {
     [
         "runtime.heap"
     ] = {name = "heap", module = "nupp.mem.heap", runtimeModule = "nupp.mem.heap", requires = {"runtime.spanview"},},
-    [
-        "native.http"
-    ] = {
+    ["native.http"] = {
         name = "http",
         module = "nupp.io.http",
         runtimeModule = "nupp.io.http",
@@ -294,7 +292,17 @@ local FEATURES: {[string]: native.Feature} = {
         providerFeature = "http",
         library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.suspension", "runtime.native_v2", "native.path", "native.time", "native.uri", "stdlib.io"},
+        -- A request that races its upload against the response head performs one
+        -- through `nupp.tasks`, so the task runtime travels with the client.
+        requires = {
+            "runtime.suspension",
+            "runtime.tasks",
+            "runtime.native_v2",
+            "native.path",
+            "native.time",
+            "native.uri",
+            "stdlib.io",
+        },
     },
     -- SHA-256 stopped being native when `nupp.data.digest` replaced the C one,
     -- so this selects a runtime module rather than a provider. The effect keeps

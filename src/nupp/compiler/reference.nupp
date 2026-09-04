@@ -1948,14 +1948,14 @@ registered readiness sources on the current thread, which is what a
 command-line program wants. `NUPP2706` rejects a jump into the region, which
 would bypass installation.
 
-`nupp.suspension` runs several zero-argument bodies concurrently, each in its
-own coroutine, and one body parking is what lets the next one run:
+`nupp.tasks` runs several bodies concurrently, each in its own coroutine, and
+one body parking is what lets the next one run. A scope opened with
+`nupp.tasks.open` owns children started over time, bounds them with `limit`,
+and settles them where its `with` ends. Two whole-family calls take a complete
+family instead:
 
-- `all` answers every value in input order, raising the first branch error once
-  every branch has settled.
 - `gather` answers values and errors side by side, for a caller handling each.
 - `race` answers the first settled value and its index, then cancels the rest.
-- `batch` is `all` with at most `limit` branches in flight.
 
 These share one LuaJIT state and run one at a time between suspensions, so they
 are concurrency and not CPU parallelism. Cores are `nupp.workers`.
@@ -1964,36 +1964,35 @@ A closure that captures an owner directly cannot be stored, so a body that
 shares one client calls a function holding it rather than closing over it.
 
 See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for the handler contract,
-cancellation, and the protocol a waiting library subscribes through.
+cancellation, and the protocol a waiting library subscribes through, and
+[task-scopes.md](docs/learn/runtime/concurrency/task-scopes.md) for what owns the coroutines.
 ]=],
         example = [=[
 local m = {}
 
 local http = require("nupp.io.http")
-local suspension = require("nupp.suspension")
+local tasks = require("nupp.tasks")
 local uri = require("nupp.io.uri")
 
 function m.statuses(urls: {string}): {integer}
     local client = new http.Client()
 
-    local function status(url: string): integer
+    local function storeStatus(codes: {integer}, index: integer, url: string): nil
         local response = assert(client:send(new http.Request(
             url = assert(uri.newURI(url))
         )))
-        local code = response.status
+        codes[index] = response.status
         response:close()
-
-        return code
     end
 
-    local bodies: {function(): integer} = {}
-    for index, url in ipairs(urls) do
-        bodies[index] = function(): integer
-            return status(url)
+    local codes: {integer} = {}
+    with scope = tasks.open() do
+        for index, url in ipairs(urls) do
+            scope:spawn(codes, index, url, storeStatus)
         end
     end
 
-    return suspension.all(bodies)
+    return codes
 end
 
 return m
