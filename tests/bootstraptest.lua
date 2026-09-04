@@ -217,4 +217,56 @@ function M.trackedBootstrapBuildsCurrentCompiler()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Every resource the stage-zero bundle carries is embedded verbatim, so a
+-- checkout that translates line endings builds a bundle whose bytes cannot
+-- match the tracked ones. Windows is where that happens, and all `nupp
+-- fixpoint` says there is that the bootstrap is stale, which reads as a missing
+-- refresh rather than a file spelled two ways. `.gitattributes` has to name
+-- every embedded resource, so this asks git the same question the checkout
+-- will.
+function M.embeddedResourcesHaveOneCheckoutSpelling()
+    local manifest = assert(loadfile(ROOT .. "/nupp.lua"))()
+    local resources = manifest.build.targets.bootstrapCompiler.resources
+    local tracked = {}
+    local listing = assert(io.popen(("git -C '%s' ls-files"):format(ROOT)))
+    for path in listing:lines() do
+        tracked[#tracked + 1] = path
+    end
+    listing:close()
+    assert(#tracked > 0, "the tree this runs in is not a git checkout")
+
+    local sources = {}
+    for _, resource in ipairs(resources) do
+        local pattern = type(resource) == "table" and resource.source or resource
+        if pattern:find("*", 1, true) then
+            -- A glob names whatever is there now, which is the set a build embeds.
+            local escaped = pattern:gsub("[%%%.%+%-%(%)%[%]%^%$%?]", "%%%0")
+            local matcher = "^" .. escaped:gsub("%*", "[^/]*") .. "$"
+            for _, path in ipairs(tracked) do
+                if path:match(matcher) then
+                    sources[#sources + 1] = path
+                end
+            end
+        else
+            sources[#sources + 1] = pattern
+        end
+    end
+    assert(#sources > 0, "the stage-zero target embeds nothing")
+
+    local query = ("git -C '%s' check-attr eol --"):format(ROOT)
+    for _, path in ipairs(sources) do
+        query = query .. " '" .. path .. "'"
+    end
+    local unspelled = {}
+    local attributes = assert(io.popen(query))
+    for line in attributes:lines() do
+        local path, value = line:match("^(.*): eol: (%S+)$")
+        if path and value ~= "lf" then
+            unspelled[#unspelled + 1] = path
+        end
+    end
+    attributes:close()
+    assert(#unspelled == 0, "embedded resources with no eol=lf in .gitattributes: " .. table.concat(unspelled, ", "))
+end
+
 return M

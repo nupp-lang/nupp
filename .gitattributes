@@ -10,6 +10,7 @@ host/notices/*.txt text eol=lf
 # checkout spelling on Windows as well as Unix hosts.
 bootstrap/nupp.lua text eol=lf
 tests/run.lua text eol=lf
+src/nupp/compiler/doc/theme.css text eol=lf
 src/nupp/compiler/build/stub-catalog.json text eol=lf
 src/nupp/runtime/vendor/lunajson/*.lua text eol=lf
 templates/** text eol=lf
