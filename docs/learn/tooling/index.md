@@ -44,6 +44,7 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 | `clean` | Remove configured build outputs | [build.md](../projects/build.md) |
 | `fixpoint` | Verify the self-hosting rebuild | [distribution.md](../../reference/distribution.md) |
 | `ast` | Dump a parsed syntax tree | [cli.md](../../reference/cli.md) |
+| `version` | Print the compiler version | [cli.md](../../reference/cli.md) |
 
 ## Checking
 

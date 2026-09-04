@@ -1,0 +1,38 @@
+module nupp.compiler.version
+
+--[[
+What this compiler calls itself.
+
+A release is a tag, and the tag is built from the commit that set the string
+below, so the two only agree because a release commit changes this file. Release
+CI checks that they do: the archived binary is run and its version compared to
+the tag before anything is published, which is why the number can be trusted
+rather than merely believed.
+
+Between releases the string carries a `-dev` suffix. A checkout is not the
+release it came after and is not yet the one it is heading for, and saying so is
+worth more than a number that looks official in a bug report.
+
+Nothing here loads anything, so `nupp --version` answers without the compiler
+behind it -- which is also what makes it usable to check that an install works.
+]]
+
+local version = {}
+
+--- The release this source is, without a leading "v"; the tag adds one.
+version.VERSION = "0.0.2-dev"
+
+--- The one line `nupp --version` prints. A single stable line, because this is what
+--- an install script and a bug report both read.
+function version.line(): string
+    return "nupp " .. version.VERSION
+end
+
+--- The interpreter underneath, which is LuaJIT for a release binary and plain Lua for
+--- the portable compiler. Only `--json` reports it, being the part of "which nupp is
+--- this" that a person answering a bug report wants and a packager does not.
+function version.runtime(): string
+    return jit and tostring(jit.version) or _VERSION
+end
+
+export = version

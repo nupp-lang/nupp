@@ -1,0 +1,59 @@
+module nupp.compiler.cli.version
+
+--[[
+`nupp version`, and the `nupp --version` that is the same question spelled the way
+everything else asks it.
+
+The text form is one line and stays one line: an install script reads it, a
+packaging recipe reads it, and both break when a second line appears. What else
+is worth knowing about a particular compiler -- which interpreter it runs on --
+is under `--json`, where a reader is a program that asked for a shape.
+
+The number itself is `nupp.compiler.version`, which is a string and nothing else,
+so this answers without loading the compiler it is the version of.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+local versionMod = require("nupp.compiler.version")
+
+local command = spec.command{
+    name = "version",
+    summary = "Print the compiler version",
+    usage = {"nupp version [--format text|json]", "nupp --version"},
+    options = require("nupp.compiler.cli.options").format(),
+    schema = {
+        type = "object",
+        properties = {
+            version = {
+                type = "string",
+                description = "The release, without a leading \"v\"; a -dev suffix "
+                .. "is a checkout between releases."
+            },
+            runtime = {
+                type = "string",
+                description = "The interpreter underneath: LuaJIT for a release "
+                .. "binary, plain Lua for the portable compiler."
+            },
+        },
+        required = {"version", "runtime"},
+    },
+    detail = [[The text form is the single line `nupp VERSION`, which is what an install
+script should read. `nupp --version` prints the same line.]],
+}
+
+local function run(parsed: any): integer
+    local positional: {string} = parsed.positional
+    if #positional > 0 then
+        return command:usageError("unexpected argument " .. positional[1])
+    end
+    if parsed.values.format == "json" then
+        require("nupp.compiler.cli.report").write({version = versionMod.VERSION, runtime = versionMod.runtime()})
+
+        return 0
+    end
+    io.write(versionMod.line() .. "\n")
+
+    return 0
+end
+
+export = new spec.Handler(spec = command, run = run)

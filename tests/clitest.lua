@@ -514,6 +514,24 @@ function M.binaryPrintsCompletionScripts()
       "the Fish script is available through the CLI")
 end
 
+-- `--version` is a spelling of the command rather than a second answer beside
+-- it, so the two cannot disagree, and what they print is one line: an install
+-- script and a packaging recipe both read it as one.
+function M.theVersionFlagAndTheCommandPrintOneAgreedLine()
+   local version = require("nupp.compiler.version")
+   local expected = "nupp " .. version.VERSION .. "\n"
+   assert(capture("version") == expected,
+      "the command prints the version: " .. capture("version"))
+   assert(capture("--version") == expected,
+      "and the flag prints the same: " .. capture("--version"))
+
+   local decoded = json.decode(captureJson("--version --json"))
+   assert(decoded.version == version.VERSION,
+      "the flag reaches the command's own JSON, not a second rendering")
+   assert(decoded.runtime and decoded.runtime ~= "",
+      "which names the interpreter underneath")
+end
+
 function M.lintsUsesDefaultsOutsideAConfiguredProject()
    local dir = os.tmpname()
    os.remove(dir)

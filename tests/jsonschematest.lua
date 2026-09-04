@@ -241,6 +241,12 @@ function M.lspOperationsMatchTheirOwnSchemas()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.versionOutputMatchesItsSchema()
+   local decoded = agrees(nil, "version")
+   assert(decoded.version == require("nupp.compiler.version").VERSION,
+      "the version reported is the one the compiler carries")
+end
+
 function M.explainOutputMatchesItsSchema()
    local decoded = agrees(nil, "explain NUPP2119")
    assert(decoded.code == "NUPP2119", "the code is echoed")

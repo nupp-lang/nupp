@@ -239,6 +239,19 @@ jobs:
           test -f "release/verify-${{ matrix.platform }}/NOTICE.md"
           test -f "release/verify-${{ matrix.platform }}/stub-catalog-record.json"
           "release/verify-${{ matrix.platform }}/nupp" --help
+          # A tag is what a user installs and `nupp --version` is what they are told
+          # they installed, and nothing but this makes the two agree: the number is a
+          # string in the source, set by the commit the tag names. Checked against the
+          # archived binary rather than against the source, so what is verified is the
+          # artifact that ships.
+          if [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+            printed="$("release/verify-${{ matrix.platform }}/nupp" --version)"
+            expected="nupp ${GITHUB_REF_NAME#v}"
+            if [ "$printed" != "$expected" ]; then
+              echo "tag $GITHUB_REF_NAME ships $printed; bump nupp.compiler.version" >&2
+              exit 1
+            fi
+          fi
 
       - name: Stage the platform-independent payload
         if: runner.os == 'Linux'
@@ -386,6 +399,13 @@ jobs:
           if ($verified -ne $digest) { throw "release archive checksum mismatch" }
           & release/verify/nupp.exe --help
           if ($LASTEXITCODE -ne 0) { throw "archived Windows compiler did not run" }
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $printed = & release/verify/nupp.exe --version
+            $expected = "nupp " + ($env:GITHUB_REF_NAME -replace '^v', '')
+            if ($printed -ne $expected) {
+              throw "tag $env:GITHUB_REF_NAME ships $printed; bump nupp.compiler.version"
+            }
+          }
 
       - name: Upload the standalone binary
         uses: actions/upload-artifact@v4

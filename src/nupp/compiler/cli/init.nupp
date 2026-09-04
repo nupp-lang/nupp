@@ -196,6 +196,12 @@ local REGISTRY: {{
             return require("nupp.compiler.cli.lsp")
         end
     },
+    {
+        name = "version",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.version")
+        end
+    },
 }
 
 -- `help` is a command in the list and in the help, but there is no work behind it, so
@@ -230,6 +236,7 @@ local function mainHelp(): string
         style.strong("Usage:"),
         "  nupp <command> [options]",
         "  nupp help [command]",
+        "  nupp --version",
         "",
         style.strong("Commands:"),
     }
@@ -379,6 +386,12 @@ function cli.main(argv: {string}): integer
         -- environment and the terminal already said.
         io.write(mainHelp())
         return 0
+    end
+    -- The flag spelling of a command, rather than a second answer beside it: everything
+    -- past this point is the command, so `nupp --version --json` is the JSON the
+    -- command declares and there is nowhere for the two spellings to drift apart.
+    if name == "--version" then
+        name = "version"
     end
     if name == "__comptime-worker" then
         local rest: {string} = {}

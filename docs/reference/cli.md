@@ -44,6 +44,7 @@ The commands, in the order `nupp help` lists them:
 - [`export-c`](#export-c): export canonical C declarations for Nupp structs
 - [`rock`](#rock): create and package typed LuaRocks libraries
 - [`lsp`](#lsp): language-server and semantic source operations
+- [`version`](#version): print the compiler version
 - [`help`](#help): show general or command-specific help
 
 ## Universal options
@@ -88,8 +89,8 @@ nupp check --schema
 ```
 
 `init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `backend`, `clean`, `tasks`, `lints`,
-`ownership-audit`, `explain`, `doc`, `fixpoint`, `import-c` and `export-c` take
-all three, and so does every `lsp` operation. `reference` names its
+`ownership-audit`, `explain`, `doc`, `fixpoint`, `import-c`, `export-c` and
+`version` take all three, and so does every `lsp` operation. `reference` names its
 formats `markdown`, `skill` and `json` instead. `coverage`, `test`, `test-runner` and `run`
 take `--json` and `--schema` with no `--format`, because the JSON each writes is
 one particular artifact rather than a rendering of the whole result.
@@ -2138,6 +2139,51 @@ operation answers `--schema` with its own.
   `trace-check` reports
 :::
 
+### `version`
+
+```text [nupp version --help]
+Print the compiler version
+
+Usage:
+  nupp version [--format text|json]
+  nupp --version
+
+Options:
+  --format FORMAT  Output format: text (default) or json
+  --json           Shorthand for --format json
+  --text           Shorthand for --format text
+  --schema         Print the JSON Schema of --json output and exit
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
+  -h, --help       Show this help
+
+The text form is the single line `nupp VERSION`, which is what an install
+script should read. `nupp --version` prints the same line.
+```
+
+The text form is one line and stays one line, in the shape an install script or
+a packaging recipe already expects:
+
+```text
+nupp 0.0.2
+```
+
+A version with a `-dev` suffix is a checkout between releases rather than a
+release. A release is a tag, the tag is built from the commit that set the
+number, and release CI runs the archived binary and compares what it prints to
+the tag before publishing it.
+
+`--json` adds the interpreter underneath, which is LuaJIT for a release binary
+and plain Lua for the portable compiler:
+
+```json
+{"version": "0.0.2", "runtime": "LuaJIT 2.1.1234567890"}
+```
+
+Answering costs nothing but starting the process: the number is a string in the
+compiler and reaching it loads no part of the compiler it names. That makes it
+the cheapest way to tell whether an install works at all.
+
 ### `help`
 
 ```text [nupp help --help]
@@ -2162,6 +2208,7 @@ Nupp compiler and project tool
 Usage:
   nupp <command> [options]
   nupp help [command]
+  nupp --version
 
 Commands:
   init             Create a project from a template
@@ -2191,6 +2238,7 @@ Commands:
   export-c         Export canonical C declarations for Nupp structs
   rock             Package and check typed LuaRocks libraries
   lsp              Language-server and semantic source operations
+  version          Print the compiler version
   help             Show general or command-specific help
 
 Run 'nupp help <command>' for command-specific options.

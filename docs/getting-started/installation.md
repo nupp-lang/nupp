@@ -58,8 +58,11 @@ provides these complete distributions:
 Extract the archive, put `nupp` or `nupp.exe` on `PATH`, and verify it:
 
 ```bash
-nupp --help
+nupp --version
 ```
+
+That prints one line, `nupp` and the release, which is the release you
+downloaded. `nupp --help` lists what it can do.
 
 Each archive includes its third-party notices, signing status, and a
 `SHA256SUMS` file for the executable. The Linux and Windows distributions also
