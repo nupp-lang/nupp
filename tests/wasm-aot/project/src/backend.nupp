@@ -4,6 +4,9 @@ export = {
     name = "test.wasm",
     seams = {
         ["representation.structvalue"] = "nupp.runtime.provider.wasmstorage",
+        ["representation.cstorage"] = "nupp.runtime.provider.wasmstorage",
+        ["numeric.int64"] = "nupp.runtime.provider.wasmint64",
+        ["text.buffer"] = "nupp.runtime.provider.tablebuffer",
         ["host.wasm"] = "nupp.runtime.provider.wasmstorage",
         ["numeric.bitops"] = "nupp.runtime.provider.scalarbitops",
     },

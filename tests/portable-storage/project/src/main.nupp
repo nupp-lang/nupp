@@ -1,0 +1,101 @@
+local io = require("nupp.io")
+local span = require("nupp.mem.span")
+
+local struct Cell
+    value: int32
+end
+
+local cells = carray(Cell, 3)
+do
+    local output = span.writeCarray(cells, 3)
+    output[1] = new Cell(7)
+    output[2] = new Cell(11)
+    output[3] = new Cell(13)
+    drop output
+end
+const values = span.fromCarray(cells, 3)
+assert(#values == 3 and values[1].value == 7 and values[3].value == 13)
+const slice = values:slice(2, 3)
+assert(#slice == 2 and slice[1].value == 11)
+
+local buffer = io.newBuffer("abc")
+buffer:setString("def", 3)
+assert(buffer:getString() == "abcdef")
+const text = "hello"
+const bytes = span.fromString(text)
+assert(#bytes == 5 and bytes[1] == 104 and bytes[5] == 111)
+local reader = buffer:newReader()
+assert(reader:read(2) == "ab")
+assert(reader:read(4) == "cdef")
+assert(reader:read(1) == "")
+local oversized = pcall(function(): integer
+    const invalid = span.fromCarray(cells, 4)
+    return #invalid
+end)
+assert(not oversized)
+print("PASS ordinary arrays, spans and I/O share the Wasm storage representation")
+
+local struct Bits
+    a: uint8:3
+    b: uint32:5
+    c: int16:7
+    d: uint64:40
+    tail: uint8
+end
+local flags = new Bits(5, 23, -17, 1099511627775 as uint64, 42)
+assert(flags.a == 5 and flags.b == 23 and flags.c == -17 and flags.tail == 42)
+assert(tostring(flags.d) == "1099511627775")
+flags.b = 1
+assert(flags.a == 5 and flags.b == 1 and flags.c == -17)
+local flagLayout = layoutof(Bits)
+assert(flagLayout.size == 8 and flagLayout.alignment == 8 and flagLayout.fields[5].offset == 7)
+
+local struct Link
+    value: int32
+    next: Link*?
+    samples: int32[3]
+end
+local links: Link[?] = carray(Link, 2)
+unsafe do
+    links[0].value = 91
+    links[1].next = links
+    links[0].next = links
+    links[0].samples[1] = 29
+    links[1].samples = links[0].samples
+
+    assert((links[1].next as Link*).value == 91 and links[1].samples[1] == 29)
+end
+local struct Empty
+end
+local empty = carray(Empty, 3)
+const emptyView = span.fromCarray(empty, 3)
+assert(#emptyView == 3)
+local _emptyElement = emptyView[3]
+
+local buffers = require("string.buffer")
+local queue = buffers.new()
+queue:put("ab", "", "cd", "ef")
+assert(#queue == 6 and queue:get(3) == "abc" and #queue == 3)
+queue:put("gh")
+local queueReader = io.newQueueReader(queue)
+assert(queueReader:read(4) == "defg" and queueReader:read(4) == "h" and queueReader:read(1) == "")
+queue:put("again")
+assert(queue:get(0) == "" and queue:tostring() == "again" and queue:get() == "again")
+assert(#queue == 0)
+print("PASS bitfield layouts, reference-bearing structs, empty arrays and FIFO queues")
+
+local contracts = require("nupp.tests.iocontracts")
+local scalarTests = require("nupp.tests.ioscalars")
+for _, case in pairs(contracts) do
+    case()
+end
+for _, case in pairs(scalarTests) do
+    case()
+end
+print("PASS shared ordinary I/O, scalar, ownership and upload-subset conformance")
+
+local bits = new nupp.data.Bitset(100)
+bits:set(0)
+bits:set(99)
+assert(bits:count() == 2 and bits:get(0) and bits:get(99))
+print("PASS ordinary bitset storage uses the selected representation")

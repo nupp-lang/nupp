@@ -7,12 +7,24 @@ local target = require("nupp.compiler.aot.target")
 
 local wasmemit = {}
 
-local C_TYPES = {bool = "bool", f32 = "float", f64 = "double", i32 = "int32_t", u32 = "uint32_t",}
+local C_TYPES = {
+    bool = "bool",
+    f32 = "float",
+    f64 = "double",
+    i32 = "int32_t",
+    u32 = "uint32_t",
+    i64 = "int64_t",
+    u64 = "uint64_t",
+}
 
 local function ctype(kind: string, sourceType: string?): string
     if kind:match("^struct:") then
         return "Ks" .. tostring(kind:match("^struct:(.+)$"))
     end
+    if sourceType == "uint8" or sourceType == "int8" or sourceType == "uint16" or sourceType == "int16" then
+        return sourceType .. "_t"
+    end
+
     return C_TYPES[kind] or (sourceType == "float" and "float" or "double")
 end
 
@@ -23,6 +35,10 @@ end
 local function pushResult(lines: {string}, expression: string, kind: string): nil
     if kind == "bool" then
         lines[#lines + 1] = "    lua_pushboolean(L, " .. expression .. " ? 1 : 0);"
+    elseif kind == "i64" or kind == "u64" then
+        lines[
+            #lines + 1
+        ] = "    nupp_wasm_push_wide(L, (uint64_t)(" .. expression .. "), " .. (kind == "u64" and "1" or "0") .. ");"
     else
         lines[#lines + 1] = "    lua_pushnumber(L, (double)(" .. expression .. "));"
     end
@@ -33,8 +49,10 @@ function wasmemit.validate(programs: {scalarIR.Program}): string?
     for _, program in ipairs(programs) do
         if program.entryMode == "kernel" then
             for _, param in ipairs(program.params) do
-                if (param.kind == "write_span" or param.kind == "read_span") and param.spanModule ~= "nupp.wasm" then
-                    return "Wasm AOT kernel " .. program.name .. " must use nupp.wasm spans"
+                if (
+                    param.kind == "write_span" or param.kind == "read_span"
+                ) and param.spanModule ~= "nupp.mem.span" then
+                    return "Wasm AOT kernel " .. program.name .. " must use nupp.mem.span spans"
                 end
             end
         else
@@ -65,12 +83,15 @@ function wasmemit.registrar(programs: {scalarIR.Program}, unit: string, tier: st
         "extern void lua_pushboolean(lua_State *L, int value);",
         "extern void lua_pushcclosure(lua_State *L, lua_CFunction function, int upvalues);",
         "extern void lua_settop(lua_State *L, int index);",
+        "extern uint64_t nupp_wasm_wide_bits(lua_State *L, int index);",
+        "extern int nupp_wasm_push_wide(lua_State *L, uint64_t bits, int unsign);",
+        "extern void *nupp_wasm_write_pointer_address(lua_State *L, int index, size_t bytes);",
         "extern void *nupp_wasm_pointer_address(lua_State *L, int index, size_t bytes);",
         "#define KS_LUA_GLOBALSINDEX (-10002)",
         "#define KS_LUA_TTABLE 5",
         "static KS_UNUSED size_t ks_wasm_count(lua_State *L, int index, const char *name) {",
         "    double value = luaL_checknumber(L, index);",
-        "    if (!(value >= 0.0) || value > (double)SIZE_MAX || floor(value) != value)",
+        "    if (!(value >= 0.0) || value >= (double)SIZE_MAX || floor(value) != value)",
         "        luaL_error(L, \"Wasm AOT span count for %s is invalid\", name);",
         "    return (size_t)value;",
         "}",
@@ -117,16 +138,19 @@ function wasmemit.registrar(programs: {scalarIR.Program}, unit: string, tier: st
                         .. " = ("
                         .. qualifier
                         .. element
-                        .. " *)nupp_wasm_pointer_address(L, "
-                        .. tostring(
-                        position
-                    ) .. ", " .. tostring(count) .. " * sizeof(" .. element .. "));"
+                        .. " *)"
+                        .. (
+                        param.kind == "write_span" and "nupp_wasm_write_pointer_address" or "nupp_wasm_pointer_address"
+                    ) .. "(L, " .. tostring(position) .. ", " .. tostring(count) .. " * sizeof(" .. element .. "));"
                     arguments[#arguments + 1] = "p_" .. param.name
                 else
                     local physical = ctype(param.type, param.sourceType)
                     local read = param.type == "bool" and "(lua_toboolean(L, " .. tostring(
                         position
                     ) .. ") != 0)" or "(" .. physical .. ")luaL_checknumber(L, " .. tostring(position) .. ")"
+                    if param.type == "i64" or param.type == "u64" then
+                        read = "(" .. physical .. ")nupp_wasm_wide_bits(L, " .. tostring(position) .. ")"
+                    end
                     lines[#lines + 1] = "    " .. physical .. " p_" .. param.name .. " = " .. read .. ";"
                     arguments[#arguments + 1] = "p_" .. param.name
                 end

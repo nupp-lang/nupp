@@ -379,7 +379,8 @@ local function run(parsed: any): integer
         io.stderr:write("nupp: cannot create output directory " .. outDir .. "\n")
         return finish(1, {})
     end
-    local env = require("nupp.compiler.env").new(".")
+    local envMod = require("nupp.compiler.env")
+    local env = envMod.new(".")
     settings.materializations = materializations
     settings.derives = derives
     settings.specializedBodies = 0
@@ -391,11 +392,15 @@ local function run(parsed: any): integer
     local failed = false
     local written: {[string]: boolean} = {}
     local outputs: {string} = {}
+    local runtimeNames: {[string]: boolean} = {}
+    local runtimeDone: {[string]: boolean} = {}
+    local gen = require("nupp.compiler.gen")
+    local carried = require("nupp.compiler.bundled")
     -- Positionals arrive spelled however the caller typed them, while `env.loaded`
     -- records paths the environment has normalized. `written` is keyed on the
     -- normalized spelling so `./lib.nupp` on the command line and `lib.nupp` in the
     -- module graph are one module, emitted once.
-    local function emitModule(givenPath: string): boolean
+    local function emitModule(givenPath: string, moduleName: string?, sourceOverride: string?): boolean
         local path = fs.normalize(givenPath)
         if written[path] then
             return true
@@ -405,13 +410,18 @@ local function run(parsed: any): integer
         report:step("compiling " .. path)
         local startedAt = progressMod.now()
         local before = settings.specializedBodies as integer
-        local code = compile.module(path, env, settings)
+        local code = compile.module(path, env, settings, moduleName, sourceOverride)
         report:addSpecialized((settings.specializedBodies as integer) - before)
         report:spent(path, progressMod.now() - startedAt)
         report:resolved()
         if not code then
             report:clear()
             return false
+        end
+        for _, name in ipairs(gen.runtimeModules(code)) do
+            if name == "nupp.runtime.managed" then
+                runtimeNames[name] = true
+            end
         end
         local outPath: string
         if outDir then
@@ -457,6 +467,38 @@ local function run(parsed: any): integer
         for _, record in pairs(env.loaded or {}) do
             if record.path then
                 reached[#reached + 1] = record.path
+            end
+        end
+        -- The ownership installer is emitted even for a file with no imports.
+        -- Carry it without staging unrelated standard-library Lua into the source
+        -- roots, where it would shadow their checked compiler declarations.
+        local runtime: {string} = {}
+        for name in pairs(runtimeNames) do
+            if not runtimeDone[name] then
+                runtime[#runtime + 1] = name
+            end
+        end
+        table.sort(runtime)
+        for _, name in ipairs(runtime) do
+            runtimeDone[name] = true
+            local path = envMod.findRuntimeModulePath(env, name)
+            if path and path:match("%.nupp$") then
+                pending = true
+                if not emitModule(path, name) then
+                    failed = true
+                end
+            elseif path == nil or path:match("%.lua$") then
+                for _, suffix in ipairs({".nupp", ".g.nupp", "/init.nupp", "/init.g.nupp"}) do
+                    local relative = name:gsub("%.", "/") .. suffix
+                    local source = carried.source("/" .. relative)
+                    if source then
+                        pending = true
+                        if not emitModule(relative, name, source) then
+                            failed = true
+                        end
+                        break
+                    end
+                end
             end
         end
         table.sort(reached)

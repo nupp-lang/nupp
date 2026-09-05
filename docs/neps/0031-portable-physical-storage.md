@@ -1,6 +1,6 @@
 ---
 title: Portable physical storage and ordinary I/O
-status: Accepted
+status: Implemented
 created: 2026-09-05
 ---
 

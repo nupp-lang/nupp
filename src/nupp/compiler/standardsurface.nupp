@@ -28,6 +28,7 @@ local MODULES = {
     ["nupp.data.crypto"] = selected("host", "host.crypto", true),
     ["nupp.io.storage"] = selected("host", "host.storage", true),
     ["nupp.data"] = {kind = "members"},
+    ["nupp.data.internal.bitset"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.data.json"] = selected("runtime", "data.json"),
     -- Two seams, and only the first stands between a target and this module.
     -- `numeric.bitops` is what the digests are written against and a `lua51`
@@ -58,8 +59,10 @@ local MODULES = {
     -- The core byte types are cdata: a view is a pointer and a length, and no
     -- table stands in for one. A dialect without C storage cannot have them,
     -- which is what this says now that no seam claims otherwise.
+    ["nupp.runtime.storage"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.internal.bytes"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.io.internal.ownedreader"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.internal.scalars"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.internal.lines"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.http.internal.transport"] = {kind = "unavailable", capability = "cinterop"},
@@ -81,13 +84,13 @@ local MODULES = {
     ["nupp.compiler.runtime.peg"] = selected("runtime", "peg"),
     ["nupp.compiler.runtime.reflect"] = {kind = "compiler"},
     ["nupp.mem"] = {kind = "unavailable", capability = "cstorage"},
-    ["nupp.mem.heap"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.mem.heap"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.indexed"] = {kind = "unavailable", capability = "cstorage"},
     -- Engine-backed shared storage, not the worker scheduler. It shares the native
     -- host feature, but a `lua51` target reaching it needs the storage capability
     -- rather than whichever module implements `host.workers` there.
-    ["nupp.mem.sharedbytes"] = {kind = "unavailable", capability = "cstorage"},
-    ["nupp.mem.soa"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.mem.sharedbytes"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.mem.soa"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.runtime.native"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},
@@ -99,7 +102,7 @@ local MODULES = {
     ["nupp.tasks"] = {kind = "common"},
     ["nupp.time"] = selected("host", "host.time"),
     ["nupp.workers"] = selected("host", "host.workers"),
-    ["nupp.wasm"] = selected("host", "host.wasm"),
+    ["nupp.mem.array"] = {kind = "unavailable", capability = "cstorage"},
 }
 
 local FACILITIES = {
@@ -111,7 +114,7 @@ local FACILITIES = {
     ["data.sha256"] = selected("runtime", "data.sha256"),
     ["data.uuid"] = selected("runtime", "data.uuid"),
     -- A bitset is a `uint32[?]`, so it needs C storage rather than a provider.
-    ["data.bitset"] = {kind = "unavailable", capability = "cstorage"},
+    ["data.bitset"] = {kind = "unavailable", capability = "cstorage", effect = "runtime.bitset"},
 }
 
 local MODULE_MEMBERS = {
@@ -246,6 +249,14 @@ function surface.requireMember(checker: any, moduleName: string, member: string,
         return nil
     end
     local classification = FACILITIES[facilityName]
+    if classification.kind == "unavailable" then
+        local capabilities = require("nupp.compiler.capabilities")
+        if capabilities.require(checker, classification.capability, at) then
+            local resolved = capabilities.resolve(checker.opts.dialect, checker.opts.backendResolution)
+            return classification.effect or capabilities.get(resolved, classification.capability).effect
+        end
+        return nil
+    end
     local selected = checker.opts.backendResolution
         and checker.opts.backendResolution.seams
         and checker.opts.backendResolution.seams[

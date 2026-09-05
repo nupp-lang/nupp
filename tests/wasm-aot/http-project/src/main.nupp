@@ -1,6 +1,7 @@
 local http = require("nupp.io.http")
 local json = require("nupp.data.json")
 local uri = require("nupp.io.uri")
+local io = require("nupp.io")
 
 local client = new http.Client()
 local request = new http.Request(
@@ -12,7 +13,21 @@ local response, sendProblem = client:send(request)
 if response == nil then
     error(sendProblem or "browser HTTP request failed")
 end
-local body = assert(response.body:read(4096))
+local received = io.newBuffer()
+assert(response.body:readInto(received, 0, 5) == 5)
+local lease = received:reserveWrite(5, 5)
+do
+    local output = lease:span()
+    assert(response.body:readSpan(output) == 5)
+    drop output
+end
+lease:commit(5)
+local remainder = io.newBuffer()
+local writer = remainder:newWriter()
+assert(response.body:transferTo(writer) ~= nil)
+writer:close()
+assert(response.body:read(1) == "")
+local body = received:getString() .. remainder:getString()
 local result = json.encode({status = response.status, contentType = response:header("content-type"), body = body,})
 response:close()
 request:close()

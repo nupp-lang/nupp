@@ -1,10 +1,12 @@
 module nupp.runtime.backend.wasm
 
---[[The checked backend selected by a Lua 5.1 artifact using `nupp.wasm`.]]
+--[[The checked backend selected by a Lua 5.1 artifact using ordinary physical storage.]]
 
 export = {
     name = "nupp.wasm",
     seams = {
+        ["representation.cstorage"] = "nupp.runtime.provider.wasmstorage",
+        ["numeric.int64"] = "nupp.runtime.provider.wasmint64",
         ["representation.structvalue"] = "nupp.runtime.provider.wasmstorage",
         ["host.wasm"] = "nupp.runtime.provider.wasmstorage",
     },

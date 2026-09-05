@@ -250,6 +250,19 @@ function backends.resolve(inc: any, selected: {string}?): any?, string?, any?
             end
         end
     end
+    local storage = resolved.seams["representation.cstorage"]
+    local structs = resolved.seams["representation.structvalue"]
+    if storage and (not structs or storage.runtimeModule ~= structs.runtimeModule) then
+        return nil, "representation.cstorage and representation.structvalue must select the same physical provider", {
+            module = storage.module
+        }
+    end
+    if storage and storage.runtimeModule == "nupp.runtime.provider.wasmstorage" then
+        local wide = resolved.seams["numeric.int64"]
+        if not wide or wide.runtimeModule ~= "nupp.runtime.provider.wasmint64" then
+            return nil, "Wasm storage requires its exact numeric.int64 provider", {module = storage.module}
+        end
+    end
     resolved.fingerprint = table.concat(fingerprints, "\0")
 
     return resolved

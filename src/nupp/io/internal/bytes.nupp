@@ -2,7 +2,7 @@
 
 module nupp.io.internal.bytes
 
-local ffi = require("ffi")
+local physical = require("nupp.runtime.storage")
 local span = require("nupp.mem.span")
 
 local SMALLEST = 32
@@ -332,7 +332,7 @@ local record HeapBuffer is Buffer
             reserve(self, wanted)
             unsafe do
                 local root = borrowFrom(self._data as voidptr, self)
-                ffi.fill((root as uint8*) + self._length, wanted - self._length, 0)
+                physical.fill((root as uint8*) + self._length, wanted - self._length, 0)
             end
         end
         self._length = wanted
@@ -355,13 +355,13 @@ local record HeapBuffer is Buffer
         if from > self._length then
             unsafe do
                 local root = borrowFrom(self._data as voidptr, self)
-                ffi.fill((root as uint8*) + self._length, from - self._length, 0)
+                physical.fill((root as uint8*) + self._length, from - self._length, 0)
             end
         end
         if #bytes > 0 then
             unsafe do
                 local root = borrowFrom(self._data as voidptr, self)
-                ffi.copy((root as uint8*) + from, bytes, #bytes)
+                physical.copy((root as uint8*) + from, bytes, #bytes)
             end
         end
         if ending > self._length then
@@ -439,7 +439,7 @@ local record WriteLease is BufferWriteLease
             if raw.offset > target._length then
                 unsafe do
                     local root = borrowFrom(target._data as voidptr, target)
-                    ffi.fill(
+                    physical.fill(
                         (root as uint8*) + (target._length as integer),
                         (raw.offset as integer) - (target._length as integer),
                         0
@@ -489,11 +489,14 @@ local record BufferWriter is Writer
         if type(bytes) ~= "string" then
             error("nupp: Writer:write bytes must be a string", 2)
         end
-        local source = span.fromString(bytes)
-        local written, reason = self:writeSpan(source)
-        if written == nil then
-            return false, reason
+        local state = self._buffer
+        if state._closed then
+            return false, "the destination buffer is closed"
         end
+        -- The writer already owns the exclusive buffer borrow. A string can use
+        -- its bulk overwrite path directly without building temporary views.
+        (state as Buffer):setString(bytes, self._at)
+        self._at = self._at + #bytes
 
         return true, nil
     end
@@ -515,8 +518,14 @@ local record BufferWriter is Writer
         local lease = newWriteLease(state as Buffer, at, count)
         do
             local output = lease:span()
-            for index = 1, count do
-                output[index] = source[index]
+            if count == 1 then
+                output[1] = source[1]
+            else
+                local destinationPointer = output:ref()
+                local sourcePointer = source:ref()
+                -- A cached module lookup avoids adding a provider upvalue to
+                -- every protected cleanup closure on the native interpreter.
+                require("nupp.runtime.storage").copy(destinationPointer, sourcePointer, count)
             end
             drop output
         end
@@ -550,6 +559,20 @@ end
 ----------------------------------------------------------------------------
 
 --- The storage behind a reader over held bytes.
+-- All producers use one bounded bulk transfer, including the portable host.
+local function copyString(
+    exclusive destination: span.WriteSpan<uint8>,
+    bytes: string,
+    offset: integer,
+    count: integer
+): nil
+    local pointer = destination:ref()
+    unsafe do
+        local source = physical.borrowString(bytes)
+        physical.copy(pointer, (source as const uint8*) + offset, count)
+    end
+end
+
 local record StringReader is Reader
     _bytes: string
     _at: integer
@@ -584,19 +607,18 @@ local record StringReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local output = destination as span.WriteSpan<uint8>
-        local wanted = positive(#output, "Reader:readSpan destination length", 2)
+        local wanted: integer
+        do
+            local output = destination as span.WriteSpan<uint8>
+            wanted = positive(#output, "Reader:readSpan destination length", 2)
+        end
         local bytes = self._bytes
         local at = self._at
         if at > #bytes then
             return 0, nil
         end
         local taking = math.min(wanted, #bytes - at + 1) as integer
-        local chunk = bytes:sub(at, at + taking - 1)
-        local input = span.fromString(chunk)
-        for index = 1, taking do
-            output[index] = input[index]
-        end
+        copyString(destination, bytes, at - 1, taking)
         self._at = at + taking
 
         return taking, nil
@@ -614,14 +636,10 @@ local record StringReader is Reader
             return 0, nil
         end
         local taking = math.min(wanted, #bytes - at + 1) as integer
-        local chunk = bytes:sub(at, at + taking - 1)
-        local input = span.fromString(chunk)
         local lease = destination:reserveWrite(from, wanted)
         do
             local output = lease:span()
-            for index = 1, taking do
-                output[index] = input[index]
-            end
+            copyString(output, bytes, at - 1, taking)
             drop output
         end
         lease:commit(taking)
@@ -688,8 +706,11 @@ local record QueueReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local output = destination as span.WriteSpan<uint8>
-        local wanted = positive(#output, "Reader:readSpan destination length", 2)
+        local wanted: integer
+        do
+            local output = destination as span.WriteSpan<uint8>
+            wanted = positive(#output, "Reader:readSpan destination length", 2)
+        end
         local source = self._source as ByteQueue
         local have = queueLength(source)
         if have == 0 then
@@ -697,10 +718,7 @@ local record QueueReader is Reader
         end
         local taking = math.min(wanted, have) as integer
         local chunk = source:get(taking)
-        local input = span.fromString(chunk)
-        for index = 1, taking do
-            output[index] = input[index]
-        end
+        copyString(destination, chunk, 0, taking)
 
         return taking, nil
     end
@@ -718,13 +736,10 @@ local record QueueReader is Reader
         end
         local taking = math.min(wanted, have) as integer
         local chunk = source:get(taking) as string
-        local input = span.fromString(chunk)
         local lease = destination:reserveWrite(from, wanted)
         do
             local output = lease:span()
-            for index = 1, taking do
-                output[index] = input[index]
-            end
+            copyString(output, chunk, 0, taking)
             drop output
         end
         lease:commit(taking)
@@ -779,6 +794,8 @@ function HeapBuffer.drop(takes self: HeapBuffer): nil
     state._closed = true
     state._length = 0
     state._capacity = 0
+    -- A spent buffer must not keep its allocation alive through retained metadata.
+    (state as any)._data = nil
 end
 
 function WriteLease.drop(takes self: WriteLease): nil
@@ -821,9 +838,9 @@ reserve = function(borrows self: Buffer, minimum: integer): nil
     if capacity < SMALLEST then
         capacity = SMALLEST
     end
-    local data = ffi.new<uint8[?]>(capacity)
+    local data = physical.allocateBytes(capacity as integer)
     if state._length > 0 then
-        ffi.copy(data, state._data, state._length)
+        physical.copy(data, state._data, state._length)
     end
     state._data = data
     state._capacity = capacity
@@ -834,7 +851,7 @@ bytesAt = function(borrows self: Buffer, offset: integer, count: integer): strin
         return ""
     end
 
-    return ffi.string((self as any)._data + offset, count)
+    return physical.string((self as any)._data + offset, count)
 end
 
 newView = function(bytes: string): affine(ByteView, destroyOwner)
@@ -898,14 +915,14 @@ export function newBuffer(initial: integer | string?): affine(Buffer, destroyOwn
     local bytes = type(initial) == "string" and initial as string or ""
     local capacity = type(initial) == "number" and integer_(initial, "io.newBuffer capacity", 2) or #bytes
     local self = new HeapBuffer(
-        _data = ffi.new<uint8[?]>(math.max(capacity, 1)),
+        _data = physical.allocateBytes(math.max(capacity, 1)),
         _length = 0,
         _capacity = capacity,
         _closed = false
     )
     if #bytes > 0 then
         local state = self as any
-        ffi.copy(state._data, bytes, #bytes)
+        physical.copy(state._data, bytes, #bytes)
         state._length = #bytes
     end
 
@@ -953,3 +970,8 @@ export function newQueueReader(source: ByteQueue): Reader
 
     return new QueueReader(_source = source, _closed = false)
 end
+
+export const validatePositive = positive
+export const validateInteger = integer_
+
+export type OwnedBuffer = affine(Buffer, destroyOwner)

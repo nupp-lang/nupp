@@ -553,7 +553,7 @@ function lower.spanElement(
     if context.checked then
         local span, origin = nominal(resolved)
         if span == nil or origin == nil or (
-            origin.moduleName ~= "nupp.mem.span" and origin.moduleName ~= "nupp.wasm"
+            origin.moduleName ~= "nupp.mem.span"
         ) or origin.name ~= expected or span.typeArgs == nil or span.typeArgs[1] == nil then
             return nil
         end
@@ -584,10 +584,7 @@ function lower.spanElement(
     end
 
     local suffix = expected == "WriteSpan" and "WriteSpan" or "Span"
-    local module, element = spelling:match("^(span)%." .. suffix .. "<(.+)>$")
-    if element == nil then
-        module, element = spelling:match("^(wasm)%." .. suffix .. "<(.+)>$")
-    end
+    local _module, element = spelling:match("^(span)%." .. suffix .. "<(.+)>$")
     if element == nil then
         return nil
     end
@@ -598,7 +595,7 @@ function lower.spanElement(
             kind = "scalar",
             type = storage as string,
             sourceType = element as string,
-            spanModule = module == "wasm" and "nupp.wasm" or "nupp.mem.span"
+            spanModule = "nupp.mem.span"
         )
     end
 
@@ -606,7 +603,7 @@ function lower.spanElement(
         kind = "struct",
         type = "struct:" .. (element as string),
         layout = lower.layout(element as string, nil, at, declarations, layouts, context),
-        spanModule = module == "wasm" and "nupp.wasm" or "nupp.mem.span"
+        spanModule = "nupp.mem.span"
     )
 end
 
@@ -4898,7 +4895,7 @@ function lower.parameters(
                 sourceType = sourceType,
                 source = lower.site(raw)
             )
-        elseif valueType == "u32" or valueType == "i32" then
+        elseif valueType == "u32" or valueType == "i32" or valueType == "u64" or valueType == "i64" then
             if mode ~= nil and mode ~= "plain" then
                 context.reject(lower.site(raw), "a uniform integer parameter has no ownership mode")
             end

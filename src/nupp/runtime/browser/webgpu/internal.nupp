@@ -4,6 +4,7 @@ module nupp.runtime.browser.webgpu.internal
 --[[WebGPU provider over the browser Worker's Wasm memory and effect boundary.]]
 
 local response = require("nupp.runtime.browser.response")
+local span = require("nupp.mem.span")
 local gpu = {}
 
 -- The portable compiler also runs under an ordinary native Lua 5.1 host,
@@ -19,14 +20,6 @@ local function storage(): any
     end
 
     return value
-end
-
-local interface ReadSpan<T>
-    ref: function(self: ReadSpan<T>): (any, integer)
-end
-
-local interface WriteSpan<T>
-    ref: function(self: WriteSpan<T>): (any, integer)
 end
 
 const gpu.PORTABLE_WORKGROUP_THREADS = 256
@@ -138,18 +131,18 @@ record gpu.Context is gpu.ContextToken
     releaseBuffer: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
     private releaseKernel: function(borrows self: gpu.Context, borrows kernel: gpu.Kernel): nil
     private releaseBinding: function(borrows self: gpu.Context, exclusive binding: gpu.Binding): nil
-    upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: ReadSpan<T>): nil
+    upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: span.Span<T>): nil
     enqueueDownload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
     synchronize: function(borrows self: gpu.Context): nil
     readDownloaded: function<T>(
         borrows self: gpu.Context,
         borrows buffer: gpu.Buffer<T>,
-        borrows destination: WriteSpan<T>
+        exclusive destination: span.WriteSpan<T>
     ): nil
     download: function<T>(
         borrows self: gpu.Context,
         borrows buffer: gpu.Buffer<T>,
-        borrows destination: WriteSpan<T>
+        exclusive destination: span.WriteSpan<T>
     ): nil
 end
 
@@ -374,7 +367,7 @@ end
 function gpu.Context.upload<T>(
     borrows self: gpu.Context,
     borrows buffer: gpu.Buffer<T>,
-    borrows source: ReadSpan<T>
+    borrows source: span.Span<T>
 ): nil
     live(self)
     local pointer, count = source:ref()
@@ -382,7 +375,12 @@ function gpu.Context.upload<T>(
         error("nupp: browser GPU upload span length does not match its buffer", 2)
     end
     local memory = storage()
-    local lease = memory.lease(pointer, count * buffer._width)
+    local leasePointer = memory.lease as function(
+        borrows pointer: const T[?],
+        bytes: integer,
+        writable: boolean?
+    ): integer
+    local lease = leasePointer(pointer, count * buffer._width)
     response.await("gpu", {operation = "runtime-upload", buffer = buffer._handle, lease = lease,})
     memory.releaseLease(lease)
 end
@@ -402,7 +400,7 @@ end
 function gpu.Context.readDownloaded<T>(
     borrows self: gpu.Context,
     borrows buffer: gpu.Buffer<T>,
-    borrows destination: WriteSpan<T>
+    exclusive destination: span.WriteSpan<T>
 ): nil
     live(self)
     local pointer, count = destination:ref()
@@ -410,7 +408,8 @@ function gpu.Context.readDownloaded<T>(
         error("nupp: browser GPU download span length does not match its buffer", 2)
     end
     local memory = storage()
-    local lease = memory.lease(pointer, count * buffer._width)
+    local leasePointer = memory.lease as function(exclusive pointer: T[?], bytes: integer, writable: boolean?): integer
+    local lease = leasePointer(pointer, count * buffer._width, true)
     response.await("gpu", {operation = "runtime-download", buffer = buffer._handle, lease = lease,})
     memory.releaseLease(lease)
 end
@@ -418,7 +417,7 @@ end
 function gpu.Context.download<T>(
     borrows self: gpu.Context,
     borrows buffer: gpu.Buffer<T>,
-    borrows destination: WriteSpan<T>
+    exclusive destination: span.WriteSpan<T>
 ): nil
     self:enqueueDownload(buffer)
     self:synchronize()

@@ -1,4 +1,5 @@
-local wasm = require("nupp.wasm")
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local json = require("nupp.data.json")
 
 local struct Sample
@@ -8,7 +9,7 @@ local struct Sample
 end
 
 @aot(vectorize = true)
-local function scale(exclusive output: wasm.WriteSpan<Sample>, borrows input: wasm.Span<Sample>, factor: number): nil
+local function scale(exclusive output: span.WriteSpan<Sample>, borrows input: span.Span<Sample>, factor: number): nil
     if #output ~= #input then
         error("length mismatch", 2)
     end
@@ -19,14 +20,14 @@ local function scale(exclusive output: wasm.WriteSpan<Sample>, borrows input: wa
     end
 end
 
-local input = wasm.array(new Sample(), 4096)
+local input = array.new(new Sample(), 4096)
 local writable = input:write()
 for index = 1, #writable do
     writable[index] = new Sample(index, index * 2, index * 3)
 end
-writable:drop()
+drop writable
 
-local output = wasm.array(new Sample(), 4096)
+local output = array.new(new Sample(), 4096)
 scale(output:write(), input:read(), 2)
 local rows = output:read()
 

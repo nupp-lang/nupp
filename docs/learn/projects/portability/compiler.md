@@ -135,8 +135,9 @@ produce a false generation diagnostic from Lua 5.1.
 
 The session resolves dialects, capabilities, standard modules, and selected
 backends through the same compiler machinery as `nupp check`. Browser sessions
-then mark `cinterop` and `cstorage` unavailable because their in-memory host
-has no native layout or storage provider.
+use the selected physical storage representation for Lua 5.1. When checking
+LuaJIT output, they still mark native `cinterop` and `cstorage` unavailable:
+the in-memory compiler cannot inspect native FFI layouts.
 
 ## Limits
 

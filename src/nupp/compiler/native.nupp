@@ -38,6 +38,32 @@ type native.Feature = {
 }
 
 local FEATURES: {[string]: native.Feature} = {
+    ["runtime.managed"] = {name = "managed", runtimeModule = "nupp.runtime.managed", portableRuntime = true},
+    [
+        "runtime.io_internal_ownedreader"
+    ] = {
+        name = "io_internal_ownedreader",
+        runtimeModule = "nupp.io.internal.ownedreader",
+        portableRuntime = true,
+        requires = {"runtime.io_internal_bytes", "runtime.cstorage"},
+    },
+    [
+        "runtime.bitset"
+    ] = {
+        name = "bitset",
+        exports = {"nupp.data.Bitset", "nupp.data.WORD_BITS"},
+        runtimeModule = "nupp.data.internal.bitset",
+        portableRuntime = true,
+        requires = {"runtime.cstorage", "runtime.bitops"},
+    },
+    [
+        "runtime.cstorage"
+    ] = {
+        name = "cstorage",
+        module = "nupp.runtime.storage",
+        runtimeModule = "nupp.runtime.storage",
+        portableRuntime = true,
+    },
     [
         "runtime.backend_contracts"
     ] = {
@@ -96,6 +122,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "io_internal_bytes",
         runtimeModule = "nupp.io.internal.bytes",
+        portableRuntime = true,
         requires = {"stdlib.math", "runtime.spanview", "runtime.text_buffer"}
     },
     [
@@ -103,6 +130,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "io_internal_scalars",
         runtimeModule = "nupp.io.internal.scalars",
+        portableRuntime = true,
         requires = {"runtime.io_internal_bytes"}
     },
     [
@@ -110,6 +138,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "io_internal_lines",
         runtimeModule = "nupp.io.internal.lines",
+        portableRuntime = true,
         requires = {"runtime.io_internal_bytes"}
     },
     [
@@ -393,8 +422,10 @@ local FEATURES: {[string]: native.Feature} = {
     -- Span views lower their checked element access through nupp.mem.indexed,
     -- so any target staging the span runtime stages the helpers its generated
     -- code reaches.
-    ["runtime.spanview"] = {name = "spanview", runtimeModule = "nupp.mem.span", requires = {"runtime.indexed"},},
-    ["runtime.indexed"] = {name = "indexed", runtimeModule = "nupp.mem.indexed",},
+    [
+        "runtime.spanview"
+    ] = {name = "spanview", runtimeModule = "nupp.mem.span", portableRuntime = true, requires = {"runtime.indexed"},},
+    ["runtime.indexed"] = {name = "indexed", runtimeModule = "nupp.mem.indexed", portableRuntime = true,},
     [
         "runtime.heap"
     ] = {name = "heap", module = "nupp.mem.heap", runtimeModule = "nupp.mem.heap", requires = {"runtime.spanview"},},

@@ -5,7 +5,13 @@ package.path = root .. "/?.lua;" .. root .. "/?/init.lua;" .. package.path
 local ffi = require("ffi")
 local standard = require("nupp.io")
 local span = require("nupp.mem.span")
-local transferred = {["write-span"] = 4096, ["read-into"] = 4096, ["grow-bytewise"] = 1}
+local transferred = {
+    ["write-span"] = 4096,
+    ["read-into"] = 4096,
+    ["grow-bytewise"] = 1,
+    ["scalar-write-u32"] = 4,
+    ["scalar-write-u64"] = 8
+}
 local rounds = tonumber(os.getenv("NUPP_IO_ROUNDS") or "9")
 local steps = tonumber(os.getenv("NUPP_IO_STEPS") or "10000")
 local payload = string.rep("\1\2\3\4", 1024)
@@ -53,6 +59,56 @@ local scenarios = {
             return total
         end,
         100
+    },
+    {
+        "scalar-read-u64",
+        function(n)
+            local total = 0
+            for _ = 1, n do
+                local reader = standard.newScalarReader("\1\0\0\0\0\0\32\0")
+                total = total + tonumber(reader:readUint64() - 9007199254740992ULL)
+                reader:drop()
+            end
+            assert(total == n)
+
+            return total
+        end
+    },
+    {
+        "scalar-write-u32",
+        function(n)
+            local writer = standard.newScalarWriter()
+            for index = 1, n do
+                writer:writeUint32(index)
+            end
+            local buffer = writer:buffer()
+            assert(buffer:length() == n * 4)
+            local reader = standard.newScalarReader(buffer:getString(n * 4 - 4, 4))
+            local last = reader:readUint32()
+            assert(last == n)
+            reader:drop()
+            writer:drop()
+
+            return last
+        end
+    },
+    {
+        "scalar-write-u64",
+        function(n)
+            local writer = standard.newScalarWriter()
+            for index = 1, n do
+                writer:writeUint64(9007199254740992ULL + index)
+            end
+            local buffer = writer:buffer()
+            assert(buffer:length() == n * 8)
+            local reader = standard.newScalarReader(buffer:getString(n * 8 - 8, 8))
+            local last = reader:readUint64()
+            assert(last == 9007199254740992ULL + n)
+            reader:drop()
+            writer:drop()
+
+            return tonumber(last - 9007199254740992ULL)
+        end
     },
     {
         "write-span",

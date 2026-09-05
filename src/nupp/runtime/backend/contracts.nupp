@@ -161,6 +161,43 @@ export interface StructvalueProvider
     referenceValued: any
 end
 
+--- `representation.cstorage`, physical operations below shared library policy.
+export interface CstorageProvider
+    boundedCount: function(source: any, count: integer): integer
+    layout: function(subject: any): any
+    scalar: function(kind: string): any
+    descriptor: function(value: any): any
+    reference: function(resolve: function(): any): any
+    allocateArray: function(element: any, count: integer): any
+    allocateBytes: function(count: integer): any
+    borrowString: function(bytes: string): any
+    castBytes: function(pointer: any): any
+    castElements: function(element: any, pointer: any): any
+    copy: function(destination: any, source: any, count: integer): nil
+    fill: function(destination: any, count: integer, value: integer): nil
+    string: function(source: any, count: integer): string
+    decodeUint8: function(bytes: string): any
+    encodeUint8: function(value: any): string
+    decodeInt8: function(bytes: string): any
+    encodeInt8: function(value: any): string
+    decodeUint16: function(bytes: string): any
+    encodeUint16: function(value: any): string
+    decodeInt16: function(bytes: string): any
+    encodeInt16: function(value: any): string
+    decodeUint32: function(bytes: string): any
+    encodeUint32: function(value: any): string
+    decodeInt32: function(bytes: string): any
+    encodeInt32: function(value: any): string
+    decodeUint64: function(bytes: string): any
+    encodeUint64: function(value: any): string
+    decodeInt64: function(bytes: string): any
+    encodeInt64: function(value: any): string
+    decodeFloat32: function(bytes: string): any
+    encodeFloat32: function(value: any): string
+    decodeFloat64: function(bytes: string): any
+    encodeFloat64: function(value: any): string
+end
+
 --- `host.wasm`, the opaque linear memory a Lua-in-Wasm host owns.
 ---
 --- A pointer is the host's, not Nupp's, which is why every member takes and
@@ -241,7 +278,6 @@ export interface HttpProvider
     capabilities: function(): HttpCapabilities
     file: function(path: string, contentType: string?): any
     reader: function(source: any, length: integer?, contentType: string?): any
-    Body: any
     Client: any
     FileBody: any
     Options: any

@@ -1,0 +1,247 @@
+@!internal
+module nupp.runtime.storage
+
+-- Physical memory mechanisms selected below shared I/O policy. The native
+-- implementation keeps the same FFI operations and pointer representations.
+local ffi = require("ffi")
+
+export function allocateBytes(count: integer): uint8[?]
+    return ffi.new<uint8[?]>(count)
+end
+
+export function borrowString(borrows bytes: string): const uint8[?] borrows (bytes)
+    return ffi.cast<const uint8[?]>(bytes)
+end
+
+export function copy(destination: any, source: any, count: integer): nil
+    ffi.copy(destination, source, count)
+end
+
+export function fill(destination: any, count: integer, value: integer): nil
+    ffi.fill(destination, count, value)
+end
+
+export function string(source: any, count: integer): string
+    return ffi.string(source, count)
+end
+
+export function decodeUint8(bytes: string): uint32
+    local holder = ffi.new<uint8[1]>()
+    unsafe do
+        ffi.copy(holder, bytes, 1)
+        return holder[0]
+    end
+end
+
+export function encodeUint8(value: uint32): string
+    local holder = ffi.new<uint8[1]>()
+    unsafe do
+        holder[0] = value
+    end
+
+    return ffi.string(holder, 1)
+end
+
+export function decodeInt8(bytes: string): int32
+    local holder = ffi.new<int8[1]>()
+    unsafe do
+        ffi.copy(holder, bytes, 1)
+        return holder[0]
+    end
+end
+
+export function encodeInt8(value: int32): string
+    local holder = ffi.new<int8[1]>()
+    unsafe do
+        holder[0] = value
+    end
+
+    return ffi.string(holder, 1)
+end
+
+export function decodeUint16(bytes: string): uint32
+    local holder = ffi.new<uint16[1]>()
+    unsafe do
+        ffi.copy(holder, bytes, 2)
+        return holder[0]
+    end
+end
+
+export function encodeUint16(value: uint32): string
+    local holder = ffi.new<uint16[1]>()
+    unsafe do
+        holder[0] = value
+    end
+
+    return ffi.string(holder, 2)
+end
+
+export function decodeInt16(bytes: string): int32
+    local holder = ffi.new<int16[1]>()
+    unsafe do
+        ffi.copy(holder, bytes, 2)
+        return holder[0]
+    end
+end
+
+export function encodeInt16(value: int32): string
+    local holder = ffi.new<int16[1]>()
+    unsafe do
+        holder[0] = value
+    end
+
+    return ffi.string(holder, 2)
+end
+
+export function decodeUint32(bytes: string): uint32
+    local holder = ffi.new<uint32[1]>()
+    unsafe do
+        ffi.copy(holder, bytes, 4)
+        return holder[0]
+    end
+end
+
+export function encodeUint32(value: uint32): string
+    local holder = ffi.new<uint32[1]>()
+    unsafe do
+        holder[0] = value
+    end
+
+    return ffi.string(holder, 4)
+end
+
+export function decodeInt32(bytes: string): int32
+    local holder = ffi.new<int32[1]>()
+    unsafe do
+        ffi.copy(holder, bytes, 4)
+        return holder[0]
+    end
+end
+
+export function encodeInt32(value: int32): string
+    local holder = ffi.new<int32[1]>()
+    unsafe do
+        holder[0] = value
+    end
+
+    return ffi.string(holder, 4)
+end
+
+export function decodeUint64(bytes: string): uint64
+    local holder = ffi.new<uint64[1]>()
+    unsafe do
+        ffi.copy(holder, bytes, 8)
+        return holder[0]
+    end
+end
+
+export function encodeUint64(value: uint64): string
+    local holder = ffi.new<uint64[1]>()
+    unsafe do
+        holder[0] = value
+    end
+
+    return ffi.string(holder, 8)
+end
+
+export function decodeInt64(bytes: string): int64
+    local holder = ffi.new<int64[1]>()
+    unsafe do
+        ffi.copy(holder, bytes, 8)
+        return holder[0]
+    end
+end
+
+export function encodeInt64(value: int64): string
+    local holder = ffi.new<int64[1]>()
+    unsafe do
+        holder[0] = value
+    end
+
+    return ffi.string(holder, 8)
+end
+
+export function decodeFloat32(bytes: string): float
+    local holder = ffi.new<float[1]>()
+    unsafe do
+        ffi.copy(holder, bytes, 4)
+        return holder[0]
+    end
+end
+
+export function encodeFloat32(value: number): string
+    local holder = ffi.new<float[1]>()
+    unsafe do
+        holder[0] = value
+    end
+
+    return ffi.string(holder, 4)
+end
+
+export function decodeFloat64(bytes: string): number
+    local holder = ffi.new<number[1]>()
+    unsafe do
+        ffi.copy(holder, bytes, 8)
+        return holder[0]
+    end
+end
+
+export function encodeFloat64(value: number): string
+    local holder = ffi.new<number[1]>()
+    unsafe do
+        holder[0] = value
+    end
+
+    return ffi.string(holder, 8)
+end
+
+export function castBytes(borrows pointer: any): const uint8[?] borrows (pointer)
+    return ffi.cast<const uint8[?]>(pointer)
+end
+
+export function castElements<T>(element: ctype<T>, pointer: any): any
+    local pointerSpec = "const $ *"
+    local pointerType = ffi.typeof(pointerSpec, element)
+    unsafe do
+        return ffi.cast(pointerType, pointer) as T[?]
+    end
+end
+
+local scalarTypes: {[string]: any} = {}
+local arrayTypes: any = {}
+export function scalar(kind: string): any
+    local result = scalarTypes[kind]
+    if result == nil then
+        local spelling = kind == "float" and "float" or kind == "number" and "double" or kind .. "_t"
+        result = ffi.typeof(spelling)
+        scalarTypes[kind] = result
+    end
+
+    return result
+end
+
+export function descriptor(value: any): any
+    return ffi.typeof(value)
+end
+
+export function allocateArray(element: any, count: integer): any
+    local width = ffi.sizeof(element) as integer
+    assert(
+        count >= 0 and count % 1 == 0 and count <= math.floor(2147483647 / math.max(width, 1)),
+        "nupp: storage array extent exceeds native allocation limit"
+    )
+    local physical = arrayTypes[element]
+    if physical == nil then
+        local spelling = "$[?]"
+        physical = ffi.typeof(spelling, element)
+        arrayTypes[element] = physical
+    end
+
+    return ffi.new(physical, count)
+end
+
+-- Native raw references retain the existing explicit extent contract. The
+-- checked physical host additionally verifies the extent of its rooted handle.
+export function boundedCount(source: any, count: integer): integer
+    return count
+end

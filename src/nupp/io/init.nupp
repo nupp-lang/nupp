@@ -12,8 +12,8 @@ local reader = bytes:newReader()
 assert(reader:read(5) == "hello")
 ```
 
-A buffer holds its bytes in a LuaJIT FFI array, so a program that uses one adds
-no native dependency. `Reader` and `Writer` are interfaces rather than the
+A buffer holds its bytes in the target's physical storage: a native array on
+LuaJIT, or a rooted allocation in a Wasm application. `Reader` and `Writer` are interfaces rather than the
 concrete things that satisfy them, which is what lets code written against the
 contract work over any of them without knowing which it has.
 

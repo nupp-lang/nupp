@@ -9,6 +9,7 @@ bench/portable-storage-io/run.sh > native.jsonl
 tests/wasm-memory/run.sh wasm bench/portable-storage-io/wasm.lua > wasm.jsonl
 bench/span-range-lowering/run.sh > spans.txt
 bench/span-range-lowering/trace.sh > traces.txt
+tests/portable-storage/run.sh wasm > portable-contracts.txt
 ```
 
 The Wasm runner needs the same Lua 5.1 source and Emscripten setup as
@@ -40,6 +41,12 @@ benchmark measures bulk movement, interpreted scalar calls and uncollected lease
 metadata, with no JavaScript call per byte. Wasm AOT and native AOT have separate
 conformance/measurement paths; these interpreter measurements cannot prove their
 performance or public I/O portability.
+
+The shared portable fixture executes the ordinary I/O and scalar conformance
+cases together with physical arrays, bitfields, retained struct references,
+FIFO queues and Bitset in the real Lua-in-Wasm memory host. Its `native` mode
+runs that same portable bundle in the host-compiled C harness; native Nupp I/O
+is covered by the ordinary test suites and the LuaJIT benchmark above.
 
 The portable-storage execution report under `~/projects/nupp-plans` records the
 inspected revision, measurements, missing coverage and remaining milestones.

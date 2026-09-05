@@ -32,7 +32,14 @@ local target = require("nupp.compiler.aot.target")
 local binding = {}
 
 --- How a storage type is spelled in Nupp source.
-const binding.SOURCE_TYPE = {["f64"] = "number", ["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32",}
+const binding.SOURCE_TYPE = {
+    ["f64"] = "number",
+    ["f32"] = "float",
+    ["i32"] = "int32",
+    ["u32"] = "uint32",
+    ["i64"] = "int64",
+    ["u64"] = "uint64",
+}
 
 --- The source storage spelling carried by the IR, or its canonical spelling.
 local function sourceType(valueType: string, physicalType: string?): string
@@ -58,6 +65,8 @@ const binding.ABI_TYPE = {
     ["f32"] = "float",
     ["u32"] = "uint32",
     ["i32"] = "int32",
+    ["i64"] = "int64",
+    ["u64"] = "uint64",
     ["bool"] = "boolean",
 }
 
@@ -181,7 +190,7 @@ end
 --- How the wrapper spells one parameter, which is how the source spelled it.
 local function logical(param: scalarIR.Param): string
     local element = param.type:match("^struct:(.+)$") or sourceType(param.type, param.sourceType)
-    local spanName = param.spanModule == "nupp.wasm" and "wasm" or "span"
+    local spanName = "span"
     if param.kind == "write_span" then
         return "exclusive " .. param.name .. ": " .. spanName .. ".WriteSpan<" .. tostring(element) .. ">"
     elseif param.kind == "read_span" then

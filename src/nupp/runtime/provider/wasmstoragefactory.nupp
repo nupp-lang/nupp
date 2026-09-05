@@ -15,6 +15,8 @@ local WIDTHS = {
     uint16 = {2, 2},
     uint32 = {4, 4},
     number = {8, 8},
+    int64 = {8, 8},
+    uint64 = {8, 8},
 }
 
 local function roundUp(value: integer, alignment: integer): integer
@@ -23,6 +25,7 @@ end
 
 function factory.new(memory: any): any
     local provider: any = {referenceValued = true}
+    local descriptors: any = setmetatable({}, {__mode = "k"})
     for _, name in ipairs({"allocate", "pointer", "offset", "load", "store", "copy", "lease", "releaseLease"}) do
         provider[name] = memory[name]
     end
@@ -34,7 +37,17 @@ function factory.new(memory: any): any
             return cached
         end
         local width = assert(WIDTHS[kind], "nupp: Wasm storage has no scalar " .. tostring(kind))
-        local physical: any = {kind = kind, size = width[1], alignment = width[2],}
+        local spelling = kind == "boolean"
+            and "bool"
+            or kind == "number"
+            and "double"
+            or kind == "float"
+            and "float"
+            or kind == "integer"
+            and "int32_t"
+            or kind
+            .. "_t"
+        local physical: any = {kind = kind, ctype = spelling, size = width[1], alignment = width[2],}
         function physical:read(pointer: any, byteOffset: integer): any
             return memory.load(pointer, byteOffset, self.kind)
         end
@@ -44,6 +57,9 @@ function factory.new(memory: any): any
         end
 
         function physical:zero(): any
+            if self.kind == "int64" or self.kind == "uint64" then
+                return memory.int64[self.kind](0)
+            end
             return self.kind == "boolean" and false or 0
         end
 
@@ -60,18 +76,175 @@ function factory.new(memory: any): any
                 return type(value) == "boolean"
             end
 
+            if self.kind == "int64" or self.kind == "uint64" then
+                return memory.isWide(value, self.kind == "uint64")
+            end
+
             return type(value) == "number"
         end
 
+        descriptors[physical] = true
         scalarCache[kind] = physical
 
         return physical
     end
 
+    function provider.allocateArray(element: any, count: integer): any
+        assert(descriptors[element], "nupp: arrays require a physical storage descriptor")
+        local width = element.size as integer
+        assert(
+            count >= 0 and count % 1 == 0 and width >= 0 and count <= math.floor(4294967295 / math.max(width, 1)),
+            "nupp: storage array extent exceeds memory32"
+        )
+
+        return memory.typed(memory.pointer(memory.allocate(width * count), 0, 1), element, count)
+    end
+
+    function provider.boundedCount(source: any, count: integer): integer
+        assert(count >= 0 and count % 1 == 0 and count <= #source, "nupp: span extent exceeds its allocation")
+        return count
+    end
+
+    function provider.allocateBytes(count: integer): any
+        return provider.allocateArray(provider.scalar("uint8"), count)
+    end
+
+    function provider.borrowString(bytes: string): any
+        return memory.typed(memory.borrowString(bytes), provider.scalar("uint8"))
+    end
+
+    function provider.castBytes(pointer: any): any
+        return memory.typed(pointer, provider.scalar("uint8"))
+    end
+
+    function provider.castElements(element: any, pointer: any): any
+        return memory.typed(pointer, element)
+    end
+
+    function provider.copy(destination: any, source: any, count: integer): nil
+        memory.copy(destination, type(source) == "string" and memory.borrowString(source) or source, count)
+    end
+
+    provider.fill = memory.fill
+    provider.string = memory.string
+
+    function provider.decodeUint8(bytes: string): any
+        return memory.decode("uint8", bytes)
+    end
+
+    function provider.encodeUint8(value: any): string
+        return memory.encode("uint8", value)
+    end
+
+    function provider.decodeInt8(bytes: string): any
+        return memory.decode("int8", bytes)
+    end
+
+    function provider.encodeInt8(value: any): string
+        return memory.encode("int8", value)
+    end
+
+    function provider.decodeUint16(bytes: string): any
+        return memory.decode("uint16", bytes)
+    end
+
+    function provider.encodeUint16(value: any): string
+        return memory.encode("uint16", value)
+    end
+
+    function provider.decodeInt16(bytes: string): any
+        return memory.decode("int16", bytes)
+    end
+
+    function provider.encodeInt16(value: any): string
+        return memory.encode("int16", value)
+    end
+
+    function provider.decodeUint32(bytes: string): any
+        return memory.decode("uint32", bytes)
+    end
+
+    function provider.encodeUint32(value: any): string
+        return memory.encode("uint32", value)
+    end
+
+    function provider.decodeInt32(bytes: string): any
+        return memory.decode("int32", bytes)
+    end
+
+    function provider.encodeInt32(value: any): string
+        return memory.encode("int32", value)
+    end
+
+    function provider.decodeUint64(bytes: string): any
+        return memory.decode("uint64", bytes)
+    end
+
+    function provider.encodeUint64(value: any): string
+        return memory.encode("uint64", value)
+    end
+
+    function provider.decodeInt64(bytes: string): any
+        return memory.decode("int64", bytes)
+    end
+
+    function provider.encodeInt64(value: any): string
+        return memory.encode("int64", value)
+    end
+
+    function provider.decodeFloat32(bytes: string): any
+        return memory.decode("float", bytes)
+    end
+
+    function provider.encodeFloat32(value: any): string
+        return memory.encode("float", value)
+    end
+
+    function provider.decodeFloat64(bytes: string): any
+        return memory.decode("number", bytes)
+    end
+
+    function provider.encodeFloat64(value: any): string
+        return memory.encode("number", value)
+    end
+
+    function provider.reference(resolve: function(): any): any
+        local reference: any = {size = 4, alignment = 4, ctype = "pointer", resolve = resolve}
+        function reference:read(pointer: any, byteOffset: integer): any
+            return memory.loadReference(pointer, byteOffset)
+        end
+
+        function reference:write(pointer: any, byteOffset: integer, value: any): nil
+            if value ~= nil then
+                -- A typed projection retains the allocation and readonly permission.
+                value = memory.typed(value, resolve())
+            end
+            memory.storeReference(pointer, byteOffset, value)
+        end
+
+        descriptors[reference] = true
+
+        return reference
+    end
+
+    local arrayCache: any = setmetatable({}, {__mode = "k"})
     function provider.array(element: any, count: integer): any
         assert(count >= 0 and count % 1 == 0, "nupp: fixed array count must be a nonnegative integer")
+        local cached = arrayCache[element]
+        if cached == nil then
+            cached = {};
+            arrayCache[element] = cached
+        end
+        if cached[count] ~= nil then
+            return cached[count]
+        end
+        assert(
+            element.size >= 0 and count <= math.floor(4294967295 / math.max(element.size, 1)),
+            "nupp: fixed array extent exceeds memory32"
+        )
         local fixed: any = {
             element = element,
+            ctype = tostring(element.ctype) .. "[" .. tostring(count) .. "]",
             count = count,
             size = element.size * count,
             alignment = element.alignment,
@@ -107,9 +280,11 @@ function factory.new(memory: any): any
 
         function fixed:write(pointer: any, byteOffset: integer, value: any): nil
             assert(self:isa(value), "nupp: cannot store a value of another fixed-array type")
-            memory.copy(
-                memory.offset(pointer, byteOffset),
-                memory.offset(rawget(value, "__nuppWasmPointer"), rawget(value, "__nuppWasmOffset")),
+            memory.copyAt(
+                pointer,
+                byteOffset,
+                rawget(value, "__nuppWasmPointer"),
+                rawget(value, "__nuppWasmOffset"),
                 self.size
             )
         end
@@ -132,28 +307,49 @@ function factory.new(memory: any): any
             ) == "table" and getmetatable(value) == instances and rawget(value, "__nuppWasmType") == self
         end
 
+        descriptors[fixed] = true
+        cached[count] = fixed
+
         return fixed
     end
 
     function provider.define(layout: any, methods: table): any
         local cursor: integer = 0
+        local bitCursor: integer = 0
         local aggregateAlignment: integer = 1
         local fields, byName = {}, {}
         for _, declared in ipairs(layout.fields) do
             local physical = declared.type or provider.scalar(declared.kind)
             local physicalAlignment = physical.alignment as integer
             local physicalSize = physical.size as integer
-            cursor = roundUp(cursor, physicalAlignment)
+            local shift: integer = 0
+            if declared.bits ~= nil then
+                local bits = declared.bits as integer
+                assert(bits > 0 and bits <= physicalSize * 8, "nupp: invalid bitfield width")
+                local unit = physicalSize * 8
+                if bitCursor % unit + bits > unit then
+                    bitCursor = roundUp(bitCursor, unit)
+                end
+                cursor = math.floor(bitCursor / 8) as integer
+                shift = bitCursor % 8
+                bitCursor = bitCursor + bits
+            else
+                cursor = roundUp(math.ceil(bitCursor / 8) as integer, physicalAlignment)
+                bitCursor = (cursor + physicalSize) * 8
+            end
             local field = {
                 name = declared.name,
                 type = physical,
                 offset = cursor,
                 size = physicalSize,
                 alignment = physicalAlignment,
+                bits = declared.bits,
+                shift = shift,
+                kind = declared.kind,
             }
             fields[#fields + 1] = field
             byName[field.name] = field
-            cursor = cursor + physicalSize
+            cursor = math.ceil(bitCursor / 8) as integer
             if physicalAlignment > aggregateAlignment then
                 aggregateAlignment = physicalAlignment
             end
@@ -162,6 +358,7 @@ function factory.new(memory: any): any
         local instances: any = {}
         local fixed: any = {
             name = layout.name,
+            ctype = layout.name,
             fields = fields,
             size = roundUp(cursor, aggregateAlignment),
             alignment = aggregateAlignment,
@@ -176,6 +373,16 @@ function factory.new(memory: any): any
                 error("nupp: " .. layout.name .. " has no field " .. tostring(name), 2)
             end
 
+            if field.bits ~= nil then
+                return memory.bits(
+                    rawget(self, "__nuppWasmPointer"),
+                    rawget(self, "__nuppWasmOffset") + field.offset,
+                    field.shift,
+                    field.bits,
+                    field.kind
+                )
+            end
+
             return field.type:read(rawget(self, "__nuppWasmPointer"), rawget(self, "__nuppWasmOffset") + field.offset)
         end
 
@@ -184,7 +391,22 @@ function factory.new(memory: any): any
             if field == nil then
                 error("nupp: " .. layout.name .. " has no field " .. tostring(name), 2)
             end
-            field.type:write(rawget(self, "__nuppWasmPointer"), rawget(self, "__nuppWasmOffset") + field.offset, value)
+            if field.bits ~= nil then
+                memory.bits(
+                    rawget(self, "__nuppWasmPointer"),
+                    rawget(self, "__nuppWasmOffset") + field.offset,
+                    field.shift,
+                    field.bits,
+                    field.kind,
+                    value
+                )
+            else
+                field.type:write(
+                    rawget(self, "__nuppWasmPointer"),
+                    rawget(self, "__nuppWasmOffset") + field.offset,
+                    value
+                )
+            end
         end
 
         function fixed:read(pointer: any, byteOffset: integer): any
@@ -196,9 +418,11 @@ function factory.new(memory: any): any
 
         function fixed:write(pointer: any, byteOffset: integer, value: any): nil
             assert(self:isa(value), "nupp: cannot store a value of another struct type")
-            memory.copy(
-                memory.offset(pointer, byteOffset),
-                memory.offset(rawget(value, "__nuppWasmPointer"), rawget(value, "__nuppWasmOffset")),
+            memory.copyAt(
+                pointer,
+                byteOffset,
+                rawget(value, "__nuppWasmPointer"),
+                rawget(value, "__nuppWasmOffset"),
                 self.size
             )
         end
@@ -239,20 +463,50 @@ function factory.new(memory: any): any
             end,
         })
 
+        descriptors[fixed] = true
+
         return fixed
     end
 
     function provider.layout(subject: any): any
         local fields, offsets = {}, {}
+        local fingerprint = {"wasm32", tostring(subject.name), tostring(subject.size), tostring(subject.alignment)}
         for _, field in ipairs(subject.fields or {}) do
+            local spelling = field.type.resolve and (
+                tostring(field.type.resolve().ctype) .. " *"
+            ) or tostring(field.type.ctype)
+            fingerprint[
+                #fingerprint + 1
+            ] = table.concat(
+                {
+                    field.name,
+                    spelling,
+                    tostring(field.offset),
+                    tostring(field.size),
+                    tostring(field.alignment),
+                    tostring(field.bits),
+                    tostring(field.shift)
+                },
+                ":"
+            )
             offsets[field.name] = field.offset
-            fields[
-                #fields + 1
-            ] = {name = field.name, offset = field.offset, size = field.size, alignment = field.alignment, padding = 0,}
+            fields[#fields + 1] = {
+                name = field.name,
+                ctype = spelling,
+                offset = field.offset,
+                size = field.size,
+                alignment = field.alignment,
+                padding = 0,
+                pointerType = provider.reference(
+                    function()
+                        return field.type
+                    end
+                ),
+            }
         end
         for index, field in ipairs(fields) do
             local after = fields[index + 1] and fields[index + 1].offset or subject.size
-            field.padding = after - field.offset - field.size
+            field.padding = math.max(0, after - field.offset - field.size)
         end
 
         return {
@@ -261,15 +515,18 @@ function factory.new(memory: any): any
             alignment = subject.alignment,
             fields = fields,
             offsets = offsets,
-            fingerprint = "wasm32|" .. tostring(subject.name) .. "|" .. tostring(subject.size),
+            fingerprint = table.concat(fingerprint, "|"),
         }
     end
 
     function provider.descriptor(value: any): any
-        return assert(
-            type(value) == "table" and rawget(value, "__nuppWasmType") or nil,
-            "nupp: Wasm storage needs a struct value witness"
+        local physical = type(value) == "table" and rawget(value, "__nuppWasmType") or nil
+        assert(
+            physical and descriptors[physical] and physical:isa(value),
+            "nupp: storage needs a genuine physical value witness"
         )
+
+        return physical
     end
 
     return provider

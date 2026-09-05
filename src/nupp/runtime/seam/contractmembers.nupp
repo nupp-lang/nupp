@@ -77,6 +77,9 @@ local members = {
     ["numeric.simd"] = comptime do
         return memberNames(nupp.reflect(contracts.SimdProvider))
     end,
+    ["representation.cstorage"] = comptime do
+        return memberNames(nupp.reflect(contracts.CstorageProvider))
+    end,
     ["representation.structvalue"] = comptime do
         return memberNames(nupp.reflect(contracts.StructvalueProvider))
     end,

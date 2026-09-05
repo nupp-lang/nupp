@@ -87,11 +87,14 @@ local function moduleSource(env: any, scratch: string, name: string): string?
         return path
     end
     local bundled = require("nupp.compiler.bundled")
-    local relative = "/" .. name:gsub("%.", "/") .. ".nupp"
-    local source = bundled.source(relative)
-    if source == nil then
-        relative = "/" .. name:gsub("%.", "/") .. "/init.nupp"
+    local relative = ""
+    local source: string? = nil
+    for _, suffix in ipairs({".nupp", ".g.nupp", "/init.nupp", "/init.g.nupp"}) do
+        relative = "/" .. name:gsub("%.", "/") .. suffix
         source = bundled.source(relative)
+        if source ~= nil then
+            break
+        end
     end
     if source == nil then
         return nil
@@ -141,6 +144,9 @@ local function compileRuntimeTree(env: any, scratch: string, roots: {string}, se
                         return false, compileProblem
                     end
                     code = generated
+                end
+                for _, dependency in ipairs(require("nupp.compiler.gen").runtimeModules(code)) do
+                    pending[#pending + 1] = dependency
                 end
                 local wrote, writeProblem = fs.writeFile(moduleOutput(scratch .. "/lua", name), code)
                 if not wrote then

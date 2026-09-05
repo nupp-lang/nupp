@@ -1,0 +1,117 @@
+@!internal
+module nupp.io.internal.ownedreader
+
+local bytes = require("nupp.io.internal.bytes")
+local span = require("nupp.mem.span")
+local physical = require("nupp.runtime.storage")
+local type Reader = bytes.Reader
+local type Writer = bytes.Writer
+local type Buffer = bytes.Buffer
+local positive = bytes.validatePositive
+local integer_ = bytes.validateInteger
+local DEFAULT_READ = 65536
+
+-- A completed host transfer can give its allocation to a reader directly.
+-- Unlike Buffer:newReader's snapshot, this consumes the owner and copies no bytes.
+local record MemoryReader is Reader
+    private _data: uint8[?]
+    private _length: integer
+    private _at: integer
+    private _closed: boolean
+
+    function read(self, count: integer): (string?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local wanted = positive(count, "Reader:read count", 2)
+        local taking = math.min(wanted, self._length - self._at) as integer
+        local bytes: string
+        unsafe do
+            local root = borrowFrom(self._data as voidptr, self)
+            bytes = physical.string((root as uint8*) + self._at, taking)
+        end
+        self._at = self._at + taking
+
+        return bytes, nil
+    end
+
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local wanted: integer
+        do
+            local output = destination as span.WriteSpan<uint8>
+            wanted = positive(#output, "Reader:readSpan destination length", 2)
+        end
+        local taking = math.min(wanted, self._length - self._at) as integer
+        local pointer = destination:ref()
+        unsafe do
+            local root = borrowFrom(self._data as voidptr, self)
+            physical.copy(pointer, (root as uint8*) + self._at, taking)
+        end
+        self._at = self._at + taking
+
+        return taking, nil
+    end
+
+    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local from = integer_(offset or 0, "Reader:readInto offset", 2)
+        local wanted = positive(count or DEFAULT_READ, "Reader:readInto count", 2)
+        local taking = math.min(wanted, self._length - self._at) as integer
+        if taking == 0 then
+            return 0, nil
+        end
+        local lease = destination:reserveWrite(from, wanted)
+        do
+            local output = lease:span()
+            local _read, _reason = self:readSpan(output)
+            drop output
+        end
+        lease:commit(taking)
+
+        return taking, nil
+    end
+
+    function transferTo(self, exclusive destination: Writer): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local source = span.fromCarray(self._data, self._length)
+        local total: integer = 0
+        while self._at < self._length do
+            local rest = source:slice(self._at + 1, self._length)
+            local written, reason = destination:writeSpan(rest)
+            if written == nil then
+                return nil, reason
+            end
+            if written < 1 or written > #rest then
+                return nil, "writer made invalid transfer progress"
+            end
+            self._at = self._at + written
+            total = total + written
+        end
+
+        return total, nil
+    end
+
+    function close(takes self): nil
+        self:drop()
+    end
+
+    function drop(takes self): nil
+        local state = unsafe release self
+        state._closed = true
+        state._length = 0
+        (state as any)._data = nil
+    end
+end
+
+export function newOwnedReader(takes buffer: bytes.OwnedBuffer): Reader
+    local state = unsafe release buffer
+    assert(not (state as any)._closed, "nupp: io.Buffer is closed")
+    return new MemoryReader(_data = (state as any)._data, _length = (state as any)._length, _at = 0, _closed = false)
+end

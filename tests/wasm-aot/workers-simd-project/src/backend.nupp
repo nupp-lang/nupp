@@ -1,6 +1,0 @@
-module backend
-
-export = {
-    name = "test.browser.workers.wasm",
-    seams = {["representation.structvalue"] = "nupp.runtime.provider.wasmstorage",},
-}

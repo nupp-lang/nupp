@@ -53,6 +53,14 @@ local CONTRACTS: {any} = {
         binding = "compile",
         globalName = "__nuppStructvalue"
     },
+    {
+        name = "representation.cstorage",
+        slug = "cstorage",
+        effect = "runtime.cstorage",
+        binding = "compile",
+        globalName = "__nuppCstorage",
+        implementationModules = {["nupp.runtime.storage"] = true},
+    },
     {name = "host.wasm", slug = "wasm", effect = "runtime.wasm", binding = "runtime", globalName = "__nuppWasm"},
     {name = "numeric.int64", slug = "int64", effect = "runtime.int64", binding = "compile", globalName = "__nuppInt64"},
     {name = "numeric.simd", slug = "simd", effect = "runtime.simd", binding = "compile", globalName = "__nuppSimd"},

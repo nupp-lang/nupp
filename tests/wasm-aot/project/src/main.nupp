@@ -1,4 +1,5 @@
-local wasm = require("nupp.wasm")
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local base64 = require("nupp.data.base64")
 local valuebuilder = require("nupp.data.valuebuilder")
 local conformance = require("nupp.tests.wasmconformance")
@@ -45,8 +46,8 @@ end
 
 @aot(vectorize = false)
 local function scale(
-    exclusive output: wasm.WriteSpan<Sample>,
-    borrows input: wasm.Span<Sample>,
+    exclusive output: span.WriteSpan<Sample>,
+    borrows input: span.Span<Sample>,
     factor: number,
     enabled: boolean
 ): nil
@@ -62,14 +63,14 @@ local function scale(
     end
 end
 
-local input = wasm.array(new Sample(), 3)
+local input = array.new(new Sample(), 3)
 local inputRows = input:write()
 inputRows[1] = new Sample(2, 10, 1)
 inputRows[2] = new Sample(3, 20, 4)
 inputRows[3] = new Sample(5, 30, 7)
-inputRows:drop()
+drop inputRows
 
-local output = wasm.array(new Sample(), 3)
+local output = array.new(new Sample(), 3)
 scale(output:write(), input:read(), 2, true)
 
 local rows = output:read()
@@ -77,3 +78,58 @@ assert(#rows == 3)
 assert(rows[1].value == 4 and rows[1].bias == 12 and rows[1].weight == 3)
 assert(rows[2].value == 6 and rows[2].bias == 22 and rows[2].weight == 6)
 assert(rows[3].value == 10 and rows[3].bias == 32 and rows[3].weight == 9)
+
+@aot(vectorize = false)
+local function incrementWide(
+    exclusive output: span.WriteSpan<uint64>,
+    borrows input: span.Span<uint64>,
+    delta: uint64
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for index = 1, #output do
+        output[index] = input[index] + delta
+    end
+end
+
+@aot(vectorize = false)
+local function addWide(left: uint64, right: uint64): uint64
+    return left + right
+end
+
+local wideInput = array.scalar(array.uint64, 2)
+do
+    local writable = wideInput:write()
+    writable[1] = (-1 as int64) as uint64
+    writable[2] = 9007199254740992 as uint64
+    drop writable
+end
+local wideOutput = array.scalar(array.uint64, 2)
+incrementWide(wideOutput:write(), wideInput:read(), 1 as uint64)
+local exact = addWide(wideInput:read()[2], 1 as uint64)
+assert(tostring(exact) == "9007199254740993")
+assert(wideOutput:read()[1] == (0 as uint64))
+assert(tostring(wideOutput:read()[2]) == "9007199254740993")
+
+@aot(vectorize = false)
+local function copyBytes(exclusive destination: span.WriteSpan<uint8>, borrows source: span.ByteSpan): nil
+    if #destination ~= #source then
+        error("length mismatch", 2)
+    end
+    for index = 1, #destination do
+        destination[index] = source[index]
+    end
+end
+
+local byteBuffer = nupp.io.newBuffer(4)
+local byteLease = byteBuffer:reserveWrite(0, 4)
+do
+    local bytes = byteLease:span()
+    const original = "a\0b\255"
+    const source = span.fromString(original)
+    copyBytes(bytes, source)
+    drop bytes
+end
+byteLease:commit(4)
+assert(byteBuffer:getString() == "a\0b\255")

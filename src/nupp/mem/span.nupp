@@ -195,7 +195,7 @@ projects the physical pointer and count arguments automatically.
 :::
 ]]
 
-local ffi = require("ffi")
+local physical = require("nupp.runtime.storage")
 local span = {}
 
 --- The consuming operation shared by every writable span representation.
@@ -279,6 +279,9 @@ local record SpanImpl<T> is span.Span<T>
     --- Exposes the checked range as a const pointer/count pair for a native call.
     function ref(self: SpanImpl<T>): (const T[?] borrows (self), integer)
         unsafe do
+            if self.offset == 0 then
+                return self.pointer as const T[?], self.count as integer
+            end
             local pointer = (self.pointer as const T*) + self.offset
             return borrowFrom(pointer as const T[?], self), self.count
         end
@@ -324,6 +327,9 @@ local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
 
     function ref(self: FixedSpanImpl<T, N>): (const T[?] borrows (self), integer)
         unsafe do
+            if self.offset == 0 then
+                return self.pointer as const T[?], self.count as integer
+            end
             local pointer = (self.pointer as const T*) + self.offset
             return borrowFrom(pointer as const T[?], self), self.count as integer
         end
@@ -456,6 +462,9 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     --- Exposes the checked range as a mutable pointer/count pair for a native call.
     function ref(exclusive self: WriteSpanImpl<T>): (T[?] borrows (self), integer)
         unsafe do
+            if self.offset == 0 then
+                return self.pointer as T[?], self.count as integer
+            end
             local pointer = (self.pointer as T*) + self.offset
             return borrowFrom(pointer as T[?], self), self.count
         end
@@ -557,6 +566,9 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
 
     function ref(exclusive self: FixedWriteSpanImpl<T, N>): (T[?] borrows (self), integer)
         unsafe do
+            if self.offset == 0 then
+                return self.pointer as T[?], self.count as integer
+            end
             local pointer = (self.pointer as T*) + self.offset
             return borrowFrom(pointer as T[?], self), self.count as integer
         end
@@ -646,7 +658,7 @@ type span.ByteWriteSpan = span.WriteSpan<uint8>
 --- @return the byte view, borrowed from the string
 --- @export
 function span.fromString(borrows source: string): span.ByteSpan borrows (source)
-    local pointer = ffi.cast<const uint8[?]>(source)
+    local pointer = physical.borrowString(source)
     return (new SpanImpl(anchor = source, pointer = pointer as any, offset = 0, count = #source)) as span.ByteSpan
 end
 
@@ -655,7 +667,7 @@ end
 -- the storage outlives every read. Only this module can construct the sealed
 -- implementation, which is why the hook lives here.
 local function foreignByteSpan(anchor: any, pointer: any, offset: integer, count: integer): span.ByteSpan
-    local typed = ffi.cast<const uint8[?]>(pointer)
+    local typed = physical.castBytes(pointer)
     return (new SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.ByteSpan
 end
 
@@ -670,10 +682,8 @@ local function foreignSpan<T>(
     count: integer,
     element: ctype<T>
 ): span.Span<T>
-    local pointerSpec = "const $ *"
-    local pointerType = ffi.typeof(pointerSpec, element)
     unsafe do
-        local typed = ffi.cast(pointerType, pointer) as T[?]
+        local typed = physical.castElements(element, pointer)
         return (new SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.Span<T>
     end
 end
@@ -682,8 +692,8 @@ rawset(span as table, "__foreignSpan", foreignSpan)
 
 --- Creates a checked shared span over a C array and an explicit logical count.
 ---
---- The count is the caller's claim about the array, so it is the one number this
---- module cannot check for itself. Everything after it is checked against it.
+--- A native raw reference uses the caller's explicit extent. Wasm references also
+--- check it against their rooted allocation. Later operations check this extent.
 ---
 --- ```nupp
 --- local struct Value
@@ -704,7 +714,9 @@ function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> 
     if count < 0 then
         error("span count cannot be negative", 2)
     end
-    return (new SpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)) as span.Span<T>
+    return (
+        new SpanImpl(anchor = source, pointer = source as any, offset = 0, count = physical.boundedCount(source, count))
+    ) as span.Span<T>
 end
 
 --- Creates a fixed shared span without a runtime length check.
@@ -755,7 +767,14 @@ function span.writeCarray<T>(exclusive source: T[?], count: integer): span.Writa
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
-    return (new WriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)) as span.WriteSpan<T>
+    return (
+        new WriteSpanImpl(
+            anchor = source,
+            pointer = source as any,
+            offset = 0,
+            count = physical.boundedCount(source, count)
+        )
+    ) as span.WriteSpan<T>
 end
 
 --- Creates a fixed affine write span without a runtime length check.

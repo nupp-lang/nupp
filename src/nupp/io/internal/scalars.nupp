@@ -9,7 +9,7 @@ local type ByteQueue = storage.ByteQueue
 local type Reader = storage.Reader
 local type Writer = storage.Writer
 local newBuffer = storage.newBuffer
-local ffi = require("ffi")
+local physical = require("nupp.runtime.storage")
 
 --- @raises when value is not a non-negative integer
 local function integer_(value: any, what: string, level: integer): integer
@@ -193,140 +193,70 @@ local record Scalars is ScalarReader
 
     function readUint8(self): uint32
         local raw = taken(self, 1)
-        local holder = ffi.new<uint8[1]>()
-        local value: any = nil
-        -- A pointer is not indexable in checked code, so the bytes are copied into a
-        -- one-element array and read from there. Same instruction, checked shape.
-        unsafe do
-            ffi.copy(holder, raw, 1)
-            value = holder[0]
-        end
+        local value = physical.decodeUint8(raw)
 
         return nupp.math.u32.wrap(value as integer)
     end
 
     function readInt8(self): int32
         local raw = taken(self, 1)
-        local holder = ffi.new<int8[1]>()
-        local value: any = nil
-        -- A pointer is not indexable in checked code, so the bytes are copied into a
-        -- one-element array and read from there. Same instruction, checked shape.
-        unsafe do
-            ffi.copy(holder, raw, 1)
-            value = holder[0]
-        end
+        local value = physical.decodeInt8(raw)
 
         return nupp.math.i32.wrap(value as integer)
     end
 
     function readUint16(self): uint32
         local raw = taken(self, 2)
-        local holder = ffi.new<uint16[1]>()
-        local value: any = nil
-        -- A pointer is not indexable in checked code, so the bytes are copied into a
-        -- one-element array and read from there. Same instruction, checked shape.
-        unsafe do
-            ffi.copy(holder, raw, 2)
-            value = holder[0]
-        end
+        local value = physical.decodeUint16(raw)
 
         return nupp.math.u32.wrap(value as integer)
     end
 
     function readInt16(self): int32
         local raw = taken(self, 2)
-        local holder = ffi.new<int16[1]>()
-        local value: any = nil
-        -- A pointer is not indexable in checked code, so the bytes are copied into a
-        -- one-element array and read from there. Same instruction, checked shape.
-        unsafe do
-            ffi.copy(holder, raw, 2)
-            value = holder[0]
-        end
+        local value = physical.decodeInt16(raw)
 
         return nupp.math.i32.wrap(value as integer)
     end
 
     function readUint32(self): uint32
         local raw = taken(self, 4)
-        local holder = ffi.new<uint32[1]>()
-        local value: any = nil
-        -- A pointer is not indexable in checked code, so the bytes are copied into a
-        -- one-element array and read from there. Same instruction, checked shape.
-        unsafe do
-            ffi.copy(holder, raw, 4)
-            value = holder[0]
-        end
+        local value = physical.decodeUint32(raw)
 
         return nupp.math.u32.wrap(value as integer)
     end
 
     function readInt32(self): int32
         local raw = taken(self, 4)
-        local holder = ffi.new<int32[1]>()
-        local value: any = nil
-        -- A pointer is not indexable in checked code, so the bytes are copied into a
-        -- one-element array and read from there. Same instruction, checked shape.
-        unsafe do
-            ffi.copy(holder, raw, 4)
-            value = holder[0]
-        end
+        local value = physical.decodeInt32(raw)
 
         return nupp.math.i32.wrap(value as integer)
     end
 
     function readUint64(self): uint64
         local raw = taken(self, 8)
-        local holder = ffi.new<uint64[1]>()
-        local value: any = nil
-        -- A pointer is not indexable in checked code, so the bytes are copied into a
-        -- one-element array and read from there. Same instruction, checked shape.
-        unsafe do
-            ffi.copy(holder, raw, 8)
-            value = holder[0]
-        end
+        local value = physical.decodeUint64(raw)
 
         return value as uint64
     end
 
     function readInt64(self): int64
         local raw = taken(self, 8)
-        local holder = ffi.new<int64[1]>()
-        local value: any = nil
-        -- A pointer is not indexable in checked code, so the bytes are copied into a
-        -- one-element array and read from there. Same instruction, checked shape.
-        unsafe do
-            ffi.copy(holder, raw, 8)
-            value = holder[0]
-        end
+        local value = physical.decodeInt64(raw)
 
         return value as int64
     end
 
     function readFloat32(self): float
         local raw = taken(self, 4)
-        local holder = ffi.new<float[1]>()
-        local value: any = nil
-        -- A pointer is not indexable in checked code, so the bytes are copied into a
-        -- one-element array and read from there. Same instruction, checked shape.
-        unsafe do
-            ffi.copy(holder, raw, 4)
-            value = holder[0]
-        end
+        local value = physical.decodeFloat32(raw)
 
         return nupp.math.f32.narrow(value as number)
     end
 
     function readFloat64(self): number
         local raw = taken(self, 8)
-        local holder = ffi.new<number[1]>()
-        local value: any = nil
-        -- A pointer is not indexable in checked code, so the bytes are copied into a
-        -- one-element array and read from there. Same instruction, checked shape.
-        unsafe do
-            ffi.copy(holder, raw, 8)
-            value = holder[0]
-        end
+        local value = physical.decodeFloat64(raw)
 
         return value as number
     end
@@ -460,93 +390,43 @@ local record ScalarSink is ScalarWriter
     end
 
     function writeUint8(self, value: uint32): ScalarWriter
-        local holder = ffi.new<uint8[1]>()
-        unsafe do
-            holder[0] = value
-        end
-
-        return put(self, ffi.string(holder, 1))
+        return put(self, physical.encodeUint8(value))
     end
 
     function writeInt8(self, value: int32): ScalarWriter
-        local holder = ffi.new<int8[1]>()
-        unsafe do
-            holder[0] = value
-        end
-
-        return put(self, ffi.string(holder, 1))
+        return put(self, physical.encodeInt8(value))
     end
 
     function writeUint16(self, value: uint32): ScalarWriter
-        local holder = ffi.new<uint16[1]>()
-        unsafe do
-            holder[0] = value
-        end
-
-        return put(self, ffi.string(holder, 2))
+        return put(self, physical.encodeUint16(value))
     end
 
     function writeInt16(self, value: int32): ScalarWriter
-        local holder = ffi.new<int16[1]>()
-        unsafe do
-            holder[0] = value
-        end
-
-        return put(self, ffi.string(holder, 2))
+        return put(self, physical.encodeInt16(value))
     end
 
     function writeUint32(self, value: uint32): ScalarWriter
-        local holder = ffi.new<uint32[1]>()
-        unsafe do
-            holder[0] = value
-        end
-
-        return put(self, ffi.string(holder, 4))
+        return put(self, physical.encodeUint32(value))
     end
 
     function writeInt32(self, value: int32): ScalarWriter
-        local holder = ffi.new<int32[1]>()
-        unsafe do
-            holder[0] = value
-        end
-
-        return put(self, ffi.string(holder, 4))
+        return put(self, physical.encodeInt32(value))
     end
 
     function writeUint64(self, value: uint64): ScalarWriter
-        local holder = ffi.new<uint64[1]>()
-        unsafe do
-            holder[0] = value
-        end
-
-        return put(self, ffi.string(holder, 8))
+        return put(self, physical.encodeUint64(value))
     end
 
     function writeInt64(self, value: int64): ScalarWriter
-        local holder = ffi.new<int64[1]>()
-        unsafe do
-            holder[0] = value
-        end
-
-        return put(self, ffi.string(holder, 8))
+        return put(self, physical.encodeInt64(value))
     end
 
     function writeFloat32(self, value: float): ScalarWriter
-        local holder = ffi.new<float[1]>()
-        unsafe do
-            holder[0] = value
-        end
-
-        return put(self, ffi.string(holder, 4))
+        return put(self, physical.encodeFloat32(value))
     end
 
     function writeFloat64(self, value: number): ScalarWriter
-        local holder = ffi.new<number[1]>()
-        unsafe do
-            holder[0] = value
-        end
-
-        return put(self, ffi.string(holder, 8))
+        return put(self, physical.encodeFloat64(value))
     end
 
     function buffer(borrows self): Buffer? borrows (self)

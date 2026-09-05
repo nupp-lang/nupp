@@ -46,25 +46,62 @@ end
 
 local M = {}
 
+function M.closedBufferReleasesItsAllocationWhileMetadataSurvives()
+    local buffer = require("nupp.io").newBuffer(string.rep("x", 1048576))
+    local allocation = setmetatable({buffer._data}, {__mode = "v"})
+    buffer:drop()
+    collectgarbage("collect")
+    collectgarbage("collect")
+    assert(buffer._closed, "the closed buffer metadata remains observable")
+    assert(allocation[1] == nil, "a closed buffer must release its allocation root")
+end
+
+function M.moduleInitializationKeepsManagedAliasesAndRuntimeIdentity()
+    local scope = setmetatable({nupp = {}}, {__index = _G})
+    scope._G = scope
+    local initialize = assert(loadstring(stdlib.bootstrap()))
+    setfenv(initialize, scope)
+    initialize()
+    local manage = scope.nupp.__manage
+    local owner = manage(
+        {},
+        function()
+        end,
+        "test"
+    )
+    local alias = owner:alias()
+    initialize()
+    assert(scope.nupp.__manage == manage, "a module must reuse the installed ownership runtime")
+    local recovered, problem = scope.nupp.__recoverAlias(alias)
+    assert(recovered == alias and problem == nil, "loading a module must not invalidate an existing alias")
+    assert(alias:close() == nil)
+end
+
+function M.ownershipInstallerDoesNotRecursivelyLoadItsPrelude()
+    local result = parser.parse("module nupp.runtime.managed\nexport function install(): nil end\n", "installer.g.nupp")
+    check.check(result, "installer.g.nupp", sharedEnv, {strict = false})
+    result.preludeRuntime = 'require("nupp.runtime.managed").install()'
+    local code, diagnostics = gen.generate(result, "installer.g.nupp")
+    assertEq(#diagnostics, 0, "the ownership installer generates")
+    for _, name in ipairs(gen.runtimeModules(code)) do
+        assert(name ~= "nupp.runtime.managed", "the installer must not load itself through the prelude")
+    end
+    assert(not code:find("@nupp-prelude", 1, true), "the intrinsic installer does not execute a dependent prelude")
+end
+
 function M.generatedRuntimeModulesIncludeIndirectBackendProviders()
     local provider = "providers.json|checked;100%"
     local descriptor = {
         module = "backend",
         digest = "digest",
         seams = {
-            {
-                name = "data.json",
-                version = 2,
-                effect = "native.json",
-                binding = "runtime",
-                runtimeModule = provider,
-            },
+            {name = "data.json", version = 2, effect = "native.json", binding = "runtime", runtimeModule = provider,},
         },
     }
-    local artifact = backends.artifact(
-        {['native.json'] = true},
-        {modules = {descriptor}, byEffect = {['native.json'] = "backend"}}
-    )
+    local artifact = backends.artifact({['native.json'] = true}, {
+        modules = {descriptor},
+        byEffect = {['native.json'] = "backend"}
+    })
     local modules = gen.runtimeModules(artifact .. 'require("direct.module")')
     assertEq(#modules, 2, "the runtime closure contains one direct module and one provider")
     assertEq(modules[1], "direct.module", "the direct module remains in the closure")
@@ -144,11 +181,11 @@ local function wasmResolution(backendModule)
         runtimeModule = "nupp.runtime.provider.wasmstorage",
     }
     local memory = {
-        name = "host.wasm",
+        name = "representation.cstorage",
         version = 1,
-        effect = "runtime.wasm",
-        effects = {"runtime.wasm"},
-        binding = "runtime",
+        effect = "runtime.cstorage",
+        effects = {"runtime.cstorage"},
+        binding = "compile",
         runtimeModule = "nupp.runtime.provider.wasmstorage",
     }
 
@@ -278,14 +315,15 @@ end
 
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
     local source = [[
-local wasm = require("nupp.wasm")
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local struct Sample
    value: float
 end
-local values = wasm.array(new Sample(), 2)
+local values = array.new(new Sample(), 2)
 local writable = values:write()
 writable[1] = new Sample(3)
-writable:drop()
+drop writable
 local readable = values:read()
 return #readable, readable[1].value
 ]]
@@ -384,13 +422,13 @@ function M.standardSurfaceRequiresExactPortableSeams()
         "nupp.runtime.native",
         "nupp.simd",
         "nupp.time",
-        "nupp.wasm",
+        "nupp.mem.array",
         "nupp.test",
         "nupp.workers",
     }) do
         assert(classified[name], "public standard module is classified: " .. name)
     end
-    assert(not classified["nupp.wasm.memory"], "the Wasm memory service remains internal to nupp.wasm")
+    assert(not classified["nupp.wasm"], "ordinary arrays and spans have one public family")
     -- Serde builds its output by appending into a buffer, which is the one thing in
     -- it a portable target cannot answer for itself. It asks for the seam that
     -- supplies one rather than for a capability it does not otherwise need.
@@ -655,6 +693,41 @@ function M.runtimeBitopsSeamIsLazyAndHasAnIsolatedSuite()
     _G.__nuppBitops = oldBinding
     _G.__nuppRuntimeProviders = oldSelection
     assert(ok, problem)
+end
+
+function M.physicalStorageRejectsIncompatibleCompanionProviders()
+    local function resolve(structs, wide)
+        local seams = {["representation.cstorage"] = "nupp.runtime.provider.wasmstorage"}
+        if structs then
+            seams["representation.structvalue"] = structs
+        end
+        if wide then
+            seams["numeric.int64"] = wide
+        end
+        local descriptor = assert(backends.describe("physical", seams, "physical"))
+
+        return backends.resolve(
+            {
+                modulePath = function()
+                    return 'physical.nupp'
+                end,
+                checkFile = function()
+                    return {backend = descriptor}
+                end,
+            },
+            {'physical'}
+        )
+    end
+
+    for _, structs in ipairs({false, 'nupp.runtime.provider.tablestruct'}) do
+        local selected, problem = resolve(structs)
+        assert(not selected and problem:find('same physical provider', 1, true))
+    end
+    for _, wide in ipairs({false, 'nupp.runtime.provider.tableint64'}) do
+        local selected, problem = resolve('nupp.runtime.provider.wasmstorage', wide)
+        assert(not selected and problem:find('exact numeric.int64 provider', 1, true))
+    end
+    assert(resolve('nupp.runtime.provider.wasmstorage', 'nupp.runtime.provider.wasmint64'))
 end
 
 function M.backendDescriptorsAreStaticCheckedMetadata()
@@ -1181,29 +1254,72 @@ end
 function M.browserHttpTransfersItsBodyToTheReturnedResponse()
     local browser = require("nupp.runtime.browser.http")
     local effects = require("nupp.runtime.browser.effects")
+    local ffi = require("ffi")
     local prior = effects.request
-    effects.request = function(_, _, resume)
-        resume({ok = true, value = {status = 200, bodyBase64 = "YWJj", headers = {}}})
+    local providerName = "nupp.runtime.provider.wasmstorage"
+    local priorProvider = package.loaded[providerName]
+    local leases, nextLease = {}, 0
+    package.loaded[providerName] = {
+        lease = function(pointer, count, writable)
+            nextLease = nextLease + 1
+            leases[nextLease] = {pointer = pointer, count = count, writable = writable}
+            return nextLease
+        end,
+        releaseLease = function(id)
+            leases[id] = nil
+        end,
+    }
+    effects.request = function(_, effect, resume)
+        if effect.operation == "read-body" then
+            local lease = assert(leases[effect.lease])
+            assert(lease.writable and lease.count == 3)
+            ffi.copy(lease.pointer, "abc", 3)
+            resume({ok = true, value = {bytes = 3}})
+        else
+            assert(effect.memoryResponse and effect.bodyBase64 == nil)
+            local upload = assert(leases[effect.bodyLease])
+            assert(not upload.writable and ffi.string(upload.pointer, upload.count) == "upload")
+            resume({ok = true, value = {status = 200, body = 1, bodyBytes = 3, headers = {}}})
+        end
+
         return function()
         end
     end
     local ok, problem = pcall(function()
         local client = browser.Client.__nuppCtor1()
+        local closedUpload = false
+        local input = "upload"
+        local source = {
+            read = function(_, count)
+                local bytes = input:sub(1, count);
+                input = input:sub(#bytes + 1);
+                return bytes
+            end,
+            close = function()
+                closedUpload = true
+            end
+        }
         local request = setmetatable(
-            {url = assert(require("nupp.io.uri").newURI("https://example.com/"))},
+            {url = assert(require("nupp.io.uri").newURI("https://example.com/")), body = browser.reader(source, 6),},
             browser.Request
         )
         local response, reason = client:send(request)
         assert(response, reason)
-        assertEq(response.body:read(3), "abc", "the returned response owns a live body")
+        local destination = require("nupp.io").newBuffer()
+        assertEq(response.body:readInto(destination, 0, 2), 2)
+        assertEq(destination:getString(), "ab")
+        assertEq(response.body:read(3), "c", "the returned response owns a live ordinary reader")
         response:close()
         local bytes, closed = response.body:read(1)
         assertEq(bytes, nil)
-        assertEq(closed, "the body is closed")
+        assertEq(closed, "the reader is closed")
         request:close()
+        assert(closedUpload, "the request retains its upload close obligation")
         client:close()
+        assert(next(leases) == nil, "completed transfers release both leases")
     end)
     effects.request = prior
+    package.loaded[providerName] = priorProvider
     assert(ok, problem)
 end
 

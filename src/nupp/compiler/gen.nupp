@@ -648,10 +648,17 @@ function gen.generate(
     local function needRuntimeEffect(effect: string?, moduleName: string?): nil
         if effect ~= nil then
             emittedFeatureEffects[effect] = true
+            -- The runtime math table binds its bit functions when it loads.
+            -- Install the selected representation before that table is required.
+            if effect == "stdlib.math" and bitopsCapability.kind == "seam" then
+                emittedFeatureEffects[bitopsCapability.effect] = true
+            end
         end
         if moduleName ~= nil then
             for _, seam in pairs(backendResolution and backendResolution.seams or {}) do
-                if seam.modules and seam.modules[moduleName] ~= nil then
+                if (
+                    seam.modules and seam.modules[moduleName] ~= nil
+                ) or (seam.implementationModules and seam.implementationModules[moduleName] ~= nil) then
                     emittedFeatureEffects[seam.effect] = true
                 end
             end
@@ -780,7 +787,7 @@ function gen.generate(
             for _, entry in ipairs(decl.entries or {}) do
                 if entry.kind == "fieldDecl" and entry.type then
                     local t = entry.type
-                    if t.kind == "topt" then
+                    while t.kind == "topt" or t.kind == "tconst" do
                         t = t.inner
                     end
                     if t.kind == "tptr" and t.inner and t.inner.kind == "tname" then
@@ -1799,7 +1806,20 @@ function gen.generate(
         else
             local root = rootView(view)
             local producerKind = root and root.producer and root.producer.kind or nil
-            if producerKind == "string" then
+            if producerKind == "string" and capabilities.get(capabilityResolution, "cstorage").kind == "seam" then
+                e("string.byte(")
+                emitViewRoot(view)
+                e(",")
+                emitViewOffset(view)
+                e("+")
+                if checked then
+                    emitCheckedViewIndex(view, index)
+                else
+                    emitIndex(index)
+                end
+                e(")")
+                return
+            elseif producerKind == "string" then
                 needsFfi = true
                 e("__nuppFfi.cast(\"const uint8_t *\",")
                 emitViewRoot(view)
@@ -1946,6 +1966,13 @@ function gen.generate(
     end
 
     local function emitRuntimeLayout(spec, line, emitCtype)
+        if portableStructvalue then
+            needRuntimeEffect("runtime.structvalue")
+            e(structvalueName .. ".layout(", line)
+            emitCtype()
+            e(")")
+            return
+        end
         needsLayout = true
         layoutName = layoutName or reservedName("__nuppLayout")
         e(("%s("):format(layoutName), line)
@@ -2028,6 +2055,10 @@ function gen.generate(
         -- loading. See the note above.
         scalarInline = {forms = SCALAR_INLINE, bitop = inlineBitop,},
         structvalue = {enabled = portableStructvalue, name = structvalueName, effect = "runtime.structvalue",},
+        storage = {
+            enabled = capabilities.get(capabilityResolution, "cstorage").kind == "seam",
+            name = reservedName("__nuppCstorage")
+        },
         int64 = {
             enabled = portableInt64,
             name = int64Name,
@@ -5027,6 +5058,11 @@ function gen.generate(
                         return ("%s.scalar(%q)"):format(pluck.structvalue.name, t.base.text)
                     elseif t.kind == "tname" then
                         return (t.reified or cst.textOf(t)) as string
+                    elseif t.kind == "tptr" or (t.kind == "tcarray" and not t.count) then
+                        local element = fixedType(t.element or t.inner)
+                        if element then
+                            return ("%s.reference(function() return %s end)"):format(pluck.structvalue.name, element)
+                        end
                     elseif t.kind == "tcarray" and t.count then
                         local element = fixedType(t.element)
                         if element then
@@ -5044,7 +5080,15 @@ function gen.generate(
                             t = t.inner
                         end
                         if t.kind == "tname" and C_PRIM[t.base.text] then
-                            fields[#fields + 1] = ("{name=%q,kind=%q}"):format(entry.name.text, t.base.text)
+                            fields[
+                                #fields + 1
+                            ] = (
+                                "{name=%q,kind=%q%s}"
+                            ):format(
+                                entry.name.text,
+                                t.base.text,
+                                entry.bitWidth and (",bits=" .. entry.bitWidth.text) or ""
+                            )
                         else
                             local fixed = fixedType(t)
                             if fixed then
@@ -5058,6 +5102,10 @@ function gen.generate(
                             end
                         end
                     end
+                end
+                if storage == "local " then
+                    e("local " .. x.name.text, line)
+                    storage = ""
                 end
                 e(
                     (
@@ -6021,6 +6069,15 @@ function gen.generate(
             return
 
         elseif kind == "call" and x.carrayElem then
+            if pluck.storage.enabled then
+                pluck.needRuntimeEffect("runtime.cstorage")
+                e(pluck.storage.name .. ".allocateArray(", sourceLine(x))
+                emit(x.carrayElem)
+                e(",")
+                emit(x.args.exprs[2])
+                e(")")
+                return
+            end
             -- one array ctype per element type, built once and reused
             needsFfi = true
             needsArrayCache = true
@@ -6233,10 +6290,12 @@ function gen.generate(
             return
 
         elseif (kind == "call" or kind == "safeCall") and x.constructorCall then
+            pluck.needRuntimeEffect(x.obj and x.obj.compilerFeatureEffect)
             -- A declared constructor is a direct call to the function minted for it,
             -- resolved here rather than dispatched at run time.
             local line = sourceLine(x)
-            e(x.constructorCall .. "." .. constructorMember(x.constructorIndex), line)
+            emit(x.obj)
+            e("." .. constructorMember(x.constructorIndex), line)
             if x.args then
                 emit(x.args)
             end
@@ -7029,6 +7088,12 @@ function gen.generate(
                 emit(producer.source)
                 e(".count")
             else
+                if pluck.storage.enabled then
+                    pluck.needRuntimeEffect("runtime.cstorage")
+                    e(pluck.storage.name .. ".boundedCount(")
+                    emit(producer.source)
+                    e(",")
+                end
                 e(compilerModuleName("nupp.mem.indexed") .. "._rootCount(")
                 emit(producer.count)
                 local message = root.descriptor
@@ -7036,6 +7101,9 @@ function gen.generate(
                     and "write span count cannot be negative"
                     or "span count cannot be negative"
                 e((",%q)"):format(message))
+                if pluck.storage.enabled then
+                    e(")")
+                end
             end
 
         elseif kind == "returnStmt" and pluck.currentRegion() then
@@ -7411,6 +7479,10 @@ function gen.generate(
             elseif producerKind == "fixed-carray" then
                 emit(view.count)
             else
+                if pluck.storage.enabled then
+                    pluck.needRuntimeEffect("runtime.cstorage")
+                    e(pluck.storage.name .. ".boundedCount(" .. view.anchorName .. ",", sourceLine(x))
+                end
                 e(moduleName .. "._rootCount(", sourceLine(x))
                 emit(view.count)
                 local message = view.descriptor
@@ -7418,6 +7490,9 @@ function gen.generate(
                     and "write span count cannot be negative"
                     or "span count cannot be negative"
                 e((",%q)"):format(message))
+                if pluck.storage.enabled then
+                    e(")")
+                end
             end
             return
 
@@ -8033,6 +8108,10 @@ function gen.generate(
     end
     -- `nupp` is an intrinsic namespace, not a module the application must require. A
     -- feature only adds its bootstrap in modules that resolved it.
+    local installingManaged = (result.declaredModuleName or result.moduleName) == "nupp.runtime.managed"
+    if not installingManaged then
+        pluck.needRuntimeEffect("runtime.managed")
+    end
     local runtimeEffects = emittedFeatureEffects
     local useYieldableCleanupCalls = false
     local cleanupCoroutineCreate = "coroutine.create"
@@ -8073,13 +8152,21 @@ function gen.generate(
     local runtimeBootstrap = stdlib.bootstrap(
         nativeRuntimeEffects,
         hotState ~= nil,
-        backends.bootstrap(runtimeEffects, backendResolution)
+        backends.bootstrap(runtimeEffects, backendResolution),
+        installingManaged
     )
+    if pluck.storage.enabled and runtimeEffects["runtime.bitset"] then
+        runtimeBootstrap = runtimeBootstrap
+            .. 'local __nuppData=package.loaded["nupp.data"];if not __nuppData then local loader=package.preload["nupp.data"];__nuppData=loader and loader() or {};package.loaded["nupp.data"]=__nuppData end;local __nuppBits=require("nupp.data.internal.bitset");__nuppData.Bitset=__nuppBits.Bitset;__nuppData.WORD_BITS=__nuppBits.WORD_BITS;'
+    end
     if runtimeEffects[pluck.bitops.effect] then
         runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppBitops;"):format(pluck.bitops.name)
     end
     if needsCompatibilityBitops then
         runtimeBootstrap = runtimeBootstrap .. ("local %s=require(\"bit\");"):format(pluck.bitops.name)
+    end
+    if pluck.storage.enabled and runtimeEffects["runtime.cstorage"] then
+        runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppCstorage;"):format(pluck.storage.name)
     end
     if portableStructvalue and runtimeEffects["runtime.structvalue"] then
         runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppStructvalue;"):format(structvalueName)
@@ -8485,7 +8572,7 @@ function gen.generate(
     -- Prelude implementation bodies are ordinary checked and generated Nupp. Execute
     -- their generated chunk before this module on one physical line so authored source
     -- line numbers remain aligned with the module body.
-    if result.preludeRuntime and result.preludeRuntime ~= "" then
+    if not installingManaged and result.preludeRuntime and result.preludeRuntime ~= "" then
         -- Lua's `%q` spells a newline as a backslash followed by a physical newline.
         -- That is loadable, but it adds one generated line per prelude line and shifts
         -- every source position. Turn those continuations into `\n` escapes so the

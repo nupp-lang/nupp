@@ -99,4 +99,13 @@ function tests.stringReadersFillWritableSpans(): nil
     assert(destination:getString() == "abc")
 end
 
+function tests.linesKeepTerminatorsAndFinalFragments(): nil
+    local lines = standard.newLines(standard.newStringReader("one\r\ntwo\nlast"))
+    assert(lines:read() == "one")
+    assert(lines:read() == "two")
+    assert(lines:read() == "last")
+    assert(lines:read() == nil)
+    lines:close()
+end
+
 return tests

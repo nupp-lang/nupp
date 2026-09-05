@@ -14,6 +14,7 @@ on:
       - "tests/browser-templates/**"
       - "nupp.lua"
       - "src/nupp/compiler/backends.nupp"
+      - "src/nupp/compiler/capabilities.nupp"
       - "src/nupp/compiler/browser.nupp"
       - "src/nupp/compiler/aot/**"
       - "src/nupp/compiler/build/aot.nupp"
@@ -30,22 +31,33 @@ on:
       - "src/nupp/compiler/preludeimage.bin"
       - "src/nupp/compiler/preludeimage.nupp"
       - "src/nupp/runtime/backend/browser.nupp"
+      - "src/nupp/runtime/backend/wasm.nupp"
       - "src/nupp/runtime/browser/**"
-      - "src/nupp/io/http/**"
+      - "src/nupp/io/**"
+      - "src/nupp/data/internal/**"
+      - "src/nupp/data/init.nupp"
+      - "src/nupp/runtime/storage.nupp"
+      - "src/nupp/runtime/managed.g.nupp"
       - "src/nupp/io/uri/**"
       - "src/nupp/data/crypto.nupp"
       - "src/nupp/io/storage.nupp"
       - "src/nupp/experimental/**"
       - "src/nupp/runtime/backend/contracts.nupp"
       - "src/nupp/runtime/provider/wasm*.nupp"
+      - "src/nupp/runtime/provider/tablebuffer.nupp"
       - "src/nupp/runtime/seam/registry.nupp"
       - "src/nupp/runtime/seam/contractmembers.nupp"
+      - "src/nupp/runtime/seam/cstoragesuite.nupp"
       - "src/nupp/runtime/seam/wasm*.nupp"
       - "src/nupp/runtime/seam/workers*.nupp"
-      - "src/nupp/wasm.nupp"
-      - "src/nupp/wasm/**"
+      - "src/nupp/mem/array.nupp"
+      - "src/nupp/mem/span.nupp"
       - "tests/portable-compiler/**"
       - "tests/wasm-aot/**"
+      - "tests/wasm-memory/**"
+      - "tests/portable-storage/**"
+      - "tests/portableiocontractstest.nupp"
+      - "tests/ioscalarstest.nupp"
 
 permissions:
   contents: read
@@ -83,6 +95,9 @@ jobs:
 
       - name: Test Lua 5.1 Wasm struct AOT
         run: tests/wasm-aot/run.sh
+
+      - name: Test ordinary storage and I/O in Lua 5.1 Wasm
+        run: tests/portable-storage/run.sh wasm
 
       - name: Test browser application manifests
         run: node --test tests/wasm-aot/runtime.test.mjs

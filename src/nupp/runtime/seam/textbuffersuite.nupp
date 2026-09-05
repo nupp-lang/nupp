@@ -33,6 +33,18 @@ function suite.test(provider: any): (boolean, string?)
         binary:put("a\0b")
         assert(binary:tostring() == "a\0b", "a buffer must carry a zero byte through")
         assert(#binary == 3, "a zero byte must not shorten the buffer length")
+        assert(binary:get(2) == "a\0", "FIFO reads must preserve binary prefixes")
+        binary:put("cd")
+        assert(#binary == 3 and binary:get(99) == "bcd", "FIFO reads must cross append boundaries")
+        assert(binary:get() == "" and #binary == 0, "empty FIFO reads must remain empty")
+        binary:put("again")
+        assert(binary:get(0) == "" and binary:get() == "again", "zero reads must preserve the queue")
+        binary:put("abcdef")
+        local first, second = binary:get(2, 3)
+        assert(
+            first == "ab" and second == "cde" and binary:get() == "f",
+            "multiple FIFO counts must consume consecutive prefixes"
+        )
     end)
     if not ok then
         return false, tostring(problem)

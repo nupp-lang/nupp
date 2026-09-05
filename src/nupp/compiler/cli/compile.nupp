@@ -105,7 +105,13 @@ end
 
 --- Compiles one file to Lua source. Returns the generated code, or nil and a short
 --- reason after having reported the diagnostics that stopped it.
-function compile.module(path: string, env: table, settings: compile.Settings, moduleName: string?): string?, string?
+function compile.module(
+    path: string,
+    env: table,
+    settings: compile.Settings,
+    moduleName: string?,
+    sourceOverride: string?
+): string?, string?
     local collected = settings.diagnostics
     -- Says each diagnostic, or puts it by for the caller to say later, and either way
     -- answers whether an error was among them.
@@ -124,7 +130,11 @@ function compile.module(path: string, env: table, settings: compile.Settings, mo
         return fatal
     end
 
-    local source, readErr = fs.readFile(path)
+    local source: string? = sourceOverride
+    local readErr: string? = nil
+    if source == nil then
+        source, readErr = fs.readFile(path)
+    end
     if not source then
         require(
             "nupp.compiler.cli.report"

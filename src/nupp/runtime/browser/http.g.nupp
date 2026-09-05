@@ -5,10 +5,13 @@ module nupp.runtime.browser.http
 -- preservation, and suspension boundary visible to application code.
 
 local effects = require("nupp.runtime.browser.effects")
-local base64 = require("nupp.data.base64")
+local span = require("nupp.mem.span")
+local response = require("nupp.runtime.browser.response")
 local suspension = require("nupp.suspension")
 local uri = require("nupp.io.uri")
 const {type Path} = require("nupp.io.path")
+local io = require("nupp.io")
+local ownedReader = require("nupp.io.internal.ownedreader")
 local http = {}
 
 const messages = require("nupp.io.http.messages")
@@ -38,90 +41,7 @@ type http.RequestBody = messages.RequestBody
 type http.Request = messages.Request
 http.Request = messages.Request
 
-record http.Body is messages.Reader
-    private _bytes: string
-    private _at: integer
-    private _closed: boolean
-
-    function read(self, count: integer): (string?, string?)
-        if self._closed then
-            return nil, "the body is closed"
-        end
-        if count < 1 or count ~= math.floor(count) then
-            error("nupp: HTTP body read count must be a positive integer", 2)
-        end
-        if self._at > #self._bytes then
-            return ""
-        end
-        local chunk = self._bytes:sub(self._at, self._at + count - 1)
-        self._at = self._at + #chunk
-
-        return chunk
-    end
-
-    function readInto(self, destination: any, offset: integer?, count: integer?): (integer?, string?)
-        local chunk, reason = self:read(count or 65536)
-        if chunk == nil then
-            return nil, reason
-        elseif chunk == "" then
-            return 0
-        end
-        local at = offset or 0
-        local lease = destination:reserveWrite(at, #chunk)
-        local span = lease:span()
-        for index = 1, #chunk do
-            span[index] = chunk:byte(index)
-        end
-        span:drop()
-        lease:commit(#chunk)
-
-        return #chunk
-    end
-
-    function readSpan(self, destination: any): (integer?, string?)
-        local chunk, reason = self:read(#destination)
-        if chunk == nil then
-            return nil, reason
-        end
-        for index = 1, #chunk do
-            destination[index] = chunk:byte(index)
-        end
-
-        return #chunk
-    end
-
-    function transferTo(self, destination: any): (integer?, string?)
-        local total: integer = 0
-        while true do
-            local chunk, reason = self:read(65536)
-            if chunk == nil then
-                return nil, reason
-            elseif chunk == "" then
-                return total
-            end
-            local wrote, failure = destination:write(chunk)
-            if wrote == nil then
-                return nil, failure
-            end
-            total = total + (wrote as integer)
-        end
-    end
-
-    private release: function(self: http.Body): nil
-
-    function close(takes self): nil
-        self:release()
-    end
-
-    function drop(takes self): nil
-        self:release()
-    end
-end
-
-function http.Body.release(self: http.Body): nil
-    self._closed = true
-    self._bytes = ""
-end
+type http.Body = io.Reader
 
 record http.Response is nupp.Closeable
     status: integer
@@ -246,10 +166,37 @@ record http.Client is nupp.Closeable
             headers[#headers + 1] = {name, value}
         end
         local body = request.body
-        if body ~= nil and type(body) ~= "string" then
-            return nil, "browser HTTP currently requires an in-memory string request body"
+        local upload: string? = nil
+        if type(body) == "string" then
+            upload = body as string
+        elseif body is messages.ReaderBody then
+            local chunks: {string} = {}
+            local length: integer = 0
+            while true do
+                local bytes, reason = body.reader:read(65536)
+                if bytes == nil then
+                    return nil, reason
+                elseif bytes == "" then
+                    break
+                end
+                length = length + #bytes
+                if body.length ~= nil and length > body.length then
+                    return nil, "HTTP upload exceeded its declared length"
+                end
+                chunks[#chunks + 1] = bytes
+            end
+            if body.length ~= nil and length ~= body.length then
+                return nil, "HTTP upload ended before its declared length"
+            end
+            upload = table.concat(chunks)
+            if body.contentType ~= nil then
+                headers[#headers + 1] = {"content-type", body.contentType}
+            end
+        elseif body ~= nil then
+            return nil, "browser HTTP file uploads require an available file host"
         end
         local descriptor: any = {
+            memoryResponse = true,
             url = url:toString(),
             method = request.method or "GET",
             timeoutMs = request.timeoutMs or self._options.timeoutMs or 30000,
@@ -260,8 +207,16 @@ record http.Client is nupp.Closeable
             -- iterate as header pairs; no field means no headers.
             descriptor.headers = headers
         end
-        if body ~= nil then
-            descriptor.bodyBase64 = base64.encode(body as string)
+        local memory = require("nupp.runtime.provider.wasmstorage") as any
+        local leaseRead = memory.lease as function(
+            borrows pointer: const uint8[?],
+            count: integer,
+            writable: boolean?
+        ): integer
+        if upload ~= nil then
+            local input = span.fromString(upload)
+            local pointer, count = input:ref()
+            descriptor.bodyLease = leaseRead(pointer, count, false)
         end
         self._pending = self._pending + 1
         local completed, suspended = pcall(suspension.suspend, "browser HTTP request", function(
@@ -269,6 +224,9 @@ record http.Client is nupp.Closeable
         ): function()
             return effects.request("http", descriptor, resume)
         end)
+        if descriptor.bodyLease ~= nil then
+            memory.releaseLease(descriptor.bodyLease)
+        end
         self._pending = self._pending - 1
         if not completed then
             error(suspended, 0)
@@ -285,7 +243,32 @@ record http.Client is nupp.Closeable
             values[#values + 1] = pair[2]
             byName[name] = values
         end
-        local responseBody = new http.Body(_bytes = base64.decode(value.bodyBase64 or ""), _at = 1, _closed = false)
+        local storage = io.newBuffer(value.bodyBytes as integer)
+        local lease = storage:reserveWrite(0, value.bodyBytes as integer)
+        do
+            local output = lease:span()
+            do
+                local pointer, count = output:ref()
+                local leaseWrite = memory.lease as function(
+                    exclusive pointer: uint8[?],
+                    count: integer,
+                    writable: boolean?
+                ): integer
+                local token = leaseWrite(pointer, count, true)
+                local copied, failure = pcall(response.await, "http", {
+                    operation = "read-body",
+                    body = value.body,
+                    lease = token
+                })
+                memory.releaseLease(token)
+                if not copied then
+                    error(failure, 0)
+                end
+            end
+            drop output
+        end
+        lease:commit(value.bodyBytes as integer)
+        local responseBody = ownedReader.newOwnedReader(storage)
         -- The host follows redirects, so the URL it answers is the last hop
         -- rather than the one the request named.
         local finalUrl = request.url

@@ -290,6 +290,7 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
       HEAPU8: heap,
       _nupp_wasm_lease_address(id) { return leases.get(id)?.pointer || 0; },
       _nupp_wasm_lease_size(id) { return leases.get(id)?.bytes || 0; },
+      _nupp_wasm_lease_writable(id) { return leases.has(id) ? 1 : 0; },
       _nupp_wasm_release_lease(id) { released.push(id); return leases.delete(id) ? 1 : 0; },
     },
   };
@@ -327,16 +328,18 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
   assert.deepEqual(released, [1, 3, 2, 4]);
 });
 
-test("browser GPU download refreshes a lease after memory growth and rejects revocation", async () => {
-  for (const revoke of [false, true]) {
+test("browser GPU download refreshes a lease after memory growth and rejects revoked permissions", async () => {
+  for (const revoke of [false, true, "readonly"]) {
     const memory = new WebAssembly.Memory({initial: 1, maximum: 2});
     let live = true;
+    let writable = true;
     let released = 0;
     let destroyed = false;
     const module = {
       HEAPU8: new Uint8Array(memory.buffer),
       _nupp_wasm_lease_address() { return live ? 16 : 0; },
       _nupp_wasm_lease_size() { return live ? 4 : 0; },
+      _nupp_wasm_lease_writable() { return live && writable ? 1 : 0; },
       _nupp_wasm_release_lease() { live = false; released++; return 1; },
     };
     const device = {
@@ -346,7 +349,8 @@ test("browser GPU download refreshes a lease after memory growth and rejects rev
           async mapAsync() {
             memory.grow(1);
             module.HEAPU8 = new Uint8Array(memory.buffer);
-            if (revoke) live = false;
+            if (revoke === true) live = false;
+            if (revoke === "readonly") writable = false;
           },
           getMappedRange() { return Uint8Array.of(1, 2, 3, 4).buffer; },
           unmap() {},
@@ -369,7 +373,7 @@ test("browser GPU download refreshes a lease after memory growth and rejects rev
     });
     assert.equal(result.responses[0].ok, !revoke, result.responses[0].error);
     if (revoke) {
-      assert.match(result.responses[0].error, /stale/);
+      assert.match(result.responses[0].error, revoke === "readonly" ? /writable/ : /stale/);
       assert.deepEqual(Array.from(module.HEAPU8.subarray(16, 20)), [0, 0, 0, 0]);
     } else {
       assert.deepEqual(Array.from(module.HEAPU8.subarray(16, 20)), [1, 2, 3, 4]);
@@ -572,4 +576,62 @@ test("closing a worker pool fails everything still outstanding", async () => {
   workers.close();
   assert.match((await workers.perform({operation: "await", task: 1})).error, /pool closed/);
   assert.ok(FakeLane.opened.every((lane) => lane.terminated));
+});
+
+test("HTTP moves response chunks through a writable memory lease without base64", async () => {
+  const heap = new Uint8Array(64);
+  let live = true;
+  let writable = true;
+  const options = {
+    wasmModule: {
+      HEAPU8: heap,
+      _nupp_wasm_lease_address: () => live ? 8 : 0,
+      _nupp_wasm_lease_size: () => live ? 5 : 0,
+      _nupp_wasm_lease_writable: () => writable ? 1 : 0,
+      _nupp_wasm_release_lease: () => { live = false; return 1; },
+    },
+    fetch: async () => new Response(Uint8Array.of(0, 255, 65, 66, 67), {status: 200}),
+  };
+  const request = {kind: "effects", requests: [{id: 1, kind: "http", url: "https://example.test", memoryResponse: true}]};
+  let result = (await handleBrowserEffects(request, options)).responses[0];
+  assert.equal(result.ok, true);
+  assert.equal(result.value.bodyBytes, 5);
+  assert.equal(result.value.bodyBase64, undefined);
+  const body = result.value.body;
+  result = (await handleBrowserEffects({kind: "effects", requests: [{id: 2, kind: "http", operation: "read-body", body, lease: 1}]}, options)).responses[0];
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(Array.from(heap.subarray(8, 13)), [0, 255, 65, 66, 67]);
+  assert.equal(live, false);
+  assert.equal(options.httpBodies.size, 0);
+
+  live = true;
+  writable = false;
+  result = (await handleBrowserEffects(request, options)).responses[0];
+  result = (await handleBrowserEffects({kind: "effects", requests: [{id: 3, kind: "http", operation: "read-body", body: result.value.body, lease: 1}]}, options)).responses[0];
+  assert.equal(result.ok, false);
+  assert.match(result.error, /writable/);
+  assert.equal(live, false);
+  assert.equal(options.httpBodies.size, 0);
+});
+
+test("Fetch owns request bytes before an asynchronous memory growth", async () => {
+  let live = true;
+  const heap = Uint8Array.of(0, 1, 2, 3, 4, 5);
+  const options = {
+    wasmModule: {
+      HEAPU8: heap,
+      _nupp_wasm_lease_address: () => live ? 1 : 0,
+      _nupp_wasm_lease_size: () => 3,
+      _nupp_wasm_release_lease: () => { live = false; return 1; },
+    },
+    fetch: async (_url, request) => {
+      heap.fill(99);
+      assert.deepEqual(Array.from(request.body), [1, 2, 3]);
+      return new Response("");
+    },
+  };
+  const result = (await handleBrowserEffects({kind: "effects", requests: [{id: 1, kind: "http", url: "https://example.test", bodyLease: 1, method: "POST", memoryResponse: true}]}, options)).responses[0];
+  assert.equal(result.ok, true, result.error);
+  assert.equal(live, false);
+  assert.equal(result.value.bodyBytes, 0);
 });

@@ -154,8 +154,15 @@ function index.install(c: state.Checker): state.ExprHandlers
                 end
                 local resolved = moduleType
                 local definition = nil
-                for _, memberName in ipairs(suffix) do
+                for memberIndex, memberName in ipairs(suffix) do
                     resolved, definition = c.fieldType(resolved, memberName)
+                    if not resolved and memberIndex == 1 and c.env.exportedNominal then
+                        local nominal, declared = c.env.exportedNominal(c.env, candidate, memberName)
+                        if nominal and nominal.tag == "nominal" then
+                            resolved = nominal.declKind == "struct" and nominal or T.typeObject(nominal)
+                            definition = declared
+                        end
+                    end
                     if not resolved then
                         c.diag(
                             "NUPP2004",

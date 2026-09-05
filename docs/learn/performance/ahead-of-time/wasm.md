@@ -6,17 +6,18 @@ order: 636
 
 A Lua 5.1 application can run inside Nupp's Wasm host while selected `@aot`
 functions run as WebAssembly side modules in the same linear memory. Use
-`nupp.wasm` when Lua and compiled code need zero-copy arrays of Nupp structs:
+`nupp.mem.span` and `nupp.mem.array` when Lua and compiled code need zero-copy arrays of Nupp structs:
 
 ```nupp
-local wasm = nupp.wasm
+local span = nupp.mem.span
+local array = nupp.mem.array
 
 local struct Sample
     value: float
 end
 
 @aot(vectorize = false)
-local function double(exclusive out: wasm.WriteSpan<Sample>): nil
+local function double(exclusive out: span.WriteSpan<Sample>): nil
     for index = 1, #out do out[index].value = out[index].value * 2 end
 end
 ```
@@ -34,9 +35,9 @@ choices for struct layout and opaque Wasm memory:
 backends = {"nupp.runtime.backend.wasm"},
 ```
 
-`host.wasm` is a public runtime seam with an isolated conformance suite. Its
-provider owns allocation, bounds-checked opaque pointers, scalar access, byte
-copies, and struct descriptors. Lua receives no numeric address and cannot
+`representation.cstorage` owns physical storage and agrees with the selected
+struct and exact-integer providers. `host.wasm` owns foreign transfer leases.
+Both have isolated conformance suites. Lua receives no numeric address and cannot
 construct a pointer from an integer.
 
 The application target selects Lua 5.1 and requires Wasm AOT:
@@ -81,14 +82,14 @@ boundary.
 
 ## Struct arrays
 
-`wasm.array` takes a struct value as its checked type witness and returns
+`array.new` takes a struct value as its checked type witness and returns
 zeroed storage in the host's linear memory:
 
 ```nupp
-local samples = wasm.array(new Sample(), 128)
+local samples = array.new(new Sample(), 128)
 local writable = samples:write()
 writable[1] = new Sample(3)
-writable:drop()
+drop writable
 
 local readable = samples:read()
 print(#readable, readable[1].value)
@@ -284,20 +285,31 @@ Wasm AOT is not a whole-language Nupp-to-Wasm lowering. General Nupp lowers to
 Lua 5.1 and runs on the embedded VM, while admitted pointer kernels and
 Lua-building entries lower from the verified AOT IR through C to Wasm.
 
-Pointer kernels use `nupp.wasm` spans. A `lua-builder` entry instead receives
+Pointer kernels use `nupp.mem.span` spans. A `lua-builder` entry instead receives
 the embedded VM's `lua_State` and constructs fresh tables or strings through
 the public Lua 5.1 API, with the same admitted subset and rooting rules as a
-native AOT builder. Raw `ffi`, `cinterop`, `cstorage`, `nupp.mem.span` pointers,
-and native Lua modules are not made available to stock Lua 5.1 by this host.
+native AOT builder. Ordinary `cstorage` and typed span references are supplied by the selected
+physical backend. Raw `ffi`, arbitrary `cinterop`, and native Lua modules remain
+unavailable.
 
 Pure Lua dependencies work when the bundle selects them. The browser backend
 supplies its named platform seams; selecting Wasm storage does not supply
-filesystem, process, native C storage, or an arbitrary third-party seam.
+filesystem, process, foreign C interoperability, or an arbitrary third-party seam.
 
-Browser HTTP accepts `http` and `https` absolute URIs. Request bodies are
-in-memory strings. Response streams stop at `maxBytes` or the protocol response
-limit before the complete body is buffered. Reader and file uploads do not
-cross the Worker protocol. The portable URI provider covers the public
+Browser HTTP accepts `http` and `https` absolute URIs. String and narrow
+`http.Reader` upload sources are accepted; reader uploads are collected before
+Fetch begins. Declared upload lengths are checked. File uploads require a file
+host and remain unavailable in browsers. Neither request nor response streaming
+is advertised.
+
+Fetch response chunks are bounded by `maxBytes` and the host byte limit, then
+copied directly into one writable Wasm lease. That allocation is transferred to
+an ordinary `io.Reader`; creating the reader does not copy it or create a Lua
+string. An explicit `read` materializes its returned string; `readSpan`,
+`readInto`, and `transferTo` use bulk memory operations. Fetch takes one owned
+copy of request bytes, so asynchronous memory growth cannot change its input.
+Host transfers use no base64. Cancellation and teardown release leases and
+retained response chunks. The portable URI provider covers the public
 absolute-URI suite and basic relative
 resolution; it does not implement the native provider's complete URI
 normalization surface.

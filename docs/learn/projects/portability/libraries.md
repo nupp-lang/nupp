@@ -299,6 +299,34 @@ value is a call into a module that is itself written in bit operations, so a
 `lua51` target reaching `nupp.math` needs a provider selected for the same
 reason a target performing an explicit XOR does.
 
+### Physical storage and ordinary I/O
+
+`nupp.runtime.backend.wasm` and `nupp.runtime.backend.browser` select compatible
+`representation.cstorage`, `representation.structvalue`, and `numeric.int64`
+providers. In the supported Wasm host, ordinary `nupp.io` buffers, rich readers
+and writers, scalar adapters, and `nupp.mem.span` views use this storage directly.
+`carray(T, count)` keeps its struct type argument. `nupp.mem.array` supplies owned
+struct and scalar arrays with the same span contracts. Native LuaJIT keeps FFI
+storage and its direct indexing; applications select no provider per object.
+
+Borrowing a string or slicing a span copies no payload. `ref()` returns a rooted,
+bounded opaque reference on Wasm, preserving its typed signature and permission;
+it grants no arbitrary C address access. Scalar storage includes exact signed
+and unsigned 64-bit values, with target-native byte order (little-endian on
+wasm32). Struct references retain their owners through stores and copies.
+Allocation owners remain GC-rooted; dropping a borrow ends access and does not
+promise immediate physical reclamation.
+
+Standalone Lua 5.1 without a physical host still cannot satisfy `cstorage`.
+`cinterop` remains unavailable on the Wasm backend. Native malloc/free allocators
+(`mem.heap`, `mem.soa`) and native shared/transfer regions (`mem.sharedbytes`)
+retain that additional requirement. A selected storage provider does not make
+files, sockets, TLS or processes available in a browser.
+
+The portable `text.buffer` provider supports FIFO `get` and constant-time length
+as well as appends. It satisfies ordinary I/O's structural `ByteQueue` contract.
+Pointer methods and serialization are separate native buffer facilities.
+
 ### Runtime contracts
 
 Runtime contracts project a provider module into a standard or host module
@@ -316,7 +344,7 @@ after the selected backend installs it.
 | `host.uri` | Parsing for `nupp.io.uri` |
 | `host.http` | `nupp.io.http` |
 | `host.time` | `nupp.time` |
-| `host.wasm` | `nupp.wasm` |
+| `host.wasm` | Private host memory and transfer leases |
 | `host.workers` | `nupp.workers` (contract 2) |
 | `host.crypto` | `nupp.data.crypto` |
 | `host.storage` | `nupp.io.storage` |

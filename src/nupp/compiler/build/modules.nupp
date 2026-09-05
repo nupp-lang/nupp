@@ -1000,6 +1000,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- closure, while `moduleDependencies` also contains erased type-only imports and
     -- would make those imports executable by accident.
     local function linkPackagedRuntime(name: string): nil
+        if seamReplaces(name) then
+            return
+        end
         local existing = inc.modulePath(name)
         if not selfContainedTarget or (
             existing ~= nil and not envMod.isDependencyTypePath(inc.env, existing) and not packagedCheckSources[name]
@@ -1408,7 +1411,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
 
     local function enqueue(name, path)
-        if queued[name] or records[name] then
+        if queued[name] or records[name] or seamReplaces(name) then
             return
         end
         if inc.runtimeProjectedModule(name) then

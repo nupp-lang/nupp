@@ -7,11 +7,9 @@ Appends are collected in an array and joined once, which is the portable way to
 build a string without rebuilding it on every append: `..` in a loop copies
 everything written so far each time round, and this copies it once at the end.
 
-Only the appending half of `string.buffer` is here. The seam contract is `new`,
-`put`, `tostring` and `reset`, because that is what the standard library reaches
-a buffer for; the FIFO reads, the serializer and the pointer methods sit at the
-FFI boundary a portable target does not have, and a program that wants them
-wants LuaJIT.
+FIFO reads consume the same pieces. Length is constant-time; consuming a prefix
+never rebuilds the remaining byte sequence. Pointer/serializer operations still
+require their own native capabilities.
 ]]
 
 const buffer = {}
@@ -24,6 +22,9 @@ const buffer = {}
 local record Buffer
     private pieces: {string}
     private count: integer
+    private head: integer
+    private bytes: integer
+    private firstByte: integer
 
     metamethod __len: function(self): integer
     metamethod __concat: function(self, other: any): string
@@ -41,46 +42,99 @@ local record Buffer
         for index = 1, arrived do
             const value = select(index, ...)
             const text = type(value) == "string" and value as string or tostring(value)
-            self.count = self.count + 1
-            self.pieces[self.count] = text
+            if #text > 0 then
+                self.count = self.count + 1
+                self.pieces[self.count] = text
+                self.bytes = self.bytes + #text
+            end
         end
 
         return self
     end
 
-    --- The contents so far, leaving them in place.
-    function tostring(self): string
-        if self.count > 1 then
-            const joined = table.concat(self.pieces, "", 1, self.count)
-            self.pieces[1] = joined
-            for index = self.count, 2, -1 do
-                self.pieces[index] = nil
-            end
-            self.count = 1
+    --- Consumes at most count bytes; omitted count consumes everything.
+    private take: function(self: Buffer, count: integer?): string
+
+    function get(self, ...: integer?): string
+        local arrived = select("#", ...)
+        if arrived == 0 then
+            return self:take(nil)
+        end
+        local counts: {integer?} = {...}
+        for index = 1, arrived do
+            local count = counts[index]
+            assert(count == nil or count >= 0 and count % 1 == 0, "buffer get count must be a nonnegative integer")
+        end
+        local values: {string} = {}
+        for index = 1, arrived do
+            values[index] = self:take(counts[index])
         end
 
-        return self.count == 0 and "" or self.pieces[1]
+        return unpack(values, 1, arrived)
     end
 
-    --- Empties the buffer, keeping the array it has already grown.
-    function reset(self): Buffer
-        for index = self.count, 1, -1 do
-            self.pieces[index] = nil
+    --- The remaining contents, leaving them in place.
+    function tostring(self): string
+        if self.bytes == 0 then
+            return ""
         end
+        local chunks: {string} = {self.pieces[self.head]:sub(self.firstByte)}
+        for index = self.head + 1, self.count do
+            chunks[#chunks + 1] = self.pieces[index]
+        end
+
+        return table.concat(chunks)
+    end
+
+    function reset(self): Buffer
+        self.pieces = {}
         self.count = 0
+        self.head = 1
+        self.firstByte = 1
+        self.bytes = 0
 
         return self
     end
 end
 
-    ;
-(Buffer as {[string]: any}).__len = function(self: Buffer): integer
-    local total = 0
-    for index = 1, self.count do
-        total = total + #self.pieces[index]
+function Buffer.take(self: Buffer, count: integer?): string
+    local wanted = count or self.bytes
+    assert(wanted >= 0 and wanted % 1 == 0, "buffer get count must be a nonnegative integer")
+    wanted = math.min(wanted, self.bytes) as integer
+    local remaining = wanted
+    local chunks: {string} = {}
+    while remaining > 0 do
+        local piece = self.pieces[self.head]
+        local take = math.min(remaining, #piece - self.firstByte + 1) as integer
+        chunks[#chunks + 1] = piece:sub(self.firstByte, self.firstByte + take - 1)
+        self.firstByte = self.firstByte + take
+        remaining = remaining - take
+        if self.firstByte > #piece then
+            self.pieces[self.head] = nil
+            self.head = self.head + 1
+            self.firstByte = 1
+        end
+    end
+    self.bytes = self.bytes - wanted
+    if self.bytes == 0 then
+        self.head = 1
+        self.count = 0
+    elseif self.head > 64 and self.head > self.count / 2 then
+        local nextPieces: {string} = {}
+        for index = self.head, self.count do
+            nextPieces[#nextPieces + 1] = self.pieces[index]
+        end
+        self.count = #nextPieces
+        self.head = 1
+        self.pieces = nextPieces
     end
 
-    return total as integer
+    return table.concat(chunks)
+end
+
+    ;
+(Buffer as {[string]: any}).__len = function(self: Buffer): integer
+    return self.bytes
 end
 
     ;
@@ -115,6 +169,10 @@ if #lengthProbe ~= 1 then
         state:put(...)
         return self
     end
+    proxyMetatable.get = function(self: any, ...: integer?): string
+        const state: Buffer = assert(proxyStates[self])
+        return state:get(...)
+    end
     proxyMetatable.tostring = function(self: any): string
         const state: Buffer = assert(proxyStates[self])
         return state:tostring()
@@ -142,7 +200,7 @@ end
 --- @param options ignored
 --- @return the new buffer
 function buffer.new(size: (integer | table)?, options: table?): Buffer
-    const state = new Buffer(pieces = {}, count = 0)
+    const state = new Buffer(pieces = {}, count = 0, head = 1, firstByte = 1, bytes = 0)
     if proxyPrototype ~= nil then
         const proxy = proxyFactory(proxyPrototype) as userdata
         proxyStates[proxy] = state

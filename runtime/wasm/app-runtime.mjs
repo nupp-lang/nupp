@@ -236,26 +236,29 @@ function gpuRuntime(options) {
   return options.gpuRuntime ||= {buffers: new Map(), kernels: new Map(), nextBuffer: 1, nextKernel: 1};
 }
 
-function gpuLease(effect, options, expectedBytes) {
+function memoryLease(effect, options, expectedBytes, writable = false) {
   const module = options.wasmModule;
   const id = effect.lease;
   if (!module || !Number.isInteger(id) || id < 1 || !module._nupp_wasm_lease_address ||
       !module._nupp_wasm_lease_size || !module._nupp_wasm_release_lease) {
-    throw new Error("browser GPU operation has no valid Wasm transfer lease");
+    throw new Error("browser operation has no valid Wasm transfer lease");
   }
   const pointer = module._nupp_wasm_lease_address(id);
   const bytes = module._nupp_wasm_lease_size(id);
-  if (!pointer || !bytes || (expectedBytes !== undefined && bytes !== expectedBytes)) {
-    throw new Error("browser GPU transfer lease is stale or has the wrong size");
+  if (!pointer || (expectedBytes !== undefined && bytes !== expectedBytes)) {
+    throw new Error("browser transfer lease is stale or has the wrong size");
   }
   if (!Number.isInteger(pointer) || pointer < 0 || !Number.isInteger(bytes) || bytes < 0 ||
       !module.HEAPU8 || pointer > module.HEAPU8.byteLength || bytes > module.HEAPU8.byteLength - pointer) {
-    throw new Error("browser GPU transfer lease is outside Wasm memory");
+    throw new Error("browser transfer lease is outside Wasm memory");
+  }
+  if (writable && (!module._nupp_wasm_lease_writable || module._nupp_wasm_lease_writable(id) !== 1)) {
+    throw new Error("browser destination requires a writable transfer lease");
   }
   return {id, bytes, view: module.HEAPU8.subarray(pointer, pointer + bytes), module};
 }
 
-// Releases the lease an effect names, whether or not gpuLease returned it:
+// Releases the lease an effect names, whether or not memoryLease returned it:
 // the Lua side only releases after a successful answer, so every failed
 // operation would otherwise strand one of the fixed lease slots.
 function releaseEffectLease(effect, options) {
@@ -331,7 +334,7 @@ async function performGpuOperation(effect, options) {
   }
   if (effect.operation === "runtime-upload") {
     const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
-    const lease = gpuLease(effect, options, resource.bytes);
+    const lease = memoryLease(effect, options, resource.bytes);
     device.queue.writeBuffer(resource.buffer, 0, lease.view);
     return null;
   }
@@ -344,7 +347,7 @@ async function performGpuOperation(effect, options) {
       throw new Error("browser GPU dispatch has the wrong binding count");
     }
     const count = uint32(effect.count, "dispatch count");
-    const lease = gpuLease(effect, options, kernel.uniformBytes);
+    const lease = memoryLease(effect, options, kernel.uniformBytes);
     const entries = [];
     let binding = 0;
     for (const id of effect.read) entries.push({binding: binding++, resource: {buffer: gpuBuffer(runtime, uint32(id, "read buffer")).buffer}});
@@ -370,7 +373,7 @@ async function performGpuOperation(effect, options) {
     let readback;
     try {
       const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
-      gpuLease(effect, options, resource.bytes);
+      memoryLease(effect, options, resource.bytes, true);
       readback = device.createBuffer({size: resource.bytes, usage: usage.MAP_READ | usage.COPY_DST});
       const encoder = device.createCommandEncoder();
       encoder.copyBufferToBuffer(resource.buffer, 0, readback, 0, resource.bytes);
@@ -378,7 +381,7 @@ async function performGpuOperation(effect, options) {
       await readback.mapAsync(webGpuMapMode(options).READ);
       // Mapping yields to the host. Memory may grow or the lease may be revoked
       // before it completes, so project a fresh checked view at the actual write.
-      gpuLease(effect, options, resource.bytes).view.set(new Uint8Array(readback.getMappedRange()));
+      memoryLease(effect, options, resource.bytes, true).view.set(new Uint8Array(readback.getMappedRange()));
       readback.unmap();
       return null;
     } finally {
@@ -519,6 +522,21 @@ async function performStorageEffect(effect, options) {
 }
 
 async function performHttpEffect(effect, options) {
+  if (effect.operation === "read-body") {
+    const saved = options.httpBodies?.get(effect.body);
+    if (!saved) throw new Error("browser HTTP body was released");
+    try {
+      if (options.signal?.aborted) throw abortError(options.signal);
+      const destination = memoryLease(effect, options, saved.length, true);
+      if (destination.bytes !== saved.length) throw new Error("browser HTTP body lease has the wrong length");
+      let at = 0;
+      for (const chunk of saved.chunks) { destination.view.set(chunk, at); at += chunk.length; }
+      return {bytes: at};
+    } finally {
+      options.httpBodies.delete(effect.body);
+      releaseEffectLease(effect, options);
+    }
+  }
   if (typeof effect.url !== "string" || !/^https?:\/\//i.test(effect.url)) {
     throw new Error("browser HTTP effects require an absolute http or https URL");
   }
@@ -534,9 +552,11 @@ async function performHttpEffect(effect, options) {
       if (!Array.isArray(pair) || pair.length !== 2) throw new Error("invalid browser HTTP header");
       headers.append(pair[0], pair[1]);
     }
-    const body = effect.bodyBase64 === undefined
-      ? undefined
-      : base64ToBytes(effect.bodyBase64, "HTTP request body");
+    // Fetch owns its request bytes independently of Wasm memory growth.
+    const input = effect.bodyLease === undefined ? undefined : memoryLease({lease: effect.bodyLease}, options);
+    if (input && input.bytes > options.limits.maxEffectBytes) throw new Error("browser HTTP request body exceeded the effect byte limit");
+    const body = input ? new Uint8Array(input.view)
+      : effect.bodyBase64 === undefined ? undefined : base64ToBytes(effect.bodyBase64, "HTTP request body");
     const response = await (options.fetch || globalThis.fetch)(effect.url, {
       method: effect.method || "GET",
       headers,
@@ -544,7 +564,7 @@ async function performHttpEffect(effect, options) {
       redirect: "follow",
       signal: controller.signal,
     });
-    const protocolLimit = Math.floor(options.limits.maxResponseBytes * 3 / 4);
+    const protocolLimit = effect.memoryResponse ? options.limits.maxResponseBytes : Math.floor(options.limits.maxResponseBytes * 3 / 4);
     const maxBytes = Number.isInteger(effect.maxBytes) && effect.maxBytes > 0
       ? Math.min(effect.maxBytes, protocolLimit)
       : protocolLimit;
@@ -572,6 +592,15 @@ async function performHttpEffect(effect, options) {
       if (length > maxBytes) throw new Error(`HTTP response exceeded maxBytes (${maxBytes})`);
       chunks.push(value);
     }
+    if (options.signal?.aborted) throw abortError(options.signal);
+    if (effect.memoryResponse) {
+      options.httpBodies ||= new Map();
+      const retained = Array.from(options.httpBodies.values()).reduce((total, entry) => total + entry.length, 0);
+      if (retained + length > options.limits.maxResponseBytes) throw new Error("browser HTTP retained bodies exceeded the byte limit");
+      const body = options.nextHttpBody = (options.nextHttpBody || 0) + 1;
+      options.httpBodies.set(body, {chunks, length});
+      return {status: response.status, url: response.url || effect.url, headers: Array.from(response.headers.entries()), body, bodyBytes: length};
+    }
     const bytes = new Uint8Array(length);
     let at = 0;
     for (const chunk of chunks) {
@@ -585,6 +614,7 @@ async function performHttpEffect(effect, options) {
       bodyBase64: bytesToBase64(bytes),
     };
   } finally {
+    if (effect.bodyLease !== undefined) releaseEffectLease({lease: effect.bodyLease}, options);
     if (timeout !== undefined) clearTimeout(timeout);
     options.signal?.removeEventListener("abort", abort);
   }
@@ -725,6 +755,7 @@ async function driveApplication(module, source, options) {
       throw new Error(`the Nupp app returned invalid structured JSON: ${error.message}`);
     }
   } finally {
+    options.httpBodies?.clear();
     clearTimeout(deadlineTimer);
     outerSignal?.removeEventListener("abort", forwardAbort);
   }

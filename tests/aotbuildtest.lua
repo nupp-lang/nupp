@@ -752,7 +752,17 @@ local function checkMultiply(): boolean
     return minimum * negativeOne == minimum
 end
 
-export = {checkAdd = checkAdd, checkMultiply = checkMultiply}
+@aot(vectorize = false)
+local function addWide(left: uint64, right: uint64): uint64
+    return left + right
+end
+
+@aot(vectorize = false)
+local function widePair(unsigned: uint64, signed: int64): (uint64, int64)
+    return unsigned, signed
+end
+
+export = {checkAdd = checkAdd, checkMultiply = checkMultiply, addWide = addWide, widePair = widePair}
 ]=]
     )
     source:close()
@@ -1272,6 +1282,11 @@ function M.signedWideOverflowExecutesWithWrappingSemantics()
         .. [[
 local wide = require("wide")
 assert(wide.checkAdd(), "signed addition did not wrap")
+local ffi = require("ffi")
+local above = ffi.new("uint64_t", 9007199254740992) + 1ULL;
+assert(wide.addWide(above, 1ULL) == above + 1ULL, "wide uniform or result lost precision")
+local unsigned, signed = wide.widePair(above, -1LL)
+assert(unsigned == above and signed == -1LL, "wide multi-result ABI lost precision or signedness")
 assert(wide.checkMultiply(), "signed multiplication did not wrap")
 ]]
     local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1; echo '__exit__:'$?"):format(dir, script)))

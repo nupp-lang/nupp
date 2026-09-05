@@ -1,0 +1,77 @@
+@!internal
+module nupp.runtime.seam.cstoragesuite
+
+-- The representation suite complements checked-program ownership tests and the
+-- host's allocator/lease tests. It runs against the selected physical provider.
+local suite = {}
+function suite.test(provider: any): (boolean, string?)
+    local ok, reason = pcall(function()
+        local data = provider.allocateBytes(8)
+        assert(#data == 8 and data[0] == 0 and data[7] == 0)
+        provider.copy(data, "abcdefgh", 8)
+        provider.copy(data + 2, data, 6)
+        assert(provider.string(data, 8) == "ababcdef")
+        local text = provider.borrowString("hello")
+        assert(text[0] == 104 and #text == 5)
+        assert(
+            not pcall(function()
+                text[0] = 0
+            end),
+            "borrowed strings must be immutable"
+        )
+        assert(
+            not pcall(function()
+                return data[8]
+            end),
+            "array bounds must be enforced"
+        )
+        assert(not pcall(provider.allocateBytes, -1), "negative extents must fail")
+        assert(not pcall(provider.allocateBytes, 0 / 0), "nonfinite extents must fail")
+        local Cell = provider.define({name = "Cell", fields = {{name = "value", kind = "int32"}}}, {})
+        local cells = provider.allocateArray(Cell, 2)
+        cells[0] = Cell:of(17)
+        cells[1] = cells[0]
+        cells[0].value = 23
+        assert(cells[1].value == 17, "whole-struct assignment must copy values")
+        local fixed = provider.array(Cell, 2)
+        assert(fixed == provider.array(Cell, 2), "fixed arrays must share descriptor identity")
+        local References = provider.define(
+            {
+                name = "References",
+                fields = {
+                    {
+                        name = "target",
+                        type = provider.reference(
+                            function()
+                                return Cell
+                            end
+                        )
+                    }
+                }
+            },
+            {}
+        )
+        local roots = provider.allocateArray(References, 2)
+        roots[0].target = cells
+        roots[1] = roots[0]
+        roots[0].target = nil
+        assert(roots[1].target[1].value == 17, "reference copies must preserve roots")
+        local Flags = provider.define(
+            {
+                name = "Flags",
+                fields = {{name = "left", kind = "uint32", bits = 5}, {name = "right", kind = "int32", bits = 7}}
+            },
+            {}
+        )
+        local flags = Flags:of(31, -23)
+        flags.left = 3
+        assert(flags.left == 3 and flags.right == -23, "masked stores must preserve signed neighbors")
+        local exact = provider.decodeUint64("\255\255\255\255\255\255\255\255")
+        assert(tostring(exact) == "18446744073709551615")
+        assert(provider.encodeUint64(exact) == "\255\255\255\255\255\255\255\255")
+    end)
+
+    return ok, not ok and tostring(reason) or nil
+end
+
+export = suite

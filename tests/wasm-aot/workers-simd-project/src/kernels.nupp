@@ -4,7 +4,8 @@ module kernels
 -- A lane is a fresh Lua state in a fresh Wasm instance, so the packaged side module
 -- has to register there as well as on the page: the kernel is what proves it did.
 
-const wasm = require("nupp.wasm")
+const span = require("nupp.mem.span")
+const array = require("nupp.mem.array")
 
 local struct Sample
     value: float
@@ -13,7 +14,7 @@ local struct Sample
 end
 
 @aot(vectorize = true)
-local function scale(exclusive output: wasm.WriteSpan<Sample>, borrows input: wasm.Span<Sample>, factor: number): nil
+local function scale(exclusive output: span.WriteSpan<Sample>, borrows input: span.Span<Sample>, factor: number): nil
     if #output ~= #input then
         error("length mismatch", 2)
     end
@@ -26,14 +27,14 @@ end
 
 --- Scales a fresh array through the compiled kernel and answers copyable numbers.
 export function scaled(count: integer, factor: number): {number}
-    local input = wasm.array(new Sample(), count)
+    local input = array.new(new Sample(), count)
     local rows = input:write()
     for index = 1, count do
         rows[index] = new Sample(index, index * 10, index * 100)
     end
-    rows:drop()
+    drop rows
 
-    local output = wasm.array(new Sample(), count)
+    local output = array.new(new Sample(), count)
     scale(output:write(), input:read(), factor)
 
     local produced = output:read()

@@ -1,0 +1,49 @@
+module nupp.mem.array
+
+--[[Owned contiguous arrays. Views use the ordinary nupp.mem.span contracts.]]
+local span = require("nupp.mem.span")
+local storage = require("nupp.runtime.storage")
+local array = {}
+
+record array.Scalar<T>
+    private readonly physical: any
+end
+
+const array.uint32 = new array.Scalar(physical = storage.scalar("uint32")) as array.Scalar<uint32>
+const array.int32 = new array.Scalar(physical = storage.scalar("int32")) as array.Scalar<int32>
+const array.uint64 = new array.Scalar(physical = storage.scalar("uint64")) as array.Scalar<uint64>
+const array.int64 = new array.Scalar(physical = storage.scalar("int64")) as array.Scalar<int64>
+const array.float = new array.Scalar(physical = storage.scalar("float")) as array.Scalar<float>
+const array.number = new array.Scalar(physical = storage.scalar("number")) as array.Scalar<number>
+
+record array.Array<T>
+    private readonly pointer: T[?]
+    readonly count: integer
+    read: function(borrows self: Array<T>): span.Span<T> borrows (self)
+    write: function(exclusive self: Array<T>): span.Writable<T> borrows (self)
+end
+
+function array.Array.read<T>(borrows self: array.Array<T>): span.Span<T> borrows (self)
+    return span.fromCarray(self.pointer, self.count)
+end
+
+function array.Array.write<T>(exclusive self: array.Array<T>): span.Writable<T> borrows (self)
+    return span.writeCarray(self.pointer, self.count)
+end
+
+--- Allocates zeroed storage with the struct witness's physical layout.
+function array.new<T>(takes witness: T, count: integer): array.Array<T>
+    local raw = unsafe release witness
+    local element = storage.descriptor(raw)
+    return new array.Array(pointer = storage.allocateArray(element, count) as T[?], count = count) as array.Array<T>
+end
+
+--- Allocates zeroed storage for the selected scalar element type.
+function array.scalar<T>(borrows witness: array.Scalar<T>, count: integer): array.Array<T>
+    return new array.Array(
+        pointer = storage.allocateArray(witness.physical, count) as T[?],
+        count = count
+    ) as array.Array<T>
+end
+
+export = array

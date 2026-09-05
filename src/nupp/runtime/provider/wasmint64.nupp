@@ -1,0 +1,5 @@
+@!internal
+module nupp.runtime.provider.wasmint64
+
+local memory: any = assert(rawget(_G, "__nuppWasmHost"), "nupp: the Wasm memory host is not installed")
+export = memory.int64

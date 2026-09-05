@@ -463,8 +463,8 @@ resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
 
 With `aot = "require-wasm"`, the same declaration emits WGSL for a browser
-WebGPU application. Browser GPU storage uses `nupp.wasm.Span` and
-`nupp.wasm.WriteSpan`, not native `nupp.mem.span` values. The first browser
+WebGPU application. Browser GPU storage uses `nupp.mem.span.Span` and
+`nupp.mem.span.WriteSpan`, with the selected physical representation. The first browser
 profile admits complete-span map kernels over `int32` and `uint32` storage and
 scalar uniforms; it does not yet admit floating-point values, structs,
 cursor-indexed storage, or workgroup phases. The generated binding retains the

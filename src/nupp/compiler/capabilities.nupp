@@ -25,7 +25,10 @@ local CONTRACTS = {
         native = {luajit = true, ["luajit-compat"] = true},
         seams = {lua51 = requirement("representation.structvalue"),},
     },
-    cstorage = {native = {luajit = true, ["luajit-compat"] = true}, seams = {},},
+    cstorage = {
+        native = {luajit = true, ["luajit-compat"] = true},
+        seams = {lua51 = requirement("representation.cstorage")},
+    },
     presize = {native = {luajit = true, ["luajit-compat"] = true}, compiler = {lua51 = true}, seams = {},},
     simd = {native = {luajit = true, ["luajit-compat"] = true}, seams = {lua51 = requirement("numeric.simd"),},},
 }

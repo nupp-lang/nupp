@@ -1,20 +1,21 @@
-local wasm = require("nupp.wasm")
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 
 @aot(target = "gpu")
-local function addMask(exclusive output: wasm.WriteSpan<uint32>, borrows input: wasm.Span<uint32>, mask: uint32): nil
+local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil
     assert(#output == #input, "length mismatch")
     for index = 1, #output do
         output[index] = nupp.math.u32.add(input[index], mask)
     end
 end
 
-local input = wasm.scalarArray(wasm.uint32, 2)
+local input = array.scalar(array.uint32, 2)
 local inputRows = input:write()
 inputRows[1] = nupp.math.u32.wrap(4)
 inputRows[2] = nupp.math.u32.wrap(9)
-inputRows:drop()
+drop inputRows
 
-local output = wasm.scalarArray(wasm.uint32, 2)
+local output = array.scalar(array.uint32, 2)
 assert(#input:read() == 2 and #output:read() == 2)
 
 return addMask

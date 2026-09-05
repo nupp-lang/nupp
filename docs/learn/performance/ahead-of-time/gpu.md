@@ -135,16 +135,17 @@ accumulation explicit binary32.
 ## Browser GPU kernels
 
 A browser target combines `dialect = "lua51"`, the browser backend, and
-`aot = "require-wasm"`. GPU kernels use `nupp.wasm.Span` and
-`nupp.wasm.WriteSpan` so the Worker can transfer bounded Wasm-memory leases:
+`aot = "require-wasm"`. GPU kernels use `nupp.mem.span.Span` and
+`nupp.mem.span.WriteSpan` so the Worker can transfer bounded Wasm-memory leases:
 
 ```nupp
-local wasm = nupp.wasm
+local span = nupp.mem.span
+local array = nupp.mem.array
 
 @aot(target = "gpu")
 local function addMask(
-    exclusive output: wasm.WriteSpan<uint32>,
-    borrows input: wasm.Span<uint32>,
+    exclusive output: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>,
     mask: uint32
 ): nil
     assert(#output == #input, "length mismatch")

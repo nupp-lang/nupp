@@ -1,3 +1,0 @@
-module backend
-
-export = {name = "${name}.wasm", seams = {["representation.structvalue"] = "nupp.runtime.provider.wasmstorage",},}
