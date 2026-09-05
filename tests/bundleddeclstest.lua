@@ -138,4 +138,41 @@ function M.everyCarriedDeclarationResolvesToItsSource()
    end
 end
 
+-- A public standard module the compiler ships but cannot load the types of
+-- resolves to `unknown` at every consumer, and a field read on `unknown` says
+-- "no field X in unknown" rather than naming the module that was never loaded.
+-- That is how `nupp.io.net` and `nupp.io.tls` sat unresolvable: both were
+-- staged into the distribution and classified as public, and neither was in
+-- the table the checker loads types from. A consumer got `unknown` for the
+-- whole module, so a call to a function that does not exist read the same as
+-- one that does.
+--
+-- The list is derived rather than restated. Both of the tables that drifted
+-- were hand-maintained, so a test naming its own modules would drift the same
+-- way and pass while the next addition went missing.
+
+function M.everyPublicStandardModuleResolves()
+   local surface = require("nupp.compiler.standardsurface")
+   local env = strictEnv()
+   local lost = {}
+   for name, classification in pairs(surface.all()) do
+      -- `members` classifies a namespace that holds no module of its own, and
+      -- the compiler's own internals are not something a project requires.
+      local public = name:match("^nupp%.") and classification.kind ~= "members"
+         and not name:match("^nupp%.compiler%.")
+         and not name:match("^nupp%.runtime%.")
+         and not name:match("^nupp%.browser%.")
+      if public then
+         local resolved = env.resolveModule(env, name)
+         if not resolved or resolved == T.any or resolved.tag == "unknown" then
+            lost[#lost + 1] = name
+         end
+      end
+   end
+   table.sort(lost)
+   assertEq(#lost, 0,
+      "a module classified public must have loadable types; unresolvable: "
+      .. table.concat(lost, ", "))
+end
+
 return M
