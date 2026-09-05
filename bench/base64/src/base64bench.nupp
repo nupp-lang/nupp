@@ -46,14 +46,13 @@ local function orBits(a: uint32, b: uint32): uint32
     return nupp.math.u32.orBits(a, b)
 end
 
-
 --- Encodes `source` as standard base64 with padding.
 ---
 --- The output buffer is bounded rather than exact: `2n + 4` covers `4*ceil(n/3)`
 --- for every `n`, and the scratch tracks the length actually written, so the
 --- entry needs no division to size itself.
 --- @raises when the builder cannot allocate or publish
-@aot(lanes = false)
+@aot(vectorize = false)
 local function encodeAot(source: string, alphabet: string, nullValue: any): any
     local length = valuebuilder.length(source)
     local bound = add(shl(length, u32(1)), u32(4))
@@ -91,7 +90,11 @@ local function encodeAot(source: string, alphabet: string, nullValue: any): any
     if rest == 1 then
         local b0 = valuebuilder.byte(source, at)
         valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(alphabet, shr(b0, u32(2))))
-        valuebuilder.setScratchByte(scratch, add(out, u32(1)), valuebuilder.byte(alphabet, shl(andBits(b0, u32(3)), u32(4))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(alphabet, shl(andBits(b0, u32(3)), u32(4)))
+        )
         valuebuilder.setScratchByte(scratch, add(out, u32(2)), u32(61))
         valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
         out = add(out, u32(4))
@@ -104,7 +107,11 @@ local function encodeAot(source: string, alphabet: string, nullValue: any): any
             add(out, u32(1)),
             valuebuilder.byte(alphabet, orBits(shl(andBits(b0, u32(3)), u32(4)), shr(b1, u32(4))))
         )
-        valuebuilder.setScratchByte(scratch, add(out, u32(2)), valuebuilder.byte(alphabet, shl(andBits(b1, u32(15)), u32(2))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(2)),
+            valuebuilder.byte(alphabet, shl(andBits(b1, u32(15)), u32(2)))
+        )
         valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
         out = add(out, u32(4))
     end
@@ -125,10 +132,6 @@ local function reversed(word: uint32): uint32
     )
 end
 
-
-
-
-
 --- The word-storing encoder, reading its alphabet from the `const`.
 ---
 --- Twelve input bytes are four twenty-four bit groups and sixteen output
@@ -136,7 +139,7 @@ end
 --- reads and the arithmetic are the word entry's; only the output path differs,
 --- which is what makes the pair a measurement of that path.
 --- @raises when the builder cannot allocate or publish
-@aot(lanes = false)
+@aot(vectorize = false)
 local function encodeConstAot(source: string, nullValue: any): any
     local length = valuebuilder.length(source)
     local bound = add(shl(length, u32(1)), u32(4))
@@ -155,22 +158,62 @@ local function encodeConstAot(source: string, nullValue: any): any
         local g1 = orBits(shl(andBits(w0, u32(255)), u32(16)), shr(w1, u32(16)))
         local g2 = orBits(shl(andBits(w1, u32(65535)), u32(8)), shr(w2, u32(24)))
         local g3 = andBits(w2, u32(16777215))
-        valuebuilder.setScratchBytes4(scratch, out, orBits(
-            orBits(valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(18)), u32(63))), shl(valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(12)), u32(63))), u32(8))),
-            orBits(shl(valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(6)), u32(63))), u32(16)), shl(valuebuilder.byte(ALPHABET, andBits(g0, u32(63))), u32(24)))
-        ))
-        valuebuilder.setScratchBytes4(scratch, add(out, u32(4)), orBits(
-            orBits(valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(18)), u32(63))), shl(valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(12)), u32(63))), u32(8))),
-            orBits(shl(valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(6)), u32(63))), u32(16)), shl(valuebuilder.byte(ALPHABET, andBits(g1, u32(63))), u32(24)))
-        ))
-        valuebuilder.setScratchBytes4(scratch, add(out, u32(8)), orBits(
-            orBits(valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(18)), u32(63))), shl(valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(12)), u32(63))), u32(8))),
-            orBits(shl(valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(6)), u32(63))), u32(16)), shl(valuebuilder.byte(ALPHABET, andBits(g2, u32(63))), u32(24)))
-        ))
-        valuebuilder.setScratchBytes4(scratch, add(out, u32(12)), orBits(
-            orBits(valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(18)), u32(63))), shl(valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(12)), u32(63))), u32(8))),
-            orBits(shl(valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(6)), u32(63))), u32(16)), shl(valuebuilder.byte(ALPHABET, andBits(g3, u32(63))), u32(24)))
-        ))
+        valuebuilder.setScratchBytes4(
+            scratch,
+            out,
+            orBits(
+                orBits(
+                    valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(18)), u32(63))),
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(12)), u32(63))), u32(8))
+                ),
+                orBits(
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(6)), u32(63))), u32(16)),
+                    shl(valuebuilder.byte(ALPHABET, andBits(g0, u32(63))), u32(24))
+                )
+            )
+        )
+        valuebuilder.setScratchBytes4(
+            scratch,
+            add(out, u32(4)),
+            orBits(
+                orBits(
+                    valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(18)), u32(63))),
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(12)), u32(63))), u32(8))
+                ),
+                orBits(
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(6)), u32(63))), u32(16)),
+                    shl(valuebuilder.byte(ALPHABET, andBits(g1, u32(63))), u32(24))
+                )
+            )
+        )
+        valuebuilder.setScratchBytes4(
+            scratch,
+            add(out, u32(8)),
+            orBits(
+                orBits(
+                    valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(18)), u32(63))),
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(12)), u32(63))), u32(8))
+                ),
+                orBits(
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(6)), u32(63))), u32(16)),
+                    shl(valuebuilder.byte(ALPHABET, andBits(g2, u32(63))), u32(24))
+                )
+            )
+        )
+        valuebuilder.setScratchBytes4(
+            scratch,
+            add(out, u32(12)),
+            orBits(
+                orBits(
+                    valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(18)), u32(63))),
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(12)), u32(63))), u32(8))
+                ),
+                orBits(
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(6)), u32(63))), u32(16)),
+                    shl(valuebuilder.byte(ALPHABET, andBits(g3, u32(63))), u32(24))
+                )
+            )
+        )
 
         at = add(at, u32(12))
         out = add(out, u32(16))
@@ -201,7 +244,11 @@ local function encodeConstAot(source: string, nullValue: any): any
     if rest == 1 then
         local b0 = valuebuilder.byte(source, at)
         valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(b0, u32(2))))
-        valuebuilder.setScratchByte(scratch, add(out, u32(1)), valuebuilder.byte(ALPHABET, shl(andBits(b0, u32(3)), u32(4))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(ALPHABET, shl(andBits(b0, u32(3)), u32(4)))
+        )
         valuebuilder.setScratchByte(scratch, add(out, u32(2)), u32(61))
         valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
         out = add(out, u32(4))
@@ -214,7 +261,11 @@ local function encodeConstAot(source: string, nullValue: any): any
             add(out, u32(1)),
             valuebuilder.byte(ALPHABET, orBits(shl(andBits(b0, u32(3)), u32(4)), shr(b1, u32(4))))
         )
-        valuebuilder.setScratchByte(scratch, add(out, u32(2)), valuebuilder.byte(ALPHABET, shl(andBits(b1, u32(15)), u32(2))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(2)),
+            valuebuilder.byte(ALPHABET, shl(andBits(b1, u32(15)), u32(2)))
+        )
         valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
         out = add(out, u32(4))
     end
@@ -231,10 +282,6 @@ end
 function base64bench.encodeConst(value: string): string
     return encodeConstAot(value, false) as string
 end
-
-
-
-
 
 --- Encodes bytes as standard base64 with padding.
 --- @param value the bytes to encode

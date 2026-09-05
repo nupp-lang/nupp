@@ -1,7 +1,7 @@
 -- Exact-width contiguous span load used to inspect vector load folding.
 local span = require("nupp.mem.span")
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function scale(
     exclusive output: span.WriteSpan<number>,
     borrows input: span.Span<number>,

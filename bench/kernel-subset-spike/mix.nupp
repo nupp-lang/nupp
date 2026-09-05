@@ -2,7 +2,7 @@
 -- has succeeded only when their lane IR and measured native bodies agree.
 local span = require("nupp.mem.span")
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function mix(
     exclusive output: span.WriteSpan<number>,
     borrows input: span.Span<number>,
@@ -25,7 +25,7 @@ local function mix(
     end
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function mixUnrolled(
     exclusive output: span.WriteSpan<number>,
     borrows input: span.Span<number>,

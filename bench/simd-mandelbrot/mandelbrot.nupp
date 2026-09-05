@@ -13,7 +13,7 @@ local struct Escape
     escaped: uint32
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function mandelbrot(
     exclusive escapes: span.WriteSpan<Escape>,
     borrows points: span.Span<Point>,

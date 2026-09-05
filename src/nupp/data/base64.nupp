@@ -62,7 +62,7 @@ local function reversed(word: uint32): uint32
 end
 
 --- @raises when the builder cannot allocate or publish
-@aot(lanes = false)
+@aot(vectorize = false)
 local function encodeAot(source: string, nullValue: any): any
     local length = valuebuilder.length(source)
     -- Four output bytes per three input, about `1.34n`. There is no division
@@ -204,7 +204,7 @@ end
 --- outside the alphabet. An `@aot` body has no `error` of its own, and the
 --- caller cannot be asked to pre-scan the input without paying for the scan
 --- twice, so invalidity leaves through the value and `base64.decode` raises.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function decodeAot(text: string, nullValue: any): any
     local length = valuebuilder.length(text)
     local builder = valuebuilder.newSized(nullValue, u32(2), add(length, u32(4)))

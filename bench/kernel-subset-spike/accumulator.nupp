@@ -7,7 +7,7 @@ local function indexOf(row: integer, column: integer, width: integer): uint32
     return nupp.math.u32.wrap((row - 1) * width + column - 1)
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function accumulate2(seed: uint32): uint32
     local values = valuebuilder.newFixedWordScratch(4)
     for row = 1, 2 do
@@ -22,10 +22,11 @@ local function accumulate2(seed: uint32): uint32
             total = nupp.math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 2)))
         end
     end
+
     return total
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function accumulate4(seed: uint32): uint32
     local values = valuebuilder.newFixedWordScratch(16)
     for row = 1, 4 do
@@ -40,10 +41,11 @@ local function accumulate4(seed: uint32): uint32
             total = nupp.math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 4)))
         end
     end
+
     return total
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function accumulate16(seed: uint32): uint32
     local values = valuebuilder.newFixedWordScratch(256)
     for row = 1, 16 do
@@ -58,6 +60,7 @@ local function accumulate16(seed: uint32): uint32
             total = nupp.math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 16)))
         end
     end
+
     return total
 end
 

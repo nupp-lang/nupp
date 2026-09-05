@@ -10,7 +10,7 @@ local function u32(value: integer): uint32
     return nupp.math.u32.wrap(value)
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function copyString(source: string, nullValue: any): any
     local length = valuebuilder.length(source)
     local builder = valuebuilder.new(nullValue)
@@ -25,7 +25,7 @@ local function copyString(source: string, nullValue: any): any
     return valuebuilder.finish(builder)
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function describe(name: string, count: integer): {[string]: any}
     return {name = name, count = count, values = {1, 2, 3}}
 end
@@ -43,7 +43,7 @@ local struct Sample
     weight: float
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function scale(
     exclusive output: wasm.WriteSpan<Sample>,
     borrows input: wasm.Span<Sample>,

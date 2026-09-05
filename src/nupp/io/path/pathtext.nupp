@@ -174,7 +174,7 @@ end
 --- @param text the path
 --- @param windows whether Windows rules apply
 --- @return the normalized path
-@aot(lanes = false)
+@aot(vectorize = false)
 local function normalizeImpl(text: string, windows: boolean): string
     -- A flat integer stack avoids allocating one record for every component.
     -- A positive entry is a normal component's start; zero is `..`.

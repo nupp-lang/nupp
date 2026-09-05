@@ -380,17 +380,20 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     c.diag("NUPP2901", annotationName, "@aot and @jit name different compilers for one body")
                 end
                 targetBody.aotRequired = true
-                -- Absent, the compiler decides whether lane lowering is worth
-                -- it. `lanes = false` declines it for a body that measured worse
-                -- lane-parallel; `lanes = true` takes it whatever the estimate
-                -- says. Neither says anything about whether the body compiles.
+                -- Absent, the compiler decides whether vectorizing is worth
+                -- it. `vectorize = false` declines it for a body that measured
+                -- worse lane-parallel; `vectorize = true` takes it whatever the
+                -- estimate says. Neither says anything about whether the body
+                -- compiles.
                 local values = (stat as any).annotationValues
                 local target = values and values.target
                 local requested = target and stringValue(target.expr) or nil
                 if requested ~= nil then
                     targetBody.aotTarget = requested
                 end
-                local lanes = values and values.lanes
+                -- `lanes` is the withdrawn spelling, accepted so existing source
+                -- keeps compiling and read only where `vectorize` is absent.
+                local vectorize = values and (values.vectorize or values.lanes)
                 if requested == "gpu" then
                     -- A GPU map assigns one source iteration to one invocation;
                     -- CPU register gangs are a separate lowering and do not run.
@@ -402,12 +405,12 @@ function pragma.install(c: state.Checker): state.StatHandlers
                             "@aot(target = \"gpu\") currently requires a local function declaration"
                         )
                     end
-                    if lanes ~= nil then
-                        c.diag("NUPP2115", lanes, "@aot(target = \"gpu\") does not take a lanes override")
+                    if vectorize ~= nil then
+                        c.diag("NUPP2115", vectorize, "@aot(target = \"gpu\") does not take a vectorize override")
                     end
-                elseif lanes and lanes.expr and lanes.expr.kind == "falseExpr" then
+                elseif vectorize and vectorize.expr and vectorize.expr.kind == "falseExpr" then
                     targetBody.lanesDeclined = true
-                elseif lanes and lanes.expr and lanes.expr.kind == "trueExpr" then
+                elseif vectorize and vectorize.expr and vectorize.expr.kind == "trueExpr" then
                     targetBody.lanesRequired = true
                 end
             end

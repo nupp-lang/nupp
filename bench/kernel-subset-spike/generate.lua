@@ -47,7 +47,7 @@ if #checkedDiagnostics > 0 then
 end
 
 -- Lower the same tree the checker annotated. The spike does not rediscover
--- `@aot`, `lanes`, relaxation, or fixed-width establishment from source
+-- `@aot`, `vectorize`, relaxation, or fixed-width establishment from source
 -- spelling.
 local artifacts, diagnostics = compiler.compile(source, input, parsed)
 if not artifacts then
@@ -62,7 +62,7 @@ end
 -- the same category `nupp bc --check` already covers for a loop LuaJIT cannot
 -- record, and it gets the same treatment -- a check that names the construct and
 -- exits 1, rather than an annotation that turns it into a build error for
--- everyone. `@aot(lanes = false)` is how a deliberately scalar body says so.
+-- everyone. `@aot(vectorize = false)` is how a deliberately scalar body says so.
 if arg[3] == "--check-lanes" then
    io.write(("%s: %.2f arithmetic operations per byte (%d over %d)\n"):format(
       input, artifacts.ir.intensity, artifacts.ir.operations, artifacts.ir.touchedBytes))
@@ -75,7 +75,7 @@ if arg[3] == "--check-lanes" then
       os.exit(0)
    end
    if artifacts.ir.lanesDeclined then
-      io.write(("%s: lane lowering declined by `@aot(lanes = false)`\n"):format(input))
+      io.write(("%s: lane lowering declined by `@aot(vectorize = false)`\n"):format(input))
       os.exit(0)
    end
    io.stderr:write(("%s: ran one iteration at a time\n"):format(input))

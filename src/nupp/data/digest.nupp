@@ -159,7 +159,7 @@ const NEVER_NULL = {}
 --- Built here it is writes into a buffer the entry already had.
 ---
 --- @raises when the builder cannot allocate or publish
-@aot(lanes = false)
+@aot(vectorize = false)
 local function digestHex(source: string, nullValue: any): any
     local builder = valuebuilder.newSized(nullValue, u32(2), u32(64))
     local scratch = valuebuilder.newFixedByteScratch(64)

@@ -1640,9 +1640,9 @@ what makes them usable as pointer-free parser and codec arenas.
 
 An `@aot` body of one top-level numeric map loop may also be lowered
 lane-parallel, at a width taken from the lane types its own values need; nothing
-in the source names a lane, a mask, or a width. `@aot(lanes = true)` and
-`lanes = false` override that estimate, and neither requires the lowering to
-succeed. Removing either annotation changes the compilation strategy, never the
+in the source names a lane, a mask, or a width. `@aot(vectorize = true)` and
+`vectorize = false` override that estimate, and neither requires the lowering
+to succeed. Removing either annotation changes the compilation strategy, never the
 answer. An algorithm whose register is itself a data structure imports
 `nupp.simd` inside a block kernel. Its values and masks cannot escape the kernel
 and have no boxed Lua representation, so using `preferredU8` with `aot = "off"`
@@ -1650,7 +1650,7 @@ is a named checking error.
 
 `@aot(target = "gpu")` records a GPU execution family in the verified IR and
 maps one whole-span loop iteration to one GPU invocation. It does not take a CPU
-`lanes` override. With the native `aot = "require"` policy, the compiler emits
+`vectorize` override. With the native `aot = "require"` policy, the compiler emits
 canonical SPIR-V for the Rust WGPU provider and replaces the declaration with
 a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts

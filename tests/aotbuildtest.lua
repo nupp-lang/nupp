@@ -51,7 +51,7 @@ local struct Decimal
     value: number
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function scale(
     exclusive samples: span.WriteSpan<Sample>,
     borrows source: span.Span<Sample>,
@@ -74,7 +74,7 @@ local function scale(
     end
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function sumBytes(
     borrows first: span.Span<uint8>,
     borrows second: span.Span<uint8>
@@ -89,7 +89,7 @@ local function sumBytes(
     return total, nupp.math.u32.wrap(#first), nupp.math.u32.wrap(#second)
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function fillDecimals(exclusive values: span.WriteSpan<Decimal>, value: number): nil
     for i = 1, #values do
         values[i].value = value
@@ -120,7 +120,7 @@ local struct Result
     fused: float
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function corrected(
     exclusive results: span.WriteSpan<Result>,
     borrows samples: span.Span<Sample>,
@@ -156,7 +156,7 @@ local function drain(bits: simd.MaskBits64): (uint32, uint32)
     return bits:firstSet(), bits:clearFirst():count()
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function maskOps(low: uint32, high: uint32): (uint32, uint32, uint32, uint32)
     local raw = simd.maskBits64(low, high)
     local prefixed = raw:prefixXor(false)
@@ -164,7 +164,7 @@ local function maskOps(low: uint32, high: uint32): (uint32, uint32, uint32, uint
     return prefixed:lowBits(), prefixed:highBits(), first, left
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function maskAdd(low: uint32, high: uint32, addend: uint32): (uint32, uint32)
     local base = simd.maskBits64(low, high)
     local other = simd.maskBits64(addend, nupp.math.u32.wrap(0))
@@ -172,7 +172,7 @@ local function maskAdd(low: uint32, high: uint32, addend: uint32): (uint32, uint
     return sum:lowBits(), sum:highBits()
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function countQuotes(borrows source: span.Span<uint8>): uint32
     local species = preferredBytes()
     local cursor: integer = 0
@@ -188,7 +188,7 @@ local function countQuotes(borrows source: span.Span<uint8>): uint32
     return found
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function lookupAligned(borrows source: span.Span<uint8>): uint32
     local species = preferredBytes()
     local previous = species:load(source, nupp.math.u32.wrap(0))
@@ -200,7 +200,7 @@ local function lookupAligned(borrows source: span.Span<uint8>): uint32
     return matches:count()
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function maskShapes(borrows source: span.Span<uint8>): (uint32, uint32, uint32, uint32)
     local species = preferredBytes()
     local bytes = species:load(source, nupp.math.u32.wrap(0))
@@ -257,7 +257,7 @@ local function object(name: string): {[string]: any}
     return result
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function stream(source: string, tape: string, nullValue: any): (any, uint32, uint32)
     local state = valueBuilder.new(nullValue)
     valueBuilder.openObject(state, nupp.math.u32.wrap(2))
@@ -270,7 +270,7 @@ local function stream(source: string, tape: string, nullValue: any): (any, uint3
         valueBuilder.word(tape, nupp.math.u32.wrap(0))
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function primitives(source: string, nullValue: any): (any, uint32, uint32, uint32)
     local view = simd.paddedStringU8(source)
     local bytes = view:loadFull(nupp.math.u32.wrap(0))
@@ -308,7 +308,7 @@ end
 --- the whole point of a wrap. A C cast is undefined outside the destination's
 --- range and saturates on arm64, so this is where a compiled body used to stop
 --- agreeing with the same source on the interpreter.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function wrapped(value: integer, nullValue: any): any
     local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
     local signedValue = nupp.math.i32.wrap(value)
@@ -324,7 +324,7 @@ end
 --- an index outside it. The bound is a constant the C compiler can discharge in
 --- a counted loop, which is the point of it -- so what has to be shown is that
 --- the refusal survives that, and reaches the same answer as the interpreter.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function fixedScratch(probe: uint32, nullValue: any): any
     local buffer = valueBuilder.newFixedWordScratch(8)
     local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
@@ -342,7 +342,7 @@ end
 
 --- A fixed byte buffer: zero everywhere before anything writes it, writable in
 --- any order rather than only at the end, and refusing an index outside it.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function fixedByteScratch(probe: uint32, nullValue: any): any
     local buffer = valueBuilder.newFixedByteScratch(8)
     local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
@@ -364,7 +364,7 @@ end
 --- Both are allocated before the array is opened, because a scratch allocation
 --- pushes its userdata and a value has to sit directly above the array it
 --- belongs to.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function reusedScratchName(probe: uint32, nullValue: any): any
     local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
 
@@ -412,7 +412,7 @@ local function bump(value: Word): Word
     return add(value, nupp.math.u32.wrap(1))
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function aliased(exclusive output: Output, borrows input: Input): nil
     if #output ~= #input then error("length mismatch", 2) end
     for index = 1, #output do
@@ -427,7 +427,7 @@ return {aliased = aliased, Sample = Sample}
 local CONST_KERNEL = [[
 module constkernel
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function doubled<const N: integer>(value: number, count: N): number
     local answer = value
     for _ = 1, count as integer do
@@ -554,7 +554,7 @@ const READ_ONLY_IN_THE_BODY = "\001\002\003\004"
 
 local trulyUnused = 42
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function entry(index: uint32, nullValue: any): any
     local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
     valueBuilder.openArray(state, nupp.math.u32.wrap(1))
@@ -731,7 +731,7 @@ return {
         [=[
 module wide
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function checkAdd(): boolean
     local two32: int64 = 4294967296
     local high: int64 = 2147483647
@@ -743,7 +743,7 @@ local function checkAdd(): boolean
     return maximum + one == minimum
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function checkMultiply(): boolean
     local two32: int64 = 4294967296
     local minimumHigh: int64 = -2147483648
@@ -782,25 +782,25 @@ return {
         [=[
 module mixedcmp
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function negativeBelowSmall(x: int32): boolean
     local negative: int32 = nupp.math.i32.sub(0, x)
     return negative < nupp.math.u32.wrap(5)
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function negativeEqualsWrapped(x: int32): boolean
     local negative: int32 = nupp.math.i32.sub(0, x)
     return negative == nupp.math.u32.wrap(4294967295)
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function wideNegativeBelowSmall(x: uint32): boolean
     local negative: int64 = 0 - (x as int64)
     return negative < (5 as uint64)
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function foldedNegativeBelowSmall(): boolean
     local negative: int32 = nupp.math.i32.sub(0, 1)
     return negative < nupp.math.u32.wrap(5)
@@ -1100,7 +1100,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
             {
                 "module constkernel",
                 'local _valueBuilder = require("nupp.data.valuebuilder")',
-                "@aot(lanes = false)",
+                "@aot(vectorize = false)",
                 "local function build<const Variant: integer>(",
                 "    source: string,",
                 "    nullValue: any,",
@@ -1185,7 +1185,7 @@ function M.constGenericAotCapCountsCoalescedBodiesNotKeys()
         table.concat(
             {
                 "module constkernel",
-                "@aot(lanes = false)",
+                "@aot(vectorize = false)",
                 "local function tag<const N: integer>(value: number, count: N): number",
                 "    return value + 1.0",
                 "end",
@@ -1222,7 +1222,7 @@ function M.constGenericAotCapNamesTheWholeDemandSet()
         table.concat(
             {
                 "module constkernel",
-                "@aot(lanes = false)",
+                "@aot(vectorize = false)",
                 "local function tag<const N: integer>(value: number, count: N): number",
                 "    local answer = value",
                 "    for _ = 1, count as integer do answer = answer + 1.0 end",
@@ -2603,7 +2603,7 @@ local struct Point
     y: float
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function scaleBoth(
     exclusive out: span.WriteSpan<Point>, borrows src: span.Span<Point>,
     first: integer, last: integer, factor: number
@@ -2618,7 +2618,7 @@ local function scaleBoth(
     end
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function shiftBoth(
     exclusive out: span.WriteSpan<Point>, borrows src: span.Span<Point>,
     first: integer, last: integer, delta: number
@@ -3083,7 +3083,7 @@ module pkg.shared
 
 local shared = {}
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function total(count: uint32): number
     local at: uint32 = nupp.math.u32.wrap(0)
     while at < count do

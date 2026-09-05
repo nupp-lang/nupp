@@ -33,10 +33,10 @@ end
 
 Lane lowering is attempted for every `@aot` body, and a body of exactly one
 top-level numeric map loop is the shape it can take. Nothing requests it and
-nothing names a lane, a mask, or a width. `@aot(lanes = false)` declines it for a
-body that is deliberately scalar. Explicit `F32x8`, `I32x8`, mask helpers, and
-hand-unrolled lane structs were removed; compiler-internal vectors are the only
-vector values.
+nothing names a lane, a mask, or a width. `@aot(vectorize = false)` declines
+it for a body that is deliberately scalar. Explicit `F32x8`, `I32x8`, mask
+helpers, and hand-unrolled lane structs were removed; compiler-internal
+vectors are the only vector values.
 
 A body that cannot lower lane-parallel compiles anyway, one iteration at a time.
 Whether it vectorized is a performance property -- no answer depends on it, so no
@@ -133,7 +133,8 @@ times:
 Statements inside a data-dependent inner loop are weighted, because they run many
 times per iteration and the trip count is not a static fact. The weight stands in
 for that count rather than claiming it, which is why this is an estimate and why
-`@aot(lanes = true)` and `@aot(lanes = false)` override it in either direction.
+`@aot(vectorize = true)` and `@aot(vectorize = false)` override it in either
+direction.
 The kernels here that exist to exercise the lane path -- `corrected`, `tecsbits`
 and `lanedemo` -- all carry the first, because a differential for a lane form
 needs a lane form whatever it would cost in production.

@@ -378,7 +378,7 @@ return doubled
         summary:find("no map loop to run in lanes", 1, true),
         "the summary describes the body rather than inventing lanes=false: " .. summary
     )
-    assert(not summary:find("@aot(lanes = false)", 1, true), summary)
+    assert(not summary:find("@aot(vectorize = false)", 1, true), summary)
 end
 
 function M.qualifiedAotDeclarationIsRefusedWithoutATraceback()
@@ -1236,7 +1236,7 @@ return {copy = copy}
 -- Lanes asked for, and a construct the rewrite has no lane form for. This is the one
 -- outcome `--check` fails on: the loop wanted to run several iterations at once and did
 -- not, which is what an ordinary edit can take away without any test noticing.
-local REFUSED = STREAMING:gsub("@aot\n", "@aot(lanes = true)\n")
+local REFUSED = STREAMING:gsub("@aot\n", "@aot(vectorize = true)\n")
     :gsub(
     "        local position = positions%[i%]",
     "        local scale = dt\n"
@@ -1249,7 +1249,7 @@ local REFUSED = STREAMING:gsub("@aot\n", "@aot(lanes = true)\n")
 local FIXED_MIX = [[
 local span = require("nupp.mem.span")
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function mix(
     exclusive output: span.WriteSpan<number>,
     borrows input: span.Span<number>,
@@ -1279,7 +1279,7 @@ local PINNED = "--target x86_64-unknown-linux-gnu --features avx2 "
 local BYTE_CLASSIFIER = [[
 local span = require("nupp.mem.span")
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function classify(
     exclusive flags: span.WriteSpan<uint8>,
     borrows bytes: span.Span<uint8>
@@ -1305,7 +1305,7 @@ return {classify = classify}
 local DELIMITERS = [[
 local span = require("nupp.mem.span")
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function delimiters(
     borrows source: span.Span<uint8>,
     exclusive offsets: span.WriteSpan<uint32>
@@ -1330,7 +1330,7 @@ return {delimiters = delimiters}
 local MUTATED_WHILE_CURSOR = [[
 local span = require("nupp.mem.span")
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function afterIncrement(borrows source: span.Span<uint8>): uint32
     local cursor: uint32 = 0
     local byte: uint32 = 0
@@ -1349,7 +1349,7 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 local preferredBytes = simd.preferredU8
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function quotes(borrows source: span.Span<uint8>): uint32
     local species = preferredBytes()
     local cursor: integer = 0
@@ -1446,6 +1446,16 @@ function M.aRegisterResidentLoopReportsItsGangAndWidth()
     assert(out:find("mixed4", 1, true), "the gang is named: " .. out)
     assert(out:find("4 lanes", 1, true), "the width is named: " .. out)
     assert(out:find("operations per byte", 1, true), "the estimate behind the decision is shown: " .. out)
+end
+
+function M.theWithdrawnLanesSpellingStillDeclinesAndReportsTheCurrentOne()
+    local dir = project{["compute.nupp"] = replaceOnce(COMPUTE, "@aot\n", "@aot(lanes = false)\n")}
+    local out, code = run(dir, PINNED .. "compute.nupp")
+    test.equal(code, 0, "the withdrawn spelling still compiles\n" .. out)
+    assert(
+        out:find("declined by `@aot(vectorize = false)`", 1, true),
+        "the withdrawn spelling declines and the report names the current one: " .. out
+    )
 end
 
 function M.aStreamingLoopDeclinesRatherThanFailing()
@@ -1661,7 +1671,7 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
             {
                 "module counter",
                 "local valuebuilder = require(\"nupp.data.valuebuilder\")",
-                "@aot(lanes = false)",
+                "@aot(vectorize = false)",
                 "local function count(bytes: string): uint32",
                 "    local limit: uint32 = valuebuilder.length(bytes)",
                 "    local at: uint32 = nupp.math.u32.wrap(0)",
@@ -1840,7 +1850,7 @@ local function u32(value: integer): uint32
     return nupp.math.u32.wrap(value)
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function once(source: string, nullValue: any): any
     local builder = valuebuilder.newSized(nullValue, u32(2), u32(16))
     local scratch = valuebuilder.newByteScratch(u32(16))
@@ -1849,7 +1859,7 @@ local function once(source: string, nullValue: any): any
     return valuebuilder.finish(builder)
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function twice(source: string, nullValue: any): any
     local builder = valuebuilder.newSized(nullValue, u32(4), u32(16))
     local scratch = valuebuilder.newByteScratch(u32(16))
@@ -1957,7 +1967,7 @@ function M.anUnestablishedOperandIsStillRefused()
         ] = [[
 local span = require("nupp.mem.span")
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function scale(borrows input: span.Span<float>, exclusive out: span.WriteSpan<float>, k: number): nil
     for i = 1, #input do
         out[i] = nupp.math.f32.mul(input[i], k)
@@ -2015,7 +2025,7 @@ function M.rootedStringSimdLoadsRequireAnEntryParameter()
         ] = [[
 local simd = require("nupp.simd")
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function quotes(source: string): uint32
     local rooted = "not the parameter"
     local species = simd.preferredU8()
@@ -2191,7 +2201,7 @@ local struct Sample
     weight: float
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function scale(
     exclusive samples: span.WriteSpan<Sample>,
     borrows source: span.Span<Sample>,
@@ -2214,7 +2224,7 @@ local function scale(
     end
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function brighten(
     exclusive samples: span.WriteSpan<Sample>,
     borrows source: span.Span<Sample>,
@@ -2438,7 +2448,7 @@ function M.ordinaryLuaConstructionLowersThroughVmAwareIr()
         [
             "ordinary.nupp"
         ] = [[
-@aot(lanes = false)
+@aot(vectorize = false)
 local function label(text: string): string
     local offsets: {integer} = {}
     offsets[1] = #text
@@ -2473,7 +2483,7 @@ function M.aStringAccumulatorKeepsTheVmStackAboveItsChunksTemporary()
         [
             "unsafe.nupp"
         ] = [[
-@aot(lanes = false)
+@aot(vectorize = false)
 local function unsafe(text: string): string
     local answer = ""
     answer = answer .. text
@@ -2540,7 +2550,7 @@ local simd = require("nupp.simd")
 local function drain(bits: simd.MaskBits64): (uint32, uint32)
     return bits:firstSet(), bits:clearFirst():count()
 end
-@aot(lanes = false)
+@aot(vectorize = false)
 local function decode(source: string, tape: string, nullValue: any): (any, uint32, uint32)
     local count = builder.length(source)
     local cursor: uint32 = 0
@@ -2727,7 +2737,7 @@ return builder
             "read.g.nupp"
         ] = [[
 local builder = require("nupp.data.valuebuilder")
-@aot(lanes = false)
+@aot(vectorize = false)
 local function read(source: string, offset: uint32): uint32
     return builder.byteAt(source, offset)
 end
@@ -2757,7 +2767,7 @@ local valueBuilder = require("nupp.data.valuebuilder")
 const CLASSES = "\1\2\34\92"
 const QUOTED = 'a"b'
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function entry(index: uint32, nullValue: any): any
     local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
     valueBuilder.openArray(state, nupp.math.u32.wrap(2))
@@ -2828,7 +2838,7 @@ function M.aLengthAliasDoesNotOutliveItsScope()
             "stale.g.nupp"
         ] = [[
 local builder = require("nupp.data.valuebuilder")
-@aot(lanes = false)
+@aot(vectorize = false)
 local function decode(source: string): uint32
     do
         local n = builder.length(source)
@@ -2936,7 +2946,7 @@ function M.aShadowedStringIsNotThePreludes()
             "shadow.g.nupp"
         ] = [[
 local string = {byte = function(text: string, index: number): number return 7 end}
-@aot(lanes = false)
+@aot(vectorize = false)
 local function first(source: string): number
     return string.byte(source, 1)
 end
@@ -2959,7 +2969,7 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
     local body = [[
 local span = require("nupp.mem.span")
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function decode(borrows source: span.Span<uint8>): uint32
     local cursor: uint32 = 0
     local total: uint32 = 0

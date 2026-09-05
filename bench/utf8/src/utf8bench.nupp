@@ -35,7 +35,7 @@ local bench = {}
 --- The bounds the second byte must fall inside are set in the arm that read the
 --- lead, because four lead bytes narrow them: the second byte is what rules out
 --- an overlong form, a surrogate half, and a value past the maximum.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function scanAot(source: string): uint32
     local limit: uint32 = valuebuilder.length(source)
     local at: uint32 = u32(0)

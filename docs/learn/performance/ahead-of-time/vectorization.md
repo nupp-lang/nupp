@@ -131,7 +131,7 @@ nupp: advance ran one iteration at a time
 ```
 
 A loop that declined is not a failure, since being able to decline is the point,
-so `@aot(lanes = false)` and a body below the intensity threshold both pass.
+so `@aot(vectorize = false)` and a body below the intensity threshold both pass.
 For a low-intensity loop that reads or writes fields across consecutive
 structs, the report also suggests projecting the hot fields from
 `nupp.mem.soa` column storage so those accesses become contiguous.
@@ -210,14 +210,14 @@ there.
 
 There are three levers, and none of them lets you name a lane.
 
-**`@aot(lanes = true)`** takes lane lowering whatever the intensity estimate
+**`@aot(vectorize = true)`** takes lane lowering whatever the intensity estimate
 says. Use it when you have measured the loop and the estimate disagrees with the
 measurement. It does not require the lowering to succeed.
 `bench/kernel-subset-spike/lanedemo.nupp` is a component update at 0.29
 operations per byte, well under the threshold, lowered because its source asks:
 
 ```nupp
-@aot(lanes = true)
+@aot(vectorize = true)
 local function advance(
     exclusive particles: span.WriteSpan<Particle>,
     borrows source: span.Span<Particle>,
@@ -229,14 +229,14 @@ local function advance(
 bench/kernel-subset-spike/lanedemo.nupp: advance, kernel, 0.29 operations per byte (7 over 24), mixed4, 4 lanes
 ```
 
-**`@aot(lanes = false)`** declines lane lowering for a body that would otherwise
-be lowered. Use it for a loop that is deliberately scalar, so a vectorization
-check does not report it. The `normalize` from
+**`@aot(vectorize = false)`** declines lane lowering for a body that would
+otherwise be lowered. Use it for a loop that is deliberately scalar, so a
+vectorization check does not report it. The `normalize` from
 [Admitted loop shape](#admitted-loop-shape) took four lanes on its own; with the
 line below it declines them, and `nupp aot --check` stays quiet about it:
 
 ```nupp
-@aot(lanes = false)
+@aot(vectorize = false)
 local function normalize(
     exclusive outputs: span.WriteSpan<Sample>,
     borrows inputs: span.Span<Sample>,
@@ -246,7 +246,7 @@ local function normalize(
 ```
 
 ```text
-src/normalize.nupp: normalize, kernel, 1.12 operations per byte (9 over 8), none, declined by `@aot(lanes = false)`
+src/normalize.nupp: normalize, kernel, 1.12 operations per byte (9 over 8), none, declined by `@aot(vectorize = false)`
 ```
 
 **`@relax("fp-contract")`** permits a multiply and an add to fuse into one
@@ -282,8 +282,8 @@ KS_API void ks_mandelbrot(KsEscape *restrict p_escapes, /* ... */) {
 emitted body. On this kernel it is worth about 6 percent: 75.8 against 71.1
 MPix/s lane-parallel, 36.9 against 35.0 forced scalar.
 
-Removing `lanes = true` or `lanes = false` changes the compilation strategy and
-never the answer. Removing `@relax` changes the answer.
+Removing `vectorize = true` or `vectorize = false` changes the compilation
+strategy and never the answer. Removing `@relax` changes the answer.
 
 ## Mixing widths
 
@@ -377,7 +377,7 @@ species, 16 bytes for the x86-64 baseline and AArch64 NEON and 32 for AVX2:
 local span = nupp.mem.span
 local simd = nupp.simd
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function countQuotes(borrows source: span.Span<uint8>): uint32
     local species = simd.preferredU8()
     local cursor: integer = 0

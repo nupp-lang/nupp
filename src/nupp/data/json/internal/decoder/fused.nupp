@@ -31,7 +31,7 @@ local fused = {}
 ---
 --- @raises when the native builder cannot be loaded, value allocation fails,
 --- or the builder rejects a malformed escaped string
-@aot(lanes = false)
+@aot(vectorize = false)
 local function decodeFused<const Variant: integer>(
     borrows source: string | Buffer,
     variant: Variant,

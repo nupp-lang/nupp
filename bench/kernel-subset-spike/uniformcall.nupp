@@ -25,7 +25,7 @@ local function schedule(dt: number, drag: number): (number, number)
     return dt * 0.5, 1.0 - drag * dt
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function advance(
     exclusive positions: span.WriteSpan<Position>,
     borrows velocities: span.Span<Velocity>,

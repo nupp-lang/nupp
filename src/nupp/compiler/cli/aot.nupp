@@ -30,7 +30,7 @@ turns a performance property into a build error for everyone.
 
 `--check` distinguishes three outcomes, and only one of them is a failure. A body
 that lowered is fine. A body that declined -- because the arithmetic per byte says
-lanes will not pay, or because the source wrote `@aot(lanes = false)` -- is fine,
+lanes will not pay, or because the source wrote `@aot(vectorize = false)` -- is fine,
 and saying so is the point of being able to decline. A body that wanted lanes and
 did not get them is the failure, and it is reported with the construct that
 refused.
@@ -342,7 +342,7 @@ local function summarise(path: string, program: any, artifacts: any): string
     elseif how == "declined" and program.entryMode == "lua-builder" then
         why = ", lanes do not apply to a lua-builder entry"
     elseif how == "declined" then
-        why = ", declined by `@aot(lanes = false)`"
+        why = ", declined by `@aot(vectorize = false)`"
     elseif how == "refused" then
         why = ", ran one iteration at a time"
     end

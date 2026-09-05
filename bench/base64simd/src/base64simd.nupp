@@ -34,7 +34,7 @@ end
 
 --- Encodes `source` as standard base64 with padding.
 --- @raises when the builder cannot allocate or publish
-@aot(lanes = false)
+@aot(vectorize = false)
 local function encodeSimdAot(source: string, nullValue: any): any
     local length = valuebuilder.length(source)
     -- Three input bytes are four output bytes, so the exact size is
@@ -88,10 +88,38 @@ local function encodeSimdAot(source: string, nullValue: any): any
         local c0 = valuebuilder.byte(source, at)
         local c1 = valuebuilder.byte(source, add(at, u32(1)))
         local c2 = valuebuilder.byte(source, add(at, u32(2)))
-        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(c0, u32(2))))
-        valuebuilder.setScratchByte(scratch, add(out, u32(1)), valuebuilder.byte(ALPHABET, nupp.math.u32.orBits(nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c0, u32(3)), u32(4)), nupp.math.u32.shiftRightLogical(c1, u32(4)))))
-        valuebuilder.setScratchByte(scratch, add(out, u32(2)), valuebuilder.byte(ALPHABET, nupp.math.u32.orBits(nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c1, u32(15)), u32(2)), nupp.math.u32.shiftRightLogical(c2, u32(6)))))
-        valuebuilder.setScratchByte(scratch, add(out, u32(3)), valuebuilder.byte(ALPHABET, nupp.math.u32.andBits(c2, u32(63))))
+        valuebuilder.setScratchByte(
+            scratch,
+            out,
+            valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(c0, u32(2)))
+        )
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(
+                ALPHABET,
+                nupp.math.u32.orBits(
+                    nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c0, u32(3)), u32(4)),
+                    nupp.math.u32.shiftRightLogical(c1, u32(4))
+                )
+            )
+        )
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(2)),
+            valuebuilder.byte(
+                ALPHABET,
+                nupp.math.u32.orBits(
+                    nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c1, u32(15)), u32(2)),
+                    nupp.math.u32.shiftRightLogical(c2, u32(6))
+                )
+            )
+        )
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(3)),
+            valuebuilder.byte(ALPHABET, nupp.math.u32.andBits(c2, u32(63)))
+        )
         at = add(at, u32(3))
         out = add(out, u32(4))
     end
@@ -99,17 +127,43 @@ local function encodeSimdAot(source: string, nullValue: any): any
     local rest = nupp.math.u32.sub(length, at)
     if rest == 1 then
         local e0 = valuebuilder.byte(source, at)
-        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(e0, u32(2))))
-        valuebuilder.setScratchByte(scratch, add(out, u32(1)), valuebuilder.byte(ALPHABET, nupp.math.u32.shiftLeft(nupp.math.u32.andBits(e0, u32(3)), u32(4))))
+        valuebuilder.setScratchByte(
+            scratch,
+            out,
+            valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(e0, u32(2)))
+        )
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(ALPHABET, nupp.math.u32.shiftLeft(nupp.math.u32.andBits(e0, u32(3)), u32(4)))
+        )
         valuebuilder.setScratchByte(scratch, add(out, u32(2)), u32(61))
         valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
         out = add(out, u32(4))
     elseif rest == 2 then
         local f0 = valuebuilder.byte(source, at)
         local f1 = valuebuilder.byte(source, add(at, u32(1)))
-        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(f0, u32(2))))
-        valuebuilder.setScratchByte(scratch, add(out, u32(1)), valuebuilder.byte(ALPHABET, nupp.math.u32.orBits(nupp.math.u32.shiftLeft(nupp.math.u32.andBits(f0, u32(3)), u32(4)), nupp.math.u32.shiftRightLogical(f1, u32(4)))))
-        valuebuilder.setScratchByte(scratch, add(out, u32(2)), valuebuilder.byte(ALPHABET, nupp.math.u32.shiftLeft(nupp.math.u32.andBits(f1, u32(15)), u32(2))))
+        valuebuilder.setScratchByte(
+            scratch,
+            out,
+            valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(f0, u32(2)))
+        )
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(
+                ALPHABET,
+                nupp.math.u32.orBits(
+                    nupp.math.u32.shiftLeft(nupp.math.u32.andBits(f0, u32(3)), u32(4)),
+                    nupp.math.u32.shiftRightLogical(f1, u32(4))
+                )
+            )
+        )
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(2)),
+            valuebuilder.byte(ALPHABET, nupp.math.u32.shiftLeft(nupp.math.u32.andBits(f1, u32(15)), u32(2)))
+        )
         valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
         out = add(out, u32(4))
     end
@@ -125,7 +179,7 @@ end
 --- anything: `newByteScratch` is sized from the input, so its cost is a
 --- function of length rather than a constant per call, and the colocated C
 --- control reuses one buffer where this allocates every time.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function allocOnlyAot(source: string, nullValue: any): any
     local length = valuebuilder.length(source)
     local bound = add(nupp.math.u32.shiftLeft(length, u32(1)), u32(4))
@@ -133,6 +187,7 @@ local function allocOnlyAot(source: string, nullValue: any): any
     local scratch = valuebuilder.newByteScratch(bound)
     valuebuilder.setScratchByte(scratch, u32(0), nupp.math.u32.andBits(length, u32(255)))
     valuebuilder.stringScratch(builder, scratch, u32(0), u32(1))
+
     return valuebuilder.finish(builder)
 end
 

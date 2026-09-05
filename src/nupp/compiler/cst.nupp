@@ -119,12 +119,12 @@ interface cst.Hints
     --- established CPU target; `gpu` is consumed by the GPU emitter.
     aotTarget: string?
 
-    --- `@aot(lanes = false)` declines lane lowering for a body that would
+    --- `@aot(vectorize = false)` declines lane lowering for a body that would
     --- otherwise be lowered lane-parallel, so the vectorisation check does not
     --- report a loop that is deliberately scalar.
     lanesDeclined: boolean?
 
-    --- `@aot(lanes = true)` takes lane lowering whatever the arithmetic-intensity
+    --- `@aot(vectorize = true)` takes lane lowering whatever the arithmetic-intensity
     --- estimate says, for a body whose measurement disagrees with it.
     lanesRequired: boolean?
 

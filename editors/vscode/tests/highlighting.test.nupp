@@ -411,7 +411,7 @@ local y = unsafe adopt raw as Owner
 cdef function fill(out data: voidptr countedBy(n), n: uint64): int32
 --                                   ^^^^^^^^^ storage.modifier.ownership.nupp
 
-@aot(lanes = true)
+@aot(vectorize = true)
 -- <- punctuation.definition.annotation.nupp
 -- <~--- entity.name.tag.nupp
 local function sumLanes(values: WriteSpan): nil

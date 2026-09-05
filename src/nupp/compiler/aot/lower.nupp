@@ -5435,10 +5435,10 @@ function lower.contract(
         if written == "aot" then
             for _, argument in ipairs(link.annotationArgs or {}) do
                 local name = argument.name ~= nil and (argument.name as lexer.Token).text or nil
-                if name ~= "lanes" and name ~= "target" then
+                if name ~= "vectorize" and name ~= "lanes" and name ~= "target" then
                     context.reject(
                         lower.site(link),
-                        "@aot takes target = \"cpu\", target = \"gpu\", a lanes override, or nothing"
+                        "@aot takes target = \"cpu\", target = \"gpu\", a vectorize override, or nothing"
                     )
                 end
 
@@ -5455,7 +5455,7 @@ function lower.contract(
                 elseif value ~= nil and value.kind == "falseExpr" then
                     contract.wantsLanes = false
                 end
-                if name == "lanes" and value ~= nil and value.kind == "trueExpr" then
+                if (name == "vectorize" or name == "lanes") and value ~= nil and value.kind == "trueExpr" then
                     contract.lanesRequired = true
                 end
             end

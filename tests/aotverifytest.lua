@@ -69,7 +69,7 @@ end
 
 local CURSOR_READ = [[
 local builder = require("nupp.data.valuebuilder")
-@aot(lanes = false)
+@aot(vectorize = false)
 local function decode(source: string): uint32
     local n = builder.length(source)
     local cursor: uint32 = nupp.math.u32.wrap(0)

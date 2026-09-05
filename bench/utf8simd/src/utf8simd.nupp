@@ -35,7 +35,7 @@ local utf8simd = {}
 --- block has its continuations outside it, and there is no following block to
 --- carry them, so the tail is rewound to the last byte that could begin a
 --- scalar and finished by the same ladder `scanAot` uses.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function validSimd(source: string): uint32
     local count: uint32 = valuebuilder.length(source)
     local species = simd.preferredU8()

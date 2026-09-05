@@ -3441,15 +3441,19 @@ true ,
 "Selects the execution family: `\"cpu\"` (the default) or `\"gpu\"`." ,
 "guides/ahead-of-time"
 ) ,
-lanes = member (
-"lanes" ,
+vectorize = member (
+"vectorize" ,
 optional ( typesApi . boolean ) ,
 true ,
-"Overrides the compiler's lane-lowering estimate: `true` forces it, `false` forbids it. Neither requires the lowering to succeed." ,
+"Overrides the compiler's vectorization estimate: `true` takes it whatever the estimate says, `false` declines it. Neither requires the lowering to succeed." ,
 "guides/ahead-of-time"
 ) ,
+
+
+
+lanes = member ( "lanes" , optional ( typesApi . boolean ) , true , nil , nil ) ,
 }
-aot . memberOrder = { "target" , "lanes" }
+aot . memberOrder = { "target" , "vectorize" }
 
 local debug = registry : get ( "debug" )
 local debugDocs = "reference/derives"
@@ -20422,10 +20426,10 @@ local written = link . name ~= nil and ( link . name ) . text or nil
 if written == "aot" then
 for _ , argument in ipairs ( link . annotationArgs or { } ) do
 local name = argument . name ~= nil and ( argument . name ) . text or nil
-if name ~= "lanes" and name ~= "target" then
+if name ~= "vectorize" and name ~= "lanes" and name ~= "target" then
 context . reject (
 lower . site ( link ) ,
-"@aot takes target = \"cpu\", target = \"gpu\", a lanes override, or nothing"
+"@aot takes target = \"cpu\", target = \"gpu\", a vectorize override, or nothing"
 )
 end
 
@@ -20442,7 +20446,7 @@ end
 elseif value ~= nil and value . kind == "falseExpr" then
 contract . wantsLanes = false
 end
-if name == "lanes" and value ~= nil and value . kind == "trueExpr" then
+if ( name == "vectorize" or name == "lanes" ) and value ~= nil and value . kind == "trueExpr" then
 contract . lanesRequired = true
 end
 end
@@ -73570,13 +73574,16 @@ targetBody . aotRequired = true
 
 
 
+
 local values = ( stat ) . annotationValues
 local target = values and values . target
 local requested = target and stringValue ( target . expr ) or nil
 if requested ~= nil then
 targetBody . aotTarget = requested
 end
-local lanes = values and values . lanes
+
+
+local vectorize = values and ( values . vectorize or values . lanes )
 if requested == "gpu" then
 
 
@@ -73588,12 +73595,12 @@ annotationName ,
 "@aot(target = \"gpu\") currently requires a local function declaration"
 )
 end
-if lanes ~= nil then
-c . diag ( "NUPP2115" , lanes , "@aot(target = \"gpu\") does not take a lanes override" )
+if vectorize ~= nil then
+c . diag ( "NUPP2115" , vectorize , "@aot(target = \"gpu\") does not take a vectorize override" )
 end
-elseif lanes and lanes . expr and lanes . expr . kind == "falseExpr" then
+elseif vectorize and vectorize . expr and vectorize . expr . kind == "falseExpr" then
 targetBody . lanesDeclined = true
-elseif lanes and lanes . expr and lanes . expr . kind == "trueExpr" then
+elseif vectorize and vectorize . expr and vectorize . expr . kind == "trueExpr" then
 targetBody . lanesRequired = true
 end
 end
@@ -77852,7 +77859,7 @@ why = ", no map loop to run in lanes"
 elseif how == "declined" and program . entryMode == "lua-builder" then
 why = ", lanes do not apply to a lua-builder entry"
 elseif how == "declined" then
-why = ", declined by `@aot(lanes = false)`"
+why = ", declined by `@aot(vectorize = false)`"
 elseif how == "refused" then
 why = ", ran one iteration at a time"
 end
@@ -146507,9 +146514,9 @@ what makes them usable as pointer-free parser and codec arenas.
 
 An `@aot` body of one top-level numeric map loop may also be lowered
 lane-parallel, at a width taken from the lane types its own values need; nothing
-in the source names a lane, a mask, or a width. `@aot(lanes = true)` and
-`lanes = false` override that estimate, and neither requires the lowering to
-succeed. Removing either annotation changes the compilation strategy, never the
+in the source names a lane, a mask, or a width. `@aot(vectorize = true)` and
+`vectorize = false` override that estimate, and neither requires the lowering
+to succeed. Removing either annotation changes the compilation strategy, never the
 answer. An algorithm whose register is itself a data structure imports
 `nupp.simd` inside a block kernel. Its values and masks cannot escape the kernel
 and have no boxed Lua representation, so using `preferredU8` with `aot = "off"`
@@ -146517,7 +146524,7 @@ is a named checking error.
 
 `@aot(target = "gpu")` records a GPU execution family in the verified IR and
 maps one whole-span loop iteration to one GPU invocation. It does not take a CPU
-`lanes` override. With the native `aot = "require"` policy, the compiler emits
+`vectorize` override. With the native `aot = "require"` policy, the compiler emits
 canonical SPIR-V for the Rust WGPU provider and replaces the declaration with
 a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
@@ -210436,7 +210443,7 @@ local function reversed(word: uint32): uint32
 end
 
 --- @raises when the builder cannot allocate or publish
-@aot(lanes = false)
+@aot(vectorize = false)
 local function encodeAot(source: string, nullValue: any): any
     local length = valuebuilder.length(source)
     -- Four output bytes per three input, about `1.34n`. There is no division
@@ -210578,7 +210585,7 @@ end
 --- outside the alphabet. An `@aot` body has no `error` of its own, and the
 --- caller cannot be asked to pre-scan the input without paying for the scan
 --- twice, so invalidity leaves through the value and `base64.decode` raises.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function decodeAot(text: string, nullValue: any): any
     local length = valuebuilder.length(text)
     local builder = valuebuilder.newSized(nullValue, u32(2), add(length, u32(4)))
@@ -210900,7 +210907,7 @@ const NEVER_NULL = {}
 --- Built here it is writes into a buffer the entry already had.
 ---
 --- @raises when the builder cannot allocate or publish
-@aot(lanes = false)
+@aot(vectorize = false)
 local function digestHex(source: string, nullValue: any): any
     local builder = valuebuilder.newSized(nullValue, u32(2), u32(64))
     local scratch = valuebuilder.newFixedByteScratch(64)
@@ -214109,7 +214116,7 @@ local fused = {}
 ---
 --- @raises when the native builder cannot be loaded, value allocation fails,
 --- or the builder rejects a malformed escaped string
-@aot(lanes = false)
+@aot(vectorize = false)
 local function decodeFused<const Variant: integer>(
     borrows source: string | Buffer,
     variant: Variant,
@@ -229754,7 +229761,7 @@ end
 --- @param text the path
 --- @param windows whether Windows rules apply
 --- @return the normalized path
-@aot(lanes = false)
+@aot(vectorize = false)
 local function normalizeImpl(text: string, windows: boolean): string
     -- A flat integer stack avoids allocating one record for every component.
     -- A positive entry is a normal component's start; zero is `..`.
@@ -245778,7 +245785,7 @@ ordinary map loop needs none of it: `@aot` already chooses a width for one.
 ```nupp
 local simd = nupp.simd
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function quotes(source: string): uint32
     const species = simd.preferredU8()
     const block = species:loadString(source, nupp.math.u32.wrap(0))
@@ -253887,7 +253894,7 @@ local struct Sample
     weight: float
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function scale(exclusive output: wasm.WriteSpan<Sample>, borrows input: wasm.Span<Sample>, factor: number): nil
     if #output ~= #input then
         error("length mismatch", 2)
@@ -253922,7 +253929,7 @@ local struct Sample
     weight: float
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function scale(exclusive output: wasm.WriteSpan<Sample>, borrows input: wasm.Span<Sample>, factor: number): nil
     if #output ~= #input then
         error("length mismatch", 2)

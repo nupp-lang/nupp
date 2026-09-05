@@ -204,7 +204,7 @@ return {two = two}
 
     reports(
         [[
-@aot(lanes = false)
+@aot(vectorize = false)
 local function scalar(count: integer): number
     local total = 0.0
     for i = 1, count do
@@ -224,7 +224,7 @@ return {scalar = scalar}
     -- are accepted. Neither is a lane-count knob.
     reports(
         [[
-@aot(lanes = true)
+@aot(vectorize = true)
 local function forced(count: integer): number
     local total = 0.0
     for i = 1, count do
@@ -242,7 +242,7 @@ return {forced = forced}
 
     reports(
         [[
-@aot(lanes = 4)
+@aot(vectorize = 4)
 local function wrong(value: number): number
     return value
 end
@@ -274,6 +274,21 @@ return {map = map}
         "a GPU map is an admitted AOT body"
     )
 
+    reports(
+        [[
+@aot(target = "gpu", vectorize = true)
+local function wrong(value: number): number
+    return value
+end
+return {wrong = wrong}
+]],
+        "NUPP2115",
+        "GPU invocation mapping does not also select CPU lanes"
+    )
+
+    -- The withdrawn spelling still compiles and still means the same thing, so
+    -- source written before the rename keeps its refusal rather than gaining a
+    -- fresh unknown-member error on top of it.
     reports(
         [[
 @aot(target = "gpu", lanes = true)

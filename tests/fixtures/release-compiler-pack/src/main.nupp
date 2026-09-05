@@ -1,6 +1,6 @@
 local tiny = require("tiny")
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function triangular(count: integer): number
     local result = 0.0
     for index = 1, count do

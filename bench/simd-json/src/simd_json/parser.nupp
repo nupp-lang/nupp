@@ -37,7 +37,7 @@ end
 
 --- Parses a structurally indexed document into pointer-free caller arenas.
 --- Node and link identifiers are one-based; source offsets are zero-based.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function parse(
     borrows source: span.Span<uint8>,
     borrows tape: span.Span<uint32>,

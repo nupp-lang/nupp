@@ -23,7 +23,7 @@ local struct Track
     steps: int32
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function integrate(
     exclusive tracks: span.WriteSpan<Track>,
     borrows bodies: span.Span<Body>,

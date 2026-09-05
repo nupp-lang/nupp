@@ -1,6 +1,6 @@
 local span = require("nupp.mem.span")
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function advance(
     exclusive xs: span.WriteSpan<float>,
     exclusive ys: span.WriteSpan<float>,
@@ -23,7 +23,7 @@ local function advance(
     end
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function advanceScalar(
     exclusive xs: span.WriteSpan<float>,
     exclusive ys: span.WriteSpan<float>,

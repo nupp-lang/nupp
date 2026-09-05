@@ -15,7 +15,7 @@ local struct Sample
     value: float
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function double(exclusive out: wasm.WriteSpan<Sample>): nil
     for index = 1, #out do out[index].value = out[index].value * 2 end
 end
@@ -65,7 +65,7 @@ An admitted function that returns a fresh table or string uses the
 ordinary Lua value:
 
 ```nupp
-@aot(lanes = false)
+@aot(vectorize = false)
 local function summary(name: string, count: integer): {[string]: any}
     return {name = name, count = count, ready = true}
 end

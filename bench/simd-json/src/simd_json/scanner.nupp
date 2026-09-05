@@ -23,7 +23,7 @@ const scanner.UTF8_INVALID = 160
 --- The carrier is a 32-bit SIMD gang today, while the pointers remain byte
 --- pointers. That makes narrow span storage a reusable AOT feature rather than
 --- a JSON-specific intrinsic, and leaves room for a future packed-byte gang.
-@aot(lanes = true)
+@aot(vectorize = true)
 local function classify(exclusive flags: span.WriteSpan<uint8>, borrows bytes: span.Span<uint8>): nil
     if #flags ~= #bytes then
         error("length mismatch", 2)

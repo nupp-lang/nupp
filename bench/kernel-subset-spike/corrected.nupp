@@ -28,7 +28,7 @@ end
 
 -- Forced: this kernel exists to prove the lane form of three operations, so
 -- it has to have one. Its arithmetic per byte is far below where lanes pay.
-@aot(lanes = true)
+@aot(vectorize = true)
 local function corrected(
     exclusive results: span.WriteSpan<Result>,
     borrows samples: span.Span<Sample>,

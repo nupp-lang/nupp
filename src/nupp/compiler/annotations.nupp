@@ -392,11 +392,11 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
 
     local aot = registry:get("aot")
     -- Absent, the compiler decides from how much arithmetic the loop does per
-    -- byte it touches: lane lowering wins on a register-resident loop and loses
-    -- on one that streams memory. `lanes = true` and `lanes = false` override
-    -- that in either direction. Neither requires the lowering to succeed --
-    -- that was `simd = true`, withdrawn because it turned a performance
-    -- property into a build error.
+    -- byte it touches: vectorizing wins on a register-resident loop and loses
+    -- on one that streams memory. `vectorize = true` and `vectorize = false`
+    -- override that in either direction. Neither requires the lowering to
+    -- succeed -- that was `simd = true`, withdrawn because it turned a
+    -- performance property into a build error.
     aot.members = {
         target = member(
             "target",
@@ -410,15 +410,19 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
             "Selects the execution family: `\"cpu\"` (the default) or `\"gpu\"`.",
             "guides/ahead-of-time"
         ),
-        lanes = member(
-            "lanes",
+        vectorize = member(
+            "vectorize",
             optional(typesApi.boolean),
             true,
-            "Overrides the compiler's lane-lowering estimate: `true` forces it, `false` forbids it. Neither requires the lowering to succeed.",
+            "Overrides the compiler's vectorization estimate: `true` takes it whatever the estimate says, `false` declines it. Neither requires the lowering to succeed.",
             "guides/ahead-of-time"
         ),
+        -- The withdrawn spelling of `vectorize`, kept so source written against
+        -- it still compiles. Absent from `memberOrder`, so validation accepts it
+        -- while reflection, hover and generated documentation never offer it.
+        lanes = member("lanes", optional(typesApi.boolean), true, nil, nil),
     }
-    aot.memberOrder = {"target", "lanes"}
+    aot.memberOrder = {"target", "vectorize"}
 
     local debug = registry:get("debug")
     local debugDocs = "reference/derives"

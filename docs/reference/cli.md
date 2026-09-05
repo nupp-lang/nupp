@@ -478,7 +478,7 @@ architecture is refused rather than reported with empty counts.
 property no answer depends on, which an ordinary edit can quietly take away. It
 distinguishes three outcomes and fails on one. A loop that lowered is fine, and
 so is a loop that declined, whether because the arithmetic per byte says lanes
-will not pay or because the source wrote `@aot(lanes = false)`. A loop that
+will not pay or because the source wrote `@aot(vectorize = false)`. A loop that
 wanted lanes and ran one iteration at a time exits 1, naming the construct that
 stopped it:
 

@@ -104,7 +104,7 @@ local struct Sample
     value: float
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function double(exclusive samples: wasm.WriteSpan<Sample>): nil
     for index = 1, #samples do
         samples[index].value = samples[index].value * 2

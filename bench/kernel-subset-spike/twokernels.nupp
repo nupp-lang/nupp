@@ -16,7 +16,7 @@ local struct Sample
     weight: float
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function scale(
     exclusive samples: span.WriteSpan<Sample>,
     borrows source: span.Span<Sample>,
@@ -39,7 +39,7 @@ local function scale(
     end
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function brighten(
     exclusive samples: span.WriteSpan<Sample>,
     borrows source: span.Span<Sample>,

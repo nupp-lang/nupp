@@ -2,7 +2,7 @@
 -- compiler could derive from `general` after learning `rounds == 4` at a call.
 local span = require("nupp.mem.span")
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function general(
     exclusive output: span.WriteSpan<number>,
     borrows input: span.Span<number>,
@@ -26,7 +26,7 @@ local function general(
     end
 end
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function rounds4(
     exclusive output: span.WriteSpan<number>,
     borrows input: span.Span<number>,

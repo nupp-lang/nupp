@@ -9,7 +9,7 @@ source opts into a named relaxation. Verification checks the lowered IR before
 any target-specific code is produced.
 
 ```nupp
-@aot(lanes = false)
+@aot(vectorize = false)
 local function add(left: float, right: float): float
     return nupp.math.f32.add(left, right)
 end

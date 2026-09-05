@@ -258,7 +258,7 @@ any of their names.
 | `@deprecated` | optional reason and replacement | declaration, field, c-declaration |
 | `@syntax` | one syntax name | local binding |
 | `@jit` | none | function |
-| `@aot` | `target = "cpu"` or `target = "gpu"`; `lanes = true` or `lanes = false` | function |
+| `@aot` | `target = "cpu"` or `target = "gpu"`; `vectorize = true` or `vectorize = false` | function |
 
 ### `@allow`
 
@@ -447,15 +447,15 @@ reports `NUPP2902`, since neither is a whole function to compile.
 
 A body of one top-level numeric map loop over spans may also be lowered
 lane-parallel, at a width the compiler decides from the arithmetic the loop does
-per byte it touches. `lanes = true` and `lanes = false` override that estimate,
-and neither requires the lowering to succeed. See
+per byte it touches. `vectorize = true` and `vectorize = false` override that
+estimate, and neither requires the lowering to succeed. See
 [build-and-artifacts.md](../learn/performance/ahead-of-time/build-and-artifacts.md)
 for a full kernel,
 the build policy, and what the backend does not do yet.
 
 `target = "gpu"` records a GPU execution family in the verified IR and maps one
 whole-span loop iteration to one GPU invocation. It therefore does not take a
-CPU `lanes` override. With the native `aot = "require"` policy, the compiler
+CPU `vectorize` override. With the native `aot = "require"` policy, the compiler
 emits canonical SPIR-V for the Rust WGPU provider and replaces the declaration
 with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts

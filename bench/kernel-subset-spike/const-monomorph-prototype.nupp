@@ -3,7 +3,7 @@
 -- backend emits the specialized body directly from the generic declaration.
 local span = require("nupp.mem.span")
 
-@aot(lanes = true)
+@aot(vectorize = true)
 local function transform<const Rounds: integer>(
     exclusive output: span.WriteSpan<number>,
     borrows input: span.Span<number>,

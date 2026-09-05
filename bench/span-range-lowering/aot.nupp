@@ -13,7 +13,7 @@ local struct Velocity
     y: float
 end
 
-@aot(lanes = false)
+@aot(vectorize = false)
 local function advance(
     exclusive positions: span.WriteSpan<Position>,
     borrows velocities: span.Span<Velocity>,

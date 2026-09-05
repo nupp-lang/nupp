@@ -12,12 +12,8 @@ local struct Sample
     weight: float
 end
 
-@aot(lanes = true)
-local function scale(
-    exclusive output: wasm.WriteSpan<Sample>,
-    borrows input: wasm.Span<Sample>,
-    factor: number
-): nil
+@aot(vectorize = true)
+local function scale(exclusive output: wasm.WriteSpan<Sample>, borrows input: wasm.Span<Sample>, factor: number): nil
     if #output ~= #input then
         error("length mismatch", 2)
     end

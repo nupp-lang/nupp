@@ -13,7 +13,7 @@ const indexer.INVALID_BACKSLASH = 4
 --- Builds a compact zero-based tape of string boundaries and JSON structural
 --- characters while validating every input byte as UTF-8. No operation reads
 --- beyond `source`, including the final packed load.
-@aot(lanes = false)
+@aot(vectorize = false)
 local function index(borrows source: span.Span<uint8>, exclusive tape: span.WriteSpan<uint32>): (uint32, uint32, uint32)
     local species = _preferredU8()
     local cursor: integer = 0

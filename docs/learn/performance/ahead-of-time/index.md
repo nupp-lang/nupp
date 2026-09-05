@@ -38,7 +38,7 @@ An `@aot` function may use scalar `const` binders when checked direct calls
 close their carrier parameters:
 
 ```nupp
-@aot(lanes = false)
+@aot(vectorize = false)
 local function doubled<const N: integer>(value: number, count: N): number
     local answer = value
     for _ = 1, count as integer do answer = answer * 2.0 end
