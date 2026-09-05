@@ -1533,7 +1533,9 @@ end
 -- fields are substituted. Identical arguments give the identical type, so the
 -- instantiations are kept rather than rebuilt.
 local instantiations: {[string]: T.Nominal} = {}
-local fillingInstantiations: {[string]: boolean} = {}
+-- One refresh walks a graph, not every path through it. Keep completed visits until
+-- the outer application returns, then forget them so later declarations are visible.
+local refreshingInstantiations: {[string]: boolean}?
 
 --- Copies the declaration's current member surface onto an instantiation. A generic
 --- can instantiate itself while its declaration is still being populated; revisiting
@@ -1574,12 +1576,17 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         parts[#parts + 1] = "const:" .. (value and value.id or "unbound")
     end
     local key = table.concat(parts, "|")
+    local outermost = refreshingInstantiations == nil
+    local refreshed = refreshingInstantiations or {}
+    refreshingInstantiations = refreshed
     local cached = instantiations[key]
     if cached then
-        if not fillingInstantiations[key] then
-            fillingInstantiations[key] = true
+        if not refreshed[key] then
+            refreshed[key] = true
             fillInstantiationMembers(cached, n, map)
-            fillingInstantiations[key] = nil
+        end
+        if outermost then
+            refreshingInstantiations = nil
         end
         return cached
     end
@@ -1632,7 +1639,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     -- cached before the members are filled in, so a declaration that names itself finds
     -- the instantiation under way rather than recurring
     instantiations[key] = inst
-    fillingInstantiations[key] = true
+    refreshed[key] = true
     fillInstantiationMembers(inst, n, map)
     -- Associated metadata travels with the declaration. The map names this nominal's
     -- own parameters; one it leaves out is genuinely unknown, so the map is completed
@@ -1761,7 +1768,9 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         }
     end
 
-    fillingInstantiations[key] = nil
+    if outermost then
+        refreshingInstantiations = nil
+    end
 
     return inst
 end

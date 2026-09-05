@@ -1116,6 +1116,68 @@ function M.cachedGenericInstantiationsLearnLateDeclaredMembers()
     assertEq(stringify.rets[1], types.string, "late metamethods are copied onto the cached instance")
 end
 
+function M.recursiveGenericMethodsRefreshEachInstanceOncePerWalk()
+    -- Issue #15: each separately bound method contributes another open Handle<T>.
+    -- A stack-only recursion guard expands every path between those instances.
+    local source = {"local record Handle<T>", "    id: integer"}
+    for index = 1, 6 do
+        source[#source + 1] = ("    method%d: function(self: Handle<T>): nil"):format(index)
+    end
+    source[#source + 1] = "end"
+    for index = 1, 6 do
+        source[#source + 1] = ("function Handle.method%d<T>(self: Handle<T>): nil end"):format(index)
+    end
+
+    -- Count work rather than wall time, and stop a regression before it can stall
+    -- the suite for minutes. Restore the entry point even when the check fails.
+    local instantiate, visits = generics.instantiate, 0
+    generics.instantiate = function(declaration, bindings)
+        visits = visits + 1
+        assert(visits <= 10000, "recursive generic member refresh revisits completed instances")
+        return instantiate(declaration, bindings)
+    end
+    local ok, problem = pcall(clean, table.concat(source, "\n"))
+    generics.instantiate = instantiate
+    assert(ok, problem)
+end
+
+function M.sharedGenericMembersRefreshAgainAfterDeclarationChanges()
+    local parent = types.nominal("SharedParent", "record")
+    local child = types.nominal("SharedChild", "record")
+    local parentParameter = types.typevar("T", "shared-parent-test")
+    local childParameter = types.typevar("T", "shared-child-test")
+    parent.typeParams, child.typeParams = {parentParameter}, {childParameter}
+    child.byname.value = childParameter
+    local openChild = generics.instantiate(child, {[childParameter] = parentParameter})
+    parent.byname.left, parent.byname.right = openChild, openChild
+
+    local first = generics.instantiate(parent, {[parentParameter] = types.string})
+    local shared = first.byname.left
+    assertEq(first.byname.right, shared, "both paths retain one nominal identity")
+    assertEq(shared.byname.value, types.string, "the nested argument is substituted")
+
+    child.byname.value = types.integer
+    child.byname.get = types.func({}, {childParameter})
+    child.writeByname.value = types.integer
+    child.staticByname.get = types.func({}, {childParameter})
+    child.staticWriteByname.value = childParameter
+    child.metamethods.__tostring = types.func({}, {types.string})
+    local refreshed = generics.instantiate(parent, {[parentParameter] = types.string})
+    assertEq(refreshed, first, "a later walk preserves the parent")
+    assertEq(refreshed.byname.left, shared, "a later walk preserves the child")
+    assertEq(shared.byname.value, types.integer, "a replaced nested member is refreshed")
+    assertEq(shared.byname.get.rets[1], types.string, "a late nested member is specialized")
+    assertEq(shared.writeByname.value, types.integer)
+    assertEq(shared.staticByname.get.rets[1], types.string)
+    assertEq(shared.staticWriteByname.value, types.string)
+    assertEq(shared.metamethods.__tostring.rets[1], types.string)
+
+    local other = generics.instantiate(parent, {[parentParameter] = types.number})
+    assert(other ~= first, "different arguments retain distinct parent identities")
+    assert(other.byname.left ~= shared, "different arguments retain distinct child identities")
+    assertEq(other.byname.left.byname.get.rets[1], types.number)
+end
+
 function M.typeComputationAndConstBindersEraseFromGeneratedLua()
     local source = table.concat(
         {

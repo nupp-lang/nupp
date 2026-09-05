@@ -119268,7 +119268,9 @@ end
 
 
 local instantiations = { }
-local fillingInstantiations = { }
+
+
+local refreshingInstantiations
 
 
 
@@ -119309,12 +119311,17 @@ local value = map [ cv ]
 parts [ # parts + 1 ] = "const:" .. ( value and value . id or "unbound" )
 end
 local key = table . concat ( parts , "|" )
+local outermost = refreshingInstantiations == nil
+local refreshed = refreshingInstantiations or { }
+refreshingInstantiations = refreshed
 local cached = instantiations [ key ]
 if cached then
-if not fillingInstantiations [ key ] then
-fillingInstantiations [ key ] = true
+if not refreshed [ key ] then
+refreshed [ key ] = true
 fillInstantiationMembers ( cached , n , map )
-fillingInstantiations [ key ] = nil
+end
+if outermost then
+refreshingInstantiations = nil
 end
 return cached
 end
@@ -119367,7 +119374,7 @@ end
 
 
 instantiations [ key ] = inst
-fillingInstantiations [ key ] = true
+refreshed [ key ] = true
 fillInstantiationMembers ( inst , n , map )
 
 
@@ -119496,7 +119503,9 @@ index = entry and entry . index or j ,
 }
 end
 
-fillingInstantiations [ key ] = nil
+if outermost then
+refreshingInstantiations = nil
+end
 
 return inst
 end
