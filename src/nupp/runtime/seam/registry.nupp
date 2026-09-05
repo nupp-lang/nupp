@@ -176,7 +176,7 @@ local CONTRACTS: {any} = {
         effect = "runtime.crypto",
         binding = "runtime",
         globalName = "__nuppCrypto",
-        modules = {["nupp.crypto"] = ""}
+        modules = {["nupp.data.crypto"] = ""}
     },
     {
         name = "host.storage",

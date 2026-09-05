@@ -3755,4 +3755,35 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.ioPublicPageKeepsStorageAndScalarContracts()
+    local files = {}
+    for _, path in ipairs({"init.nupp", "internal/bytes.nupp", "internal/scalars.nupp", "internal/lines.nupp"}) do
+        files["src/nupp/io/" .. path] = readFile(HERE .. "/../src/nupp/io/" .. path)
+    end
+    local dir = tempProject(files)
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
+    local text = readFile(dir .. "/api.md")
+    for _, public in ipairs({
+        "readSpan",
+        "writeSpan",
+        "reserveWrite",
+        "readInto",
+        "readUint32",
+        "newScalarWriter",
+        "newLines"
+    }) do
+        assert(text:find(public, 1, true), "I/O documentation lost " .. public)
+    end
+    for _, hidden in ipairs({
+        "_pending",
+        "_ownsBuffer",
+        "# `nupp.io.internal",
+        "bytes.Reader",
+        "scalars.ScalarReader"
+    }) do
+        assert(not text:find(hidden, 1, true), "I/O documentation exposes " .. hidden)
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 return M

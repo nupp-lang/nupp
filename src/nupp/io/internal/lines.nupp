@@ -1,0 +1,151 @@
+@!internal
+
+module nupp.io.internal.lines
+
+const bytes = require("nupp.io.internal.bytes")
+local type Reader = bytes.Reader
+local DEFAULT_READ = 65536
+
+--- A reader taken apart into lines.
+---
+--- Reading a line means reading past its end, so something has to hold what came
+--- after it. That is what this owns, and it is why a line reader takes its
+--- source rather than borrowing one: two things reading the same bytes would
+--- each see half of them.
+--- @export
+export sealed interface Lines is nupp.Closeable
+    drop: nosuspend function(takes self: Lines): nil
+
+    --- Reads the next line, without its terminator.
+    ---
+    --- Both `\n` and `\r\n` end a line. Bytes left after the last terminator are
+    --- a line, because a stream that ended without one still said something.
+    --- @param self this line reader
+    --- @return the line, or nil at the end
+    --- @return why it could not read, when unsuccessful
+    read: function(self: Lines, ...: integer?): (string?, string?)
+
+    --- Whether this reader has been released.
+    isReleased: function(self: Lines): boolean
+
+    --- Releases this reader and the source it took.
+    close: function(takes self: Lines): nil
+end
+
+local record LineReader is Lines
+    private _source: Reader
+    private _held: string
+    private _at: integer
+    private _limit: integer
+    private _closed: boolean
+    private _ended: boolean
+
+    drop: nosuspend function(takes self: LineReader): nil
+
+    function isReleased(self): boolean
+        return self._closed
+    end
+
+    function read(self, ...: integer?): (string?, string?)
+        if self._closed then
+            return nil, "the line reader is closed"
+        end
+        while true do
+            const found = self._held:find("\n", self._at + 1, true)
+            if found ~= nil then
+                local line = self._held:sub(self._at + 1, found - 1)
+                if line:sub(-1) == "\r" then
+                    line = line:sub(1, -2)
+                end
+                -- Measured against the line, not against the bytes it arrived
+                -- in. Checked here rather than only before asking for more,
+                -- because a terminator in the same chunk as an overlong line
+                -- would otherwise walk past the bound; and after the carriage
+                -- return has gone, because neither terminator byte belongs to
+                -- the line and counting one against the limit would refuse a
+                -- line of exactly the length that was allowed.
+                if #line > self._limit then
+                    return nil, "a line was longer than the limit"
+                end
+                self._at = found
+                if self._at >= #self._held then
+                    self._held = ""
+                    self._at = 0
+                end
+
+                return line
+            end
+            -- No terminator yet. A line that never ends is not a line, and
+            -- growing until it does is how a peer takes the process down, so
+            -- the bound is checked before asking for more rather than after.
+            -- A trailing carriage return gets one byte of grace, because it
+            -- may be half of a terminator split across chunks: without it a
+            -- line of exactly the allowed length would be refused or kept
+            -- depending on where the chunks happened to fall.
+            local grace = self._held:sub(-1) == "\r" and 1 or 0
+            if #self._held - self._at > self._limit + grace then
+                return nil, "a line was longer than the limit"
+            end
+            if self._ended then
+                if self._at >= #self._held then
+                    return nil
+                end
+                const rest = self._held:sub(self._at + 1)
+                -- At the end a trailing carriage return is line content, not
+                -- half a terminator, so the grace granted while more could
+                -- still arrive is taken back here.
+                if #rest > self._limit then
+                    return nil, "a line was longer than the limit"
+                end
+                self._held = ""
+                self._at = 0
+
+                return rest
+            end
+            const chunk, why = self._source:read(DEFAULT_READ as integer)
+            if chunk == nil then
+                return nil, why
+            end
+            if #chunk == 0 then
+                self._ended = true
+            else
+                if self._at > 0 then
+                    self._held = self._held:sub(self._at + 1)
+                    self._at = 0
+                end
+                self._held = self._held .. chunk
+            end
+        end
+    end
+
+    function close(takes self): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        self._source:close()
+    end
+end
+
+function LineReader.drop(takes self: LineReader): nil
+    self:close()
+end
+
+--- Takes a reader apart into lines.
+---
+--- The source is taken rather than borrowed, and closing the result closes it:
+--- a line reader holds the bytes it read past a terminator, so a second reader
+--- over the same source would be reading a stream with holes in it.
+--- @param source the reader to take
+--- @param limit the most bytes one line may hold, or 65536
+--- @return the line reader, owned by the caller
+--- @raises when limit is not a positive integer
+--- @export
+export function newLines(takes source: Reader, limit: integer?): affine(Lines)
+    const bound = limit or 65536
+    if bound < 1 or math.floor(bound) ~= bound then
+        error("nupp: io.newLines limit must be a positive integer", 2)
+    end
+
+    return new LineReader(_source = source, _held = "", _at = 0, _limit = bound, _closed = false, _ended = false)
+end

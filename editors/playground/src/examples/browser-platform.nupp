@@ -1,7 +1,7 @@
 -- Browser providers keep the Nupp API in checked source. Their work crosses
 -- one suspension boundary to the application Worker and its browser APIs.
 
-local crypto = require("nupp.crypto")
+local crypto = require("nupp.data.crypto")
 local storage = require("nupp.io.storage")
 local time = require("nupp.time")
 local hash = require("nupp.data.hash")

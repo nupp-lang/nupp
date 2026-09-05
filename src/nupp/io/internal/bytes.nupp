@@ -1,0 +1,940 @@
+@!internal
+
+module nupp.io.internal.bytes
+
+local ffi = require("ffi")
+local span = require("nupp.mem.span")
+
+local SMALLEST = 32
+local DEFAULT_READ = 65536
+
+--- @raises when value is not a non-negative integer
+local function integer_(value: any, what: string, level: integer): integer
+    if type(value) ~= "number" or value ~= math.floor(value as number) or (value as number) < 0 then
+        error("nupp: " .. what .. " must be a non-negative integer", level)
+    end
+
+    return value as integer
+end
+
+--- @raises when value is not an integer
+local function whole(value: any, what: string, level: integer): integer
+    if type(value) ~= "number" or value ~= math.floor(value as number) then
+        error("nupp: " .. what .. " must be an integer", level)
+    end
+
+    return value as integer
+end
+
+--- @raises when value is not a positive integer
+local function positive(value: any, what: string, level: integer): integer
+    local answer = whole(value, what, level + 1)
+    if answer < 1 then
+        error("nupp: " .. what .. " must be a positive integer", level)
+    end
+
+    return answer
+end
+
+--- @raises when the owner is closed
+local function opened(closed: boolean, what: string, level: integer): nil
+    if closed then
+        error("nupp: " .. what .. " is closed", level)
+    end
+end
+
+-- An omitted offset is the start and an omitted count is the rest, so a caller that
+-- wants everything says nothing.
+
+--- @raises when the range is not within length
+local function range(length: integer, offset: any, count: any, what: string, level: integer): (integer, integer)
+    local from = integer_(offset or 0, what .. " offset", level)
+    if from > length then
+        error("nupp: " .. what .. " offset is past the end", level)
+    end
+    local taking = integer_(count == nil and length - from or count, what .. " count", level)
+    if from + taking > length then
+        error("nupp: " .. what .. " range is past the end", level)
+    end
+
+    return from, taking
+end
+
+----------------------------------------------------------------------------
+-- Owners
+----------------------------------------------------------------------------
+
+-- A terminal has to be a declared function wherever a contract names it, and these
+-- records hand each other out: a buffer answers a reader, and a snapshot answers
+-- another snapshot. Written one per record, each terminal would have to follow the
+-- record it takes and precede the record that hands it out, and no such order exists.
+-- One generic terminal over the shape they all share is written once, ahead of them.
+local interface Owner
+    drop: nosuspend function(takes self: Owner): nil
+end
+
+--- Releases any of this module's owners. Every one of them is handed out under this
+--- exact cleanup, which is why a caller never names it.
+local function destroyOwner<T is Owner>(takes self: T): nil
+    self:drop()
+end
+
+--- An appending byte sink.
+---
+--- The counterpart of `Reader`, and an interface for the same reason: a buffer,
+--- an open file and a request body all satisfy it, and a producer written
+--- against the contract fills any of them.
+--- @export
+export affine interface Writer is nupp.Closeable
+
+    --- Appends bytes.
+    --- @param self this writer
+    --- @param bytes the bytes to append
+    --- @return whether they were written
+    --- @return why they were not, when unsuccessful
+    --- @raises when bytes is not a string
+    write: function(exclusive self: Writer, bytes: string): (boolean, string?)
+
+    --- Appends bytes from a checked shared span.
+    --- @param self this writer
+    --- @param source bytes valid for the duration of the call
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    writeSpan: function(exclusive self: Writer, borrows source: span.ByteSpan): (integer?, string?)
+
+    --- Nothing is buffered behind this writer, so this only reports whether it is open.
+    --- @param self this writer
+    --- @return whether the writer is open
+    --- @return why it is not, when it is not
+    flush: function(self: Writer): (boolean, string?)
+
+end
+
+--- A forward-only byte source.
+---
+--- An interface rather than the concrete things that satisfy it. A buffer's
+--- reader, a file's reader and an HTTP response body are all one of these, so
+--- code written against the contract works over any of them without knowing
+--- which it has.
+--- @export
+export affine interface Reader is nupp.Closeable
+
+    --- Reads up to `count` bytes.
+    ---
+    --- An empty answer is the end.
+    --- @param self this reader
+    --- @param count the most bytes to read
+    --- @return the bytes, or nil when the reader is closed
+    --- @return why it could not read, when unsuccessful
+    --- @raises when count is not a positive integer
+    read: function(self: Reader, count: integer): (string?, string?)
+
+    --- Reads directly into a checked writable span. A zero answer is the end.
+    --- @param self this reader
+    --- @param destination the positive-sized range to fill
+    --- @return how many bytes were read, or nil when the reader is closed
+    --- @return why it could not read, when unsuccessful
+    readSpan: function(self: Reader, exclusive destination: span.Writable<uint8>): (integer?, string?)
+
+    --- Reads into a buffer.
+    ---
+    --- A zero answer is the end.
+    --- @param self this reader
+    --- @param destination the buffer to write into
+    --- @param offset where in the destination to start, or the beginning
+    --- @param count the most bytes to read
+    --- @return how many bytes were read, or nil when the reader is closed
+    --- @return why it could not read, when unsuccessful
+    readInto: function(
+        self: Reader,
+        exclusive destination: Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+
+    --- Writes everything left to a writer.
+    --- @param self this reader
+    --- @param destination the writer to fill
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    transferTo: function(self: Reader, exclusive destination: Writer): (integer?, string?)
+
+end
+
+-- Declared ahead of the records because their methods call them, and defined below
+-- because they name the records. The types are the contract either way.
+local reserve: function(borrows self: Buffer, minimum: integer): nil
+local bytesAt: function(borrows self: Buffer, offset: integer, count: integer): string
+local newView: function(bytes: string): affine(ByteView, destroyOwner)
+local newReaderOver: function(bytes: string): Reader
+local newWriterOver: function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
+
+--- A queue of bytes something else is filling, which a reader may be opened over
+--- without owning it.
+---
+--- A process stream and an HTTP response body are both one of these without either
+--- knowing about this module.
+--- @export
+export interface ByteQueue
+    metamethod __len: function(self): integer
+
+    --- Consumes bytes from the front and returns them, or all of them when given no
+    --- count.
+    --- @param self this queue
+    --- @param ... how many bytes each returned string takes
+    --- @return the consumed bytes
+    get: function(self: ByteQueue, ...: integer?): string
+end
+
+--- A snapshot of bytes that cannot be written through.
+--- @export
+export sealed interface ByteView
+    drop: nosuspend function(takes self: ByteView): nil
+    length: function(borrows self: ByteView): integer
+    getString: function(borrows self: ByteView): string
+    readSpan: function(borrows self: ByteView): span.ByteSpan borrows (self)
+    newReader: function(self: ByteView): Reader
+    view: function(self: ByteView, offset: integer?, count: integer?): affine(ByteView, destroyOwner)
+    isReleased: function(self: ByteView): boolean
+    close: function(takes self: ByteView): (boolean, string?)
+end
+
+----------------------------------------------------------------------------
+-- Views and buffers
+----------------------------------------------------------------------------
+
+local record Snapshot is ByteView
+    private _bytes: string
+    private _closed: boolean
+
+    drop: nosuspend function(takes self: Snapshot): nil
+
+    function length(borrows self): integer
+        opened(self._closed, "io.ByteView", 2)
+        return #self._bytes
+    end
+
+    function getString(borrows self): string
+        opened(self._closed, "io.ByteView", 2)
+        return self._bytes
+    end
+
+    function readSpan(borrows self): span.ByteSpan borrows (self)
+        opened(self._closed, "io.ByteView", 2)
+        return span.fromString(self._bytes)
+    end
+
+    function newReader(self): Reader
+        opened(self._closed, "io.ByteView", 2)
+        return newReaderOver(self._bytes)
+    end
+
+    function view(self, offset: integer?, count: integer?): affine(ByteView, destroyOwner)
+        opened(self._closed, "io.ByteView", 2)
+        local from, taking = range(#self._bytes, offset, count, "io.ByteView", 2)
+        return newView(self._bytes:sub(from + 1, from + taking))
+    end
+
+    function isReleased(self): boolean
+        return self._closed
+    end
+
+    function close(takes self): (boolean, string?)
+        self:drop()
+        return true, nil
+    end
+end
+
+--- An exclusive prepared region of a buffer. Its span may be written, then the
+--- lease is committed with the number of bytes that actually landed. Dropping a
+--- lease aborts it without changing the buffer's logical length.
+--- @export
+export sealed interface BufferWriteLease
+    drop: nosuspend function(takes self: BufferWriteLease): nil
+    span: function(exclusive self: BufferWriteLease): span.Writable<uint8> borrows (self)
+    commit: function(takes self: BufferWriteLease, written: integer): nil
+end
+
+--- Growable byte storage whose pointer and logical length never escape separately.
+--- @export
+export sealed interface Buffer
+    drop: nosuspend function(takes self: Buffer): nil
+    length: function(borrows self: Buffer): integer
+    capacity: function(borrows self: Buffer): integer
+    clear: function(exclusive self: Buffer): nil
+    ensureCapacity: function(exclusive self: Buffer, minimum: integer): nil
+    resize: function(exclusive self: Buffer, length: integer): nil
+    getString: function(borrows self: Buffer, offset: integer?, count: integer?): string
+    setString: function(exclusive self: Buffer, bytes: string, offset: integer?): nil
+    readSpan: function(borrows self: Buffer): span.ByteSpan borrows (self)
+    reserveWrite: function(
+        exclusive self: Buffer,
+        offset: integer,
+        count: integer
+    ): affine(BufferWriteLease, destroyOwner) borrows (self)
+    view: function(self: Buffer, offset: integer?, count: integer?): affine(ByteView, destroyOwner)
+    newReader: function(self: Buffer): Reader
+    newWriter: function(exclusive self: Buffer): affine(Writer) borrows (self)
+    isReleased: function(borrows self: Buffer): boolean
+    close: function(takes self: Buffer): (boolean, string?)
+end
+
+local newWriteLease: function(
+    borrows buffer: Buffer,
+    offset: integer,
+    count: integer
+): affine(BufferWriteLease, destroyOwner) borrows (buffer)
+
+local record HeapBuffer is Buffer
+    private _data: uint8[?]
+    private _length: integer
+    private _capacity: integer
+    private _closed: boolean
+
+    drop: nosuspend function(takes self: HeapBuffer): nil
+
+    function length(borrows self): integer
+        opened(self._closed, "io.Buffer", 2)
+        return self._length
+    end
+
+    function capacity(borrows self): integer
+        opened(self._closed, "io.Buffer", 2)
+        return self._capacity
+    end
+
+    function clear(exclusive self): nil
+        opened(self._closed, "io.Buffer", 2)
+        self._length = 0
+    end
+
+    function ensureCapacity(exclusive self, minimum: integer): nil
+        opened(self._closed, "io.Buffer", 2)
+        reserve(self, integer_(minimum, "io.Buffer capacity", 2))
+    end
+
+    function resize(exclusive self, length: integer): nil
+        opened(self._closed, "io.Buffer", 2)
+        local wanted = integer_(length, "io.Buffer length", 2)
+        if wanted > self._length then
+            reserve(self, wanted)
+            unsafe do
+                local root = borrowFrom(self._data as voidptr, self)
+                ffi.fill((root as uint8*) + self._length, wanted - self._length, 0)
+            end
+        end
+        self._length = wanted
+    end
+
+    function getString(borrows self, offset: integer?, count: integer?): string
+        opened(self._closed, "io.Buffer", 2)
+        local from, taking = range(self._length, offset, count, "io.Buffer", 2)
+        return bytesAt(self, from, taking)
+    end
+
+    function setString(exclusive self, bytes: string, offset: integer?): nil
+        opened(self._closed, "io.Buffer", 2)
+        if type(bytes) ~= "string" then
+            error("nupp: io.Buffer bytes must be a string", 2)
+        end
+        local from = integer_(offset or 0, "io.Buffer offset", 2)
+        local ending = from + #bytes
+        reserve(self, ending)
+        if from > self._length then
+            unsafe do
+                local root = borrowFrom(self._data as voidptr, self)
+                ffi.fill((root as uint8*) + self._length, from - self._length, 0)
+            end
+        end
+        if #bytes > 0 then
+            unsafe do
+                local root = borrowFrom(self._data as voidptr, self)
+                ffi.copy((root as uint8*) + from, bytes, #bytes)
+            end
+        end
+        if ending > self._length then
+            self._length = ending
+        end
+    end
+
+    function readSpan(borrows self): span.ByteSpan borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        return span.fromCarray(self._data, self._length)
+    end
+
+    function reserveWrite(
+        exclusive self,
+        offset: integer,
+        count: integer
+    ): affine(BufferWriteLease, destroyOwner) borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        local from = integer_(offset, "io.Buffer write offset", 2)
+        local available = integer_(count, "io.Buffer write count", 2)
+        reserve(self, from + available)
+
+        return newWriteLease(self, from, available)
+    end
+
+    function view(self, offset: integer?, count: integer?): affine(ByteView, destroyOwner)
+        opened(self._closed, "io.Buffer", 2)
+        local from, taking = range(self._length, offset, count, "io.Buffer", 2)
+        return newView(bytesAt(self, from, taking))
+    end
+
+    function newReader(self): Reader
+        opened(self._closed, "io.Buffer", 2)
+        return newReaderOver(bytesAt(self, 0, self._length))
+    end
+
+    function newWriter(exclusive self): affine(Writer) borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        self:clear()
+        return newWriterOver(self)
+    end
+
+    function isReleased(borrows self): boolean
+        return self._closed
+    end
+
+    function close(takes self): (boolean, string?)
+        self:drop()
+        return true, nil
+    end
+end
+
+local record WriteLease is BufferWriteLease
+    private readonly anchor: any
+    private readonly state: any
+    private readonly pointer: uint8[?]
+    private readonly offset: integer
+    private readonly count: integer
+
+    drop: nosuspend function(takes self: WriteLease): nil
+
+    function span(exclusive self): span.Writable<uint8> borrows (self)
+        return span.writeCarray(self.pointer, self.count)
+    end
+
+    function commit(takes self, written: integer): nil
+        local used = integer_(written, "io.Buffer committed byte count", 2)
+        if used > self.count then
+            error("nupp: io.Buffer committed byte count exceeds its lease", 2)
+        end
+        local raw = unsafe release self
+        local target = raw.state
+        opened(target._closed, "io.Buffer", 2)
+        if used > 0 then
+            if raw.offset > target._length then
+                unsafe do
+                    local root = borrowFrom(target._data as voidptr, target)
+                    ffi.fill(
+                        (root as uint8*) + (target._length as integer),
+                        (raw.offset as integer) - (target._length as integer),
+                        0
+                    )
+                end
+            end
+            local ending = raw.offset + used
+            if ending > target._length then
+                target._length = ending
+            end
+        end
+    end
+end
+
+newWriteLease = function(
+    borrows buffer: Buffer,
+    offset: integer,
+    count: integer
+): affine(BufferWriteLease, destroyOwner) borrows (buffer)
+    local state = buffer as any
+    return new WriteLease(
+        anchor = buffer,
+        state = state,
+        pointer = (state._data + offset) as uint8[?],
+        offset = offset,
+        count = count
+    )
+end
+
+--- The storage behind a writer over a buffer.
+local record BufferWriter is Writer
+    private readonly anchor: any
+    private readonly _buffer: any
+    private _at: integer
+    private _closed: boolean
+
+    --- Appends bytes.
+    --- @param self this writer
+    --- @param bytes the bytes to append
+    --- @return whether they were written
+    --- @return why they were not, when unsuccessful
+    --- @raises when bytes is not a string
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if self._closed then
+            return false, "the writer is closed"
+        end
+        if type(bytes) ~= "string" then
+            error("nupp: Writer:write bytes must be a string", 2)
+        end
+        local source = span.fromString(bytes)
+        local written, reason = self:writeSpan(source)
+        if written == nil then
+            return false, reason
+        end
+
+        return true, nil
+    end
+
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        if self._closed then
+            return nil, "the writer is closed"
+        end
+        local state = self._buffer
+        if state._closed then
+            return nil, "the destination buffer is closed"
+        end
+        local count = #source
+        if count == 0 then
+            return 0, nil
+        end
+        local at = self._at
+        reserve(state as Buffer, at + count)
+        local lease = newWriteLease(state as Buffer, at, count)
+        do
+            local output = lease:span()
+            for index = 1, count do
+                output[index] = source[index]
+            end
+            drop output
+        end
+        lease:commit(count)
+        self._at = at + count
+
+        return count, nil
+    end
+
+    --- Nothing is buffered behind this writer, so this only reports whether it is open.
+    --- @param self this writer
+    --- @return whether the writer is open
+    --- @return why it is not, when it is not
+    function flush(self): (boolean, string?)
+        if self._closed then
+            return false, "the writer is closed"
+        end
+
+        return true, nil
+    end
+
+    --- Closes the writer.
+    --- @param self this writer, spent by the call
+    function close(takes self): nil
+        self:drop()
+    end
+end
+
+----------------------------------------------------------------------------
+-- Readers
+----------------------------------------------------------------------------
+
+--- The storage behind a reader over held bytes.
+local record StringReader is Reader
+    _bytes: string
+    _at: integer
+    _closed: boolean
+
+    --- Reads up to `count` bytes.
+    ---
+    --- An empty answer is the end.
+    --- @param self this reader
+    --- @param count the most bytes to read
+    --- @return the bytes, or nil when the reader is closed
+    --- @return why it could not read, when unsuccessful
+    --- @raises when count is not a positive integer
+    function read(self, count: integer): (string?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local wanted = positive(count, "Reader:read count", 2)
+        local bytes = self._bytes
+        local at = self._at
+        if at > #bytes then
+            return "", nil
+        end
+        local taking = math.min(wanted, #bytes - at + 1)
+        local out = bytes:sub(at, at + (taking as integer) - 1)
+        self._at = at + (taking as integer)
+
+        return out, nil
+    end
+
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local wanted = positive(#destination, "Reader:readSpan destination length", 2)
+        local bytes = self._bytes
+        local at = self._at
+        if at > #bytes then
+            return 0, nil
+        end
+        local taking = math.min(wanted, #bytes - at + 1) as integer
+        local chunk = bytes:sub(at, at + taking - 1)
+        local input = span.fromString(chunk)
+        for index = 1, taking do
+            destination[index] = input[index]
+        end
+        self._at = at + taking
+
+        return taking, nil
+    end
+
+    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local from = integer_(offset or 0, "Reader:readInto offset", 2)
+        local wanted = positive(count or DEFAULT_READ, "Reader:readInto count", 2)
+        local bytes = self._bytes
+        local at = self._at
+        if at > #bytes then
+            return 0, nil
+        end
+        local taking = math.min(wanted, #bytes - at + 1) as integer
+        local chunk = bytes:sub(at, at + taking - 1)
+        local input = span.fromString(chunk)
+        local lease = destination:reserveWrite(from, wanted)
+        do
+            local output = lease:span()
+            for index = 1, taking do
+                output[index] = input[index]
+            end
+            drop output
+        end
+        lease:commit(taking)
+        self._at = at + taking
+
+        return taking, nil
+    end
+
+    --- Writes everything left to a writer.
+    --- @param self this reader
+    --- @param destination the writer to fill
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function transferTo(self, exclusive destination: Writer): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local remaining = self._bytes:sub(self._at)
+        local ok, reason = destination:write(remaining)
+        if not ok then
+            return nil, reason
+        end
+        self._at = #self._bytes + 1
+
+        return #remaining, nil
+    end
+
+    --- Closes the reader.
+    ---
+    --- Repeated calls are safe.
+    --- @param self this reader, spent by the call
+    function close(takes self): nil
+        self:drop()
+    end
+end
+
+--- A reader over anything answering `get`.
+--- @export
+local record QueueReader is Reader
+    _source: any
+    _closed: boolean
+
+    --- Reads up to `count` bytes from the queue.
+    --- @param self this reader
+    --- @param count the most bytes to read
+    --- @return the bytes, or nil when the reader is closed
+    --- @return why it could not read, when unsuccessful
+    --- @raises when count is not a positive integer
+    function read(self, count: integer): (string?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local wanted = positive(count, "Reader:read count", 2)
+        local source = self._source
+        local have = #source
+        if have == 0 then
+            return "", nil
+        end
+
+        return source:get(math.min(wanted, have)), nil
+    end
+
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local wanted = positive(#destination, "Reader:readSpan destination length", 2)
+        local source = self._source
+        local have = #source
+        if have == 0 then
+            return 0, nil
+        end
+        local taking = math.min(wanted, have) as integer
+        local input = span.fromString(source:get(taking))
+        for index = 1, taking do
+            destination[index] = input[index]
+        end
+
+        return taking, nil
+    end
+
+    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local from = integer_(offset or 0, "Reader:readInto offset", 2)
+        local wanted = positive(count or DEFAULT_READ, "Reader:readInto count", 2)
+        local source = self._source
+        local have = #source
+        if have == 0 then
+            return 0, nil
+        end
+        local taking = math.min(wanted, have) as integer
+        local chunk = source:get(taking) as string
+        local input = span.fromString(chunk)
+        local lease = destination:reserveWrite(from, wanted)
+        do
+            local output = lease:span()
+            for index = 1, taking do
+                output[index] = input[index]
+            end
+            drop output
+        end
+        lease:commit(taking)
+
+        return taking, nil
+    end
+
+    --- Writes everything the queue has to a writer.
+    --- @param self this reader
+    --- @param destination the writer to fill
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function transferTo(self, exclusive destination: Writer): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local rest = self._source:get() as string
+        local ok, reason = destination:write(rest)
+        if not ok then
+            return nil, reason
+        end
+
+        return #rest, nil
+    end
+
+    --- Releases it as an ownership terminal.
+    ---
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `nosuspend`, and an inline method cannot carry one.
+    --- @param self this reader, spent by the call
+    drop: nosuspend function(takes self: QueueReader): nil
+
+    --- Closes the reader without closing the queue behind it.
+    --- @param self this reader, spent by the call
+    function close(takes self): nil
+        self:drop()
+    end
+end
+
+----------------------------------------------------------------------------
+-- Dropping
+----------------------------------------------------------------------------
+
+function Snapshot.drop(takes self: Snapshot): nil
+    local state = unsafe release self
+    state._closed = true
+    state._bytes = ""
+end
+
+function HeapBuffer.drop(takes self: HeapBuffer): nil
+    local state = unsafe release self
+    state._closed = true
+    state._length = 0
+    state._capacity = 0
+end
+
+function WriteLease.drop(takes self: WriteLease): nil
+    nosuspend do
+        local _raw = unsafe release self
+    end
+end
+
+function BufferWriter.drop(takes self: BufferWriter): nil
+    local state = unsafe release self
+    state._closed = true
+end
+
+function StringReader.drop(takes self: StringReader): nil
+    local state = unsafe release self
+    state._closed = true
+    state._bytes = ""
+end
+
+function QueueReader.drop(takes self: QueueReader): nil
+    local state = unsafe release self
+    state._closed = true
+    state._source = nil
+end
+
+----------------------------------------------------------------------------
+-- Shared implementations
+----------------------------------------------------------------------------
+
+-- Doubling, with a floor, so appending one byte at a time stays linear overall.
+reserve = function(borrows self: Buffer, minimum: integer): nil
+    local state = self as any
+    if minimum <= state._capacity then
+        return
+    end
+    local capacity = state._capacity * 2
+    if capacity < minimum then
+        capacity = minimum
+    end
+    if capacity < SMALLEST then
+        capacity = SMALLEST
+    end
+    local data = ffi.new<uint8[?]>(capacity)
+    if state._length > 0 then
+        ffi.copy(data, state._data, state._length)
+    end
+    state._data = data
+    state._capacity = capacity
+end
+
+bytesAt = function(borrows self: Buffer, offset: integer, count: integer): string
+    if count == 0 then
+        return ""
+    end
+
+    return ffi.string((self as any)._data + offset, count)
+end
+
+newView = function(bytes: string): affine(ByteView, destroyOwner)
+    return new Snapshot(_bytes = bytes, _closed = false)
+end
+
+newReaderOver = function(bytes: string): Reader
+    return new StringReader(_bytes = bytes, _at = 1, _closed = false)
+end
+
+newWriterOver = function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
+    return new BufferWriter(anchor = buffer, _buffer = buffer, _at = 0, _closed = false)
+end
+
+----------------------------------------------------------------------------
+-- Opening
+----------------------------------------------------------------------------
+
+local function queueLike(value: any): boolean
+    local kind = type(value)
+    if kind == "table" then
+        return value.get ~= nil
+    elseif kind == "userdata" or kind == "cdata" then
+        -- Reading a field off foreign data can raise, so asking is done under pcall.
+        local ok, getter = pcall(function(): any
+            return value.get
+        end)
+
+        return ok and getter ~= nil
+    else
+        return false
+    end
+end
+
+--- Creates a buffer, optionally over starting bytes or a starting capacity.
+---
+--- The buffer is an owner, so it closes at its lexical boundary unless it is
+--- transferred out of one. A number is a capacity to allocate rather than
+--- content, and the buffer is still empty afterwards.
+---
+--- ```nupp
+--- const io = nupp.io
+---
+--- do
+---     local buffer = io.newBuffer("hello")
+---     assert(buffer:length() == 5)
+---
+---     local sized = io.newBuffer(4096)
+---     assert(sized:length() == 0 and sized:capacity() == 4096)
+--- end
+--- ```
+---
+--- @param initial the starting bytes, a starting capacity, or nothing
+--- @return the buffer, owned by the caller
+--- @raises when initial is neither bytes nor a capacity
+--- @export
+export function newBuffer(initial: integer | string?): affine(Buffer, destroyOwner)
+    if initial ~= nil and type(initial) ~= "number" and type(initial) ~= "string" then
+        error("nupp: io.newBuffer initial value must be bytes or a capacity", 2)
+    end
+    local bytes = type(initial) == "string" and initial as string or ""
+    local capacity = type(initial) == "number" and integer_(initial, "io.newBuffer capacity", 2) or #bytes
+    local self = new HeapBuffer(
+        _data = ffi.new<uint8[?]>(math.max(capacity, 1)),
+        _length = 0,
+        _capacity = capacity,
+        _closed = false
+    )
+    if #bytes > 0 then
+        local state = self as any
+        ffi.copy(state._data, bytes, #bytes)
+        state._length = #bytes
+    end
+
+    return self
+end
+
+--- Opens a reader over bytes held as a string.
+---
+--- The reader is a `Reader` like any other, so a parser written against the
+--- contract reads a string here and a file or a response body elsewhere without
+--- changing:
+---
+--- ```nupp
+--- local reader = io.newStringReader("hello")
+--- assert(reader:read(5) == "hello")
+--- assert(reader:read(1) == "")
+--- ```
+---
+--- @param text the bytes to read
+--- @return the reader, owned by the caller
+--- @raises when text is not a string
+--- @export
+export function newStringReader(text: string): Reader
+    if type(text) ~= "string" then
+        error("nupp: io.newStringReader needs a string", 2)
+    end
+
+    return newReaderOver(text)
+end
+
+--- Opens a reader over a byte queue, which it does not own.
+---
+--- Closing this reader leaves the queue behind it open, because the queue was
+--- never transferred. A process stream and an HTTP response body are both byte
+--- queues without naming this module.
+---
+--- @param source the queue to read from
+--- @return the reader, owned by the caller
+--- @raises when source is not a byte queue
+--- @export
+export function newQueueReader(source: ByteQueue): Reader
+    if not queueLike(source) then
+        error("nupp: io.newQueueReader needs a byte queue", 2)
+    end
+
+    return new QueueReader(_source = source, _closed = false)
+end

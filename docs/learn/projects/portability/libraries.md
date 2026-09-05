@@ -318,7 +318,7 @@ after the selected backend installs it.
 | `host.time` | `nupp.time` |
 | `host.wasm` | `nupp.wasm` |
 | `host.workers` | `nupp.workers` (contract 2) |
-| `host.crypto` | `nupp.crypto` |
+| `host.crypto` | `nupp.data.crypto` |
 | `host.storage` | `nupp.io.storage` |
 | `compute.gpu` | `nupp.gpu` |
 

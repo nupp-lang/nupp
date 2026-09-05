@@ -1327,7 +1327,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"},
         [
             "src/main.nupp"
         ] = [[
-local crypto = require("nupp.crypto")
+local crypto = require("nupp.data.crypto")
 local storage = require("nupp.io.storage")
 local time = require("nupp.time")
 local data = require("nupp.data")

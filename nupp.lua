@@ -270,6 +270,11 @@ for _, resource in ipairs({
     "src/nupp/io/process/types.nupp",
     "src/nupp/io/tls/types.nupp",
     "src/nupp/io/http/messages.nupp",
+    "src/nupp/io/internal/bytes.nupp",
+    "src/nupp/io/internal/scalars.nupp",
+    "src/nupp/io/internal/lines.nupp",
+    "src/nupp/io/http/internal/transport.nupp",
+
     "src/nupp/gpu/internal.nupp",
     "src/nupp/gpu/layoutfacts.nupp",
     "src/nupp/runtime/browser/webgpu/internal.nupp",
@@ -277,7 +282,7 @@ for _, resource in ipairs({
     "src/nupp/io/uri/pathtext.nupp",
     "src/nupp/io/uri/provider.nupp",
     "src/nupp/runtime/seam/contractmembers.nupp",
-    "src/nupp/crypto.nupp",
+    "src/nupp/data/crypto.nupp",
     "src/nupp/io/storage.nupp",
 
     "src/nupp/runtime/backend/contracts.nupp",

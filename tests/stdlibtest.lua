@@ -343,7 +343,7 @@ function M.standardSurfaceRequiresExactPortableSeams()
     )
     local classified = standardsurface.all()
     for _, name in ipairs({
-        "nupp.crypto",
+        "nupp.data.crypto",
         "nupp.io.storage",
         "nupp.data.hash",
         "nupp.data.json",
@@ -2647,6 +2647,39 @@ function M.tensorLayoutAlgebraDoesNotSelectAGpu()
     assertEq(native.forModule("nupp.gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
     local selected = native.expand({["runtime.gpu_layout"] = true})
     assert(not selected["native.gpu"], "layout algebra must not select a device provider")
+end
+
+function M.ioFacadeKeepsRichContractsAndPrivateState()
+    assertClean(
+        [[const io = require("nupp.io")
+local function copy(borrows source: io.Reader, exclusive target: io.Buffer): nil
+    source:readInto(target, 0, 16)
+end
+local function write(exclusive target: io.Writer, borrows source: nupp.mem.span.ByteSpan): nil
+    target:writeSpan(source)
+end
+]]
+    )
+    for _, example in ipairs({{"ScalarReader", "_pending"}, {"ScalarWriter", "_buffer"}}) do
+        local diagnostics = diagsOf(
+            (
+                'const io = require("nupp.io")\nlocal function leak(borrows value: io.%s): nil\nlocal state = value.%s\nend'
+            ):format(example[1], example[2])
+        )
+        assert(
+            diagnostics:find("NUPP2004", 1, true),
+            "scalar state must not belong to its public contract: " .. diagnostics
+        )
+    end
+    for _, name in ipairs({
+        "nupp.io.internal.bytes",
+        "nupp.io.internal.scalars",
+        "nupp.io.internal.lines",
+        "nupp.io.http.internal.transport"
+    }) do
+        local diagnostics = diagsOf(('local hidden = require(%q)'):format(name))
+        assert(diagnostics:find("NUPP2144", 1, true), name .. " must reject application imports: " .. diagnostics)
+    end
 end
 
 return M

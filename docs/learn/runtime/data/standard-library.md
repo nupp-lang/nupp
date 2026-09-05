@@ -58,7 +58,7 @@ intrinsic namespaces and the declared modules:
 
 - [](nupp.data) owns JSON, UTF-8, identifiers, hashes and checksums.
 - [](nupp.data.hash) provides SHA-256 and HMAC-SHA256, streaming or one-shot.
-- [](nupp.crypto) provides host-backed cryptographic randomness, digests, and
+- [](nupp.data.crypto) provides host-backed cryptographic randomness, digests, and
   identifiers through the selected backend.
 - [](nupp.io.storage) provides persistent key-value storage through the selected
   backend.

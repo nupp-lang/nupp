@@ -47,7 +47,7 @@ return function(Browser)
     end
 
     local browserSource = [[
-local crypto = require("nupp.crypto")
+local crypto = require("nupp.data.crypto")
 local storage = require("nupp.io.storage")
 local time = require("nupp.time")
 local hash = require("nupp.data.hash")

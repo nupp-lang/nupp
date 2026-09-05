@@ -1,4 +1,4 @@
-module nupp.crypto
+module nupp.data.crypto
 
 --[[Host-independent cryptography. Select a checked backend to supply this facility.]]
 
@@ -7,7 +7,7 @@ const contracts = require("nupp.runtime.backend.contracts")
 local function provider(): contracts.CryptoProvider
     local selected = rawget(_G, "__nuppCrypto")
     if selected == nil then
-        error("nupp: nupp.crypto needs a selected host provider", 2)
+        error("nupp: nupp.data.crypto needs a selected host provider", 2)
     end
 
     return selected as contracts.CryptoProvider

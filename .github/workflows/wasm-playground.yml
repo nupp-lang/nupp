@@ -33,7 +33,7 @@ on:
       - "src/nupp/runtime/browser/**"
       - "src/nupp/io/http/**"
       - "src/nupp/io/uri/**"
-      - "src/nupp/crypto.nupp"
+      - "src/nupp/data/crypto.nupp"
       - "src/nupp/io/storage.nupp"
       - "src/nupp/experimental/**"
       - "src/nupp/runtime/backend/contracts.nupp"

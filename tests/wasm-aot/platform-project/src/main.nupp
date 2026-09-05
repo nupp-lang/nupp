@@ -1,4 +1,4 @@
-local browserCrypto = require("nupp.crypto")
+local browserCrypto = require("nupp.data.crypto")
 local browserStorage = require("nupp.io.storage")
 local browserTime = require("nupp.time")
 local data = require("nupp.data")

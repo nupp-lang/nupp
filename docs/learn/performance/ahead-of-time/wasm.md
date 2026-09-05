@@ -189,7 +189,7 @@ URI, suspension, time, random bytes, SHA-256, HMAC-SHA256, UUIDs, and persistent
 string storage:
 
 ```nupp
-local crypto = nupp.crypto
+local crypto = nupp.data.crypto
 local storage = nupp.io.storage
 local time = nupp.time
 

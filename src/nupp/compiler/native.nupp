@@ -91,6 +91,35 @@ local FEATURES: {[string]: native.Feature} = {
         requires = {"runtime.backend_contracts"}
     },
 
+    [
+        "runtime.io_internal_bytes"
+    ] = {
+        name = "io_internal_bytes",
+        runtimeModule = "nupp.io.internal.bytes",
+        requires = {"stdlib.math", "runtime.spanview", "runtime.text_buffer"}
+    },
+    [
+        "runtime.io_internal_scalars"
+    ] = {
+        name = "io_internal_scalars",
+        runtimeModule = "nupp.io.internal.scalars",
+        requires = {"runtime.io_internal_bytes"}
+    },
+    [
+        "runtime.io_internal_lines"
+    ] = {
+        name = "io_internal_lines",
+        runtimeModule = "nupp.io.internal.lines",
+        requires = {"runtime.io_internal_bytes"}
+    },
+    [
+        "runtime.io_http_internal_transport"
+    ] = {
+        name = "io_http_internal_transport",
+        runtimeModule = "nupp.io.http.internal.transport",
+        requires = {"runtime.native_v2", "native.time"}
+    },
+
     ["runtime.test"] = {name = "test", module = "nupp.test", runtimeModule = "nupp.test", portableRuntime = true,},
     ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true,},
     ["stdlib.lpeg.re"] = {name = "lpeg_re", module = "re", requires = {"native.lpeg"},},
@@ -165,7 +194,7 @@ local FEATURES: {[string]: native.Feature} = {
         name = "io",
         modules = {"nupp.io"},
         runtimeModule = "nupp.io",
-        requires = {"stdlib.math", "runtime.spanview", "runtime.text_buffer"},
+        requires = {"runtime.io_internal_bytes", "runtime.io_internal_scalars", "runtime.io_internal_lines"},
     },
     -- LuaJIT's buffer, which the standard library builds strings with. Recorded so a
     -- target that selected a `text.buffer` provider installs it: nothing stages here,
@@ -382,6 +411,7 @@ local FEATURES: {[string]: native.Feature} = {
         -- through `nupp.tasks`, so the task runtime travels with the client.
         requires = {
             "runtime.http_messages",
+            "runtime.io_http_internal_transport",
             "runtime.suspension",
             "runtime.tasks",
             "runtime.native_v2",
