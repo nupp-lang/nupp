@@ -37,6 +37,7 @@ represented.
 
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
+local parser = require("nupp.compiler.parser")
 local predicate = require("nupp.compiler.predicate")
 local switchplan = require("nupp.compiler.switchplan")
 local stdlib = require("nupp.compiler.stdlib")
@@ -47,6 +48,50 @@ local cabi = require("nupp.compiler.cabi")
 local bit = require("nupp.compiler.bitops")
 
 local gen = {}
+
+--- Constant module loads present in generated Lua. This is narrower than the checked
+--- source dependency set: type-only imports have erased before this walk, so packaging
+--- the answer cannot turn a type dependency into an executable one.
+function gen.runtimeModules(code: string): {string}
+    local parsed = parser.parse(code, "=generated")
+    local found: {[string]: boolean} = {}
+
+    local function visit(node: any): nil
+        if type(node) ~= "table" then
+            return
+        end
+        if node.kind == "call" and node.obj and node.args then
+            local callee = node.obj
+            local direct = callee.kind == "name" and callee.token and callee.token.text == "require"
+            local global = callee.kind == "dotIndex"
+                and callee.obj
+                and callee.obj.kind == "name"
+                and callee.obj.token
+                and callee.obj.token.text == "_G"
+                and callee.name
+                and callee.name.text == "require"
+            local argument = node.args.exprs and node.args.exprs[1]
+            if (direct or global) and argument and argument.kind == "string" then
+                local name = lexer.stringValue(argument.token.text)
+                if name ~= nil then
+                    found[name] = true
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(parsed.root)
+    local modules = {}
+    for name in pairs(found) do
+        modules[#modules + 1] = name
+    end
+    table.sort(modules)
+
+    return modules
+end
 
 -- Generation runs inside both LuaJIT and the portable stock-5.1 compiler. Read the
 -- host identity once: it controls only the optional parser sanity check, never output.

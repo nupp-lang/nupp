@@ -53,6 +53,14 @@ type cache.ModuleRecord = {
     backend: any?,
     dependencies: {string}?,
 
+    --- Constant module loads that survived generation. Unlike `dependencies`, this
+    --- excludes type-only imports and is the closure a self-contained target carries.
+    runtimeModules: {string}?,
+
+    --- This artifact was compiled from source carried by the compiler rather than
+    --- from the project. Components may share an identical copy across one runtime.
+    compilerRuntime: boolean?,
+
     --- Keyed project declaration lookups made while checking this module. Their
     --- semantic fingerprints permit reuse across unrelated project-index edits.
     projectDependencies: {{

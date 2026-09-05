@@ -1,5 +1,7 @@
 local game = require("game")
+local log = require("nupp.log")
 
+log.info("answering")
 assert(game.answer(41) == 42)
 
 return true

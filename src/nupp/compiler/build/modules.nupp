@@ -190,7 +190,7 @@ record modules.Session
     --- does, and a backend the compiler ships has no path until it is staged. One
     --- owner of the tree is also what keeps the second phase from emptying it under
     --- the first.
-    stageBundled: function(string): string?
+    stageBundled: function(string, boolean?): string?
 
     --- Stages the compiler-carried native GPU runtime -- the layout, the native
     --- binding, its provider and the `nupp.gpu` facade -- for a source that
@@ -604,6 +604,10 @@ local function copyModuleRecord(record)
     for _, name in ipairs(record.dependencies or {}) do
         dependencies[#dependencies + 1] = name
     end
+    local runtimeModules = jsonArray({})
+    for _, name in ipairs(record.runtimeModules or {}) do
+        runtimeModules[#runtimeModules + 1] = name
+    end
     local effects = jsonArray({})
     for _, effect in ipairs(record.effects or {}) do
         effects[#effects + 1] = effect
@@ -620,6 +624,8 @@ local function copyModuleRecord(record)
         interfaceHash = record.interfaceHash,
         artifactHash = record.artifactHash,
         dependencies = dependencies,
+        runtimeModules = runtimeModules,
+        compilerRuntime = record.compilerRuntime,
         projectDependencies = projectDependencies,
         effects = effects,
         output = record.output,
@@ -723,9 +729,9 @@ local function openSession(
     -- dependency backends are checked source carried by a rock. Materialize a
     -- selected built-in before descriptor resolution so an installed compiler can
     -- select it without the application copying Nupp's own source tree.
-    local function stageBundled(name: string): string?
+    local function stageBundled(name: string, replaceTypeOnly: boolean?): string?
         local existing = inc.modulePath(name)
-        if existing ~= nil then
+        if existing ~= nil and not (replaceTypeOnly and envMod.isDependencyTypePath(inc.env, existing)) then
             return existing
         end
         local carried = require("nupp.compiler.bundled")
@@ -937,11 +943,15 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local linkingRuntimeSource: {[string]: boolean} = {}
     local linkedRuntimeSource: {[string]: boolean} = {}
+    local packagedRuntimeModules: {[string]: boolean} = {}
+    local packagedCheckSources: {[string]: boolean} = {}
+    local stagingPackagedChecks: {[string]: boolean} = {}
     -- Whether this target is a different one from the compiler's own build. A module
     -- the compiler carries is staged from that build for a `luajit` target, which is
     -- the same artifact it would compile; for `lua51` it is not, so those modules are
     -- compiled here instead.
     local portableTarget = target.dialect == "lua51"
+    local selfContainedTarget = target.kind == "bundle" or target.kind == "binary" or target.kind == "component"
 
     local linkRuntimeSource: function(name: string): nil
     linkRuntimeSource = function(name: string): nil
@@ -958,6 +968,49 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
         linkingRuntimeSource[name] = nil
         linkedRuntimeSource[name] = true
+    end
+
+    -- Make a compiler-carried implementation available to the checker without yet
+    -- selecting it for the payload. The source closure must be present before any of
+    -- it is checked: mixing a declaration's sealed types with the implementation's
+    -- copy later in one session would give one nominal type two identities.
+    local function stagePackagedChecks(name: string): string?
+        if packagedCheckSources[name] or stagingPackagedChecks[name] then
+            return inc.modulePath(name)
+        end
+        local existing = inc.modulePath(name)
+        if existing ~= nil and not envMod.isDependencyTypePath(inc.env, existing) then
+            return nil
+        end
+        stagingPackagedChecks[name] = true
+        local path = stageBundled(name, true)
+        if path ~= nil and not path:match("%.d%.nupp$") then
+            packagedCheckSources[name] = true
+            for _, dependency in ipairs(inc.moduleDependencies(path)) do
+                stagePackagedChecks(dependency)
+            end
+        end
+        stagingPackagedChecks[name] = nil
+
+        return path
+    end
+
+    -- A one-payload target carries the compiler-owned modules its generated Lua
+    -- actually requires. Select one source at a time: generation provides the runtime
+    -- closure, while `moduleDependencies` also contains erased type-only imports and
+    -- would make those imports executable by accident.
+    local function linkPackagedRuntime(name: string): nil
+        local existing = inc.modulePath(name)
+        if not selfContainedTarget or (
+            existing ~= nil and not envMod.isDependencyTypePath(inc.env, existing) and not packagedCheckSources[name]
+        ) then
+            return
+        end
+        local path = packagedCheckSources[name] and existing or stagePackagedChecks(name)
+        if path ~= nil and not path:match("%.d%.nupp$") then
+            linkedModules[name] = true
+            packagedRuntimeModules[name] = true
+        end
     end
 
     -- What a portable compiler-provided feature is implemented in, for a target the
@@ -999,7 +1052,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local function linkSelectedDependencies(name: string, names: any, effects: any): nil
         linkFeatureRuntime(effects)
-        local selected = linkedModules[name] == true
+        local selected = linkedModules[name] == true and not packagedRuntimeModules[name]
         for _, effect in ipairs(effects) do
             selected = selected or backendResolution.byEffect[effect] ~= nil
         end
@@ -1199,7 +1252,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
             for _, dependency in ipairs(inc.moduleDependencies(item.path)) do
                 local dependencyPath = inc.modulePath(dependency)
-                if dependencyPath ~= nil then
+                if dependencyPath ~= nil and not packagedCheckSources[dependency] then
                     seed(dependency, dependencyPath)
                 end
             end
@@ -1269,6 +1322,91 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- joining it.
     local said = {}
 
+    -- A native one-payload target runs on the same LuaJIT dialect as the compiler's
+    -- own modules. Reuse those byte-for-byte artifacts instead of rechecking their
+    -- source against the application's declaration graph. Besides being needless,
+    -- that would mix two copies of nominal standard-library types in one checker
+    -- session. Portable targets still compile the carried source below.
+    local addingCarriedRuntime: {[string]: boolean} = {}
+    local function addCarriedRuntime(name: string): boolean
+        if portableTarget or not selfContainedTarget then
+            return false
+        end
+        -- The worker lane bridge is supplied by the selected host stub. The compiler
+        -- build carries a failure stub only so its own non-worker process can name
+        -- the module; embedding that stub would shadow the host implementation.
+        if inc.runtimeProjectedModule(name) or name == "nupp.workers.native" then
+            return false
+        end
+        if records[name] ~= nil then
+            return records[name].compilerRuntime == true
+        end
+        local existing = inc.modulePath(name)
+        if existing ~= nil and not envMod.isDependencyTypePath(inc.env, existing) then
+            return false
+        end
+        local bundled = require("nupp.compiler.bundled")
+        local modulePath = name:gsub("^nupp%.", ""):gsub("%.", "/") .. ".lua"
+        local text = readFile(
+            join(bundled.moduleDir(), "../" .. modulePath)
+        ) or bundled.source("/" .. name:gsub("%.", "/") .. ".lua")
+        local carried = rawget(_G, "__nuppCompilerModuleArtifacts")
+        local carriedRecord = carried and carried[name]
+        if text == nil and carriedRecord and type(carriedRecord.source) == "string" then
+            text = carriedRecord.source
+        end
+        if text == nil then
+            return false
+        end
+        if addingCarriedRuntime[name] then
+            return true
+        end
+        addingCarriedRuntime[name] = true
+        local required = jsonArray(carriedRecord and carriedRecord.runtimeModules or gen.runtimeModules(text))
+        local carriedEffects = jsonArray({})
+        if carriedRecord then
+            for _, effect in ipairs(carriedRecord.effects or {}) do
+                carriedEffects[#carriedEffects + 1] = effect
+            end
+        else
+            local moduleEffect = native.forModule(name)
+            if moduleEffect ~= nil then
+                carriedEffects[#carriedEffects + 1] = moduleEffect
+            end
+        end
+        local output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
+        local artifactHash = hash.digest(text)
+        records[
+            name
+        ] = {
+            sourceHash = artifactHash,
+            interfaceHash = hash.digest("compiler-runtime\0" .. text),
+            artifactHash = artifactHash,
+            dependencies = required,
+            runtimeModules = required,
+            compilerRuntime = true,
+            projectDependencies = jsonArray({}),
+            effects = carriedEffects,
+            output = output,
+            diags = jsonArray({}),
+            materializations = jsonArray({}),
+            derives = jsonArray({}),
+            backendHash = backendResolution.fingerprint,
+            specializationHash = emptySpecializationHash,
+        }
+        codeFor[name] = text
+        paths[name] = output
+        order[#order + 1] = name
+        for _, dependency in ipairs(required) do
+            if not addCarriedRuntime(dependency) then
+                linkPackagedRuntime(dependency)
+            end
+        end
+        addingCarriedRuntime[name] = nil
+
+        return true
+    end
+
     local function enqueue(name, path)
         if queued[name] or records[name] then
             return
@@ -1337,6 +1475,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
         local output = external and nil or join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
         local artifactHash, code, coverage
+        local runtimeModules = jsonArray({})
         if not external and not fatal and not checkOnly then
             report:at("generate")
             report:step("generating " .. name)
@@ -1370,6 +1509,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
             -- and lowering. Persist the same set that selected the generated prologue
             -- so packaging cannot retain a backend seam the Lua does not use.
             result.result.effects = emittedEffects
+            if selfContainedTarget then
+                runtimeModules = jsonArray(gen.runtimeModules(code))
+            end
             for effect in pairs(emittedEffects) do
                 effectNames[#effectNames + 1] = effect
             end
@@ -1398,6 +1540,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
             ),
             artifactHash = artifactHash,
             dependencies = jsonArray(depNames),
+            runtimeModules = runtimeModules,
+            compilerRuntime = packagedRuntimeModules[name] or nil,
             projectDependencies = jsonArray(projectDependencies),
             effects = jsonArray(effectNames),
             output = output,
@@ -1416,8 +1560,14 @@ local function buildModules(root: string, outDir: string, config: Config, target
         codeFor[name] = code
         reused[name] = nil
         linkSelectedDependencies(name, depNames, effectNames)
+        for _, runtimeModule in ipairs(runtimeModules) do
+            if not addCarriedRuntime(runtimeModule) then
+                linkPackagedRuntime(runtimeModule)
+                enqueue(runtimeModule)
+            end
+        end
         for _, depName in ipairs(depNames) do
-            if linkedModules[name] then
+            if linkedModules[name] and not packagedRuntimeModules[name] then
                 linkRuntimeSource(depName)
             elseif portableTarget and inc.modulePath(depName) == nil then
                 -- Carried, and this target is not the one the compiler built itself
@@ -1426,7 +1576,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 -- subtler -- and the payload would not even parse.
                 linkRuntimeSource(depName)
             end
-            enqueue(depName)
+            if not packagedCheckSources[depName] or packagedRuntimeModules[depName] then
+                enqueue(depName)
+            end
         end
     end
 
@@ -1465,6 +1617,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     previous.projectDependencies
                 ) == "table" and type(
                     previous.effects
+                ) == "table" and type(
+                    previous.runtimeModules
                 ) == "table" and type(
                     previous.diags
                 ) == "table" and type(previous.materializations) == "table" and type(previous.derives) == "table"
@@ -1506,8 +1660,16 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     -- run over a project with an error in it would pass.
                     said[item.name] = previous.diags
                     linkSelectedDependencies(item.name, previous.dependencies or {}, previous.effects or {})
+                    for _, runtimeModule in ipairs(previous.runtimeModules or {}) do
+                        if not addCarriedRuntime(runtimeModule) then
+                            linkPackagedRuntime(runtimeModule)
+                            enqueue(runtimeModule)
+                        end
+                    end
                     for _, depName in ipairs(previous.dependencies or {}) do
-                        enqueue(depName)
+                        if not packagedCheckSources[depName] or packagedRuntimeModules[depName] then
+                            enqueue(depName)
+                        end
                     end
                 else
                     compile(item.name, path, sourceHash)

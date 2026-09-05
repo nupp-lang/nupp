@@ -127,6 +127,44 @@ local function bundleText(
     } or {banner or ""}
     local collisionIndex
     local installedModules = {}
+    local sharedModules = {}
+    local compilerArtifactBundle = target.kind == "binary"
+        and target.stub == "nupp"
+        and mainName == "nupp.compiler.main"
+    if compilerArtifactBundle then
+        chunks[#chunks + 1] = "local __nuppCompilerSources = {}\n"
+    end
+
+    local function compilerArtifact(name: string): boolean
+        return compilerArtifactBundle and name:match(
+            "^nupp%."
+        ) ~= nil and (name:match("^nupp%.compiler%.") == nil or name:match("^nupp%.compiler%.runtime%.") ~= nil)
+    end
+
+    local function addModule(name: string, text: string, shared: boolean?): nil
+        if shared then
+            sharedModules[#sharedModules + 1] = {name = name, hash = hash.digest(text),}
+            chunks[
+                #chunks + 1
+            ] = ("if package.loaded[%q] == nil and package.preload[%q] == nil then\n"):format(name, name)
+        else
+            installedModules[#installedModules + 1] = name
+        end
+        if compilerArtifact(name) then
+            chunks[
+                #chunks + 1
+            ] = (
+                "__nuppCompilerSources[%q] = %s\npackage.preload[%q] = assert(loadstring(__nuppCompilerSources[%q], %q))\n"
+            ):format(name, longString(text), name, name, "@" .. name)
+        else
+            chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(name)
+            chunks[#chunks + 1] = text
+            chunks[#chunks + 1] = "\nend\n"
+        end
+        if shared then
+            chunks[#chunks + 1] = "end\n"
+        end
+    end
 
     if hostFeatures then
         local selected = {}
@@ -188,10 +226,7 @@ local function bundleText(
         if not text then
             return nil, readErr
         end
-        installedModules[#installedModules + 1] = rock.name
-        chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(rock.name)
-        chunks[#chunks + 1] = text
-        chunks[#chunks + 1] = "\nend\n"
+        addModule(rock.name, text)
     end
 
     local built = modules or {}
@@ -201,17 +236,40 @@ local function bundleText(
     end
     table.sort(names)
     for _, name in ipairs(names) do
-        local path = (built[name] as nupp.compiler.build.cache.ModuleRecord).output
+        local record = built[name] as nupp.compiler.build.cache.ModuleRecord
+        local path = record.output
         if path and (component or normalize(path) ~= normalize(mainPath)) then
             local text, readErr = readFile(path)
             if not text then
                 return nil, readErr
             end
-            installedModules[#installedModules + 1] = name
-            chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(name)
-            chunks[#chunks + 1] = text
-            chunks[#chunks + 1] = "\nend\n"
+            addModule(name, text, component and record.compilerRuntime)
         end
+    end
+
+    -- A stamped compiler has no module directory to lend a later component build.
+    -- Keep its generated module source and the exact runtime graph generation
+    -- recorded for it. The same source string created the compiler's preload above,
+    -- so this makes it reusable without storing a second copy in the executable.
+    if compilerArtifactBundle then
+        chunks[#chunks + 1] = "rawset(_G, \"__nuppCompilerModuleArtifacts\", {\n"
+        for _, name in ipairs(names) do
+            local record = built[name] as nupp.compiler.build.cache.ModuleRecord
+            if record.output and compilerArtifact(name) then
+                chunks[
+                    #chunks + 1
+                ] = ("[%q] = {source = __nuppCompilerSources[%q], runtimeModules = {"):format(name, name)
+                for _, dependency in ipairs(record.runtimeModules or {}) do
+                    chunks[#chunks + 1] = ("%q,"):format(dependency)
+                end
+                chunks[#chunks + 1] = "}, effects = {"
+                for _, effect in ipairs((record.effects or {}) as any) do
+                    chunks[#chunks + 1] = ("%q,"):format(effect)
+                end
+                chunks[#chunks + 1] = "}},\n"
+            end
+        end
+        chunks[#chunks + 1] = "})\n"
     end
 
     -- Compiler-provided implementation modules are staged after ordinary module
@@ -226,10 +284,7 @@ local function bundleText(
             if not text then
                 return nil, readErr
             end
-            installedModules[#installedModules + 1] = name
-            chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(name)
-            chunks[#chunks + 1] = text
-            chunks[#chunks + 1] = "\nend\n"
+            addModule(name, text, component)
         end
     end
 
@@ -300,6 +355,24 @@ local function bundleText(
                 "nupp: component module collision: " .. name
             )
         end
+        collision[
+            #collision + 1
+        ] = "local __nuppShared = rawget(_G, \"__nuppComponentSharedModules\") or {}\nlocal __nuppSharedHash\n"
+        for _, shared in ipairs(sharedModules) do
+            collision[
+                #collision + 1
+            ] = interpolate(
+                "__nuppSharedHash = __nuppShared[%q]\n"
+                .. "if __nuppSharedHash ~= nil and __nuppSharedHash ~= %q then error(%q, 0) end\n"
+                .. "if __nuppSharedHash == nil and (__nuppLoaded[%q] ~= nil or __nuppPreload[%q] ~= nil) then error(%q, 0) end\n",
+                shared.name,
+                shared.hash,
+                "nupp: component shared module collision: " .. shared.name,
+                shared.name,
+                shared.name,
+                "nupp: component module collision: " .. shared.name
+            )
+        end
         collision[#collision + 1] = "local __nuppPublic = rawget(_G, \"__nuppComponentExports\") or {}\n"
         for _, name in ipairs(target.exports or {}) do
             collision[
@@ -311,6 +384,10 @@ local function bundleText(
             )
         end
         collision[#collision + 1] = "rawset(_G, \"__nuppComponentExports\", __nuppPublic)\n"
+        collision[#collision + 1] = "rawset(_G, \"__nuppComponentSharedModules\", __nuppShared)\n"
+        for _, shared in ipairs(sharedModules) do
+            collision[#collision + 1] = interpolate("__nuppShared[%q] = %q\n", shared.name, shared.hash)
+        end
         for _, name in ipairs(target.exports or {}) do
             collision[#collision + 1] = interpolate("__nuppPublic[%q] = true\n", name)
         end

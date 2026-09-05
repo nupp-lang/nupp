@@ -82,6 +82,10 @@ module, public exports, layout target, required host features, modules, and
 resources. It is application data, not a shared library and not a stable C ABI
 for Nupp records or closures.
 
+The example entry also uses `nupp.log`. Compiler-provided modules reached by a
+component are compiled into the component with their runtime dependency closure;
+the embedding host does not need a Nupp module tree on its Lua search path.
+
 Build the Rust-owned `libnupp` SDK from the repository root:
 
 ```bash
@@ -273,10 +277,13 @@ levels do not. An exported module loads lazily on its first export call. The
 entry module loads only when the host starts the component, unless another
 module required it first.
 
-Multiple components can share one runtime. Loading refuses a module already
-present in `package.loaded` or `package.preload`, and it refuses a public export
-name claimed by an earlier component. These checks run before the new module
-loaders are installed.
+Multiple components can share one runtime. A component carries the
+compiler-provided runtime modules reached by its generated code, including
+standard-library modules. Byte-identical copies are shared by components in the
+same runtime; loading refuses a different copy under the same name. Project and
+dependency modules still refuse any name already present in `package.loaded` or
+`package.preload`, and a public export name claimed by an earlier component is
+also refused. These checks run before the new module loaders are installed.
 
 Component unloading is unsupported. Tables, closures, cdata, native state, or
 opaque handles may already have escaped, so releasing `nupp_component` cannot

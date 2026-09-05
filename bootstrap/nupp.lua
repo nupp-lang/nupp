@@ -35318,6 +35318,14 @@ local cache = { }
 
 
 
+
+
+
+
+
+
+
+
 local function jsonArray ( items ) 
 return json . asArray ( items )
 end
@@ -40229,6 +40237,10 @@ local dependencies = jsonArray ( { } )
 for _ , name in ipairs ( record . dependencies or { } ) do
 dependencies [ # dependencies + 1 ] = name
 end
+local runtimeModules = jsonArray ( { } )
+for _ , name in ipairs ( record . runtimeModules or { } ) do
+runtimeModules [ # runtimeModules + 1 ] = name
+end
 local effects = jsonArray ( { } )
 for _ , effect in ipairs ( record . effects or { } ) do
 effects [ # effects + 1 ] = effect
@@ -40245,6 +40257,8 @@ sourceHash = record . sourceHash ,
 interfaceHash = record . interfaceHash ,
 artifactHash = record . artifactHash ,
 dependencies = dependencies ,
+runtimeModules = runtimeModules ,
+compilerRuntime = record . compilerRuntime ,
 projectDependencies = projectDependencies ,
 effects = effects ,
 output = record . output ,
@@ -40348,9 +40362,9 @@ observe = observer ,
 
 
 
-local function stageBundled ( name ) 
+local function stageBundled ( name , replaceTypeOnly ) 
 local existing = inc . modulePath ( name )
-if existing ~= nil then
+if existing ~= nil and not ( replaceTypeOnly and envMod . isDependencyTypePath ( inc . env , existing ) ) then
 return existing
 end
 local carried = require ( "nupp.compiler.bundled" )
@@ -40562,11 +40576,15 @@ end
 
 local linkingRuntimeSource = { }
 local linkedRuntimeSource = { }
+local packagedRuntimeModules = { }
+local packagedCheckSources = { }
+local stagingPackagedChecks = { }
 
 
 
 
 local portableTarget = target . dialect == "lua51"
+local selfContainedTarget = target . kind == "bundle" or target . kind == "binary" or target . kind == "component"
 
 local linkRuntimeSource
 linkRuntimeSource = function ( name ) 
@@ -40583,6 +40601,49 @@ end
 end
 linkingRuntimeSource [ name ] = nil
 linkedRuntimeSource [ name ] = true
+end
+
+
+
+
+
+local function stagePackagedChecks ( name ) 
+if packagedCheckSources [ name ] or stagingPackagedChecks [ name ] then
+return inc . modulePath ( name )
+end
+local existing = inc . modulePath ( name )
+if existing ~= nil and not envMod . isDependencyTypePath ( inc . env , existing ) then
+return nil
+end
+stagingPackagedChecks [ name ] = true
+local path = stageBundled ( name , true )
+if path ~= nil and not path : match ( "%.d%.nupp$" ) then
+packagedCheckSources [ name ] = true
+for _ , dependency in ipairs ( inc . moduleDependencies ( path ) ) do
+stagePackagedChecks ( dependency )
+end
+end
+stagingPackagedChecks [ name ] = nil
+
+return path
+end
+
+
+
+
+
+local function linkPackagedRuntime ( name ) 
+local existing = inc . modulePath ( name )
+if not selfContainedTarget or (
+existing ~= nil and not envMod . isDependencyTypePath ( inc . env , existing ) and not packagedCheckSources [ name ]
+) then
+return
+end
+local path = packagedCheckSources [ name ] and existing or stagePackagedChecks ( name )
+if path ~= nil and not path : match ( "%.d%.nupp$" ) then
+linkedModules [ name ] = true
+packagedRuntimeModules [ name ] = true
+end
 end
 
 
@@ -40624,7 +40685,7 @@ end
 
 local function linkSelectedDependencies ( name , names , effects ) 
 linkFeatureRuntime ( effects )
-local selected = linkedModules [ name ] == true
+local selected = linkedModules [ name ] == true and not packagedRuntimeModules [ name ]
 for _ , effect in ipairs ( effects ) do
 selected = selected or backendResolution . byEffect [ effect ] ~= nil
 end
@@ -40824,7 +40885,7 @@ checkedForSpecialization [
 end
 for _ , dependency in ipairs ( inc . moduleDependencies ( item . path ) ) do
 local dependencyPath = inc . modulePath ( dependency )
-if dependencyPath ~= nil then
+if dependencyPath ~= nil and not packagedCheckSources [ dependency ] then
 seed ( dependency , dependencyPath )
 end
 end
@@ -40894,6 +40955,91 @@ report : addSpecialized ( acceptedBodies )
 
 local said = { }
 
+
+
+
+
+
+local addingCarriedRuntime = { }
+local function addCarriedRuntime ( name ) 
+if portableTarget or not selfContainedTarget then
+return false
+end
+
+
+
+if inc . runtimeProjectedModule ( name ) or name == "nupp.workers.native" then
+return false
+end
+if records [ name ] ~= nil then
+return records [ name ] . compilerRuntime == true
+end
+local existing = inc . modulePath ( name )
+if existing ~= nil and not envMod . isDependencyTypePath ( inc . env , existing ) then
+return false
+end
+local bundled = require ( "nupp.compiler.bundled" )
+local modulePath = name : gsub ( "^nupp%." , "" ) : gsub ( "%." , "/" ) .. ".lua"
+local text = readFile (
+join ( bundled . moduleDir ( ) , "../" .. modulePath )
+) or bundled . source ( "/" .. name : gsub ( "%." , "/" ) .. ".lua" )
+local carried = rawget ( _G , "__nuppCompilerModuleArtifacts" )
+local carriedRecord = carried and carried [ name ]
+if text == nil and carriedRecord and type ( carriedRecord . source ) == "string" then
+text = carriedRecord . source
+end
+if text == nil then
+return false
+end
+if addingCarriedRuntime [ name ] then
+return true
+end
+addingCarriedRuntime [ name ] = true
+local required = jsonArray ( carriedRecord and carriedRecord . runtimeModules or gen . runtimeModules ( text ) )
+local carriedEffects = jsonArray ( { } )
+if carriedRecord then
+for _ , effect in ipairs ( carriedRecord . effects or { } ) do
+carriedEffects [ # carriedEffects + 1 ] = effect
+end
+else
+local moduleEffect = native . forModule ( name )
+if moduleEffect ~= nil then
+carriedEffects [ # carriedEffects + 1 ] = moduleEffect
+end
+end
+local output = join ( root , join ( outDir , name : gsub ( "%." , "/" ) .. ".lua" ) )
+local artifactHash = hash . digest ( text )
+records [
+name
+] = {
+sourceHash = artifactHash ,
+interfaceHash = hash . digest ( "compiler-runtime\0" .. text ) ,
+artifactHash = artifactHash ,
+dependencies = required ,
+runtimeModules = required ,
+compilerRuntime = true ,
+projectDependencies = jsonArray ( { } ) ,
+effects = carriedEffects ,
+output = output ,
+diags = jsonArray ( { } ) ,
+materializations = jsonArray ( { } ) ,
+derives = jsonArray ( { } ) ,
+backendHash = backendResolution . fingerprint ,
+specializationHash = emptySpecializationHash ,
+}
+codeFor [ name ] = text
+paths [ name ] = output
+order [ # order + 1 ] = name
+for _ , dependency in ipairs ( required ) do
+if not addCarriedRuntime ( dependency ) then
+linkPackagedRuntime ( dependency )
+end
+end
+addingCarriedRuntime [ name ] = nil
+
+return true
+end
+
 local function enqueue ( name , path ) 
 if queued [ name ] or records [ name ] then
 return
@@ -40962,6 +41108,7 @@ table . sort ( effectNames )
 end
 local output = external and nil or join ( root , join ( outDir , name : gsub ( "%." , "/" ) .. ".lua" ) )
 local artifactHash , code , coverage
+local runtimeModules = jsonArray ( { } )
 if not external and not fatal and not checkOnly then
 report : at ( "generate" )
 report : step ( "generating " .. name )
@@ -40995,6 +41142,9 @@ nil ,
 
 
 result . result . effects = emittedEffects
+if selfContainedTarget then
+runtimeModules = jsonArray ( gen . runtimeModules ( code ) )
+end
 for effect in pairs ( emittedEffects ) do
 effectNames [ # effectNames + 1 ] = effect
 end
@@ -41023,6 +41173,8 @@ external and sourceHash or nil
 ) ,
 artifactHash = artifactHash ,
 dependencies = jsonArray ( depNames ) ,
+runtimeModules = runtimeModules ,
+compilerRuntime = packagedRuntimeModules [ name ] or nil ,
 projectDependencies = jsonArray ( projectDependencies ) ,
 effects = jsonArray ( effectNames ) ,
 output = output ,
@@ -41041,8 +41193,14 @@ specializationHash = specializationHashes [ normalize ( path ) ] or emptySpecial
 codeFor [ name ] = code
 reused [ name ] = nil
 linkSelectedDependencies ( name , depNames , effectNames )
+for _ , runtimeModule in ipairs ( runtimeModules ) do
+if not addCarriedRuntime ( runtimeModule ) then
+linkPackagedRuntime ( runtimeModule )
+enqueue ( runtimeModule )
+end
+end
 for _ , depName in ipairs ( depNames ) do
-if linkedModules [ name ] then
+if linkedModules [ name ] and not packagedRuntimeModules [ name ] then
 linkRuntimeSource ( depName )
 elseif portableTarget and inc . modulePath ( depName ) == nil then
 
@@ -41051,7 +41209,9 @@ elseif portableTarget and inc . modulePath ( depName ) == nil then
 
 linkRuntimeSource ( depName )
 end
+if not packagedCheckSources [ depName ] or packagedRuntimeModules [ depName ] then
 enqueue ( depName )
+end
 end
 end
 
@@ -41090,6 +41250,8 @@ previous . dependencies
 previous . projectDependencies
 ) == "table" and type (
 previous . effects
+) == "table" and type (
+previous . runtimeModules
 ) == "table" and type (
 previous . diags
 ) == "table" and type ( previous . materializations ) == "table" and type ( previous . derives ) == "table"
@@ -41131,8 +41293,16 @@ reused [ item . name ] = true
 
 said [ item . name ] = previous . diags
 linkSelectedDependencies ( item . name , previous . dependencies or { } , previous . effects or { } )
+for _ , runtimeModule in ipairs ( previous . runtimeModules or { } ) do
+if not addCarriedRuntime ( runtimeModule ) then
+linkPackagedRuntime ( runtimeModule )
+enqueue ( runtimeModule )
+end
+end
 for _ , depName in ipairs ( previous . dependencies or { } ) do
+if not packagedCheckSources [ depName ] or packagedRuntimeModules [ depName ] then
 enqueue ( depName )
+end
 end
 else
 compile ( item . name , path , sourceHash )
@@ -41787,6 +41957,44 @@ stringArray ( hostFeatures )
 } or { banner or "" }
 local collisionIndex
 local installedModules = { }
+local sharedModules = { }
+local compilerArtifactBundle = target . kind == "binary"
+and target . stub == "nupp"
+and mainName == "nupp.compiler.main"
+if compilerArtifactBundle then
+chunks [ # chunks + 1 ] = "local __nuppCompilerSources = {}\n"
+end
+
+local function compilerArtifact ( name ) 
+return compilerArtifactBundle and name : match (
+"^nupp%."
+) ~= nil and ( name : match ( "^nupp%.compiler%." ) == nil or name : match ( "^nupp%.compiler%.runtime%." ) ~= nil )
+end
+
+local function addModule ( name , text , shared ) 
+if shared then
+sharedModules [ # sharedModules + 1 ] = { name = name , hash = hash . digest ( text ) , }
+chunks [
+# chunks + 1
+] = ( "if package.loaded[%q] == nil and package.preload[%q] == nil then\n" ) : format ( name , name )
+else
+installedModules [ # installedModules + 1 ] = name
+end
+if compilerArtifact ( name ) then
+chunks [
+# chunks + 1
+] = (
+"__nuppCompilerSources[%q] = %s\npackage.preload[%q] = assert(loadstring(__nuppCompilerSources[%q], %q))\n"
+) : format ( name , longString ( text ) , name , name , "@" .. name )
+else
+chunks [ # chunks + 1 ] = ( "package.preload[%q] = function(...)\n" ) : format ( name )
+chunks [ # chunks + 1 ] = text
+chunks [ # chunks + 1 ] = "\nend\n"
+end
+if shared then
+chunks [ # chunks + 1 ] = "end\n"
+end
+end
 
 if hostFeatures then
 local selected = { }
@@ -41848,10 +42056,7 @@ local text , readErr = readFile ( rock . path )
 if not text then
 return nil , readErr
 end
-installedModules [ # installedModules + 1 ] = rock . name
-chunks [ # chunks + 1 ] = ( "package.preload[%q] = function(...)\n" ) : format ( rock . name )
-chunks [ # chunks + 1 ] = text
-chunks [ # chunks + 1 ] = "\nend\n"
+addModule ( rock . name , text )
 end
 
 local built = modules or { }
@@ -41861,17 +42066,40 @@ names [ # names + 1 ] = name
 end
 table . sort ( names )
 for _ , name in ipairs ( names ) do
-local path = ( built [ name ] ) . output
+local record = built [ name ]
+local path = record . output
 if path and ( component or normalize ( path ) ~= normalize ( mainPath ) ) then
 local text , readErr = readFile ( path )
 if not text then
 return nil , readErr
 end
-installedModules [ # installedModules + 1 ] = name
-chunks [ # chunks + 1 ] = ( "package.preload[%q] = function(...)\n" ) : format ( name )
-chunks [ # chunks + 1 ] = text
-chunks [ # chunks + 1 ] = "\nend\n"
+addModule ( name , text , component and record . compilerRuntime )
 end
+end
+
+
+
+
+
+if compilerArtifactBundle then
+chunks [ # chunks + 1 ] = "rawset(_G, \"__nuppCompilerModuleArtifacts\", {\n"
+for _ , name in ipairs ( names ) do
+local record = built [ name ]
+if record . output and compilerArtifact ( name ) then
+chunks [
+# chunks + 1
+] = ( "[%q] = {source = __nuppCompilerSources[%q], runtimeModules = {" ) : format ( name , name )
+for _ , dependency in ipairs ( record . runtimeModules or { } ) do
+chunks [ # chunks + 1 ] = ( "%q," ) : format ( dependency )
+end
+chunks [ # chunks + 1 ] = "}, effects = {"
+for _ , effect in ipairs ( ( record . effects or { } ) ) do
+chunks [ # chunks + 1 ] = ( "%q," ) : format ( effect )
+end
+chunks [ # chunks + 1 ] = "}},\n"
+end
+end
+chunks [ # chunks + 1 ] = "})\n"
 end
 
 
@@ -41886,10 +42114,7 @@ local text , readErr = readFile ( path )
 if not text then
 return nil , readErr
 end
-installedModules [ # installedModules + 1 ] = name
-chunks [ # chunks + 1 ] = ( "package.preload[%q] = function(...)\n" ) : format ( name )
-chunks [ # chunks + 1 ] = text
-chunks [ # chunks + 1 ] = "\nend\n"
+addModule ( name , text , component )
 end
 end
 
@@ -41960,6 +42185,24 @@ name ,
 "nupp: component module collision: " .. name
 )
 end
+collision [
+# collision + 1
+] = "local __nuppShared = rawget(_G, \"__nuppComponentSharedModules\") or {}\nlocal __nuppSharedHash\n"
+for _ , shared in ipairs ( sharedModules ) do
+collision [
+# collision + 1
+] = interpolate (
+"__nuppSharedHash = __nuppShared[%q]\n"
+.. "if __nuppSharedHash ~= nil and __nuppSharedHash ~= %q then error(%q, 0) end\n"
+.. "if __nuppSharedHash == nil and (__nuppLoaded[%q] ~= nil or __nuppPreload[%q] ~= nil) then error(%q, 0) end\n" ,
+shared . name ,
+shared . hash ,
+"nupp: component shared module collision: " .. shared . name ,
+shared . name ,
+shared . name ,
+"nupp: component module collision: " .. shared . name
+)
+end
 collision [ # collision + 1 ] = "local __nuppPublic = rawget(_G, \"__nuppComponentExports\") or {}\n"
 for _ , name in ipairs ( target . exports or { } ) do
 collision [
@@ -41971,6 +42214,10 @@ name ,
 )
 end
 collision [ # collision + 1 ] = "rawset(_G, \"__nuppComponentExports\", __nuppPublic)\n"
+collision [ # collision + 1 ] = "rawset(_G, \"__nuppComponentSharedModules\", __nuppShared)\n"
+for _ , shared in ipairs ( sharedModules ) do
+collision [ # collision + 1 ] = interpolate ( "__nuppShared[%q] = %q\n" , shared . name , shared . hash )
+end
 for _ , name in ipairs ( target . exports or { } ) do
 collision [ # collision + 1 ] = interpolate ( "__nuppPublic[%q] = true\n" , name )
 end
@@ -109179,6 +109426,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 local cst = require ( "nupp.compiler.cst" )
 local lexer = require ( "nupp.compiler.lexer" )
+local parser = require ( "nupp.compiler.parser" )
 local predicate = require ( "nupp.compiler.predicate" )
 local switchplan = require ( "nupp.compiler.switchplan" )
 local stdlib = require ( "nupp.compiler.stdlib" )
@@ -109189,6 +109437,50 @@ local cabi = require ( "nupp.compiler.cabi" )
 local bit = require ( "nupp.compiler.bitops" )
 
 local gen = { }
+
+
+
+
+function gen . runtimeModules ( code ) 
+local parsed = parser . parse ( code , "=generated" )
+local found = { }
+
+local function visit ( node ) 
+if type ( node ) ~= "table" then
+return
+end
+if node . kind == "call" and node . obj and node . args then
+local callee = node . obj
+local direct = callee . kind == "name" and callee . token and callee . token . text == "require"
+local global = callee . kind == "dotIndex"
+and callee . obj
+and callee . obj . kind == "name"
+and callee . obj . token
+and callee . obj . token . text == "_G"
+and callee . name
+and callee . name . text == "require"
+local argument = node . args . exprs and node . args . exprs [ 1 ]
+if ( direct or global ) and argument and argument . kind == "string" then
+local name = lexer . stringValue ( argument . token . text )
+if name ~= nil then
+found [ name ] = true
+end
+end
+end
+for _ , child in ipairs ( node ) do
+visit ( child )
+end
+end
+
+visit ( parsed . root )
+local modules = { }
+for name in pairs ( found ) do
+modules [ # modules + 1 ] = name
+end
+table . sort ( modules )
+
+return modules
+end
 
 
 
