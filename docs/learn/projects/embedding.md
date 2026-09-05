@@ -82,8 +82,9 @@ module, public exports, layout target, required host features, modules, and
 resources. It is application data, not a shared library and not a stable C ABI
 for Nupp records or closures.
 
-The example entry also uses `nupp.log`. Compiler-provided modules reached by a
-component are compiled into the component with their runtime dependency closure;
+The example entry also uses `nupp.log` and `nupp.data.json`. Compiler-provided
+modules reached by a component are compiled into the component with their
+runtime dependency closure, including providers selected through runtime seams;
 the embedding host does not need a Nupp module tree on its Lua search path.
 
 Build the Rust-owned `libnupp` SDK from the repository root:

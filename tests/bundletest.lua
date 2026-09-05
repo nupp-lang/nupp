@@ -154,8 +154,10 @@ function M.aComponentInstallsBeforeItsEntryRuns()
       ["nupp.lua"] = COMPONENT_MANIFEST,
       ["src/app/main.g.nupp"] = [[
 local log = require("nupp.log")
+local json = require("nupp.data.json")
 assert(component_started == nil)
 log.info("starting component")
+component_json = json.encode({answer = 42})
 component_started = true
 return true
 ]],
@@ -174,6 +176,8 @@ return game
    assert(artifact and artifact:sub(1, #marker) == marker, "the component has a version marker")
    assert(artifact:find('package.preload["nupp.log"]', 1, true),
       "the component carries standard-library modules reached by its source")
+   assert(artifact:find('package.preload["nupp.runtime.provider.lunajson"]', 1, true),
+      "the component carries providers selected indirectly through reached seams")
 
    local script = [[
 _G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
@@ -184,8 +188,10 @@ local component = descriptor.install()
 assert(component_started == nil)
 assert(component.exports["game.answer"](41) == 42)
 assert(component_started == nil)
+assert(component_json == nil)
 component.start()
 assert(component_started == true)
+assert(component_json == '{"answer":42}')
 ]]
    local scriptFile = assert(io.open(dir .. "/run.lua", "wb"))
    scriptFile:write(script)

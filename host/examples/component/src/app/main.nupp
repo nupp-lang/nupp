@@ -1,7 +1,9 @@
 local game = require("game")
+local json = require("nupp.data.json")
 local log = require("nupp.log")
 
 log.info("answering")
 assert(game.answer(41) == 42)
+print(json.encode({answer = 42}))
 
 return true

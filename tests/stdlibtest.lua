@@ -46,6 +46,31 @@ end
 
 local M = {}
 
+function M.generatedRuntimeModulesIncludeIndirectBackendProviders()
+    local provider = "providers.json|checked;100%"
+    local descriptor = {
+        module = "backend",
+        digest = "digest",
+        seams = {
+            {
+                name = "data.json",
+                version = 2,
+                effect = "native.json",
+                binding = "runtime",
+                runtimeModule = provider,
+            },
+        },
+    }
+    local artifact = backends.artifact(
+        {['native.json'] = true},
+        {modules = {descriptor}, byEffect = {['native.json'] = "backend"}}
+    )
+    local modules = gen.runtimeModules(artifact .. 'require("direct.module")')
+    assertEq(#modules, 2, "the runtime closure contains one direct module and one provider")
+    assertEq(modules[1], "direct.module", "the direct module remains in the closure")
+    assertEq(modules[2], provider, "the escaped provider round-trips from backend metadata")
+end
+
 function M.checkerRecordsTheResolvedDialect()
     local default = parser.parse("return 42\n", "default.nupp")
     check.check(default, "default.nupp", sharedEnv)

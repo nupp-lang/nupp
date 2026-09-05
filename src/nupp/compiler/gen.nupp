@@ -49,12 +49,17 @@ local bit = require("nupp.compiler.bitops")
 
 local gen = {}
 
---- Constant module loads present in generated Lua. This is narrower than the checked
---- source dependency set: type-only imports have erased before this walk, so packaging
---- the answer cannot turn a type dependency into an executable one.
+--- Runtime modules selected by generated Lua. This is narrower than the checked source
+--- dependency set: type-only imports have erased before this walk, so packaging the
+--- answer cannot turn a type dependency into an executable one. It includes constant
+--- module loads and the provider modules named indirectly by the generated backend
+--- resolution record.
 function gen.runtimeModules(code: string): {string}
     local parsed = parser.parse(code, "=generated")
     local found: {[string]: boolean} = {}
+    for _, name in ipairs(backends.artifactProviders(code)) do
+        found[name] = true
+    end
 
     local function visit(node: any): nil
         if type(node) ~= "table" then

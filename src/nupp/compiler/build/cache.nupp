@@ -53,8 +53,9 @@ type cache.ModuleRecord = {
     backend: any?,
     dependencies: {string}?,
 
-    --- Constant module loads that survived generation. Unlike `dependencies`, this
-    --- excludes type-only imports and is the closure a self-contained target carries.
+    --- Runtime module selections that survived generation. Unlike `dependencies`,
+    --- this excludes type-only imports and includes providers selected indirectly
+    --- through seams. It is the closure a self-contained target carries.
     runtimeModules: {string}?,
 
     --- This artifact was compiled from source carried by the compiler rather than

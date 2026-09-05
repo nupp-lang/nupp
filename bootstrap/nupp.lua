@@ -32950,32 +32950,77 @@ end )
 return reached
 end
 
+local function artifactField ( value ) 
+local escaped = tostring ( value ) : gsub ( "%%" , "%%25" )
+escaped = escaped : gsub ( "|" , "%%7C" )
+escaped = escaped : gsub ( ";" , "%%3B" )
+
+return escaped
+end
+
+local function artifactValue ( value ) 
+local decoded = value : gsub ( "%%3[Bb]" , ";" )
+decoded = decoded : gsub ( "%%7[Cc]" , "|" )
+decoded = decoded : gsub ( "%%25" , "%%" )
+
+return decoded
+end
+
 
 function backends . artifact ( effects , resolved ) 
 local parts = { }
 for _ , seam in ipairs ( backends . reached ( effects , resolved ) ) do
 local owner = seam . runtimeDependency
-parts [
-# parts + 1
-] = table . concat (
-{
+local fields = {
 seam . name ,
-tostring ( seam . version ) ,
+seam . version ,
 seam . binding ,
 seam . backend ,
 seam . backendDigest ,
 seam . runtimeModule ,
 owner and owner . package or "" ,
 owner and owner . version or "" ,
-} ,
-"|"
-)
+}
+for index , value in ipairs ( fields ) do
+fields [ index ] = artifactField ( value )
+end
+parts [ # parts + 1 ] = table . concat ( fields , "|" )
 end
 if # parts == 0 then
 return ""
 end
 
 return "--[[nupp-backends: resolved=" .. table . concat ( parts , ";" ) .. "]]"
+end
+
+
+
+
+
+
+
+
+function backends . artifactProviders ( code ) 
+local found = { }
+for resolved in code : gmatch ( "%-%-%[%[nupp%-backends: resolved=(.-)%]%]" ) do
+for entry in ( resolved .. ";" ) : gmatch ( "(.-);" ) do
+local index = 0
+for value in ( entry .. "|" ) : gmatch ( "(.-)|" ) do
+index = index + 1
+if index == 6 and value ~= "" then
+found [ artifactValue ( value ) ] = true
+break
+end
+end
+end
+end
+local providers = { }
+for name in pairs ( found ) do
+providers [ # providers + 1 ] = name
+end
+table . sort ( providers )
+
+return providers
 end
 
 
@@ -35161,6 +35206,7 @@ local readFile , writeFile = fs . readFile , fs . writeFile
 local listFiles = fs . listFiles
 
 local cache = { }
+
 
 
 
@@ -109441,9 +109487,14 @@ local gen = { }
 
 
 
+
+
 function gen . runtimeModules ( code ) 
 local parsed = parser . parse ( code , "=generated" )
 local found = { }
+for _ , name in ipairs ( backends . artifactProviders ( code ) ) do
+found [ name ] = true
+end
 
 local function visit ( node ) 
 if type ( node ) ~= "table" then

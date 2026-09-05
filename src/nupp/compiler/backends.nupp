@@ -297,32 +297,77 @@ function backends.reached(effects: {[string]: any}?, resolved: any?): {any}
     return reached
 end
 
+local function artifactField(value: any): string
+    local escaped = tostring(value):gsub("%%", "%%25")
+    escaped = escaped:gsub("|", "%%7C")
+    escaped = escaped:gsub(";", "%%3B")
+
+    return escaped
+end
+
+local function artifactValue(value: string): string
+    local decoded = value:gsub("%%3[Bb]", ";")
+    decoded = decoded:gsub("%%7[Cc]", "|")
+    decoded = decoded:gsub("%%25", "%%")
+
+    return decoded
+end
+
 --- Emits a data-only audit comment. It asserts resolution, never certification.
 function backends.artifact(effects: {[string]: any}?, resolved: any?): string
     local parts = {}
     for _, seam in ipairs(backends.reached(effects, resolved)) do
         local owner = seam.runtimeDependency
-        parts[
-            #parts + 1
-        ] = table.concat(
-            {
-                seam.name,
-                tostring(seam.version),
-                seam.binding,
-                seam.backend,
-                seam.backendDigest,
-                seam.runtimeModule,
-                owner and owner.package or "",
-                owner and owner.version or "",
-            },
-            "|"
-        )
+        local fields = {
+            seam.name,
+            seam.version,
+            seam.binding,
+            seam.backend,
+            seam.backendDigest,
+            seam.runtimeModule,
+            owner and owner.package or "",
+            owner and owner.version or "",
+        }
+        for index, value in ipairs(fields) do
+            fields[index] = artifactField(value)
+        end
+        parts[#parts + 1] = table.concat(fields, "|")
     end
     if #parts == 0 then
         return ""
     end
 
     return "--[[nupp-backends: resolved=" .. table.concat(parts, ";") .. "]]"
+end
+
+--- Runtime provider modules named by a generated artifact's resolution record.
+---
+--- Provider selection is data: the backend declaration gives `install` a module
+--- name, so there is deliberately no literal `require` for the generated-module walk
+--- to find. The artifact record is the exact build-time resolution and travels with
+--- compiler-carried generated Lua, which makes it the authoritative second half of
+--- that module's runtime closure.
+function backends.artifactProviders(code: string): {string}
+    local found: {[string]: boolean} = {}
+    for resolved in code:gmatch("%-%-%[%[nupp%-backends: resolved=(.-)%]%]") do
+        for entry in (resolved .. ";"):gmatch("(.-);") do
+            local index = 0
+            for value in (entry .. "|"):gmatch("(.-)|") do
+                index = index + 1
+                if index == 6 and value ~= "" then
+                    found[artifactValue(value)] = true
+                    break
+                end
+            end
+        end
+    end
+    local providers = {}
+    for name in pairs(found) do
+        providers[#providers + 1] = name
+    end
+    table.sort(providers)
+
+    return providers
 end
 
 --- The public module name a resolved seam has one module standing in for.
