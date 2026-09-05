@@ -1,8 +1,7 @@
 local wasm = require("nupp.wasm")
-local wasmProvider = require("nupp.runtime.provider.wasmstorage")
-local wasmSuite = require("nupp.runtime.seam.wasmsuite")
+local conformance = require("nupp.tests.wasmconformance")
 
-local seamOk, seamWhy = wasmSuite.test(wasmProvider)
+local seamOk, seamWhy = conformance.run()
 assert(seamOk, seamWhy)
 
 local struct Sample

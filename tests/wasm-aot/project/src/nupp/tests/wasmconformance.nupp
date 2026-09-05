@@ -1,0 +1,10 @@
+module nupp.tests.wasmconformance
+
+-- The implementation conformance fixture belongs to Nupp's namespace, so the
+-- application entrypoint need not import private providers or suites.
+local provider = require("nupp.runtime.provider.wasmstorage")
+local suite = require("nupp.runtime.seam.wasmsuite")
+
+export function run(): (boolean, string?)
+    return suite.test(provider)
+end

@@ -105,6 +105,9 @@ record incremental.Inc
     --- on disk.
     openDocument: function(path: string, text: string)
 
+    --- Installs a compiler-generated replacement of already checked source.
+    openGeneratedDocument: function(path: string, text: string)
+
     --- The same thing: an edit is just the newest text for a path.
     changeDocument: function(path: string, text: string)
 
@@ -290,6 +293,9 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return s
     end
 
+    q:define("generatedSource", function(): boolean
+        return false
+    end)
     q:define("fileText", wholeFile)
     q:define("externalFile", wholeFile)
 
@@ -617,6 +623,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             dialect = dialect,
             backendResolution = self:get("backendResolution", "root"),
             traceInspection = traceInspection,
+            generatedSource = self:get("generatedSource", path),
             initialExports = seeded,
         })
 
@@ -851,6 +858,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     ---------------------------------------------------------------------
 
     function inc.openDocument(path: string, text: string)
+        q:setInput("generatedSource", path, false)
         local wasOpen = openPaths[path]
         if envMod.moduleNameForPath(env, path) then
             openPaths[path] = true
@@ -861,8 +869,14 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         q:setInput("fileText", path, text)
     end
 
+    function inc.openGeneratedDocument(path: string, text: string)
+        inc.openDocument(path, text)
+        q:setInput("generatedSource", path, true)
+    end
+
     inc.changeDocument = inc.openDocument
     function inc.closeDocument(path: string)
+        q:clearInput("generatedSource", path)
         q:clearInput("fileText", path)
         if openPaths[path] then
             openPaths[path] = nil

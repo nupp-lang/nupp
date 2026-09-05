@@ -2,7 +2,7 @@
 module nupp.runtime.seam.timesuite
 
 --[[
-A shape-only suite, like `browsercryptosuite` and `browserstoragesuite`.
+A shape-only suite, like `cryptosuite` and `storagesuite`.
 
 Everything `host.time` promises is the host's, and the provider that answers it
 is a browser's, so a vector here would have to reach a browser to assert

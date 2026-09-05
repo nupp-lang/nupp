@@ -10,7 +10,7 @@ const tier = process.argv[4] || "unknown";
 const createHost = (await import(pathToFileURL(path.join(host, "nupp-app.mjs")).href)).default;
 const manifest = JSON.parse(readFileSync(path.join(project, "dist/aot/units.json"), "utf8"));
 
-if (manifest.schemaVersion !== 2 || manifest.target !== "wasm32-unknown-emscripten") {
+if (manifest.schemaVersion !== 3 || manifest.target !== "wasm32-unknown-emscripten") {
   throw new Error("unexpected Wasm AOT artifact manifest");
 }
 if (!manifest.units.every((unit) => /^[a-z0-9/_.-]+\.[0-9a-f]{16}\.wasm$/.test(unit.wasm))) {

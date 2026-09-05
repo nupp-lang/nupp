@@ -735,7 +735,7 @@ local function openSession(
         -- over a vendored library, and that library is plain Lua the compiler carries
         -- rather than Nupp it compiles. Staging it is what puts it on the ordinary
         -- path: linked like any dependency, carried into the artifact like any module.
-        for _, suffix in ipairs({".nupp", ".g.nupp", "/init.nupp", ".lua"}) do
+        for _, suffix in ipairs({".nupp", ".g.nupp", "/init.nupp", "/init.g.nupp", ".lua"}) do
             resource = "/" .. name:gsub("%.", "/") .. suffix
             source = carried.source(resource)
             if source ~= nil then
@@ -751,7 +751,13 @@ local function openSession(
             inc.env.roots[#inc.env.roots + 1] = stagedRoot
             stagedReady = true
         end
-        local suffix = resource:match("%.g%.nupp$") and ".g.nupp" or resource:match("%.lua$") and ".lua" or ".nupp"
+        local suffix = resource:match(
+            "/init%.g%.nupp$"
+        ) and "/init.g.nupp" or resource:match(
+            "/init%.nupp$"
+        ) and "/init.nupp" or resource:match(
+            "%.g%.nupp$"
+        ) and ".g.nupp" or resource:match("%.lua$") and ".lua" or ".nupp"
         local path = join(stagedRoot, name:gsub("%.", "/") .. suffix)
         local wrote, problem = writeFile(path, source)
         assert(wrote, problem)
@@ -761,9 +767,9 @@ local function openSession(
     end
 
     local function stageGpuRuntime(): nil
+        stageBundled("nupp.gpu.internal")
         stageBundled("nupp.gpu.layout")
         stageBundled("nupp.runtime.native")
-        stageBundled("nupp.runtime.provider.nativegpu")
         stageBundled("nupp.gpu")
     end
 
@@ -814,7 +820,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     for path, text in pairs(overlays or {}) do
         local at = normalize(path)
         substituted[at] = text
-        inc.openDocument(at, text)
+        inc.openGeneratedDocument(at, text)
     end
     -- Keyed the way the substitutions are, since the two are looked up together
     -- and the policy spells a path however it walked to it.
@@ -946,9 +952,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local path = inc.modulePath(name) or stageBundled(name)
         if path ~= nil and not path:match("%.d%.nupp$") then
             linkedModules[name] = true
-            -- Asking for the semantic dependencies may check this module before all
-            -- of them have been staged. Each `openDocument` invalidates that query;
-            -- the ordinary compile below therefore sees the complete closure.
             for _, dependency in ipairs(inc.moduleDependencies(path)) do
                 linkRuntimeSource(dependency)
             end
@@ -1023,7 +1026,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         for _, name in ipairs({
             "nupp.runtime.backend",
             "nupp.runtime.seam.registry",
-            "nupp.runtime.seam.contracts",
+            "nupp.runtime.backend.contracts",
             "nupp.runtime.seam.module",
         }) do
             linkedModules[name] = true
@@ -1057,7 +1060,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local function sourceContentHash(path: string): string?
         local text = substituted[path]
         if text ~= nil then
-            return hash.digest(text as string)
+            -- Generated replacements may import implementation modules. Copying
+            -- those bytes into authored source must force an ordinary check.
+            return hash.digest("compiler-generated\0" .. text as string)
         end
         local checked = inc.fileText(path)
         if checked ~= nil then

@@ -1,0 +1,15 @@
+@!internal
+
+module nupp.io.net.types
+
+local net = {}
+
+type net.Address = {
+    --- The peer's address, as a literal.
+    host: string,
+
+    --- The peer's port.
+    port: integer
+}
+
+export = net

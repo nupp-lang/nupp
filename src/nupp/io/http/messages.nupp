@@ -1,0 +1,159 @@
+@!internal
+
+module nupp.io.http.messages
+
+const path = require("nupp.io.path")
+const uri = require("nupp.io.uri")
+local http = {}
+
+--- A portable byte source for an HTTP upload, with consuming teardown.
+interface http.Reader is nupp.Closeable
+    read: function(self: http.Reader, count: integer): (string?, string?)
+end
+
+const contracts = require("nupp.runtime.backend.contracts")
+type http.Capabilities = contracts.HttpCapabilities
+http.Capabilities = contracts.HttpCapabilities
+
+--- The protocol version a response arrived over.
+type http.Version = "1.0" | "1.1" | "2"
+
+--- What a client applies to every request it sends.
+---
+--- Every field is optional, so `new http.Client()` with nothing is a client with
+--- the defaults below. A request may override the three limits it also names.
+record http.Options
+    --- The `user-agent` header sent with every request.
+    userAgent: string?
+
+    --- Headers sent with every request, which a request's own headers replace by
+    --- name.
+    headers: {string: string}?
+
+    --- How long one request may take end to end, 30000 by default.
+    timeoutMs: integer?
+
+    --- How long establishing a connection may take, 10000 by default.
+    connectTimeoutMs: integer?
+
+    --- How long a transfer may make no progress before it fails, 0 to allow any
+    --- pause and the default.
+    stallTimeoutMs: integer?
+
+    --- How many redirects one request may follow, 5 by default.
+    maxRedirects: integer?
+
+    --- How many requests may be in flight at once, 256 by default. A request past
+    --- the bound waits for admission rather than failing.
+    maxPendingRequests: integer?
+
+    --- How many connections the pool may hold, 16 by default.
+    maxConnections: integer?
+
+    --- How many connections the pool may hold to one host, 16 by default.
+    maxConnectionsPerHost: integer?
+
+    --- How many response bytes one request may take, 0 for no bound and the
+    --- default.
+    maxBytes: integer?
+
+    --- Whether to offer and decode compressed responses, true by default.
+    compressed: boolean?
+
+    --- Hosts whose certificates are not verified, each an exact host name or IP
+    --- literal. Naming any of them makes this client follow redirects itself, so
+    --- that the exemption is applied per hop rather than to the whole chain.
+    insecureHosts: {string}?
+
+    --- The proxy to reach every host through. Omitted takes the environment's,
+    --- and an empty string deliberately uses none.
+    proxy: string?
+
+    --- Hosts to reach directly rather than through the proxy.
+    noProxy: string?
+
+    --- Credentials for the proxy, as `user:password`.
+    proxyCredentials: string?
+end
+
+--- A request body streamed from a reader rather than held in memory.
+---
+--- Built by [](nupp.io.http.reader). A redirect cannot replay one, so a request
+--- carrying a reader body fails rather than following.
+record http.ReaderBody is nupp.Closeable
+    --- Where the body's bytes come from.
+    reader: http.Reader
+
+    --- How many bytes the reader will produce, when that is known ahead of time.
+    length: integer?
+
+    --- The `content-type` to send, unless the request names one itself.
+    contentType: string?
+
+    function close(takes self): nil
+        self.reader:close()
+    end
+end
+
+--- A request body read from a file as it is sent.
+---
+--- Built by [](nupp.io.http.file).
+record http.FileBody
+    --- The file to send.
+    path: string | path.Path
+
+    --- The `content-type` to send, unless the request names one itself.
+    contentType: string?
+end
+
+--- Everything a typed request body may own: immutable bytes, a reader stream, or a
+--- file path. Convert a Buffer or ByteView with `getString()` so the request owns an
+--- immutable snapshot rather than borrowing mutable storage.
+type http.RequestBody = string | http.ReaderBody | http.FileBody
+
+--- One request, as `http.Client:send` takes it.
+---
+--- Only `url` is required, and it must be `http` or `https`. The three limits
+--- here override the client's for this request alone. A request is an affine owner;
+--- closing it closes a streaming reader body, and otherwise has no external work.
+---
+--- ```nupp
+--- local request = new http.Request(
+---     url = assert(uri.newURI("https://example.com/upload")),
+---     method = "POST",
+---     headers = {["content-type"] = "application/json"},
+---     body = document
+--- )
+--- ```
+record http.Request is nupp.Closeable
+    --- Where the request goes.
+    url: uri.URI
+
+    --- The method to use, `GET` when omitted.
+    method: string?
+
+    --- Headers for this request, which replace the client's by name.
+    headers: {string: string}?
+
+    --- What to send as the body, or nothing.
+    body: http.RequestBody?
+
+    --- How long this request may take end to end, or the client's limit.
+    timeoutMs: integer?
+
+    --- How long this request may make no progress, or the client's limit.
+    stallTimeoutMs: integer?
+
+    --- How many response bytes this request may take, or the client's limit.
+    maxBytes: integer?
+
+    --- Closes the request and any streaming reader it owns.
+    --- @param self this request, spent by the call
+    function close(takes self): nil
+        if self.body is http.ReaderBody then
+            self.body:close()
+        end
+    end
+end
+
+export = http

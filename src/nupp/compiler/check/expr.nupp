@@ -1038,6 +1038,7 @@ function expr.install(c: state.Checker): nil
             -- binds none -- with `any`, and say nothing.
             local named = call.obj and c.pathKey(call.obj) or nil
             local declared = named and c.lookupType(named) or nil
+            declared = declared and rawType(declared) or nil
             local buildable = declared and declared.tag == "nominal" and (
                 declared.declKind == "record" or declared.declKind == "struct"
             )

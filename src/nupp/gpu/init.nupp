@@ -1,23 +1,61 @@
 module nupp.gpu
 
 --[[
-The public GPU surface.
+Resident compute buffers over WGPU's safe Rust implementation.
 
-Native programs answer it with the Rust WGPU provider. Browser backends replace
-this module with the WebGPU provider under the same name, so generated bindings
-and user source never name a host implementation directly.
+The context owns every buffer and compiled kernel created from it. Buffers and
+kernels borrow that context, so checked code cannot close the device while one
+is live. Uploads, dispatches, and downloads only enqueue commands;
+`synchronize()` is the explicit CPU boundary.
+
+```nupp
+local gpu = nupp.gpu
+local kernels = require("kernels")
+local ffi = require("ffi")
+
+local context = gpu.open()
+local input = context:buffer(ffi.typeof<float>(), 1024)
+local output = context:buffer(ffi.typeof<float>(), 1024)
+local scale = kernels.scale:compile(context):bind(output, input)
+context:upload(input, values:read())
+scale:dispatch(2.0)
+context:enqueueDownload(output)
+context:synchronize()
+context:readDownloaded(output, result:write())
+```
+
+Here `kernels.scale` is generated from an `@aot(target = "gpu")` function by a
+target with `aot = "require"`. Shader source, entrypoint identity, binding order
+and uniform packing remain compiler details. Ordinary spans are the CPU
+boundary; a chain of kernels keeps its intermediate buffers resident and pays
+upload/download only where the program asks for them.
+
+`context:tensor(element, shape)` allocates dense row-major storage. A checked
+`gpu.Layout` can be sliced, transposed, broadcast, or explicitly strided, then
+applied with `gpu.view(buffer, layout)` without allocating. Transfers remain dense;
+layout-aware kernels consume the explicit metadata.
 ]]
 
-local native = require("nupp.runtime.provider.nativegpu")
+local implementation = require("nupp.gpu.internal")
+local tensorlayout = require("nupp.gpu.layout")
 
-export type Layout = native.Layout
-export type Buffer<T> = native.Buffer<T>
-export type Kernel = native.Kernel
-export type Binding = native.Binding
-export type ArtifactSet = native.ArtifactSet
-export type Shared<T> = native.Shared<T>
-export type Phases = native.Phases
-export type ContextToken = native.ContextToken
-export type Context = native.Context
-
-export = native
+export type Layout = tensorlayout.Layout
+export const Layout = tensorlayout.Layout
+export type Buffer<T> = implementation.Buffer<T>
+export const Buffer = implementation.Buffer
+export type Shared<T> = implementation.Shared<T>
+export const Shared = implementation.Shared
+export type Phases = implementation.Phases
+export const Phases = implementation.Phases
+export type ContextToken = implementation.ContextToken
+export type Context = implementation.Context
+export const Context = implementation.Context
+export const PORTABLE_WORKGROUP_THREADS = implementation.PORTABLE_WORKGROUP_THREADS
+export const PORTABLE_SCRATCH_BYTES = implementation.PORTABLE_SCRATCH_BYTES
+export const destroyContext = implementation.destroyContext
+export const workgroups = implementation.workgroups
+export const open = implementation.open
+export const bufferIsDense = implementation.bufferIsDense
+export const bufferIsInjective = implementation.bufferIsInjective
+export const bufferLayout = implementation.bufferLayout
+export const view = implementation.view

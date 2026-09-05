@@ -1,0 +1,4 @@
+module nupp.io.net.internal
+
+-- Installed by the owning stream module; used only by transport layering.
+export = {} as any

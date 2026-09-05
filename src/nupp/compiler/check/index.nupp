@@ -143,6 +143,11 @@ function index.install(c: state.Checker): state.ExprHandlers
                 declared = shipped ~= nil and shipped ~= false and shipped.declared == true
             end
             if declared then
+                local access = c.env.moduleAccess and c.env.moduleAccess(c.env, c.result.moduleName, candidate)
+                if access and not c.opts.generatedSource then
+                    c.diag("NUPP2144", node.name or node, access)
+                    return T.any
+                end
                 local moduleType = c.env.resolveModule and c.env.resolveModule(c.env, candidate) or nil
                 if not moduleType then
                     return nil
@@ -173,7 +178,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                         suffix[1],
                         node.name or node
                     ) or native.forModuleMember(candidate, suffix[1])
-                ) or native.forModule(candidate)
+                ) or standardSurface.requireModule(c, candidate, node.name or node) or native.forModule(candidate)
                 if moduleEffect and c.recordEffect then
                     (node as any).compilerFeatureEffect = moduleEffect
                     c.recordEffect(moduleEffect)

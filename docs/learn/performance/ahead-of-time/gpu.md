@@ -116,8 +116,10 @@ artifact; unordered and atomic reductions are not part of this contract.
 ## Tensor layouts and fixed-width storage
 
 `Context:tensor(element, shape)` allocates dense row-major storage.
-`gpu.subviewLayout`, `gpu.transposeLayout`, `gpu.broadcastLayout`, and
-`gpu.asStridedLayout` transform checked layout values without allocating, and
+The `nupp.gpu.layout` module (imported as `layout`) provides
+`layout.subview`, `layout.transpose`, `layout.broadcast`, and
+`layout.asStrided` to transform checked layout values without allocating.
+
 `gpu.view` applies a layout while preserving the buffer element type.
 
 Host transfers and dispatch-indexed spans require dense layouts. Cursor-indexed
@@ -162,11 +164,11 @@ host around this kernel.
 
 ## Browser GPU effect
 
-`nupp.browser.gpu.xorU32` is a smaller browser-only surface for a program that
+`nupp.experimental.webgpu.xorU32` is a smaller browser-only surface for a program that
 needs one checked WebGPU operation without owning a generated kernel binding:
 
 ```nupp:playground
-local gpu = nupp.browser.gpu
+local gpu = nupp.experimental.webgpu
 local u32 = nupp.math.u32.wrap
 
 local values = {u32(0), u32(0x00ff00ff), u32(0xffffffff)}

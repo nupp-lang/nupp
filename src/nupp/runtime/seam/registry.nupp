@@ -7,20 +7,20 @@ Single source of seam identity, version, binding, effects and substitution.
 One entry per substitutable contract, and the entry is the whole statement. A
 seam used to be spread over three places -- identity here, the runtime member
 list in a per-contract factory module, and the declared interface in
-`nupp.runtime.seam.contracts` -- and the three drifted, because nothing
+`nupp.runtime.backend.contracts` -- and the three drifted, because nothing
 compared them.
 
 The member list now comes from the declared interface wherever a contract has
 one, read with `nupp.reflect` at compile time. A contract whose real surface is
 affine names its checkable half in `members` below; see the note on
-`contracts.members` for why those three cannot be interfaces.
+`members` for why those three cannot be interfaces.
 
 `slug` is the one name a contract owns in the source tree: it names the
 conformance suite, and it is what a diagnostic and a backend declaration use to
 talk about the seam.
 ]]
 
-local contracts = require("nupp.runtime.seam.contracts")
+local members = require("nupp.runtime.seam.contractmembers")
 local registry = {}
 
 local CONTRACTS: {any} = {
@@ -121,7 +121,7 @@ local CONTRACTS: {any} = {
         modules = {["nupp.gpu"] = ""},
         members = {
             functions = {"open", "workgroups", "destroyContext"},
-            values = {"Layout", "Buffer", "Kernel", "Binding", "ArtifactSet", "Shared", "Phases", "Context",},
+            values = {"Layout", "Buffer", "Shared", "Phases", "Context",},
         }
     },
     {
@@ -147,12 +147,12 @@ local CONTRACTS: {any} = {
         modules = {["nupp.io.path.provider"] = ""}
     },
     {
-        name = "io.uri",
+        name = "host.uri",
         slug = "uri",
         effect = "native.uri",
         binding = "runtime",
         globalName = "__nuppUri",
-        modules = {["nupp.io.uri"] = ""}
+        modules = {["nupp.io.uri.provider"] = ""}
     },
     {
         name = "host.time",
@@ -171,20 +171,20 @@ local CONTRACTS: {any} = {
         modules = {["nupp.io.http"] = ""}
     },
     {
-        name = "host.browser_crypto",
-        slug = "browsercrypto",
-        effect = "runtime.browser_crypto",
+        name = "host.crypto",
+        slug = "crypto",
+        effect = "runtime.crypto",
         binding = "runtime",
-        globalName = "__nuppBrowserCrypto",
-        modules = {["nupp.browser.crypto"] = ""}
+        globalName = "__nuppCrypto",
+        modules = {["nupp.crypto"] = ""}
     },
     {
-        name = "host.browser_storage",
-        slug = "browserstorage",
-        effect = "runtime.browser_storage",
+        name = "host.storage",
+        slug = "storage",
+        effect = "runtime.storage",
         binding = "runtime",
-        globalName = "__nuppBrowserStorage",
-        modules = {["nupp.browser.storage"] = ""}
+        globalName = "__nuppStorage",
+        modules = {["nupp.io.storage"] = ""}
     },
     {
         name = "host.workers",
@@ -227,7 +227,7 @@ for _, untyped in ipairs(CONTRACTS) do
     contract.suiteModule = "nupp.runtime.seam." .. contract.slug .. "suite"
     -- The declared interface wins wherever there is one, so a member added to a
     -- contract reaches the runtime check without being written down again.
-    const declared = contracts.members[contract.name] or contract.members
+    const declared = members[contract.name] or contract.members
     assert(declared ~= nil, "seam contract " .. contract.name .. " declares no members")
     contract.requiredFunctions = declared.functions
     contract.requiredValues = declared.values

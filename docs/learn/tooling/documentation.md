@@ -209,8 +209,9 @@ public API documentation without naming the directory `internal`:
 return {}
 ```
 
-It affects documentation only. The compiler still checks, builds, and resolves
-the modules normally.
+The compiler also restricts checked imports of internal modules to their owning
+package namespace. See [internal modules](../language/modules.md#internal-modules).
+`--all` changes documentation visibility only; it does not grant import access.
 
 A `.d.nupp` declaration file documents in full without `--all`, because `local`
 there is not privacy. Its bindings are the interface it describes. Mark one

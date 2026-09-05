@@ -1669,10 +1669,11 @@ uniforms, written as a local function declaration. Uploads and downloads remain
 explicit, so several generated bindings can share resident buffers without an
 intermediate CPU copy. `Context:tensor(element, shape)` attaches a validated
 one- through four-dimensional dense row-major shape to an allocation.
-`gpu.bufferLayout(buffer)` returns an element-independent layout whose
-`gpu.subviewLayout`,
-`gpu.transposeLayout`, `gpu.broadcastLayout`, and `gpu.asStridedLayout`
-operations check shapes, strides,
+`gpu.bufferLayout(buffer)` returns an element-independent layout.
+The `nupp.gpu.layout` module (imported as `layout`) owns the
+`layout.subview`,
+`layout.transpose`, `layout.broadcast`, and `layout.asStrided`
+operations, which check shapes, strides,
 physical extent, density, and write injectivity. `gpu.view(buffer, layout)` applies
 it without allocating. Generated bindings add the view offset to proved shader
 indices and use its physical extent for cursor bounds. Host transfers and
@@ -1736,11 +1737,13 @@ package provider contract.
 
     new reference.Section(
         title = "Docblocks",
-        codes = {"NUPP1007", "NUPP2506"},
+        codes = {"NUPP1007", "NUPP2506", "NUPP2144"},
         body = [=[
-A leading `@!internal` inner annotation keeps a file out of public generated
-documentation. On `init.nupp`, it also hides every descendant module; private
-documentation builds include the complete tree.
+A leading `@!internal` annotation restricts checked imports to the first canonical
+package namespace and hides the module from public documentation (`NUPP2144`).
+On `init.nupp`, it applies to every descendant. An `internal` module segment or
+underscored module basename also restricts imports. Private documentation builds
+include the complete tree. A module with children uses `name/init.nupp`.
 
 An adjacent `---` run documents the declaration under it. `@param`, `@return`,
 `@field`, `@typearg`, `@local`, `@internal` and `@export` are understood. An

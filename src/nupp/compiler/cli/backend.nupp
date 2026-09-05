@@ -96,7 +96,7 @@ local function moduleSource(env: any, scratch: string, name: string): string?
     if source == nil then
         return nil
     end
-    local path = scratch .. "/source/" .. name:gsub("%.", "/") .. ".nupp"
+    local path = scratch .. "/source" .. relative
     local wrote, problem = require("nupp.compiler.fs").writeFile(path, source)
     if not wrote then
         error(problem, 0)
@@ -136,7 +136,7 @@ local function compileRuntimeTree(env: any, scratch: string, roots: {string}, se
                     for _, dependency in ipairs(dependencies or {}) do
                         pending[#pending + 1] = dependency
                     end
-                    local generated, compileProblem = compile.module(path, env, settings)
+                    local generated, compileProblem = compile.module(path, env, settings, name)
                     if generated == nil then
                         return false, compileProblem
                     end

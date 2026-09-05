@@ -749,6 +749,16 @@ local ENTRIES: {any} = {
         docs = "docs/learn/language/modules.md#migrating-a-table-shaped-module",
     },
     {
+        code = "NUPP2144",
+        summary = "An internal module is imported outside its package namespace",
+        rule = "A leading @!internal or an internal module segment restricts static imports "
+        .. "to modules with the same first canonical namespace segment. An internal init.nupp "
+        .. "restricts its descendants too. Import the package's public module instead. "
+        .. "This applies to require, qualified values and qualified types; dynamic Lua loading "
+        .. "remains gradual and is not an access-control sandbox.",
+        docs = "docs/learn/language/modules.md#internal-modules",
+    },
+    {
         code = "NUPP2511",
         summary = "An associated type was erased because inference did not reach its head",
         rule = "A projection is checked as `any` when inference never worked out what "

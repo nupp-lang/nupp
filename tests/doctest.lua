@@ -1012,7 +1012,7 @@ function M.standardIOApiHasCompleteDocumentation()
             "src/nupp/io/path/init.nupp"
         ] = {types = {Path = true,}, functions = {newPath = true, currentDirectory = true, separator = true,},},
         [
-            "src/nupp/io/uri.nupp"
+            "src/nupp/io/uri/init.nupp"
         ] = {types = {URI = true, Components = true,}, functions = {newURI = true, validate = true, isURI = true,},},
         [
             "src/nupp/io/files.nupp"
@@ -1071,8 +1071,8 @@ function M.standardIOApiHasCompleteDocumentation()
 
     -- URIs are likewise interned by `newURI`; their exported record is a value type,
     -- not a public construction surface.
-    local uri = assert(readFile(HERE .. "/../src/nupp/io/uri.nupp"))
-    local uriModule = assert(doc.extract(uri, "src/nupp/io/uri.nupp", "nupp.io.uri"))
+    local uri = assert(readFile(HERE .. "/../src/nupp/io/uri/init.nupp"))
+    local uriModule = assert(doc.extract(uri, "src/nupp/io/uri/init.nupp", "nupp.io.uri"))
     local uriFactory
     for _, item in ipairs(uriModule.items) do
         if item.name == "newURI" then
@@ -3668,6 +3668,90 @@ function M.aMovedPageLeavesAStubWhereItUsedToAnswer()
     -- and the pages themselves still answer where they say they do
     assert(readFile(dir .. "/site/guide/index.html"):find("Setup instructions", 1, true))
     assert(readFile(dir .. "/site/modules/math/index.html"):find("Prose above the generated API", 1, true))
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.publicAliasesProjectPrivateDeclarations()
+    local dir = tempProject({
+        [
+            "src/package/init.nupp"
+        ] = [[
+module package
+const implementation = require("package.internal.model")
+--- A public message.
+export type Message = implementation.Message
+]],
+        [
+            "src/package/internal/model.nupp"
+        ] = [[
+module package.internal.model
+--- The one declaration behind the public name.
+export record Message
+    --- The message text.
+    text: string
+    private token: integer
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
+    local text = readFile(dir .. "/api.md")
+    assert(text:find("A public message.", 1, true), text)
+    assert(text:find("The message text.", 1, true), "a public alias must document its fields")
+    assert(not text:find("private token", 1, true), "a projected alias must preserve member privacy")
+    assert(not text:find("# `package.internal.model`", 1, true), "the declaration file remains private")
+    assert(not text:find("implementation.Message", 1, true), "the public declaration must not expose the import alias")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
+    local source = readFile(HERE .. "/../src/nupp/gpu/init.nupp")
+    local module = assert(doc.extract(source, "src/nupp/gpu/init.nupp", "nupp.gpu"))
+    local foundOpen, foundContext = false, false
+    for _, item in ipairs(module.items) do
+        if item.name == "gpu.open" or item.name == "open" then
+            foundOpen = true
+        end
+        assert(
+            item.name ~= "Kernel" and item.name ~= "ArtifactSet" and item.name ~= "Binding",
+            "generated GPU bindings are implementation details"
+        )
+        if item.name == "Context" then
+            foundContext = true
+            for _, member in ipairs(item.members) do
+                assert(
+                    member.name ~= "compileGenerated"
+                    and member.name ~= "bindKernel"
+                    and member.name ~= "releaseKernel"
+                    and member.name ~= "releaseBinding",
+                    "generated binding hooks are private Context fields"
+                )
+            end
+        end
+    end
+    assert(foundOpen and foundContext, "GPU documentation must contain callable application declarations")
+end
+
+function M.gpuPublicPageExpandsItsExplicitAliases()
+    local files = {}
+    for _, path in ipairs({"init.nupp", "internal.nupp", "layout.nupp", "layoutfacts.nupp"}) do
+        files["src/nupp/gpu/" .. path] = readFile(HERE .. "/../src/nupp/gpu/" .. path)
+    end
+    local dir = tempProject(files)
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
+    local text = readFile(dir .. "/api.md")
+    assert(text:find("Opens the preferred WGPU compute device", 1, true), "open must have a callable declaration")
+    assert(
+        text:find("Number of elements, kept with the allocation", 1, true),
+        "generic Buffer must document its members"
+    )
+    assert(
+        text:find("Allocates a typed resident device buffer", 1, true),
+        "Context must document application operations"
+    )
+    for _, hidden in ipairs({"compileGenerated", "bindKernel", "ArtifactSet", "# `nupp.gpu.internal`"}) do
+        assert(not text:find(hidden, 1, true), "public GPU documentation exposes " .. hidden)
+    end
+    assert(not text:find("implementation%.%w"), "public GPU signatures expose an implementation alias")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

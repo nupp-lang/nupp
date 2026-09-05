@@ -1,0 +1,315 @@
+module nupp.runtime.browser.http
+
+-- Browser implementation of the host.http module contract. Fetch completes in
+-- JavaScript; this checked module owns the Nupp records, affine teardown, byte
+-- preservation, and suspension boundary visible to application code.
+
+local effects = require("nupp.runtime.browser.effects")
+local base64 = require("nupp.data.base64")
+local suspension = require("nupp.suspension")
+local uri = require("nupp.io.uri")
+const {type Path} = require("nupp.io.path")
+local http = {}
+
+const messages = require("nupp.io.http.messages")
+
+type http.Capabilities = messages.Capabilities
+
+--- Reports the guarantees of the selected HTTP provider.
+function http.capabilities(): http.Capabilities
+    return new messages.Capabilities(
+        streamingResponse = false,
+        streamingRequest = false,
+        transportPolicy = false,
+        connectionPolicy = false,
+        protocolVersion = false
+    )
+end
+
+type http.Version = messages.Version
+type http.Options = messages.Options
+http.Options = messages.Options
+type http.Reader = messages.Reader
+type http.ReaderBody = messages.ReaderBody
+http.ReaderBody = messages.ReaderBody
+type http.FileBody = messages.FileBody
+http.FileBody = messages.FileBody
+type http.RequestBody = messages.RequestBody
+type http.Request = messages.Request
+http.Request = messages.Request
+
+record http.Body is messages.Reader
+    private _bytes: string
+    private _at: integer
+    private _closed: boolean
+
+    function read(self, count: integer): (string?, string?)
+        if self._closed then
+            return nil, "the body is closed"
+        end
+        if count < 1 or count ~= math.floor(count) then
+            error("nupp: HTTP body read count must be a positive integer", 2)
+        end
+        if self._at > #self._bytes then
+            return ""
+        end
+        local chunk = self._bytes:sub(self._at, self._at + count - 1)
+        self._at = self._at + #chunk
+
+        return chunk
+    end
+
+    function readInto(self, destination: any, offset: integer?, count: integer?): (integer?, string?)
+        local chunk, reason = self:read(count or 65536)
+        if chunk == nil then
+            return nil, reason
+        elseif chunk == "" then
+            return 0
+        end
+        local at = offset or 0
+        local lease = destination:reserveWrite(at, #chunk)
+        local span = lease:span()
+        for index = 1, #chunk do
+            span[index] = chunk:byte(index)
+        end
+        span:drop()
+        lease:commit(#chunk)
+
+        return #chunk
+    end
+
+    function readSpan(self, destination: any): (integer?, string?)
+        local chunk, reason = self:read(#destination)
+        if chunk == nil then
+            return nil, reason
+        end
+        for index = 1, #chunk do
+            destination[index] = chunk:byte(index)
+        end
+
+        return #chunk
+    end
+
+    function transferTo(self, destination: any): (integer?, string?)
+        local total: integer = 0
+        while true do
+            local chunk, reason = self:read(65536)
+            if chunk == nil then
+                return nil, reason
+            elseif chunk == "" then
+                return total
+            end
+            local wrote, failure = destination:write(chunk)
+            if wrote == nil then
+                return nil, failure
+            end
+            total = total + (wrote as integer)
+        end
+    end
+
+    private release: function(self: http.Body): nil
+
+    function close(takes self): nil
+        self:release()
+    end
+
+    function drop(takes self): nil
+        self:release()
+    end
+end
+
+function http.Body.release(self: http.Body): nil
+    self._closed = true
+    self._bytes = ""
+end
+
+record http.Response is nupp.Closeable
+    status: integer
+    version: http.Version?
+    url: uri.URI
+    body: http.Body
+    private _headers: {[string]: {string}}
+    private _closed: boolean
+
+    function ok(self): boolean
+        return self.status >= 200 and self.status < 300
+    end
+
+    function getAll(self, name: string): {string}
+        local values = self._headers[name:lower()] or {}
+        local copy: {string} = {}
+        for index = 1, #values do
+            copy[index] = values[index]
+        end
+
+        return copy
+    end
+
+    function header(self, name: string): string?
+        local values = self._headers[name:lower()]
+        if values == nil then
+            return nil
+        end
+
+        return name:lower() == "set-cookie" and values[1] or table.concat(values, ", ")
+    end
+
+    function headers(self): {[string]: string}
+        local values: {[string]: string} = {}
+        for name, entries in pairs(self._headers) do
+            values[name] = name == "set-cookie" and entries[1] or table.concat(entries, ", ")
+        end
+
+        return values
+    end
+
+    function close(takes self): nil
+        if not self._closed then
+            self._closed = true
+            self.body:close()
+        end
+    end
+
+    function drop(takes self): nil
+        self:close()
+    end
+end
+
+local function makeResponse(
+    status: integer,
+    url: uri.URI,
+    takes body: http.Body,
+    headers: {[string]: {string}}
+): http.Response
+    return new http.Response(
+        status = status,
+        version = nil,
+        url = url,
+        body = body,
+        _headers = headers,
+        _closed = false
+    )
+end
+
+record http.Client is nupp.Closeable
+    private _options: http.Options
+    private _closed: boolean
+    private _pending: integer
+
+    constructor(self, options: http.Options?): http.Client
+        self._options = options or new http.Options()
+        for _, key in ipairs({
+            "userAgent",
+            "connectTimeoutMs",
+            "stallTimeoutMs",
+            "maxRedirects",
+            "maxPendingRequests",
+            "maxConnections",
+            "maxConnectionsPerHost",
+            "insecureHosts",
+            "proxy",
+            "noProxy",
+            "proxyCredentials",
+            "compressed"
+        }) do
+            if (self._options as any)[key] ~= nil then
+                error("nupp: browser HTTP does not support option " .. key, 2)
+            end
+        end
+        self._closed = false
+        self._pending = 0
+    end
+
+    function flush(self): nil
+    end
+
+    function pending(self): integer
+        return self._pending
+    end
+
+    function send(self, borrows request: http.Request): (http.Response?, string?)
+        if self._closed then
+            return nil, "the HTTP client is closed"
+        end
+        if request.stallTimeoutMs ~= nil then
+            return nil, "browser HTTP does not support stallTimeoutMs"
+        end
+        local url = request.url
+        if url == nil or type(url.toString) ~= "function" then
+            error("nupp: HTTP request url must be a URI", 2)
+        end
+        local headers: {any} = {}
+        for name, value in pairs(self._options.headers or {}) do
+            headers[#headers + 1] = {name, value}
+        end
+        for name, value in pairs(request.headers or {}) do
+            headers[#headers + 1] = {name, value}
+        end
+        local body = request.body
+        if body ~= nil and type(body) ~= "string" then
+            return nil, "browser HTTP currently requires an in-memory string request body"
+        end
+        local descriptor: any = {
+            url = url:toString(),
+            method = request.method or "GET",
+            timeoutMs = request.timeoutMs or self._options.timeoutMs or 30000,
+            maxBytes = request.maxBytes or self._options.maxBytes or 0,
+        }
+        if #headers > 0 then
+            -- An empty Lua table encodes as a JSON object, which the host cannot
+            -- iterate as header pairs; no field means no headers.
+            descriptor.headers = headers
+        end
+        if body ~= nil then
+            descriptor.bodyBase64 = base64.encode(body as string)
+        end
+        self._pending = self._pending + 1
+        local completed, suspended = pcall(suspension.suspend, "browser HTTP request", function(
+            resume: function(any): nil
+        ): function()
+            return effects.request("http", descriptor, resume)
+        end)
+        self._pending = self._pending - 1
+        if not completed then
+            error(suspended, 0)
+        end
+        local answer = suspended as any
+        if not answer.ok then
+            return nil, answer.error or "browser HTTP request failed"
+        end
+        local value = answer.value
+        local byName: {[string]: {string}} = {}
+        for _, pair in ipairs(value.headers or {}) do
+            local name = pair[1]:lower()
+            local values = byName[name] or {}
+            values[#values + 1] = pair[2]
+            byName[name] = values
+        end
+        local responseBody = new http.Body(_bytes = base64.decode(value.bodyBase64 or ""), _at = 1, _closed = false)
+        -- The host follows redirects, so the URL it answers is the last hop
+        -- rather than the one the request named.
+        local finalUrl = request.url
+        if type(value.url) == "string" and value.url ~= "" then
+            local landed = uri.newURI(value.url)
+            if landed ~= nil then
+                finalUrl = landed
+            end
+        end
+
+        return makeResponse(value.status, finalUrl, responseBody, byName)
+    end
+
+    function close(takes self): nil
+        self._closed = true
+    end
+end
+
+function http.reader(takes reader: messages.Reader, length: integer?, contentType: string?): http.ReaderBody
+    return new messages.ReaderBody(reader = reader, length = length, contentType = contentType)
+end
+
+function http.file(path: string | Path, contentType: string?): http.FileBody
+    return new http.FileBody(path = path, contentType = contentType)
+end
+
+export = http

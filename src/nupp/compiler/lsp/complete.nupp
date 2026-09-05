@@ -515,7 +515,10 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
         local requirePrefix = complete.requirePrefix(doc.text, offset)
         if requirePrefix then
             for name in pairs(s.inc.projectIndex().modules or {}) do
-                if name:sub(1, #requirePrefix) == requirePrefix then
+                if name:sub(
+                    1,
+                    #requirePrefix
+                ) == requirePrefix and not s.inc.env.moduleAccess(s.inc.env, doc.result.moduleName, name) then
                     add(name, "module", nil, nil, 1)
                 end
             end
@@ -537,13 +540,18 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
                 local prefix = table.concat(context.path, ".")
                 local index = s.inc.projectIndex()
                 local namespace = false
-                if index.declaredModules and index.declaredModules[prefix] then
+                if index.declaredModules and index.declaredModules[
+                    prefix
+                ] and not s.inc.env.moduleAccess(s.inc.env, doc.result.moduleName, prefix) then
                     moduleCompletions(prefix, add)
                     namespace = true
                 end
                 local childPrefix = prefix .. "."
                 for declared in pairs(index.declaredModules or {}) do
-                    if declared:sub(1, #childPrefix) == childPrefix then
+                    if declared:sub(
+                        1,
+                        #childPrefix
+                    ) == childPrefix and not s.inc.env.moduleAccess(s.inc.env, doc.result.moduleName, declared) then
                         local rest = declared:sub(#childPrefix + 1)
                         local child = rest:match("^[^.]+")
                         if child then
@@ -571,7 +579,9 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
                 end
             end
             if moduleName then
-                moduleCompletions(moduleName, add)
+                if not s.inc.env.moduleAccess(s.inc.env, doc.result.moduleName, moduleName) then
+                    moduleCompletions(moduleName, add)
+                end
             else
                 for name, member in pairs(membersOf(t, doc.result.moduleName)) do
                     -- `:` sends a message, so only what is callable answers it.
@@ -634,7 +644,9 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
         end
         local roots = {}
         for moduleName in pairs(s.inc.projectIndex().declaredModules or {}) do
-            roots[moduleName:match("^[^.]+") or moduleName] = true
+            if not s.inc.env.moduleAccess(s.inc.env, doc.result.moduleName, moduleName) then
+                roots[moduleName:match("^[^.]+") or moduleName] = true
+            end
         end
         for root in pairs(roots) do
             add(root, "module", nil, nil, 2)

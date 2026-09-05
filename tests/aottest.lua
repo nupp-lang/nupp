@@ -17,53 +17,52 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 -- One environment for the whole suite: every case checks against one built
 -- exactly this way, and building one means checking the prelude from source.
 local sharedEnv = envMod.new(HERE .. "/..")
-local gpuEnv = envMod.new(HERE .. "/..", {
-   config = {include = {"src"}, _target = {aot = "require"}},
-})
+local gpuEnv = envMod.new(HERE .. "/..", {config = {include = {"src"}, _target = {aot = "require"}},})
 
 local M = {}
 
 local function codesOf(source)
-   local result = parser.parse(source, "test.nupp")
-   if #result.errors > 0 then
-      error("syntax: " .. result.errors[1].message, 2)
-   end
-   local out = {}
-   for _, diagnostic in ipairs(check.check(result, "test.nupp", sharedEnv)) do
-      out[#out + 1] = diagnostic.code
-   end
+    local result = parser.parse(source, "test.nupp")
+    if #result.errors > 0 then
+        error("syntax: " .. result.errors[1].message, 2)
+    end
+    local out = {}
+    for _, diagnostic in ipairs(check.check(result, "test.nupp", sharedEnv)) do
+        out[#out + 1] = diagnostic.code
+    end
 
-   return table.concat(out, " ")
+    return table.concat(out, " ")
 end
 
 local function assertEq(got, want, label)
-   if got ~= want then
-      error(("%s:\n  want: %s\n  got:  %s"):format(label, want, got), 2)
-   end
+    if got ~= want then
+        error(("%s:\n  want: %s\n  got:  %s"):format(label, want, got), 2)
+    end
 end
 
 --- Asserts that `source` reports `want` and nothing else.
 local function reports(source, want, label)
-   assertEq(codesOf(source), want, label)
+    assertEq(codesOf(source), want, label)
 end
 
 local function reportsGpu(source, want, label)
-   local result = parser.parse(source, "test.nupp")
-   if #result.errors > 0 then
-      error("syntax: " .. (result.errors[1].message or result.errors[1].msg), 2)
-   end
-   local out = {}
-   for _, diagnostic in ipairs(check.check(result, "test.nupp", gpuEnv)) do
-      out[#out + 1] = diagnostic.code
-   end
-   assertEq(table.concat(out, " "), want, label)
+    local result = parser.parse(source, "test.nupp")
+    if #result.errors > 0 then
+        error("syntax: " .. (result.errors[1].message or result.errors[1].msg), 2)
+    end
+    local out = {}
+    for _, diagnostic in ipairs(check.check(result, "test.nupp", gpuEnv)) do
+        out[#out + 1] = diagnostic.code
+    end
+    assertEq(table.concat(out, " "), want, label)
 end
 
 function M.anAdmittedBodyReportsNothing()
-   -- The whole point of the subset is that ordinary Nupp is inside it. A body of
-   -- arithmetic over admitted scalars is the smallest thing that has to pass, and
-   -- if it does not then nothing below is a subset check, it is a syntax error.
-   reports([[
+    -- The whole point of the subset is that ordinary Nupp is inside it. A body of
+    -- arithmetic over admitted scalars is the smallest thing that has to pass, and
+    -- if it does not then nothing below is a subset check, it is a syntax error.
+    reports(
+        [[
 @aot
 local function scale(value: number, by: number): number
     local scaled = value * by
@@ -75,13 +74,17 @@ local function scale(value: number, by: number): number
 end
 
 return {scale = scale}
-]], "", "arithmetic over admitted scalars is admitted")
+]],
+        "",
+        "arithmetic over admitted scalars is admitted"
+    )
 end
 
 function M.loopsAndBranchesAreAdmitted()
-   -- Structured control flow is the reason the annotation exists; a subset that
-   -- refused a numeric loop would have nothing left to compile.
-   reports([[
+    -- Structured control flow is the reason the annotation exists; a subset that
+    -- refused a numeric loop would have nothing left to compile.
+    reports(
+        [[
 @aot
 local function accumulate(count: integer): number
     local total = 0.0
@@ -97,11 +100,15 @@ local function accumulate(count: integer): number
 end
 
 return {accumulate = accumulate}
-]], "", "numeric loops and branches are admitted")
+]],
+        "",
+        "numeric loops and branches are admitted"
+    )
 end
 
 function M.numericSwitchLocalIsAdmitted()
-   reports([[
+    reports(
+        [[
 @aot
 local function classify(value: number): number
     local selected = switch value do
@@ -114,9 +121,13 @@ local function classify(value: number): number
 end
 
 return {classify = classify}
-]], "", "an integer-valued switch initializer lowers to scalar control flow")
+]],
+        "",
+        "an integer-valued switch initializer lowers to scalar control flow"
+    )
 
-   reports([[
+    reports(
+        [[
 @aot
 local function constantClass(): number
     local selected = switch 0 do
@@ -126,16 +137,20 @@ local function constantClass(): number
 end
 
 return {constantClass = constantClass}
-]], "", "a checker-exhaustive native switch does not require else")
+]],
+        "",
+        "a checker-exhaustive native switch does not require else"
+    )
 end
 
 function M.laneLoweringIsAttemptedRatherThanRequested()
-   -- The shape lane lowering can take is one top-level numeric map loop. It is
-   -- recorded rather than required: a body of another shape is an ordinary
-   -- `@aot` function that compiles one iteration at a time, and only the
-   -- vectorisation check has anything to say about it. `simd = true` used to
-   -- make every one of these a build error.
-   reports([[
+    -- The shape lane lowering can take is one top-level numeric map loop. It is
+    -- recorded rather than required: a body of another shape is an ordinary
+    -- `@aot` function that compiles one iteration at a time, and only the
+    -- vectorisation check has anything to say about it. `simd = true` used to
+    -- make every one of these a build error.
+    reports(
+        [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -148,18 +163,26 @@ local function map(
     end
 end
 return {map = map}
-]], "", "the map-loop shape compiles")
+]],
+        "",
+        "the map-loop shape compiles"
+    )
 
-   reports([[
+    reports(
+        [[
 @aot
 local function missing(value: number): number
     return value
 end
 
 return {missing = missing}
-]], "", "a body with no loop is an ordinary AOT function")
+]],
+        "",
+        "a body with no loop is an ordinary AOT function"
+    )
 
-   reports([[
+    reports(
+        [[
 @aot
 local function two(count: integer): number
     local total = 0.0
@@ -174,9 +197,13 @@ local function two(count: integer): number
 end
 
 return {two = two}
-]], "", "two loops are not a shape lane lowering takes, and not an error")
+]],
+        "",
+        "two loops are not a shape lane lowering takes, and not an error"
+    )
 
-   reports([[
+    reports(
+        [[
 @aot(lanes = false)
 local function scalar(count: integer): number
     local total = 0.0
@@ -188,11 +215,15 @@ local function scalar(count: integer): number
 end
 
 return {scalar = scalar}
-]], "", "a deliberately scalar body declines lane lowering")
+]],
+        "",
+        "a deliberately scalar body declines lane lowering"
+    )
 
-   -- The setting overrides an estimate in either direction, so both literals
-   -- are accepted. Neither is a lane-count knob.
-   reports([[
+    -- The setting overrides an estimate in either direction, so both literals
+    -- are accepted. Neither is a lane-count knob.
+    reports(
+        [[
 @aot(lanes = true)
 local function forced(count: integer): number
     local total = 0.0
@@ -204,20 +235,28 @@ local function forced(count: integer): number
 end
 
 return {forced = forced}
-]], "", "a body may take lane lowering whatever the estimate says")
+]],
+        "",
+        "a body may take lane lowering whatever the estimate says"
+    )
 
-   reports([[
+    reports(
+        [[
 @aot(lanes = 4)
 local function wrong(value: number): number
     return value
 end
 
 return {wrong = wrong}
-]], "NUPP2115", "lanes is not a lane count")
+]],
+        "NUPP2115",
+        "lanes is not a lane count"
+    )
 end
 
 function M.gpuIsAnExecutionTargetRatherThanALaneWidth()
-   reports([[
+    reports(
+        [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -230,27 +269,39 @@ local function map(
     end
 end
 return {map = map}
-]], "", "a GPU map is an admitted AOT body")
+]],
+        "",
+        "a GPU map is an admitted AOT body"
+    )
 
-   reports([[
+    reports(
+        [[
 @aot(target = "gpu", lanes = true)
 local function wrong(value: number): number
     return value
 end
 return {wrong = wrong}
-]], "NUPP2115", "GPU invocation mapping does not also select CPU lanes")
+]],
+        "NUPP2115",
+        "GPU invocation mapping does not also select CPU lanes"
+    )
 
-   reports([[
+    reports(
+        [[
 @aot(target = "accelerator")
 local function wrong(value: number): number
     return value
 end
 return {wrong = wrong}
-]], "NUPP2115", "the execution target is a closed vocabulary")
+]],
+        "NUPP2115",
+        "the execution target is a closed vocabulary"
+    )
 end
 
 function M.gpuTargetBindsACompilerGeneratedTypedObject()
-   reportsGpu([[
+    reportsGpu(
+        [[
 local span = require("nupp.mem.span")
 local gpu = require("nupp.gpu")
 local ffi = require("ffi")
@@ -272,9 +323,13 @@ local kernel = scale:compile(context)
 local invocation = kernel:bind(output, input)
 invocation:dispatch(2.0)
 return true
-]], "", "the authored source sees the generated kernel and binding types")
+]],
+        "",
+        "the authored source sees the generated kernel and binding types"
+    )
 
-   reportsGpu([[
+    reportsGpu(
+        [[
 local span = require("nupp.mem.span")
 local gpu = require("nupp.gpu")
 
@@ -300,11 +355,15 @@ local function wrong(
     invocation:dispatch()
 end
 return wrong
-]], "NUPP2006", "the generated binding rejects buffers in the wrong positions")
+]],
+        "NUPP2006",
+        "the generated binding rejects buffers in the wrong positions"
+    )
 end
 
 function M.gpuBuffersExposeCheckedTensorLayouts()
-   reportsGpu([[
+    reportsGpu(
+        [[
 local gpu = require("nupp.gpu")
 local ffi = require("ffi")
 
@@ -313,8 +372,9 @@ local tensor = context:tensor(ffi.typeof<float>(), {4, 8})
 local bytes: gpu.Buffer<int8>? = nil
 local row = tensor:subview({2, 0}, {1, 8})
 local tensorLayout: gpu.Layout = gpu.bufferLayout(tensor)
-local columns = gpu.view(tensor, gpu.transposeLayout(tensorLayout, {2, 1}))
-local repeated = gpu.view(row, gpu.broadcastLayout(gpu.bufferLayout(row), {4, 8}))
+local layout = require("nupp.gpu.layout")
+local columns = gpu.view(tensor, layout.transpose(tensorLayout, {2, 1}))
+local repeated = gpu.view(row, layout.broadcast(gpu.bufferLayout(row), {4, 8}))
 local gapped = tensor:subview({0, 0}, {4, 4})
 local dimensions = row:dimensions()
 local strides = row:strides()
@@ -325,11 +385,15 @@ assert(not gpu.bufferIsDense(columns) and gpu.bufferIsInjective(columns))
 assert(not gpu.bufferIsDense(repeated) and not gpu.bufferIsInjective(repeated))
 assert(not gpu.bufferIsDense(gapped) and gpu.bufferIsInjective(gapped))
 return true
-]], "", "resident tensors expose checked dense, strided, transposed, and broadcast views")
+]],
+        "",
+        "resident tensors expose checked dense, strided, transposed, and broadcast views"
+    )
 end
 
 function M.gpuTargetWithoutRequiredLinkingRemainsAnOrdinaryFunction()
-   reports([[
+    reports(
+        [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -346,11 +410,15 @@ local use: function(
     borrows input: span.Span<float>
 ): nil = copy
 return use
-]], "", "a GPU body is unchanged unless aot=require installs its generated object")
+]],
+        "",
+        "a GPU body is unchanged unless aot=require installs its generated object"
+    )
 end
 
 function M.gpuTargetRequiresALocalFunctionDeclaration()
-   reports([[
+    reports(
+        [[
 local m = {}
 
 @aot(target = "gpu")
@@ -359,11 +427,15 @@ function m.copy(value: float): float
 end
 
 return m
-]], "NUPP2902", "a generated GPU specification needs one local binding to replace")
+]],
+        "NUPP2902",
+        "a generated GPU specification needs one local binding to replace"
+    )
 end
 
 function M.aotRequiresALocalFunctionDeclaration()
-   reports([[
+    reports(
+        [[
 local m = {}
 
 @aot
@@ -372,11 +444,15 @@ function m.copy(value: float): float
 end
 
 return m
-]], "NUPP2902", "an AOT entry needs the local binding lowering replaces")
+]],
+        "NUPP2902",
+        "an AOT entry needs the local binding lowering replaces"
+    )
 end
 
 function M.simdAcceptsOnlyTheRequiredSetting()
-   reports([[
+    reports(
+        [[
 @aot(simd = false)
 local function map(count: integer): number
     local total = 0.0
@@ -387,15 +463,19 @@ local function map(count: integer): number
 end
 
 return {map = map}
-]], "NUPP2115", "SIMD is a requirement rather than a writable preference")
+]],
+        "NUPP2115",
+        "SIMD is a requirement rather than a writable preference"
+    )
 end
 
 function M.spanMethodCallsAreAdmitted()
-   -- The span operations are the memory boundary the whole feature is built on,
-   -- and they are written as method calls. Refusing the syntax structurally would
-   -- refuse the subset's own vocabulary, so whether a call resolves is left to the
-   -- pass that knows the receiver's type.
-   reports([[
+    -- The span operations are the memory boundary the whole feature is built on,
+    -- and they are written as method calls. Refusing the syntax structurally would
+    -- refuse the subset's own vocabulary, so whether a call resolves is left to the
+    -- pass that knows the receiver's type.
+    reports(
+        [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -409,9 +489,13 @@ local function total(values: span.Span<float>): number
 end
 
 return {total = total}
-]], "", "a span read is admitted")
+]],
+        "",
+        "a span read is admitted"
+    )
 
-   reports([[
+    reports(
+        [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -422,13 +506,17 @@ local function double(exclusive values: span.WriteSpan<float>): nil
 end
 
 return {double = double}
-]], "", "a span write is admitted")
+]],
+        "",
+        "a span write is admitted"
+    )
 end
 
 function M.jitAndAotAreMutuallyExclusive()
-   -- Two compilers for one body is not a preference to resolve, so it is refused
-   -- whichever order the two are written in.
-   reports([[
+    -- Two compilers for one body is not a preference to resolve, so it is refused
+    -- whichever order the two are written in.
+    reports(
+        [[
 @jit
 @aot
 local function hot(scale: number): number
@@ -436,9 +524,13 @@ local function hot(scale: number): number
 end
 
 return {hot = hot}
-]], "NUPP2901", "@jit then @aot")
+]],
+        "NUPP2901",
+        "@jit then @aot"
+    )
 
-   reports([[
+    reports(
+        [[
 @aot
 @jit
 local function hot(scale: number): number
@@ -446,13 +538,17 @@ local function hot(scale: number): number
 end
 
 return {hot = hot}
-]], "NUPP2901", "@aot then @jit")
+]],
+        "NUPP2901",
+        "@aot then @jit"
+    )
 end
 
 function M.aotIsRefusedOnARecordMember()
-   -- A member's annotations never reach the pragma handler, so this is the case
-   -- that regresses silently if the refusal lives in only one place.
-   reports([[
+    -- A member's annotations never reach the pragma handler, so this is the case
+    -- that regresses silently if the refusal lives in only one place.
+    reports(
+        [[
 local record Point
     x: float
     @aot
@@ -462,15 +558,19 @@ local record Point
 end
 
 return {Point = Point}
-]], "NUPP2902", "a constructor is not a whole function")
+]],
+        "NUPP2902",
+        "a constructor is not a whole function"
+    )
 end
 
 function M.aotOnANestedFunctionIsRefused()
-   -- Discovery walks the chunk's own statements, so before this refusal the
-   -- annotation inside another body was simply never found: the contract was not
-   -- applied, `nupp aot` said no @aot function was there, and checking said
-   -- nothing at all.
-   reports([[
+    -- Discovery walks the chunk's own statements, so before this refusal the
+    -- annotation inside another body was simply never found: the contract was not
+    -- applied, `nupp aot` said no @aot function was there, and checking said
+    -- nothing at all.
+    reports(
+        [[
 local function outer(scale: number): number
     @aot
     local function inner(value: number): number
@@ -481,11 +581,15 @@ local function outer(scale: number): number
 end
 
 return {outer = outer}
-]], "NUPP2902", "an annotation inside another function is refused rather than ignored")
+]],
+        "NUPP2902",
+        "an annotation inside another function is refused rather than ignored"
+    )
 end
 
 function M.aNestedFunctionIsRefused()
-   reports([[
+    reports(
+        [[
 @aot
 local function total(scale: number): number
     local function double(x: number): number
@@ -496,11 +600,15 @@ local function total(scale: number): number
 end
 
 return {total = total}
-]], "NUPP2903", "a closure has no AOT IR representation")
+]],
+        "NUPP2903",
+        "a closure has no AOT IR representation"
+    )
 end
 
 function M.freshTableConstructionIsStructurallyAdmitted()
-   reports([[
+    reports(
+        [[
 @aot
 local function build(scale: number): number
     local values = {scale}
@@ -509,25 +617,33 @@ local function build(scale: number): number
 end
 
 return {build = build}
-]], "", "a fresh table has a VM-aware AOT representation")
+]],
+        "",
+        "a fresh table has a VM-aware AOT representation"
+    )
 
 end
 
 function M.primitiveStringConstructionIsStructurallyAdmitted()
-   reports([[
+    reports(
+        [[
 @aot
 local function label(name: string): string
     return name .. "!"
 end
 
 return {label = label}
-]], "", "primitive concatenation has a VM-aware AOT representation")
+]],
+        "",
+        "primitive concatenation has a VM-aware AOT representation"
+    )
 end
 
 function M.arbitraryJumpsAreRefused()
-   -- `goto` waits until AOT IR source maps can represent every existing rule, so
-   -- both halves of one are named rather than only the jump.
-   reports([[
+    -- `goto` waits until AOT IR source maps can represent every existing rule, so
+    -- both halves of one are named rather than only the jump.
+    reports(
+        [[
 @aot
 local function jump(scale: number): number
     goto done
@@ -537,14 +653,18 @@ local function jump(scale: number): number
 end
 
 return {jump = jump}
-]], "NUPP2903 NUPP2903", "goto and its label")
+]],
+        "NUPP2903 NUPP2903",
+        "goto and its label"
+    )
 end
 
 function M.aRefusedConstructIsReportedOnce()
-   -- The walk does not descend into what it refused. A closure holding three
-   -- tables is one problem with one fix, and three more diagnostics inside a
-   -- function that cannot be there at all would bury it.
-   reports([[
+    -- The walk does not descend into what it refused. A closure holding three
+    -- tables is one problem with one fix, and three more diagnostics inside a
+    -- function that cannot be there at all would bury it.
+    reports(
+        [[
 @aot
 local function total(scale: number): number
     local function build(): number
@@ -558,13 +678,17 @@ local function total(scale: number): number
 end
 
 return {total = total}
-]], "NUPP2903", "the closure is named and its contents are not")
+]],
+        "NUPP2903",
+        "the closure is named and its contents are not"
+    )
 end
 
 function M.anUnannotatedFunctionIsUnaffected()
-   -- Removing `@aot` from accepted source preserves its ordinary Nupp answer, so
-   -- the same body without the annotation reports nothing at all.
-   reports([[
+    -- Removing `@aot` from accepted source preserves its ordinary Nupp answer, so
+    -- the same body without the annotation reports nothing at all.
+    reports(
+        [[
 local function total(scale: number): number
     local function double(x: number): number
         return x * 2.0
@@ -574,7 +698,10 @@ local function total(scale: number): number
 end
 
 return {total = total}
-]], "", "the subset applies only where it was asked for")
+]],
+        "",
+        "the subset applies only where it was asked for"
+    )
 end
 
 return M

@@ -471,7 +471,8 @@ function resolve.install(c: state.Checker): nil
         ]
         local isGpuBuffer = origin.name == "Buffer" and (
             origin.moduleName == "nupp.gpu"
-            or origin.moduleName == "nupp.runtime.provider.nativegpu"
+            or origin.moduleName == "nupp.gpu.internal"
+            or origin.moduleName == "nupp.runtime.browser.webgpu.internal"
             or selectedGpu
             and origin.moduleName == selectedGpu.runtimeModule
         )
@@ -1110,6 +1111,15 @@ function resolve.install(c: state.Checker): nil
                     if holder and holder.requiredModule then
                         moduleName = holder.requiredModule
                     end
+                end
+                local access = c.env and c.env.moduleAccess and c.env.moduleAccess(
+                    c.env,
+                    c.result.moduleName,
+                    moduleName
+                )
+                if access and not c.opts.generatedSource then
+                    c.diag("NUPP2144", lastTok, access)
+                    return T.any
                 end
                 local t, def, resolvedModule = nil, nil, nil
                 if c.env and c.env.resolveQualifiedType then

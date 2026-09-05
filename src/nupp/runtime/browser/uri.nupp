@@ -1,0 +1,120 @@
+@!internal
+module nupp.runtime.browser.uri
+
+const contracts = require("nupp.runtime.backend.contracts")
+const pathtext = require("nupp.io.uri.pathtext")
+local provider = {}
+
+-- Browser URI parsing supplies components; the public URI value and its
+-- operations are owned by nupp.io.uri on every host.
+function provider.parse(text: string): (contracts.UriParts?, string?)
+    local scheme, remainder = text:match("^([A-Za-z][A-Za-z0-9+.-]*):(.*)$")
+    if scheme == nil then
+        return nil, "relative URL without a base"
+    end
+    scheme = scheme:lower()
+    local defaults: {[string]: integer} = {http = 80, https = 443, ws = 80, wss = 443, ftp = 21}
+    local special = defaults[scheme] ~= nil or scheme == "file"
+    local fragment: string? = nil
+    local beforeFragment, foundFragment = remainder:match("^(.-)#(.*)$")
+    if beforeFragment ~= nil then
+        remainder, fragment = beforeFragment, foundFragment
+    end
+    local query: string? = nil
+    local beforeQuery, foundQuery = remainder:match("^(.-)%?(.*)$")
+    if beforeQuery ~= nil then
+        remainder, query = beforeQuery, foundQuery
+    end
+    local authority: string? = nil
+    local path = remainder
+    if remainder:sub(1, 2) == "//" then
+        authority, path = remainder:sub(3):match("^([^/]*)(.*)$")
+    end
+    if special and scheme ~= "file" and (authority == nil or authority == "") then
+        return nil, "empty host"
+    end
+    local username: string = ""
+    local password: string? = nil
+    local host: string? = nil
+    local port: integer? = nil
+    if authority ~= nil then
+        local userInfo, hostPort = authority:match("^(.-)@(.*)$")
+        hostPort = hostPort or authority
+        if userInfo ~= nil then
+            local foundUsername, foundPassword = userInfo:match("^([^:]*):?(.*)$")
+            username, password = foundUsername or "", foundPassword
+            if password == "" and not userInfo:find(":", 1, true) then
+                password = nil
+            end
+        end
+        local namedHost: string
+        local namedPort: string? = nil
+        if hostPort:sub(1, 1) == "[" then
+            local address, suffix = hostPort:match("^(%[[%x:.]+%])(.*)$")
+            if address == nil or not address:find(":", 1, true) then
+                return nil, "invalid IPv6 address"
+            end
+            namedHost = address:lower()
+            if suffix ~= "" then
+                namedPort = suffix:match("^:(%d*)$")
+                if namedPort == nil then
+                    return nil, "invalid port number"
+                end
+            end
+        else
+            local before, after = hostPort:match("^(.-):(.*)$")
+            namedHost = before or hostPort
+            namedPort = after
+            if namedHost:find("[%s%[%]\\<>^|]") then
+                return nil, "invalid host"
+            end
+        end
+        host = special and namedHost:lower() or namedHost
+        if host == "" then
+            if special and scheme ~= "file" then
+                return nil, "empty host"
+            end
+            host = nil
+        end
+        if namedPort ~= nil and namedPort ~= "" then
+            if not namedPort:match("^%d+$") then
+                return nil, "invalid port number"
+            end
+            port = tonumber(namedPort) as integer?
+            if port == nil or port > 65535 then
+                return nil, "URI port is outside 0 through 65535"
+            end
+            if port == defaults[scheme] then
+                port = nil
+            end
+        end
+        authority = (userInfo ~= nil and userInfo .. "@" or "") .. (host or "") .. (port ~= nil and ":" .. port or "")
+    end
+    if authority ~= nil or path:sub(1, 1) == "/" then
+        path = pathtext.removeDotSegments(path)
+    end
+    if special and path == "" then
+        path = "/"
+    end
+    path = path:gsub(" ", "%%20")
+
+    local normalized = scheme .. ":" .. (
+        authority ~= nil and "//" .. authority or ""
+    ) .. path .. (query ~= nil and "?" .. query or "") .. (fragment ~= nil and "#" .. fragment or "")
+
+    return new contracts.UriParts(
+        text = normalized,
+        scheme = scheme,
+        authority = authority,
+        username = username,
+        password = password,
+        host = host,
+        port = port,
+        path = path,
+        query = query,
+        fragment = fragment
+    )
+end
+
+local checked: contracts.UriTextProvider = {parse = provider.parse}
+export = checked

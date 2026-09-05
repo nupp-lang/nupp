@@ -1,0 +1,251 @@
+module nupp.runtime.backend.contracts
+
+--[[
+Typed contracts for backend authors. A provider implements the interface for the
+seam it supplies; `nupp.runtime.backend` validates and installs a backend declaration.
+Application code uses the corresponding standard-library module.
+]]
+
+--- What a provider does to a table it is asked to mark: takes it, marks it, and
+--- hands back the same one, so the caller's type survives the round trip.
+export type MarkContainer = function<T is table>(takes value: T): T preserves value
+
+--- `data.json`, the codec `nupp.data.json` is written against.
+---
+--- The marking members own what they mark. `nupp.data.json.asArray` hands its
+--- caller's table straight to the provider and promises to hand the same one
+--- back, so a provider answering `(value: any): any` breaks that promise one
+--- call further in -- which is what the checker says when this is written the
+--- weaker way.
+---
+--- The serde members are absent from a provider that has no schema-specialized
+--- decoder, which is why they are optional here and why every caller reaches
+--- them through a nil test.
+export interface JsonProvider
+    arrayOf: function(shape: any?): any
+    asArray: MarkContainer
+    asObject: MarkContainer
+    isArray: function(value: any): boolean
+    decode: function(text: string, nullValue: any?): any
+    encode: function(value: any, nullValue: any?): string
+    serialize: function(value: any, nullValue: any?): string
+    encoded: function(value: any, nullValue: any?): any
+    encodedString: function(value: string): any
+    pull: function(text: string, shape: any, nullValue: any?): any
+    verified: function(text: string): any
+    verifiedString: function(text: string): any
+    writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): any
+    NULL: any
+    EMPTY_ARRAY: table
+    EMPTY_OBJECT: table
+    compileSerde: (function(plan: any, unknownMembers: string): any)?
+    decodeSerde: (function(schema: any, text: string): (any?, string?))?
+    decodeSerdeBuffer: (function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?))?
+end
+
+--- `data.uuid`, the identifiers `nupp.data.uuid4` and `uuid7` are projected from.
+export interface UuidProvider
+    uuid4: function(): string
+    uuid7: function(): string
+end
+
+--- `crypto.hmac_sha256`, the accelerator `nupp.data.hash` prefers where a
+--- backend installs one.
+export interface HmacSha256Provider
+    digest: function(key: string, message: string): string
+    hex: function(key: string, message: string): string
+end
+
+--- `host.time`, which answers `nupp.time`.
+export interface TimeProvider
+    now: function(): number
+    wallTime: function(): number
+    sleep: function(milliseconds: number): nil
+    sleepUntil: function(deadline: number): nil
+end
+
+--- `host.path`, the environment `nupp.io.path` resolves against.
+---
+--- Each answer is a value-or-reason pair, because a host that cannot say what
+--- its current directory is has a reason rather than a path.
+export interface PathProvider
+    separator: function(): string
+    currentDirectory: function(): (string?, string?)
+    canonicalize: function(path: string): (string?, string?)
+end
+
+--- `host.storage`, the key-value store behind `nupp.io.storage`.
+export interface StorageProvider
+    get: function(name: string): string?
+    set: function(name: string, value: string): nil
+    remove: function(name: string): nil
+    clear: function(): nil
+end
+
+--- `data.sha256`, the digest projected onto `nupp.data.sha256`.
+export interface Sha256Provider
+    sha256: function(message: string): string
+end
+
+--- `host.crypto`, the one host object behind three seams.
+---
+--- A browser answers SHA-256, HMAC-SHA256 and identifiers from the same
+--- WebCrypto surface, so the provider named for `host.crypto` is also
+--- what `data.sha256`, `crypto.hmac_sha256` and `data.uuid` select.
+export interface CryptoProvider
+    digest: function(key: string, message: string): string
+    hex: function(key: string, message: string): string
+    randomBytes: function(count: integer): string
+    sha256: function(message: string): string
+    uuid4: function(): string
+    uuid7: function(): string
+end
+
+--- `numeric.bitops`, the BitOp surface compile-bound lowering emits against.
+---
+--- The folding operations are variadic because BitOp's are: `band(a, b, c)` is
+--- one call there, and a provider that took exactly two would fail the third
+--- argument rather than the declaration.
+export interface BitopsProvider
+    band: function(first: number, ...: number): number
+    bor: function(first: number, ...: number): number
+    bxor: function(first: number, ...: number): number
+    bnot: function(value: number): number
+    lshift: function(value: number, count: number): number
+    rshift: function(value: number, count: number): number
+    arshift: function(value: number, count: number): number
+end
+
+--- `numeric.int64`, the wide integers a dialect without cdata cannot represent.
+---
+--- A wide value is the provider's own representation and stays `any` here: it
+--- is a boxed table portably and a cdata natively, and the contract is what
+--- both answer rather than what either one is.
+export interface Int64Provider
+    int64: function(value: any): any
+    uint64: function(value: any): any
+    add: function(left: any, right: any): any
+    sub: function(left: any, right: any): any
+    mul: function(left: any, right: any): any
+    div: function(left: any, right: any): any
+    mod: function(left: any, right: any): any
+    pow: function(left: any, right: any): any
+    neg: function(value: any): any
+    band: function(left: any, right: any): any
+    bor: function(left: any, right: any): any
+    bxor: function(left: any, right: any): any
+    bnot: function(value: any): any
+    lshift: function(value: any, count: number): any
+    rshift: function(value: any, count: number): any
+    arshift: function(value: any, count: number): any
+    compare: function(left: any, right: any): number
+    toNumber: function(value: any): number
+    toString: function(value: any): string
+end
+
+--- `numeric.simd`, the lane species compile-bound vector lowering reaches.
+export interface SimdProvider
+    preferredU8: function(): any
+    tableU8x16: function(...: number): any
+    maskBits64: function(low: number, high: number): any
+    alignBytes: function(previous: any, current: any, offset: number): any
+    paddedStringU8: function(source: string): any
+    lanes: any
+end
+
+--- `representation.structvalue`, the table layout a dialect without cdata uses.
+export interface StructvalueProvider
+    scalar: function(kind: string): any
+    array: function(element: any, count: integer): any
+    define: function(layout: any, methods: table): any
+    referenceValued: any
+end
+
+--- `host.wasm`, the opaque linear memory a Lua-in-Wasm host owns.
+---
+--- A pointer is the host's, not Nupp's, which is why every member takes and
+--- returns `any`: the guarantee is the bounds check behind them, not a shape a
+--- program could construct for itself.
+export interface WasmProvider
+    allocate: function(bytes: integer): any
+    pointer: function(allocation: any, index: integer, stride: integer): any
+    offset: function(pointer: any, count: integer): any
+    load: function(pointer: any, byteOffset: integer, kind: string): any
+    store: function(pointer: any, byteOffset: integer, kind: string, value: any): nil
+    copy: function(destination: any, source: any, bytes: integer): nil
+    descriptor: function(value: any): any
+end
+
+--- `text.buffer`, the appending half of LuaJIT's `string.buffer`.
+---
+--- Only `new`, because that is what the standard library reaches a buffer for.
+--- A provider is free to answer the FIFO reads and the serializer beside it; a
+--- portable one has no way to answer the pointer methods, and nothing asks.
+export interface TextBufferProvider
+    new: function(size: (integer | table)?, options: table?): any
+end
+
+--- `peg`, the matching engine and only the engine.
+---
+--- A provider stands in for the LPeg rock a native host would stage. It cannot
+--- stand in for `stdlib.peg`, which binds the runtime module into locals of the
+--- chunk a materialized matcher is generated against.
+export interface PegProvider
+    compile: function(pattern: string): any
+    match: function(pattern: any, subject: string): any?
+end
+
+--- Normalized URI text and the components identified by a parser.
+export record UriParts
+    text: string
+    scheme: string
+    authority: string?
+    username: string
+    password: string?
+    host: string?
+    port: integer?
+    path: string
+    query: string?
+    fragment: string?
+end
+
+--- `host.uri` supplies parsing to the shared `nupp.io.uri` API.
+export interface UriTextProvider
+    parse: function(text: string): (UriParts?, string?)
+end
+
+--- Operations the selected HTTP provider can guarantee.
+export record HttpCapabilities
+    --- Response bytes become available before the whole response arrives.
+    streamingResponse: boolean
+
+    --- Request bodies may be read incrementally from a reader or file.
+    streamingRequest: boolean
+
+    --- Proxy and per-host certificate policy can be configured by the caller.
+    transportPolicy: boolean
+
+    --- Redirect and connection limits can be enforced by the caller.
+    connectionPolicy: boolean
+
+    --- The negotiated HTTP version is observable.
+    protocolVersion: boolean
+end
+
+--- `host.http`, which answers `nupp.io.http`.
+---
+--- The record members are the provider's declarations rather than shapes
+--- restated here, because a body or a response is the type a program names and
+--- the seam only decides which module declares it.
+export interface HttpProvider
+    capabilities: function(): HttpCapabilities
+    file: function(path: string, contentType: string?): any
+    reader: function(source: any, length: integer?, contentType: string?): any
+    Body: any
+    Client: any
+    FileBody: any
+    Options: any
+    ReaderBody: any
+    Request: any
+    Response: any
+end

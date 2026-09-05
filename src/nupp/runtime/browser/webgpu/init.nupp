@@ -1,0 +1,26 @@
+module nupp.runtime.browser.webgpu
+
+--[[WebGPU provider over the browser Worker's Wasm memory and effect boundary.]]
+
+local implementation = require("nupp.runtime.browser.webgpu.internal")
+
+export type Layout = implementation.Layout
+export const Layout = implementation.Layout
+export type Element<T> = implementation.Element<T>
+export const Element = implementation.Element
+export type Buffer<T> = implementation.Buffer<T>
+export const Buffer = implementation.Buffer
+export type Shared<T> = implementation.Shared<T>
+export const Shared = implementation.Shared
+export type Phases = implementation.Phases
+export const Phases = implementation.Phases
+export type ContextToken = implementation.ContextToken
+export type Context = implementation.Context
+export const Context = implementation.Context
+export const PORTABLE_WORKGROUP_THREADS = implementation.PORTABLE_WORKGROUP_THREADS
+export const PORTABLE_SCRATCH_BYTES = implementation.PORTABLE_SCRATCH_BYTES
+export const destroyContext = implementation.destroyContext
+export const workgroups = implementation.workgroups
+export const open = implementation.open
+export const uint32 = implementation.uint32
+export const int32 = implementation.int32

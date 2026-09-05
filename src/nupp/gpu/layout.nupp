@@ -24,63 +24,7 @@ local function copied(values: {integer}): {integer}
     return out
 end
 
-local function facts(shape: {integer}, strides: {integer}, level: integer): (integer, integer, boolean, boolean)
-    if #shape < 1 or #shape > 4 or #strides ~= #shape then
-        error("nupp: GPU tensor layouts take one through four matched dimensions and strides", level)
-    end
-    local count: integer = 1
-    local extent: integer = 1
-    local expected: integer = 1
-    local dense = true
-    for index = #shape, 1, -1 do
-        local dimension = shape[index]
-        local stride = strides[index]
-        if dimension < 1 or stride < 0 or count > 4294967295 // dimension then
-            error("nupp: GPU tensor dimensions and strides must fit uint32", level)
-        end
-        if dimension > 1 and stride ~= expected then
-            dense = false
-        end
-        count = count * dimension
-        if dimension > 1 and stride > 0 then
-            local distance = dimension - 1
-            if distance > (4294967295 - extent) // stride then
-                error("nupp: GPU tensor layout extent exceeds uint32", level)
-            end
-            extent = extent + distance * stride
-        end
-        expected = expected * dimension
-    end
-
-    local used: {boolean} = {}
-    local occupied: integer = 1
-    local injective = true
-    for _ = 1, #shape do
-        local chosen: integer = 0
-        local smallest: integer? = nil
-        for axis = 1, #shape do
-            if not used[axis] and shape[axis] > 1 and (smallest == nil or strides[axis] < (smallest as integer)) then
-                chosen = axis
-                smallest = strides[axis]
-            end
-        end
-        if chosen == 0 then
-            break
-        end
-        used[chosen] = true
-        local stride = smallest as integer
-        if stride < occupied then
-            injective = false
-        end
-        occupied = occupied + (shape[chosen] - 1) * stride
-    end
-
-    return count, extent, dense, injective
-end
-
-function layout._facts(shape: {integer}, strides: {integer}, level: integer): (integer, integer, boolean, boolean)
-    return facts(shape, strides, level)
-end
+local facts = require("nupp.gpu.layoutfacts").layoutFacts
 
 function layout.new(offset: integer, shape: {integer}, strides: {integer}): layout.Layout
     if offset < 0 or offset > 4294967295 then

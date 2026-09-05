@@ -1,0 +1,1686 @@
+module nupp.io.net
+
+--[[
+`nupp.io.net` is the network as bytes: a listener, the connections it accepts,
+and connections this process opens itself.
+
+```nupp
+local listener = assert(nupp.io.net.listen({host = "127.0.0.1", port = 0}))
+local stream = assert(listener:accept())
+print(assert(stream:read(5)))
+stream:close()
+listener:close()
+```
+
+A connection reads and writes through the `Reader` and `Writer` contracts on
+[](nupp.io), so a parser written against byte I/O reads a socket without knowing
+it has one. A read answers bytes, suspends while none have arrived, or answers
+empty because the peer closed its sending half; empty is only ever the end.
+
+A listener and a connection are owners. See
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
+out under.
+]]
+
+local suspension = require("nupp.suspension")
+local span = require("nupp.mem.span")
+local ffi = require("ffi")
+local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
+
+--- The bytes a shared span addresses, without copying them twice.
+local function spanString(borrows source: span.ByteSpan): string
+    const pointer = source:ref()
+
+    return ffiString(pointer, #source)
+end
+
+const backendapi = require("nupp.runtime.backend.net")
+local net = {}
+const shared = require("nupp.io.net.types")
+local layering = require("nupp.io.net.internal")
+
+----------------------------------------------------------------------------
+-- What a socket is described by
+----------------------------------------------------------------------------
+
+--- How a listener is opened.
+type net.ListenOptions = {
+    --- The address to bind, as an IPv4 or IPv6 literal. A name is not resolved
+    --- here, because a listener binds an interface rather than reaching a peer.
+    ---
+    --- Given with `port`, and not with `path`: a listener binds an address or a
+    --- filesystem name, and naming both says two different things at once.
+    host: string?,
+
+    --- The port to bind, or zero to let the platform choose one. `Listener.port`
+    --- answers which was chosen.
+    port: integer?,
+
+    --- A filesystem name to bind instead, for a Unix domain socket.
+    ---
+    --- The name is not removed when the listener closes. A caller that binds a
+    --- path owns that path, and unlinking a file this process may not have
+    --- created is not a transport's decision to make.
+    path: string?,
+
+    --- How many connections the platform may hold before this process accepts
+    --- them, or nil for the platform's usual depth.
+    backlog: integer?,
+
+    --- Whether to ask for load-balancing port reuse, so that a listener per lane
+    --- shares one port. Refused where the platform's semantics are not load
+    --- balancing rather than quietly degraded, so a program depending on it
+    --- learns at bind.
+    reusePort: boolean?
+}
+
+--- How a connection is opened.
+type net.ConnectOptions = {
+    --- The peer to reach, as a name or an address literal. A name is resolved
+    --- off this frame. Given with `port`, and not with `path`.
+    host: string?,
+
+    --- The peer's port.
+    port: integer?,
+
+    --- A filesystem name to reach instead, for a Unix domain socket. Nothing is
+    --- resolved for one, so a connect to a path starts at the handshake.
+    path: string?,
+
+    --- The most bytes this connection may hold unsent before `write` waits.
+    --- Defaults to one mebibyte.
+    sendHighWater: integer?,
+
+    --- How long the connect may take, resolution included, before it gives up.
+    --- Defaults to thirty seconds.
+    ---
+    --- There is no way to ask for no deadline at all. A connect that waits
+    --- forever is a hang somebody eventually reports as a bug, and a peer that
+    --- accepts a packet and then says nothing is a normal thing on a network
+    --- rather than an unusual one.
+    timeoutMs: integer?
+}
+
+--- How a datagram socket is opened.
+type net.DatagramOptions = {
+    --- The address to bind, as an IPv4 or IPv6 literal.
+    host: string,
+
+    --- The port to bind, or zero to let the platform choose one.
+    port: integer,
+
+    --- Whether to ask for load-balancing port reuse, so that a socket per lane
+    --- shares one port. Refused where the platform's semantics are not load
+    --- balancing rather than quietly degraded.
+    reusePort: boolean?
+}
+
+--- Where a datagram came from, and where one may be sent.
+type net.Address = shared.Address
+
+--- What one received datagram was.
+---
+--- The bytes are not here: they went into the storage the receive named. What
+--- is here is everything a caller cannot get from those bytes -- how many of
+--- them landed, who sent them, and whether the rest is gone.
+--- @export
+record net.Message
+    --- How many bytes landed in the storage offered.
+    length: integer
+
+    --- The peer that sent them.
+    address: net.Address
+
+    --- Whether the datagram was larger than the storage offered, so that what
+    --- landed is the beginning of a message rather than a message.
+    ---
+    --- Never silently false: a protocol that parses the first 1500 bytes of a
+    --- larger datagram without being told is parsing something nobody sent, and
+    --- that is a security bug rather than a lost packet.
+    truncated: boolean
+end
+
+----------------------------------------------------------------------------
+-- Reading and writing
+----------------------------------------------------------------------------
+
+const DEFAULT_HIGH_WATER = 1048576
+const DEFAULT_CONNECT_MS = 30000
+const READ_SIZE = 65536
+const HOST_SIZE = 64
+
+--- Checks a count the way every byte API here does.
+--- @raises when the value is not a positive integer
+local function positive(value: integer, what: string, level: integer): integer
+    if value < 1 or math.floor(value) ~= value then
+        error("nupp: " .. what .. " must be a positive integer", level + 1)
+    end
+
+    return value
+end
+
+--- @raises when the value is not a port number
+local function checkedPort(value: integer, what: string, level: integer): integer
+    if value < 0 or value > 65535 or math.floor(value) ~= value then
+        error("nupp: " .. what .. " must be 0 through 65535", level + 1)
+    end
+
+    return value
+end
+
+--- @raises when no backend has been installed
+local function platform(): backendapi.Backend
+    local chosen = backendapi.current()
+    if chosen == nil then
+        error("nupp: nupp.io.net has no backend installed", 2)
+    end
+
+    return chosen
+end
+
+--- Suspends until `ready` answers true, driving this lane's reactor while it
+--- waits.
+---
+--- The source carries both a poll and a wait, so a host with its own loop drives
+--- the reactor from its frame and a command-line program blocks in it. Neither
+--- spelling appears at a call site: a caller writes the read it wanted.
+local function await(operation: string, scoped ready: function(): boolean): nil
+    if ready() then
+        return
+    end
+    const chosen = platform()
+    suspension.suspend(operation, function(resume: function(boolean), context: any): function()?
+        const source = context:source(
+            "nupp.io.net",
+            50,
+            function(): integer
+                chosen:run(0)
+                if ready() then
+                    resume(true)
+
+                    return 1
+                end
+
+                return 0
+            end,
+            function(waitMs: integer): integer
+                chosen:run(waitMs)
+
+                return 0
+            end
+        )
+
+        return function(): nil
+            source:release()
+        end
+    end)
+end
+
+--- Reads once from a handle, suspending while nothing has arrived.
+---
+--- The three states live here, and both faces of a connection share them: bytes,
+--- a park because none have arrived yet, or empty because the peer closed its
+--- sending half. Empty is only ever the end.
+local function readOnce(chosen: backendapi.Backend, handle: any, wanted: integer): (string?, string?)
+    local chunk: string? = nil
+    local failure: string? = nil
+    await("nupp.io.net read", function(): boolean
+        const got, why = chosen:read(handle, wanted)
+        if got == nil then
+            failure = why or "the connection failed"
+
+            return true
+        end
+        if #got > 0 then
+            chunk = got
+
+            return true
+        end
+
+        return chosen:ended(handle)
+    end)
+    if failure ~= nil then
+        return nil, failure
+    end
+
+    return chunk or ""
+end
+
+--- Writes everything, in pieces that fit beneath the send bound.
+---
+--- The bound governs how much is queued at one time and not how much may be
+--- sent, so an input larger than it proceeds rather than waiting for room it
+--- will never have.
+local function writeAll(chosen: backendapi.Backend, handle: any, highWater: integer, bytes: string): (boolean, string?)
+    -- Built once. The wait does not vary with the piece being sent, and a
+    -- closure built per iteration is what stops this loop compiling.
+    local waitingBelow = highWater
+    const hasRoom = function(): boolean
+        return chosen:pending(handle) < waitingBelow
+    end
+    local at = 1
+    while at <= #bytes do
+        local room = highWater - chosen:pending(handle)
+        if room < 1 then
+            waitingBelow = highWater
+            await("nupp.io.net write", hasRoom)
+            room = highWater - chosen:pending(handle)
+            if room < 1 then
+                room = 1
+            end
+        end
+        const taking = math.min(room, #bytes - at + 1) as integer
+        const took, why = chosen:write(handle, bytes:sub(at, at + taking - 1))
+        if took == nil then
+            return false, why
+        end
+        if took < 1 then
+            -- A backend may impose a stricter structural bound than the
+            -- caller-selected policy. Wait for its observed queue to retire
+            -- instead of spinning while it reports no acceptance.
+            waitingBelow = chosen:pending(handle)
+            if waitingBelow < 1 then
+                return false, "the network writer accepted no bytes without applying backpressure"
+            end
+            await("nupp.io.net write", hasRoom)
+        else
+            at = at + took
+        end
+    end
+
+    return true
+end
+
+--- Waits until nothing accepted is still held by the platform.
+---
+--- An empty queue is not by itself success: a write that failed leaves nothing
+--- pending either, so the failure has to be asked about separately or a caller
+--- sees success at the moment its bytes were lost.
+local function drain(chosen: backendapi.Backend, handle: any): (boolean, string?)
+    await("nupp.io.net flush", function(): boolean
+        return (chosen:pending(handle) == 0 and not chosen:shuttingDown(handle)) or chosen:writeFailed(handle)
+    end)
+    if chosen:writeFailed(handle) then
+        return false, "a write did not reach the platform"
+    end
+
+    return true
+end
+
+----------------------------------------------------------------------------
+-- Streams
+----------------------------------------------------------------------------
+
+--- One connection.
+---
+--- The owner of the socket, and the only cleanup obligation: a direction view
+--- borrows this and ends a direction, while `close` here ends the connection.
+--- @export
+record net.Stream is nupp.io.Reader, nupp.io.Writer
+    private _backend: backendapi.Backend
+    private _handle: any
+    private _closed: boolean
+    private _shutdown: boolean
+    private _highWater: integer
+
+    --- Whether this side has released the connection.
+    function isReleased(self): boolean
+        return self._closed
+    end
+
+    --- Whether the peer closed its sending half and nothing is left buffered.
+    ---
+    --- A read answers empty exactly when this is true, which is what keeps a
+    --- quiet connection and a finished one apart.
+    function isEnded(self): boolean
+        if self._closed then
+            return true
+        end
+
+        return self._backend:ended(self._handle)
+    end
+
+    --- How many bytes this process still holds unsent.
+    ---
+    --- A local fact and not a delivery receipt: bytes leave this count when the
+    --- platform takes them, which says nothing about the peer having read them.
+    function pending(self): integer
+        if self._closed then
+            return 0
+        end
+
+        return self._backend:pending(self._handle)
+    end
+
+    --- Who is at the other end, or nil for a connection that has no peer
+    --- address.
+    ---
+    --- A Unix socket has a filesystem name and no peer address, and answers nil
+    --- rather than something that looks like one.
+    function peerAddress(self): net.Address?
+        if self._closed then
+            return nil
+        end
+
+        return self._backend:address(self._handle, true)
+    end
+
+    --- Which of this machine's addresses the connection is on, or nil where
+    --- there is none.
+    function localAddress(self): net.Address?
+        if self._closed then
+            return nil
+        end
+
+        return self._backend:address(self._handle, false)
+    end
+
+    --- Turns Nagle's algorithm off, so a small write goes out now.
+    ---
+    --- The kernel coalesces small writes by default, which can hold a reply for
+    --- tens of milliseconds waiting for more to send. That is the right trade
+    --- for bulk transfer and the wrong one for a protocol that answers
+    --- requests, so a server usually wants this on every connection it accepts.
+    --- @param self this connection
+    --- @param enable whether to send small writes immediately
+    --- @return whether the option was set
+    --- @return why it was not, when unsuccessful
+    function setNoDelay(self, enable: boolean): (boolean, string?)
+        if self._closed then
+            return false, "the connection is closed"
+        end
+
+        return self._backend:noDelay(self._handle, enable)
+    end
+
+    --- Asks the kernel to probe an idle connection.
+    ---
+    --- A peer that vanished without closing leaves a connection that looks open
+    --- forever. Probing is what eventually notices, and the delay is how long
+    --- the connection may be idle before the first probe.
+    --- @param self this connection
+    --- @param enable whether to probe
+    --- @param delaySeconds idle seconds before the first probe
+    --- @return whether the option was set
+    --- @return why it was not, when unsuccessful
+    --- @raises when the delay is not a positive integer
+    function setKeepAlive(self, enable: boolean, delaySeconds: integer): (boolean, string?)
+        if self._closed then
+            return false, "the connection is closed"
+        end
+
+        return self._backend:keepAlive(
+            self._handle,
+            enable,
+            positive(delaySeconds, "net.Stream setKeepAlive delaySeconds", 2)
+        )
+    end
+
+    --- Reads up to `count` bytes, suspending while none have arrived.
+    ---
+    --- An empty answer is the end, as the contract says, and it is only ever the
+    --- end: a quiet connection parks rather than answering zero.
+    --- @param self this connection
+    --- @param count the most bytes to read
+    --- @return the bytes, or nil when the connection is closed
+    --- @return why it could not read, when unsuccessful
+    --- @raises when count is not a positive integer
+    function read(self, count: integer): (string?, string?)
+        if self._closed then
+            return nil, "the connection is closed"
+        end
+
+        return readOnce(self._backend, self._handle, positive(count, "net.Stream read count", 2))
+    end
+
+    --- Reads directly into a checked writable span. A zero answer is the end.
+    --- @param self this connection
+    --- @param destination the positive-sized range to fill
+    --- @return how many bytes were read, or nil when the connection is closed
+    --- @return why it could not read, when unsuccessful
+    --- @raises when the destination is empty
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        const wanted = positive(#destination, "net.Stream readSpan destination length", 2)
+        const chunk, why = self:read(wanted)
+        if chunk == nil then
+            return nil, why
+        end
+        const input = span.fromString(chunk)
+        for index = 1, #chunk do
+            destination[index] = input[index]
+        end
+
+        return #chunk as integer
+    end
+
+    --- Reads into a buffer. A zero answer is the end.
+    --- @param self this connection
+    --- @param destination the buffer to write into
+    --- @param offset where in the destination to start, or the beginning
+    --- @param count the most bytes to read
+    --- @return how many bytes were read, or nil when the connection is closed
+    --- @return why it could not read, when unsuccessful
+    --- @raises when count is not a positive integer
+    function readInto(
+        self,
+        exclusive destination: nupp.io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+        const wanted = positive(count or READ_SIZE, "net.Stream readInto count", 2)
+        const chunk, why = self:read(wanted)
+        if chunk == nil then
+            return nil, why
+        end
+        const landed = #chunk as integer
+        if landed > 0 then
+            const input = span.fromString(chunk)
+            const lease = destination:reserveWrite(offset or 0, landed)
+            do
+                const output = lease:span()
+                for index = 1, landed do
+                    output[index] = input[index]
+                end
+                drop output
+            end
+            lease:commit(landed)
+        end
+
+        return landed
+    end
+
+    --- Writes everything left to a writer.
+    --- @param self this connection
+    --- @param destination the writer to fill
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function transferTo(self, exclusive destination: nupp.io.Writer): (integer?, string?)
+        local moved: integer = 0
+        while true do
+            const chunk, why = self:read(READ_SIZE)
+            if chunk == nil then
+                return nil, why
+            end
+            if #chunk == 0 then
+                return moved
+            end
+            const wrote, wroteWhy = destination:write(chunk)
+            if not wrote then
+                return nil, wroteWhy
+            end
+            moved = moved + (#chunk as integer)
+        end
+    end
+
+    --- Appends bytes, waiting where the send queue is already at its maximum.
+    ---
+    --- The whole value is written, as the contract promises. An input larger than
+    --- `sendHighWater` is submitted in pieces that fit beneath it, so the bound
+    --- governs how much is queued at one time rather than how much may be sent.
+    --- @param self this connection
+    --- @param bytes the bytes to append
+    --- @return whether they were written
+    --- @return why they were not, when unsuccessful
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if self._closed then
+            return false, "the connection is closed"
+        end
+        if self._shutdown then
+            return false, "the sending half is closed"
+        end
+
+        return writeAll(self._backend, self._handle, self._highWater, bytes)
+    end
+
+    --- Appends bytes from a checked shared span.
+    --- @param self this connection
+    --- @param source bytes valid for the duration of the call
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        const bytes = spanString(source)
+        const wrote, why = self:write(bytes)
+        if not wrote then
+            return nil, why
+        end
+
+        return #bytes as integer
+    end
+
+    --- Waits until nothing this connection accepted is still held here.
+    ---
+    --- Unlike a buffer's writer there is something to flush: `write` completes
+    --- when the platform takes the bytes, and the platform may still be holding
+    --- them. A caller that writes, flushes and closes would otherwise lose
+    --- whatever was queued, because closing cancels queued writes.
+    ---
+    --- Still not a delivery receipt. It says the bytes left this process, not
+    --- that anybody read them.
+    --- @param self this connection
+    --- @return whether everything left
+    --- @return why it did not, when unsuccessful
+    function flush(self): (boolean, string?)
+        if self._closed then
+            return false, "the connection is closed"
+        end
+        return drain(self._backend, self._handle)
+    end
+
+    --- Ends the sending half and leaves the receiving half open, so the peer sees
+    --- end of stream while this side goes on reading.
+    ---
+    --- This is what a graceful drain is built from. `close` ends the connection
+    --- in both directions and cannot wait for a peer, so a handler with a
+    --- response still to deliver finishes it, half-closes, and then releases.
+    --- @param self this connection
+    --- @return whether the sending half was ended
+    --- @return why it was not, when unsuccessful
+    function shutdownWrite(self): (boolean, string?)
+        if self._closed then
+            return false, "the connection is closed"
+        end
+        if self._shutdown then
+            return true
+        end
+        -- The same order a writing view's close uses, and for the same reason:
+        -- what was written goes before the end of the direction does, and the
+        -- end is waited for rather than only submitted. A caller that writes,
+        -- ends its sending half and then closes would otherwise cancel both.
+        const drained, drainWhy = drain(self._backend, self._handle)
+        if not drained then
+            return false, drainWhy
+        end
+        const done, why = self._backend:shutdownWrite(self._handle)
+        if not done then
+            return false, why
+        end
+        self._shutdown = true
+
+        return drain(self._backend, self._handle)
+    end
+
+    --- Releases the connection in both directions.
+    ---
+    --- Idempotent, and terminal: this is the cleanup obligation the owner carries.
+    function close(takes self): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        self._backend:closeStream(self._handle)
+    end
+end
+
+--- A borrowed view of one direction of a connection.
+---
+--- Closing one ends that direction rather than the connection: the writing view
+--- half-closes, and the reading view stops this side reading. Neither is the
+--- cleanup obligation, which stays with the connection.
+--- @export
+record net.DirectionView is nupp.io.Reader, nupp.io.Writer
+    --- The same platform and handle the connection has. Not the connection
+    --- itself: a view that held one would own it, and closing the view would
+    --- release a socket somebody else is still using.
+    private readonly _backend: backendapi.Backend
+
+    private readonly _handle: any
+    private readonly _writing: boolean
+    private _ended: boolean
+    private _highWater: integer
+
+    --- @raises when count is not a positive integer
+    function read(self, count: integer): (string?, string?)
+        if self._ended then
+            return nil, "the reader is closed"
+        end
+
+        return readOnce(self._backend, self._handle, positive(count, "net.DirectionView read count", 2))
+    end
+
+    --- @raises when the destination is empty
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        const wanted = positive(#destination, "net.DirectionView readSpan destination length", 2)
+        const chunk, why = self:read(wanted)
+        if chunk == nil then
+            return nil, why
+        end
+        const input = span.fromString(chunk)
+        for index = 1, #chunk do
+            destination[index] = input[index]
+        end
+
+        return #chunk as integer
+    end
+
+    --- @raises when count is not a positive integer
+    function readInto(
+        self,
+        exclusive destination: nupp.io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+        const wanted = positive(count or READ_SIZE, "net.DirectionView readInto count", 2)
+        const chunk, why = self:read(wanted)
+        if chunk == nil then
+            return nil, why
+        end
+        const landed = #chunk as integer
+        if landed > 0 then
+            const input = span.fromString(chunk)
+            const lease = destination:reserveWrite(offset or 0, landed)
+            do
+                const output = lease:span()
+                for index = 1, landed do
+                    output[index] = input[index]
+                end
+                drop output
+            end
+            lease:commit(landed)
+        end
+
+        return landed
+    end
+
+    function transferTo(self, exclusive destination: nupp.io.Writer): (integer?, string?)
+        local moved: integer = 0
+        while true do
+            const chunk, why = self:read(READ_SIZE)
+            if chunk == nil then
+                return nil, why
+            end
+            if #chunk == 0 then
+                return moved
+            end
+            const wrote, wroteWhy = destination:write(chunk)
+            if not wrote then
+                return nil, wroteWhy
+            end
+            moved = moved + (#chunk as integer)
+        end
+    end
+
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if self._ended then
+            return false, "the writer is closed"
+        end
+
+        return writeAll(self._backend, self._handle, self._highWater, bytes)
+    end
+
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        const bytes = spanString(source)
+        const wrote, why = self:write(bytes)
+        if not wrote then
+            return nil, why
+        end
+
+        return #bytes as integer
+    end
+
+    --- Waits until nothing this view wrote is still held by the platform.
+    ---
+    --- The same queue the connection has, because it is the same connection.
+    function flush(self): (boolean, string?)
+        if self._ended then
+            return false, "the writer is closed"
+        end
+
+        return drain(self._backend, self._handle)
+    end
+
+    --- Ends this direction and leaves the connection alone.
+    ---
+    --- The writing view half-closes, so the peer sees end of stream. The reading
+    --- view stops this side reading, which is deliberately not the platform's
+    --- receive shutdown: its behaviour varies enough between stacks to be worth
+    --- not depending on.
+    function close(takes self): nil
+        if self._ended then
+            return
+        end
+        self._ended = true
+        if self._writing then
+            -- Everything written goes before the end of the direction does, and
+            -- the end is waited for rather than only submitted: releasing the
+            -- connection next would cancel both, and the peer would see a
+            -- stream that stopped rather than one that finished.
+            --
+            -- The second wait is on the shutdown itself and not on the byte
+            -- count, which the shutdown request never enters: waiting on bytes
+            -- would return the moment the writes landed and leave the alert
+            -- exactly as cancellable as before.
+            local _, _drained = drain(self._backend, self._handle)
+            local _, _why = self._backend:shutdownWrite(self._handle)
+            local _, _sent = drain(self._backend, self._handle)
+        end
+    end
+end
+
+--- Borrows a connection's reading half through the shared contract.
+--- @param source the connection to view
+--- @return the view, which may not outlive it
+--- @export
+function net.asReader(borrows source: net.Stream): affine(net.DirectionView) borrows (source)
+    return new net.DirectionView(
+        _backend = source._backend,
+        _handle = source._handle,
+        _writing = false,
+        _ended = false,
+        _highWater = source._highWater
+    )
+end
+
+--- Borrows a connection's writing half through the shared contract.
+--- @param source the connection to view
+--- @return the view, which may not outlive it
+--- @export
+function net.asWriter(borrows source: net.Stream): affine(net.DirectionView) borrows (source)
+    return new net.DirectionView(
+        _backend = source._backend,
+        _handle = source._handle,
+        _writing = true,
+        _ended = false,
+        _highWater = source._highWater
+    )
+end
+
+----------------------------------------------------------------------------
+-- Listeners and datagrams
+----------------------------------------------------------------------------
+
+--- A listening socket.
+--- @export
+record net.Listener is nupp.Closeable
+    private _backend: backendapi.Backend
+    private _handle: any
+    private _closed: boolean
+    private _highWater: integer
+
+    --- The port this listener actually bound, which is what a caller who asked
+    --- for zero needs.
+    function port(self): integer
+        if self._closed then
+            return -1
+        end
+
+        return self._backend:listenerPort(self._handle)
+    end
+
+    --- Whether this listener has been released.
+    function isReleased(self): boolean
+        return self._closed
+    end
+
+    --- Takes the next connection, suspending until one arrives.
+    --- @param self this listener
+    --- @return the connection, which the caller owns and must close
+    --- @return why there is none, when the listener failed
+    function accept(self): (affine(net.Stream)?, string?)
+        if self._closed then
+            return nil, "the listener is closed"
+        end
+        local handle: any = nil
+        local failure: string? = nil
+        await("nupp.io.net accept", function(): boolean
+            if self._closed then
+                failure = "the listener is closed"
+
+                return true
+            end
+            const taken, why = self._backend:accept(self._handle)
+            if taken ~= nil then
+                handle = taken
+
+                return true
+            end
+            if why ~= nil then
+                failure = why
+
+                return true
+            end
+
+            return false
+        end)
+        if failure ~= nil then
+            return nil, failure
+        end
+
+        return new net.Stream(
+            _backend = self._backend,
+            _handle = handle,
+            _closed = false,
+            _shutdown = false,
+            _highWater = self._highWater
+        )
+    end
+
+    --- Releases the listener and every connection it accepted that nobody took.
+    ---
+    --- Idempotent, and terminal.
+    function close(takes self): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        self._backend:closeListener(self._handle)
+    end
+end
+
+--- A datagram socket.
+---
+--- A message transport rather than a stream one: nothing here buffers arrivals
+--- into a run, because the boundaries between them are the protocol.
+--- @export
+record net.Datagram is nupp.Closeable
+    private _backend: backendapi.Backend
+    private _handle: any
+    private _closed: boolean
+
+    --- The port this socket actually bound.
+    function port(self): integer
+        if self._closed then
+            return -1
+        end
+
+        return self._backend:datagramPort(self._handle)
+    end
+
+    --- Whether this socket has been released.
+    function isReleased(self): boolean
+        return self._closed
+    end
+
+    --- Takes the next datagram into `destination`, suspending until one
+    --- arrives.
+    ---
+    --- A zero-length answer is an empty datagram and not an absence: several
+    --- protocols use them as keepalives, and a receive that could not tell them
+    --- from a quiet socket would make a live peer look like silence.
+    --- @param self this socket
+    --- @param destination where the bytes go
+    --- @param maximum the most bytes to take from one datagram
+    --- @return what the message was, or nil when the socket failed
+    --- @return why there is none, when unsuccessful
+    --- @raises when maximum is not a positive integer
+    function receiveFrom(self, exclusive destination: nupp.io.Buffer, maximum: integer): (net.Message?, string?)
+        if self._closed then
+            return nil, "the datagram socket is closed"
+        end
+        const wanted = positive(maximum, "net.Datagram receiveFrom maximum", 2)
+        local bytes: string? = nil
+        local host: string? = nil
+        local peerPort: integer? = nil
+        local cut: boolean? = nil
+        local failure: string? = nil
+        await("nupp.io.net receive", function(): boolean
+            const got, from, at, truncated, why = self._backend:receive(self._handle, wanted)
+            if why ~= nil then
+                failure = why
+
+                return true
+            end
+            if got == nil then
+                return false
+            end
+            bytes = got
+            host = from
+            peerPort = at
+            cut = truncated
+
+            return true
+        end)
+        if failure ~= nil then
+            return nil, failure
+        end
+        const landed = #(bytes or "") as integer
+        if landed > 0 then
+            const input = span.fromString(bytes or "")
+            const lease = destination:reserveWrite(0, landed)
+            do
+                const output = lease:span()
+                for index = 1, landed do
+                    output[index] = input[index]
+                end
+                drop output
+            end
+            lease:commit(landed)
+        end
+
+        return new net.Message(
+            length = landed,
+            address = {host = host or "", port = peerPort or 0} as net.Address,
+            truncated = cut or false
+        )
+    end
+
+    --- Sends one datagram.
+    ---
+    --- Answers whether the platform took it, which is not a delivery receipt and
+    --- never could be: a datagram that goes is a datagram that may still not
+    --- arrive, and a protocol that needs to know says so in the protocol.
+    --- @param self this socket
+    --- @param address where to send it
+    --- @param bytes what to send
+    --- @return whether the platform took it
+    --- @return why it did not, when unsuccessful
+    function sendTo(self, address: net.Address, bytes: string): (boolean, string?)
+        if self._closed then
+            return false, "the datagram socket is closed"
+        end
+
+        return self._backend:sendTo(
+            self._handle,
+            address.host,
+            checkedPort(address.port, "net.Datagram sendTo port", 2),
+            bytes
+        )
+    end
+
+    --- Allows sending to a broadcast address.
+    ---
+    --- Refused by default by the platform, so a program that means to broadcast
+    --- has to say so rather than discover it works.
+    function setBroadcast(self, enable: boolean): (boolean, string?)
+        if self._closed then
+            return false, "the datagram socket is closed"
+        end
+
+        return self._backend:broadcast(self._handle, enable)
+    end
+
+    --- How many hops a multicast datagram may take.
+    ---
+    --- One keeps it on the local segment, which is what discovery on a LAN
+    --- wants and what the platform starts at.
+    --- @raises when the hop limit is not 1 through 255
+    function setMulticastTTL(self, ttl: integer): (boolean, string?)
+        if self._closed then
+            return false, "the datagram socket is closed"
+        end
+        if ttl < 1 or ttl > 255 or math.floor(ttl) ~= ttl then
+            error("nupp: a multicast hop limit must be 1 through 255", 2)
+        end
+
+        return self._backend:multicastTtl(self._handle, ttl)
+    end
+
+    --- Whether this socket also receives what it sends to a group it joined.
+    ---
+    --- Off is usually what is wanted: a discovery protocol that answers its own
+    --- announcements is the first bug somebody writes with one.
+    function setMulticastLoop(self, enable: boolean): (boolean, string?)
+        if self._closed then
+            return false, "the datagram socket is closed"
+        end
+
+        return self._backend:multicastLoop(self._handle, enable)
+    end
+
+    --- Joins a multicast group.
+    ---
+    --- `interfaceAddress` names which of this machine's addresses to join on.
+    --- On a machine with more than one, the platform's own choice is rarely the
+    --- one wanted, which is why it is asked for rather than assumed.
+    function joinMulticast(self, group: string, interfaceAddress: string?): (boolean, string?)
+        if self._closed then
+            return false, "the datagram socket is closed"
+        end
+
+        return self._backend:membership(self._handle, group, interfaceAddress or "", true)
+    end
+
+    --- Leaves a multicast group.
+    function leaveMulticast(self, group: string, interfaceAddress: string?): (boolean, string?)
+        if self._closed then
+            return false, "the datagram socket is closed"
+        end
+
+        return self._backend:membership(self._handle, group, interfaceAddress or "", false)
+    end
+
+    --- Releases the socket. Idempotent, and terminal.
+    function close(takes self): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        self._backend:closeDatagram(self._handle)
+    end
+end
+
+----------------------------------------------------------------------------
+-- Opening a socket
+----------------------------------------------------------------------------
+
+--- Opens a datagram socket.
+--- @param options where to bind
+--- @return the socket, which the caller owns and must close
+--- @return why it could not bind, when unsuccessful
+--- @raises when the options do not describe a bindable address
+--- @export
+function net.bind(options: net.DatagramOptions): (affine(net.Datagram)?, string?)
+    const chosen = platform()
+    const bound = checkedPort(options.port, "net.bind port", 2)
+    const handle, why = chosen:bindDatagram(options.host, bound, options.reusePort or false)
+    if handle == nil then
+        return nil, why
+    end
+
+    return new net.Datagram(_backend = chosen, _handle = handle, _closed = false)
+end
+
+--- Opens a listener.
+--- @param options where to bind and how deep a backlog to ask for
+--- @return the listener, which the caller owns and must close
+--- @return why it could not bind, when unsuccessful
+--- @raises when the options do not describe a bindable address
+--- @export
+function net.listen(options: net.ListenOptions): (affine(net.Listener)?, string?)
+    const chosen = platform()
+    const backlog = options.backlog or 128
+    local handle: any = nil
+    local why: string? = nil
+    if options.path ~= nil then
+        if options.host ~= nil or options.port ~= nil then
+            error("nupp: net.listen takes a path or a host and port, not both", 2)
+        end
+        handle, why = chosen:listenPath(options.path or "", backlog)
+    else
+        if options.host == nil or options.port == nil then
+            error("nupp: net.listen needs a path, or a host and a port", 2)
+        end
+        handle, why = chosen:listen(
+            options.host or "",
+            checkedPort(options.port or 0, "net.listen port", 2),
+            backlog,
+            options.reusePort or false
+        )
+    end
+    if handle == nil then
+        return nil, why
+    end
+
+    return new net.Listener(_backend = chosen, _handle = handle, _closed = false, _highWater = DEFAULT_HIGH_WATER)
+end
+
+--- Opens a connection, resolving the peer's name off this frame.
+--- @param options who to reach and how much may be queued unsent
+--- @return the connection, which the caller owns and must close
+--- @return why it could not connect, when unsuccessful
+--- @raises when the options do not describe a reachable peer
+--- @export
+function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, string?)
+    const chosen = platform()
+    const deadline = positive(options.timeoutMs or DEFAULT_CONNECT_MS, "net.connect timeoutMs", 2)
+    -- Checked here rather than where the stream is built, because that is after
+    -- the connect: a bad bound with an unreachable peer would otherwise be
+    -- reported as the peer's fault and never as the caller's.
+    const highWater = positive(options.sendHighWater or DEFAULT_HIGH_WATER, "net.connect sendHighWater", 2)
+    local request: any = nil
+    local why: string? = nil
+    if options.path ~= nil then
+        if options.host ~= nil or options.port ~= nil then
+            error("nupp: net.connect takes a path or a host and port, not both", 2)
+        end
+        request, why = chosen:connectPath(options.path or "", deadline)
+    else
+        if options.host == nil or options.port == nil then
+            error("nupp: net.connect needs a path, or a host and a port", 2)
+        end
+        request, why = chosen:connect(
+            options.host or "",
+            checkedPort(options.port or 0, "net.connect port", 2),
+            deadline
+        )
+    end
+    if request == nil then
+        return nil, why
+    end
+    local handle: any = nil
+    local failure: string? = nil
+    await("nupp.io.net connect", function(): boolean
+        const ready, reason = chosen:connectPoll(request)
+        if ready ~= nil then
+            handle = ready
+
+            return true
+        end
+        if reason ~= nil then
+            failure = reason
+
+            return true
+        end
+
+        return false
+    end)
+    chosen:closeConnect(request)
+    if failure ~= nil then
+        return nil, failure
+    end
+
+    return new net.Stream(
+        _backend = chosen,
+        _handle = handle,
+        _closed = false,
+        _shutdown = false,
+        _highWater = highWater
+    )
+end
+
+----------------------------------------------------------------------------
+-- Driving the loop
+----------------------------------------------------------------------------
+
+--- Transfers a connection's native ownership to a layering module.
+---
+--- The source is terminal after this call, but its handle is deliberately not
+--- released: the new Rust-native owner consumes and eventually releases it.
+--- Ordinary code has no use for the opaque value this answers.
+--- @param source the connection to transfer
+--- @return its Rust-native stream handle
+--- @raises when the connection was already closed or transferred
+--- @internal
+local function takeStreamHandle(takes source: net.Stream): any
+    if source._closed then
+        error("nupp: the connection is closed", 2)
+    end
+    source._closed = true
+
+    return source._handle
+end
+
+layering.takeStreamHandle = takeStreamHandle
+
+----------------------------------------------------------------------------
+-- The native backend
+----------------------------------------------------------------------------
+
+--- The platform, bound to the native provider.
+---
+--- Written here rather than in a module of its own because a module could not
+--- name `Backend` without the two requiring each other, and a resolved cycle
+--- answers `any` without reporting one.
+const native = require("nupp.runtime.native")
+
+native.ffi.cdef[[
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+} NuppNativeV2NetSlice;
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    uint32_t backlog;
+    int32_t reuse_port;
+} NuppNativeV2NetListenOptions;
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    uint64_t timeout_ms;
+} NuppNativeV2NetConnectOptions;
+typedef struct {
+    NuppNativeV2NetSlice path;
+    uint32_t backlog;
+} NuppNativeV2NetPathListenOptions;
+typedef struct {
+    NuppNativeV2NetSlice path;
+    uint64_t timeout_ms;
+} NuppNativeV2NetPathConnectOptions;
+typedef struct {
+    NuppNativeV2NetSlice host;
+    uint16_t port;
+    int32_t reuse_port;
+} NuppNativeV2NetDatagramOptions;
+typedef struct {
+    uint8_t address[16];
+    uint16_t port;
+    uint8_t family;
+} NuppNativeV2NetAddress;
+
+int32_t nuppNativeV2NetListenerCreate(const NuppNativeV2NetListenOptions *, uint64_t *);
+int32_t nuppNativeV2NetPathListenerCreate(const NuppNativeV2NetPathListenOptions *, uint64_t *);
+int32_t nuppNativeV2NetListenerPort(uint64_t, uint16_t *);
+int32_t nuppNativeV2NetListenerKind(uint64_t, uint32_t *);
+int32_t nuppNativeV2NetListenerAccept(uint64_t, uint32_t *, uint64_t *);
+int32_t nuppNativeV2NetListenerRelease(uint64_t);
+int32_t nuppNativeV2NetConnectCreate(const NuppNativeV2NetConnectOptions *, uint64_t *);
+int32_t nuppNativeV2NetPathConnectCreate(const NuppNativeV2NetPathConnectOptions *, uint64_t *);
+int32_t nuppNativeV2NetConnectPoll(uint64_t, uint32_t *, uint64_t *);
+int32_t nuppNativeV2NetConnectRelease(uint64_t);
+int32_t nuppNativeV2NetStreamRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2NetStreamWrite(uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2NetStreamPendingWrite(uint64_t, size_t *);
+int32_t nuppNativeV2NetStreamState(uint64_t, uint32_t *);
+int32_t nuppNativeV2NetStreamShutdownWrite(uint64_t);
+int32_t nuppNativeV2NetStreamLocalAddress(uint64_t, NuppNativeV2NetAddress *);
+int32_t nuppNativeV2NetStreamPeerAddress(uint64_t, NuppNativeV2NetAddress *);
+int32_t nuppNativeV2NetStreamSetNoDelay(uint64_t, int32_t);
+int32_t nuppNativeV2NetStreamSetKeepAlive(uint64_t, int32_t, uint32_t);
+int32_t nuppNativeV2NetStreamRelease(uint64_t);
+int32_t nuppNativeV2NetAddressParse(NuppNativeV2NetSlice, uint16_t, NuppNativeV2NetAddress *);
+int32_t nuppNativeV2NetAddressText(const NuppNativeV2NetAddress *, uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2NetDatagramCreate(const NuppNativeV2NetDatagramOptions *, uint64_t *);
+int32_t nuppNativeV2NetDatagramPort(uint64_t, uint16_t *);
+int32_t nuppNativeV2NetDatagramReceive(
+    uint64_t, uint8_t *, size_t, uint32_t *, size_t *, NuppNativeV2NetAddress *, int32_t *);
+int32_t nuppNativeV2NetDatagramSend(
+    uint64_t, const NuppNativeV2NetAddress *, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2NetDatagramSetBroadcast(uint64_t, int32_t);
+int32_t nuppNativeV2NetDatagramSetMulticastTtl(uint64_t, uint32_t);
+int32_t nuppNativeV2NetDatagramSetMulticastLoop(uint64_t, int32_t);
+int32_t nuppNativeV2NetDatagramMembership(
+    uint64_t, NuppNativeV2NetSlice, NuppNativeV2NetSlice, uint32_t, uint8_t, int32_t);
+int32_t nuppNativeV2NetDatagramRelease(uint64_t);
+int32_t nuppNativeV2NetPoll(uint64_t *);
+int32_t nuppNativeV2NetWait(uint64_t, uint64_t, uint64_t *);
+]]
+
+const C = native.C
+const NET_FEATURE = 256
+const PENDING = 1
+const READ_EOF = 2
+const CONNECT_READY = 1
+const CONNECT_FAILED = 2
+const LISTENER_PATH = 1
+const DATAGRAM_MESSAGE = 0
+const DATAGRAM_SENT = 0
+const STREAM_READ_EOF = 1
+const STREAM_SHUTTING_DOWN = 8
+const STREAM_READ_FAILED = 16
+const STREAM_WRITE_FAILED = 32
+
+local featureChecked = false
+local scratch: any = nil
+
+local function requireNet(): nil
+    if not featureChecked then
+        native.requireFeature(NET_FEATURE, "network support")
+        featureChecked = true
+    end
+end
+
+local function slice(text: string): any
+    local value = native.ffi.new("NuppNativeV2NetSlice")
+    value.data = text
+    value.length = #text
+
+    return value
+end
+
+local function reason(prefix: string): string
+    return prefix .. ": " .. (native.ffi.string(C.nuppNativeV2LastError()) as string)
+end
+
+local function readBuffer(): any
+    if scratch == nil then
+        scratch = native.ffi.new("uint8_t[?]", READ_SIZE)
+    end
+
+    return scratch
+end
+
+local function nativeBackend(): backendapi.Backend
+    const state = native.ffi.new("uint32_t[1]")
+    const flags = native.ffi.new("uint32_t[1]")
+    const handle = native.ffi.new("uint64_t[1]")
+    const count = native.ffi.new("size_t[1]")
+    const portOutput = native.ffi.new("uint16_t[1]")
+    const scalar = native.ffi.new("int32_t[1]")
+    const addressOutput = native.ffi.new("NuppNativeV2NetAddress[1]")
+    const hostOutput = native.ffi.new("uint8_t[?]", HOST_SIZE)
+    const generation = native.ffi.new("uint64_t[1]")
+    const nextGeneration = native.ffi.new("uint64_t[1]")
+    local generationReady = false
+
+    local function streamFlags(stream: any): integer
+        if C.nuppNativeV2NetStreamState(stream, flags) ~= 0 then
+            return STREAM_READ_FAILED | STREAM_WRITE_FAILED
+        end
+
+        return tonumber(flags[0]) as integer
+    end
+
+    local function textAddress(value: any): (string?, integer?)
+        if value[0].family == 0 then
+            return nil
+        end
+        const status = C.nuppNativeV2NetAddressText(value, hostOutput, HOST_SIZE, count)
+        if status ~= 0 then
+            return nil
+        end
+
+        return ffiString(hostOutput, tonumber(count[0]) as integer), tonumber(value[0].port) as integer
+    end
+
+    return new backendapi.Backend(
+        listen = function(
+            self: backendapi.Backend,
+            host: string,
+            port: integer,
+            backlog: integer,
+            reusePort: boolean
+        ): (any?, string?)
+            requireNet()
+            local options = native.ffi.new("NuppNativeV2NetListenOptions")
+            options.host = slice(host)
+            options.port = port
+            options.backlog = backlog
+            options.reuse_port = reusePort and 1 or 0
+            if C.nuppNativeV2NetListenerCreate(options, handle) ~= 0 then
+                return nil, reason("nupp: could not listen")
+            end
+
+            return handle[0]
+        end,
+
+        listenPath = function(self: backendapi.Backend, path: string, backlog: integer): (any?, string?)
+            requireNet()
+            local options = native.ffi.new("NuppNativeV2NetPathListenOptions")
+            options.path = slice(path)
+            options.backlog = backlog
+            if C.nuppNativeV2NetPathListenerCreate(options, handle) ~= 0 then
+                return nil, reason("nupp: could not listen")
+            end
+
+            return handle[0]
+        end,
+
+        listenerPort = function(self: backendapi.Backend, listener: any): integer
+            if C.nuppNativeV2NetListenerKind(listener, state) ~= 0 or state[0] == LISTENER_PATH then
+                return -1
+            end
+            if C.nuppNativeV2NetListenerPort(listener, portOutput) ~= 0 then
+                return -1
+            end
+
+            return tonumber(portOutput[0]) as integer
+        end,
+
+        accept = function(self: backendapi.Backend, listener: any): (any?, string?)
+            if C.nuppNativeV2NetListenerAccept(listener, state, handle) ~= 0 then
+                return nil, reason("nupp: could not accept")
+            end
+            if state[0] == PENDING then
+                return nil
+            end
+
+            return handle[0]
+        end,
+
+        closeListener = function(self: backendapi.Backend, listener: any): nil
+            C.nuppNativeV2NetListenerRelease(listener)
+        end,
+
+        connect = function(self: backendapi.Backend, host: string, port: integer, timeoutMs: integer): (any?, string?)
+            requireNet()
+            local options = native.ffi.new("NuppNativeV2NetConnectOptions")
+            options.host = slice(host)
+            options.port = port
+            options.timeout_ms = timeoutMs
+            if C.nuppNativeV2NetConnectCreate(options, handle) ~= 0 then
+                return nil, reason("nupp: could not connect")
+            end
+
+            return handle[0]
+        end,
+
+        connectPath = function(self: backendapi.Backend, path: string, timeoutMs: integer): (any?, string?)
+            requireNet()
+            local options = native.ffi.new("NuppNativeV2NetPathConnectOptions")
+            options.path = slice(path)
+            options.timeout_ms = timeoutMs
+            if C.nuppNativeV2NetPathConnectCreate(options, handle) ~= 0 then
+                return nil, reason("nupp: could not connect")
+            end
+
+            return handle[0]
+        end,
+
+        connectPoll = function(self: backendapi.Backend, request: any): (any?, string?)
+            if C.nuppNativeV2NetConnectPoll(request, state, handle) ~= 0 then
+                return nil, reason("nupp: could not connect")
+            end
+            if state[0] == CONNECT_FAILED then
+                return nil, reason("nupp: could not connect")
+            end
+            if state[0] ~= CONNECT_READY then
+                return nil
+            end
+
+            return handle[0]
+        end,
+
+        closeConnect = function(self: backendapi.Backend, request: any): nil
+            C.nuppNativeV2NetConnectRelease(request)
+        end,
+
+        read = function(self: backendapi.Backend, stream: any, wanted: integer): (string?, string?)
+            const taking = wanted < READ_SIZE and wanted or READ_SIZE
+            const into = readBuffer()
+            if C.nuppNativeV2NetStreamRead(stream, into, taking, state, count) ~= 0 then
+                return nil, reason("nupp: could not read")
+            end
+            if state[0] == PENDING or state[0] == READ_EOF then
+                return ""
+            end
+
+            return ffiString(into, tonumber(count[0]) as integer)
+        end,
+
+        ended = function(self: backendapi.Backend, stream: any): boolean
+            return streamFlags(stream) & STREAM_READ_EOF ~= 0
+        end,
+
+        write = function(self: backendapi.Backend, stream: any, bytes: string): (integer?, string?)
+            if C.nuppNativeV2NetStreamWrite(stream, bytes, #bytes, state, count) ~= 0 then
+                return nil, reason("nupp: could not write")
+            end
+            if state[0] == 2 then
+                return nil, "nupp: could not write: the connection is closed"
+            end
+
+            return tonumber(count[0]) as integer
+        end,
+
+        pending = function(self: backendapi.Backend, stream: any): integer
+            if C.nuppNativeV2NetStreamPendingWrite(stream, count) ~= 0 then
+                return 0
+            end
+
+            return tonumber(count[0]) as integer
+        end,
+
+        writeFailed = function(self: backendapi.Backend, stream: any): boolean
+            return streamFlags(stream) & STREAM_WRITE_FAILED ~= 0
+        end,
+
+        shuttingDown = function(self: backendapi.Backend, stream: any): boolean
+            return streamFlags(stream) & STREAM_SHUTTING_DOWN ~= 0
+        end,
+
+        shutdownWrite = function(self: backendapi.Backend, stream: any): (boolean, string?)
+            if C.nuppNativeV2NetStreamShutdownWrite(stream) ~= 0 then
+                return false, reason("nupp: could not end the sending half")
+            end
+
+            return true
+        end,
+
+        address = function(self: backendapi.Backend, stream: any, peer: boolean): net.Address?
+            const status = peer and C.nuppNativeV2NetStreamPeerAddress(
+                stream,
+                addressOutput
+            ) or C.nuppNativeV2NetStreamLocalAddress(stream, addressOutput)
+            if status ~= 0 then
+                return nil
+            end
+            const host, port = textAddress(addressOutput)
+            if host == nil or port == nil then
+                return nil
+            end
+
+            return {host = host, port = port} as net.Address
+        end,
+
+        noDelay = function(self: backendapi.Backend, stream: any, enable: boolean): (boolean, string?)
+            if C.nuppNativeV2NetStreamSetNoDelay(stream, enable and 1 or 0) ~= 0 then
+                return false, reason("nupp: could not set the delay option")
+            end
+
+            return true
+        end,
+
+        keepAlive = function(
+            self: backendapi.Backend,
+            stream: any,
+            enable: boolean,
+            delaySeconds: integer
+        ): (boolean, string?)
+            if C.nuppNativeV2NetStreamSetKeepAlive(stream, enable and 1 or 0, delaySeconds) ~= 0 then
+                return false, reason("nupp: could not set the keepalive option")
+            end
+
+            return true
+        end,
+
+        broadcast = function(self: backendapi.Backend, socket: any, enable: boolean): (boolean, string?)
+            if C.nuppNativeV2NetDatagramSetBroadcast(socket, enable and 1 or 0) ~= 0 then
+                return false, reason("nupp: could not set the broadcast option")
+            end
+
+            return true
+        end,
+
+        multicastTtl = function(self: backendapi.Backend, socket: any, ttl: integer): (boolean, string?)
+            if C.nuppNativeV2NetDatagramSetMulticastTtl(socket, ttl) ~= 0 then
+                return false, reason("nupp: could not set the multicast hop limit")
+            end
+
+            return true
+        end,
+
+        multicastLoop = function(self: backendapi.Backend, socket: any, enable: boolean): (boolean, string?)
+            if C.nuppNativeV2NetDatagramSetMulticastLoop(socket, enable and 1 or 0) ~= 0 then
+                return false, reason("nupp: could not set the multicast loop option")
+            end
+
+            return true
+        end,
+
+        membership = function(
+            self: backendapi.Backend,
+            socket: any,
+            group: string,
+            interfaceAddress: string,
+            join: boolean
+        ): (boolean, string?)
+            const interfaceKind = interfaceAddress == "" and 0 or 4
+            if C.nuppNativeV2NetDatagramMembership(
+                socket,
+                slice(group),
+                slice(interfaceAddress),
+                0,
+                interfaceKind,
+                join and 1 or 0
+            ) ~= 0 then
+                return false, reason("nupp: could not change the multicast group")
+            end
+
+            return true
+        end,
+
+        closeStream = function(self: backendapi.Backend, stream: any): nil
+            C.nuppNativeV2NetStreamRelease(stream)
+        end,
+
+        bindDatagram = function(
+            self: backendapi.Backend,
+            host: string,
+            port: integer,
+            reusePort: boolean
+        ): (any?, string?)
+            requireNet()
+            local options = native.ffi.new("NuppNativeV2NetDatagramOptions")
+            options.host = slice(host)
+            options.port = port
+            options.reuse_port = reusePort and 1 or 0
+            if C.nuppNativeV2NetDatagramCreate(options, handle) ~= 0 then
+                return nil, reason("nupp: could not bind")
+            end
+
+            return handle[0]
+        end,
+
+        datagramPort = function(self: backendapi.Backend, socket: any): integer
+            if C.nuppNativeV2NetDatagramPort(socket, portOutput) ~= 0 then
+                return -1
+            end
+
+            return tonumber(portOutput[0]) as integer
+        end,
+
+        receive = function(
+            self: backendapi.Backend,
+            socket: any,
+            maximum: integer
+        ): (string?, string?, integer?, boolean?, string?)
+            const taking = maximum < READ_SIZE and maximum or READ_SIZE
+            const into = readBuffer()
+            if C.nuppNativeV2NetDatagramReceive(socket, into, taking, state, count, addressOutput, scalar) ~= 0 then
+                return nil, nil, nil, nil, reason("nupp: could not receive")
+            end
+            if state[0] ~= DATAGRAM_MESSAGE then
+                return nil
+            end
+            const landed = tonumber(count[0]) as integer
+            const host, port = textAddress(addressOutput)
+            if host == nil or port == nil then
+                return nil, nil, nil, nil, "nupp: could not read the datagram peer"
+            end
+
+            return ffiString(into, landed), host, port, scalar[0] ~= 0
+        end,
+
+        sendTo = function(
+            self: backendapi.Backend,
+            socket: any,
+            host: string,
+            port: integer,
+            bytes: string
+        ): (boolean, string?)
+            if C.nuppNativeV2NetAddressParse(slice(host), port, addressOutput) ~= 0 then
+                return false, reason("nupp: could not address the datagram")
+            end
+            if C.nuppNativeV2NetDatagramSend(socket, addressOutput, bytes, #bytes, state, count) ~= 0 then
+                return false, reason("nupp: could not send")
+            end
+
+            return state[0] == DATAGRAM_SENT
+        end,
+
+        closeDatagram = function(self: backendapi.Backend, socket: any): nil
+            C.nuppNativeV2NetDatagramRelease(socket)
+        end,
+
+        run = function(self: backendapi.Backend, timeoutMs: integer): nil
+            requireNet()
+            if timeoutMs == 0 or not generationReady then
+                if C.nuppNativeV2NetPoll(generation) == 0 then
+                    generationReady = true
+                end
+
+                return
+            end
+            if C.nuppNativeV2NetWait(generation[0], timeoutMs, nextGeneration) ~= 0 then
+                return
+            end
+            generation[0] = nextGeneration[0]
+        end
+    )
+end
+
+if backendapi.current() == nil then
+    backendapi.install(nativeBackend())
+end
+
+export = net

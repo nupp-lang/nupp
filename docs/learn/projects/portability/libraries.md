@@ -255,12 +255,22 @@ provider when the recorded module is absent.
 
 ## Seam catalog
 
-A seam is one entry in `nupp.runtime.seam.registry`, which owns its identity,
-its binding, and which module a selection replaces. Its members come from the
-interface declared for it in `nupp.runtime.seam.contracts`, and its behaviour is
-pinned by one conformance suite named after it. Installing any of them is
-`nupp.runtime.seam.module`. Backend source names the seam, not a module: there
-is no per-contract factory to call.
+Backend authors use `nupp.runtime.backend` to validate, install, and test a
+backend declaration. The interfaces in `nupp.runtime.backend.contracts` state
+the callable contract each provider implements. The registry, reflection-derived
+member lists, installers, and conformance-suite modules under `runtime.seam`
+are private implementation details.
+
+Use the supplied `nupp.runtime.backend.browser`, `.portable`, and `.wasm`
+backend declarations when they match the target. A custom declaration names
+its own providers; application imports name the public standard-library API.
+
+Network, process, and TLS backend authors use `nupp.runtime.backend.net`,
+`.process`, and `.tls`. Each owns its `Backend` contract and lane-local
+`install`/`current` selection. Network event-loop integrations call
+`nupp.runtime.backend.net.pump`. Application code uses `nupp.io.net`,
+`nupp.io.process`, and `nupp.io.tls`; it does not receive raw handles or backend
+installation hooks. Process construction always takes application options.
 
 Contract versions are 1 except where the table says otherwise.
 
@@ -303,13 +313,13 @@ after the selected backend installs it.
 | `peg` | `nupp.peg`, LPeg, and `re` |
 | `suspension` | `nupp.suspension` management |
 | `host.path` | The environment behind `nupp.io.path` |
-| `io.uri` | `nupp.io.uri` |
+| `host.uri` | Parsing for `nupp.io.uri` |
 | `host.http` | `nupp.io.http` |
 | `host.time` | `nupp.time` |
 | `host.wasm` | `nupp.wasm` |
 | `host.workers` | `nupp.workers` (contract 2) |
-| `host.browser_crypto` | `nupp.browser.crypto` |
-| `host.browser_storage` | `nupp.browser.storage` |
+| `host.crypto` | `nupp.crypto` |
+| `host.storage` | `nupp.io.storage` |
 | `compute.gpu` | `nupp.gpu` |
 
 One runtime contract is an accelerator rather than a contract a program needs

@@ -187,7 +187,7 @@ export function packageBrowserApp(options) {
     const manifestPath = path.resolve(project, result.aotManifest);
     const manifestRoot = path.dirname(manifestPath);
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    if (manifest.schemaVersion !== 2 || manifest.target !== "wasm32-unknown-emscripten" ||
+    if (manifest.schemaVersion !== 3 || manifest.target !== "wasm32-unknown-emscripten" ||
         !Array.isArray(manifest.units)) {
       throw new Error("unsupported Wasm AOT unit manifest");
     }

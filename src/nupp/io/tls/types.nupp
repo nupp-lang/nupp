@@ -1,0 +1,47 @@
+@!internal
+
+module nupp.io.tls.types
+
+local tls = {}
+
+type tls.ClientOptions = {
+    --- The name to expect on the peer's certificate, sent as SNI. Given
+    --- whenever `verify` is on, because a certificate verified against no name
+    --- is a certificate belonging to anybody.
+    hostname: string?,
+
+    --- Certificates to trust, as PEM. Nil uses the platform's root
+    --- certificates; a supplied string replaces them.
+    authority: string?,
+
+    --- Whether the peer's certificate must satisfy the trust store. On by
+    --- default: a client that does not verify has encryption without
+    --- authentication, which is a different and much weaker thing than TLS is
+    --- usually taken to mean.
+    verify: boolean?,
+
+    --- Application protocols to offer, in decreasing preference order, such as
+    --- `{"h2", "http/1.1"}`. The server chooses from these, so the order is a
+    --- preference and not a demand.
+    protocols: {string}?
+
+}
+
+type tls.ServerOptions = {
+    --- The certificate chain to present, as PEM.
+    certificate: string,
+
+    --- The private key for it, as PEM.
+    privateKey: string,
+
+    --- Application protocols this server speaks, in decreasing preference
+    --- order. The server picks, so this order is the one that decides.
+    ---
+    --- A server that names protocols and shares none with a client refuses the
+    --- handshake rather than continuing without one, which is what makes naming
+    --- them a commitment rather than a hint.
+    protocols: {string}?
+
+}
+
+export = tls

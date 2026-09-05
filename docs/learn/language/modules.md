@@ -86,6 +86,28 @@ the one that goes stale. See [NEP
 7](../../neps/0007-modules-and-lazy-loading.md) for more information.
 :::
 
+## Internal modules
+
+A leading `@!internal` restricts checked imports to the package namespace that
+owns the module. The owner is its first canonical segment: `paint` owns
+`paint.render`, `paint.internal.cache`, and `paint.tools.builder`. Another
+namespace, such as `app`, cannot statically require their internal modules or
+name their values or types through qualified paths (`NUPP2144`).
+
+An `internal` segment and an underscored module basename also mark a module
+internal. On `init.nupp` or `init.g.nupp`, `@!internal` applies to the namespace and every
+module below it. Public modules can use and wrap their own internal modules;
+the implementation types of a public return value do not make the public
+import illegal.
+
+This is a checked API boundary. Dynamic or shadowed Lua `require` remains
+gradual; it is not an access-control sandbox.
+
+A module with children lives in `name/init.nupp` (or `name/init.g.nupp` for
+gradual source). Keeping `name.nupp` beside
+`name/child.nupp` is rejected during project registration. A leaf module stays
+in a single named file until it acquires children.
+
 ## Explicit imports
 
 `require` stays the explicit, Lua-shaped import:

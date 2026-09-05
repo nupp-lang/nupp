@@ -200,18 +200,18 @@ local RESOURCES = {
     {source = "src/nupp/io/path/init.nupp", output = "nupp/compiler/nupp/io/path/init.nupp"},
     {source = "src/nupp/io/path/provider.nupp", output = "nupp/compiler/nupp/io/path/provider.nupp"},
     {source = "src/nupp/io/path/pathtext.nupp", output = "nupp/compiler/nupp/io/path/pathtext.nupp"},
-    {source = "src/nupp/io/uri.nupp", output = "nupp/compiler/nupp/io/uri.nupp"},
+    {source = "src/nupp/io/uri/init.nupp", output = "nupp/compiler/nupp/io/uri/init.nupp"},
     {source = "src/nupp/io/files.nupp", output = "nupp/compiler/nupp/io/files.nupp"},
     {source = "src/nupp/io/init.nupp", output = "nupp/compiler/nupp/io/init.nupp"},
     {source = "src/nupp/log.nupp", output = "nupp/compiler/nupp/log.nupp"},
     {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
     {source = "src/nupp/time.nupp", output = "nupp/compiler/nupp/time.nupp"},
-    {source = "src/nupp/io/net.nupp", output = "nupp/compiler/nupp/io/net.nupp"},
-    {source = "src/nupp/io/tls.nupp", output = "nupp/compiler/nupp/io/tls.nupp"},
-    {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
+    {source = "src/nupp/io/net/init.nupp", output = "nupp/compiler/nupp/io/net/init.nupp"},
+    {source = "src/nupp/io/tls/init.nupp", output = "nupp/compiler/nupp/io/tls/init.nupp"},
+    {source = "src/nupp/io/process/init.nupp", output = "nupp/compiler/nupp/io/process/init.nupp"},
     {source = "src/nupp/workers/init.nupp", output = "nupp/compiler/nupp/workers/init.nupp"},
     {source = "src/nupp/tasks.nupp", output = "nupp/compiler/nupp/tasks.nupp"},
-    {source = "src/nupp/io/http.nupp", output = "nupp/compiler/nupp/io/http.nupp"},
+    {source = "src/nupp/io/http/init.nupp", output = "nupp/compiler/nupp/io/http/init.nupp"},
     {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
 }
 
@@ -223,7 +223,7 @@ local COMPILER_NATIVE_FEATURES = {gpu = false}
 -- every contract goes through. There used to be a factory module per contract
 -- beside these, restating the contract's members, its global binding name and
 -- its suite; all three now come from the registry.
-local SEAM_RESOURCES = {"registry", "module", "contracts"}
+local SEAM_RESOURCES = {"registry", "module"}
 for _, name in ipairs(SEAM_RESOURCES) do
     RESOURCES[
         #RESOURCES + 1
@@ -234,8 +234,8 @@ for _, name in ipairs(SEAM_RESOURCES) do
 end
 -- One conformance suite per contract, named by the contract's registry slug.
 local SEAM_SUITE_RESOURCES = {
-    "browsercrypto",
-    "browserstorage",
+    "crypto",
+    "storage",
     "hmacsha256",
     "http",
     "int64",
@@ -262,6 +262,29 @@ for _, name in ipairs(SEAM_SUITE_RESOURCES) do
     }
 end
 for _, resource in ipairs({
+    "src/nupp/runtime/backend/net.nupp",
+    "src/nupp/runtime/backend/process.nupp",
+    "src/nupp/runtime/backend/tls.nupp",
+    "src/nupp/io/net/internal.nupp",
+    "src/nupp/io/net/types.nupp",
+    "src/nupp/io/process/types.nupp",
+    "src/nupp/io/tls/types.nupp",
+    "src/nupp/io/http/messages.nupp",
+    "src/nupp/gpu/internal.nupp",
+    "src/nupp/gpu/layoutfacts.nupp",
+    "src/nupp/runtime/browser/webgpu/internal.nupp",
+    "src/nupp/runtime/browser/uri.nupp",
+    "src/nupp/io/uri/pathtext.nupp",
+    "src/nupp/io/uri/provider.nupp",
+    "src/nupp/runtime/seam/contractmembers.nupp",
+    "src/nupp/crypto.nupp",
+    "src/nupp/io/storage.nupp",
+
+    "src/nupp/runtime/backend/contracts.nupp",
+    "src/nupp/runtime/browser/init.nupp",
+    "src/nupp/runtime/provider/init.nupp",
+    "src/nupp/runtime/seam/init.nupp",
+    "src/nupp/compiler/init.nupp",
     "src/nupp/compiler/runtime/extensions.nupp",
     "src/nupp/compiler/runtime/math.nupp",
     "src/nupp/compiler/runtime/reflect.nupp",
@@ -269,18 +292,16 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/effects.g.nupp",
     "src/nupp/runtime/browser/response.g.nupp",
     "src/nupp/runtime/browser/workercodec.g.nupp",
-    "src/nupp/browser/gpu.g.nupp",
-    "src/nupp/runtime/provider/browsercrypto.g.nupp",
-    "src/nupp/runtime/provider/browserhttp.g.nupp",
-    "src/nupp/runtime/provider/browserpath.nupp",
-    "src/nupp/runtime/provider/browserstorage.g.nupp",
-    "src/nupp/runtime/provider/browserwebgpu.nupp",
-    "src/nupp/runtime/provider/browsersuspension.g.nupp",
-    "src/nupp/runtime/provider/browsertime.g.nupp",
-    "src/nupp/runtime/provider/browseruri.g.nupp",
-    "src/nupp/runtime/provider/browserworkers.g.nupp",
+    "src/nupp/experimental/webgpu.g.nupp",
+    "src/nupp/runtime/browser/crypto.g.nupp",
+    "src/nupp/runtime/browser/http.g.nupp",
+    "src/nupp/runtime/browser/path.nupp",
+    "src/nupp/runtime/browser/storage.g.nupp",
+    "src/nupp/runtime/browser/webgpu/init.nupp",
+    "src/nupp/runtime/browser/suspension.g.nupp",
+    "src/nupp/runtime/browser/time.g.nupp",
+    "src/nupp/runtime/browser/workers.g.nupp",
     "src/nupp/runtime/provider/lunajson.nupp",
-    "src/nupp/runtime/provider/nativegpu.nupp",
     "src/nupp/runtime/provider/scalarbitops.nupp",
     "src/nupp/runtime/provider/tablebuffer.nupp",
     "src/nupp/runtime/vendor/lunajson/decoder.lua",

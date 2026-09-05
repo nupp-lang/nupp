@@ -7,7 +7,8 @@ local backends = require("nupp.compiler.backends")
 local runtimeBackend = require("nupp.runtime.backend")
 local moduleSeam = require("nupp.runtime.seam.module")
 local seamRegistry = require("nupp.runtime.seam.registry")
-local contracts = require("nupp.runtime.seam.contracts")
+local contracts = require("nupp.runtime.backend.contracts")
+local contractMembers = require("nupp.runtime.seam.contractmembers")
 local standardsurface = require("nupp.compiler.standardsurface")
 local optimize = require("nupp.compiler.optimize")
 local gen = require("nupp.compiler.gen")
@@ -299,10 +300,7 @@ function M.aComputedRequireArgumentIsChecked()
         (
             diagsOf(
                 table.concat(
-                    {
-                        "local registry = require('nupp.runtime.seam.registry')",
-                        "return require(registry.get('data.json').suiteModule)",
-                    },
+                    {"local registry = require('nupp.data.json')", "return require(registry.encode('module.name'))",},
                     "\n"
                 )
             )
@@ -314,10 +312,7 @@ function M.aComputedRequireArgumentIsChecked()
         (
             diagsOf(
                 table.concat(
-                    {
-                        "local registry = require('nupp.runtime.seam.registry')",
-                        "return require(registry.absent('data.json'))",
-                    },
+                    {"local registry = require('nupp.data.json')", "return require(registry.absent('data.json'))",},
                     "\n"
                 )
             )
@@ -348,8 +343,8 @@ function M.standardSurfaceRequiresExactPortableSeams()
     )
     local classified = standardsurface.all()
     for _, name in ipairs({
-        "nupp.browser.crypto",
-        "nupp.browser.storage",
+        "nupp.crypto",
+        "nupp.io.storage",
         "nupp.data.hash",
         "nupp.data.json",
         "nupp.data.serde",
@@ -728,7 +723,7 @@ function M.seamRegistryOwnsEveryRuntimeModuleSubstitution()
         ["host.http"] = "nupp.io.http",
         ["host.time"] = "nupp.time",
         ["host.workers"] = "nupp.workers",
-        ["io.uri"] = "nupp.io.uri",
+        ["host.uri"] = "nupp.io.uri.provider",
         ["suspension"] = "nupp.suspension",
     }
     for seamName, moduleName in pairs(wholeModules) do
@@ -779,7 +774,7 @@ function M.everyContractResolvesItsMembersFromOneStatement()
             "nupp.runtime.seam." .. contract.slug .. "suite",
             contract.name .. " names its suite by its slug"
         )
-        if contracts.members[contract.name] then
+        if contractMembers[contract.name] then
             declared = declared + 1
             assertEq(contract.members, nil, contract.name .. " has an interface, so it spells out no second list")
         end
@@ -788,7 +783,7 @@ function M.everyContractResolvesItsMembersFromOneStatement()
 end
 
 function M.nativeGpuProviderPassesItsDeviceFreeSeamContract()
-    local passed, problem = moduleSeam.test("compute.gpu", "nupp.runtime.provider.nativegpu")
+    local passed, problem = moduleSeam.test("compute.gpu", "nupp.gpu")
     assert(passed, "the native GPU provider passes compute.gpu contract 1: " .. tostring(problem))
 end
 
@@ -945,12 +940,12 @@ end
 
 -- The `data.json` shape is written twice: once in `nupp.data.json.provider`,
 -- which is the surface a consumer resolves `nupp.data.json` through, and once
--- in `nupp.runtime.seam.contracts`, which is what a provider is checked
+-- in `nupp.runtime.backend.contracts`, which is what a provider is checked
 -- against. The second cannot name the first without the bundled declaration
 -- for the first resolving to `unknown`, so they are held together here
 -- instead: whatever the seam requires, the binding answers.
 function M.dataJsonBindingAnswersItsContract()
-    local required = contracts.members["data.json"]
+    local required = contractMembers["data.json"]
     assert(required, "the data.json contract is declared")
     assert(#required.functions > 0, "the contract derives its function members")
     local binding = require(JSON_PROVIDER)
@@ -1043,7 +1038,7 @@ end
 
 function M.lua51ProtectedCallsInheritTheInstalledSuspensionHandler()
     local resolution = suspensionResolution()
-    resolution.seams.suspension.runtimeModule = "nupp.runtime.provider.browsersuspension"
+    resolution.seams.suspension.runtimeModule = "nupp.runtime.browser.suspension"
     local env = envMod.new(HERE, {backendResolution = resolution})
     local source = table.concat(
         {
@@ -1079,15 +1074,51 @@ function M.lua51ProtectedCallsInheritTheInstalledSuspensionHandler()
     )
 end
 
+function M.selectedProviderRecordsWinOverIndexedNativeDeclarations()
+    local nativeEnv = envMod.new(HERE)
+    local nativeHandler = nativeEnv.resolveModuleExports(nativeEnv, "nupp.suspension").types.Handler
+    local env = envMod.new(HERE, {backendResolution = suspensionResolution()})
+    local providerHandler = env.resolveModuleExports(env, "nupp.suspension").types.Handler
+    assert(nativeHandler ~= providerHandler, "the fixture needs distinct provider identities")
+    local index = env.ensureProjectIndex(env)
+    env.projectEntries = function(_, name)
+        if name == "Handler" then
+            return {{moduleName = "nupp.suspension", visibility = "module", kind = "record", type = nativeHandler}}
+        end
+        return index.byName[name] or {}
+    end
+    local constructed = envMod.exportedNominal(env, "nupp.suspension", "Handler")
+    assertEq(constructed, providerHandler, "construction must select the same provider as the type path")
+    env.projectEntries = function(_, name)
+        if name == "Handler" then
+            return {
+                {
+                    moduleName = "fixtures.substituted_suspension",
+                    visibility = "module",
+                    kind = "record",
+                    type = nativeHandler
+                }
+            }
+        end
+
+        return index.byName[name] or {}
+    end
+    constructed = envMod.exportedNominal(env, "nupp.suspension", "Handler")
+    assertEq(constructed, providerHandler, "a staged declaration must preserve the already loaded provider identity")
+    env.loaded["nupp.suspension"] = {exports = {types = {Handler = nativeHandler}}}
+    local named = env.resolveModuleExports(env, "nupp.suspension").types.Handler
+    assertEq(named, providerHandler, "a cached public alias must not override its selected provider")
+end
+
 function M.browserProvidersPassTheirPublicContracts()
     local cases = {
-        {"suspension", "nupp.runtime.provider.browsersuspension"},
-        {"io.uri", "nupp.runtime.provider.browseruri"},
-        {"host.http", "nupp.runtime.provider.browserhttp"},
-        {"host.browser_crypto", "nupp.runtime.provider.browsercrypto"},
-        {"host.browser_storage", "nupp.runtime.provider.browserstorage"},
-        {"host.time", "nupp.runtime.provider.browsertime"},
-        {"host.workers", "nupp.runtime.provider.browserworkers"},
+        {"suspension", "nupp.runtime.browser.suspension"},
+        {"host.uri", "nupp.runtime.browser.uri"},
+        {"host.http", "nupp.runtime.browser.http"},
+        {"host.crypto", "nupp.runtime.browser.crypto"},
+        {"host.storage", "nupp.runtime.browser.storage"},
+        {"host.time", "nupp.runtime.browser.time"},
+        {"host.workers", "nupp.runtime.browser.workers"},
     }
     for _, case in ipairs(cases) do
         local passed, problem = moduleSeam.test(case[1], case[2])
@@ -1096,14 +1127,59 @@ function M.browserProvidersPassTheirPublicContracts()
 end
 
 function M.browserHttpProviderHasAPortableDependencyClosure()
-    local path = HERE .. "/../src/nupp/runtime/provider/browserhttp.g.nupp"
+    local path = HERE .. "/../src/nupp/runtime/browser/http.g.nupp"
     local handle = assert(io.open(path, "rb"))
     local source = handle:read("*a")
     handle:close()
     local result = parser.parse(source, path)
     assertEq(#result.errors, 0, "syntax errors in browser HTTP provider")
-    local diags = check.check(result, path, envMod.new(HERE .. "/.."), {dialect = "lua51",})
+    local root = HERE .. "/.."
+    local inc = require("nupp.compiler.incremental").new(root)
+    local resolution, problem = backends.resolve(inc, {"nupp.runtime.backend.browser"})
+    assert(resolution, problem)
+    local env = envMod.new(root, {backendResolution = resolution})
+    local diags = check.check(result, path, env, {dialect = "lua51", backendResolution = resolution})
     assertEq(diags[1] and diags[1].msg or "", "", "the browser HTTP provider must not reach a native implementation")
+end
+
+function M.browserHttpRejectsUnsupportedClientPolicy()
+    local browser = require("nupp.runtime.browser.http")
+    for _, options in ipairs({{userAgent = "nupp-test"}, {connectTimeoutMs = 10}}) do
+        local ok, problem = pcall(browser.Client.__nuppCtor1, options)
+        assert(
+            not ok and tostring(problem):find("does not support option", 1, true),
+            "unsupported shared options must fail explicitly: " .. tostring(problem)
+        )
+    end
+end
+
+function M.browserHttpTransfersItsBodyToTheReturnedResponse()
+    local browser = require("nupp.runtime.browser.http")
+    local effects = require("nupp.runtime.browser.effects")
+    local prior = effects.request
+    effects.request = function(_, _, resume)
+        resume({ok = true, value = {status = 200, bodyBase64 = "YWJj", headers = {}}})
+        return function()
+        end
+    end
+    local ok, problem = pcall(function()
+        local client = browser.Client.__nuppCtor1()
+        local request = setmetatable(
+            {url = assert(require("nupp.io.uri").newURI("https://example.com/"))},
+            browser.Request
+        )
+        local response, reason = client:send(request)
+        assert(response, reason)
+        assertEq(response.body:read(3), "abc", "the returned response owns a live body")
+        response:close()
+        local bytes, closed = response.body:read(1)
+        assertEq(bytes, nil)
+        assertEq(closed, "the body is closed")
+        request:close()
+        client:close()
+    end)
+    effects.request = prior
+    assert(ok, problem)
 end
 
 function M.missingRuntimeJsonProviderNamesTheDependency()
@@ -2191,9 +2267,9 @@ return identifier:match("name9"), fields:match("1,22,333"),
 end
 
 function M.nativeFeatureOverridesAreTriState()
-    local automatic = {["native.uri"] = true, ["native.json"] = true}
-    local resolved = native.resolve(automatic, {uri = false, path = true})
-    assert(not resolved["native.uri"], "false removes a detected feature")
+    local automatic = {["native.tls"] = true, ["native.json"] = true}
+    local resolved = native.resolve(automatic, {tls = false, path = true})
+    assert(not resolved["native.tls"], "false removes a detected feature")
     assert(resolved["native.json"], "an absent override remains automatic")
     assert(resolved["runtime.path"], "true adds an undetected feature")
 
@@ -2516,6 +2592,61 @@ function M.moduleUnresolvedIsAnyUnlessStrict()
     assertClean(src)
     assertEq((diagsOf(src, {strict = true})), "NUPP2001:1")
     assertClean("local value = require('no.such.module') as number", {strict = true})
+end
+
+function M.publicResourceAliasesKeepConstructionAndPrivacy()
+    assertClean(
+        [[const http = require("nupp.io.http")
+const uri = require("nupp.io.uri")
+local request = new http.Request(url = assert(uri.newURI("https://example.com/")))
+request:close()
+]]
+    )
+    local diagnostics = diagsOf(
+        [[const gpu = require("nupp.gpu")
+local function expose(borrows context: gpu.Context): nil
+    local hook = context.compileGenerated
+end
+]]
+    )
+    assert(
+        diagnostics:find("NUPP2209", 1, true),
+        "generated GPU hooks must be inaccessible to application source: " .. diagnostics
+    )
+    diagnostics = diagsOf(
+        [[const process = require("nupp.io.process")
+local function expose(borrows child: process.Process): nil
+    local handle = child.handle
+end
+]]
+    )
+    assert(diagnostics:find("NUPP2209", 1, true), "process handles must be inaccessible to application source")
+end
+
+function M.applicationResourcesHideLifecycleAndTransportMachinery()
+    for _, example in ipairs({
+        {"nupp.io.process", "Reader", "release"},
+        {"nupp.io.process", "Writer", "release"},
+        {"nupp.io.http", "Body", "release"},
+        {"nupp.io.http", "Body", "_transfer"},
+        {"nupp.io.http", "Response", "_packed"},
+        {"nupp.io.http", "Client", "_native"},
+        {"nupp.io.http", "Client", "_retainSource"},
+    }) do
+        local diagnostics = diagsOf(
+            (
+                'const api = require(%q)\nlocal function expose(borrows value: api.%s): nil\nlocal hidden = value.%s\nend\n'
+            ):format(example[1], example[2], example[3])
+        )
+        assert(diagnostics:find("NUPP2209", 1, true), table.concat(example, ".") .. " must be private: " .. diagnostics)
+    end
+end
+
+function M.tensorLayoutAlgebraDoesNotSelectAGpu()
+    assertClean("local layout = require('nupp.gpu.layout')", {dialect = "lua51"})
+    assertEq(native.forModule("nupp.gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
+    local selected = native.expand({["runtime.gpu_layout"] = true})
+    assert(not selected["native.gpu"], "layout algebra must not select a device provider")
 end
 
 return M

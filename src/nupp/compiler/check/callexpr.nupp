@@ -1044,6 +1044,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local text = tok.text
                 local modname = text:match('^"(.*)"$') or text:match("^'(.*)'$")
                 if modname then
+                    local access = c.env.moduleAccess and c.env.moduleAccess(c.env, c.result.moduleName, modname)
+                    if access and not c.opts.generatedSource then
+                        c.diag("NUPP2144", tok, access)
+                        return T.any
+                    end
                     runtimeSurface.requireModule(c, modname, tok)
                     local portableEffect = require("nupp.compiler.standardsurface").requireModule(c, modname, tok)
                     node.requiredModule = modname

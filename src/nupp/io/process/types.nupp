@@ -1,0 +1,84 @@
+@!internal
+
+module nupp.io.process.types
+
+local process = {}
+
+type process.StreamMode = "pipe" | "inherit" | "null"
+
+type process.ErrorMode = "pipe" | "inherit" | "null" | "stdout"
+
+type process.Options = {
+    --- The program in `args[1]`, then its arguments. A program with no separator in
+    --- it is resolved through `PATH` by the platform, not by this module.
+    args: {string},
+
+    --- The child's working directory, or nil to inherit this one.
+    cwd: (string | nupp.io.path.Path)?,
+
+    --- Variables overlaid on the inherited environment, or the whole environment
+    --- when `clearEnv` is set.
+    env: {[string]: string}?,
+
+    --- Whether to start from an empty environment rather than this process's.
+    clearEnv: boolean?,
+
+    --- Where the child's standard input comes from, `"pipe"` by default.
+    stdin: process.StreamMode?,
+
+    --- Where the child's standard output goes, `"pipe"` by default.
+    stdout: process.StreamMode?,
+
+    --- Where the child's standard error goes, `"pipe"` by default.
+    stderr: process.ErrorMode?,
+
+    --- Kill the child after this many milliseconds. The clock starts when it is
+    --- created, not when it is first waited on.
+    timeoutMs: integer?
+}
+
+type process.CommunicateOptions = {
+    --- Complete standard input.
+    ---
+    --- Omitted input sends EOF immediately.
+    input: (string | nupp.io.Buffer | nupp.io.ByteView)?,
+
+    --- Maximum stdout and stderr bytes together.
+    ---
+    --- Defaults to 256 MiB.
+    maxOutputBytes: integer?
+}
+
+record process.Exit
+    --- The status it exited with. Zero conventionally means success, and
+    --- `succeeded` is the question worth asking instead.
+    exitCode: integer
+
+    --- Whether it was terminated rather than exiting on its own.
+    killed: boolean
+
+    --- Whether it was terminated because its deadline passed.
+    timedOut: boolean
+
+    --- Exited on its own with status zero. A killed child never succeeded, whatever
+    --- status the platform reported for it.
+    succeeded: function(process.Exit): boolean
+end
+
+record process.Result
+    --- How the child ended.
+    exit: process.Exit
+
+    --- Captured standard output.
+    output: string
+
+    --- Captured standard error.
+    errorOutput: string
+
+    --- Whether the child exited normally with status zero.
+    function succeeded(self): boolean
+        return self.exit:succeeded()
+    end
+end
+
+export = process

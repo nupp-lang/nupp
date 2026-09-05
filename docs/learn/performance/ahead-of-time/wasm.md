@@ -27,19 +27,11 @@ without a Lua or JavaScript call per element.
 
 ## Wasm backend
 
-The target names a checked backend module that supplies both struct layout and
-opaque Wasm memory:
+The target selects the supplied backend declaration, which owns the provider
+choices for struct layout and opaque Wasm memory:
 
-```nupp
-module backend
-
-export = {
-    name = "app.wasm",
-    seams = {
-        ["representation.structvalue"] = "nupp.runtime.provider.wasmstorage",
-        ["host.wasm"] = "nupp.runtime.provider.wasmstorage",
-    },
-}
+```lua
+backends = {"nupp.runtime.backend.wasm"},
 ```
 
 `host.wasm` is a public runtime seam with an isolated conformance suite. Its
@@ -197,8 +189,8 @@ URI, suspension, time, random bytes, SHA-256, HMAC-SHA256, UUIDs, and persistent
 string storage:
 
 ```nupp
-local crypto = nupp.browser.crypto
-local storage = nupp.browser.storage
+local crypto = nupp.crypto
+local storage = nupp.io.storage
 local time = nupp.time
 
 time.sleep(10)
@@ -252,7 +244,7 @@ the runtime can provide another database name or a storage adapter.
 The browser backend can run admitted `@aot(target = "gpu")` map kernels through
 WebGPU while keeping their storage in Wasm memory. See
 [gpu.md](gpu.md#browser-gpu-kernels) for the generated WGSL profile and the
-separate `nupp.browser.gpu` effect API.
+separate `nupp.experimental.webgpu` effect API.
 
 ## Application host
 

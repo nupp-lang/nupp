@@ -58,6 +58,10 @@ intrinsic namespaces and the declared modules:
 
 - [](nupp.data) owns JSON, UTF-8, identifiers, hashes and checksums.
 - [](nupp.data.hash) provides SHA-256 and HMAC-SHA256, streaming or one-shot.
+- [](nupp.crypto) provides host-backed cryptographic randomness, digests, and
+  identifiers through the selected backend.
+- [](nupp.io.storage) provides persistent key-value storage through the selected
+  backend.
 - [](nupp.io) owns byte buffers, readers, writers, and typed scalar reads and
   writes over them.
 - [](nupp.io.files) owns filesystem metadata and directories.
@@ -72,15 +76,15 @@ intrinsic namespaces and the declared modules:
   views.
 - [`nupp.mem.soa`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
-- [](nupp.gpu) owns native resident buffers, compiled kernels, dispatches, and
+- [](nupp.gpu) owns resident buffers, generated kernel dispatches, and
   tensor views; [](nupp.gpu.layout) owns the checked layout algebra.
 - [](nupp.data.random) owns deterministic pseudo-random sequences with explicit,
   serializable state.
 - [](nupp.suspension), [](nupp.tasks), and [](nupp.workers) provide waiting,
   application task scopes, and isolated worker lanes.
 - [](nupp.time) owns monotonic time, wall time, sleeps, and deadlines.
-- [](nupp.browser.gpu) exposes the bounded `xorU32` WebGPU effect in browser
-  packages.
+- [](nupp.experimental.webgpu) exposes the bounded `xorU32` WebGPU effect in browser
+  packages. This is an experimental demonstration; general compute uses `nupp.gpu`.
 - [](nupp.peg) compiles byte-oriented parsing-expression grammars.
 
 See [gpu.md](../../performance/ahead-of-time/gpu.md) for generated GPU kernels and the

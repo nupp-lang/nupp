@@ -201,7 +201,8 @@ module app.internals
 
 `@!nofmt` disables formatting for one file. `@!internal` hides one file from
 public generated documentation and, when it is placed on `init.nupp`, hides the
-entire module namespace beneath it. See
+entire module namespace beneath it. Checked imports are restricted to the same
+package namespace; see [internal modules](../learn/language/modules.md#internal-modules). See
 [doc.md](../learn/tooling/documentation.md#public-surface) for what the documentation generator
 publishes.
 
@@ -504,10 +505,11 @@ downloads remain explicit, so several generated bindings can share resident
 buffers without an intermediate CPU copy.
 
 `Context:tensor(element, shape)` allocates dense row-major storage.
-`gpu.bufferLayout(buffer)` returns an element-independent layout whose
-`gpu.subviewLayout`,
-`gpu.transposeLayout`, `gpu.broadcastLayout`, and `gpu.asStridedLayout`
-operations are allocation-free;
+`gpu.bufferLayout(buffer)` returns an element-independent layout.
+The `nupp.gpu.layout` module (imported as `layout`) owns the
+`layout.subview`,
+`layout.transpose`, `layout.broadcast`, and `layout.asStrided`
+operations, which are allocation-free;
 `gpu.view(buffer, layout)` applies it while preserving the buffer's element type.
 Each view retains logical dimensions separately from its bounded physical
 extent. Host transfers and dispatch-indexed span accesses require dense layout;

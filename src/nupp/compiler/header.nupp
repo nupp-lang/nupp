@@ -50,6 +50,7 @@ type header.Header = {
     moduleName: string?,
     declaredModuleName: string?,
     moduleToken: any?,
+    internal: boolean?,
 
     --- The local the file returns, which qualified declarations attach to.
     moduleLocal: string?,
@@ -184,6 +185,7 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
         return produced
     end
     local declaredModuleName, moduleNode = cst.declaredModule(parsed.root)
+    produced.internal = parsed.root.documentationInternal == true
     produced.declaredModuleName = declaredModuleName
     produced.moduleToken = moduleNode and declarationToken(moduleNode.keyword)
     local moduleLocal = declaredModuleName and (

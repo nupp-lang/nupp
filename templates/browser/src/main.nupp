@@ -1,5 +1,5 @@
-local crypto = require("nupp.browser.crypto")
-local storage = require("nupp.browser.storage")
+local crypto = require("nupp.crypto")
+local storage = require("nupp.io.storage")
 local time = require("nupp.time")
 local json = require("nupp.data.json")
 

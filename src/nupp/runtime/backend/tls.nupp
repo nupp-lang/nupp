@@ -1,0 +1,66 @@
+module nupp.runtime.backend.tls
+
+--[[The tls host contract. Application code uses nupp.io.tls.]]
+
+const {type ClientOptions, type ServerOptions} = require("nupp.io.tls.types")
+
+export record Backend
+    --- Wraps a connection's handle, or answers nil and why not.
+    wrap: function(
+        self: Backend,
+        handle: any,
+        server: boolean,
+        hostname: string,
+        certificate: string,
+        privateKey: string,
+        authority: string?,
+        protocols: string,
+        verify: boolean
+    ): (any?, string?)
+
+    --- Drives the handshake as far as it goes. Answers true when finished,
+    --- false while it still needs the socket, and nil with a reason on failure.
+    handshake: function(self: Backend, session: any): (boolean?, string?)
+
+    --- Whether the peer's certificate satisfied what was asked of it.
+    verified: function(self: Backend, session: any): boolean
+
+    --- Whether the client handshake resumed a cached session.
+    resumed: (function(self: Backend, session: any): boolean)?
+
+    --- Reads decrypted bytes. An empty answer is the end; nil with no reason
+    --- means nothing has arrived yet.
+    read: function(self: Backend, session: any, wanted: integer): (string?, string?)
+
+    --- Writes plaintext, answering how much was taken.
+    write: function(self: Backend, session: any, bytes: string): (integer?, string?)
+
+    --- Whether every encrypted record written so far has left this process.
+    flushed: function(self: Backend, session: any): (boolean, string?)
+
+    --- Sends `close_notify`, answering whether the alert left this process.
+    --- False with no reason means the socket could not take it yet.
+    closeNotify: function(self: Backend, session: any): (boolean, string?)
+
+    --- Releases the session and the connection it owns.
+    destroy: function(self: Backend, session: any): nil
+
+    --- Whether the connection underneath is still open.
+    connected: function(self: Backend, session: any): boolean
+
+    --- The application protocol both sides agreed on, or nil for none.
+    protocol: function(self: Backend, session: any): string?
+
+end
+
+local selected: Backend? = nil
+
+--- Installs the TLS provider for this isolated lane.
+export function install(provider: Backend): nil
+    selected = provider
+end
+
+--- The TLS provider selected for this lane.
+export function current(): Backend?
+    return selected
+end

@@ -1,0 +1,689 @@
+module nupp.io.uri
+
+--[[
+`nupp.io.uri` parses one absolute URI into an immutable value and answers its
+components from the parse rather than from a substring. Reach for it when a
+program routes, rewrites or inspects a resource identifier.
+
+```nupp
+const uri = nupp.io.uri
+
+local endpoint, reason = uri.newURI("https://user@example.com:8443/api?q=1#top")
+assert(endpoint, reason)
+assert(endpoint:scheme() == "https")
+assert(endpoint:host() == "example.com")
+assert(endpoint:port() == 8443)
+```
+
+Two URIs are equal when their normalized text is, so a host or scheme written in
+another case does not make one URI unequal to an otherwise identical one. Nothing has to be closed.
+
+`URI` has no public constructor. Creation goes through `uri.newURI`, which interns
+the 1024 most recently used normalized URIs. Repeated parsing and URI-producing
+operations therefore reuse the same immutable value while retention stays
+bounded.
+
+## Reading components
+
+`scheme` and `path` answer a string, and `path` is empty rather than nil when
+the URI names none. `username` is empty when there is no user information.
+Every other component is optional and answers nil when the URI does not write
+it:
+
+```nupp
+const uri = nupp.io.uri
+
+local plain = assert(uri.newURI("mailto:someone@example.com"))
+assert(plain:host() == nil)
+assert(plain:port() == nil)
+assert(plain:path() == "someone@example.com")
+```
+
+The remaining accessors are `authority`, `password`, `userInfo`, `query` and
+`fragment`. `toString` answers the normalized complete URI, and `tostring(uri)`
+is the same call.
+
+## Validating untrusted text
+
+`uri.newURI` answers nil and a reason for malformed input, because bad text is an
+ordinary answer. `uri.validate` asks the same question without retaining an
+object, and `uri.isURI` separates a URI from a string or a record:
+
+```nupp
+const uri = nupp.io.uri
+
+local ok, why = uri.validate("http://[")
+assert(not ok and why)
+assert(not uri.isURI("https://example.com"))
+```
+
+::: deepdive Parsing answers a reason, modification raises
+A parse takes text from somewhere else, so failure is data and the caller is
+handed it. A `with` operation starts from a URI that already parsed, so a
+failure means the caller asked for something the grammar cannot express, which
+is a mistake at the call site rather than a bad input. Text that came from
+outside the program therefore goes through `uri.newURI`, `uri.validate` or
+`resolve`, all of which answer a reason.
+:::
+
+## Deriving a new URI
+
+Every `with` operation answers a new URI and leaves the original unchanged.
+Supplying a component equal to its current normalized value answers the
+receiver itself rather than reparsing:
+
+```nupp
+const uri = nupp.io.uri
+
+local endpoint = assert(uri.newURI("https://user:pass@example.com:8443/api?q=1"))
+local production = endpoint:withUserInfo(nil):withHost("api.example.com")
+assert(production:userInfo() == nil)
+assert(production:host() == "api.example.com")
+assert(endpoint:host() == "example.com")
+```
+
+The operations are `withScheme`, `withUserInfo`, `withHost`, `withPort`,
+`withPath`, `withQuery` and `withFragment`. Passing nil removes an optional
+component. A port must be an integer from 0 through 65535, and anything else
+raises.
+
+`concatPath` appends path text without interpreting it as a reference:
+
+```nupp
+const uri = nupp.io.uri
+
+local api = assert(uri.newURI("https://api.example.com/v1"))
+assert(api:concatPath("users"):path() == "/v1/users")
+```
+
+`withEndpoint(endpoint)` takes another URI's scheme and authority and keeps the
+receiver's path, query and fragment, which is what reroutes a request URI
+through a configured service address.
+
+## Resolving a reference
+
+`resolve` applies RFC reference resolution, the way a browser resolves a link
+against the page it is on. It answers nil and a reason when the reference
+cannot be resolved:
+
+```nupp
+const uri = nupp.io.uri
+
+local page = assert(uri.newURI("https://example.com/docs/guide/index.html"))
+local image, reason = page:resolve("../images/avatar.png")
+assert(image, reason)
+assert(image:path() == "/docs/images/avatar.png")
+```
+
+## Building from components
+
+`uri.newURI` also accepts a `nupp.io.uri.Components` record. The components are
+assembled into text and then parsed, so one grammar decides what is valid:
+
+```nupp
+const uri = nupp.io.uri
+
+local status = assert(uri.newURI({
+    scheme = "https",
+    userInfo = "reader:secret",
+    host = "example.com",
+    path = "/status",
+    query = "full=1",
+}))
+assert(status:userInfo() == "reader:secret")
+```
+
+`scheme` is required and may not be empty. `userInfo`, `host`, `path`, `query`
+and `fragment` are optional strings, and `port` is an optional integer from 0
+through 65535. Every field is URI text rather than a filesystem name.
+
+::: seealso
+- [](nupp.io.path) for filesystem names, where the platform's separators and
+  `..` rules apply instead
+- [standard-library.md](docs/learn/runtime/data/standard-library.md) for how reaching a
+  module selects the provider behind it
+:::
+]]
+
+-- RFC 3986 section 5.2.4, so a resolved reference answers the path a browser
+-- would navigate to rather than one still carrying "." and ".." segments.
+const pathtext = require("nupp.io.uri.pathtext")
+const provider = require("nupp.io.uri.provider")
+
+--- The parts a URI is built from when it is not written out as text.
+--- @export
+export record Components
+    --- The scheme, which is required and may not be empty.
+    scheme: string
+
+    --- The user information before `@`, when there is any.
+    userInfo: string?
+
+    --- The host, when there is an authority.
+    host: string?
+
+    --- The port, 0 through 65535.
+    port: integer?
+
+    --- The path, which may be empty.
+    path: string?
+
+    --- The query after `?`, without the `?`.
+    query: string?
+
+    --- The fragment after `#`, without the `#`.
+    fragment: string?
+end
+
+--- A parsed URI.
+--- @export
+export record URI
+    private _text: string
+    private _scheme: string
+    private _authority: string?
+    private _username: string
+    private _password: string?
+    private _host: string?
+    private _port: integer?
+    private _path: string
+    private _query: string?
+    private _fragment: string?
+
+    --- The whole URI as text.
+    --- @param self this URI
+    --- @return the URI text
+    function toString(self): string
+        return self._text
+    end
+
+    --- The scheme, without the colon.
+    --- @param self this URI
+    --- @return the scheme
+    function scheme(self): string
+        return self._scheme
+    end
+
+    --- The authority between `//` and the path.
+    --- @param self this URI
+    --- @return the authority, or nil when there is none
+    function authority(self): string?
+        return self._authority
+    end
+
+    --- The user name before any password.
+    --- @param self this URI
+    --- @return the user name, empty when there is none
+    function username(self): string
+        return self._username
+    end
+
+    --- The password after the user name.
+    --- @param self this URI
+    --- @return the password, or nil when there is none
+    function password(self): string?
+        return self._password
+    end
+
+    --- The host.
+    --- @param self this URI
+    --- @return the host, or nil when there is no authority
+    function host(self): string?
+        return self._host
+    end
+
+    --- The port, when one was written.
+    --- @param self this URI
+    --- @return the port, or nil when the URI names none
+    function port(self): integer?
+        return self._port
+    end
+
+    --- The path, which is empty rather than nil when absent.
+    --- @param self this URI
+    --- @return the path
+    function path(self): string
+        return self._path
+    end
+
+    --- The query, without the `?`.
+    --- @param self this URI
+    --- @return the query, or nil when there is none
+    function query(self): string?
+        return self._query
+    end
+
+    --- The fragment, without the `#`.
+    --- @param self this URI
+    --- @return the fragment, or nil when there is none
+    function fragment(self): string?
+        return self._fragment
+    end
+
+    --- The user information as written, user name and password together.
+    --- @param self this URI
+    --- @return the user information, or nil when there is none
+    function userInfo(self): string?
+        if self._username == "" and self._password == nil then
+            return nil
+        end
+        return self._username .. (self._password ~= nil and ":" .. self._password or "")
+    end
+
+    --- The URI with its scheme replaced.
+    --- @param self this URI
+    --- @param value the scheme to use, without the colon
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the scheme cannot be used here
+    function withScheme(self, value: string): URI
+        return assert(newURI(value .. self._text:sub(#self._scheme + 1)))
+    end
+
+    --- The URI with its user information replaced.
+    --- @param self this URI
+    --- @param value the user information, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the user information cannot be used here
+    function withUserInfo(self, value: string?): URI
+        return assert(
+            newURI(
+                new Components(
+                    scheme = self._scheme,
+                    userInfo = value,
+                    host = self._host,
+                    port = self._port,
+                    path = self._path,
+                    query = self._query,
+                    fragment = self._fragment
+                )
+            )
+        )
+    end
+
+    --- The URI with its host replaced.
+    --- @param self this URI
+    --- @param value the host, or nil to remove the authority
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the host cannot be used here
+    function withHost(self, value: string?): URI
+        return assert(
+            newURI(
+                new Components(
+                    scheme = self._scheme,
+                    userInfo = self:userInfo(),
+                    host = value,
+                    port = self._port,
+                    path = self._path,
+                    query = self._query,
+                    fragment = self._fragment
+                )
+            )
+        )
+    end
+
+    --- The URI with its port replaced.
+    --- @param self this URI
+    --- @param value the port, 0 through 65535, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when port is not a port number
+    function withPort(self, value: integer?): URI
+        return assert(
+            newURI(
+                new Components(
+                    scheme = self._scheme,
+                    userInfo = self:userInfo(),
+                    host = self._host,
+                    port = value,
+                    path = self._path,
+                    query = self._query,
+                    fragment = self._fragment
+                )
+            )
+        )
+    end
+
+    --- The URI with its path replaced.
+    --- @param self this URI
+    --- @param value the path
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the path cannot be used here
+    function withPath(self, value: string): URI
+        if self._authority ~= nil and value ~= "" and value:sub(1, 1) ~= "/" then
+            value = "/" .. value
+        end
+        return assert(
+            newURI(
+                new Components(
+                    scheme = self._scheme,
+                    userInfo = self:userInfo(),
+                    host = self._host,
+                    port = self._port,
+                    path = value,
+                    query = self._query,
+                    fragment = self._fragment
+                )
+            )
+        )
+    end
+
+    --- The URI with its query replaced.
+    --- @param self this URI
+    --- @param value the query, without the `?`, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the query cannot be used here
+    function withQuery(self, value: string?): URI
+        return assert(
+            newURI(
+                new Components(
+                    scheme = self._scheme,
+                    userInfo = self:userInfo(),
+                    host = self._host,
+                    port = self._port,
+                    path = self._path,
+                    query = value,
+                    fragment = self._fragment
+                )
+            )
+        )
+    end
+
+    --- The URI with its fragment replaced.
+    --- @param self this URI
+    --- @param value the fragment, without the `#`, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the fragment cannot be used here
+    function withFragment(self, value: string?): URI
+        return assert(
+            newURI(
+                new Components(
+                    scheme = self._scheme,
+                    userInfo = self:userInfo(),
+                    host = self._host,
+                    port = self._port,
+                    path = self._path,
+                    query = self._query,
+                    fragment = value
+                )
+            )
+        )
+    end
+
+    --- The URI with more appended to its path.
+    --- @param self this URI
+    --- @param value the path to append
+    --- @return the new URI, or this one when path is empty
+    --- @raises when the path cannot be appended
+    function concatPath(self, value: string): URI
+        return self:withPath(self._path:gsub("/$", "") .. "/" .. value:gsub("^/", ""))
+    end
+
+    --- Resolves a reference against this URI, as a browser resolves a link.
+    ---
+    --- The reference decides how much of this URI survives: an absolute one
+    --- replaces all of it, a rooted path keeps the scheme and authority, and a
+    --- relative path is taken from this one's directory.
+    ---
+    --- #### Examples
+    ---
+    --- Resolve a relative reference:
+    ---
+    --- ```nupp
+    --- local page = assert(newURI("https://example.com/docs/a.html"))
+    --- assert(assert(page:resolve("b.html")):toString()
+    ---     == "https://example.com/docs/b.html")
+    --- ```
+    --- @param self this URI
+    --- @param reference the reference to resolve
+    --- @return the resolved URI, or nil when the reference cannot be resolved
+    --- @return a failure reason, when unsuccessful
+    function resolve(self, reference: string): (URI?, string?)
+        if reference:match("^[A-Za-z][A-Za-z0-9+.-]*:") then
+            return newURI(reference)
+        end
+        local prefix = self._scheme .. ":"
+        if reference:sub(1, 2) == "//" then
+            -- A network-path reference supplies its own authority.
+            return newURI(prefix .. reference)
+        end
+        local suffix = ""
+        local beforeFragment, fragment = reference:match("^(.-)(#.*)$")
+        if beforeFragment ~= nil then
+            reference, suffix = beforeFragment, fragment
+        end
+        local beforeQuery, query = reference:match("^(.-)(%?.*)$")
+        if beforeQuery ~= nil then
+            reference, suffix = beforeQuery, query .. suffix
+        elseif reference == "" then
+            -- A same-document reference keeps the base's query.
+            suffix = (self._query ~= nil and "?" .. self._query or "") .. suffix
+        end
+        local authority = self._authority ~= nil and "//" .. self._authority or ""
+        local path: string
+        if reference == "" then
+            path = self._path
+        elseif reference:sub(1, 1) == "/" then
+            path = pathtext.removeDotSegments(reference)
+        elseif self._authority ~= nil and self._path == "" then
+            path = pathtext.removeDotSegments("/" .. reference)
+        else
+            path = pathtext.removeDotSegments((self._path:match("^(.*/)") or "") .. reference)
+        end
+
+        return newURI(prefix .. authority .. path .. suffix)
+    end
+
+    --- The URI with another's scheme and authority.
+    --- @param self this URI
+    --- @param endpoint the URI to take the endpoint from
+    --- @return the new URI
+    --- @raises when endpoint is not a URI
+    function withEndpoint(self, endpoint: URI): URI
+        return endpoint:concatPath(self._path):withQuery(self._query):withFragment(self._fragment)
+    end
+
+    metamethod __tostring: function(self): string
+    metamethod __eq: function(self, any): boolean
+end
+
+    ;
+(URI as {[string]: any}).__tostring = function(self: URI): string
+    return self:toString()
+end;
+(URI as {[string]: any}).__eq = function(left: URI, right: URI): boolean
+    return left:toString() == right:toString()
+end
+
+local function fromComponents(components: any): (string?, string?)
+    if type(components) ~= "table" then
+        return nil, "nupp: io.URI.newURI needs absolute text or URI components"
+    end
+    local scheme = components.scheme
+    if type(scheme) ~= "string" or not (scheme as string):match("^[A-Za-z][A-Za-z0-9+.-]*$") then
+        return nil, "nupp: URI components need a non-empty scheme"
+    end
+    for _, name in ipairs({"userInfo", "host", "path", "query", "fragment",}) do
+        local value = components[name]
+        if value ~= nil and type(value) ~= "string" then
+            return nil, "nupp: URI component " .. name .. " must be a string or nil"
+        end
+    end
+    local port = components.port
+    if port ~= nil and (type(port) ~= "number" or port ~= math.floor(port) or port < 0 or port > 65535) then
+        return nil, "nupp: URI component port must be an integer from 0 through 65535 or nil"
+    end
+    -- A delimiter that would end the component early. `#` always starts the
+    -- fragment, `?` starts the query anywhere before one, and inside the
+    -- authority `/`, `?` and `#` end it while `@` moves the host boundary.
+    for name, delimiters in pairs({userInfo = "[/?#]", host = "[/?#@]", path = "[?#]", query = "#",}) do
+        local value = components[name]
+        if value ~= nil and (value as string):find(delimiters) ~= nil then
+            return nil, "nupp: URI component " .. name .. " cannot contain a component delimiter"
+        end
+    end
+    -- RFC 3986 section 3.3: beside an authority a path is empty or rooted, and
+    -- without one it must not begin with `//`, which would reparse as one.
+    local path = components.path
+    if components.host or components.userInfo or port then
+        if path ~= nil and path ~= "" and (path as string):sub(1, 1) ~= "/" then
+            return nil, "nupp: URI component path must be empty or begin with \"/\" beside an authority"
+        end
+    elseif path ~= nil and (path as string):sub(1, 2) == "//" then
+        return nil, "nupp: URI component path cannot begin with \"//\" when there is no authority"
+    end
+    local out = scheme .. ":"
+    if components.host or components.userInfo or port then
+        out = out .. "//"
+        if components.userInfo then
+            out = out .. components.userInfo .. "@"
+        end
+        out = out .. (components.host or "")
+        if port then
+            out = out .. ":" .. tostring(port)
+        end
+    end
+    out = out .. (components.path or "")
+    if components.query then
+        out = out .. "?" .. components.query
+    end
+    if components.fragment then
+        out = out .. "#" .. components.fragment
+    end
+
+    return out, nil
+end
+
+const URI_CACHE_CAPACITY = 1024
+local uriCache: {[string]: any} = {}
+local uriCacheSize = 0
+local uriCacheNewest: any = nil
+local uriCacheOldest: any = nil
+
+local function adopt(value: URI): URI
+    local text = value:toString()
+    local found = uriCache[text]
+    if found ~= nil then
+        if found ~= uriCacheNewest then
+            local older, newer = found.older, found.newer
+            if older ~= nil then
+                older.newer = newer
+            else
+                uriCacheOldest = newer
+            end
+            if newer ~= nil then
+                newer.older = older
+            end
+            found.older = uriCacheNewest
+            found.newer = nil
+            uriCacheNewest.newer = found
+            uriCacheNewest = found
+        end
+
+        return found.value
+    end
+
+    local entry = {value = value, older = uriCacheNewest, newer = nil}
+    if uriCacheNewest ~= nil then
+        uriCacheNewest.newer = entry
+    else
+        uriCacheOldest = entry
+    end
+    uriCacheNewest = entry
+    uriCache[text] = entry
+    uriCacheSize = uriCacheSize + 1
+    if uriCacheSize > URI_CACHE_CAPACITY then
+        local evicted = uriCacheOldest
+        uriCacheOldest = evicted.newer
+        uriCacheOldest.older = nil
+        uriCache[evicted.value:toString()] = nil
+        uriCacheSize = uriCacheSize - 1
+    end
+
+    return value
+end
+
+--- Parses absolute URI text, or assembles one from components.
+---
+--- Text has to be absolute: a relative reference is resolved against a URI that
+--- already exists, through `URI:resolve`.
+---
+--- #### Examples
+---
+--- Read a URI's parts:
+---
+--- ```nupp
+--- const uri = nupp.io.uri
+---
+--- local address = assert(uri.newURI("https://example.com/a?b=1"))
+--- assert(address:host() == "example.com" and address:query() == "b=1")
+--- ```
+---
+--- Assemble one from components rather than writing the text out:
+---
+--- ```nupp
+--- local endpoint = assert(uri.newURI({
+---     scheme = "https",
+---     host = "example.com",
+---     path = "/a",
+---     query = "b=1",
+--- }))
+--- ```
+--- @param value the URI text, or the components to assemble
+--- @return the URI, or nil when it could not be parsed
+--- @return a failure reason, when unsuccessful
+--- @export
+export function newURI(value: string | Components): (URI?, string?)
+    local text: string
+    if type(value) == "string" then
+        text = value as string
+    else
+        local composed, reason = fromComponents(value)
+        if composed == nil then
+            return nil, reason
+        end
+        text = composed
+    end
+    local cached = uriCache[text]
+    if cached ~= nil then
+        return adopt(cached.value)
+    end
+    local parts, reason = provider.parse(text)
+    if parts == nil then
+        return nil, reason
+    end
+
+    return adopt(
+        setmetatable(
+            {
+                _text = parts.text,
+                _scheme = parts.scheme,
+                _authority = parts.authority,
+                _username = parts.username,
+                _password = parts.password,
+                _host = parts.host,
+                _port = parts.port,
+                _path = parts.path,
+                _query = parts.query,
+                _fragment = parts.fragment,
+            } as any,
+            URI as any
+        ) as URI
+    )
+
+end
+
+--- Reports whether text parses as an absolute URI, without building one.
+--- @param value the text to test
+--- @return whether it parses
+--- @return why it did not, when it did not
+--- @export
+export function validate(value: string): (boolean, string?)
+    local parsed, reason = newURI(value)
+    return parsed ~= nil, reason
+end
+
+--- Reports whether a value is a URI.
+--- @param value the value to test
+--- @return whether it is a URI
+--- @export
+export function isURI(value: any): boolean
+    return type(value) == "table" and getmetatable(value) == URI
+end

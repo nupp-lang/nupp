@@ -1044,7 +1044,7 @@ function aot.emitC(
     elseif selectedPolicy == "require-wasm" then
         for _, source in ipairs(sources) do
             if mentionsGpuTarget(sourceText[source] as string) then
-                session.stageBundled("nupp.runtime.provider.browserwebgpu")
+                session.stageBundled("nupp.runtime.browser.webgpu")
                 break
             end
         end

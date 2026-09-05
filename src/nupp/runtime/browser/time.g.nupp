@@ -1,0 +1,50 @@
+module nupp.runtime.browser.time
+
+-- Checked projection of Worker clocks and timers. Each operation crosses the
+-- suspension boundary once; no clock probe occurs in ordinary compute code.
+
+local response = require("nupp.runtime.browser.response")
+local contracts = require("nupp.runtime.backend.contracts")
+local time = {}
+
+local function duration(value: number, label: string): number
+    if value ~= value or value < 0 or value == math.huge then
+        error("nupp: " .. label .. " must be a finite non-negative number", 3)
+    end
+    return value
+end
+
+--- Monotonic milliseconds since the Worker time origin.
+function time.now(): number
+    return response.await("time", {operation = "now",}) as number
+end
+
+--- Unix time in milliseconds.
+function time.wallTime(): number
+    return response.await("time", {operation = "wall",}) as number
+end
+
+--- Suspends for at least `milliseconds` without blocking the Worker thread.
+function time.sleep(milliseconds: number): nil
+    response.await("time", {operation = "sleep", milliseconds = duration(milliseconds, "sleep duration"),})
+end
+
+--- Suspends until an absolute monotonic deadline.
+function time.sleepUntil(deadline: number): nil
+    local remaining = deadline - time.now()
+    if remaining <= 0 then
+        return
+    end
+    time.sleep(remaining)
+end
+
+-- Stated rather than assumed: the projection is what reports a member whose
+-- signature drifted from the contract the seam installs this module behind.
+local checked: contracts.TimeProvider = {
+    now = time.now,
+    wallTime = time.wallTime,
+    sleep = time.sleep,
+    sleepUntil = time.sleepUntil,
+}
+
+export = checked

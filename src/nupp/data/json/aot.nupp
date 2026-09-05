@@ -1,3 +1,5 @@
+@!internal
+
 module nupp.data.json.aot
 
 -- The production JSON provider. Decoding is generated C from three SIMD parser
@@ -10,7 +12,7 @@ local pullDecoder = require("nupp.data.json.internal.decode")
 local serdeDecoder = require("nupp.data.json.internal.decoder.serde")
 local newBuffer = require("string.buffer").new
 local bit = require("bit")
-local contracts = require("nupp.runtime.seam.contracts")
+local contracts = require("nupp.runtime.backend.contracts")
 
 local json = {}
 local ARRAY_MARKER, OBJECT_MARKER, ARRAY_SHAPE = {}, {}, {}

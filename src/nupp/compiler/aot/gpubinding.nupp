@@ -34,6 +34,7 @@ end
 --- What stands in for one authored `@aot(target = "gpu")` declaration.
 function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact.Artifact, browser: boolean?): string
     local runtime = scalarIR.cIdentifier("gpuRuntime", program.symbol)
+    local implementation = scalarIR.cIdentifier("gpuImplementation", program.symbol)
     local native = scalarIR.cIdentifier("gpuNative", program.symbol)
     local uniformType = scalarIR.cIdentifier("gpuUniformType", program.symbol)
     local specType = typeName("GpuSpec", program)
@@ -41,9 +42,10 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     local bindingType = typeName("GpuBinding", program)
     local lines: {string} = {}
     local recordDeclaration = artifact.exportTypes and "export record " or "local record "
-    local runtimeModule = browser and "nupp.runtime.provider.browserwebgpu" or "nupp.gpu"
+    local runtimeModule = browser and "nupp.runtime.browser.webgpu" or "nupp.gpu"
 
     append(lines, "local " .. runtime .. " = require(\"" .. runtimeModule .. "\")")
+    append(lines, "local " .. implementation .. " = require(\"" .. runtimeModule .. ".internal\")")
     if not browser then
         append(lines, "local " .. native .. " = require(\"nupp.runtime.native\")")
     end
@@ -95,7 +97,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
 
     append(lines, recordDeclaration .. kernelType)
     append(lines, "    private readonly _context: " .. runtime .. ".Context")
-    append(lines, "    private readonly _kernel: " .. runtime .. ".Kernel borrows (_context)")
+    append(lines, "    private readonly _kernel: " .. implementation .. ".Kernel borrows (_context)")
     local bindParams: {string} = {"borrows self: " .. kernelType}
     for _, param in ipairs(program.params) do
         if param.kind == "read_span" or param.kind == "write_span" then
@@ -114,7 +116,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
 
     append(lines, recordDeclaration .. bindingType)
     append(lines, "    private readonly _context: " .. runtime .. ".Context")
-    append(lines, "    private readonly _binding: " .. runtime .. ".Binding borrows (_context)")
+    append(lines, "    private readonly _binding: " .. implementation .. ".Binding borrows (_context)")
     local dispatchParams: {string} = {"borrows self: " .. bindingType}
     for _, param in ipairs(artifact.uniforms) do
         dispatchParams[#dispatchParams + 1] = param.name .. ": " .. sourceType(param)
@@ -139,7 +141,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         .. kernelType
         .. " borrows (context)"
     )
-    append(lines, "    local artifacts = new " .. runtime .. ".ArtifactSet(")
+    append(lines, "    local artifacts = new " .. implementation .. ".ArtifactSet(")
     if browser then
         append(lines, "        wgsl = " .. string.format("%q", artifact.wgsl as string) .. ",")
     else
@@ -149,7 +151,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     append(lines, "    )")
     append(
         lines,
-        "    local compiled = context:compileGenerated(artifacts, " .. tostring(
+        "    local compiled = " .. implementation .. ".compileGenerated(context, artifacts, " .. tostring(
             #artifact.readonly
         ) .. ", " .. tostring(
             #artifact.writable
@@ -164,7 +166,14 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         append(lines, "    " .. param .. (position < #bindParams and "," or ""))
     end
     append(lines, "): " .. bindingType .. " borrows (self)")
-    append(lines, "    local raw = self._context:bindKernel(self._kernel, " .. artifact.countSpan .. ".count)")
+    append(
+        lines,
+        "    local raw = "
+        .. implementation
+        .. ".bindKernel(self._context, self._kernel, "
+        .. artifact.countSpan
+        .. ".count)"
+    )
     for slot, param in ipairs(artifact.readonly) do
         append(
             lines,

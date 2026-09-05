@@ -76,6 +76,7 @@ type extract.Item = {
     name: string,
     kind: string,
     signature: string,
+    aliasSource: string?,
     doc: docblock.Doc,
     path: string,
     module: string?,
@@ -100,6 +101,8 @@ type extract.Module = {
     text: string,
     items: {extract.Item},
     documentationInternal: boolean?,
+    imports: {[string]: string}?,
+    moduleLocal: string?,
 
     --- Set on a name that only holds other modules. There is no file behind one and
     --- nothing to require by that name, so it has no source and no declarations.
@@ -281,7 +284,7 @@ local function hiddenEntry(entry, includePrivate)
     if includePrivate then
         return false
     end
-    if entryDoc(entry).tags.internal then
+    if entry.privacy or entryDoc(entry).tags.internal then
         return true
     end
 
@@ -1175,6 +1178,7 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
         name = name,
         kind = kind,
         signature = signature,
+        aliasSource = stat.kind == "localStmt" and stat.exprs and stat.exprs[1] and syntax(stat.exprs[1]) or nil,
         doc = info,
         path = itemPath,
         module = itemModule,
@@ -1248,7 +1252,11 @@ local function memberNamed(item: extract.Item, name: string): extract.Member?
     return nil
 end
 
-local function foldMethods(items: {extract.Item}, declaredTypes: {[string]: boolean}): {extract.Item}
+local function foldMethods(
+    items: {extract.Item},
+    declaredTypes: {[string]: boolean},
+    hiddenMembers: {[string]: boolean}
+): {extract.Item}
     local types: {[string]: extract.Item} = {}
     for _, item in ipairs(items) do
         if item.kind ~= "function" and item.kind ~= "method" and item.kind ~= "variable" then
@@ -1260,7 +1268,10 @@ local function foldMethods(items: {extract.Item}, declaredTypes: {[string]: bool
         local callable = item.kind == "method" or item.kind == "function"
         local ownerPath = callable and item.path:match("^(.*)[.:][^.:]+$") or nil
         local owner = ownerPath and types[ownerPath] or nil
-        if not owner and ownerPath and declaredTypes[ownerPath] then
+        local memberName = item.name:match("([^.:]+)$") or item.name
+        if ownerPath and hiddenMembers[ownerPath .. "." .. memberName] then
+            -- An out-of-line implementation cannot republish a private field.
+        elseif not owner and ownerPath and declaredTypes[ownerPath] then
             -- Its type is private, so it is too: the reader has no way to hold one.
         elseif owner then
             local name = item.name:match("([^.:]+)$") or item.name
@@ -1384,17 +1395,55 @@ function extract.extract(
         text = "",
         items = {},
         documentationInternal = parsed.root.documentationInternal,
+        imports = {},
+        moduleLocal = cst.exportedLocal(parsed.root),
     }
+    for _, block in ipairs(parsed.root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            if stat.kind == "localStmt" then
+                for index, binding in ipairs(stat.names or {}) do
+                    local value = stat.exprs and stat.exprs[index]
+                    if value
+                        and value.kind == "call"
+                        and value.obj
+                        and value.obj.kind == "name"
+                        and value.obj.token
+                        and value.obj.token.text == "require"
+                    then
+                        local args = value.args as cst.Args?
+                        local argument = args and args.exprs and args.exprs[1]
+                        if argument and argument.kind == "string" and argument.token then
+                            local literal = argument.token.text
+                            local imported = literal:match('^"(.*)"$') or literal:match("^'(.*)'$")
+                            if imported then
+                                result.imports[binding.text] = imported
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
     result.text = headerDoc(parsed.root, parsed.tokens) or ""
     local declarationFile = path ~= nil and path:match("%.d%.nupp$") ~= nil
     local extraModules = {}
     local declaredTypes: {[string]: boolean} = {}
+    local hiddenMembers: {[string]: boolean} = {}
     local published = returnedNames(parsed.root)
     for _, block in ipairs(parsed.root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
             local typePath = declaredTypePath(stat, name)
             if typePath then
                 declaredTypes[typePath] = true
+                local declaration: any = stat
+                while declaration.kind == "pragmaStmt" or declaration.kind == "exportStmt" do
+                    declaration = declaration.stat
+                end
+                for _, entry in ipairs(declaration.entries or {}) do
+                    if entry.name and hiddenEntry(entry, opts.includePrivate) then
+                        hiddenMembers[typePath .. "." .. entry.name.text] = true
+                    end
+                end
             end
             local info = parseDoc(docLines(stat))
             if info.tags.module then
@@ -1447,7 +1496,7 @@ function extract.extract(
             end
         end
     end
-    result.items = foldMethods(result.items, declaredTypes)
+    result.items = foldMethods(result.items, declaredTypes, hiddenMembers)
     table.sort(result.items, byKindThenName)
 
     return result, {}, extraModules

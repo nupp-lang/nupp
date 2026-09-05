@@ -1,0 +1,32 @@
+@!internal
+module nupp.io.uri.pathtext
+
+export function removeDotSegments(path: string): string
+    local input = path
+    local output: {string} = {}
+    while input ~= "" do
+        if input:sub(1, 3) == "../" then
+            input = input:sub(4)
+        elseif input:sub(1, 2) == "./" then
+            input = input:sub(3)
+        elseif input:sub(1, 3) == "/./" then
+            input = "/" .. input:sub(4)
+        elseif input == "/." then
+            input = "/"
+        elseif input:sub(1, 4) == "/../" then
+            input = "/" .. input:sub(5)
+            output[#output] = nil
+        elseif input == "/.." then
+            input = "/"
+            output[#output] = nil
+        elseif input == "." or input == ".." then
+            input = ""
+        else
+            local segment = input:match("^/?[^/]*") as string
+            output[#output + 1] = segment
+            input = input:sub(#segment + 1)
+        end
+    end
+
+    return table.concat(output)
+end

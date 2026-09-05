@@ -105,7 +105,7 @@ end
 
 --- Compiles one file to Lua source. Returns the generated code, or nil and a short
 --- reason after having reported the diagnostics that stopped it.
-function compile.module(path: string, env: table, settings: compile.Settings): string?, string?
+function compile.module(path: string, env: table, settings: compile.Settings, moduleName: string?): string?, string?
     local collected = settings.diagnostics
     -- Says each diagnostic, or puts it by for the caller to say later, and either way
     -- answers whether an error was among them.
@@ -138,7 +138,11 @@ function compile.module(path: string, env: table, settings: compile.Settings): s
         return nil, "syntax errors"
     end
     local check = require("nupp.compiler.check")
-    local diags = check.check(result, path, env, {strict = settings.strict, dialect = settings.dialect,})
+    local diags = check.check(result, path, env, {
+        strict = settings.strict,
+        dialect = settings.dialect,
+        moduleName = moduleName,
+    })
     if settings.materializations then
         local observations = require(
             "nupp.compiler.materialize.observe"

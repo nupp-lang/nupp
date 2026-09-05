@@ -1,0 +1,147 @@
+module nupp.runtime.backend.process
+
+--[[The process host contract. Application code uses nupp.io.process.]]
+
+const {type Options, type Exit} = require("nupp.io.process.types")
+
+local process = {}
+
+record process.Interest
+    --- The child, when its termination is one of the things being waited for, and nil
+    --- when this wait would not be advanced by it.
+    child: any?
+
+    --- Stream handles this wait wants bytes from.
+    read: {any}
+
+    --- Stream handles this wait wants to put bytes into.
+    write: {any}
+end
+
+record process.Backend
+    --- Starts a child. Answers an opaque handle and the streams that were piped,
+    --- each an opaque stream handle or nil for a mode that made none.
+    spawn: function(process.Backend, Options): (any?, any?, any?, any?, integer, string?)
+
+    --- Whether the child has ended, and how. Answers nil while it is still running,
+    --- so a caller can tell "not yet" from "exited with 0".
+    poll: function(process.Backend, any): (Exit?)
+
+    --- Asks the child to end, or insists.
+    kill: function(process.Backend, any, boolean): nil
+
+    --- Reads what is available without waiting, at most `limit` bytes. Answers the
+    --- bytes, or "" when nothing is ready, or nil at end of stream.
+    ---
+    --- `limit` is always one or more; the state machine normalizes what its callers
+    --- ask for, so a backend never converts a zero or a negative into a buffer size.
+    ---
+    --- The limit is part of the seam rather than something above it, because the
+    --- contract above promises one: `nupp.io.Reader.read(count)` answers at most
+    --- `count` bytes, and a platform that always handed back whatever a pipe held would
+    --- leave the completion-oriented method holding a surplus buffer of its own.
+    --- That is a second place where bytes wait, with its own emptiness to reason
+    --- about, and it works around a limit the kernel accepts perfectly well.
+    read: function(process.Backend, any, integer): (string?)
+
+    --- Writes what it can without waiting. Answers how many bytes went, and whether
+    --- the far end is gone.
+    ---
+    --- Zero bytes has two meanings and they are opposites: the pipe is full and will
+    --- take more later, or nobody is reading and it never will. A backend that reports
+    --- only the count leaves a writer unable to tell waiting from finished, so it waits
+    --- forever. The second result separates them. The Rust-native backend turns a
+    --- closed-pipe result into `gone`, without exposing the platform-specific error or
+    --- installing process-wide signal policy. Once it is true, the bytes reported
+    --- alongside it are the last that will ever go.
+    write: function(process.Backend, any, string): (integer, boolean)
+
+    --- Closes one stream.
+    ---
+    --- Idempotent. Answers whether the native stream is *released*, and separately
+    --- why the attempt complained. Those are two facts: cleanup can give ownership up
+    --- and still have something to report.
+    ---
+    --- So: `(true, nil)` closed cleanly; `(true, reason)` released but the platform
+    --- complained, which is to be reported and never retried; and `(false, reason)`
+    --- still ours and worth another attempt.
+    ---
+    --- A backend that cannot tell these apart must say released, because retrying a
+    --- handle that may already have been returned is unsafe.
+    ---
+    --- **Never raises.** This and `reap` are return-only, and that is a contract rather
+    --- than a preference: an error carries no release state, so a caller that catches
+    --- one knows something went wrong and nothing about whether the stream is still
+    --- theirs, which is exactly the fact it needs to decide whether trying again is
+    --- safe or catastrophic. Every outcome, including a failure the backend did not
+    --- expect, comes back as `(released, reason)`.
+    ---
+    --- A backend that raises anyway has broken this, and the state machine assumes the
+    --- stream was released, because retrying an unknown handle is the worse outcome.
+    closeStream: function(process.Backend, any): (boolean, string?)
+
+    --- Releases the child's own resources once it has ended.
+    ---
+    --- Answers released and reason, on exactly the terms `closeStream` does, and for
+    --- the same reason: a native child handle may be released only once, so a caller
+    --- has to know whether this one is still theirs to ask about.
+    ---
+    --- **Never raises**, on exactly the terms `closeStream` does not, and a backend
+    --- that does is read as having released the child.
+    reap: function(process.Backend, any): (boolean, string?)
+
+    --- Milliseconds on a monotonic clock, for deadlines. The backend owns this
+    --- because a platform's monotonic clock is a platform's business.
+    now: function(process.Backend): number
+
+    --- Blocks until something in `interest` could have changed, or `timeoutMs` passes.
+    --- Answers how many things became ready, which may be zero.
+    ---
+    --- The one operation here that is allowed to block, and it exists so that a caller
+    --- with no scheduler does not spin. Every other operation is non-blocking because
+    --- waiting belongs to the state machine; *this* is the state machine asking the
+    --- platform to wait efficiently on its behalf. The Rust-native backend waits on
+    --- exact child and stream activity rather than polling in a loop.
+    ---
+    --- Never called while a suspension handler is installed. Under a scheduler the
+    --- frame must keep running, so the state machine parks instead and the handler
+    --- decides when to come back.
+    ---
+    --- `timeoutMs` is a Nupp number and reaches a platform as a fixed-width integer,
+    --- so a backend converts it. Clamp before converting, not after. A negative can
+    --- be repaired on the far side, since it is a deadline already passed and means
+    --- no wait. A number too large to fit has already wrapped or truncated by the
+    --- time anything over there sees it, and what arrives may be a short wait, a long
+    --- one, or a negative meaning forever. Nothing downstream can tell which.
+    waitReady: function(process.Backend, process.Interest, number): integer
+end
+
+local selected: process.Backend? = nil
+
+--- Installs the process provider for this isolated lane.
+function process.install(provider: process.Backend?): nil
+    selected = provider
+end
+
+--- The process provider selected for this lane, or nil for the native default.
+function process.current(): process.Backend?
+    return selected
+end
+
+--- The exit a backend reports, with `succeeded` attached.
+---
+--- Backends build these, so the one judgment every caller makes, whether this
+--- worked, has one definition rather than one per platform.
+function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): Exit
+    return {
+        exitCode = exitCode,
+        killed = killed,
+        timedOut = timedOut,
+        succeeded = function(self: Exit): boolean
+            -- A killed child never succeeded, whatever status the platform reported.
+            return not self.killed and not self.timedOut and self.exitCode == 0
+        end,
+    } as Exit
+end
+
+export = process

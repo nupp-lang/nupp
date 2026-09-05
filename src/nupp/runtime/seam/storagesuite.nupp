@@ -1,0 +1,24 @@
+@!internal
+module nupp.runtime.seam.storagesuite
+
+--[[
+A shape-only suite, like `cryptosuite` and `timesuite`.
+
+A key-value store's answers are the browser's, and `stdlibtest` runs these
+suites with no effects host, so a vector here could assert nothing.
+`nupp.runtime.seam.module` checks the shape before calling this, which is the
+whole of what a loaded module can be held to.
+
+This was the `validate` call the seam's own factory published. The factory is
+gone and the check it forwarded to now runs ahead of every suite, so the
+forwarding was the only thing left in it.
+]]
+
+local suite = {}
+
+@allow("unused-binding")
+function suite.test(provider: any): (boolean, string?)
+    return true
+end
+
+export = suite

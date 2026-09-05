@@ -6,7 +6,7 @@
 -- agree bit-for-bit. It is deliberately a small runnable step toward the
 -- compiler-emitted @aot(target = "gpu") backend.
 
-local gpu = require("nupp.browser.gpu")
+local gpu = require("nupp.experimental.webgpu")
 
 local u32 = nupp.math.u32.wrap
 local input: {uint32} = {u32(0x00000000), u32(0x00ff00ff), u32(0x12345678), u32(0xffffffff),}

@@ -1,0 +1,44 @@
+module nupp.crypto
+
+--[[Host-independent cryptography. Select a checked backend to supply this facility.]]
+
+const contracts = require("nupp.runtime.backend.contracts")
+
+local function provider(): contracts.CryptoProvider
+    local selected = rawget(_G, "__nuppCrypto")
+    if selected == nil then
+        error("nupp: nupp.crypto needs a selected host provider", 2)
+    end
+
+    return selected as contracts.CryptoProvider
+end
+
+--- Returns cryptographically secure random bytes from the selected host.
+export function randomBytes(count: integer): string
+    return provider().randomBytes(count)
+end
+
+--- Returns the SHA-256 digest as hexadecimal text.
+export function sha256(message: string): string
+    return provider().sha256(message)
+end
+
+--- Returns a raw HMAC-SHA256 digest.
+export function digest(key: string, message: string): string
+    return provider().digest(key, message)
+end
+
+--- Returns an HMAC-SHA256 digest as hexadecimal text.
+export function hex(key: string, message: string): string
+    return provider().hex(key, message)
+end
+
+--- Returns a random UUID.
+export function uuid4(): string
+    return provider().uuid4()
+end
+
+--- Returns a time-ordered UUID.
+export function uuid7(): string
+    return provider().uuid7()
+end

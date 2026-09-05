@@ -276,7 +276,7 @@ local function sourceFiles(root, config, settings, requested)
         local candidates = path:match("%.nupp$") and {path} or listFiles(path)
         for _, candidate in ipairs(candidates) do
             candidate = normalize(candidate)
-            if not seen[candidate] and (settings.includePrivate or not privateSource(root, candidate)) then
+            if not seen[candidate] then
                 seen[candidate] = true
                 paths[#paths + 1] = candidate
             end
@@ -382,6 +382,65 @@ local function loadModules(root, config, settings, requested)
     for _, module in ipairs(modules) do
         byName[module.name] = byName[module.name] or module
     end
+    -- Resolve exported type aliases before filtering implementation modules. A public
+    -- alias owns its documentation name, while the declaring file owns the contract.
+    -- Only explicit aliases project members; exporting an entire provider table does
+    -- not silently make every implementation detail a public declaration.
+    local function copy(value: any): any
+        if type(value) ~= "table" then
+            return value
+        end
+        local out = {}
+        for key, child in pairs(value) do
+            out[key] = copy(child)
+        end
+
+        return out
+    end
+
+    local function projected(item: any, module: any, seen: any): any
+        local aliasText = item.aliasSource and "= " .. item.aliasSource or item.signature
+        local alias, member = aliasText:match("=%s*([%w_]+)%.([%w_]+)%s*$")
+        if not alias then
+            alias, member = aliasText:match("=%s*([%w_]+)%.([%w_]+)%b<>%s*$")
+        end
+        local origin = alias and module.imports and byName[module.imports[alias]] or nil
+        if not origin or seen[item] then
+            return item
+        end
+        seen[item] = true
+        for _, candidate in ipairs(origin.items) do
+            if candidate.name == member or (
+                origin.moduleLocal and candidate.name == origin.moduleLocal .. "." .. member
+            ) then
+                local expanded = copy(projected(candidate, origin, seen))
+                expanded.name, expanded.path, expanded.module, expanded.line = item.name, item.path, item.module, item.line
+                expanded.signature = expanded.signature:gsub("([%w_]+)%." .. member .. "%f[^%w_]", item.name)
+                if item.doc.text ~= "" then
+                    expanded.doc = item.doc
+                end
+                for _, field in ipairs(expanded.members or {}) do
+                    field.path = item.path .. "." .. field.name
+                end
+                return expanded
+            end
+        end
+
+        return item
+    end
+
+    for _, module in ipairs(modules) do
+        local projectedItems, published = {}, {}
+        for _, item in ipairs(module.items) do
+            local expanded = projected(item, module, {})
+            local key = expanded.path .. "\0" .. expanded.kind .. "\0" .. expanded.signature
+            if not published[key] then
+                projectedItems[#projectedItems + 1] = expanded
+                published[key] = true
+            end
+        end
+        module.items = projectedItems
+    end
     for _, module in ipairs(modules) do
         local kept = {}
         for _, item in ipairs(module.items) do
@@ -420,7 +479,11 @@ local function loadModules(root, config, settings, requested)
         end
         local public = {}
         for _, module in ipairs(modules) do
-            local hidden = (module.documentationInternal or internalModuleName(module.name)) and true or false
+            local hidden = (
+                module.documentationInternal or internalModuleName(
+                    module.name
+                ) or module.path and privateSource(root, module.path)
+            ) and true or false
             for _, namespace in ipairs(internalTrees) do
                 if module.name == namespace or module.name:sub(1, #namespace + 1) == namespace .. "." then
                     hidden = true

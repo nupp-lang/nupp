@@ -1,0 +1,61 @@
+@!internal
+module nupp.io.uri.provider
+
+const contracts = require("nupp.runtime.backend.contracts")
+const native = require("nupp.runtime.native")
+local ffi, C = native.ffi, native.C
+local provider = {}
+
+ffi.cdef[[
+int32_t nuppNativeV2UriParse(const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeV2UriRelease(uint64_t);
+int32_t nuppNativeV2UriPart(uint64_t, uint32_t, uint8_t *, size_t, size_t *, int32_t *);
+int32_t nuppNativeV2UriPort(uint64_t, int32_t *);
+]]
+
+local function part(handle: any, kind: integer): string?
+    local length = ffi.new("size_t[1]")
+    local present = ffi.new<int32[1]>()
+    native.succeeded(C.nuppNativeV2UriPart(handle[0], kind, nil, 0, length, present), 3)
+    if present[0] == 0 then
+        return nil
+    end
+    if length[0] == 0 then
+        return ""
+    end
+    local bytes = ffi.new("uint8_t[?]", length[0])
+    native.succeeded(C.nuppNativeV2UriPart(handle[0], kind, bytes, length[0], length, present), 3)
+
+    return ffi.string(bytes, length[0])
+end
+
+function provider.parse(text: string): (contracts.UriParts?, string?)
+    local handle = ffi.new<uint64[1]>()
+    if C.nuppNativeV2UriParse(text, #text, handle) ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
+    end
+    ffi.gc(handle, function(value: any): nil
+        C.nuppNativeV2UriRelease(value[0])
+    end)
+    local rawPort = ffi.new<int32[1]>()
+    native.succeeded(C.nuppNativeV2UriPort(handle[0], rawPort), 2)
+    local parts = new contracts.UriParts(
+        text = part(handle, 0) as string,
+        scheme = part(handle, 1) as string,
+        authority = part(handle, 2),
+        username = part(handle, 3) as string,
+        password = part(handle, 4),
+        host = part(handle, 5),
+        path = part(handle, 6) as string,
+        query = part(handle, 7),
+        fragment = part(handle, 8),
+        port = rawPort[0] >= 0 and (tonumber(rawPort[0]) as integer) or nil
+    )
+    C.nuppNativeV2UriRelease(handle[0])
+    ffi.gc(handle, nil)
+
+    return parts
+end
+
+local checked: contracts.UriTextProvider = {parse = provider.parse}
+export = checked

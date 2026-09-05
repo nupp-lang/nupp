@@ -1,0 +1,112 @@
+@!internal
+module nupp.runtime.seam.contractmembers
+
+const contracts = require("nupp.runtime.backend.contracts")
+
+--- Splits one reflected contract into the members `validate` looks for.
+---
+--- Functions and values are checked differently at install: a function must be
+--- callable, where a value only has to be there. A value whose declared type
+--- names a Lua type is checked for that too, so a contract promising a table
+--- says so once rather than in each seam that wanted the stricter test.
+---
+--- An optional member is required of nobody. It reads as a union with a `nil`
+--- arm, which is also what tells a caller to reach it through a nil test.
+local comptime function memberNames(info: nupp.reflect.Info): any
+    local functions, values, valueTypes = {}, {}, {}
+    for _, field in ipairs(info.fields) do
+        const declared = field.type
+        if declared ~= nil then
+            const node = info.types[declared]
+            local optional = false
+            const arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    if info.types[arm].kind == "nil" then
+                        optional = true
+                    end
+                end
+            end
+            -- An optional member is named in neither list, because it is
+            -- required of nobody.
+            if not optional then
+                if node.kind == "func" then
+                    functions[#functions + 1] = field.name
+                else
+                    values[#values + 1] = field.name
+                    if node.kind == "table" or node.kind == "string" or node.kind == "boolean" then
+                        valueTypes[field.name] = node.kind
+                    end
+                end
+            end
+        end
+    end
+
+    return {functions = functions, values = values, valueTypes = valueTypes,}
+end
+
+--- The members each contract requires, by the name the registry knows it as.
+---
+--- A contract absent here keeps the `members` list its registry entry spells
+--- out. Three are: `compute.gpu`, `host.workers` and `suspension` each own a
+--- surface whose real contract is affine -- a scope token, a context, an
+--- installed handler -- and an interface restating it would either lie about
+--- the ownership or be something no loaded module could be checked against.
+--- The registry names what a loaded table can answer for, which is the half
+--- this file's `validate` tests. Adding a contract here is declaring the
+--- interface above and naming it in this table.
+local members = {
+    ["data.json"] = comptime do
+        return memberNames(nupp.reflect(contracts.JsonProvider))
+    end,
+    ["data.sha256"] = comptime do
+        return memberNames(nupp.reflect(contracts.Sha256Provider))
+    end,
+    ["data.uuid"] = comptime do
+        return memberNames(nupp.reflect(contracts.UuidProvider))
+    end,
+    ["crypto.hmac_sha256"] = comptime do
+        return memberNames(nupp.reflect(contracts.HmacSha256Provider))
+    end,
+    ["numeric.bitops"] = comptime do
+        return memberNames(nupp.reflect(contracts.BitopsProvider))
+    end,
+    ["numeric.int64"] = comptime do
+        return memberNames(nupp.reflect(contracts.Int64Provider))
+    end,
+    ["numeric.simd"] = comptime do
+        return memberNames(nupp.reflect(contracts.SimdProvider))
+    end,
+    ["representation.structvalue"] = comptime do
+        return memberNames(nupp.reflect(contracts.StructvalueProvider))
+    end,
+    ["text.buffer"] = comptime do
+        return memberNames(nupp.reflect(contracts.TextBufferProvider))
+    end,
+    ["host.wasm"] = comptime do
+        return memberNames(nupp.reflect(contracts.WasmProvider))
+    end,
+    ["peg"] = comptime do
+        return memberNames(nupp.reflect(contracts.PegProvider))
+    end,
+    ["host.time"] = comptime do
+        return memberNames(nupp.reflect(contracts.TimeProvider))
+    end,
+    ["host.path"] = comptime do
+        return memberNames(nupp.reflect(contracts.PathProvider))
+    end,
+    ["host.uri"] = comptime do
+        return memberNames(nupp.reflect(contracts.UriTextProvider))
+    end,
+    ["host.http"] = comptime do
+        return memberNames(nupp.reflect(contracts.HttpProvider))
+    end,
+    ["host.crypto"] = comptime do
+        return memberNames(nupp.reflect(contracts.CryptoProvider))
+    end,
+    ["host.storage"] = comptime do
+        return memberNames(nupp.reflect(contracts.StorageProvider))
+    end,
+}
+
+export = members

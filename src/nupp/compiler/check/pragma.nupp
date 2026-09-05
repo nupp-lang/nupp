@@ -41,6 +41,13 @@ function pragma.install(c: state.Checker): state.StatHandlers
         if value ~= nil and (value.tag == "typeobject" or value.tag == "metatable") then
             value = value.of
         end
+        if value ~= nil and value.tag == "genericAlias" then
+            value = value.body
+            if value.tag == "nominal" then
+                value = value.origin or value
+            end
+        end
+
         return value ~= nil and value.tag == "nominal" and value as T.Nominal or nil
     end
 
@@ -55,8 +62,13 @@ function pragma.install(c: state.Checker): state.StatHandlers
             return
         end
         local gpuModule = c.env and c.env.resolveModule and c.env.resolveModule(c.env, "nupp.gpu") or nil
-        local context = nominalValue(gpuModule and c.fieldType(gpuModule, "Context") or nil)
-        local buffer = nominalValue(gpuModule and c.fieldType(gpuModule, "Buffer") or nil)
+        local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, "nupp.gpu") or nil
+        local context = nominalValue(
+            exports and exports.types.Context or (gpuModule and c.fieldType(gpuModule, "Context") or nil)
+        )
+        local buffer = nominalValue(
+            exports and exports.types.Buffer or (gpuModule and c.fieldType(gpuModule, "Buffer") or nil)
+        )
         if context == nil or buffer == nil or buffer.typeParams == nil or buffer.typeParams[1] == nil then
             c.diag("NUPP2903", nameToken, "the GPU runtime types could not be resolved")
             return

@@ -5,12 +5,26 @@ local suite = {}
 
 function suite.test(provider: any): (boolean, string?)
     local ok, problem = pcall(function()
+        local capabilities = provider.capabilities()
+        for _, name in ipairs({
+            "streamingResponse",
+            "streamingRequest",
+            "transportPolicy",
+            "connectionPolicy",
+            "protocolVersion"
+        }) do
+            assert(type(capabilities[name]) == "boolean", "HTTP capability " .. name .. " must be boolean")
+        end
         local file = provider.file("payload.bin", "application/octet-stream")
         assert(
             file.path == "payload.bin" and file.contentType == "application/octet-stream",
             "file bodies must preserve metadata"
         )
+        local closed = false
         local source = {
+            close = function(): nil
+                closed = true
+            end,
             read = function(): string
                 return ""
             end,
@@ -20,6 +34,8 @@ function suite.test(provider: any): (boolean, string?)
             reader.reader == source and reader.length == 0 and reader.contentType == "text/plain",
             "reader bodies must preserve metadata"
         )
+        reader:close()
+        assert(closed, "reader bodies must close their source")
     end)
     if not ok then
         return false, tostring(problem)

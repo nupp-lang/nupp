@@ -2709,6 +2709,13 @@ function gen.generate(
             e(("(%s==%s)"):format(recordIdentity, t.recordName), line)
         elseif t.recordName and recordIdentitySafe then
             e(("(getmetatable(%s).__index==%s)"):format(subject, t.recordName), line)
+        elseif t.recordName and pluck.portable then
+            local test = pluck.declareHelper(
+                "__nuppIsRecord",
+                "value,identity",
+                "local mt=getmetatable(value);return mt~=nil and mt.__index==identity"
+            )
+            e(("%s(%s,%s)"):format(test, subject, t.recordName), line)
         elseif t.recordName then
             e(("(getmetatable(%s)?.__index==%s)"):format(subject, t.recordName), line)
         elseif t.reified then
@@ -5359,9 +5366,20 @@ function gen.generate(
                 -- directly stamped instance arrives at `R` by the same step a linked
                 -- one does. The subject is read once, and a value with no metatable at
                 -- all falls out as false rather than raising.
-                e("( getmetatable(", firstTok and firstTok.line)
-                emit(x.expr)
-                e(")?.__index == " .. t.recordName .. " )")
+                if pluck.portable then
+                    local test = pluck.declareHelper(
+                        "__nuppIsRecord",
+                        "value,identity",
+                        "local mt=getmetatable(value);return mt~=nil and mt.__index==identity"
+                    )
+                    e(test .. "(", firstTok and firstTok.line)
+                    emit(x.expr)
+                    e("," .. t.recordName .. ")")
+                else
+                    e("( getmetatable(", firstTok and firstTok.line)
+                    emit(x.expr)
+                    e(")?.__index == " .. t.recordName .. " )")
+                end
             elseif t.reified and pluck.structvalue.enabled then
                 pluck.needRuntimeEffect(pluck.structvalue.effect)
                 e(t.reified .. ":isa(", firstTok and firstTok.line)

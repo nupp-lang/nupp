@@ -25,8 +25,8 @@ local MODULES = {
     ["nupp.data.json.provider"] = selected("runtime", "data.json"),
     ["nupp"] = {kind = "common"},
     ["nupp.test"] = {kind = "common"},
-    ["nupp.browser.crypto"] = selected("host", "host.browser_crypto", true),
-    ["nupp.browser.storage"] = selected("host", "host.browser_storage", true),
+    ["nupp.crypto"] = selected("host", "host.crypto", true),
+    ["nupp.io.storage"] = selected("host", "host.storage", true),
     ["nupp.data"] = {kind = "members"},
     ["nupp.data.json"] = selected("runtime", "data.json"),
     -- Two seams, and only the first stands between a target and this module.
@@ -50,7 +50,10 @@ local MODULES = {
     -- which seam it is missing, on the line that reached them.
     ["nupp.derive"] = selected("runtime", "text.buffer"),
     ["nupp.gpu"] = selected("runtime", "compute.gpu"),
-    ["nupp.runtime.provider.nativegpu"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.gpu.internal"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.gpu.layoutfacts"] = {kind = "common"},
+    ["nupp.gpu.layout"] = {kind = "common"},
+    ["nupp.experimental.webgpu"] = selected("host", "host.wasm"),
     ["nupp.runtime.hotreload"] = {kind = "unavailable", capability = "cinterop"},
     -- The core byte types are cdata: a view is a pointer and a length, and no
     -- table stands in for one. A dialect without C storage cannot have them,
@@ -66,7 +69,8 @@ local MODULES = {
     ["nupp.io.net"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.io.process"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.io.tls"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.io.uri"] = selected("runtime", "io.uri"),
+    ["nupp.io.uri"] = selected("runtime", "host.uri"),
+    ["nupp.io.uri.provider"] = selected("runtime", "host.uri"),
     ["nupp.log"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.compiler.runtime.extensions"] = {kind = "compiler"},
     ["nupp.compiler.runtime.math"] = {kind = "compiler"},

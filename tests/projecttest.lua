@@ -1327,8 +1327,8 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"},
         [
             "src/main.nupp"
         ] = [[
-local crypto = require("nupp.browser.crypto")
-local storage = require("nupp.browser.storage")
+local crypto = require("nupp.crypto")
+local storage = require("nupp.io.storage")
 local time = require("nupp.time")
 local data = require("nupp.data")
 local hash = require("nupp.data.hash")
@@ -1370,10 +1370,7 @@ return platform
         read(dir .. "/out/nupp/io/path.lua"),
         "the compiler-owned path implementation is materialized into the application"
     )
-    assert(
-        read(dir .. "/out/nupp/runtime/provider/browserpath.lua"),
-        "the browser backend supplies only the path environment"
-    )
+    assert(read(dir .. "/out/nupp/runtime/browser/path.lua"), "the browser backend supplies only the path environment")
     assert(
         not exists(dir .. "/out/nupp/runtime/native.lua"),
         "portable path arithmetic does not carry the native binding"

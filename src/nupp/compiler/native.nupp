@@ -38,6 +38,59 @@ type native.Feature = {
 }
 
 local FEATURES: {[string]: native.Feature} = {
+    [
+        "runtime.backend_contracts"
+    ] = {
+        name = "backend_contracts",
+        runtimeModule = "nupp.runtime.backend.contracts",
+        portableRuntime = true,
+        requires = {}
+    },
+    [
+        "runtime.net_backend"
+    ] = {
+        name = "net_backend",
+        runtimeModule = "nupp.runtime.backend.net",
+        portableRuntime = true,
+        requires = {"runtime.net_types"}
+    },
+    [
+        "runtime.net_types"
+    ] = {name = "net_types", runtimeModule = "nupp.io.net.types", portableRuntime = true, requires = {}},
+    [
+        "runtime.net_internal"
+    ] = {name = "net_internal", runtimeModule = "nupp.io.net.internal", portableRuntime = true, requires = {}},
+    [
+        "runtime.tls_backend"
+    ] = {
+        name = "tls_backend",
+        runtimeModule = "nupp.runtime.backend.tls",
+        portableRuntime = true,
+        requires = {"runtime.tls_types"}
+    },
+    [
+        "runtime.tls_types"
+    ] = {name = "tls_types", runtimeModule = "nupp.io.tls.types", portableRuntime = true, requires = {}},
+    [
+        "runtime.process_backend"
+    ] = {
+        name = "process_backend",
+        runtimeModule = "nupp.runtime.backend.process",
+        portableRuntime = true,
+        requires = {"runtime.process_types"}
+    },
+    [
+        "runtime.process_types"
+    ] = {name = "process_types", runtimeModule = "nupp.io.process.types", portableRuntime = true, requires = {}},
+    [
+        "runtime.http_messages"
+    ] = {
+        name = "http_messages",
+        runtimeModule = "nupp.io.http.messages",
+        portableRuntime = true,
+        requires = {"runtime.backend_contracts"}
+    },
+
     ["runtime.test"] = {name = "test", module = "nupp.test", runtimeModule = "nupp.test", portableRuntime = true,},
     ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true,},
     ["stdlib.lpeg.re"] = {name = "lpeg_re", module = "re", requires = {"native.lpeg"},},
@@ -50,20 +103,32 @@ local FEATURES: {[string]: native.Feature} = {
         modules = {"nupp.data.json"},
         exports = {"nupp.data.json"},
     },
+    [
+        "runtime.gpu_layout"
+    ] = {
+        name = "gpu_layout",
+        modules = {"nupp.gpu.layout"},
+        runtimeModule = "nupp.gpu.layout",
+        portableRuntime = true,
+        requires = {"runtime.gpu_layoutfacts"},
+    },
+    [
+        "runtime.gpu_layoutfacts"
+    ] = {name = "gpu_layoutfacts", runtimeModule = "nupp.gpu.layoutfacts", portableRuntime = true},
+    ["runtime.gpu_api"] = {name = "gpu_api", runtimeModule = "nupp.gpu", portableRuntime = true},
     ["native.gpu"] = {
         name = "gpu",
         -- The public facade selects this provider by default. Recording the
         -- feature on the implementation means an alternate backend can replace
         -- the facade without accidentally carrying the native library with it.
-        module = "nupp.runtime.provider.nativegpu",
-        modules = {"nupp.gpu.layout"},
-        runtimeModule = "nupp.runtime.provider.nativegpu",
+        modules = {"nupp.gpu", "nupp.gpu.internal"},
+        runtimeModule = "nupp.gpu.internal",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "gpu",
         library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.native_v2", "runtime.spanview"},
+        requires = {"runtime.native_v2", "runtime.spanview", "runtime.gpu_api", "runtime.gpu_layout"},
     },
     -- UTF-8 itself, which is Nupp and so asks the host for nothing. The record
     -- exists to attribute the module rather than to select anything.
@@ -142,15 +207,24 @@ local FEATURES: {[string]: native.Feature} = {
         "native.uri"
     ] = {
         name = "uri",
-        modules = {"nupp.io.uri"},
-        runtimeModule = "nupp.io.uri",
+        modules = {"nupp.io.uri", "nupp.io.uri.provider"},
+        runtimeModule = "nupp.io.uri.provider",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "uri",
         library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.native_v2"},
+        requires = {"runtime.backend_contracts", "runtime.uri", "runtime.native_v2"},
     },
+    [
+        "runtime.uri"
+    ] = {
+        name = "uri_runtime",
+        runtimeModule = "nupp.io.uri",
+        portableRuntime = true,
+        requires = {"runtime.uri_pathtext"}
+    },
+    ["runtime.uri_pathtext"] = {name = "uri_pathtext", runtimeModule = "nupp.io.uri.pathtext", portableRuntime = true},
     [
         "native.uuid"
     ] = {
@@ -221,7 +295,13 @@ local FEATURES: {[string]: native.Feature} = {
         host = "native-net",
         library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.suspension", "runtime.native_v2"},
+        requires = {
+            "runtime.net_backend",
+            "runtime.net_types",
+            "runtime.net_internal",
+            "runtime.suspension",
+            "runtime.native_v2"
+        },
     },
     ["native.tls"] = {
         name = "tls",
@@ -236,7 +316,13 @@ local FEATURES: {[string]: native.Feature} = {
         host = "native-tls",
         library = "nupp_native_v2",
         binary = true,
-        requires = {"native.net", "runtime.suspension", "runtime.native_v2"},
+        requires = {
+            "runtime.tls_backend",
+            "runtime.tls_types",
+            "native.net",
+            "runtime.suspension",
+            "runtime.native_v2"
+        },
     },
     ["native.process"] = {
         name = "process",
@@ -253,7 +339,7 @@ local FEATURES: {[string]: native.Feature} = {
         host = "native-process",
         library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.suspension", "runtime.native_v2"},
+        requires = {"runtime.process_backend", "runtime.process_types", "runtime.suspension", "runtime.native_v2"},
     },
     [
         "native.workers"
@@ -295,6 +381,7 @@ local FEATURES: {[string]: native.Feature} = {
         -- A request that races its upload against the response head performs one
         -- through `nupp.tasks`, so the task runtime travels with the client.
         requires = {
+            "runtime.http_messages",
             "runtime.suspension",
             "runtime.tasks",
             "runtime.native_v2",

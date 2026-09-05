@@ -1,0 +1,129 @@
+module nupp.runtime.backend.net
+
+--[[The net host contract. Application code uses nupp.io.net.]]
+
+const {type Address} = require("nupp.io.net.types")
+
+export record Backend
+    --- Opens a listener, or answers nil and why not.
+    listen: function(self: Backend, host: string, port: integer, backlog: integer, reusePort: boolean): (any?, string?)
+
+    --- Opens a listener on a filesystem name, or answers nil and why not.
+    listenPath: function(self: Backend, path: string, backlog: integer): (any?, string?)
+
+    --- Answers the port a listener actually bound, or -1 for one bound to a
+    --- filesystem name, which has none.
+    listenerPort: function(self: Backend, listener: any): integer
+
+    --- Takes the next accepted connection, or nil when none is waiting.
+    accept: function(self: Backend, listener: any): (any?, string?)
+
+    --- Releases a listener and everything it accepted but nobody took.
+    closeListener: function(self: Backend, listener: any): nil
+
+    --- Starts a connect, or answers nil and why not.
+    connect: function(self: Backend, host: string, port: integer, timeoutMs: integer): (any?, string?)
+
+    --- Starts a connect to a filesystem name, or answers nil and why not.
+    connectPath: function(self: Backend, path: string, timeoutMs: integer): (any?, string?)
+
+    --- Answers the connection once the connect finished, nil while it is still
+    --- going, and nil with a reason when it failed.
+    connectPoll: function(self: Backend, request: any): (any?, string?)
+
+    --- Abandons a connect, whether or not it finished.
+    closeConnect: function(self: Backend, request: any): nil
+
+    --- Takes up to `wanted` bytes, answering an empty string when none have
+    --- arrived yet.
+    read: function(self: Backend, stream: any, wanted: integer): (string?, string?)
+
+    --- Whether the peer closed its sending half and nothing is left buffered.
+    ended: function(self: Backend, stream: any): boolean
+
+    --- Hands bytes to the platform, answering how many it took.
+    write: function(self: Backend, stream: any, bytes: string): (integer?, string?)
+
+    --- How many bytes this process still holds unsent.
+    pending: function(self: Backend, stream: any): integer
+
+    --- Whether a write this connection accepted later failed.
+    writeFailed: function(self: Backend, stream: any): boolean
+
+    --- Whether the end of the sending half is still in the platform's hands.
+    shuttingDown: function(self: Backend, stream: any): boolean
+
+    --- Ends the sending half.
+    shutdownWrite: function(self: Backend, stream: any): (boolean, string?)
+
+    --- The address at one end of a connection, or nil where there is none.
+    address: function(self: Backend, stream: any, peer: boolean): Address?
+
+    --- Turns Nagle's algorithm off or on.
+    noDelay: function(self: Backend, stream: any, enable: boolean): (boolean, string?)
+
+    --- Turns keepalive probing off or on.
+    keepAlive: function(self: Backend, stream: any, enable: boolean, delaySeconds: integer): (boolean, string?)
+
+    --- Allows or refuses sending to a broadcast address.
+    broadcast: function(self: Backend, socket: any, enable: boolean): (boolean, string?)
+
+    --- Sets the hop limit for multicast sends.
+    multicastTtl: function(self: Backend, socket: any, ttl: integer): (boolean, string?)
+
+    --- Whether this socket receives what it sends to a joined group.
+    multicastLoop: function(self: Backend, socket: any, enable: boolean): (boolean, string?)
+
+    --- Joins or leaves a multicast group.
+    membership: function(
+        self: Backend,
+        socket: any,
+        group: string,
+        interfaceAddress: string,
+        join: boolean
+    ): (boolean, string?)
+
+    --- Releases a connection.
+    closeStream: function(self: Backend, stream: any): nil
+
+    --- Opens a datagram socket, or answers nil and why not.
+    bindDatagram: function(self: Backend, host: string, port: integer, reusePort: boolean): (any?, string?)
+
+    --- Answers the port a datagram socket actually bound.
+    datagramPort: function(self: Backend, socket: any): integer
+
+    --- Takes the next datagram, up to `maximum` bytes of it. Answers the bytes,
+    --- the peer, and whether the rest was dropped; nil bytes with no reason
+    --- means none is waiting.
+    receive: function(self: Backend, socket: any, maximum: integer): (string?, string?, integer?, boolean?, string?)
+
+    --- Sends one datagram.
+    sendTo: function(self: Backend, socket: any, host: string, port: integer, bytes: string): (boolean, string?)
+
+    --- Releases a datagram socket.
+    closeDatagram: function(self: Backend, socket: any): nil
+
+    --- Drives the reactor for at most `timeoutMs` milliseconds, zero meaning
+    --- take whatever is ready now and return.
+    run: function(self: Backend, timeoutMs: integer): nil
+end
+
+local selected: Backend? = nil
+
+--- Installs the network provider for the current isolated lane.
+export function install(provider: Backend): nil
+    selected = provider
+end
+
+--- The network provider currently selected by this lane.
+export function current(): Backend?
+    return selected
+end
+
+--- Advances the network reactor for at most the given milliseconds.
+export function pump(timeoutMs: integer): nil
+    local provider = selected
+    if provider then
+        provider:run(timeoutMs)
+    end
+end

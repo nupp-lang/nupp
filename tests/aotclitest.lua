@@ -333,9 +333,9 @@ return xorMask
 
     local binding, bindingCode = run(dir, "--emit binding --target wasm32-unknown-emscripten gpu.nupp")
     test.equal(bindingCode, 0, binding)
-    assert(binding:find("local artifacts = new gpuRuntime_ks_xor_mask.ArtifactSet", 1, true), binding)
+    assert(binding:find("local artifacts = new gpuImplementation_ks_xor_mask.ArtifactSet", 1, true), binding)
     assert(binding:find("wgsl = \"struct NuppUniforms", 1, true), binding)
-    assert(binding:find("compileGenerated(artifacts, 1, 1", 1, true), binding)
+    assert(binding:find("compileGenerated(context, artifacts, 1, 1", 1, true), binding)
 
     local floatingDir = project({
         [
@@ -857,7 +857,7 @@ return {reduce = reduce}
 
     local binding, bindingCode = run(dir, "--emit binding reduce.nupp")
     test.equal(bindingCode, 0, binding)
-    assert(binding:find("bindKernel(self._kernel, input.count)", 1, true), binding)
+    assert(binding:find("bindKernel(self._context, self._kernel, input.count)", 1, true), binding)
     assert(binding:find("raw:setRead(0, input, false)", 1, true), binding)
     assert(binding:find(", 4)", 1, true), binding)
 end

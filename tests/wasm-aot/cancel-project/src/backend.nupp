@@ -1,3 +1,0 @@
-module backend
-
-export = {name = "test.browser.cancel", seams = {["suspension"] = "nupp.runtime.provider.browsersuspension",},}

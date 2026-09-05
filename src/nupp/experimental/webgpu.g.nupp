@@ -1,0 +1,40 @@
+module nupp.experimental.webgpu
+
+--[[
+An experimental WebGPU demonstration that xors a bounded array of uint32 values.
+Use `nupp.gpu` for resident buffers and compiler-generated compute kernels.
+This module requires a browser backend and does not promise a general GPU API.
+]]
+
+local json = require("nupp.runtime.provider.lunajson")
+local response = require("nupp.runtime.browser.response")
+local gpu = {}
+
+local MAX_VALUES = 262144
+
+--- Xors every uint32 in `values` with `mask` in one WebGPU invocation per
+--- element. The result is copied back only after the Worker observes completion.
+--- @raises when WebGPU is unavailable or the request is outside the portable cap
+function gpu.xorU32(values: {uint32}, mask: uint32): {uint32}
+    if #values == 0 then
+        return {}
+    end
+    if #values > MAX_VALUES then
+        error("nupp: browser GPU xor accepts at most " .. MAX_VALUES .. " uint32 values", 2)
+    end
+
+    local input: {any} = json.asArray({})
+    for index, value in ipairs(values) do
+        input[index] = value
+    end
+
+    local answer = response.await("gpu", {operation = "xor-u32", values = input, mask = mask,})
+    local output = answer.values
+    if type(output) ~= "table" or #output ~= #values then
+        error("nupp: browser GPU returned an invalid xor result", 2)
+    end
+
+    return output as {uint32}
+end
+
+export = gpu

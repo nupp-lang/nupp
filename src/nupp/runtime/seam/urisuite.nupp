@@ -5,15 +5,12 @@ local suite = {}
 
 function suite.test(provider: any): (boolean, string?)
     local ok, problem = pcall(function()
-        local value, reason = provider.newURI("https://example.com/a?b=1")
-        assert(value ~= nil, "newURI must parse an absolute URI: " .. tostring(reason))
+        local value, reason = provider.parse("https://example.com/a?b=1")
+        assert(value ~= nil, "parse must accept an absolute URI: " .. tostring(reason))
+        assert(value.scheme == "https" and value.host == "example.com", "URI identity and authority must agree")
+        assert(value.path == "/a" and value.query == "b=1", "URI components must be preserved")
         assert(
-            provider.isURI(value) and value:scheme() == "https" and value:host() == "example.com",
-            "URI identity and authority must agree"
-        )
-        assert(value:path() == "/a" and value:query() == "b=1", "URI components must be preserved")
-        assert(
-            provider.validate("https://example.com/") and not provider.validate("not a URI"),
+            provider.parse("https://example.com/") and not provider.parse("not a URI"),
             "validate must distinguish URI text"
         )
     end)
