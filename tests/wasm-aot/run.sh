@@ -22,11 +22,23 @@ cp -R "$script_dir/project/." "$scalar_project"
   cd "$scalar_project"
   NUPP_WASM_CC="$emcc_command" "$repo/bin/nupp" build --target app
 )
-cp -R "$script_dir/simd-project/." "$simd_project"
+# Resolve the shared conformance fixture before moving out of the source tree.
+cp -RL "$script_dir/simd-project/." "$simd_project"
 (
   cd "$simd_project"
   NUPP_WASM_CC="$emcc_command" "$repo/bin/nupp" build --target app
 )
+lpeg_source=$("$repo/scripts/toolchain" lpeg-source)
+EMCC="$emcc_command" "$repo/runtime/wasm/build-app-host.sh" \
+  "$host/nupp-app.mjs" "$lua_source" "$lpeg_source"
+node "$script_dir/run.mjs" "$scalar_project" "$host" scalar
+node "$script_dir/run.mjs" "$simd_project" "$host" simd128
+
+# Exercise the actual memory service's rooting and revocation, including GC.
+NUPP_LUA51_SOURCE="$lua_source" NUPP_WASM_CC="$emcc_command" \
+  "$repo/tests/wasm-memory/run.sh" wasm
+
+# Build-only GPU packaging is checked after the executable memory suites.
 cp -R "$script_dir/gpu-project/." "$gpu_project"
 (
   cd "$gpu_project"
@@ -37,8 +49,3 @@ if ! grep -Fq 'dispatchWords' "$gpu_project/dist/app.lua" ||
   echo "browser GPU binding was not emitted without LuaJIT FFI" >&2
   exit 1
 fi
-lpeg_source=$("$repo/scripts/toolchain" lpeg-source)
-EMCC="$emcc_command" "$repo/runtime/wasm/build-app-host.sh" \
-  "$host/nupp-app.mjs" "$lua_source" "$lpeg_source"
-node "$script_dir/run.mjs" "$scalar_project" "$host" scalar
-node "$script_dir/run.mjs" "$simd_project" "$host" simd128

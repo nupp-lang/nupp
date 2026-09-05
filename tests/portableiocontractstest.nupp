@@ -1,0 +1,102 @@
+local standard = require("nupp.io")
+local http = require("nupp.io.http")
+local tests = {}
+
+local record Upload is http.Reader
+    bytes: string
+    closed: {boolean}
+
+    function read(self, count: integer): (string?, string?)
+        local out = self.bytes:sub(1, count)
+        self.bytes = self.bytes:sub(#out + 1)
+        return out
+    end
+
+    function close(takes self): nil
+        self.closed[1] = true
+    end
+end
+
+local function consume(takes source: http.Reader): string
+    local first = assert(source:read(3))
+    local second = assert(source:read(3))
+    source:close()
+    return first .. second
+end
+
+function tests.lightweightUploadsKeepTheirNarrowContract(): nil
+    local closed = {false}
+    assert(consume(new Upload(bytes = "abcdef", closed = closed)) == "abcdef")
+    assert(closed[1])
+end
+
+function tests.ordinaryReadersSatisfyTheUploadSubset(): nil
+    assert(consume(standard.newStringReader("abcdef")) == "abcdef")
+end
+
+local record Queue is standard.ByteQueue
+    bytes: string
+
+    metamethod __len: function(self: Queue): integer
+    get: function(self: Queue, ...: integer?): string
+end
+
+function Queue.__len(self: Queue): integer
+    return #self.bytes
+end
+
+function Queue.get(self: Queue, ...: integer?): string
+    local count = (...) or #self.bytes
+    local out = self.bytes:sub(1, count)
+    self.bytes = self.bytes:sub(#out + 1)
+    return out
+end
+
+function tests.byteQueuesAreStructuralSources(): nil
+    local queue = new Queue(bytes = "abcdef")
+    local reader = standard.newQueueReader(queue)
+    assert(reader:read(3) == "abc")
+    assert(#queue.bytes == 3)
+    assert(reader:read(3) == "def")
+    assert(#queue.bytes == 0)
+end
+
+function tests.scalarReadersAcceptStructuralQueues(): nil
+    local queue = new Queue(bytes = "\1\2\3\4")
+    local reader = standard.newScalarReader(queue)
+    assert(reader:remaining() == 4)
+    assert(reader:readUint32() == 67305985)
+    assert(reader:remaining() == 0)
+    assert(#queue.bytes == 0)
+end
+
+function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
+    local queue = new Queue(bytes = "abcdef")
+    local reader = standard.newQueueReader(queue)
+    local destination = standard.newBuffer(8)
+    assert(reader:readInto(destination, 0, 3) == 3)
+    local lease = destination:reserveWrite(3, 3)
+    do
+        local output = lease:span()
+        assert(reader:readSpan(output) == 3)
+        drop output
+    end
+    lease:commit(3)
+    assert(destination:getString() == "abcdef")
+    assert(reader:read(1) == "")
+end
+
+function tests.stringReadersFillWritableSpans(): nil
+    local reader = standard.newStringReader("abc")
+    local destination = standard.newBuffer(3)
+    local lease = destination:reserveWrite(0, 3)
+    do
+        local output = lease:span()
+        assert(reader:readSpan(output) == 3)
+        drop output
+    end
+    lease:commit(3)
+    assert(destination:getString() == "abc")
+end
+
+return tests

@@ -163,7 +163,7 @@ local record Scalars is ScalarReader
             return nil
         end
         if self._queue then
-            return #self._pending + #self._queue
+            return #self._pending + storage.queueLength(self._queue as ByteQueue)
         end
 
         return #self._pending
@@ -631,9 +631,10 @@ fill = function(self: ScalarReader, need: integer): (integer, string?)
         end
     elseif state._queue then
         local want = need - #(state._pending as string)
-        local have = want > 0 and #state._queue or 0
+        local queue = state._queue as ByteQueue
+        local have = want > 0 and storage.queueLength(queue) or 0
         if have > 0 then
-            state._pending = (state._pending as string) .. state._queue:get(math.min(want, have))
+            state._pending = (state._pending as string) .. queue:get(math.min(want, have))
         end
     end
 

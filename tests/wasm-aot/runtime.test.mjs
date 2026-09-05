@@ -327,6 +327,58 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
   assert.deepEqual(released, [1, 3, 2, 4]);
 });
 
+test("browser GPU download refreshes a lease after memory growth and rejects revocation", async () => {
+  for (const revoke of [false, true]) {
+    const memory = new WebAssembly.Memory({initial: 1, maximum: 2});
+    let live = true;
+    let released = 0;
+    let destroyed = false;
+    const module = {
+      HEAPU8: new Uint8Array(memory.buffer),
+      _nupp_wasm_lease_address() { return live ? 16 : 0; },
+      _nupp_wasm_lease_size() { return live ? 4 : 0; },
+      _nupp_wasm_release_lease() { live = false; released++; return 1; },
+    };
+    const device = {
+      queue: {submit() {}},
+      createBuffer() {
+        return {
+          async mapAsync() {
+            memory.grow(1);
+            module.HEAPU8 = new Uint8Array(memory.buffer);
+            if (revoke) live = false;
+          },
+          getMappedRange() { return Uint8Array.of(1, 2, 3, 4).buffer; },
+          unmap() {},
+          destroy() { destroyed = true; },
+        };
+      },
+      createCommandEncoder() {
+        return {copyBufferToBuffer() {}, finish() { return {}; }};
+      },
+    };
+    const result = await handleBrowserEffects({
+      kind: "effects",
+      requests: [{id: 1, kind: "gpu", operation: "runtime-download", buffer: 1, lease: 1}],
+    }, {
+      gpuDevice: Promise.resolve(device),
+      gpuRuntime: {buffers: new Map([[1, {bytes: 4, buffer: {}}]])},
+      GPUBufferUsage: {MAP_READ: 1, COPY_DST: 2},
+      GPUMapMode: {READ: 1},
+      wasmModule: module,
+    });
+    assert.equal(result.responses[0].ok, !revoke, result.responses[0].error);
+    if (revoke) {
+      assert.match(result.responses[0].error, /stale/);
+      assert.deepEqual(Array.from(module.HEAPU8.subarray(16, 20)), [0, 0, 0, 0]);
+    } else {
+      assert.deepEqual(Array.from(module.HEAPU8.subarray(16, 20)), [1, 2, 3, 4]);
+    }
+    assert.equal(released, 1);
+    assert.equal(destroyed, true);
+  }
+});
+
 test("browser WebGPU effects reject invalid uint32 input before opening a device", async () => {
   let requested = false;
   const result = await handleBrowserEffects({

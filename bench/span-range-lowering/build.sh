@@ -5,13 +5,19 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
 
 OUT=bench/span-range-lowering/build
-mkdir -p "$OUT/disabled" "$OUT/enabled" "$OUT/runtime/nupp" "$OUT/aot"
-./bin/nupp build -O1 --relax=frames -Zno-opt=OPT-6 -o "$OUT/disabled" \
+mkdir -p "$OUT/disabled" "$OUT/enabled" "$OUT/aot" "$OUT/runtime/nupp"
+./bin/nupp build -O1 -Zno-opt=OPT-6 -o "$OUT/disabled" \
     bench/span-range-lowering/kernel.nupp bench/span-range-lowering/matrix.nupp
-./bin/nupp build -O1 --relax=frames -o "$OUT/enabled" \
+./bin/nupp build -O1 -o "$OUT/enabled" \
     bench/span-range-lowering/kernel.nupp bench/span-range-lowering/matrix.nupp
-./bin/nupp build -O1 --relax=frames -o "$OUT/runtime/nupp" \
-    src/nupp/span.nupp src/nupp/indexed.nupp src/nupp/heap.nupp src/nupp/soa.nupp
+
+# Ad-hoc builds now preserve source-relative paths and carry dependencies.
+# Stage the runner's existing artifact layout from that complete closure.
+for mode in disabled enabled; do
+    cp "$OUT/$mode/bench/span-range-lowering/kernel.lua" "$OUT/$mode/kernel.lua"
+    cp "$OUT/$mode/bench/span-range-lowering/matrix.lua" "$OUT/$mode/matrix.lua"
+done
+cp -R "$OUT/enabled/src/nupp/." "$OUT/runtime/nupp/"
 
 # AOT is context rather than the acceptance target. Reuse the checked subset
 # generator, force its scalar oracle, and call that oracle from the benchmark.

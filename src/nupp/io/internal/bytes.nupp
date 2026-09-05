@@ -186,6 +186,18 @@ export interface ByteQueue
     get: function(self: ByteQueue, ...: integer?): string
 end
 
+--- Reads the queue contract on Lua 5.1 as well as userdata-backed LuaJIT queues.
+export const queueLength: function(source: ByteQueue): integer = function(source)
+    if type(source) == "table" then
+        local meta: any = getmetatable(source)
+        if type(meta) == "table" and type(meta.__len) == "function" then
+            return meta.__len(source) as integer
+        end
+    end
+
+    return #source
+end
+
 --- A snapshot of bytes that cannot be written through.
 --- @export
 export sealed interface ByteView
@@ -572,7 +584,8 @@ local record StringReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local wanted = positive(#destination, "Reader:readSpan destination length", 2)
+        local output = destination as span.WriteSpan<uint8>
+        local wanted = positive(#output, "Reader:readSpan destination length", 2)
         local bytes = self._bytes
         local at = self._at
         if at > #bytes then
@@ -582,7 +595,7 @@ local record StringReader is Reader
         local chunk = bytes:sub(at, at + taking - 1)
         local input = span.fromString(chunk)
         for index = 1, taking do
-            destination[index] = input[index]
+            output[index] = input[index]
         end
         self._at = at + taking
 
@@ -662,8 +675,8 @@ local record QueueReader is Reader
             return nil, "the reader is closed"
         end
         local wanted = positive(count, "Reader:read count", 2)
-        local source = self._source
-        local have = #source
+        local source = self._source as ByteQueue
+        local have = queueLength(source)
         if have == 0 then
             return "", nil
         end
@@ -675,16 +688,18 @@ local record QueueReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local wanted = positive(#destination, "Reader:readSpan destination length", 2)
-        local source = self._source
-        local have = #source
+        local output = destination as span.WriteSpan<uint8>
+        local wanted = positive(#output, "Reader:readSpan destination length", 2)
+        local source = self._source as ByteQueue
+        local have = queueLength(source)
         if have == 0 then
             return 0, nil
         end
         local taking = math.min(wanted, have) as integer
-        local input = span.fromString(source:get(taking))
+        local chunk = source:get(taking)
+        local input = span.fromString(chunk)
         for index = 1, taking do
-            destination[index] = input[index]
+            output[index] = input[index]
         end
 
         return taking, nil
@@ -696,8 +711,8 @@ local record QueueReader is Reader
         end
         local from = integer_(offset or 0, "Reader:readInto offset", 2)
         local wanted = positive(count or DEFAULT_READ, "Reader:readInto count", 2)
-        local source = self._source
-        local have = #source
+        local source = self._source as ByteQueue
+        local have = queueLength(source)
         if have == 0 then
             return 0, nil
         end

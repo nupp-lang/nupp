@@ -248,6 +248,10 @@ function gpuLease(effect, options, expectedBytes) {
   if (!pointer || !bytes || (expectedBytes !== undefined && bytes !== expectedBytes)) {
     throw new Error("browser GPU transfer lease is stale or has the wrong size");
   }
+  if (!Number.isInteger(pointer) || pointer < 0 || !Number.isInteger(bytes) || bytes < 0 ||
+      !module.HEAPU8 || pointer > module.HEAPU8.byteLength || bytes > module.HEAPU8.byteLength - pointer) {
+    throw new Error("browser GPU transfer lease is outside Wasm memory");
+  }
   return {id, bytes, view: module.HEAPU8.subarray(pointer, pointer + bytes), module};
 }
 
@@ -366,13 +370,15 @@ async function performGpuOperation(effect, options) {
     let readback;
     try {
       const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
-      const lease = gpuLease(effect, options, resource.bytes);
+      gpuLease(effect, options, resource.bytes);
       readback = device.createBuffer({size: resource.bytes, usage: usage.MAP_READ | usage.COPY_DST});
       const encoder = device.createCommandEncoder();
       encoder.copyBufferToBuffer(resource.buffer, 0, readback, 0, resource.bytes);
       device.queue.submit([encoder.finish()]);
       await readback.mapAsync(webGpuMapMode(options).READ);
-      lease.view.set(new Uint8Array(readback.getMappedRange()));
+      // Mapping yields to the host. Memory may grow or the lease may be revoked
+      // before it completes, so project a fresh checked view at the actual write.
+      gpuLease(effect, options, resource.bytes).view.set(new Uint8Array(readback.getMappedRange()));
       readback.unmap();
       return null;
     } finally {

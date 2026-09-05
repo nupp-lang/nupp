@@ -175463,7 +175463,7 @@ const __nuppExportValue= http ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.io.http.messages"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.http.messages"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.io.internal.bytes"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;const __nuppT36={}; const function __nuppT33(...) return {n=select("#",...),...} end; const __nuppT37,__nuppT38,__nuppT39,__nuppT40,__nuppT41,__nuppT42,__nuppT43,__nuppT44=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT34(value) return value end; const function __nuppT35(primary,errors,start) const secondary={} for i=start,#errors do if errors[i]~=primary then secondary[#secondary+1]=errors[i] end end if #secondary==0 then return primary end return __nuppT42({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT43(v.primary) for _,reason in __nuppT44(v.suppressed) do text=text.."\ncleanup: "..__nuppT43(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io.internal.bytes#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.internal.bytes#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports={};package.loaded["nupp.io.internal.bytes"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local newBuffer;__nuppExports["newBuffer"]=function(...) return newBuffer(...) end;local newQueueReader;__nuppExports["newQueueReader"]=function(...) return newQueueReader(...) end;local newStringReader;__nuppExports["newStringReader"]=function(...) return newStringReader(...) end;
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;const __nuppT37={}; const function __nuppT34(...) return {n=select("#",...),...} end; const __nuppT38,__nuppT39,__nuppT40,__nuppT41,__nuppT42,__nuppT43,__nuppT44,__nuppT45=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT35(value) return value end; const function __nuppT36(primary,errors,start) const secondary={} for i=start,#errors do if errors[i]~=primary then secondary[#secondary+1]=errors[i] end end if #secondary==0 then return primary end return __nuppT43({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT44(v.primary) for _,reason in __nuppT45(v.suppressed) do text=text.."\ncleanup: "..__nuppT44(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io.internal.bytes#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.internal.bytes#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports={};package.loaded["nupp.io.internal.bytes"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local newBuffer;__nuppExports["newBuffer"]=function(...) return newBuffer(...) end;local newQueueReader;__nuppExports["newQueueReader"]=function(...) return newQueueReader(...) end;local newStringReader;__nuppExports["newStringReader"]=function(...) return newStringReader(...) end;
 
 
 
@@ -175650,6 +175650,18 @@ local newWriterOver
 
 
 
+
+
+const queueLength = function ( source ) 
+if type ( source ) == "table" then
+local meta = getmetatable ( source )
+if type ( meta ) == "table" and type ( meta . __len ) == "function" then
+return meta . __len ( source )
+end
+end
+
+return # source
+end ;__nuppExports["queueLength"]=queueLength
 
 
 
@@ -175965,18 +175977,18 @@ return 0 , nil
 end
 local at = self . _at
 reserve ( state , at + count )
-do local __nuppT45=0; local  __nuppT51 ; local __nuppT52=false ; const __nuppT46,__nuppT47,__nuppT48=__nuppT38(function() do const __nuppT53= newWriteLease ( state , at , count ) ; __nuppT51= __nuppT53 ; __nuppT45=1;  __nuppT52=true;  local lease=__nuppT51;
+do local __nuppT46=0; local  __nuppT52 ; local __nuppT53=false ; const __nuppT47,__nuppT48,__nuppT49=__nuppT39(function() do const __nuppT54= newWriteLease ( state , at , count ) ; __nuppT52= __nuppT54 ; __nuppT46=1;  __nuppT53=true;  local lease=__nuppT52;
 do
-do local __nuppT54=0; local  __nuppT60 ; local __nuppT61=false ; const __nuppT55,__nuppT56,__nuppT57=__nuppT38(function() do const __nuppT62= lease : span ( ) ; __nuppT60= __nuppT62 ; __nuppT54=1;  __nuppT61=true;  local output=__nuppT60;
+do local __nuppT55=0; local  __nuppT61 ; local __nuppT62=false ; const __nuppT56,__nuppT57,__nuppT58=__nuppT39(function() do const __nuppT63= lease : span ( ) ; __nuppT61= __nuppT63 ; __nuppT55=1;  __nuppT62=true;  local output=__nuppT61;
 for index = 1 , count do
 output :set( index , source :get( index ) )
 end
-do __nuppT61=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT34); const __nuppT58={}; local __nuppT59=0; if __nuppT54>=1 and __nuppT61 then  const __nuppT63,__nuppT64=__nuppT37(__nuppCleanup1,__nuppT60);  if not __nuppT63 then __nuppT59=__nuppT59+1; __nuppT58[__nuppT59]=__nuppT64 end; end; if not __nuppT55 then if __nuppT59>0 then __nuppT39(__nuppT35(__nuppT56,__nuppT58,1),0) else __nuppT39(__nuppT56,0) end end; if __nuppT59>0 then if __nuppT59>1 then __nuppT39(__nuppT35(__nuppT58[1],__nuppT58,2),0) else __nuppT39(__nuppT58[1],0) end end; if __nuppT56=="return" then  return "return",__nuppT57  end; end
+do __nuppT62=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT35); const __nuppT59={}; local __nuppT60=0; if __nuppT55>=1 and __nuppT62 then  const __nuppT64,__nuppT65=__nuppT38(__nuppCleanup1,__nuppT61);  if not __nuppT64 then __nuppT60=__nuppT60+1; __nuppT59[__nuppT60]=__nuppT65 end; end; if not __nuppT56 then if __nuppT60>0 then __nuppT40(__nuppT36(__nuppT57,__nuppT59,1),0) else __nuppT40(__nuppT57,0) end end; if __nuppT60>0 then if __nuppT60>1 then __nuppT40(__nuppT36(__nuppT59[1],__nuppT59,2),0) else __nuppT40(__nuppT59[1],0) end end; if __nuppT57=="return" then  return "return",__nuppT58  end; end
 end
-do (function(__nuppT65,...)  __nuppT52=false;  return __nuppT65:commit(...)  end)( lease , count ) end
+do (function(__nuppT66,...)  __nuppT53=false;  return __nuppT66:commit(...)  end)( lease , count ) end
 self . _at = at + count
 
-return "return",__nuppT33( count , nil ) end; return "normal" end,__nuppT34); const __nuppT49={}; local __nuppT50=0; if __nuppT45>=1 and __nuppT52 then  const __nuppT66,__nuppT67=__nuppT37(__nuppCleanup2,__nuppT51);  if not __nuppT66 then __nuppT50=__nuppT50+1; __nuppT49[__nuppT50]=__nuppT67 end; end; if not __nuppT46 then if __nuppT50>0 then __nuppT39(__nuppT35(__nuppT47,__nuppT49,1),0) else __nuppT39(__nuppT47,0) end end; if __nuppT50>0 then if __nuppT50>1 then __nuppT39(__nuppT35(__nuppT49[1],__nuppT49,2),0) else __nuppT39(__nuppT49[1],0) end end; if __nuppT47=="return" then  return __nuppT40(__nuppT48,1,__nuppT48.n)  end; end
+return "return",__nuppT34( count , nil ) end; return "normal" end,__nuppT35); const __nuppT50={}; local __nuppT51=0; if __nuppT46>=1 and __nuppT53 then  const __nuppT67,__nuppT68=__nuppT38(__nuppCleanup2,__nuppT52);  if not __nuppT67 then __nuppT51=__nuppT51+1; __nuppT50[__nuppT51]=__nuppT68 end; end; if not __nuppT47 then if __nuppT51>0 then __nuppT40(__nuppT36(__nuppT48,__nuppT50,1),0) else __nuppT40(__nuppT48,0) end end; if __nuppT51>0 then if __nuppT51>1 then __nuppT40(__nuppT36(__nuppT50[1],__nuppT50,2),0) else __nuppT40(__nuppT50[1],0) end end; if __nuppT48=="return" then  return __nuppT41(__nuppT49,1,__nuppT49.n)  end; end
 end
 
 
@@ -176037,7 +176049,8 @@ function StringReader:readSpan(destination)
 if self . _closed then
 return nil , "the reader is closed"
 end
-local wanted = positive ( # destination , "Reader:readSpan destination length" , 2 )
+local output = destination
+local wanted = positive ( output .count , "Reader:readSpan destination length" , 2 )
 local bytes = self . _bytes
 local at = self . _at
 if at > # bytes then
@@ -176047,7 +176060,7 @@ local taking = math . min ( wanted , # bytes - at + 1 )
 local chunk = bytes : sub ( at , at + taking - 1 )
 local input = span . fromString ( chunk )
 for index = 1 , taking do
-destination :set( index , input :get( index ) )
+output :set( index , input :get( index ) )
 end
 self . _at = at + taking
 
@@ -176068,18 +176081,18 @@ end
 local taking = math . min ( wanted , # bytes - at + 1 )
 local chunk = bytes : sub ( at , at + taking - 1 )
 local input = span . fromString ( chunk )
-do local __nuppT73=0; local  __nuppT79 ; local __nuppT80=false ; const __nuppT74,__nuppT75,__nuppT76=__nuppT38(function() do const __nuppT81= destination : reserveWrite ( from , wanted ) ; __nuppT79= __nuppT81 ; __nuppT73=1;  __nuppT80=true;  local lease=__nuppT79;
+do local __nuppT74=0; local  __nuppT80 ; local __nuppT81=false ; const __nuppT75,__nuppT76,__nuppT77=__nuppT39(function() do const __nuppT82= destination : reserveWrite ( from , wanted ) ; __nuppT80= __nuppT82 ; __nuppT74=1;  __nuppT81=true;  local lease=__nuppT80;
 do
-do local __nuppT82=0; local  __nuppT88 ; local __nuppT89=false ; const __nuppT83,__nuppT84,__nuppT85=__nuppT38(function() do const __nuppT90= lease : span ( ) ; __nuppT88= __nuppT90 ; __nuppT82=1;  __nuppT89=true;  local output=__nuppT88;
+do local __nuppT83=0; local  __nuppT89 ; local __nuppT90=false ; const __nuppT84,__nuppT85,__nuppT86=__nuppT39(function() do const __nuppT91= lease : span ( ) ; __nuppT89= __nuppT91 ; __nuppT83=1;  __nuppT90=true;  local output=__nuppT89;
 for index = 1 , taking do
 output :set( index , input :get( index ) )
 end
-do __nuppT89=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT34); const __nuppT86={}; local __nuppT87=0; if __nuppT82>=1 and __nuppT89 then  const __nuppT91,__nuppT92=__nuppT37(__nuppCleanup1,__nuppT88);  if not __nuppT91 then __nuppT87=__nuppT87+1; __nuppT86[__nuppT87]=__nuppT92 end; end; if not __nuppT83 then if __nuppT87>0 then __nuppT39(__nuppT35(__nuppT84,__nuppT86,1),0) else __nuppT39(__nuppT84,0) end end; if __nuppT87>0 then if __nuppT87>1 then __nuppT39(__nuppT35(__nuppT86[1],__nuppT86,2),0) else __nuppT39(__nuppT86[1],0) end end; if __nuppT84=="return" then  return "return",__nuppT85  end; end
+do __nuppT90=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT35); const __nuppT87={}; local __nuppT88=0; if __nuppT83>=1 and __nuppT90 then  const __nuppT92,__nuppT93=__nuppT38(__nuppCleanup1,__nuppT89);  if not __nuppT92 then __nuppT88=__nuppT88+1; __nuppT87[__nuppT88]=__nuppT93 end; end; if not __nuppT84 then if __nuppT88>0 then __nuppT40(__nuppT36(__nuppT85,__nuppT87,1),0) else __nuppT40(__nuppT85,0) end end; if __nuppT88>0 then if __nuppT88>1 then __nuppT40(__nuppT36(__nuppT87[1],__nuppT87,2),0) else __nuppT40(__nuppT87[1],0) end end; if __nuppT85=="return" then  return "return",__nuppT86  end; end
 end
-do (function(__nuppT93,...)  __nuppT80=false;  return __nuppT93:commit(...)  end)( lease , taking ) end
+do (function(__nuppT94,...)  __nuppT81=false;  return __nuppT94:commit(...)  end)( lease , taking ) end
 self . _at = at + taking
 
-return "return",__nuppT33( taking , nil ) end; return "normal" end,__nuppT34); const __nuppT77={}; local __nuppT78=0; if __nuppT73>=1 and __nuppT80 then  const __nuppT94,__nuppT95=__nuppT37(__nuppCleanup2,__nuppT79);  if not __nuppT94 then __nuppT78=__nuppT78+1; __nuppT77[__nuppT78]=__nuppT95 end; end; if not __nuppT74 then if __nuppT78>0 then __nuppT39(__nuppT35(__nuppT75,__nuppT77,1),0) else __nuppT39(__nuppT75,0) end end; if __nuppT78>0 then if __nuppT78>1 then __nuppT39(__nuppT35(__nuppT77[1],__nuppT77,2),0) else __nuppT39(__nuppT77[1],0) end end; if __nuppT75=="return" then  return __nuppT40(__nuppT76,1,__nuppT76.n)  end; end
+return "return",__nuppT34( taking , nil ) end; return "normal" end,__nuppT35); const __nuppT78={}; local __nuppT79=0; if __nuppT74>=1 and __nuppT81 then  const __nuppT95,__nuppT96=__nuppT38(__nuppCleanup2,__nuppT80);  if not __nuppT95 then __nuppT79=__nuppT79+1; __nuppT78[__nuppT79]=__nuppT96 end; end; if not __nuppT75 then if __nuppT79>0 then __nuppT40(__nuppT36(__nuppT76,__nuppT78,1),0) else __nuppT40(__nuppT76,0) end end; if __nuppT79>0 then if __nuppT79>1 then __nuppT40(__nuppT36(__nuppT78[1],__nuppT78,2),0) else __nuppT40(__nuppT78[1],0) end end; if __nuppT76=="return" then  return __nuppT41(__nuppT77,1,__nuppT77.n)  end; end
 end
 
 
@@ -176128,7 +176141,7 @@ return nil , "the reader is closed"
 end
 local wanted = positive ( count , "Reader:read count" , 2 )
 local source = self . _source
-local have = # source
+local have = queueLength ( source )
 if have == 0 then
 return "" , nil
 end
@@ -176140,16 +176153,18 @@ function QueueReader:readSpan(destination)
 if self . _closed then
 return nil , "the reader is closed"
 end
-local wanted = positive ( # destination , "Reader:readSpan destination length" , 2 )
+local output = destination
+local wanted = positive ( output .count , "Reader:readSpan destination length" , 2 )
 local source = self . _source
-local have = # source
+local have = queueLength ( source )
 if have == 0 then
 return 0 , nil
 end
 local taking = math . min ( wanted , have )
-local input = span . fromString ( source : get ( taking ) )
+local chunk = source : get ( taking )
+local input = span . fromString ( chunk )
 for index = 1 , taking do
-destination :set( index , input :get( index ) )
+output :set( index , input :get( index ) )
 end
 
 return taking , nil
@@ -176162,24 +176177,24 @@ end
 local from = integer_ ( offset or 0 , "Reader:readInto offset" , 2 )
 local wanted = positive ( count or DEFAULT_READ , "Reader:readInto count" , 2 )
 local source = self . _source
-local have = # source
+local have = queueLength ( source )
 if have == 0 then
 return 0 , nil
 end
 local taking = math . min ( wanted , have )
 local chunk = source : get ( taking )
 local input = span . fromString ( chunk )
-do local __nuppT101=0; local  __nuppT107 ; local __nuppT108=false ; const __nuppT102,__nuppT103,__nuppT104=__nuppT38(function() do const __nuppT109= destination : reserveWrite ( from , wanted ) ; __nuppT107= __nuppT109 ; __nuppT101=1;  __nuppT108=true;  local lease=__nuppT107;
+do local __nuppT102=0; local  __nuppT108 ; local __nuppT109=false ; const __nuppT103,__nuppT104,__nuppT105=__nuppT39(function() do const __nuppT110= destination : reserveWrite ( from , wanted ) ; __nuppT108= __nuppT110 ; __nuppT102=1;  __nuppT109=true;  local lease=__nuppT108;
 do
-do local __nuppT110=0; local  __nuppT116 ; local __nuppT117=false ; const __nuppT111,__nuppT112,__nuppT113=__nuppT38(function() do const __nuppT118= lease : span ( ) ; __nuppT116= __nuppT118 ; __nuppT110=1;  __nuppT117=true;  local output=__nuppT116;
+do local __nuppT111=0; local  __nuppT117 ; local __nuppT118=false ; const __nuppT112,__nuppT113,__nuppT114=__nuppT39(function() do const __nuppT119= lease : span ( ) ; __nuppT117= __nuppT119 ; __nuppT111=1;  __nuppT118=true;  local output=__nuppT117;
 for index = 1 , taking do
 output :set( index , input :get( index ) )
 end
-do __nuppT117=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT34); const __nuppT114={}; local __nuppT115=0; if __nuppT110>=1 and __nuppT117 then  const __nuppT119,__nuppT120=__nuppT37(__nuppCleanup1,__nuppT116);  if not __nuppT119 then __nuppT115=__nuppT115+1; __nuppT114[__nuppT115]=__nuppT120 end; end; if not __nuppT111 then if __nuppT115>0 then __nuppT39(__nuppT35(__nuppT112,__nuppT114,1),0) else __nuppT39(__nuppT112,0) end end; if __nuppT115>0 then if __nuppT115>1 then __nuppT39(__nuppT35(__nuppT114[1],__nuppT114,2),0) else __nuppT39(__nuppT114[1],0) end end; if __nuppT112=="return" then  return "return",__nuppT113  end; end
+do __nuppT118=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT35); const __nuppT115={}; local __nuppT116=0; if __nuppT111>=1 and __nuppT118 then  const __nuppT120,__nuppT121=__nuppT38(__nuppCleanup1,__nuppT117);  if not __nuppT120 then __nuppT116=__nuppT116+1; __nuppT115[__nuppT116]=__nuppT121 end; end; if not __nuppT112 then if __nuppT116>0 then __nuppT40(__nuppT36(__nuppT113,__nuppT115,1),0) else __nuppT40(__nuppT113,0) end end; if __nuppT116>0 then if __nuppT116>1 then __nuppT40(__nuppT36(__nuppT115[1],__nuppT115,2),0) else __nuppT40(__nuppT115[1],0) end end; if __nuppT113=="return" then  return "return",__nuppT114  end; end
 end
-do (function(__nuppT121,...)  __nuppT108=false;  return __nuppT121:commit(...)  end)( lease , taking ) end
+do (function(__nuppT122,...)  __nuppT109=false;  return __nuppT122:commit(...)  end)( lease , taking ) end
 
-return "return",__nuppT33( taking , nil ) end; return "normal" end,__nuppT34); const __nuppT105={}; local __nuppT106=0; if __nuppT101>=1 and __nuppT108 then  const __nuppT122,__nuppT123=__nuppT37(__nuppCleanup2,__nuppT107);  if not __nuppT122 then __nuppT106=__nuppT106+1; __nuppT105[__nuppT106]=__nuppT123 end; end; if not __nuppT102 then if __nuppT106>0 then __nuppT39(__nuppT35(__nuppT103,__nuppT105,1),0) else __nuppT39(__nuppT103,0) end end; if __nuppT106>0 then if __nuppT106>1 then __nuppT39(__nuppT35(__nuppT105[1],__nuppT105,2),0) else __nuppT39(__nuppT105[1],0) end end; if __nuppT103=="return" then  return __nuppT40(__nuppT104,1,__nuppT104.n)  end; end
+return "return",__nuppT34( taking , nil ) end; return "normal" end,__nuppT35); const __nuppT106={}; local __nuppT107=0; if __nuppT102>=1 and __nuppT109 then  const __nuppT123,__nuppT124=__nuppT38(__nuppCleanup2,__nuppT108);  if not __nuppT123 then __nuppT107=__nuppT107+1; __nuppT106[__nuppT107]=__nuppT124 end; end; if not __nuppT103 then if __nuppT107>0 then __nuppT40(__nuppT36(__nuppT104,__nuppT106,1),0) else __nuppT40(__nuppT104,0) end end; if __nuppT107>0 then if __nuppT107>1 then __nuppT40(__nuppT36(__nuppT106[1],__nuppT106,2),0) else __nuppT40(__nuppT106[1],0) end end; if __nuppT104=="return" then  return __nuppT41(__nuppT105,1,__nuppT105.n)  end; end
 end
 
 
@@ -176725,7 +176740,7 @@ if self . _reader then
 return nil
 end
 if self . _queue then
-return # self . _pending + # self . _queue
+return # self . _pending + storage . queueLength ( self . _queue )
 end
 
 return # self . _pending
@@ -177193,9 +177208,10 @@ state . _pending = ( state . _pending ) .. ( chunk )
 end
 elseif state . _queue then
 local want = need - # ( state . _pending )
-local have = want > 0 and # state . _queue or 0
+local queue = state . _queue
+local have = want > 0 and storage . queueLength ( queue ) or 0
 if have > 0 then
-state . _pending = ( state . _pending ) .. state . _queue : get ( math . min ( want , have ) )
+state . _pending = ( state . _pending ) .. queue : get ( math . min ( want , have ) )
 end
 end
 
@@ -225764,6 +225780,18 @@ export interface ByteQueue
     get: function(self: ByteQueue, ...: integer?): string
 end
 
+--- Reads the queue contract on Lua 5.1 as well as userdata-backed LuaJIT queues.
+export const queueLength: function(source: ByteQueue): integer = function(source)
+    if type(source) == "table" then
+        local meta: any = getmetatable(source)
+        if type(meta) == "table" and type(meta.__len) == "function" then
+            return meta.__len(source) as integer
+        end
+    end
+
+    return #source
+end
+
 --- A snapshot of bytes that cannot be written through.
 --- @export
 export sealed interface ByteView
@@ -226150,7 +226178,8 @@ local record StringReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local wanted = positive(#destination, "Reader:readSpan destination length", 2)
+        local output = destination as span.WriteSpan<uint8>
+        local wanted = positive(#output, "Reader:readSpan destination length", 2)
         local bytes = self._bytes
         local at = self._at
         if at > #bytes then
@@ -226160,7 +226189,7 @@ local record StringReader is Reader
         local chunk = bytes:sub(at, at + taking - 1)
         local input = span.fromString(chunk)
         for index = 1, taking do
-            destination[index] = input[index]
+            output[index] = input[index]
         end
         self._at = at + taking
 
@@ -226240,8 +226269,8 @@ local record QueueReader is Reader
             return nil, "the reader is closed"
         end
         local wanted = positive(count, "Reader:read count", 2)
-        local source = self._source
-        local have = #source
+        local source = self._source as ByteQueue
+        local have = queueLength(source)
         if have == 0 then
             return "", nil
         end
@@ -226253,16 +226282,18 @@ local record QueueReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local wanted = positive(#destination, "Reader:readSpan destination length", 2)
-        local source = self._source
-        local have = #source
+        local output = destination as span.WriteSpan<uint8>
+        local wanted = positive(#output, "Reader:readSpan destination length", 2)
+        local source = self._source as ByteQueue
+        local have = queueLength(source)
         if have == 0 then
             return 0, nil
         end
         local taking = math.min(wanted, have) as integer
-        local input = span.fromString(source:get(taking))
+        local chunk = source:get(taking)
+        local input = span.fromString(chunk)
         for index = 1, taking do
-            destination[index] = input[index]
+            output[index] = input[index]
         end
 
         return taking, nil
@@ -226274,8 +226305,8 @@ local record QueueReader is Reader
         end
         local from = integer_(offset or 0, "Reader:readInto offset", 2)
         local wanted = positive(count or DEFAULT_READ, "Reader:readInto count", 2)
-        local source = self._source
-        local have = #source
+        local source = self._source as ByteQueue
+        local have = queueLength(source)
         if have == 0 then
             return 0, nil
         end
@@ -226836,7 +226867,7 @@ local record Scalars is ScalarReader
             return nil
         end
         if self._queue then
-            return #self._pending + #self._queue
+            return #self._pending + storage.queueLength(self._queue as ByteQueue)
         end
 
         return #self._pending
@@ -227304,9 +227335,10 @@ fill = function(self: ScalarReader, need: integer): (integer, string?)
         end
     elseif state._queue then
         local want = need - #(state._pending as string)
-        local have = want > 0 and #state._queue or 0
+        local queue = state._queue as ByteQueue
+        local have = want > 0 and storage.queueLength(queue) or 0
         if have > 0 then
-            state._pending = (state._pending as string) .. state._queue:get(math.min(want, have))
+            state._pending = (state._pending as string) .. queue:get(math.min(want, have))
         end
     end
 

@@ -31,6 +31,8 @@ struct nupp_transfer_lease {
     uint32_t id;
     unsigned char *address;
     size_t bytes;
+    lua_State *state;
+    int anchor;
 };
 
 static struct nupp_transfer_lease transfer_leases[NUPP_TRANSFER_LEASES];
@@ -168,19 +170,24 @@ uint32_t nupp_wasm_lease_size(uint32_t id) {
 
 int nupp_wasm_release_lease(uint32_t id) {
     struct nupp_transfer_lease *lease = find_transfer_lease(id);
-    if (lease == NULL) return 0;
+    if (id == 0 || lease == NULL) return 0;
+    /* The anchor keeps both the pointer and this Lua thread alive until the
+     * foreign consumer finishes. An address alone is not an ownership root. */
+    luaL_unref(lease->state, LUA_REGISTRYINDEX, lease->anchor);
     lease->id = 0;
     lease->address = NULL;
     lease->bytes = 0;
+    lease->state = NULL;
+    lease->anchor = LUA_NOREF;
     return 1;
 }
 
 void nupp_wasm_release_all_leases(void) {
     size_t index;
     for (index = 0; index < NUPP_TRANSFER_LEASES; index++) {
-        transfer_leases[index].id = 0;
-        transfer_leases[index].address = NULL;
-        transfer_leases[index].bytes = 0;
+        if (transfer_leases[index].id != 0) {
+            nupp_wasm_release_lease(transfer_leases[index].id);
+        }
     }
 }
 
@@ -200,8 +207,18 @@ static int memory_lease(lua_State *state) {
     if (index == NUPP_TRANSFER_LEASES) {
         return luaL_error(state, "Wasm transfer lease limit exceeded");
     }
-    id = next_transfer_lease++;
-    if (id == 0) id = next_transfer_lease++;
+    do {
+        id = next_transfer_lease++;
+    } while (id == 0 || find_transfer_lease(id) != NULL);
+    /* Root the issuing coroutine too: the registry outlives a coroutine, but
+     * using its lua_State to release the reference requires the thread to live. */
+    lua_createtable(state, 2, 0);
+    lua_pushvalue(state, 1);
+    lua_rawseti(state, -2, 1);
+    lua_pushthread(state);
+    lua_rawseti(state, -2, 2);
+    transfer_leases[index].anchor = luaL_ref(state, LUA_REGISTRYINDEX);
+    transfer_leases[index].state = state;
     transfer_leases[index].id = id;
     transfer_leases[index].address = pointer->address;
     transfer_leases[index].bytes = bytes;
