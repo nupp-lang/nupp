@@ -222,7 +222,6 @@ local LUA_ALLOCATE_OPS: {
     [string]: boolean
 } = {
     lua_new_table = true,
-    lua_tree = true,
     lua_builder = true,
     lua_scratch_u32 = true,
     lua_scratch_u8 = true,

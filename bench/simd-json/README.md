@@ -107,11 +107,9 @@ Inputs no longer than 32 bytes use the builder's sixteen inline frames. Larger
 documents retain the authored nesting bound, allocating out-of-line frames only
 if they actually cross the inline depth.
 
-`simd_json.indexer`, `simd_json.parser`, the former recursive Lua arena
-materializer, and the checked tree-recipe builder remain as explicit
-differential and benchmark controls.
-`arena.decode`, `arena.decodeBuilder`, and `arena.materializeBuilder` are not on
-the normal large-document path.
+`simd_json.indexer`, `simd_json.parser`, and the former recursive Lua arena
+materializer remain as explicit differential and benchmark controls.
+`arena.decode` is not on the normal large-document path.
 
 `simd_json.scanner` and `json.decodeLegacy` remain as the frozen J0 oracle and
 benchmark baseline; they are no longer the large-document decode path.
@@ -124,8 +122,8 @@ Run the differential and public-runtime tests:
 
 After building, measure classification, structural indexing, simdjson stage
 one and internal DOM construction, eager Lua DOM construction, On-Demand pull
-construction, selective Nupp pull construction, serialization, native arena parsing, the old Lua materializer,
-tree-builder consumption, and the legacy/arena/tree-builder/fused decoders:
+construction, selective Nupp pull construction, serialization, native arena
+parsing, the old Lua materializer, and the legacy/arena/fused decoders:
 
 ```sh
 LUA_PATH='build/?.lua;../../build/?.lua;../../.rocks/share/lua/5.1/?.lua;../../.rocks/share/lua/5.1/?/init.lua;;' \
@@ -355,7 +353,7 @@ redirection. The prior copied-tape Apple arm64/NEON result remains at
 `results/arm64-macos-neon-fused.json`. The rooted-scratch result is committed at
 `results/arm64-macos-neon-scratch.json`; it uses the same fifteen paired samples
 and corpus hashes, so the two routes remain directly comparable. Across the five
-large payloads the new route is 1.517x the tree builder (95% bootstrap CI
+large payloads the new route was 1.517x the since-removed tree builder (95% bootstrap CI
 1.511–1.530x), 2.726x the old arena decoder (2.695–2.757x), and 5.797x the legacy
 decoder (5.773–5.877x). The immutable result file retains every measurement
 recorded by that version of the harness.
@@ -363,7 +361,7 @@ recorded by that version of the harness.
 The historical dynamic-frame, reusable-byte-scratch, exact-capacity, and
 integer-token result is committed at
 `results/arm64-macos-neon-expansions.json`. On the same fifteen
-sample/5 MB protocol it is 1.607x the tree builder (95% bootstrap CI
+sample/5 MB protocol it was 1.607x the since-removed tree builder (95% bootstrap CI
 1.582–1.614x), 2.775x the arena decoder (2.739–2.816x), and 6.049x the legacy
 decoder (6.024–6.076x). The immutable result file retains every per-payload
 measurement from that run.

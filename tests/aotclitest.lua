@@ -2490,38 +2490,6 @@ return {unsafe = unsafe}
     assert(out:find("a persistent Lua root follows a string accumulator", 1, true), out)
 end
 
-function M.valueTreesLowerToOneCheckedVmConstructionOperation()
-    local dir = project{
-        [
-            "nupp/data/valuebuilder.nupp"
-        ] = [[
-local builder = {}
-function builder.materializeTree(nodes: string, links: string, source: string, root: integer, nullValue: any): any
-    return nullValue
-end
-return builder
-]],
-        [
-            "tree.g.nupp"
-        ] = [[
-local builder = require("nupp.data.valuebuilder")
-@aot
-local function materialize(nodes: string, links: string, source: string, root: integer, nullValue: any): any
-    return builder.materializeTree(nodes, links, source, root, nullValue)
-end
-return {materialize = materialize}
-]],
-    }
-    local out, code = run(dir, "--json tree.g.nupp")
-    test.equal(code, 0, out)
-    local decoded = require("testjson").decode(out)
-    local only = decoded.functions[1]
-    test.equal(only.entryMode, "lua-builder")
-    assert(decoded.ir:find("lua.tree(", 1, true), decoded.ir)
-    assert(decoded.c:find("ks_lua_tree_push", 1, true), decoded.c)
-    assert(decoded.c:find("luaL_checklstring", 1, true), decoded.c)
-end
-
 function M.valueStreamsFuseRootedByteReadsAndLuaConstruction()
     local dir = project{
         [

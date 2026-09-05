@@ -78,35 +78,18 @@ collector objects. Dynamic capacities and array indexes are checked for
 integral, nonnegative C-API range before use, and strings are ordinary
 Lua-owned strings rather than shared-memory views.
 
-## Tree materialization
-
-Pointer-free parsers may return the native-endian tree representation consumed
-by `nupp.data.valuebuilder.materializeTree`. An AOT builder lowers that resolved
-call to one bounds-checked C traversal: source and arena blobs remain rooted
-strings, tables are presized from authored child counts, raw writes keep
-barriers correct, and source slices or validated backslash and Unicode recipes
-become Lua-owned strings.
-
-```nupp
-local valuebuilder = nupp.data.valuebuilder
-
---- @raises when the blobs do not describe a well-formed tree
-@aot
-local function decode(nodes: string, links: string, source: string, null: any): any
-    return valuebuilder.materializeTree(nodes, links, source, 1, null)
-end
-```
-
-This is a general codec and AST construction boundary. It does not expose
-`lua_State`, stack indexes, or collector objects, and the ordinary module
-implementation is the `aot = "off"` oracle.
-
 ## Streaming construction
 
-Streaming parsers can avoid that representation entirely. The resolved
-`nupp.data.valuebuilder` stream API starts with `new(nullValue)`, opens arrays
+The resolved `nupp.data.valuebuilder` stream API starts with `new(nullValue)`, opens arrays
 or objects with an estimated capacity, adds keys and primitive values, closes
 each container, and publishes exactly one root with `finish`.
+
+This is a general codec and AST construction boundary. It does not expose
+`lua_State`, stack indexes, or collector objects. The ordinary implementation
+is the `aot = "off"` behavioral oracle and may be compiled by LuaJIT; the same
+resolved calls inside an AOT builder lower to stack-rooted VM construction.
+An external codec can therefore keep one parser and select the execution mode
+at build time.
 
 ```nupp
 local valuebuilder = nupp.data.valuebuilder

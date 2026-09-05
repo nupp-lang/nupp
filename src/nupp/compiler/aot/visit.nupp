@@ -130,15 +130,6 @@ function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewr
             end
             yield nil
         end
-        case "lua_tree" -> do
-            local value = node as scalarIR.LuaTree
-            value.nodes = rewrite(value.nodes)
-            value.links = rewrite(value.links)
-            value.sourceBytes = rewrite(value.sourceBytes)
-            value.root = rewrite(value.root)
-            value.nullValue = rewrite(value.nullValue)
-            yield nil
-        end
         case "lua_builder" -> do
             local value = node as scalarIR.LuaBuilder
             value.nullValue = rewrite(value.nullValue)

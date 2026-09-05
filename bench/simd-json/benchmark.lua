@@ -114,8 +114,8 @@ local report = {
 
 local names = indexOnly and {"classify", "index"} or {
    "classify", "index", "simdjsonStage1", "simdjsonDom", "simdjsonLua", "simdjsonPull",
-   "simdjsonPullSelected", "nuppPull", "simdjsonEncode", "parse", "materialize", "build",
-   "legacy", "arena", "builder", "fused", "nupp",
+   "simdjsonPullSelected", "nuppPull", "simdjsonEncode", "parse", "materialize",
+   "legacy", "arena", "fused", "nupp",
 }
 if hasCjson and not indexOnly then
    names[#names + 1] = "cjson"
@@ -279,13 +279,6 @@ for payloadIndex, payload in ipairs(payloads) do
          end
          return os.clock() - started
       end,
-      build = function()
-         local started = os.clock()
-         for _ = 1, iterations do
-            arena.materializeBuilder(document, json.null)
-         end
-         return os.clock() - started
-      end,
       legacy = function()
          local started = os.clock()
          for _ = 1, iterations do
@@ -297,13 +290,6 @@ for payloadIndex, payload in ipairs(payloads) do
          local started = os.clock()
          for _ = 1, iterations do
             arena.decode(source, json.null)
-         end
-         return os.clock() - started
-      end,
-      builder = function()
-         local started = os.clock()
-         for _ = 1, iterations do
-            arena.decodeBuilder(source, json.null)
          end
          return os.clock() - started
       end,
@@ -343,8 +329,8 @@ for payloadIndex, payload in ipairs(payloads) do
       simdjsonLua = {}, simdjsonPull = {}, simdjsonPullSelected = {},
       nuppPull = {},
       simdjsonEncode = {},
-      parse = {}, materialize = {}, build = {},
-      legacy = {}, arena = {}, builder = {}, nupp = {},
+      parse = {}, materialize = {},
+      legacy = {}, arena = {}, nupp = {},
       fused = {},
       cjson = {},
    }
@@ -377,13 +363,10 @@ for payloadIndex, payload in ipairs(payloads) do
       summary.legacyMBps = #source * iterations / median(raw.legacy) / 1000000
       summary.parseMBps = #source * iterations / median(raw.parse) / 1000000
       summary.materializeMBps = #source * iterations / median(raw.materialize) / 1000000
-      summary.buildMBps = #source * iterations / median(raw.build) / 1000000
       summary.arenaMBps = #source * iterations / median(raw.arena) / 1000000
-      summary.builderMBps = #source * iterations / median(raw.builder) / 1000000
       summary.fusedMBps = #source * iterations / median(raw.fused) / 1000000
       summary.nuppToLegacyThroughput = ratioSummary(raw.legacy, raw.nupp)
       summary.nuppToArenaThroughput = ratioSummary(raw.arena, raw.nupp)
-      summary.nuppToBuilderThroughput = ratioSummary(raw.builder, raw.nupp)
       summary.nuppToSimdjsonDomThroughput = ratioSummary(raw.simdjsonDom, raw.nupp)
       summary.nuppToSimdjsonLuaThroughput = ratioSummary(raw.simdjsonLua, raw.nupp)
       summary.nuppPullToSimdjsonPullThroughput =
@@ -455,20 +438,6 @@ if not indexOnly then
       pairedGeomeans[sample] = math.exp(logSum / count)
    end
    report.largeNuppToArenaThroughput = bootstrapSummary(pairedGeomeans)
-
-   pairedGeomeans = {}
-   for sample = 1, samples do
-      local logSum, count = 0, 0
-      for _, payload in ipairs(report.payloads) do
-         if not payload.short then
-            logSum = logSum + math.log(
-               payload.seconds.builder[sample] / payload.seconds.nupp[sample])
-            count = count + 1
-         end
-      end
-      pairedGeomeans[sample] = math.exp(logSum / count)
-   end
-   report.largeNuppToBuilderThroughput = bootstrapSummary(pairedGeomeans)
 
    pairedGeomeans = {}
    for sample = 1, samples do
@@ -557,11 +526,6 @@ if not indexOnly then
       report.largeNuppToArenaThroughput.low95,
       report.largeNuppToArenaThroughput.high95
    ))
-   print(("large-payload fused/builder geometric mean %.3fx [%.3f, %.3f]"):format(
-      report.largeNuppToBuilderThroughput.median,
-      report.largeNuppToBuilderThroughput.low95,
-      report.largeNuppToBuilderThroughput.high95
-   ))
    print(("large-payload Nupp/simdjson Lua geometric mean %.3fx [%.3f, %.3f]"):format(
       report.largeNuppToSimdjsonLuaThroughput.median,
       report.largeNuppToSimdjsonLuaThroughput.low95,
@@ -649,11 +613,6 @@ for _, payload in ipairs(report.payloads) do
          payload.summary.nuppToArenaThroughput.median,
          payload.summary.nuppToArenaThroughput.low95,
          payload.summary.nuppToArenaThroughput.high95
-      ))
-      print(("  fused/builder throughput %.3fx [%.3f, %.3f]"):format(
-         payload.summary.nuppToBuilderThroughput.median,
-         payload.summary.nuppToBuilderThroughput.low95,
-         payload.summary.nuppToBuilderThroughput.high95
       ))
    end
    print(("  index/classify throughput %.3fx [%.3f, %.3f]"):format(

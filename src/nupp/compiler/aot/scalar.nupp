@@ -232,21 +232,6 @@ record scalarIR.LuaNewTable
     source: scalarIR.Source?
 end
 
---- Builds one ordinary Lua value graph from a bounds-checked, pointer-free
---- preorder tree representation. The format belongs to `nupp.data.valuebuilder`;
---- codecs produce it without receiving VM authority, and this operation is the
---- single VM-aware consumption boundary.
-record scalarIR.LuaTree
-    op: 'lua_tree'
-    nodes: scalarIR.Expr
-    links: scalarIR.Expr
-    sourceBytes: scalarIR.Expr
-    root: scalarIR.Expr
-    nullValue: scalarIR.Expr
-    type: 'lua_value'
-    source: scalarIR.Source?
-end
-
 --- Starts one bounded, stack-rooted stream of ordinary Lua values.
 ---
 --- The handle is native construction state, not a Lua value. It may be used
@@ -794,7 +779,6 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.LuaStringBuffer
     | scalarIR.LuaStringBufferFinish
     | scalarIR.LuaNewTable
-    | scalarIR.LuaTree
     | scalarIR.LuaBuilder
     | scalarIR.LuaScratchU32
     | scalarIR.LuaScratchU32Get

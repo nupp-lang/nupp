@@ -1479,40 +1479,6 @@ local function call(
             type = "simd_padded_string_u8",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.materializeTree" then
-        if #args ~= 5 then
-            context.reject(
-                lower.site(node),
-                "valuebuilder.materializeTree takes nodes, links, source, root, and null value"
-            )
-        end
-        if args[
-            1
-        ].type ~= "lua_string" or args[
-            2
-        ].type ~= "lua_string" or args[
-            3
-        ].type ~= "lua_string" or args[1].op ~= "local" or args[2].op ~= "local" or args[3].op ~= "local" then
-            context.reject(lower.site(node), "valuebuilder tree buffers must be rooted string parameters")
-        end
-        if args[4].type ~= "f64" and args[4].type ~= "i32" and args[4].type ~= "u32" then
-            context.reject(lower.site(node), "valuebuilder tree root must be numeric")
-        end
-        if args[5].type ~= "lua_value" or args[5].op ~= "local" then
-            context.reject(lower.site(node), "valuebuilder null replacement must be a rooted Lua value")
-        end
-        markLua(kernel, lower.site(node))
-
-        return new scalarIR.LuaTree(
-            op = "lua_tree",
-            nodes = args[1],
-            links = args[2],
-            sourceBytes = args[3],
-            root = args[4],
-            nullValue = args[5],
-            type = "lua_value",
-            source = lower.site(node)
-        )
     elseif identity == "nupp.data.valuebuilder.new"
         or identity == "nupp.data.valuebuilder.newSized"
         or identity == "nupp.data.valuebuilder.newPull"

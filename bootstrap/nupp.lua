@@ -6031,7 +6031,6 @@ local LUA_ALLOCATE_OPS
 
 = {
 lua_new_table = true ,
-lua_tree = true ,
 lua_builder = true ,
 lua_scratch_u32 = true ,
 lua_scratch_u8 = true ,
@@ -8557,135 +8556,28 @@ local lines = {
 "    if (exact) { double value; if (exponent < -342) { return negative ? -0.0 : 0.0; } if (exponent <= 308 && ks_json_compute_float64(exponent, magnitude, negative, &value)) { return value; } }" ,
 "    return ks_lua_number_slice(L, source, source_length, start, length, \"value stream decimal\");" ,
 "}" ,
-"typedef struct {" ,
-"    double number;" ,
-"    uint32_t tag, start, length, link_start, link_count, parent, flags;" ,
-"} KsLuaTreeNode;" ,
-"typedef struct {" ,
-"    const unsigned char *nodes, *links, *source;" ,
-"    size_t node_count, link_count, source_length;" ,
-"    int null_index;" ,
-"} KsLuaTree;" ,
-"static int ks_tree_hex(unsigned char byte) {" ,
+"static int ks_lua_hex(unsigned char byte) {" ,
 "    if (byte >= '0' && byte <= '9') { return (int)(byte - '0'); }" ,
 "    if (byte >= 'A' && byte <= 'F') { return (int)(byte - 'A') + 10; }" ,
 "    if (byte >= 'a' && byte <= 'f') { return (int)(byte - 'a') + 10; }" ,
 "    return -1;" ,
 "}" ,
-"static int ks_tree_hex4(const unsigned char *source, size_t length, size_t *at, uint32_t *value) {" ,
+"static int ks_lua_hex4(const unsigned char *source, size_t length, size_t *at, uint32_t *value) {" ,
 "    if (*at > length || length - *at < 4u) { return 0; }" ,
 "    uint32_t out = 0;" ,
 "    for (int i = 0; i < 4; ++i) {" ,
-"        int digit = ks_tree_hex(source[(*at)++]);" ,
+"        int digit = ks_lua_hex(source[(*at)++]);" ,
 "        if (digit < 0) { return 0; }" ,
 "        out = out * 16u + (uint32_t)digit;" ,
 "    }" ,
 "    *value = out;" ,
 "    return 1;" ,
 "}" ,
-"static size_t ks_tree_utf8(unsigned char *out, uint32_t codepoint) {" ,
+"static size_t ks_lua_utf8(unsigned char *out, uint32_t codepoint) {" ,
 "    if (codepoint <= 0x7fu) { out[0] = (unsigned char)codepoint; return 1; }" ,
 "    if (codepoint <= 0x7ffu) { out[0] = (unsigned char)(0xc0u | (codepoint >> 6)); out[1] = (unsigned char)(0x80u | (codepoint & 0x3fu)); return 2; }" ,
 "    if (codepoint <= 0xffffu) { out[0] = (unsigned char)(0xe0u | (codepoint >> 12)); out[1] = (unsigned char)(0x80u | ((codepoint >> 6) & 0x3fu)); out[2] = (unsigned char)(0x80u | (codepoint & 0x3fu)); return 3; }" ,
 "    out[0] = (unsigned char)(0xf0u | (codepoint >> 18)); out[1] = (unsigned char)(0x80u | ((codepoint >> 12) & 0x3fu)); out[2] = (unsigned char)(0x80u | ((codepoint >> 6) & 0x3fu)); out[3] = (unsigned char)(0x80u | (codepoint & 0x3fu)); return 4;" ,
-"}" ,
-"static int ks_tree_string(lua_State *L, const KsLuaTree *tree, const KsLuaTreeNode *node) {" ,
-"    size_t start = (size_t)node->start, length = (size_t)node->length;" ,
-"    if (start > tree->source_length || length > tree->source_length - start)" ,
-"        return luaL_error(L, \"AOT value tree string range is out of bounds\");" ,
-"    const unsigned char *source = tree->source + start;" ,
-"    if (node->flags == 0u) { lua_pushlstring(L, (const char *)source, length); return 1; }" ,
-"    if (node->flags != 1u) { return luaL_error(L, \"AOT value tree has an unknown string recipe\"); }" ,
-"    int base = lua_gettop(L);" ,
-"    unsigned char *out = (unsigned char *)lua_newuserdata(L, length > 0u ? length : 1u);" ,
-"    size_t at = 0, written = 0;" ,
-"    while (at < length) {" ,
-"        unsigned char byte = source[at++];" ,
-"        if (byte != '\\\\') { out[written++] = byte; continue; }" ,
-"        if (at >= length) { return luaL_error(L, \"AOT value tree has an incomplete escape\"); }" ,
-"        unsigned char escaped = source[at++];" ,
-"        if (escaped == '\"' || escaped == '\\\\' || escaped == '/') { out[written++] = escaped; }" ,
-"        else if (escaped == 'b') { out[written++] = '\\b'; }" ,
-"        else if (escaped == 'f') { out[written++] = '\\f'; }" ,
-"        else if (escaped == 'n') { out[written++] = '\\n'; }" ,
-"        else if (escaped == 'r') { out[written++] = '\\r'; }" ,
-"        else if (escaped == 't') { out[written++] = '\\t'; }" ,
-"        else if (escaped == 'u') {" ,
-"            uint32_t codepoint = 0;" ,
-"            if (!ks_tree_hex4(source, length, &at, &codepoint)) { return luaL_error(L, \"AOT value tree has an invalid Unicode escape\"); }" ,
-"            if (codepoint >= 0xd800u && codepoint <= 0xdbffu) {" ,
-"                uint32_t low = 0;" ,
-"                if (at > length || length - at < 2u || source[at] != '\\\\' || source[at + 1u] != 'u') { return luaL_error(L, \"AOT value tree has an unmatched high surrogate\"); }" ,
-"                at += 2u;" ,
-"                if (!ks_tree_hex4(source, length, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value tree has an invalid low surrogate\"); }" ,
-"                codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u;" ,
-"            } else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value tree has an unmatched low surrogate\"); }" ,
-"            written += ks_tree_utf8(out + written, codepoint);" ,
-"        } else { return luaL_error(L, \"AOT value tree has an unknown escape\"); }" ,
-"    }" ,
-"    lua_pushlstring(L, (const char *)out, written);" ,
-"    lua_insert(L, base + 1);" ,
-"    lua_settop(L, base + 1);" ,
-"    return 1;" ,
-"}" ,
-"static int ks_tree_read_node(lua_State *L, const KsLuaTree *tree, uint32_t id, KsLuaTreeNode *node) {" ,
-"    if (id == 0u || (size_t)id > tree->node_count) { return luaL_error(L, \"AOT value tree node id is out of bounds\"); }" ,
-"    memcpy(node, tree->nodes + ((size_t)id - 1u) * sizeof(*node), sizeof(*node));" ,
-"    return 1;" ,
-"}" ,
-"static uint32_t ks_tree_link(lua_State *L, const KsLuaTree *tree, size_t index) {" ,
-"    uint32_t id = 0;" ,
-"    if (index >= tree->link_count) { luaL_error(L, \"AOT value tree link is out of bounds\"); return 0; }" ,
-"    memcpy(&id, tree->links + index * sizeof(id), sizeof(id));" ,
-"    return id;" ,
-"}" ,
-"static int ks_tree_push_node(lua_State *L, const KsLuaTree *tree, uint32_t id, size_t depth) {" ,
-"    if (depth > tree->node_count || depth > 1024u) { return luaL_error(L, \"AOT value tree nesting is excessive\"); }" ,
-"    KsLuaTreeNode node; ks_tree_read_node(L, tree, id, &node);" ,
-"    if (node.tag == 0u) { lua_pushvalue(L, tree->null_index); return 1; }" ,
-"    if (node.tag == 1u || node.tag == 2u) { lua_pushboolean(L, node.tag == 1u); return 1; }" ,
-"    if (node.tag == 3u) {" ,
-"        if (node.flags == 1u) { lua_pushnumber(L, node.number); }" ,
-"        else {" ,
-"            double value = ks_lua_number_slice(L, tree->source, tree->source_length, node.start, node.length, \"value tree\");" ,
-"            lua_pushnumber(L, value);" ,
-"        }" ,
-"        return 1;" ,
-"    }" ,
-"    if (node.tag == 4u) { return ks_tree_string(L, tree, &node); }" ,
-"    if (node.tag != 5u && node.tag != 6u) { return luaL_error(L, \"AOT value tree node tag is invalid\"); }" ,
-"    if ((size_t)node.link_start > tree->link_count || (size_t)node.link_count > tree->link_count - (size_t)node.link_start) { return luaL_error(L, \"AOT value tree child range is out of bounds\"); }" ,
-"    if (node.tag == 6u && (node.link_count & 1u) != 0u) { return luaL_error(L, \"AOT value tree object has an unmatched key\"); }" ,
-"    if (node.link_count > (uint32_t)INT_MAX) { return luaL_error(L, \"AOT value tree container exceeds the C API capacity range\"); }" ,
-"    if (!lua_checkstack(L, 4)) { return luaL_error(L, \"AOT builder Lua stack exhausted\"); }" ,
-"    lua_createtable(L, node.tag == 5u ? (int)node.link_count : 0, node.tag == 6u ? (int)(node.link_count / 2u) : 0);" ,
-"    int table_index = lua_gettop(L);" ,
-"    if (node.tag == 5u) {" ,
-"        for (uint32_t offset = 0; offset < node.link_count; ++offset) {" ,
-"            ks_tree_push_node(L, tree, ks_tree_link(L, tree, (size_t)node.link_start + offset), depth + 1u);" ,
-"            lua_rawseti(L, table_index, (int)offset + 1);" ,
-"        }" ,
-"    } else {" ,
-"        for (uint32_t offset = 0; offset < node.link_count; offset += 2u) {" ,
-"            uint32_t key_id = ks_tree_link(L, tree, (size_t)node.link_start + offset);" ,
-"            KsLuaTreeNode key; ks_tree_read_node(L, tree, key_id, &key);" ,
-"            if (key.tag != 4u) { return luaL_error(L, \"AOT value tree object key is not a string\"); }" ,
-"            ks_tree_string(L, tree, &key);" ,
-"            ks_tree_push_node(L, tree, ks_tree_link(L, tree, (size_t)node.link_start + offset + 1u), depth + 1u);" ,
-"            lua_rawset(L, table_index);" ,
-"        }" ,
-"    }" ,
-"    return 1;" ,
-"}" ,
-"static KS_UNUSED int ks_lua_tree_push(lua_State *L, int nodes_index, int links_index, int source_index, double root_value, int null_index) {" ,
-"    size_t node_bytes = 0, link_bytes = 0, source_length = 0;" ,
-"    const char *nodes = luaL_checklstring(L, nodes_index, &node_bytes);" ,
-"    const char *links = luaL_checklstring(L, links_index, &link_bytes);" ,
-"    const char *source = luaL_checklstring(L, source_index, &source_length);" ,
-"    if (node_bytes % sizeof(KsLuaTreeNode) != 0u || link_bytes % sizeof(uint32_t) != 0u) { return luaL_error(L, \"AOT value tree blob has an invalid size\"); }" ,
-"    int root = ks_lua_index(L, root_value, \"value tree root\");" ,
-"    KsLuaTree tree = {(const unsigned char *)nodes, (const unsigned char *)links, (const unsigned char *)source, node_bytes / sizeof(KsLuaTreeNode), link_bytes / sizeof(uint32_t), source_length, null_index};" ,
-"    return ks_tree_push_node(L, &tree, (uint32_t)root, 1u);" ,
 "}" ,
 "typedef struct { const char *bytes; size_t length; uint64_t packed; uint32_t hash; int32_t scalar; } KsLuaShapeKey;" ,
 "typedef struct { const void *identity; const unsigned char *compiled; size_t compiled_length; uint32_t first, count; uint64_t required; int aliases, defaults, factory; } KsLuaShapePlan;" ,
@@ -9191,8 +9083,8 @@ local lines = {
 "        if (at >= count) { return luaL_error(L, \"AOT value stream has an incomplete escape\"); } unsigned char escaped = input[at++];" ,
 "        if (escaped == '\"' || escaped == '\\\\' || escaped == '/' || escaped == 'b' || escaped == 'f' || escaped == 'n' || escaped == 'r' || escaped == 't') { continue; }" ,
 "        if (escaped != 'u') { return luaL_error(L, \"AOT value stream has an unknown escape\"); }" ,
-"        uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }" ,
-"        if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } }" ,
+"        uint32_t codepoint = 0u; if (!ks_lua_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }" ,
+"        if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } at += 2u; if (!ks_lua_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } }" ,
 "        else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); }" ,
 "    }" ,
 "    return 1;" ,
@@ -9222,10 +9114,10 @@ local lines = {
 "            else if (escaped_byte == 'b') { out[written++] = '\\b'; } else if (escaped_byte == 'f') { out[written++] = '\\f'; }" ,
 "            else if (escaped_byte == 'n') { out[written++] = '\\n'; } else if (escaped_byte == 'r') { out[written++] = '\\r'; } else if (escaped_byte == 't') { out[written++] = '\\t'; }" ,
 "            else if (escaped_byte == 'u') {" ,
-"                uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }" ,
-"                if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }" ,
+"                uint32_t codepoint = 0u; if (!ks_lua_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }" ,
+"                if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } at += 2u; if (!ks_lua_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }" ,
 "                else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); }" ,
-"                written += ks_tree_utf8(out + written, codepoint);" ,
+"                written += ks_lua_utf8(out + written, codepoint);" ,
 "            } else { return luaL_error(L, \"AOT value stream has an unknown escape\"); }" ,
 "        }" ,
 "    *decoded = out; *decoded_length = written;" ,
@@ -9241,15 +9133,15 @@ local lines = {
 "        if (escaped_byte == '\"' || escaped_byte == '\\\\' || escaped_byte == '/') { out[written++] = escaped_byte; }" ,
 "        else if (escaped_byte == 'b') { out[written++] = '\\b'; } else if (escaped_byte == 'f') { out[written++] = '\\f'; } else if (escaped_byte == 'n') { out[written++] = '\\n'; } else if (escaped_byte == 'r') { out[written++] = '\\r'; } else if (escaped_byte == 't') { out[written++] = '\\t'; }" ,
 "        else if (escaped_byte == 'u') {" ,
-"            uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }" ,
-"            if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } if (item + 1u >= escape_count || escapes->words[escapes->capacity - 1u - escape_index - item - 1u] != start + (uint32_t)at) { return luaL_error(L, \"AOT value stream surrogate escape metadata is invalid\"); } item += 1u; at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }" ,
+"            uint32_t codepoint = 0u; if (!ks_lua_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }" ,
+"            if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } if (item + 1u >= escape_count || escapes->words[escapes->capacity - 1u - escape_index - item - 1u] != start + (uint32_t)at) { return luaL_error(L, \"AOT value stream surrogate escape metadata is invalid\"); } item += 1u; at += 2u; if (!ks_lua_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }" ,
 
 
 
 
 
 "            else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); }" ,
-"            written += ks_tree_utf8(out + written, codepoint);" ,
+"            written += ks_lua_utf8(out + written, codepoint);" ,
 "        } else { return luaL_error(L, \"AOT value stream has an unknown escape\"); }" ,
 "    }" ,
 "    if (at < count) { memcpy(out + written, input + at, count - at); written += count - at; } *decoded = out; *decoded_length = written; return 1;" ,
@@ -11096,19 +10988,6 @@ return {
 prefix .. "ks_lua_builder_finish(L, &" .. tostring (
 ( ( value ) . builder ) . cName
 ) .. ");" ,
-}
-elseif value . op == "lua_tree" then
-local tree = value
-return {
-prefix .. "ks_lua_tree_push(L, " .. tostring (
-( tree . nodes ) . cName
-) .. ", " .. tostring (
-( tree . links ) . cName
-) .. ", " .. tostring (
-( tree . sourceBytes ) . cName
-) .. ", " .. emit . scalar (
-tree . root
-) .. ", " .. tostring ( ( tree . nullValue ) . cName ) .. ");" ,
 }
 end
 return { prefix .. "lua_pushvalue(L, " .. tostring ( ( value ) . cName ) .. ");" }
@@ -16619,40 +16498,6 @@ return setmetatable({ op =
 args ,  type =
 "simd_padded_string_u8" ,  source =
 lower . site ( node ) }, scalarIR.Simd)
-
-elseif identity == "nupp.data.valuebuilder.materializeTree" then
-if # args ~= 5 then
-context . reject (
-lower . site ( node ) ,
-"valuebuilder.materializeTree takes nodes, links, source, root, and null value"
-)
-end
-if args [
-1
-] . type ~= "lua_string" or args [
-2
-] . type ~= "lua_string" or args [
-3
-] . type ~= "lua_string" or args [ 1 ] . op ~= "local" or args [ 2 ] . op ~= "local" or args [ 3 ] . op ~= "local" then
-context . reject ( lower . site ( node ) , "valuebuilder tree buffers must be rooted string parameters" )
-end
-if args [ 4 ] . type ~= "f64" and args [ 4 ] . type ~= "i32" and args [ 4 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "valuebuilder tree root must be numeric" )
-end
-if args [ 5 ] . type ~= "lua_value" or args [ 5 ] . op ~= "local" then
-context . reject ( lower . site ( node ) , "valuebuilder null replacement must be a rooted Lua value" )
-end
-markLua ( kernel , lower . site ( node ) )
-
-return setmetatable({ op =
-"lua_tree" ,  nodes =
-args [ 1 ] ,  links =
-args [ 2 ] ,  sourceBytes =
-args [ 3 ] ,  root =
-args [ 4 ] ,  nullValue =
-args [ 5 ] ,  type =
-"lua_value" ,  source =
-lower . site ( node ) }, scalarIR.LuaTree)
 
 elseif identity == "nupp.data.valuebuilder.new"
 or identity == "nupp.data.valuebuilder.newSized"
@@ -24379,21 +24224,6 @@ scalarIR.LuaNewTable = {} scalarIR.LuaNewTable.__index = scalarIR.LuaNewTable
 
 
 
-scalarIR.LuaTree = {} scalarIR.LuaTree.__index = scalarIR.LuaTree
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 scalarIR.LuaBuilder = {} scalarIR.LuaBuilder.__index = scalarIR.LuaBuilder
 
 
@@ -24851,7 +24681,6 @@ scalarIR.HelperCall = {} scalarIR.HelperCall.__index = scalarIR.HelperCall
 
 
 scalarIR.Simd = {} scalarIR.Simd.__index = scalarIR.Simd
-
 
 
 
@@ -27608,18 +27437,6 @@ end
 return "lua.new_table(" .. text . expression (
 created . arrayCapacity
 ) .. ", " .. text . expression ( created . hashCapacity ) .. "){" .. table . concat ( fields , "; " ) .. "}"
-elseif op == "lua_tree" then
-local tree = node
-return "lua.tree(" .. table . concat (
-{
-text . expression ( tree . nodes ) ,
-text . expression ( tree . links ) ,
-text . expression ( tree . sourceBytes ) ,
-text . expression ( tree . root ) ,
-text . expression ( tree . nullValue ) ,
-} ,
-", "
-) .. ")"
 elseif op == "lua_builder" then
 local builder = node
 local values = { builder . mode , text . expression ( builder . nullValue ) }
@@ -29084,25 +28901,6 @@ or field . value . type == "lua_table" ,
 "unsupported fresh-table literal value"
 )
 end
-elseif op == "lua_tree" then
-local tree = node
-holds ( scope . entryMode == "lua-builder" and node . type == "lua_value" , "Lua tree outside a builder" )
-for _ , bytes in ipairs ( { tree . nodes , tree . links , tree . sourceBytes } ) do
-holds (
-bytes . type == "lua_string" and bytes . op == "local" and ( bytes ) . cName ~= nil ,
-"Lua tree byte input is not a rooted string parameter"
-)
-scalarWalk ( bytes , values , scope )
-end
-holds ( verify . NUMERIC [ tree . root . type ] == true , "Lua tree root is not numeric" )
-scalarWalk ( tree . root , values , scope )
-holds (
-tree . nullValue . type == "lua_value" and tree . nullValue . op == "local" and (
-tree . nullValue
-) . cName ~= nil ,
-"Lua tree null replacement is not rooted"
-)
-scalarWalk ( tree . nullValue , values , scope )
 elseif op == "lua_builder" then
 local builder = node
 holds ( scope . entryMode == "lua-builder" and node . type == "lua_builder" , "value stream outside a builder" )
@@ -31383,15 +31181,6 @@ for _ , field in ipairs ( value . fields or { } ) do
 field . key = rewrite ( field . key )
 field . value = rewrite ( field . value )
 end
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_tree"  then
-local value = node
-value . nodes = rewrite ( value . nodes )
-value . links = rewrite ( value . links )
-value . sourceBytes = rewrite ( value . sourceBytes )
-value . root = rewrite ( value . root )
-value . nullValue = rewrite ( value . nullValue )
 __nuppT8= nil
 
 elseif  __nuppT7== "lua_builder"  then
@@ -146007,11 +145796,10 @@ indices and use its physical extent for cursor bounds. Host transfers and
 dispatch-indexed spans remain dense; broadcast views are read-only because
 their zero strides alias.
 
-A pointer-free parser builds an ordinary Lua value through
-`nupp.data.valuebuilder`, either by materializing one bounds-checked node and
-link blob in a single C traversal or by driving its iterative stream. See
+A parser builds an ordinary Lua value through the iterative
+`nupp.data.valuebuilder` stream. See
 [lua-values.md](docs/learn/performance/ahead-of-time/lua-values.md)
-for those operations and their limits.
+for its operations and limits.
 ]=] ,  example =
 [=[
 local m = {}
@@ -166698,17 +166486,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-
-
-
-
-
-
-
-
 local valuebuilder = { }
-
-const NODE_SIZE = 40
 
 local function readU32 ( bytes , offset ) 
 local first = bytes : byte ( offset + 1 )
@@ -166716,35 +166494,10 @@ local second = bytes : byte ( offset + 2 )
 local third = bytes : byte ( offset + 3 )
 local fourth = bytes : byte ( offset + 4 )
 if first == nil or second == nil or third == nil or fourth == nil then
-error ( "value-tree word is out of bounds" , 0 )
+error ( "value stream word is out of bounds" , 0 )
 end
 
 return first + second * 0x100 + third * 0x10000 + fourth * 0x1000000
-end
-
-local function readDouble ( bytes , offset ) 
-local low = readU32 ( bytes , offset )
-local high = readU32 ( bytes , offset + 4 )
-local negative = high >= 0x80000000
-if negative then
-high = high - 0x80000000
-end
-local exponent = math . floor ( high / 0x100000 )
-local fraction = ( high % 0x100000 ) * 0x100000000 + low
-local value
-if exponent == 0x7FF then
-if fraction == 0 then
-value = math . huge
-else
-value = math . huge - math . huge
-end
-elseif exponent == 0 then
-value = fraction / 0x10000000000000 * 2 ^ - 1022
-else
-value = ( 1 + fraction / 0x10000000000000 ) * 2 ^ ( exponent - 1023 )
-end
-
-return negative and - value or value
 end
 
 
@@ -166797,33 +166550,33 @@ elseif escapedByte == 117 then
 
 local hex = bytes : sub ( position + 1 , position + 4 )
 if # hex < 4 or hex : find ( "%X" ) ~= nil then
-error ( "invalid value-tree Unicode escape" , 0 )
+error ( "invalid value stream Unicode escape" , 0 )
 end
 local codepoint = tonumber ( hex , 16 )
 if codepoint == nil then
-error ( "invalid value-tree Unicode escape" , 0 )
+error ( "invalid value stream Unicode escape" , 0 )
 end
 position = position + 5
 if codepoint >= 0xD800 and codepoint <= 0xDBFF then
 if bytes : byte ( position ) ~= 92 or bytes : byte ( position + 1 ) ~= 117 then
-error ( "unmatched value-tree high surrogate" , 0 )
+error ( "unmatched value stream high surrogate" , 0 )
 end
 local lowHex = bytes : sub ( position + 2 , position + 5 )
 if # lowHex < 4 or lowHex : find ( "%X" ) ~= nil then
-error ( "invalid value-tree low surrogate" , 0 )
+error ( "invalid value stream low surrogate" , 0 )
 end
 local low = tonumber ( lowHex , 16 )
 if low == nil or low < 0xDC00 or low > 0xDFFF then
-error ( "invalid value-tree low surrogate" , 0 )
+error ( "invalid value stream low surrogate" , 0 )
 end
 position = position + 6
 codepoint = 0x10000 + ( codepoint - 0xD800 ) * 0x400 + low - 0xDC00
 elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
-error ( "unmatched value-tree low surrogate" , 0 )
+error ( "unmatched value stream low surrogate" , 0 )
 end
 parts [ # parts + 1 ] = __nuppModule .encode ( codepoint )
 else
-error ( "unknown value-tree escape" , 0 )
+error ( "unknown value stream escape" , 0 )
 end
 start = position
 end
@@ -166831,170 +166584,6 @@ end
 parts [ # parts + 1 ] = bytes : sub ( start )
 
 return table . concat ( parts )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . materializeTree (
-nodeBytes ,
-linkBytes ,
-source ,
-root ,
-nullValue
-) 
-if # nodeBytes % NODE_SIZE ~= 0 or # linkBytes % 4 ~= 0 then
-error ( "invalid value-tree blob size" , 2 )
-end
-local nodeCount = # nodeBytes / NODE_SIZE
-local linkCount = # linkBytes / 4
-if root < 1 or root > nodeCount then
-error ( "value-tree root is out of bounds" , 2 )
-end
-
-local function node ( nodeId ) 
-if nodeId < 1 or nodeId > nodeCount then
-error ( "value-tree node is out of bounds" , 0 )
-end
-local offset = ( nodeId - 1 ) * NODE_SIZE
-
-return {
-number = readDouble ( nodeBytes , offset ) ,
-tag = readU32 ( nodeBytes , offset + 8 ) ,
-start = readU32 ( nodeBytes , offset + 12 ) ,
-length = readU32 ( nodeBytes , offset + 16 ) ,
-linkStart = readU32 ( nodeBytes , offset + 20 ) ,
-linkCount = readU32 ( nodeBytes , offset + 24 ) ,
-flags = readU32 ( nodeBytes , offset + 32 ) ,
-}
-end
-
-local function link ( index ) 
-if index < 0 or index >= linkCount then
-error ( "value-tree link is out of bounds" , 0 )
-end
-
-return readU32 ( linkBytes , index * 4 )
-end
-
-local function sourceRange ( node ) 
-local first = node . start
-local length = node . length
-if first < 0 or length < 0 or first > # source or length > # source - first then
-error ( "value-tree source range is out of bounds" , 0 )
-end
-
-return first , length
-end
-
-local function materialize ( nodeId , depth ) 
-if nodeId < 1 or nodeId > nodeCount or depth > math . min ( nodeCount , 1024 ) then
-error ( "value-tree node is out of bounds" , 0 )
-end
-local current = node ( nodeId )
-local tag = current . tag
-if tag == 0 then
-return nullValue
-elseif tag == 1 then
-return true
-elseif tag == 2 then
-return false
-elseif tag == 3 then
-if current . flags == 1 then
-return current . number
-end
-local first , length = sourceRange ( current )
-local value = tonumber ( source : sub ( first + 1 , first + length ) )
-if value == nil then
-error ( "invalid value-tree number" , 0 )
-end
-return value
-elseif tag == 4 then
-local flags = current . flags
-if flags ~= 0 and flags ~= 1 then
-error ( "invalid value-tree string recipe" , 0 )
-end
-local first , length = sourceRange ( current )
-return decodeString ( source , first , length , flags == 1 )
-elseif tag ~= 5 and tag ~= 6 then
-error ( "invalid value-tree node tag" , 0 )
-end
-
-local first = current . linkStart
-local count = current . linkCount
-if first < 0 or count < 0 or first + count > linkCount then
-error ( "value-tree child range is out of bounds" , 0 )
-end
-if tag == 5 then
-local result = { }
-for offset = 0 , count - 1 do
-result [ offset + 1 ] = materialize ( link ( first + offset ) , depth + 1 )
-end
-return result
-end
-if count % 2 ~= 0 then
-error ( "value-tree object has an unmatched key" , 0 )
-end
-local result = { }
-for offset = 0 , count - 1 , 2 do
-local keyId = link ( first + offset )
-if keyId < 1 or keyId > nodeCount or node ( keyId ) . tag ~= 4 then
-error ( "value-tree object key is not a string" , 0 )
-end
-local key = materialize ( keyId , depth + 1 )
-result [ key ] = materialize ( link ( first + offset + 1 ) , depth + 1 )
-end
-
-return result
-end
-
-return materialize ( root , 1 )
 end
 
 
@@ -167727,7 +167316,6 @@ end
 function valuebuilder . depth ( builder ) 
 return (__nuppBitTobit( # builder . stack )%4294967296)
 end
-
 
 
 
@@ -216570,20 +216158,14 @@ stay correct, and each string is copied exactly once into Lua-owned storage.
 That lowering is the whole reason the module exists. It is the one construction
 boundary an AOT builder may cross, and it stays a narrow one: no `lua_State`, no
 stack index, no collector object appears in any signature here. Outside `@aot`
-the module still works and still answers the same, but it buys nothing over
-writing the tables directly. See
+the ordinary implementation provides the same protocol and may run under the
+LuaJIT compiler; under AOT, the resolved calls lower to VM-aware construction.
+That makes one parser portable across both execution modes. See
 [ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what the generated code
 is allowed to do.
 
-Two shapes are offered, and a parser picks one.
-
-[](nupp.data.valuebuilder.materializeTree) is the batch shape. A parser that has
-already written a complete pointer-free preorder tree into two blobs hands them
-over once and gets the finished value back from a single checked traversal.
-
-[](nupp.data.valuebuilder.new) is the streaming shape, for a parser that would rather
-not build the tree at all. Values are reported as they are reached and the
-intermediate representation never exists:
+The module exposes a streaming shape. Values are reported as the parser reaches
+them, so no intermediate representation is required:
 
 ```nupp
 local valuebuilder = nupp.data.valuebuilder
@@ -216603,9 +216185,7 @@ end
 ```
 
 Every offset, length, and index this module takes is zero-based, because they
-address the parser's own bytes rather than a Lua string. Node ids and the `root`
-argument of [](nupp.data.valuebuilder.materializeTree) are the exception: those are
-one-based, so that 0 can mean no node.
+address the parser's own bytes rather than a Lua string.
 
 Under AOT a stream handle and a scratch buffer are local construction state.
 Neither can be returned, reassigned, stored in a table, or passed to an ordinary
@@ -216613,12 +216193,10 @@ call; only the operations in this module admit them.
 ]]
 
 ----------------------------------------------------------------------------
--- Reading the encoded tree
+-- Reading encoded values
 ----------------------------------------------------------------------------
 
 local valuebuilder = {}
-
-const NODE_SIZE: integer = 40
 
 local function readU32(bytes: string, offset: integer): integer
     local first = bytes:byte(offset + 1)
@@ -216626,35 +216204,10 @@ local function readU32(bytes: string, offset: integer): integer
     local third = bytes:byte(offset + 3)
     local fourth = bytes:byte(offset + 4)
     if first == nil or second == nil or third == nil or fourth == nil then
-        error("value-tree word is out of bounds", 0)
+        error("value stream word is out of bounds", 0)
     end
 
     return first + second * 0x100 + third * 0x10000 + fourth * 0x1000000
-end
-
-local function readDouble(bytes: string, offset: integer): number
-    local low = readU32(bytes, offset)
-    local high = readU32(bytes, offset + 4)
-    local negative = high >= 0x80000000
-    if negative then
-        high = high - 0x80000000
-    end
-    local exponent = math.floor(high / 0x100000)
-    local fraction = (high % 0x100000) * 0x100000000 + low
-    local value: number
-    if exponent == 0x7FF then
-        if fraction == 0 then
-            value = math.huge
-        else
-            value = math.huge - math.huge
-        end
-    elseif exponent == 0 then
-        value = fraction / 0x10000000000000 * 2 ^ -1022
-    else
-        value = (1 + fraction / 0x10000000000000) * 2 ^ (exponent - 1023)
-    end
-
-    return negative and -value or value
 end
 
 --- Resolves one string recipe into a Lua string.
@@ -216707,33 +216260,33 @@ local function decodeString(borrows source: any, first: integer, length: integer
                 -- digits.
                 local hex = bytes:sub(position + 1, position + 4)
                 if #hex < 4 or hex:find("%X") ~= nil then
-                    error("invalid value-tree Unicode escape", 0)
+                    error("invalid value stream Unicode escape", 0)
                 end
                 local codepoint = tonumber(hex, 16)
                 if codepoint == nil then
-                    error("invalid value-tree Unicode escape", 0)
+                    error("invalid value stream Unicode escape", 0)
                 end
                 position = position + 5
                 if codepoint >= 0xD800 and codepoint <= 0xDBFF then
                     if bytes:byte(position) ~= 92 or bytes:byte(position + 1) ~= 117 then
-                        error("unmatched value-tree high surrogate", 0)
+                        error("unmatched value stream high surrogate", 0)
                     end
                     local lowHex = bytes:sub(position + 2, position + 5)
                     if #lowHex < 4 or lowHex:find("%X") ~= nil then
-                        error("invalid value-tree low surrogate", 0)
+                        error("invalid value stream low surrogate", 0)
                     end
                     local low = tonumber(lowHex, 16)
                     if low == nil or low < 0xDC00 or low > 0xDFFF then
-                        error("invalid value-tree low surrogate", 0)
+                        error("invalid value stream low surrogate", 0)
                     end
                     position = position + 6
                     codepoint = 0x10000 + (codepoint - 0xD800) * 0x400 + low - 0xDC00
                 elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
-                    error("unmatched value-tree low surrogate", 0)
+                    error("unmatched value stream low surrogate", 0)
                 end
                 parts[#parts + 1] = nupp.data.utf8.encode(codepoint as integer)
             else
-                error("unknown value-tree escape", 0)
+                error("unknown value stream escape", 0)
             end
             start = position
         end
@@ -216741,170 +216294,6 @@ local function decodeString(borrows source: any, first: integer, length: integer
     parts[#parts + 1] = bytes:sub(start)
 
     return table.concat(parts)
-end
-
-----------------------------------------------------------------------------
--- Materializing a tree
-----------------------------------------------------------------------------
-
---- Materializes a pointer-free preorder tree into ordinary Lua values.
----
---- This is the batch shape. A parser fills two blobs, calls this once, and is
---- done; use [](nupp.data.valuebuilder.new) instead when the parser can report values
---- as it reaches them and would rather the tree never existed.
----
---- `nodeBytes` holds every node, packed as native-endian `NuppValueTreeNode` and
---- addressed by one-based id. `linkBytes` holds every parent-to-child edge as a
---- native-endian uint32 node id; a container names its children as the run
---- `linkStart` through `linkStart + linkCount - 1` of that array, and an
---- object's run alternates key node and value node. A node's `tag` says what it
---- is, and `flags` picks between the two recipes a tag may carry:
----
---- | Tag | Node | Value |
---- | --- | --- | --- |
---- | 0 | null | `nullValue` |
---- | 1 | true | `true` |
---- | 2 | false | `false` |
---- | 3 | number | flags 1: `node.number`; flags 0: parse the source range |
---- | 4 | string | flags 0: the source range; flags 1: an escape recipe |
---- | 5 | array | the link run, in order |
---- | 6 | object | the link run, alternating key and value |
----
---- Every size, id, range, and tag is checked before it is used, so a truncated
---- or hostile blob raises rather than reading out of bounds. Recursion depth is
---- bounded too, so a tree whose links form a cycle raises rather than hanging.
----
---- ```nupp
---- local valuebuilder = nupp.data.valuebuilder
----
---- --- @raises when the blobs do not describe a well-formed tree
---- @aot
---- local function decode(nodes: string, links: string, source: string, null: any): any
----     return valuebuilder.materializeTree(nodes, links, source, 1, null)
---- end
---- ```
----
---- @param nodeBytes every node, packed as native-endian `NuppValueTreeNode`
---- @param linkBytes every child edge, packed as native-endian uint32 node ids
---- @param source the rooted string that string and number ranges index
---- @param root the one-based id of the node to materialize, usually 1
---- @param nullValue what a null node becomes, so that a caller who needs to tell
----     an absent key from a null one can pass a sentinel instead of nil
---- @return the materialized value
---- @raises when a blob, node, link, string recipe, or numeric recipe is invalid
-function valuebuilder.materializeTree(
-    nodeBytes: string,
-    linkBytes: string,
-    source: string,
-    root: integer,
-    nullValue: any
-): any
-    if #nodeBytes % NODE_SIZE ~= 0 or #linkBytes % 4 ~= 0 then
-        error("invalid value-tree blob size", 2)
-    end
-    local nodeCount = #nodeBytes / NODE_SIZE
-    local linkCount = #linkBytes / 4
-    if root < 1 or root > nodeCount then
-        error("value-tree root is out of bounds", 2)
-    end
-
-    local function node(nodeId: integer): any
-        if nodeId < 1 or nodeId > nodeCount then
-            error("value-tree node is out of bounds", 0)
-        end
-        local offset = (nodeId - 1) * NODE_SIZE
-
-        return {
-            number = readDouble(nodeBytes, offset),
-            tag = readU32(nodeBytes, offset + 8),
-            start = readU32(nodeBytes, offset + 12),
-            length = readU32(nodeBytes, offset + 16),
-            linkStart = readU32(nodeBytes, offset + 20),
-            linkCount = readU32(nodeBytes, offset + 24),
-            flags = readU32(nodeBytes, offset + 32),
-        }
-    end
-
-    local function link(index: integer): integer
-        if index < 0 or index >= linkCount then
-            error("value-tree link is out of bounds", 0)
-        end
-
-        return readU32(linkBytes, index * 4)
-    end
-
-    local function sourceRange(node: any): (integer, integer)
-        local first = node.start as integer
-        local length = node.length as integer
-        if first < 0 or length < 0 or first > #source or length > #source - first then
-            error("value-tree source range is out of bounds", 0)
-        end
-
-        return first, length
-    end
-
-    local function materialize(nodeId: integer, depth: integer): any
-        if nodeId < 1 or nodeId > nodeCount or depth > math.min(nodeCount, 1024) then
-            error("value-tree node is out of bounds", 0)
-        end
-        local current = node(nodeId)
-        local tag = current.tag as integer
-        if tag == 0 then
-            return nullValue
-        elseif tag == 1 then
-            return true
-        elseif tag == 2 then
-            return false
-        elseif tag == 3 then
-            if current.flags == 1 then
-                return current.number
-            end
-            local first, length = sourceRange(current)
-            local value = tonumber(source:sub(first + 1, first + length))
-            if value == nil then
-                error("invalid value-tree number", 0)
-            end
-            return value
-        elseif tag == 4 then
-            local flags = current.flags as integer
-            if flags ~= 0 and flags ~= 1 then
-                error("invalid value-tree string recipe", 0)
-            end
-            local first, length = sourceRange(current)
-            return decodeString(source, first, length, flags == 1)
-        elseif tag ~= 5 and tag ~= 6 then
-            error("invalid value-tree node tag", 0)
-        end
-
-        local first = current.linkStart as integer
-        local count = current.linkCount as integer
-        if first < 0 or count < 0 or first + count > linkCount then
-            error("value-tree child range is out of bounds", 0)
-        end
-        if tag == 5 then
-            local result = {}
-            for offset = 0, count - 1 do
-                result[offset + 1] = materialize(link(first + offset), depth + 1)
-            end
-            return result
-        end
-        if count % 2 ~= 0 then
-            error("value-tree object has an unmatched key", 0)
-        end
-        local result = {}
-        for offset = 0, count - 1, 2 do
-            local keyId = link(first + offset)
-            if keyId < 1 or keyId > nodeCount or node(keyId).tag ~= 4 then
-                error("value-tree object key is not a string", 0)
-            end
-            local key = materialize(keyId, depth + 1)
-            result[key] = materialize(link(first + offset + 1), depth + 1)
-        end
-
-        return result
-    end
-
-    return materialize(root, 1)
 end
 
 ----------------------------------------------------------------------------
@@ -217642,8 +217031,7 @@ end
 -- Publishing values
 ----------------------------------------------------------------------------
 
---- Returns the current container's tag: 5 for an array and 6 for an object, the
---- same numbering [](nupp.data.valuebuilder.materializeTree) uses.
+--- Returns the current container's tag: 5 for an array and 6 for an object.
 --- @param builder the stream
 --- @return the innermost open container's tag
 --- @raises when the stream has no current container

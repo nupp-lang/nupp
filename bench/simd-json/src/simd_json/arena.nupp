@@ -3,8 +3,6 @@ local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local fused = require("simd_json.fused")
 local span = require("nupp.mem.span")
-local _valueBuilder = require("nupp.data.valuebuilder")
-local _materializeTree = _valueBuilder.materializeTree
 
 local arena = {}
 
@@ -23,12 +21,6 @@ end
 local arraySpec = "$" .. "[?]"
 local NodeArray = ffi.typeof(arraySpec, parser.Node)
 local FrameArray = ffi.typeof(arraySpec, parser.Frame)
-local nodeSize = ffi.sizeof(parser.Node)
-
-@aot
-local function buildValue(nodeBytes: string, linkBytes: string, source: string, root: integer, nullValue: any): any
-    return _materializeTree(nodeBytes, linkBytes, source, root, nullValue)
-end
 
 local function fail(position: uint32, stage: string, status: uint32, level: integer): never
     error(("invalid JSON at byte %d: %s status %d"):format(position, stage, status), level)
@@ -190,22 +182,8 @@ function arena.materialize(document: Document, nullValue: unknown): unknown
     return materializeNode(document, nullValue, document.root)
 end
 
---- Crosses into the VM-aware builder once after native parsing. The two blob
---- copies replace one FFI field read per node and let the C closure allocate
---- and populate the complete ordinary Lua graph directly.
-function arena.materializeBuilder(document: Document, nullValue: unknown): unknown
-    local nodeBytes = ffi.string(document.nodes, document.nodeCount * nodeSize)
-    local linkCount = math.max(document.nodeCount - 1, 0)
-    local linkBytes = ffi.string(document.links, linkCount * 4)
-    return buildValue(nodeBytes, linkBytes, document.source, document.root, nullValue)
-end
-
 function arena.decode(source: string, nullValue: unknown): unknown
     return arena.materialize(arena.parse(source), nullValue)
-end
-
-function arena.decodeBuilder(source: string, nullValue: unknown): unknown
-    return arena.materializeBuilder(arena.parse(source), nullValue)
 end
 
 --- Indexes, parses, and constructs ordinary Lua values in one VM-aware AOT

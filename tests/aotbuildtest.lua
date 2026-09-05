@@ -1534,34 +1534,6 @@ function M.wasmHostExportsEveryLuaBuilderImport()
    end
 end
 
-function M.valueBuilderFallbackReadsPackedTreesWithoutFfi()
-   local valuebuilder = require("nupp.data.valuebuilder")
-   local function word(value)
-      local bytes = {}
-      for index = 1, 4 do
-         bytes[index] = string.char(value % 256)
-         value = math.floor(value / 256)
-      end
-      return table.concat(bytes)
-   end
-   local function node(number, tag, start, length, linkStart, linkCount, flags)
-      return number .. word(tag) .. word(start) .. word(length) .. word(linkStart)
-         .. word(linkCount) .. word(0) .. word(flags) .. word(0)
-   end
-   local zero = string.rep("\0", 8)
-   local nodes = node(zero, 6, 0, 0, 0, 2, 0)
-      .. node(zero, 4, 0, 4, 0, 0, 0)
-      .. node(zero, 3, 4, 2, 0, 0, 0)
-   local object = valuebuilder.materializeTree(nodes, word(2) .. word(3), "name42", 1, {})
-   test.equal(object.name, 42)
-
-   local oneAndAHalf = string.char(0, 0, 0, 0, 0, 0, 248, 63)
-   test.equal(valuebuilder.materializeTree(
-      node(oneAndAHalf, 3, 0, 0, 0, 0, 1), "", "", 1, nil
-   ), 1.5)
-end
-
-
 --- What this host calls a shared library, asked of the compiler rather than
 --- guessed from `uname`. The two could drift, and the one that decides where
 --- the file actually goes is the compiler.

@@ -951,25 +951,6 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 "unsupported fresh-table literal value"
             )
         end
-    elseif op == "lua_tree" then
-        local tree = node as scalarIR.LuaTree
-        holds(scope.entryMode == "lua-builder" and node.type == "lua_value", "Lua tree outside a builder")
-        for _, bytes in ipairs({tree.nodes, tree.links, tree.sourceBytes}) do
-            holds(
-                bytes.type == "lua_string" and bytes.op == "local" and (bytes as scalarIR.Name).cName ~= nil,
-                "Lua tree byte input is not a rooted string parameter"
-            )
-            scalarWalk(bytes, values, scope)
-        end
-        holds(verify.NUMERIC[tree.root.type] == true, "Lua tree root is not numeric")
-        scalarWalk(tree.root, values, scope)
-        holds(
-            tree.nullValue.type == "lua_value" and tree.nullValue.op == "local" and (
-                tree.nullValue as scalarIR.Name
-            ).cName ~= nil,
-            "Lua tree null replacement is not rooted"
-        )
-        scalarWalk(tree.nullValue, values, scope)
     elseif op == "lua_builder" then
         local builder = node as scalarIR.LuaBuilder
         holds(scope.entryMode == "lua-builder" and node.type == "lua_builder", "value stream outside a builder")

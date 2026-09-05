@@ -187,18 +187,6 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         return "lua.new_table(" .. text.expression(
             created.arrayCapacity
         ) .. ", " .. text.expression(created.hashCapacity) .. "){" .. table.concat(fields, "; ") .. "}"
-    elseif op == "lua_tree" then
-        local tree = node as scalarIR.LuaTree
-        return "lua.tree(" .. table.concat(
-            {
-                text.expression(tree.nodes),
-                text.expression(tree.links),
-                text.expression(tree.sourceBytes),
-                text.expression(tree.root),
-                text.expression(tree.nullValue),
-            },
-            ", "
-        ) .. ")"
     elseif op == "lua_builder" then
         local builder = node as scalarIR.LuaBuilder
         local values = {builder.mode, text.expression(builder.nullValue)}

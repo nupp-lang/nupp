@@ -203,12 +203,10 @@ end
 for _, source in ipairs(corpus) do
    local actual = json.decode(source)
    local arenaActual = arena.decode(source, json.null)
-   local builderActual = arena.decodeBuilder(source, json.null)
    local fusedActual = arena.decodeFused(source, json.null)
    local expected = actual
    check(same(actual, expected), "differential mismatch for " .. source)
    check(same(arenaActual, expected), "arena differential mismatch for " .. source)
-   check(same(builderActual, expected), "builder differential mismatch for " .. source)
    check(same(fusedActual, expected), "fused differential mismatch for " .. source)
    if source ~= "1e309" then
       local simdjsonActual = simdjsonBench.decode(source, json.null)
@@ -292,26 +290,6 @@ do
    local built = valueBuilder.finish(stream)
    check(built.alpha[1] == 1 and built.alpha[2] == json.null and built["escaped\n"] == true,
       "ordinary value stream built the wrong graph")
-end
-
-do
-   local document = arena.parse([[{"safe":[1,2,3]}]])
-   local nodeBytes = ffi.string(document.nodes, document.nodeCount * ffi.sizeof(parser.Node))
-   local linkBytes = ffi.string(document.links, math.max(document.nodeCount - 1, 0) * 4)
-   local fallback = valueBuilder.materializeTree(
-      nodeBytes, linkBytes, document.source, document.root, json.null)
-   check(same(fallback, json.decode(document.source)),
-      "ordinary value-tree fallback differs from the native builder")
-   local root = document.root
-   document.root = document.nodeCount + 1
-   check(not pcall(arena.materializeBuilder, document, json.null),
-      "builder accepted an out-of-range root")
-   document.root = root
-   local tag = document.nodes[root - 1].tag
-   document.nodes[root - 1].tag = 99
-   check(not pcall(arena.materializeBuilder, document, json.null),
-      "builder accepted an unknown node tag")
-   document.nodes[root - 1].tag = tag
 end
 
 local invalid = {
@@ -479,8 +457,6 @@ do
       local expected = json.decode(source)
       check(same(arena.decode(source, json.null), expected),
          "generated arena differential mismatch at case " .. case)
-      check(same(arena.decodeBuilder(source, json.null), expected),
-         "generated builder differential mismatch at case " .. case)
       check(same(arena.decodeFused(source, json.null), expected),
          "generated fused differential mismatch at case " .. case)
       check(same(simdjsonBench.decode(source, json.null), expected, true),

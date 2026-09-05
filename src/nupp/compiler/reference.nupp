@@ -1679,11 +1679,10 @@ indices and use its physical extent for cursor bounds. Host transfers and
 dispatch-indexed spans remain dense; broadcast views are read-only because
 their zero strides alias.
 
-A pointer-free parser builds an ordinary Lua value through
-`nupp.data.valuebuilder`, either by materializing one bounds-checked node and
-link blob in a single C traversal or by driving its iterative stream. See
+A parser builds an ordinary Lua value through the iterative
+`nupp.data.valuebuilder` stream. See
 [lua-values.md](docs/learn/performance/ahead-of-time/lua-values.md)
-for those operations and their limits.
+for its operations and limits.
 ]=],
         example = [=[
 local m = {}
