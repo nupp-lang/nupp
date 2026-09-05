@@ -330,11 +330,14 @@ input {
     padding: .24rem .55rem;
     color: var(--nuppdoc-text-muted);
     border-radius: 6px;
-    font-size: .7rem;
     font-weight: 500;
     text-decoration: none;
     text-overflow: ellipsis;
     white-space: nowrap
+}
+
+.nuppdoc-sidebar a {
+    font-size: .88rem
 }
 
 .nuppdoc-sidebar a:hover {
@@ -1107,7 +1110,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     margin: 0;
     padding: .24rem .55rem;
     color: var(--nuppdoc-text);
-    font-size: .7rem;
+    font-size: .88rem;
     font-weight: 500;
     cursor: pointer;
     list-style: none
@@ -1837,7 +1840,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 
     .nuppdoc-sidebar a,
     .nuppdoc-sidebar-section summary {
-        font-size: .77rem
+        font-size: 1rem
     }
 }
 
