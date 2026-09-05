@@ -102623,13 +102623,22 @@ path = normalizePath ( path )
 local best = nil
 for _ , rawRoot in ipairs ( roots or { } ) do
 local root = normalizePath ( rawRoot )
+local comparedPath = path
+
+
+
+if isAbsolutePath ( root ) ~= isAbsolutePath ( comparedPath ) then
+local fs = compilerPrivate ( "fs" )
+root = fs . canonical ( root )
+comparedPath = fs . canonical ( comparedPath )
+end
 local rel = nil
 if root == "." or root == "" then
-if not isAbsolutePath ( path ) then
-rel = path
+if not isAbsolutePath ( comparedPath ) then
+rel = comparedPath
 end
-elseif path : sub ( 1 , # root + 1 ) == root .. "/" then
-rel = path : sub ( # root + 2 )
+elseif comparedPath : sub ( 1 , # root + 1 ) == root .. "/" then
+rel = comparedPath : sub ( # root + 2 )
 end
 if rel and rel : match ( "%.nupp$" ) and not rel : match ( "%.d%.nupp$" ) then
 rel = rel : gsub ( "%.g%.nupp$" , "" ) : gsub ( "%.nupp$" , "" )
