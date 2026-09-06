@@ -3,7 +3,12 @@
 /editors/playground/node_modules
 /.rocks
 /.nupp-cache/
-.claude/
+# Local Claude Code state -- settings, locks -- but not the skills, which are
+# repository procedure and belong with the workflows they describe. Spelled as
+# contents-plus-exception rather than `.claude/`, because git cannot re-include
+# anything under a directory it has already excluded.
+.claude/*
+!.claude/skills/
 .DS_Store
 scratch/
 host/target/
