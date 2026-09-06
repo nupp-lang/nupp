@@ -1,0 +1,213 @@
+module nupp.data.binary
+
+--[[
+A versioned binary codec for detached plain values. Strings retain every byte,
+and tables retain string and finite numeric keys, including sparse indices.
+Tables are copied by value: shared references become separate tables. Cycles,
+metatables, non-finite numbers, and values other than nil, boolean, number,
+string and plain table are refused. This is not a serializer for live objects.
+
+The NVB version 1 format starts with `NVB\1`. Tags 0, 1 and 2 represent nil,
+false and true; tag 3 precedes a little-endian IEEE binary64 number; tag 4
+precedes a uint32 byte length and raw string; tag 5 precedes a uint32 entry count
+and key/value pairs. Lengths are little-endian. Numeric keys sort before string
+keys, each in ascending order. A table value cannot be nil. Decoding refuses
+unknown tags, duplicate keys, truncation and trailing bytes.
+
+Both directions enforce 64 MiB of encoded bytes, one million values (including
+keys), and 128 nested tables. These fixed limits bound work on untrusted input.
+The format preserves negative zero as a value; Lua itself merges zero keys.
+It does not preserve table identity, an array/object distinction, or 64-bit
+integer cdata. Use a schema-aware format when those distinctions matter.
+]]
+
+local binary = {}
+const MAX_BYTES = 67108864
+const MAX_VALUES = 1000000
+const MAX_DEPTH = 128
+const MAGIC = "NVB\1"
+
+local function finite(value: number): boolean
+    return value == value and value ~= math.huge and value ~= -math.huge
+end
+
+local function uint32Bytes(value: number): string
+    return string.char(
+        value % 256,
+        math.floor(value / 256) % 256,
+        math.floor(value / 65536) % 256,
+        math.floor(value / 16777216) % 256
+    )
+end
+
+-- Arithmetic IEEE conversion keeps this codec independent of host byte order,
+-- FFI and the native byte-storage provider.
+local function numberBytes(value: number): string
+    assert(finite(value), "nupp: binary requires finite numbers")
+    local sign = 0
+    if value < 0 or (value == 0 and 1 / value < 0) then
+        sign = 2147483648
+        value = -value
+    end
+    local exponent = 0
+    local fraction = 0
+    if value ~= 0 then
+        if value < 2 ^ -1022 then
+            fraction = value / 2 ^ -1074
+        else
+            local mantissa, power = math.frexp(value)
+            exponent = power + 1022
+            fraction = (mantissa * 2 - 1) * 4503599627370496
+        end
+    end
+
+    return uint32Bytes(
+        fraction % 4294967296
+    ) .. uint32Bytes(sign + exponent * 1048576 + math.floor(fraction / 4294967296))
+end
+
+--- Encodes a detached plain value in NVB version 1.
+--- @param value The value to copy into bytes.
+--- @return The complete binary document.
+--- @raises When a value is unsupported, cyclic, or exceeds the codec limits.
+--- @export
+function binary.encode(value: any): string
+    local parts: {string} = {MAGIC}
+    local size = #MAGIC
+    local count = 0
+    local active: {[any]: boolean} = {}
+    local function put(bytes: string): nil
+        size = size + #bytes
+        assert(size <= MAX_BYTES, "nupp: binary byte limit exceeded")
+        parts[#parts + 1] = bytes
+    end
+
+    local visit: function(any, integer): nil
+    visit = function(item: any, depth: integer): nil
+        count = count + 1
+        assert(count <= MAX_VALUES, "nupp: binary value limit exceeded")
+        local kind = type(item)
+        if kind == "nil" then
+            put("\0")
+        elseif kind == "boolean" then
+            put(item and "\2" or "\1")
+        elseif kind == "number" then
+            put("\3" .. numberBytes(item))
+        elseif kind == "string" then
+            assert(#item <= MAX_BYTES, "nupp: binary byte limit exceeded")
+            put("\4" .. uint32Bytes(#item))
+            put(item)
+        elseif kind == "table" then
+            assert(depth < MAX_DEPTH, "nupp: binary depth limit exceeded")
+            assert(getmetatable(item) == nil, "nupp: binary requires plain tables")
+            assert(not active[item], "nupp: binary cannot encode a cycle")
+            active[item] = true
+            local numbers: {number} = {}
+            local strings: {string} = {}
+            local entries = 0
+            for key in pairs(item) do
+                entries = entries + 1
+                assert(count + entries * 2 <= MAX_VALUES, "nupp: binary value limit exceeded")
+                if type(key) == "number" and finite(key) then
+                    numbers[#numbers + 1] = key
+                elseif type(key) == "string" then
+                    strings[#strings + 1] = key
+                else
+                    error("nupp: binary table keys must be strings or finite numbers")
+                end
+            end
+            table.sort(numbers)
+            table.sort(strings)
+            put("\5" .. uint32Bytes(entries))
+            for _, key in ipairs(numbers) do
+                visit(key, depth + 1)
+                visit(item[key], depth + 1)
+            end
+            for _, key in ipairs(strings) do
+                visit(key, depth + 1)
+                visit(item[key], depth + 1)
+            end
+            active[item] = nil
+        else
+            error("nupp: binary cannot encode " .. kind)
+        end
+    end
+    visit(value, 0)
+
+    return table.concat(parts)
+end
+
+--- Decodes one complete NVB version 1 document.
+--- @param bytes The binary document, including its version header.
+--- @return A detached plain value, which may be nil.
+--- @raises When the document is malformed, unsupported, or exceeds codec limits.
+--- @export
+function binary.decode(bytes: string): any
+    assert(#bytes <= MAX_BYTES, "nupp: binary byte limit exceeded")
+    assert(bytes:sub(1, #MAGIC) == MAGIC, "nupp: binary invalid header or version")
+    local position = #MAGIC + 1
+    local count = 0
+    local function take(length: integer): string
+        assert(length <= #bytes - position + 1, "nupp: binary truncated document")
+        local result = bytes:sub(position, position + length - 1)
+        position = position + length
+        return result
+    end
+
+    local function uint32Value(): number
+        local a, b, c, d = take(4):byte(1, 4)
+        return a + b * 256 + c * 65536 + d * 16777216
+    end
+
+    local visit: function(integer): any
+    visit = function(depth: integer): any
+        count = count + 1
+        assert(count <= MAX_VALUES, "nupp: binary value limit exceeded")
+        local tag = take(1):byte()
+        if tag == 0 then
+            return nil
+        elseif tag == 1 then
+            return false
+        elseif tag == 2 then
+            return true
+        elseif tag == 3 then
+            local low = uint32Value()
+            local high = uint32Value()
+            local negative = high >= 2147483648
+            local exponent = math.floor(high / 1048576) % 2048
+            local fraction = (high % 1048576) * 4294967296 + low
+            assert(exponent ~= 2047, "nupp: binary requires finite numbers")
+            local value: number
+            if exponent == 0 then
+                value = fraction * 2 ^ -1074
+            else
+                value = math.ldexp(1 + fraction / 4503599627370496, exponent - 1023)
+            end
+            return negative and -value or value
+        elseif tag == 4 then
+            return take(uint32Value() as integer)
+        elseif tag == 5 then
+            assert(depth < MAX_DEPTH, "nupp: binary depth limit exceeded")
+            local entries = uint32Value()
+            assert(count + entries * 2 <= MAX_VALUES, "nupp: binary value limit exceeded")
+            assert(entries * 2 <= #bytes - position + 1, "nupp: binary truncated table")
+            local result: {[any]: any} = {}
+            for _ = 1, entries do
+                local key = visit(depth + 1)
+                assert(type(key) == "string" or type(key) == "number", "nupp: binary invalid table key")
+                assert(result[key] == nil, "nupp: binary duplicate table key")
+                local value = visit(depth + 1)
+                assert(value ~= nil, "nupp: binary nil table value")
+                result[key] = value
+            end
+            return result
+        end
+        error("nupp: binary unknown tag")
+    end
+    local value = visit(0)
+    assert(position == #bytes + 1, "nupp: binary trailing bytes")
+
+    return value
+end
+
+export = binary

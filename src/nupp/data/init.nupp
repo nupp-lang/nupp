@@ -18,6 +18,8 @@ The small byte algorithms and identifiers live directly on `nupp.data`:
 set of bit positions. The facilities with their own substantial runtime remain
 modules of their own.
 
+- See [](nupp.data.binary) for detached plain values with binary strings and
+  numeric table keys.
 - See [](nupp.data.json) for JSON encoding and decoding, and the values a Lua
   table cannot express by itself.
 - See [](nupp.data.hash) for SHA-256 and HMAC-SHA256, over chunks or in one

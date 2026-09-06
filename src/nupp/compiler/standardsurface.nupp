@@ -72,6 +72,7 @@ local MODULES = {
     ["nupp.io.http"] = selected("host", "host.http"),
     ["nupp.io.path"] = {kind = "common"},
     ["nupp.data.base64"] = {kind = "common"},
+    ["nupp.data.binary"] = {kind = "common"},
     ["nupp.data.valuebuilder"] = {kind = "common"},
     ["nupp.io.net"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.io.process"] = {kind = "unavailable", capability = "cinterop"},

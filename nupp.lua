@@ -193,6 +193,7 @@ local RESOURCES = {
     {source = "src/nupp/runtime/seam/bitopssuite.nupp", output = "nupp/compiler/nupp/runtime/seam/bitopssuite.nupp",},
     {source = "src/nupp/data/utf8.nupp", output = "nupp/compiler/nupp/data/utf8.nupp"},
     {source = "src/nupp/data/base64.nupp", output = "nupp/compiler/nupp/data/base64.nupp"},
+    {source = "src/nupp/data/binary.nupp", output = "nupp/compiler/nupp/data/binary.nupp"},
     {source = "src/nupp/runtime/native.nupp", output = "nupp/compiler/nupp/runtime/native.nupp"},
     {source = "src/nupp/data/init.nupp", output = "nupp/compiler/nupp/data/init.nupp"},
     {source = "src/nupp/data/internal/bitset.nupp", output = "nupp/compiler/nupp/data/internal/bitset.nupp"},
