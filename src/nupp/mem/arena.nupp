@@ -57,7 +57,7 @@ record arena.Arena<S>
     acquire: function(exclusive self: Arena<S>): S
 
     --- Ends a lease without rewinding the cursor.
-    release: function(exclusive self: Arena<S>, borrows row: S): nil
+    release: function(exclusive self: Arena<S>, row: S): nil
 
     --- Rewinds every used page's cursor and keeps the pages.
     reset: function(exclusive self: Arena<S>): nil
@@ -127,7 +127,7 @@ end
 --- @raises when no lease is live
 --- @export
 @allow("unused-binding")
-function arena.Arena.release<S>(exclusive self: arena.Arena<S>, borrows row: S): nil
+function arena.Arena.release<S>(exclusive self: arena.Arena<S>, row: S): nil
     if self.liveCount == 0 then
         error("arena release without a live lease", 2)
     end

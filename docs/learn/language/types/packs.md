@@ -147,6 +147,29 @@ if ok then
 end
 ```
 
+The arguments a protected call forwards keep their contracts. A pack binder
+such as `pcall`'s `A...` takes the mode of each argument that bound it, so a
+callee reached through `pcall` is held to declaring what it is handed: an
+exclusive view arrives as `exclusive`, a borrow as `borrows`, and a callee that
+declares a plain parameter for either is refused where it is passed.
+
+```nupp
+local record World
+    frame: integer
+end
+
+local function step(exclusive world: World, delta: integer): nil
+    world.frame = world.frame + delta
+end
+
+local function protectedStep(exclusive world: World): nil
+    local ok, failure = pcall(step, world, 1) -- `world` reaches `step` exclusively
+    if not ok then
+        error(failure, 0)
+    end
+end
+```
+
 ### `select`
 
 `select("#", ...)` returns an integer. A constant positive or negative index

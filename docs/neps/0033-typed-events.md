@@ -1,6 +1,6 @@
 ---
 title: Typed events with reusable storage
-status: Draft
+status: Accepted
 created: 2026-09-06
 ---
 
@@ -13,12 +13,14 @@ something is observing; emitting an existing instance borrows it without
 allocating. Observers receive the event as a call-scoped borrow they can mutate
 but not keep, and the source that delivered it as an exclusive borrow.
 
-The design needs four things the compiler does not have: an initializer split
+The design needs five things the compiler did not have: an initializer split
 out of every constructor, a comptime view of a declaration's construction
-contract with parameter names and defaults, closure literals that adopt
-parameter modes from the type they are checked against, and a derive recipe
-capability that binds an event to its initializer. Those are decided here
-alongside the library, because the library is not expressible without them.
+contract with parameter names, closure literals that adopt parameter modes
+from the type they are checked against, pack binders that forward the
+contracts of the arguments that bound them so a protected call can carry an
+exclusive view, and a derive recipe capability that binds an event to its
+initializer. Those are decided here alongside the library, because the
+library is not expressible without them.
 The first consumer is Tecs, whose Nupp rewrite lost the pooled and arena-backed
 events its Teal router had.
 
@@ -135,12 +137,12 @@ end
 @derive(events.Event)
 @event(name = "tecs.physics.Contact")
 local struct Contact
-    entityA: double
-    entityB: double
+    entityA: number
+    entityB: number
     impulse: float
 end
 
-local bus = events.newMessageBus<integer>()
+local bus: events.MessageBus<integer> = events.newMessageBus()
 
 bus:observe(enemy, Damage, |event, source| -> print(event.amount, event.kind), "log")
 bus:observeOnce(enemy, Damage, |event| -> print(event.amount))
@@ -149,27 +151,32 @@ bus:emit(enemy, Damage, amount = 10, source = player)
 bus:emit(enemy, Contact, a, b, 0.5)
 
 local damage = new Damage(amount = 10, source = player)
-bus:deliver(enemy, damage)
+bus:deliver(enemy, Damage, damage)
 ```
 
 Emission by type and delivery of an instance are two names rather than one
-overload, for the struct reason above. `deliver` borrows the instance, performs
-no acquisition and no release, and is what a caller uses for an event it owns.
+overload, for the struct reason above. `deliver` takes the declaration beside
+the instance, because a struct instance carries no witness the runtime can
+read on every backend; it performs no acquisition and no release, and is what
+a caller uses for an event it owns.
 
 ### The construction contract
 
 Every record and struct has one construction contract: the parameters of its
 single declared constructor, or its stored fields in declaration order when it
 declares none. This proposal makes it visible at comptime as
-`nupp.types.construction(T)`, a pack whose slots carry a type, a parameter
-name, and the default literal if the slot has one.
+`nupp.types.construction(T)`, a pack whose slots carry a type and a parameter
+name, with a slot optional when its field has a default or admits nil.
 
 A computed tail written `...: unpackof nupp.types.construction(E)` is then a
-parameter list with names, so a call binds named arguments to it and fills an
-omitted defaulted slot with the same literal `new` would have written, at the
-call site, where every other default is already decided. That is one
-extension to how a computed tail is checked and none to how it is lowered:
-named arguments erase to positional Lua arguments as they do everywhere.
+parameter list with names, so a call binds named arguments to it. The generics
+the tail depends on are bound from the positional prefix before a name is
+looked up, which is one extension to how a computed tail is checked and none
+to how it is lowered: named arguments erase to positional Lua arguments as
+they do everywhere. A default is not filled at the call site, because a
+positional call to a computed tail never passes through the checker's default
+filling; the initializer applies it where the argument is nil, which is the
+one place every call reaches.
 
 An event admits one contract because a computed tail is a parameter list as
 soon as it reduces, and there is no way for it to be an overload set. A
@@ -198,8 +205,11 @@ function Damage.__nuppCtor1(amount, source, kind)
 end
 ```
 
-An initializer receives defaults already filled by its caller, so it never
-consults them. A struct's initializer writes fields of the cdata it is handed;
+A field-list initializer applies a field default where its argument is nil,
+which is why it is written as `if a3 == nil then self.kind = "physical"` rather
+than a bare assignment; a constructor's initializer writes the defaults its
+constructor would have seeded and then runs the body. A struct's initializer
+writes fields of the cdata it is handed;
 its constructor remains the ctype call. Completeness, effects, overload
 selection over the contract, and every constructor diagnostic are unchanged,
 because the body is the same body checked the same way. The initializer is
@@ -215,15 +225,15 @@ escape.
 ### The derive
 
 `events.Event` is a provider whose recipe claims the `events.Emittable`
-interface and returns data and one member: the event's registered name, its
-representation, and a binding of the declaration's initializer. The binding is
-a new recipe argument, `nupp.derive.initializer()`, and a new versioned
-capability beside `forward.v1`, since `forward.v1` can pass only the receiver,
-an argument, the registry entry, a field, or a constant. The registry entry the
-derive already writes for every derived type gains the initializer, so the
-runtime reaches it through the type witness it was handed, for a record via
-the witness table and for a struct via the metatype's index table, the same
-route derived methods take today.
+interface and returns data and one request: the event's registered name, its
+representation, and `initializer = true`. The request is a new result
+capability beside `forward.v1`, since a forwarding recipe can pass only the
+receiver, an argument, the registry entry, a field, or a constant, and what
+this needs is not a member but a compiler-minted function. The registry entry
+the derive already writes for every derived type records the initializer's
+hidden name, so the runtime reaches it through the type witness it was handed,
+for a record via the witness table and for a struct via the metatype's index
+table, the same route derived methods take today.
 
 The runtime assigns each registered event an integer identity the first time
 a bus, `events.id`, or the derive's own registration asks for it, from a
@@ -301,15 +311,16 @@ thousand entries. Emission at an unobserved address is the source's
 registration count, which short-circuits everything when it is zero, and then
 two hash lookups that find nothing.
 
-A registration is two slots of that flat array, the callback and its name or
-`false`, interleaved, with the live count kept in slot zero rather than in the
-array's length. There is no record per registration. The Teal router chose
-this layout and the reason survives it: at a million registrations a record
-each is on the order of a hundred megabytes where two slots each is on the
-order of thirty, and the dispatch loop reads an array slot per observer
-instead of a field of a table it had to fetch first. The count lives in slot
-zero so that a removal can leave a hole to be swapped out later without the
-length lying about how many observers a delivery should visit.
+A registration is three slots of that flat array, its name or `false`, the
+callback, and whether it fires once, interleaved, with the live count kept
+beside the array rather than in its length. There is no record per
+registration. The Teal router chose this layout and the reason survives it:
+at a million registrations a record each is on the order of a hundred
+megabytes where a few slots each is on the order of forty, and the dispatch
+loop reads an array slot per observer instead of a field of a table it had to
+fetch first. The count lives beside the array so that a removal can leave a
+hole to be swapped out later without the length lying about how many
+observers a delivery should visit.
 
 A removal during delivery and a consumed once registration are the same
 operation: the callback slot is overwritten with a tombstone, a function that
@@ -340,13 +351,17 @@ not.
 An allocator is `acquire` and `release` over one representation. A source
 creates its defaults lazily, a pool per record event and an arena per struct
 event; `setAllocator` installs a caller-owned one, whose lifetime the caller
-guarantees. A lease is what `acquire` answers, and it is affine with `release`
-as its terminal. Dispatch holds it in a `with` extent, so an initializer
-failure, an observer failure, or a cancellation unwinding through a suspended
-observer releases exactly once, through the same cleanup region as every
-other terminal. The protected lowering that extent needs is a fixed-arity
-protected call and not a closure per emission; that is one of the bytecode
-gates below.
+guarantees. Dispatch runs the initializer and the observers under one `pcall`
+of a fixed function with the source, the list, and the storage as its
+arguments, and releases the storage when the call returns whether it
+returned, raised, or was cancelled while an observer was suspended; the
+failure is raised again after the lease is back. No closure is built per
+emission. That is what the pack-forwarding feature is for: a protected call's
+`A...` binder takes the mode of each argument that bound it, so the source
+reaches the delivery loop as the exclusive view the emitting call held, and
+the callee is held to declaring it. Without it the only protected call the
+checker admitted with an exclusive argument was one wrapped in a closure,
+which is the per-emit allocation the current Tecs world pays.
 
 Reclaimed record storage is cleared before it is leased again; leased struct
 storage is zero-filled the way a bare struct binding is. Nested emission of
@@ -375,15 +390,47 @@ A caller who wants to remove by callback keeps the value it registered. A
 short function is a fresh object each time its expression runs, so an inline
 literal is unremovable by identity, and the documentation says so.
 
+### Consumers in Nupp
+
+A survey of Nupp itself for hand-written observer patterns found nothing that
+should move onto the bus. Every callback list in the tree is one of three
+shapes: one-shot waker lists plumbed into the suspension contract, which carry
+no payload and answer a woken count the readiness pump sums; single optional
+hooks such as the incremental checker's observer, the log sink, and watch
+mode's two loader callbacks; and method routers keyed by name whose entries
+return a value, such as the LSP handler table and the service registry. The
+closest match is the HTTP transport's waiter channels, addressed by transfer
+and keyed by four event kinds, and even there `dispatch` answers a count and
+the channels are members of a backend seam interface. What the task and
+worker waiter lists could use is the storage half of this proposal, the
+pooled interleaved array, not the bus.
+
+Hot reload is the one place a bus would be an addition rather than a
+migration. The runtime is pull-based by [NEP 35](0035-filesystem-watching.md)'s
+rule that a consumer asks for changes rather than being called, so nothing
+observes a committed generation today; a program that wants to be told would
+observe a `GenerationCommitted` event at the runtime's address. That is a
+change to NEP 35's contract and is left to a proposal of its own, with this
+bus as the mechanism it would name.
+
 ### What lands, and in what order
 
 The compiler half is the initializer split, `nupp.types.construction`, named
-slots in computed tails, mode adoption in closure literals, and the
-`initializer` recipe capability. The standard library is under the stage-zero
-rule ([NEP 32](0032-fetched-stage-zero.md)), so `nupp.events` cannot use a
-recipe capability the pinned compiler does not know. The compiler half ships
-in one release, the pin moves, and `nupp.mem.pool`, `nupp.mem.arena` and
-`nupp.events` land against it. Tecs pins Nupp by revision and migrates last.
+slots in computed tails bound from the positional prefix, mode adoption in
+closure literals, pack binders forwarding contracts, and the `initializer`
+recipe capability. It lands first, with `nupp.mem.pool` and `nupp.mem.arena`,
+which use nothing new. `nupp.events` waits for a release: the stage-zero rule
+([NEP 32](0032-fetched-stage-zero.md)) reaches every module under `src`,
+because a cold checkout's first build is a plain `build` by the pinned release
+that type-checks the whole include set, so a standard-library module written
+against `nupp.types.construction` and pack forwarding fails that build until
+a tag carrying them is published and the pin moves. The module, its
+end-to-end fixtures, and its benchmark are kept on a branch until then. Tecs
+pins Nupp by revision and migrates against the revision the module lands in.
+
+Building the initializer found that a struct with a declared constructor
+passed the checker and failed at run time, since codegen never emitted the
+member `new` resolved to; that was fixed first, as its own change.
 
 The gates before the library lands are checker fixtures for every rule above,
 written against the current fixture suites; runtime tests for every storage
@@ -412,8 +459,14 @@ measured separately through the Wasm project harness.
 - **The initializer is a second entry to every constructor body.** Anything
   that reasons about a constructor as one whole, such as the refusal of `@aot`
   on one, has to see both.
-- **Two releases is the honest cost.** A single worktree cannot land the
-  library beside the compiler feature it uses.
+- **Pack forwarding widens what a generic tail admits.** An owner or a borrow
+  handed to `A...` was refused outright; it is now accepted when the callee
+  that receives the pack declares the matching mode, and refused where it
+  does not. A program the old rule accepted is unchanged, since a plain
+  argument still binds a plain slot.
+- **Two steps is the honest cost.** The library cannot land beside the
+  compiler features it uses; it lands one release later, and until then the
+  branch holding it is the work.
 
 ## Alternatives considered
 

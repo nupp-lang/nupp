@@ -345,10 +345,15 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
         end
         -- Substitution changes what a function takes and answers, never whether
         -- calling it may suspend or whether another Lua state can reproduce it:
-        -- every other field is copied, so neither guarantee is dropped here.
+        -- every other field is copied, so neither guarantee is dropped here. The
+        -- modes come from the substituted pack rather than the declaration, since a
+        -- pack binder carries the contracts of the arguments that bound it: what
+        -- `pcall(f, source)` forwards to `f` is the exclusive view `source` was, and
+        -- `f` is held to declaring it.
         return T.funcWith(t, {
             params = params,
             rets = rets,
+            paramModes = paramPack.modes,
             typeBounds = bounds,
             varargType = t.varargType and substWith(t.varargType, map, unmapped) or nil,
             paramPack = paramPack,

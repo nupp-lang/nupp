@@ -388,6 +388,23 @@ contributing field without observing a filename or source position. The code is
 optional and defaults to the generic provider diagnostic
 [`NUPP2810`](diagnostics.md).
 
+### Initializers
+
+A provider may ask for the owner's initializer with `initializer = true` beside
+`methods`, `statics`, and `data`. The compiler then mints the declaration's
+constructor body, or its field list when it declares none, as a hidden member
+taking the instance first: `initializer(storage, ...)` fills storage the caller
+already holds and answers it, and `new` allocates and calls the same body. The
+runtime reaches it through `nupp.derive.initializer(Type)`. A field-list
+initializer applies a field default where its argument is nil, which is the
+one place that can, since a positional call never passes through the checker's
+default filling.
+
+The compiler refuses the request on a declaration whose body could notice the
+reuse: several constructors, a constructor that lets `self` escape or moves a
+`takes` parameter into a field, an affine field, or a generic owner, each
+reported as `NUPP2810` on the application.
+
 ### Filesystem inputs
 
 A provider that generates a recipe from a schema or other immutable project file

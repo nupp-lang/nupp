@@ -287,6 +287,29 @@ print(checksum(file)) -- `file` is still live and still owed a close
 drop file
 ```
 
+A function literal or short function written where a callable is expected
+adopts the expected slot's `borrows` or `exclusive` mode for any parameter it
+leaves without one, so a callback slot states the contract once and every
+literal passed to it is checked under it. `|event| -> ...` handed to a
+`function(borrows event: E): nil` parameter borrows `event` for the call, and
+a body that stores it is reported. A mode the literal writes itself is kept,
+and `takes` is never adopted, since an obligation the literal never wrote is
+not one its body promised to discharge.
+
+```nupp
+local record Damage
+    amount: number
+end
+
+local function each(callback: function(borrows event: Damage): nil): nil
+    callback(new Damage(amount = 1))
+end
+
+local kept: {Damage} = {}
+each(|event| -> do event.amount = 2 end)   -- a borrow may be written to
+each(|event| -> do kept[1] = event end)    -- NUPP2603: a borrow cannot be stored
+```
+
 `T borrows (source)` records provenance on results and declared fields, and it
 is the only way a rooted value leaves the scope that made it. Without it the
 escape is reported:

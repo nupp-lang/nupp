@@ -366,6 +366,14 @@ declaration was applied to, or nothing for a type that is not an application.
 `nupp.types.sameNominal(A, B)` says whether two types come from the same nominal
 declaration without exposing that declaration's identity.
 
+`nupp.types.construction(T)` is a record or struct's construction contract as a
+pack: the one declared constructor's parameters, or the stored fields in
+declaration order when there is none, each slot carrying its name, and a slot
+with a default or a nilable type optional. Written as a computed tail,
+`...: unpackof Construction(E)`, it is a parameter list a call binds by
+position or by name the way `new E(...)` would; a declaration with several
+constructors has no single contract and is refused.
+
 `nupp.types.fields(T)` accepts structural and nominal types; a nominal keeps its
 declaration identity while exposing its public fields in declaration order, and
 `describe(T).fields` reports the same descriptors. The descriptor parameters are
@@ -1722,8 +1730,12 @@ return m
 `@derive` generates a closed set of checked members on a record. It is a
 declaration-augmentation phase rather than a text macro, so it cannot add
 imports, top-level declarations, modules, or independently nameable types. The
-bundled providers are `nupp.derive.Debug` and `nupp.derive.JSON`, and a package
-exports its own as a `comptime function` returning `nupp.derive.Result<T>`.
+bundled providers are `nupp.derive.Debug`, `nupp.derive.JSON`, and
+`nupp.derive.Serde`, and a package exports its own as a `comptime function`
+returning `nupp.derive.Result<T>`. A provider may also ask for the declaration's
+initializer, its constructor body or field list as a function run against
+storage the caller already holds, which is how pooled construction reuses the
+same checked body `new` runs.
 
 Generated members take part in ordinary member lookup, generic inference, and
 interface checking. A written member of the same name is a compile-time
