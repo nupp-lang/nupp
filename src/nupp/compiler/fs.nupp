@@ -84,12 +84,19 @@ end
 --- ordinary spelling. A verbatim share is answered as nothing rather than
 --- rewritten: `\\?\UNC\host\share` is a spelling the rest of this module has
 --- never handled, and inventing one here would be the first.
+---
+--- Either separator, because the marker is what identifies the spelling and the
+--- provider does not promise which slash it answers with. Testing for backslashes
+--- byte-exactly let a forward-slashed answer through whole, and every path this
+--- resolved then began `/?/` -- which named nothing, so the compiler could not read
+--- its own C headers.
 local function unverbatim(path: string): string?
-    if path:sub(1, 4) ~= "\\\\?\\" then
+    local slashed = path:gsub("\\", "/")
+    if slashed:sub(1, 4) ~= "//?/" then
         return path
     end
 
-    return path:match("^\\\\%?\\([A-Za-z]:\\.*)$")
+    return slashed:match("^//%?/([A-Za-z]:/.*)$")
 end
 
 --- The filesystem identity of an existing path, following symbolic links. A
