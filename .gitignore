@@ -1,5 +1,8 @@
 .nupp/
 /build/
+# Where a pre-NEP-32 stage zero looks for the compiler it starts Windows
+# comptime workers from; `bin/nupp` puts the fetched bundle there.
+/bootstrap/
 /editors/playground/node_modules
 /.rocks
 /.nupp-cache/
@@ -14,6 +17,9 @@ scratch/
 host/target/
 vendor/
 tests/build/
+# Where a pre-NEP-32 stage zero looks for the compiler it starts Windows
+# comptime workers from; `bin/nupp` puts the fetched bundle there.
+/bootstrap/
 /src/**/*.lua
 !/src/nupp/runtime/vendor/
 !/src/nupp/runtime/vendor/lunajson/

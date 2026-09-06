@@ -253,6 +253,40 @@ function M.theStageZeroIsNamedToWhatItRuns()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- The compiler that runs the first build of a cold checkout is the pinned
+-- release, not these sources. A release older than NEP 32 starts its Windows
+-- comptime workers from a hardcoded `<root>/bootstrap/nupp.lua` -- the file NEP
+-- 32 deleted -- and reads no `NUPP_STAGE0`, so it cannot be told where the
+-- compiler went. `bin/nupp` puts the fetched bundle back under that name for as
+-- long as the pin names such a release.
+--
+-- What this asks is whether the launcher and the pinned bundle agree about that,
+-- which the pin decides and every platform can read. It fails the day the pin
+-- moves to a release that reads the name instead, which is when the shim it
+-- guards should come out.
+function M.theLauncherServesThePinnedReleasesWorkerPath()
+    local path = stage0()
+    assert(path, "no stage-zero compiler; run scripts/toolchain stage0")
+    local bundle = assert(readFile(path), "the fetched stage zero is readable")
+    local launcher = assert(readFile(ROOT .. "/bin/nupp"), "the launcher is readable")
+
+    local wantsTheDeletedPath = bundle:find("/bootstrap/nupp.lua", 1, true) ~= nil
+    local servesIt = launcher:find("stage0_compat_path", 1, true) ~= nil
+    if wantsTheDeletedPath then
+        assert(
+            servesIt,
+            "the pinned stage zero starts its Windows workers from bootstrap/nupp.lua "
+            .. "and the launcher no longer puts one there"
+        )
+    else
+        assert(
+            not servesIt,
+            "the pinned stage zero names its own compiler, so bin/nupp should no longer "
+            .. "write bootstrap/nupp.lua and .gitignore should no longer mention it"
+        )
+    end
+end
+
 -- Help output proves only that the fetched Lua loads. The stage zero also has to
 -- understand every language and resolver change used by the current compiler, or a
 -- fresh checkout cannot produce its first build. That is the rule the pinned

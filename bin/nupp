@@ -92,10 +92,40 @@ stage0_path() {
         if [ -n "$STAGE0" ]; then
             NUPP_STAGE0=$STAGE0
             export NUPP_STAGE0
+            stage0_compat_path
         fi
     fi
     [ -n "$STAGE0" ] || return 1
     printf '%s\n' "$STAGE0"
+}
+
+# The pinned release does not read `NUPP_STAGE0`; it predates it. What it does on
+# Windows is start its worker from a hardcoded `<root>/bootstrap/nupp.lua`, which
+# is the file NEP 32 deleted -- so the first build of a cold Windows checkout
+# loses every comptime worker and stops at "prelude has type errors". Put the
+# fetched bundle back under the name that release looks for.
+#
+# Windows only, because that is the only platform whose workers are started as a
+# compiler rather than through this script, and this is twelve megabytes. Copied
+# beside the name and moved onto it, so a copy that was interrupted is never the
+# file a compiler opens.
+#
+# Best effort, because a tree that cannot take the copy fails the way it already
+# would. And temporary: it goes with the pin that stops needing it, since a stage
+# zero carrying NEP 32's own `isolatedArgs` reads `NUPP_STAGE0` instead and never
+# opens this path.
+stage0_compat_path() {
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) ;;
+        *) return 0 ;;
+    esac
+    if [ ! -f "$ROOT/bootstrap/nupp.lua" ]; then
+        if mkdir -p "$ROOT/bootstrap" && cp "$STAGE0" "$ROOT/bootstrap/nupp.lua.tmp"; then
+            mv "$ROOT/bootstrap/nupp.lua.tmp" "$ROOT/bootstrap/nupp.lua" || :
+        fi
+    fi
+
+    return 0
 }
 
 TOOLCHAIN_LPEG="$TOOLCHAIN_PREFIX/lpeg"
