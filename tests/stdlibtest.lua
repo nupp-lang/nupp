@@ -1746,6 +1746,15 @@ function M.randomSurfaceIsBundledOutsideThisCheckout()
     assertEq(#diags, 0, "the shipped random source supplies its typed surface")
 end
 
+function M.binarySurfaceIsBundledOutsideThisCheckout()
+    local isolated = envMod.new(os.tmpname() .. "-nupp-binary-surface")
+    local source = "local binary = require('nupp.data.binary')\nlocal bytes: string = binary.encode({[0] = 'raw'})\nlocal value = binary.decode(bytes)"
+    local result = parser.parse(source, "outside.nupp")
+    assertEq(#result.errors, 0)
+    local diags = check.check(result, "outside.nupp", isolated)
+    assertEq(#diags, 0, "the shipped binary codec supplies its typed surface")
+end
+
 function M.streamingHashSurfaceIsBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
     local source = table.concat(
