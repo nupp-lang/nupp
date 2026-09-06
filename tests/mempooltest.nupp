@@ -15,6 +15,10 @@ end
 local function allocated(body: function(): nil): number
     collectgarbage("collect")
     collectgarbage("stop")
+    -- A full collection shrinks the Lua stack, and the first call afterwards
+    -- regrows it by a few kilobytes that the count reports as allocation. One
+    -- unmeasured run of the body inside the stopped region pays that first.
+    pcall(body)
     local before = collectgarbage("count")
     local ok, problem = pcall(body)
     local after = collectgarbage("count")
