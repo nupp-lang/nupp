@@ -1,4 +1,23 @@
-local release = require("nupp.compiler.build.release")
+--[[
+Release automation, run as `nupp run scripts/release.nupp`.
+
+The compiler owns the stub-catalog and payload formats, so the operations below
+are its own rather than a second implementation of them here. That module is
+internal to the `nupp` namespace and this script is not in it, which is
+`NUPP2144`: the boundary is a static one over checked imports, and dynamic
+loading is deliberately outside it. So the module is named through a variable,
+and the interface this script depends on is written down here rather than
+inferred -- a repository script reaching into an internal module should have to
+say exactly how far it reaches.
+]]
+local type Release = {
+    record: function(string, string, string, string, string): (boolean?, string?),
+    catalog: function(string, {string}, string, string): (boolean?, string?),
+    stampPayload: function(string, string, string, string): (boolean?, string?)
+}
+
+local internal = "nupp.compiler.build.release"
+local release = require(internal) as Release
 
 local arguments = {...} as {string}
 
