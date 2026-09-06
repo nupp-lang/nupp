@@ -36,8 +36,15 @@ local function moduleDir(): string
     return source:match("^@(.*)[/\\]") or "."
 end
 
+-- Guarded like the reads around it. There is no `io` in the six-library host either,
+-- and no filesystem behind one if there were: a bundle that carries a file answers
+-- from what it carries, and a file it does not carry is a file that is not there.
 local function readFile(path: string): string?
-    local file = io.open(path, "rb")
+    local hostIo: any = io
+    if hostIo == nil then
+        return nil
+    end
+    local file = hostIo.open(path, "rb")
     if not file then
         return nil
     end
