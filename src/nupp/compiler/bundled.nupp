@@ -22,8 +22,17 @@ importing the first.
 
 local bundled = {}
 
+-- Guarded the way `os` is below. The portable compiler runs in a host with six
+-- libraries and no `debug`, and it is also the one build that carries every
+-- declaration inside itself -- so the question this answers, which checkout the
+-- carried files came from, has no answer there and needs none.
 local function moduleDir(): string
-    local source = debug.getinfo(1, "S").source
+    local hostDebug: any = rawget(_G, "debug")
+    if hostDebug == nil then
+        return "."
+    end
+    local source = hostDebug.getinfo(1, "S").source
+
     return source:match("^@(.*)[/\\]") or "."
 end
 
