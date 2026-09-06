@@ -141,6 +141,11 @@ end
 local infos: {[any]: Info} = setmetatable({}, {__mode = "k"}) as {[any]: Info}
 local nextId: integer = 1
 
+--- Where a record witness carries its own entry, so the hot path reads a field
+--- rather than hashing the weak table. A struct witness is a ctype and cannot
+--- carry one; it stays in the table.
+local INFO_KEY = "__nuppEventInfo"
+
 --- The registry entry for an event type, made on first use.
 --- @raises when the type did not derive `events.Event`
 local function infoOf(witness: any): Info
@@ -164,6 +169,25 @@ local function infoOf(witness: any): Info
     )
     nextId = nextId + 1
     infos[witness] = info
+    if type(witness) == "table" then
+        rawset(witness, INFO_KEY, info)
+    end
+
+    return info
+end
+
+--- The registry entry an emitting path reads: a field on a record witness, the
+--- weak table for a struct, and the slow path the first time either is asked.
+local function infoFor(witness: any): Info
+    local info: Info? = nil
+    if type(witness) == "table" then
+        info = rawget(witness, INFO_KEY) as Info?
+    else
+        info = infos[witness]
+    end
+    if info == nil then
+        return infoOf(witness)
+    end
 
     return info
 end
@@ -195,7 +219,9 @@ end
 -- A registration list is one flat array per address and event: three slots per
 -- registration, the name or false, the callback, and whether it fires once,
 -- with the live count in `n` rather than the array's length so a tombstone can
--- sit in a slot a delivery has yet to reach.
+-- sit in a slot a delivery has yet to reach. `once` and `holes` count what the
+-- list holds of each, so a list with neither is delivered by a loop that
+-- checks nothing per observer.
 local STRIDE = 3
 
 --- What a removed or consumed registration is replaced with, so a delivery that
@@ -216,6 +242,7 @@ record events.Observers<A>
     readonly count: integer
 
     private depth: integer
+    private pending: boolean
     private dirty: {any}
     private detached: {any}
     private freeLists: {any}
@@ -231,6 +258,7 @@ function events.newObservers<A>(): events.Observers<A>
         byAddress = {},
         count = 0,
         depth = 0,
+        pending = false,
         dirty = {},
         detached = {},
         freeLists = {},
@@ -256,11 +284,10 @@ local function takeList(observers: any): any
     if count > 0 then
         local list = free[count]
         free[count] = nil
-        list.n = 0
         return list
     end
 
-    return {n = 0}
+    return {n = 0, once = 0, holes = 0}
 end
 
 local function takeMap(observers: any): any
@@ -275,8 +302,17 @@ local function takeMap(observers: any): any
     return {}
 end
 
+--- Returns a list to the pool empty: its slots cleared and its counts zero, so
+--- taking it back costs nothing. A pruned list is already empty; a detached one
+--- still holds what its address held.
 local function giveList(observers: any, list: any): nil
-    table.clear(list)
+    local n: integer = list.n
+    for slot = 1, n * STRIDE do
+        list[slot] = nil
+    end
+    list.n = 0
+    list.once = 0
+    list.holes = 0
     local free = observers.freeLists
     free[#free + 1] = list
 end
@@ -310,6 +346,7 @@ local function compact(list: any): integer
         end
     end
     list.n = n
+    list.holes = 0
 
     return n
 end
@@ -337,13 +374,24 @@ end
 --- arena the source owns, all of which are safe only once no delivery holds
 --- anything.
 local function settle(observers: any): nil
+    local arenas = observers.ownedArenas
+    for index = 1, #arenas do
+        arenas[index]:reset()
+    end
+    if not observers.pending then
+        return
+    end
+    observers.pending = false
+    -- Three slots per entry, the list, the address, and the event identity,
+    -- flat, so recording a removal during a delivery allocates nothing.
     local dirty = observers.dirty
-    for index = #dirty, 1, -1 do
-        local entry = dirty[index]
-        dirty[index] = nil
-        local list = entry.list
+    for base = #dirty - 2, 1, -3 do
+        local list, address, eventId = dirty[base], dirty[base + 1], dirty[base + 2]
+        dirty[base + 2] = nil
+        dirty[base + 1] = nil
+        dirty[base] = nil
         compact(list)
-        prune(observers, entry.address, entry.eventId, list)
+        prune(observers, address, eventId as integer, list)
     end
     local detached = observers.detached
     for index = #detached, 1, -1 do
@@ -355,10 +403,6 @@ local function settle(observers: any): nil
             giveMap(observers, item)
         end
     end
-    local arenas = observers.ownedArenas
-    for index = 1, #arenas do
-        arenas[index]:reset()
-    end
 end
 
 --- Records a list as needing compaction, or compacts it now when nothing is
@@ -366,12 +410,16 @@ end
 local function touched(observers: any, address: any, eventId: integer, list: any): nil
     if observers.depth > 0 then
         local dirty = observers.dirty
-        for index = 1, #dirty do
-            if dirty[index].list == list then
+        local count = #dirty
+        for base = 1, count, 3 do
+            if dirty[base] == list then
                 return
             end
         end
-        dirty[#dirty + 1] = {list = list, address = address, eventId = eventId}
+        dirty[count + 1] = list
+        dirty[count + 2] = address
+        dirty[count + 3] = eventId
+        observers.pending = true
         return
     end
     compact(list)
@@ -404,7 +452,7 @@ local function register<A, S is events.Source<A>, E is events.Emittable>(
     once: boolean
 ): nil
     local observers = source.observers as any
-    local info = infoOf(event)
+    local info = infoFor(event)
     local map = observers.byAddress[address]
     if map == nil then
         map = takeMap(observers)
@@ -429,6 +477,9 @@ local function register<A, S is events.Source<A>, E is events.Emittable>(
     list[base + 2] = callback
     list[base + 3] = once
     list.n = n + 1
+    if once then
+        list.once = (list.once as integer) + 1
+    end
     observers.count = observers.count + 1
 end
 
@@ -496,7 +547,7 @@ function events.stopObserving<A, S is events.Source<A>, E is events.Emittable>(
     if observers.count == 0 then
         return false
     end
-    local info = infoOf(event)
+    local info = infoFor(event)
     local map = observers.byAddress[address]
     local list = map and map[info.id] or nil
     if list == nil then
@@ -512,7 +563,11 @@ function events.stopObserving<A, S is events.Source<A>, E is events.Emittable>(
             local matches = byName and list[base + 1] == callbackOrId or not byName and callback == callbackOrId
             if matches then
                 list[base + 2] = tombstone
+                if list[base + 3] then
+                    list.once = (list.once as integer) - 1
+                end
                 list[base + 3] = false
+                list.holes = (list.holes as integer) + 1
                 removed = removed + 1
                 if byName then
                     break
@@ -544,7 +599,7 @@ function events.hasObservers<A, S is events.Source<A>, E is events.Emittable>(
         return false
     end
     local map = observers.byAddress[address]
-    local list = map and map[infoOf(event).id] or nil
+    local list = map and map[infoFor(event).id] or nil
 
     return list ~= nil and liveIn(list) > 0
 end
@@ -555,6 +610,7 @@ local function detach(observers: any, item: any): nil
     if observers.depth > 0 then
         local detached = observers.detached
         detached[#detached + 1] = item
+        observers.pending = true
     elseif item.n ~= nil then
         giveList(observers, item)
     else
@@ -665,6 +721,13 @@ local function deliverTo<A, S is events.Source<A>, E>(
     eventId: integer
 ): nil
     local n: integer = list.n
+    if list.once == 0 and list.holes == 0 then
+        -- Nothing to consume and nothing to skip: the loop is the calls.
+        for index = 1, n do
+            (list[(index - 1) * STRIDE + 2] as events.Observer<E, S>)(event, source)
+        end
+        return
+    end
     for index = 1, n do
         local base = (index - 1) * STRIDE
         local callback = list[base + 2] as events.Observer<E, S>
@@ -672,29 +735,14 @@ local function deliverTo<A, S is events.Source<A>, E>(
             if list[base + 3] then
                 list[base + 2] = tombstone
                 list[base + 3] = false
+                list.once = (list.once as integer) - 1
+                list.holes = (list.holes as integer) + 1
                 observers.count = observers.count - 1
                 touched(observers, address, eventId, list)
             end
             callback(event, source)
         end
     end
-end
-
---- Initializes leased storage and delivers it: the body a protected call runs,
---- so a failing initializer and a failing observer unwind the same way.
-local function construct<A, S is events.Source<A>, E>(
-    exclusive source: S,
-    observers: any,
-    list: any,
-    storage: E,
-    address: any,
-    eventId: integer,
-    initializer: any,
-    ...: any
-): nil
-    local fill = initializer as function(storage: E, ...: any): E
-    fill(storage, ...)
-    deliverTo(source, observers, list, storage, address, eventId)
 end
 
 --- Leaves a delivery: the lease first, then the bookkeeping, then any failure.
@@ -740,7 +788,7 @@ function events.emit<A, S is events.Source<A>, E is events.Emittable>(
     if observers.count == 0 then
         return
     end
-    local info = infoOf(event)
+    local info = infoFor(event)
     local map = observers.byAddress[address]
     local list = map and map[info.id] or nil
     if list == nil or list.n == 0 then
@@ -749,7 +797,16 @@ function events.emit<A, S is events.Source<A>, E is events.Emittable>(
     local allocator = allocatorFor(observers, info)
     local storage = allocator:acquire() as E
     observers.depth = observers.depth + 1
-    local ok, failure = pcall(construct, source, observers, list, storage, address, info.id, info.initializer, ...)
+    -- Two protected calls rather than one around a body that takes `...`: the
+    -- initializer is the fixed-arity member the compiler minted, and the
+    -- delivery loop is fixed-arity too, so both return into `pcall` from a
+    -- frame the trace recorder can leave. A vararg body between them cannot,
+    -- and the whole emission would run interpreted.
+    local fill = info.initializer as function(storage: E, ...: any): E
+    local ok, failure = pcall(fill, storage, ...)
+    if ok then
+        ok, failure = pcall(deliverTo, source, observers, list, storage, address, info.id)
+    end
     finish(observers, allocator, storage, ok, failure)
 end
 
@@ -773,7 +830,7 @@ function events.deliver<A, S is events.Source<A>, E is events.Emittable>(
     if observers.count == 0 then
         return
     end
-    local info = infoOf(event)
+    local info = infoFor(event)
     local map = observers.byAddress[address]
     local list = map and map[info.id] or nil
     if list == nil or list.n == 0 then

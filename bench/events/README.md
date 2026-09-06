@@ -83,36 +83,37 @@ rather than pages.
 ## Results
 
 Apple M5 Pro, macOS 26.6, LuaJIT 2.1.1785763465 (the pinned toolchain build),
-2026-09-06, default sizes, machine otherwise idle.
+2026-09-06, default sizes, machine otherwise idle. Five interleaved runs per
+side, medians reported. The `deliver`, `struct-arena`, `once`, and
+`addresses-10000` ratios move by tens of percent between invocations on this
+machine, mostly on the reference side, so a ratio there is a band rather than
+a number; the emission rows with a fixed observer count repeat within a few
+percent.
 
 | scenario | side | ops/s | p50 ns | p95 ns | KiB/10k | candidate / reference |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| no-observers | candidate | 961,538,462 | 1.0 | 2.0 | 0.00 | 1.04x |
-| | reference | 921,658,986 | 1.0 | 2.0 | 0.00 | |
-| observers-1 | candidate | 8,034,387 | 127.0 | 134.0 | 0.00 | 0.19x |
-| | reference | 41,675,349 | 23.0 | 25.0 | 0.00 | |
-| observers-4 | candidate | 7,338,103 | 136.0 | 141.0 | 0.00 | 0.24x |
-| | reference | 30,637,255 | 32.0 | 33.0 | 0.00 | |
-| observers-32 | candidate | 4,883,409 | 186.0 | 247.0 | 0.00 | 0.44x |
-| | reference | 10,983,580 | 64.0 | 146.0 | 0.00 | |
-| addresses-10000 | candidate | 22,872,827 | 43.0 | 44.0 | 0.00 | 0.79x |
-| | reference | 28,989,709 | 34.0 | 35.0 | 0.00 | |
-| record-pool | candidate | 18,446,781 | 54.0 | 55.0 | 0.00 | 0.99x |
-| | reference | 18,575,276 | 54.0 | 56.0 | 0.00 | |
-| struct-arena | candidate | 6,960,395 | 142.0 | 148.0 | 0.00 | 0.16x |
-| | reference | 43,544,524 | 22.0 | 24.0 | 0.00 | |
-| deliver | candidate | 122,174,710 | 8.0 | 9.0 | 0.00 | 1.32x |
-| | reference | 92,506,938 | 10.0 | 11.0 | 0.00 | |
-| nested | candidate | 2,740,552 | 365.0 | 375.0 | 0.00 | 0.13x |
-| | reference | 21,753,317 | 45.0 | 47.0 | 0.00 | |
-| once | candidate | 3,869,595 | 243.0 | 327.0 | 1562.50 | 0.90x |
-| | reference | 4,277,434 | 201.0 | 330.0 | 3125.00 | |
-| churn | candidate | 31,012,560 | 32.0 | 33.0 | 0.00 | 0.87x |
-| | reference | 35,542,918 | 28.0 | 29.0 | 0.00 | |
-
-The `no-observers` row is a nanosecond on both sides because nothing in that
-loop changes: LuaJIT hoists both lookups out of it. It says an unobserved
-emission is invisible inside a traced loop, not what one costs from cold.
+| no-observers | candidate | 888,888,889 | 1.0 | 2.0 | 0.00 | 1.03x |
+|  | reference | 862,068,966 | 1.0 | 2.0 | 0.00 |  |
+| observers-1 | candidate | 47,766,898 | 20.0 | 21.0 | 0.00 | 1.11x |
+|  | reference | 42,973,786 | 23.0 | 24.0 | 0.00 |  |
+| observers-4 | candidate | 37,467,216 | 26.0 | 27.0 | 0.00 | 1.35x |
+|  | reference | 27,735,404 | 35.0 | 37.0 | 0.00 |  |
+| observers-32 | candidate | 10,364,842 | 69.0 | 151.0 | 0.00 | 0.93x |
+|  | reference | 11,170,064 | 62.0 | 146.0 | 0.00 |  |
+| addresses-10000 | candidate | 23,909,145 | 41.0 | 42.0 | 0.00 | 0.77x |
+|  | reference | 31,070,374 | 32.0 | 33.0 | 0.00 |  |
+| record-pool | candidate | 15,339,776 | 55.0 | 84.0 | 0.00 | 0.88x |
+|  | reference | 17,525,412 | 52.0 | 73.0 | 0.00 |  |
+| struct-arena | candidate | 16,638,935 | 52.0 | 82.0 | 0.00 | 0.97x |
+|  | reference | 17,182,131 | 49.0 | 75.0 | 234.38 |  |
+| deliver | candidate | 39,223,377 | 21.0 | 32.0 | 0.00 | 0.78x |
+|  | reference | 50,012,503 | 17.0 | 24.0 | 0.00 |  |
+| nested | candidate | 10,596,026 | 86.0 | 132.0 | 0.00 | 1.39x |
+|  | reference | 7,641,463 | 120.0 | 187.0 | 0.00 |  |
+| once | candidate | 3,134,993 | 310.0 | 396.0 | 0.00 | 0.78x |
+|  | reference | 4,011,553 | 265.0 | 279.0 | 3125.00 |  |
+| churn | candidate | 34,734,283 | 28.0 | 29.0 | 0.00 | 0.99x |
+|  | reference | 35,001,750 | 28.0 | 29.0 | 0.00 |  |
 
 ## Reading the numbers
 
