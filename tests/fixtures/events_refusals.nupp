@@ -1,0 +1,53 @@
+local events = require("nupp.events")
+
+-- several constructors: no single construction contract
+@derive(events.Event)
+local record Overloaded
+    x: integer
+    constructor(self, x: integer)
+        self.x = x
+    end
+    constructor(self, x: integer, y: integer)
+        self.x = x + y
+    end
+end
+
+-- self escapes the constructor
+local kept: {any} = {}
+@derive(events.Event)
+local record Escaping
+    x: integer
+    constructor(self, x: integer)
+        self.x = x
+        kept[#kept + 1] = self
+    end
+end
+
+-- an owner moves into the instance
+local record Token
+    closed: boolean
+    function drop(takes self): nil
+        self.closed = true
+    end
+end
+@derive(events.Event)
+local record Moving
+    token: Token
+    constructor(self, takes token: Token)
+        self.token = token
+    end
+end
+
+-- generic owners share one runtime identity
+@derive(events.Event)
+local record Boxed<T>
+    value: T
+end
+
+-- not a record or struct
+@derive(events.Event)
+local interface Contract
+    x: integer
+end
+
+print(Overloaded, Escaping, Moving, Boxed, Contract)

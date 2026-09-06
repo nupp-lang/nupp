@@ -44,6 +44,10 @@ independently nameable types. The bundled providers are:
 - [`nupp.derive.Serde`](#serde): one format-neutral schema and physical binding
   for a record or struct, with no generated format methods.
 
+[`nupp.events.Event`](#event) is applied the same way and marks a record or a
+fixed-layout struct as an event a [](nupp.events) source constructs and
+delivers.
+
 Generated members participate in normal member lookup, generic inference, and
 interface checking. A written member of the same name is a compile-time
 conflict. Stacked `@derive` applications combine, but a provider cannot be
@@ -188,6 +192,42 @@ that also derive `Serde`. Pointer-bearing struct fields are rejected because a
 pointer does not describe its extent or ownership. See [Schema-driven
 serde](../learn/runtime/data/serde.md) for dynamic schemas, profiles, extensions, and the
 prepared JSON path.
+
+## Event
+
+`nupp.events.Event` records an event's name and representation and asks the
+compiler for the declaration's initializer, so a source can construct the event
+into storage it already holds. It generates no members; what it adds is the
+`nupp.events.Emittable` contract that every `Type<E>` an event source takes is
+bounded by.
+
+```nupp
+local events = require("nupp.events")
+
+@derive(events.Event)
+@event(name = "combat.Damage")
+local record Damage
+    amount: number
+    source: integer
+    kind: string = "physical"
+end
+
+local bus: events.MessageBus<integer> = events.newMessageBus()
+bus:observe(7, Damage, |event| -> print(event.kind))
+bus:emit(7, Damage, amount = 10, source = 3)
+```
+
+`@event(name = "...")` sets the name `events.name(Damage)` answers; the
+declaration's own name is the default. The name is what something outside the
+program pins, such as a debug protocol, which is why it is written rather than
+derived from a path that a refactor would move.
+
+The derive admits a concrete record or a fixed-layout struct with one
+construction contract. It refuses a declaration with several constructors, a
+constructor that lets `self` escape or moves an owned parameter into a field,
+an affine field, and a generic owner, because none of those can run against
+storage that is reused: the next lease would find the reference, the moved
+obligation, or the shared identity already there.
 
 ## JSON
 

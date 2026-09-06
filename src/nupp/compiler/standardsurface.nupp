@@ -109,6 +109,7 @@ local MODULES = {
     ["nupp.mem.pool"] = {kind = "common"},
     -- Pages are `S[?]` arrays reached through the storage seam.
     ["nupp.mem.arena"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.events"] = {kind = "unavailable", capability = "cstorage"},
 }
 
 local FACILITIES = {

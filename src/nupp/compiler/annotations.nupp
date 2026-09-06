@@ -282,6 +282,14 @@ local BUILTINS = {
         docsPath = "reference/derives",
     },
     {
+        name = "event",
+        arguments = "typed",
+        targets = {"record", "struct"},
+        builtin = true,
+        doc = "Names the event a declaration deriving `nupp.events.Event` registers as.",
+        docsPath = "reference/derives",
+    },
+    {
         name = "deprecated",
         arguments = "typed",
         targets = {"declaration", "field", "c-declaration"},
@@ -424,6 +432,18 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     }
     aot.memberOrder = {"target", "vectorize"}
 
+    local event = registry:get("event")
+    event.members = {
+        name = member(
+            "name",
+            optional(typesApi.string),
+            true,
+            "The name the event registers under; the declaration's own name when omitted.",
+            "reference/derives"
+        ),
+    }
+    event.memberOrder = {"name"}
+
     local debug = registry:get("debug")
     local debugDocs = "reference/derives"
     debug.members = {
@@ -525,6 +545,7 @@ function annotations.bindBuiltinDeclarations(
     local schemas = {
         json = "nupp.derive.JSONOptions",
         debug = "nupp.derive.DebugOptions",
+        event = "nupp.derive.EventOptions",
         deprecated = "nupp.__DeprecatedAnnotation",
     }
     local function resolve(path)

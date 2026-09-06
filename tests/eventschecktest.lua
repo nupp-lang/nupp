@@ -1,14 +1,16 @@
 -- The checker rules NEP 33 introduced for typed events: closure literals adopting
 -- the modes of the slot they are passed to, pack binders forwarding the contracts
 -- of the arguments that bound them, a declaration's construction contract as a
--- named pack. The derive that asks for an initializer, and its refusals, are
--- exercised with `nupp.events` once that module lands.
+-- named pack, and the derive's refusals. The end-to-end fixtures run the compiler
+-- so the derive worker and the generated initializer are exercised as shipped.
 
 local parser = require("nupp.compiler.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
+local process = require("nupp.compiler.build.process")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local NUPP = HERE .. "/../bin/nupp"
 local env = envMod.new(HERE .. "/..")
 
 local function assertEq(got, want, label)
@@ -363,6 +365,43 @@ print(count(Overloaded, 1))
 ]])
     assert(#found > 0, "several constructors were accepted as one contract")
     contains(found[1].msg, "several")
+end
+
+---------------------------------------------------------------------------
+-- End to end
+---------------------------------------------------------------------------
+
+function M.theConsumerFixtureChecksStrictlyAndRuns()
+    local consumer = HERE .. "/fixtures/events_consumer.nupp"
+    local checked, checkOutput = process.capture({NUPP, "check", "--strict", consumer})
+    assert(checked == 0, checkOutput)
+    local ran, output = process.capture({NUPP, "run", consumer})
+    assert(ran == 0, output)
+    assertEq(output, table.concat({
+        "damage 10 3 physical 4",
+        "second 11",
+        "damage 5 9 fire 4",
+        "second 6",
+        "heal 8",
+        "contact 1.5 2.5 0.25",
+        "damage 99 4 physical 3",
+        "second 100",
+        "true",
+        "second 2",
+        "false 1 3 combat.Heal 1",
+        "",
+    }, "\n"))
+end
+
+function M.theDeriveRefusesWhatReusedStorageCannotHold()
+    local refusals = HERE .. "/fixtures/events_refusals.nupp"
+    local refused, output = process.capture({NUPP, "check", refusals})
+    assert(refused ~= 0, "the refusal fixture was accepted")
+    contains(output, "declares 2 constructors")
+    contains(output, "lets self escape")
+    contains(output, "moves an owned value into self")
+    contains(output, "is generic, so every specialization shares one runtime identity")
+    contains(output, "events.Event admits a record or a fixed-layout struct")
 end
 
 return M

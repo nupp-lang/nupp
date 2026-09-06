@@ -1734,8 +1734,9 @@ return m
 declaration-augmentation phase rather than a text macro, so it cannot add
 imports, top-level declarations, modules, or independently nameable types. The
 bundled providers are `nupp.derive.Debug`, `nupp.derive.JSON`, and
-`nupp.derive.Serde`, and a package exports its own as a `comptime function`
-returning `nupp.derive.Result<T>`. A provider may also ask for the declaration's
+`nupp.derive.Serde`; `nupp.events.Event` marks a record or struct as an event
+the same way; and a package exports its own as a `comptime function` returning
+`nupp.derive.Result<T>`. A provider may also ask for the declaration's
 initializer, its constructor body or field list as a function run against
 storage the caller already holds, which is how pooled construction reuses the
 same checked body `new` runs.

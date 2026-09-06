@@ -735,6 +735,14 @@ record nupp.derive
         omitEmpty: boolean?
     end
 
+    --- The checked shape of `@event`, written on a declaration deriving
+    --- `nupp.events.Event`.
+    interface EventOptions
+        --- The name the event registers under. The declaration's own name when
+        --- omitted; written when the name is an external surface something pins.
+        name: string?
+    end
+
     --- The checked shape of `@debug`, written on a field.
     interface DebugOptions
         --- Removes the field from the rendered output entirely.

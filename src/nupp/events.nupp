@@ -1,0 +1,940 @@
+module nupp.events
+
+--[[
+Addressed, synchronous events whose payloads are ordinary declarations.
+
+An event is a `record` or a fixed-layout `struct` marked `@derive(events.Event)`.
+Emitting one by type constructs it into storage the source already owns, and
+only when something at that address is observing; delivering an instance the
+caller built allocates nothing. Observers receive the event as a call-scoped
+borrow they may write to but not keep, and the source that delivered it as an
+exclusive borrow.
+
+```nupp
+local events = nupp.events
+
+@derive(events.Event)
+local record Damage
+    amount: number
+    source: integer
+    kind: string = "physical"
+end
+
+local bus: events.MessageBus<integer> = events.newMessageBus()
+bus:observe(7, Damage, |event, source| -> print(event.amount, event.kind), "log")
+bus:emit(7, Damage, amount = 10, source = 3)
+```
+
+Observer state belongs to a source: `MessageBus<A>` is one, and any record with
+an `observers` field implements [](nupp.events.Source) and dispatches through
+the same functions, passing itself to its observers. Record events draw from a
+[](nupp.mem.pool) and struct events from a [](nupp.mem.arena), each created
+the first time an event type is emitted through a source; `setAllocator`
+installs one the caller owns instead. [NEP 33](../../neps/0033-typed-events.md)
+records why the design is shaped this way.
+]]
+
+local derive = require("nupp.derive")
+local pool = require("nupp.mem.pool")
+local arena = require("nupp.mem.arena")
+
+local events = {}
+
+----------------------------------------------------------------------------
+-- Declarations
+----------------------------------------------------------------------------
+
+--- What a declaration becomes by deriving `events.Event`.
+---
+--- The bound an event type parameter carries, so a source refuses a record
+--- that never derived the event contract before anything runs.
+--- @export
+interface events.Emittable
+end
+
+--- An observer of one event type at one source.
+---
+--- The event is borrowed for the call: it may be read and written, and cannot be
+--- stored or returned. The source is the bus or world that delivered it, held
+--- exclusively so an observer may change it. A callback that takes only the event
+--- fits, since a callable may ignore trailing arguments.
+--- @export
+type events.Observer<E, S> = function(borrows event: E, exclusive source: S): nil
+
+--- Storage an event type is constructed into and returned to.
+---
+--- `acquire` hands out reusable storage of the event's own representation, which
+--- the emitting source initializes; `release` ends that lease when delivery is
+--- over. [](nupp.mem.pool) and [](nupp.mem.arena) implement it.
+--- @export
+interface events.Allocator<E>
+    acquire: function(exclusive self: Allocator<E>): E
+    release: function(exclusive self: Allocator<E>, value: E): nil
+end
+
+local comptime function option(items: any, annotationName: string, name: string): any
+    for _, item in ipairs(items) do
+        if item.name == annotationName then
+            for index, argument in ipairs(item.arguments) do
+                if argument.name == name or name == "value" and index == 1 then
+                    return argument.value
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+--- Marks a record or a fixed-layout struct as an event.
+---
+--- The derive records the event's name and representation, and asks the compiler
+--- for the declaration's initializer: its constructor body, or its field list,
+--- run against storage a source already holds. A declaration with several
+--- constructors, one whose constructor keeps `self` or moves an owner into it,
+--- an affine field, or a generic owner is refused, since none of those can run
+--- against reused storage.
+--- @param info the declaration being derived
+--- @return the recipe claiming `events.Emittable`
+comptime function events.Event(info: nupp.derive.Info): nupp.derive.Result<events.Emittable>
+    if info.kind ~= "record" and info.kind ~= "struct" then
+        return nupp.derive.error("events.Event admits a record or a fixed-layout struct", info.reference)
+    end
+    local name = option(info.annotations, "event", "name")
+    if name ~= nil and type(name) ~= "string" then
+        return nupp.derive.error("@event(name = ...) takes a string", info.reference)
+    end
+
+    return nupp.derive.implement{
+        data = {events = {name = name or info.name, representation = info.kind}},
+        initializer = true,
+    }
+end
+
+--- The parameters an event is constructed with, named, so `emit` binds them.
+local comptime function Construction(E: type): typepack
+    return nupp.types.construction(E)
+end
+
+----------------------------------------------------------------------------
+-- Registry
+----------------------------------------------------------------------------
+
+--- One event type as this runtime knows it.
+local record Info
+    --- The identity every source keys observer lists by, assigned on first use.
+    id: integer
+
+    --- The registered name.
+    name: string
+
+    --- `record` or `struct`.
+    representation: string
+
+    --- The declaration's witness: the record table or the struct ctype.
+    witness: any
+
+    --- The compiler-minted initializer, `initializer(storage, ...)`.
+    initializer: any
+end
+
+local infos: {[any]: Info} = setmetatable({}, {__mode = "k"}) as {[any]: Info}
+local nextId: integer = 1
+
+--- The registry entry for an event type, made on first use.
+--- @raises when the type did not derive `events.Event`
+local function infoOf(witness: any): Info
+    local known = infos[witness]
+    if known ~= nil then
+        return known
+    end
+    local entry = derive.entry(witness)
+    local data = entry and entry.schema and entry.schema.data or nil
+    local recorded = data and data.events or nil
+    local initializer = derive.initializer(witness)
+    if recorded == nil or initializer == nil then
+        error("nupp.events: the type did not derive events.Event", 3)
+    end
+    local info = new Info(
+        id = nextId,
+        name = recorded.name as string,
+        representation = recorded.representation as string,
+        witness = witness,
+        initializer = initializer
+    )
+    nextId = nextId + 1
+    infos[witness] = info
+
+    return info
+end
+
+--- The identity an event type has in this runtime.
+---
+--- Assigned once, the first time a source, `id`, or `name` asks, from a counter
+--- local to this Lua state. It is stable for the life of the state and is never
+--- a persistent or wire identity.
+--- @param event the event declaration
+--- @return its identity
+--- @raises when the type did not derive `events.Event`
+function events.id<E is events.Emittable>(event: Type<E>): integer
+    return infoOf(event).id
+end
+
+--- The name an event type registered under.
+--- @param event the event declaration
+--- @return the declared or `@event`-given name
+--- @raises when the type did not derive `events.Event`
+function events.name<E is events.Emittable>(event: Type<E>): string
+    return infoOf(event).name
+end
+
+----------------------------------------------------------------------------
+-- Observer state
+----------------------------------------------------------------------------
+
+-- A registration list is one flat array per address and event: three slots per
+-- registration, the name or false, the callback, and whether it fires once,
+-- with the live count in `n` rather than the array's length so a tombstone can
+-- sit in a slot a delivery has yet to reach.
+local STRIDE = 3
+
+--- What a removed or consumed registration is replaced with, so a delivery that
+--- already read the list's length calls nothing when it reaches the slot.
+local function tombstone(): nil
+end
+
+--- Observer registrations for one source, keyed by address and event identity.
+---
+--- A source holds one of these in its `observers` field. Nothing exists for an
+--- address until something observes there, so a world of millions of entities
+--- pays for the observers it has and not for the entities it could have.
+--- @export
+record events.Observers<A>
+    private byAddress: {[A]: {[integer]: any}}
+
+    --- How many registrations are live across every address.
+    readonly count: integer
+
+    private depth: integer
+    private dirty: {any}
+    private detached: {any}
+    private freeLists: {any}
+    private freeMaps: {any}
+    private allocators: {[integer]: any}
+    private ownedArenas: {any}
+end
+
+--- Empty observer state for a new source.
+--- @return the state, with nothing registered
+function events.newObservers<A>(): events.Observers<A>
+    return new events.Observers(
+        byAddress = {},
+        count = 0,
+        depth = 0,
+        dirty = {},
+        detached = {},
+        freeLists = {},
+        freeMaps = {},
+        allocators = {},
+        ownedArenas = {}
+    )
+end
+
+--- Something that owns observers and delivers events to them.
+---
+--- A bus or a world implements this by holding an `observers` field; the
+--- dispatch functions take the source exclusively and reach its state through
+--- that field, which is what lets a source pass itself to its observers.
+--- @export
+interface events.Source<A>
+    observers: events.Observers<A>
+end
+
+local function takeList(observers: any): any
+    local free = observers.freeLists
+    local count = #free
+    if count > 0 then
+        local list = free[count]
+        free[count] = nil
+        list.n = 0
+        return list
+    end
+
+    return {n = 0}
+end
+
+local function takeMap(observers: any): any
+    local free = observers.freeMaps
+    local count = #free
+    if count > 0 then
+        local map = free[count]
+        free[count] = nil
+        return map
+    end
+
+    return {}
+end
+
+local function giveList(observers: any, list: any): nil
+    table.clear(list)
+    local free = observers.freeLists
+    free[#free + 1] = list
+end
+
+local function giveMap(observers: any, map: any): nil
+    table.clear(map)
+    local free = observers.freeMaps
+    free[#free + 1] = map
+end
+
+--- Removes every tombstone from a list by swapping the last registration into
+--- its slot, and answers how many registrations remain.
+local function compact(list: any): integer
+    local n: integer = list.n
+    local index: integer = 1
+    while index <= n do
+        local base = (index - 1) * STRIDE
+        if list[base + 2] == tombstone then
+            local last = (n - 1) * STRIDE
+            if index < n then
+                list[base + 1] = list[last + 1]
+                list[base + 2] = list[last + 2]
+                list[base + 3] = list[last + 3]
+            end
+            list[last + 1] = nil
+            list[last + 2] = nil
+            list[last + 3] = nil
+            n = n - 1
+        else
+            index = index + 1
+        end
+    end
+    list.n = n
+
+    return n
+end
+
+--- Prunes an empty list out of its map, and an empty map out of the address
+--- table, returning both to the pools.
+local function prune(observers: any, address: any, eventId: integer, list: any): nil
+    if list.n ~= 0 then
+        return
+    end
+    local map = observers.byAddress[address]
+    if map == nil or map[eventId] ~= list then
+        return
+    end
+    map[eventId] = nil
+    giveList(observers, list)
+    if next(map) == nil then
+        observers.byAddress[address] = nil
+        giveMap(observers, map)
+    end
+end
+
+--- Work deferred while a delivery was active: compaction of lists a removal
+--- touched, recycling of lists a clear detached, and the rewind of every
+--- arena the source owns, all of which are safe only once no delivery holds
+--- anything.
+local function settle(observers: any): nil
+    local dirty = observers.dirty
+    for index = #dirty, 1, -1 do
+        local entry = dirty[index]
+        dirty[index] = nil
+        local list = entry.list
+        compact(list)
+        prune(observers, entry.address, entry.eventId, list)
+    end
+    local detached = observers.detached
+    for index = #detached, 1, -1 do
+        local item = detached[index]
+        detached[index] = nil
+        if item.n ~= nil then
+            giveList(observers, item)
+        else
+            giveMap(observers, item)
+        end
+    end
+    local arenas = observers.ownedArenas
+    for index = 1, #arenas do
+        arenas[index]:reset()
+    end
+end
+
+--- Records a list as needing compaction, or compacts it now when nothing is
+--- being delivered.
+local function touched(observers: any, address: any, eventId: integer, list: any): nil
+    if observers.depth > 0 then
+        local dirty = observers.dirty
+        for index = 1, #dirty do
+            if dirty[index].list == list then
+                return
+            end
+        end
+        dirty[#dirty + 1] = {list = list, address = address, eventId = eventId}
+        return
+    end
+    compact(list)
+    prune(observers, address, eventId, list)
+end
+
+--- The live registrations in a list: its count less the tombstones in it.
+local function liveIn(list: any): integer
+    local live: integer = 0
+    local n: integer = list.n
+    for index = 1, n do
+        if list[(index - 1) * STRIDE + 2] ~= tombstone then
+            live = live + 1
+        end
+    end
+
+    return live
+end
+
+----------------------------------------------------------------------------
+-- Observing
+----------------------------------------------------------------------------
+
+local function register<A, S is events.Source<A>, E is events.Emittable>(
+    exclusive source: S,
+    borrows address: A,
+    event: Type<E>,
+    callback: events.Observer<E, S>,
+    id: string?,
+    once: boolean
+): nil
+    local observers = source.observers as any
+    local info = infoOf(event)
+    local map = observers.byAddress[address]
+    if map == nil then
+        map = takeMap(observers)
+        observers.byAddress[address] = map
+    end
+    local list = map[info.id]
+    if list == nil then
+        list = takeList(observers)
+        map[info.id] = list
+    end
+    local n: integer = list.n
+    if id ~= nil then
+        for index = 1, n do
+            local base = (index - 1) * STRIDE
+            if list[base + 1] == id and list[base + 2] ~= tombstone then
+                error(("nupp.events: observer %q is already registered for %s here"):format(id, info.name), 3)
+            end
+        end
+    end
+    local base = n * STRIDE
+    list[base + 1] = id or false
+    list[base + 2] = callback
+    list[base + 3] = once
+    list.n = n + 1
+    observers.count = observers.count + 1
+end
+
+--- Registers an observer of one event type at one address.
+---
+--- Observers run in registration order. A name lets `stopObserving` remove this
+--- registration by name; a name already registered at the same address and event
+--- is an error, since the second could never be removed alone.
+--- @param source the bus or world to observe through
+--- @param address where the event is delivered
+--- @param event the event declaration
+--- @param callback what runs when one is delivered
+--- @param id an optional name for removal
+--- @raises when the type did not derive `events.Event`, or the name is taken
+function events.observe<A, S is events.Source<A>, E is events.Emittable>(
+    exclusive source: S,
+    borrows address: A,
+    event: Type<E>,
+    callback: events.Observer<E, S>,
+    id: string?
+): nil
+    register(source, address, event, callback, id, false)
+end
+
+--- Registers an observer that is consumed before its first delivery.
+---
+--- The registration is tombstoned before the callback is invoked, so a nested or
+--- interleaved delivery of the same event never reaches it again, whatever the
+--- callback goes on to do.
+--- @param source the bus or world to observe through
+--- @param address where the event is delivered
+--- @param event the event declaration
+--- @param callback what runs, once
+--- @param id an optional name for removal
+--- @raises when the type did not derive `events.Event`, or the name is taken
+function events.observeOnce<A, S is events.Source<A>, E is events.Emittable>(
+    exclusive source: S,
+    borrows address: A,
+    event: Type<E>,
+    callback: events.Observer<E, S>,
+    id: string?
+): nil
+    register(source, address, event, callback, id, true)
+end
+
+--- Removes registrations at one address and event.
+---
+--- Given a name, the first registration with that name goes; given a callback,
+--- every registration of it goes. A removal during a delivery takes effect at
+--- once for anything not yet reached and is compacted out after the outermost
+--- delivery leaves. A caller removing by callback keeps the value it registered:
+--- a short function is a fresh object each time its expression runs.
+--- @param source the bus or world observed through
+--- @param address where the registration was made
+--- @param event the event declaration
+--- @param callbackOrId the callback registered, or the name it was given
+--- @return whether anything was removed
+function events.stopObserving<A, S is events.Source<A>, E is events.Emittable>(
+    exclusive source: S,
+    borrows address: A,
+    event: Type<E>,
+    callbackOrId: events.Observer<E, S> | string
+): boolean
+    local observers = source.observers as any
+    if observers.count == 0 then
+        return false
+    end
+    local info = infoOf(event)
+    local map = observers.byAddress[address]
+    local list = map and map[info.id] or nil
+    if list == nil then
+        return false
+    end
+    local byName = type(callbackOrId) == "string"
+    local removed: integer = 0
+    local n: integer = list.n
+    for index = 1, n do
+        local base = (index - 1) * STRIDE
+        local callback = list[base + 2]
+        if callback ~= tombstone then
+            local matches = byName and list[base + 1] == callbackOrId or not byName and callback == callbackOrId
+            if matches then
+                list[base + 2] = tombstone
+                list[base + 3] = false
+                removed = removed + 1
+                if byName then
+                    break
+                end
+            end
+        end
+    end
+    if removed == 0 then
+        return false
+    end
+    observers.count = observers.count - removed
+    touched(observers, address, info.id, list)
+
+    return true
+end
+
+--- Whether anything observes one event type at one address.
+--- @param source the bus or world
+--- @param address the address to ask about
+--- @param event the event declaration
+--- @return whether a delivery there would reach an observer
+function events.hasObservers<A, S is events.Source<A>, E is events.Emittable>(
+    borrows source: S,
+    borrows address: A,
+    event: Type<E>
+): boolean
+    local observers = source.observers as any
+    if observers.count == 0 then
+        return false
+    end
+    local map = observers.byAddress[address]
+    local list = map and map[infoOf(event).id] or nil
+
+    return list ~= nil and liveIn(list) > 0
+end
+
+--- Detaches a list or map from the live state, recycling it now or once the
+--- outermost delivery has left.
+local function detach(observers: any, item: any): nil
+    if observers.depth > 0 then
+        local detached = observers.detached
+        detached[#detached + 1] = item
+    elseif item.n ~= nil then
+        giveList(observers, item)
+    else
+        giveMap(observers, item)
+    end
+end
+
+--- Removes every registration at one address.
+---
+--- A delivery in flight at that address finishes the list it already holds; the
+--- next emission there finds nothing. Registrations at other addresses are
+--- untouched, which is how a world clears an entity without losing what
+--- observes the world itself.
+--- @param source the bus or world
+--- @param address the address to clear
+function events.clearAddress<A, S is events.Source<A>>(exclusive source: S, borrows address: A): nil
+    local observers = source.observers as any
+    local map = observers.byAddress[address]
+    if map == nil then
+        return
+    end
+    observers.byAddress[address] = nil
+    for _, list in pairs(map) do
+        observers.count = observers.count - liveIn(list)
+        detach(observers, list)
+    end
+    detach(observers, map)
+end
+
+--- Removes every registration at every address.
+---
+--- Allocators are left alone: an arena the caller installed is still theirs, and
+--- the source's own storage is reused by the next emission.
+--- @param source the bus or world
+function events.reset<A, S is events.Source<A>>(exclusive source: S): nil
+    local observers = source.observers as any
+    local addresses: {any} = {}
+    for address in pairs(observers.byAddress) do
+        addresses[#addresses + 1] = address
+    end
+    for index = 1, #addresses do
+        events.clearAddress(source, addresses[index] as A)
+    end
+end
+
+----------------------------------------------------------------------------
+-- Storage
+----------------------------------------------------------------------------
+
+--- Installs the storage one event type is constructed into at this source.
+---
+--- The allocator is the caller's: it must outlive the source's use of it, and
+--- the source never resets or closes it. Replacing one while a delivery holds
+--- storage from it is refused, since the lease would have nowhere to return.
+--- @param source the bus or world
+--- @param event the event declaration
+--- @param allocator storage of the event's representation
+--- @raises when a delivery of that event is active
+function events.setAllocator<A, S is events.Source<A>, E is events.Emittable>(
+    exclusive source: S,
+    event: Type<E>,
+    allocator: events.Allocator<E>
+): nil
+    local observers = source.observers as any
+    if observers.depth > 0 then
+        error("nupp.events: an allocator cannot change while a delivery is active", 2)
+    end
+    observers.allocators[infoOf(event).id] = allocator
+end
+
+--- Storage a source creates for an event type it was never given one for: a
+--- pool for a record, an arena the source rewinds at quiescence for a struct.
+local function allocatorFor(observers: any, info: Info): any
+    local existing = observers.allocators[info.id]
+    if existing ~= nil then
+        return existing
+    end
+    local made: any
+    if info.representation == "struct" then
+        made = arena.new(info.witness, 256)
+        local owned = observers.ownedArenas
+        owned[#owned + 1] = made
+    else
+        made = pool.new(info.witness, 32)
+    end
+    observers.allocators[info.id] = made
+
+    return made
+end
+
+----------------------------------------------------------------------------
+-- Delivery
+----------------------------------------------------------------------------
+
+--- Runs every registration a list held when the delivery began.
+---
+--- The length is read once, so an observer added during the delivery joins the
+--- next one. A once registration is tombstoned before its callback runs. This
+--- runs under `pcall`, which forwards the source with the exclusive contract
+--- the emitting call held, and the event as the plain value the source leased
+--- or was handed; each observer receives them under its own contract.
+local function deliverTo<A, S is events.Source<A>, E>(
+    exclusive source: S,
+    observers: any,
+    list: any,
+    event: E,
+    address: any,
+    eventId: integer
+): nil
+    local n: integer = list.n
+    for index = 1, n do
+        local base = (index - 1) * STRIDE
+        local callback = list[base + 2] as events.Observer<E, S>
+        if callback ~= tombstone then
+            if list[base + 3] then
+                list[base + 2] = tombstone
+                list[base + 3] = false
+                observers.count = observers.count - 1
+                touched(observers, address, eventId, list)
+            end
+            callback(event, source)
+        end
+    end
+end
+
+--- Initializes leased storage and delivers it: the body a protected call runs,
+--- so a failing initializer and a failing observer unwind the same way.
+local function construct<A, S is events.Source<A>, E>(
+    exclusive source: S,
+    observers: any,
+    list: any,
+    storage: E,
+    address: any,
+    eventId: integer,
+    initializer: any,
+    ...: any
+): nil
+    local fill = initializer as function(storage: E, ...: any): E
+    fill(storage, ...)
+    deliverTo(source, observers, list, storage, address, eventId)
+end
+
+--- Leaves a delivery: the lease first, then the bookkeeping, then any failure.
+---
+--- The lease returns before the source settles, since settling rewinds the
+--- arenas the source owns and a rewind with a live lease is refused.
+--- @raises what the delivery raised, once its lease is released
+local function finish(observers: any, allocator: any, storage: any, ok: boolean, failure: any): nil
+    if allocator ~= nil then
+        allocator:release(storage)
+    end
+    observers.depth = observers.depth - 1
+    if observers.depth == 0 then
+        settle(observers)
+    end
+    if not ok then
+        error(failure, 0)
+    end
+end
+
+--- Constructs an event into the source's storage and delivers it.
+---
+--- Nothing is acquired, initialized, or run when no observer is registered at
+--- the address for the event: the argument expressions are evaluated as they
+--- are for any call, and that is all. Otherwise storage is leased from the
+--- event's allocator, the declaration's initializer fills it from the
+--- arguments, applying a field default where an argument is nil, every
+--- observer registered when the delivery began runs in order, and the lease is
+--- released whether the delivery returned, raised, or was cancelled while an
+--- observer was suspended.
+--- @param source the bus or world
+--- @param address where to deliver
+--- @param event the event declaration
+--- @param ... the event's constructor arguments, positional or named
+--- @raises what an observer or the initializer raised, after the lease is released
+function events.emit<A, S is events.Source<A>, E is events.Emittable>(
+    exclusive source: S,
+    borrows address: A,
+    event: Type<E>,
+    ...: unpackof Construction(E)
+): nil
+    local observers = source.observers as any
+    if observers.count == 0 then
+        return
+    end
+    local info = infoOf(event)
+    local map = observers.byAddress[address]
+    local list = map and map[info.id] or nil
+    if list == nil or list.n == 0 then
+        return
+    end
+    local allocator = allocatorFor(observers, info)
+    local storage = allocator:acquire() as E
+    observers.depth = observers.depth + 1
+    local ok, failure = pcall(construct, source, observers, list, storage, address, info.id, info.initializer, ...)
+    finish(observers, allocator, storage, ok, failure)
+end
+
+--- Delivers an event instance the caller already holds.
+---
+--- The instance is neither acquired nor released: what the caller built stays
+--- the caller's, and is handed to each observer as the borrow its contract
+--- names. Everything else is as `emit`.
+--- @param source the bus or world
+--- @param address where to deliver
+--- @param event the event declaration
+--- @param instance the instance to deliver
+--- @raises what an observer raised
+function events.deliver<A, S is events.Source<A>, E is events.Emittable>(
+    exclusive source: S,
+    borrows address: A,
+    event: Type<E>,
+    instance: E
+): nil
+    local observers = source.observers as any
+    if observers.count == 0 then
+        return
+    end
+    local info = infoOf(event)
+    local map = observers.byAddress[address]
+    local list = map and map[info.id] or nil
+    if list == nil or list.n == 0 then
+        return
+    end
+    observers.depth = observers.depth + 1
+    local ok, failure = pcall(deliverTo, source, observers, list, instance, address, info.id)
+    finish(observers, nil, nil, ok, failure)
+end
+
+----------------------------------------------------------------------------
+-- A bus
+----------------------------------------------------------------------------
+
+--- A source that is nothing but its observers.
+---
+--- Every method forwards to the function of the same name, passing the bus as
+--- the source, so an observer registered here receives the bus as its second
+--- argument.
+--- @export
+record events.MessageBus<A> is events.Source<A>
+    observers: events.Observers<A>
+
+    --- Registers an observer; see [](nupp.events.observe).
+    observe: function<E is events.Emittable>(
+        exclusive self: MessageBus<A>,
+        address: A,
+        event: Type<E>,
+        callback: events.Observer<E, MessageBus<A>>,
+        id: string?
+    ): nil
+
+    --- Registers an observer consumed on first delivery; see
+    --- [](nupp.events.observeOnce).
+    observeOnce: function<E is events.Emittable>(
+        exclusive self: MessageBus<A>,
+        address: A,
+        event: Type<E>,
+        callback: events.Observer<E, MessageBus<A>>,
+        id: string?
+    ): nil
+
+    --- Removes registrations; see [](nupp.events.stopObserving).
+    stopObserving: function<E is events.Emittable>(
+        exclusive self: MessageBus<A>,
+        address: A,
+        event: Type<E>,
+        callbackOrId: events.Observer<E, MessageBus<A>> | string
+    ): boolean
+
+    --- Whether anything observes an event here; see [](nupp.events.hasObservers).
+    hasObservers: function<E is events.Emittable>(self: MessageBus<A>, address: A, event: Type<E>): boolean
+
+    --- Constructs and delivers an event; see [](nupp.events.emit).
+    emit: function<E is events.Emittable>(
+        exclusive self: MessageBus<A>,
+        address: A,
+        event: Type<E>,
+        ...: unpackof Construction(E)
+    ): nil
+
+    --- Delivers an instance; see [](nupp.events.deliver).
+    deliver: function<E is events.Emittable>(
+        exclusive self: MessageBus<A>,
+        address: A,
+        event: Type<E>,
+        instance: E
+    ): nil
+
+    --- Removes every registration at an address; see [](nupp.events.clearAddress).
+    clearAddress: function(exclusive self: MessageBus<A>, address: A): nil
+
+    --- Removes every registration; see [](nupp.events.reset).
+    reset: function(exclusive self: MessageBus<A>): nil
+
+    --- Installs storage for an event type; see [](nupp.events.setAllocator).
+    setAllocator: function<E is events.Emittable>(
+        exclusive self: MessageBus<A>,
+        event: Type<E>,
+        allocator: events.Allocator<E>
+    ): nil
+end
+
+function events.MessageBus.observe<A, E is events.Emittable>(
+    exclusive self: events.MessageBus<A>,
+    address: A,
+    event: Type<E>,
+    callback: events.Observer<E, events.MessageBus<A>>,
+    id: string?
+): nil
+    events.observe(self, address, event, callback, id)
+end
+
+function events.MessageBus.observeOnce<A, E is events.Emittable>(
+    exclusive self: events.MessageBus<A>,
+    address: A,
+    event: Type<E>,
+    callback: events.Observer<E, events.MessageBus<A>>,
+    id: string?
+): nil
+    events.observeOnce(self, address, event, callback, id)
+end
+
+function events.MessageBus.stopObserving<A, E is events.Emittable>(
+    exclusive self: events.MessageBus<A>,
+    address: A,
+    event: Type<E>,
+    callbackOrId: events.Observer<E, events.MessageBus<A>> | string
+): boolean
+    return events.stopObserving(self, address, event, callbackOrId)
+end
+
+function events.MessageBus.hasObservers<A, E is events.Emittable>(
+    self: events.MessageBus<A>,
+    address: A,
+    event: Type<E>
+): boolean
+    return events.hasObservers(self, address, event)
+end
+
+function events.MessageBus.emit<A, E is events.Emittable>(
+    exclusive self: events.MessageBus<A>,
+    address: A,
+    event: Type<E>,
+    ...: unpackof Construction(E)
+): nil
+    events.emit(self, address, event, ...)
+end
+
+function events.MessageBus.deliver<A, E is events.Emittable>(
+    exclusive self: events.MessageBus<A>,
+    address: A,
+    event: Type<E>,
+    instance: E
+): nil
+    events.deliver(self, address, event, instance)
+end
+
+function events.MessageBus.clearAddress<A>(exclusive self: events.MessageBus<A>, address: A): nil
+    events.clearAddress(self, address)
+end
+
+function events.MessageBus.reset<A>(exclusive self: events.MessageBus<A>): nil
+    events.reset(self)
+end
+
+function events.MessageBus.setAllocator<A, E is events.Emittable>(
+    exclusive self: events.MessageBus<A>,
+    event: Type<E>,
+    allocator: events.Allocator<E>
+): nil
+    events.setAllocator(self, event, allocator)
+end
+
+--- A bus with no observers.
+---
+--- The address type is whatever the binding asks for:
+--- `local bus: events.MessageBus<integer> = events.newMessageBus()`.
+--- @return the bus
+function events.newMessageBus<A>(): events.MessageBus<A>
+    return new events.MessageBus(observers = events.newObservers())
+end
+
+export = events

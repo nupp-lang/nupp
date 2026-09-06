@@ -1,6 +1,6 @@
 ---
 title: Typed events with reusable storage
-status: Accepted
+status: Implemented
 created: 2026-09-06
 ---
 
@@ -418,15 +418,14 @@ bus as the mechanism it would name.
 The compiler half is the initializer split, `nupp.types.construction`, named
 slots in computed tails bound from the positional prefix, mode adoption in
 closure literals, pack binders forwarding contracts, and the `initializer`
-recipe capability. It lands first, with `nupp.mem.pool` and `nupp.mem.arena`,
-which use nothing new. `nupp.events` waits for a release: the stage-zero rule
+recipe capability. It landed first, with `nupp.mem.pool` and `nupp.mem.arena`,
+which use nothing new. `nupp.events` waited for a release: the stage-zero rule
 ([NEP 32](0032-fetched-stage-zero.md)) reaches every module under `src`,
 because a cold checkout's first build is a plain `build` by the pinned release
 that type-checks the whole include set, so a standard-library module written
 against `nupp.types.construction` and pack forwarding fails that build until
-a tag carrying them is published and the pin moves. The module, its
-end-to-end fixtures, and its benchmark are kept on a branch until then. Tecs
-pins Nupp by revision and migrates against the revision the module lands in.
+a tag carrying them is published and the pin moves. Tecs pins Nupp by
+revision and migrates against the revision the module landed in.
 
 Building the initializer found that a struct with a declared constructor
 passed the checker and failed at run time, since codegen never emitted the

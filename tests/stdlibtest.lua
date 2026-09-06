@@ -477,6 +477,7 @@ function M.standardSurfaceRequiresExactPortableSeams()
         "nupp.mem.array",
         "nupp.mem.pool",
         "nupp.mem.arena",
+        "nupp.events",
         "nupp.test",
         "nupp.workers",
     }) do

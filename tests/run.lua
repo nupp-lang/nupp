@@ -1146,6 +1146,7 @@ local PROCESS_ISOLATED = {
     deriveacceptancetest = true,
     deriveprovidertest = true,
     derivetest = true,
+    eventschecktest = true,
     loggingtest = true,
     runtimereflectiontest = true,
     serdetest = true,

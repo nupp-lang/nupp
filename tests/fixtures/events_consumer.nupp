@@ -1,0 +1,70 @@
+local events = require("nupp.events")
+
+@derive(events.Event)
+local record Damage
+    amount: number
+    source: integer
+    kind: string = "physical"
+end
+
+@derive(events.Event)
+@event(name = "combat.Heal")
+local record Heal
+    amount: number
+    constructor(self, amount: number)
+        self.amount = amount * 2
+    end
+end
+
+@derive(events.Event)
+local struct Contact
+    a: number
+    b: number
+    impulse: float
+end
+
+local bus: events.MessageBus<integer> = events.newMessageBus()
+local seen: {string} = {}
+
+bus:observe(
+    7,
+    Damage,
+    |event, source| -> do
+        seen[#seen + 1] = ("damage %s %s %s %d"):format(event.amount, event.source, event.kind, source.observers.count)
+        event.amount = event.amount + 1
+    end,
+    "first"
+)
+bus:observe(7, Damage, function(event)
+    seen[#seen + 1] = ("second %s"):format(event.amount)
+end)
+bus:observeOnce(7, Heal, |event| -> do
+    seen[#seen + 1] = ("heal %s"):format(event.amount)
+end)
+bus:observe(0, Contact, |event| -> do
+    seen[#seen + 1] = ("contact %s %s %s"):format(event.a, event.b, event.impulse)
+end)
+
+bus:emit(7, Damage, amount = 10, source = 3)
+bus:emit(7, Damage, 5, 9, "fire")
+bus:emit(8, Damage, amount = 1, source = 1)
+bus:emit(7, Heal, amount = 4)
+bus:emit(7, Heal, amount = 5)
+bus:emit(0, Contact, 1.5, 2.5, 0.25)
+local held = new Damage(amount = 99, source = 4)
+bus:deliver(7, Damage, held)
+seen[#seen + 1] = tostring(bus:stopObserving(7, Damage, "first"))
+bus:emit(7, Damage, amount = 2, source = 2)
+bus:clearAddress(7)
+seen[
+    #seen + 1
+] = (
+    "%s %d %d %s %d"
+):format(
+    tostring(bus:hasObservers(7, Damage)),
+    events.id(Damage),
+    events.id(Contact),
+    events.name(Heal),
+    bus.observers.count
+)
+print(table.concat(seen, "\n"))

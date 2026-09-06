@@ -46,6 +46,7 @@ local BUNDLED = {
     "nupp.mem.array",
     "nupp.mem.pool",
     "nupp.mem.arena",
+    "nupp.events",
     "nupp.runtime.backend.portable",
     "nupp.runtime.backend.wasm",
     "nupp.profile.zone",
