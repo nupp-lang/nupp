@@ -220,7 +220,7 @@ local function configuredTasks(config: manifest.Config, buildOnly: boolean?): {t
             description = "Verify the self-hosting compiler rebuild",
             kind = "self-host",
             buildTarget = config.selfHost.target,
-            bootstrap = config.selfHost.bootstrap or "bootstrap/nupp.lua",
+            bootstrap = config.selfHost.bootstrap,
             command = jsonArray({"nupp", "fixpoint"}),
         }
         used[name] = true

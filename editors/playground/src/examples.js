@@ -12,10 +12,11 @@
 // real C ABI, which is the one thing the browser build's `ffi` stub can't
 // stand in for.
 //
-// Nothing here may use syntax newer than bootstrap/nupp.lua either — that
+// Nothing here may use syntax newer than the stage-zero compiler either — that
 // bundle, not build/, is the compiler this page runs, so `./bin/nupp check`
 // will pass a snippet the page cannot parse. Check a new one with
-// `luajit bootstrap/nupp.lua check <file>` from the repository root.
+// `luajit "$(./scripts/toolchain stage0)" check <file>` from the repository
+// root.
 import TOUR from "./examples/tour.nupp";
 import NARROWING from "./examples/narrowing.nupp";
 import GENERICS from "./examples/generics.nupp";

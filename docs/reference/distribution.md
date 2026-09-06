@@ -383,9 +383,10 @@ most work.
 
 A distributed binary is deliberately none of these things.
 
-- **It does not replace the bootstrap.** `bootstrap/nupp.lua` exists so a source
-  checkout can build a compiler; a distributed binary is what comes out the
-  other end. Different problems that are easy to conflate.
+- **It does not replace the stage-zero compiler.** The `nupp-stage0-<tag>.lua.gz`
+  asset beside it exists so a source checkout can build a compiler; a
+  distributed binary is what comes out the other end. Different problems that
+  are easy to conflate.
 - **Ordinary stamping does not absorb arbitrary native dependencies.** A normal
   binary still ships project C and provider libraries beside it. A
   [`standalone` binary](../learn/projects/build.md#standalone-native-binaries) is the

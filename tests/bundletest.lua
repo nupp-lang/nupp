@@ -42,7 +42,7 @@ end
 -- checking for one.
 local LAUNCHER_NOTICES = {
    "nupp: sources changed, building the compiler\n",
-   "nupp: falling back to the bootstrap compiler\n",
+   "nupp: falling back to the stage-zero compiler\n",
    "nupp: the compiler did not build; running the last one that did\n",
 }
 
@@ -1164,15 +1164,21 @@ function M.aBundleCarriesTheRockModulesItWasToldTo()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
--- The compiler's own stage-0 bundle goes through this same code. If the two
--- ever diverge, the bootstrap is being produced by a path nothing else tests.
-function M.theBootstrapIsProducedByTheGeneralBundler()
+-- The compiler's own stage-zero bundle goes through this same code. If the two
+-- ever diverge, the bundle a release publishes is being produced by a path
+-- nothing else tests. It is fetched rather than tracked, so this asks the
+-- toolchain for it the way the launcher does.
+function M.theStageZeroIsProducedByTheGeneralBundler()
    local root = HERE .. "/.."
-   local bootstrap = readFile(root .. "/bootstrap/nupp.lua")
-   assert(bootstrap, "the tracked bootstrap is readable")
-   assert(bootstrap:find('package.preload["nupp.embedded"]', 1, true),
+   local handle = assert(io.popen(("'%s/scripts/toolchain' stage0 2>/dev/null"):format(root)))
+   local named = handle:read("*a")
+   local ok = handle:close()
+   assert(ok, "no stage-zero compiler; run scripts/toolchain stage0")
+   local stage0 = readFile((named:match("([^\n]+)%s*$")))
+   assert(stage0, "the fetched stage zero is readable")
+   assert(stage0:find('package.preload["nupp.embedded"]', 1, true),
       "it carries its resources the way every bundle does")
-   assert(bootstrap:find("package.preload[\"nupp.compiler.cst\"]", 1, true),
+   assert(stage0:find("package.preload[\"nupp.compiler.cst\"]", 1, true),
       "and preloads its modules the way every bundle does")
 end
 

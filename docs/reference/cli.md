@@ -1637,19 +1637,24 @@ configuring a documentation target.
 Verify a byte-identical self-hosting rebuild
 
 Usage:
-  nupp fixpoint [--update-bootstrap] [--format text|json]
+  nupp fixpoint [--emit-stage0 PATH] [--format text|json]
   nupp fixpoint --binary [--format text|json]
 
-By default the compiler compiles itself twice, the two must agree,
-and the tracked stage-zero bundle must match the verified compiler. Use
---update-bootstrap to refresh that bundle when it is intentionally stale.
+By default the stage-zero compiler builds stage one, stage one builds
+stage two, stage two builds stage three, and stages two and three must be byte
+identical. Stage zero is a published release rather than a file in the tree, so
+it is meant to differ from the current compiler and nothing compares it with one;
+the first stage is what absorbs that difference.
+
+--emit-stage0 writes the stage-zero bundle the verified compiler composes, which
+is the artifact a release publishes for the next checkout to start from.
 
 --binary makes the same claim about packaging: the target named by
 selfHost.binary is stamped, and the binary that comes out stamps another
 identical to itself. It is what the payload format's determinism rests on.
 
 Options:
-  --update-bootstrap  Refresh the tracked stage-0 bundle after verification
+  --emit-stage0 PATH  Write the verified stage-zero bundle here
   --binary            Verify the packaged binary instead of the compiler
   --format FORMAT     Output format: text (default) or json
   --json              Shorthand for --format json
@@ -1660,27 +1665,24 @@ Options:
   -h, --help          Show this help
 ```
 
-The two stages are built into separate directories and compared file by file.
-Run in Nupp's own repository:
-
-```text [nupp fixpoint]
-fixpoint ok: compiler rebuilds itself byte-identically
-```
-
-The tracked stage-zero bundle is held to the same claim. It is a compiler
-artifact too, so `fixpoint` regenerates it and requires the committed
-`bootstrap/nupp.lua` to match, which is what stops it retaining an old
-declaration surface or an old lowering pass until something unrelated finally
-forces a refresh. A bundle that has legitimately moved is stale rather than
-wrong, and the failure says which command accepts it:
+Every stage is built into its own directory, and the last two are compared file
+by file. The line names the stage zero the run started from, since which one
+that was is the part a reader cannot see:
 
 ```text
-nupp: tracked bootstrap is stale; run nupp fixpoint --update-bootstrap
+fixpoint ok: /path/to/stage0/nupp.lua rebuilds itself byte-identically
 ```
 
-`--update-bootstrap` writes the regenerated bundle instead of comparing it, and
-is how an intentional bootstrap change lands. See
-[build.md](../learn/projects/build.md#self-hosting) for what `selfHost` configures.
+Stage one is not compared with anything. Stage zero is a different compiler on
+purpose -- a published release, named by `selfHost.bootstrap` -- so what stage
+one contains is these sources as that release emits them, and the claim starts
+at stage two. A mismatch keeps every stage for inspection and exits 1.
+
+`--emit-stage0` additionally writes the stage-zero bundle the verified compiler
+composes. It is the artifact a release publishes for the next checkout to start
+from, and nothing here reads it back. See
+[build.md](../learn/projects/build.md#self-hosting) for what `selfHost`
+configures.
 
 `--binary` names the target it stamped and the size the two runs agreed on. A
 mismatch keeps both stages for inspection and exits 1. See

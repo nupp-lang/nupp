@@ -34,7 +34,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks lpeg lpeg-source
+Components: luajit luarocks lpeg lpeg-source stage0
             native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
@@ -149,6 +149,17 @@ else
 fi
 sha256() { sha256_stdin < "$1"; }
 
+# The pins that decide a native artifact, which is every pin but the stage-zero
+# one. That one names a Nupp release and a bundle of Lua; no C compiler ever
+# sees it, and keying LuaJIT, LPeg and every Rust crate on it would make the
+# one-line pin bump NEP 32 asks for a from-scratch native rebuild on every
+# machine that pulls it. Assignments only, so a comment is documentation rather
+# than a cache generation.
+pins_digest() {
+    grep '^[A-Z][A-Z0-9_]*=' "$ROOT/scripts/toolchain.pins" \
+        | grep -v '^STAGE0_' | sha256_stdin
+}
+
 # Public embedding headers are staged beside the Rust libraries rather than
 # compiled into them. Give those staged SDKs their own content key so changing
 # the public ABI refreshes the SDK without needlessly rebuilding a Rust crate.
@@ -165,18 +176,23 @@ embedding_headers_digest() {
 # lock-file change rebuilds the Rust artifact.
 rust_sources_digest() {
     {
+        # `scripts/toolchain.pins` is not in this list because it is folded in
+        # below through `pins_digest`, which leaves out the stage-zero pin.
         for file in Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml \
-            scripts/toolchain scripts/toolchain.pins; do
+            scripts/toolchain; do
             [ -f "$ROOT/$file" ] && printf '%s\n' "$file"
         done
         (cd "$ROOT" && find native/crates -type f \
             \( -name '*.rs' -o -name '*.c' -o -name '*.h' \
                 -o -name 'Cargo.toml' -o -name 'build.rs' \) \
             2>/dev/null) || true
-    } | LC_ALL=C sort | while IFS= read -r file; do
-        printf '%s ' "$file"
-        sha256 "$ROOT/$file"
-    done | sha256_stdin | cut -c1-16
+    } | LC_ALL=C sort | {
+        while IFS= read -r file; do
+            printf '%s ' "$file"
+            sha256 "$ROOT/$file"
+        done
+        printf 'scripts/toolchain.pins %s\n' "$(pins_digest)"
+    } | sha256_stdin | cut -c1-16
 }
 # --- where things go --------------------------------------------------------
 
@@ -210,7 +226,7 @@ key_material() {
     "$CXX" --version 2>&1 | head -n 2 || true
     printf '%s %s\n' "$UNAME" "$(uname -m 2>/dev/null || echo unknown)"
     sha256 "$ROOT/scripts/toolchain"
-    sha256 "$ROOT/scripts/toolchain.pins"
+    pins_digest
 }
 KEY=$(key_material | sha256_stdin | cut -c1-16)
 PREFIX="$CACHE/$KEY"
@@ -326,6 +342,78 @@ source_tree() {
     mv "$staging/$name" "$tree"
     rm -rf "$staging"
     printf '%s\n' "$tree"
+}
+
+# --- the stage-zero compiler ------------------------------------------------
+
+# The compiler that compiles this tree's Nupp before this tree has a compiler.
+#
+# It is the previous release's own compiler, lowered to one Lua file and
+# published as an asset of that release, and it is fetched here the way every
+# other pinned source is. What makes it different from LuaJIT or LPeg is that it
+# is neither built nor platform-specific: one file of Lua, good on every machine
+# that has a LuaJIT new enough to parse generated Nupp, which the pins above
+# already guarantee. So it is cached by its own digest rather than under the
+# compiler-pair key, and every worktree of every checkout on this machine that
+# pins the same release shares the one copy.
+#
+# NEP 32 says why this is fetched rather than committed, and the pin says why the
+# digest is of the decompressed file.
+stage0() {
+    out="$CACHE/stage0/$STAGE0_SHA256"
+    file="$out/nupp.lua"
+    if [ -f "$file" ]; then
+        native_path "$file"
+        return 0
+    fi
+
+    name="nupp-stage0-$STAGE0_TAG.lua"
+    mkdir -p "$CACHE/stage0"
+    staged="$out.$$"
+    rm -rf "$staged"
+    mkdir -p "$staged"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$staged'" EXIT HUP INT TERM
+
+    # An offline builder supplies either spelling: the asset as published, or
+    # the plain bundle, which is what the digest is of and so the easier one to
+    # check by hand.
+    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name" ]; then
+        cp "$SOURCE_DIR/$name" "$staged/nupp.lua"
+    elif [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name.gz" ]; then
+        cp "$SOURCE_DIR/$name.gz" "$staged/nupp.lua.gz"
+        gunzip "$staged/nupp.lua.gz" || die "$name.gz did not decompress"
+    elif offline; then
+        die "NUPP_HOST_OFFLINE is set and the $STAGE0_TAG stage-zero compiler is not cached; put $name.gz in NUPP_HOST_SOURCE_DIR"
+    else
+        # Spelled out rather than expanded from the pin, which is how every
+        # other component here reaches its URL: the pin says where to look and
+        # the digest says what is acceptable.
+        url="https://github.com/nupp-lang/nupp/releases/download/$STAGE0_TAG/$name.gz"
+        if [ -n "$SOURCE_BASE_URL" ]; then
+            url="${SOURCE_BASE_URL%/}/$name.gz"
+        fi
+        note "fetching the $STAGE0_TAG stage-zero compiler"
+        download "$url" "$staged/nupp.lua.gz" \
+            || die "cannot download $url"
+        gunzip "$staged/nupp.lua.gz" || die "$name.gz did not decompress"
+    fi
+
+    found=$(sha256 "$staged/nupp.lua")
+    if [ "$found" != "$STAGE0_SHA256" ]; then
+        rm -rf "$staged"
+        trap - EXIT HUP INT TERM
+        die "the $STAGE0_TAG stage-zero compiler has digest $found, expected $STAGE0_SHA256; refusing to cache or run it"
+    fi
+    # Renamed into place whole, so a killed fetch never leaves a truncated
+    # compiler behind for the next command to run, and the digest directory is
+    # created only once its one file has been verified.
+    mkdir -p "$out"
+    mv "$staged/nupp.lua" "$file.$$"
+    mv "$file.$$" "$file"
+    rm -rf "$staged"
+    trap - EXIT HUP INT TERM
+    native_path "$file"
 }
 
 # --- notices ----------------------------------------------------------------
@@ -1232,6 +1320,10 @@ case "$1" in
         build_luajit
         build_luarocks
         build_lpeg
+        # A checkout with no compiler needs this before it can run one, and a
+        # warm is the moment to pay for it: an ordinary command in a built tree
+        # never asks.
+        stage0 >/dev/null
         exit 0
         ;;
     native-rust)
@@ -1275,6 +1367,7 @@ for component in "$@"; do
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
         lpeg)     build_lpeg;     native_path "$PREFIX/lpeg" ;;
         lpeg-source) native_path "$(lpeg_source)" ;;
+        stage0)   stage0 ;;
         *) note "unknown component $component"; usage ;;
     esac
 done

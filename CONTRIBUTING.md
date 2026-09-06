@@ -7,11 +7,12 @@ project work, use the
 
 ## Clone and build
 
-Nupp is written in Nupp. A checkout carries a stage-0 compiler already lowered
-to Lua, and building the real one takes C, C++, and the exact Rust toolchain in
-`rust-toolchain.toml`. The interpreter it runs on and the libraries it links are
-fetched from pinned sources and built by the checkout itself when the machine
-does not already have them.
+Nupp is written in Nupp, so the first build starts from the previous release's
+compiler, lowered to one Lua file and fetched against a digest pinned in the
+tree. Building the real one takes C, C++, and the exact Rust toolchain in
+`rust-toolchain.toml`. The interpreter it runs on, the libraries it links and
+that first compiler are fetched from pinned sources and built by the checkout
+itself when the machine does not already have them.
 
 ```bash
 git clone https://github.com/nupp-lang/nupp
@@ -143,11 +144,23 @@ before it writes anything, so a second command starting inside that window sees
 a tree that looks unbuilt; rather than starting its own build over the same
 files, it waits for the one already running and uses what that produces.
 
-### Bootstrap compiler
+### Stage-zero compiler
 
 The one thing a checkout cannot do is start from nothing, since compiling Nupp
-needs a Nupp compiler. `bootstrap/nupp.lua` is that compiler, tracked in the
-repository, and it is what a fresh clone uses for its first build.
+needs a Nupp compiler. The one it starts from is the release named by
+`STAGE0_TAG` in `scripts/toolchain.pins`, published as an asset of that release
+and fetched by `scripts/toolchain stage0` the first time a checkout needs it.
+The digest beside the tag is what authenticates it, and it is reproducible from
+the tag: rebuilding the bundle from that source gives the same bytes.
+
+One copy serves every worktree on the machine. An offline builder supplies
+`nupp-stage0-<tag>.lua.gz` through `NUPP_HOST_SOURCE_DIR`, the way it supplies
+every other pinned archive.
+
+Because the compiler's own sources are compiled by that release, they may only
+use language features it already understands. A feature reaches them a release
+later, once a tag carrying it is published and the pin moves to it; see
+[NEP 32](docs/neps/0032-fetched-stage-zero.md).
 
 ## Optional libraries
 

@@ -379,15 +379,18 @@ Source text and generated Lua remain in the HTML report.
 
 ## Fixpoint verification
 
-`nupp fixpoint` builds a stage-1 compiler, has stage 1 build stage 2, and
-compares the declared artifacts byte for byte:
+`nupp fixpoint` starts from the stage-zero compiler the project is pinned to and
+builds three times -- stage zero builds stage one, stage one builds stage two,
+stage two builds stage three -- then compares the last two byte for byte:
 
 ```bash
 nupp fixpoint
 ```
 
 The working compiler is updated only after a match. This is the standing check
-that a change to the compiler does not quietly change its output. See
+that a change to the compiler does not quietly change its output, and that the
+pinned stage zero can still build the tree. See
+[build.md](build.md#self-hosting) for why the first stage does not count, and
 [distribution.md](../../reference/distribution.md) for the packaged variant,
 `nupp fixpoint --binary`.
 

@@ -106,7 +106,7 @@ local function writeTask(out: {string}, style: any, task: any)
     if task.platforms and #task.platforms > 0 then
         writeItems(out, style, "Platforms", task.platforms)
     end
-    field("Bootstrap", task.bootstrap)
+    field("Stage zero", task.bootstrap)
     field("Title", task.title)
     field("Format", task.format)
     if task.all ~= nil then

@@ -427,7 +427,7 @@ return {
    },
    test = {build = "app", argv = {"luajit", "tests/run.lua"},
       env = {MODE = "test"}},
-   selfHost = {target = "app", bootstrap = "bootstrap/project.lua"},
+   selfHost = {target = "app", bootstrap = "scripts/find-stage0"},
 }
 ]],
         ["out/app/main.lua"] = "return true\n",
@@ -475,7 +475,7 @@ return {
    },
    test = {build = "app", argv = {"luajit", "tests/run.lua"},
       env = {MODE = "test"}},
-   selfHost = {target = "app", bootstrap = "bootstrap/project.lua"},
+   selfHost = {target = "app", bootstrap = "scripts/find-stage0"},
 }
 ]],
     })
@@ -511,7 +511,7 @@ return {
 
     local fixpoint = capture(("cd '%s' && '%s' tasks fixpoint --text"):format(dir, NUPP))
     assert(
-        fixpoint:find("Bootstrap: bootstrap/project.lua", 1, true),
+        fixpoint:find("Stage zero: scripts/find-stage0", 1, true),
         "text detail includes self-host configuration: " .. fixpoint
     )
     os.execute("rm -rf '" .. dir .. "'")

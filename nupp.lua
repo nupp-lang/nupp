@@ -539,7 +539,13 @@ return {
     selfHost = {
         target = "compiler",
         bootstrapTarget = "bootstrapCompiler",
-        bootstrap = "bootstrap/nupp.lua",
+        -- The compiler this tree's first stage is compiled by. It is the previous
+        -- release's, fetched and verified against the digest pinned in
+        -- `scripts/toolchain.pins`, which is also what `bin/nupp` starts from in a
+        -- checkout that has never been built. NEP 32 says why it is fetched rather
+        -- than committed, and what that costs: the sources below may only use a
+        -- language feature the pinned release already understands.
+        bootstrap = "scripts/toolchain stage0",
         -- The target `nupp fixpoint --binary` stamps twice. Naming it here rather
         -- than in the command keeps the compiler from knowing anything about how
         -- this particular project chose to package itself.

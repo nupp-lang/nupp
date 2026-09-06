@@ -759,9 +759,9 @@ before the command it was asked for.
 It is not how the compiler to run is chosen. A build removes the marker before
 it writes anything, so for as long as a build takes there is a working compiler
 in `build/` and no marker beside it; `bin/nupp` runs the compiler that is there,
-and falls back to the tracked bootstrap only when there is none. One build at a
-time writes a tree -- a build takes a lock for as long as it runs, and a command
-that has to read the compiler waits for it.
+and fetches the stage zero only when there is none. One build at a time writes a
+tree -- a build takes a lock for as long as it runs, and a command that has to
+read the compiler waits for it.
 
 ## Build progress and timing
 
@@ -1166,18 +1166,37 @@ stub links the three its commands cannot run without; see
 
 ## Self-hosting
 
-This repository configures `selfHost` in `nupp.lua`. `nupp fixpoint` builds a
-stage-1 compiler, invokes stage 1 to build stage 2, and compares the declared
-artifacts byte for byte. It also regenerates the configured stage-zero bundle
-and requires the tracked copy to match, so the bootstrap's declarations and
-compiler passes cannot lag behind the verified sources. The working compiler is
-updated only after those matches.
+A self-hosted compiler cannot compile its own sources until some other compiler
+has, so `selfHost` says where that other one comes from. `selfHost.bootstrap`
+names a command, run from the project root, whose last line of output is the
+path of the stage-zero compiler; `selfHost.target` is the target that rebuilds
+the compiler, and `selfHost.bootstrapTarget` composes the bundle a new stage
+zero is published from.
 
-`nupp fixpoint --update-bootstrap` accepts an intentional bootstrap change by
-refreshing the tracked `bootstrap/nupp.lua` bundle and declaration resources.
-An ordinary `nupp fixpoint` names this command when the tracked copy is stale.
-Syntax changes must update the bootstrap before they can rely on that syntax,
-and CI should always exercise a build with no pre-existing `build` directory.
+`nupp fixpoint` runs the command, then builds three times: stage zero builds
+stage one, stage one builds stage two, and stage two builds stage three. Stages
+two and three must be byte identical.
+
+Three stages rather than two, because the first one is not a claim about
+anything. Stage zero is a different compiler -- an earlier release, on purpose
+-- so stage one is these sources as that compiler emits them. Stage two is the
+first tree emitted by code the current sources describe, and stage three is
+stage two doing it again. Their being identical says the compiler is a fixed
+point of itself rather than of whatever happened to build it. The working
+compiler is updated only after they match.
+
+`nupp fixpoint --emit-stage0 PATH` also writes the stage-zero bundle the
+verified compiler composes, which is the artifact a release publishes for the
+next checkout to start from. Nothing reads it back: a stage zero is meant to
+differ from the compiler in the tree, and nothing compares the two.
+
+This repository's `selfHost.bootstrap` is `scripts/toolchain stage0`, which
+fetches the release pinned in `scripts/toolchain.pins` and verifies it against
+the digest committed beside it. The cost of that is a rule on these sources:
+they may only use language features the pinned release already understands, and
+a feature reaches them a release later. [NEP
+32](https://github.com/nupp-lang/nupp/blob/main/docs/neps/0032-fetched-stage-zero.md)
+records why that trade was made.
 
 The build system's own implementation lives under the internal
 `nupp.compiler.build.*` namespace in `src/nupp/compiler/build/`: `project` owns

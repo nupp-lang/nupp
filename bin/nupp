@@ -6,9 +6,10 @@
 # command rather than by the next person who remembers to build.
 #
 # What it cannot do is start from nothing. The compiler is written in Nupp, so
-# compiling it needs a Nupp compiler; bootstrap/nupp.lua is that compiler,
-# already lowered to Lua, and it is the one thing here that does not itself need
-# building. A checkout without it has no way in.
+# compiling it needs a Nupp compiler, and the one it starts from is the previous
+# release's, fetched and cached by `scripts/toolchain stage0` against a digest
+# pinned in the tree. Nothing here is committed, and nothing here is fetched
+# until a command finds no compiler to run -- which, in a built tree, is never.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LUA_ROOT="$ROOT"
 case "$(uname -s 2>/dev/null)" in
@@ -16,9 +17,7 @@ case "$(uname -s 2>/dev/null)" in
 esac
 BUILT="$ROOT/build/nupp/compiler/main.lua"
 STAMP="$ROOT/build/.nupp-complete"
-BOOTSTRAP="$ROOT/bootstrap/nupp.lua"
 LUA_BUILT="$LUA_ROOT/build/nupp/compiler/main.lua"
-LUA_BOOTSTRAP="$LUA_ROOT/bootstrap/nupp.lua"
 LUAPATH="package.path=\"$LUA_ROOT/build/?.lua;\" .. package.path"
 
 # The project's own rock tree, written by a build that declares a luarocks
@@ -65,6 +64,36 @@ fi
 NUPP_LAUNCHER_TOOLCHAIN_KEY=$TOOLCHAIN_CACHE_KEY
 NUPP_LAUNCHER_TOOLCHAIN_PREFIX=$TOOLCHAIN_PREFIX
 export NUPP_LAUNCHER_TOOLCHAIN_KEY NUPP_LAUNCHER_TOOLCHAIN_PREFIX
+
+# The stage-zero compiler, fetched and verified on first use.
+#
+# Asked for only where there is nothing else to run: no built compiler, or one
+# that could not rebuild the tree. Every ordinary command in a built tree
+# answers without a network round trip or a digest check, and `help` -- which
+# reads no source and must work in a tree that has never fetched anything --
+# never comes here at all.
+#
+# Memoized within this process, the failure included: both callers below may
+# ask, a cached answer still costs a digest of a twelve-megabyte file, and an
+# unreachable one has already said why it could not be had.
+STAGE0=
+STAGE0_TRIED=no
+stage0_path() {
+    if [ "$STAGE0_TRIED" = no ]; then
+        STAGE0_TRIED=yes
+        STAGE0=$("$ROOT/scripts/toolchain" stage0) || STAGE0=
+        # A build run by stage zero starts comptime workers of its own, and on
+        # Windows those are launched as a compiler rather than through this
+        # script. Say which compiler is running so they can be the same one.
+        if [ -n "$STAGE0" ]; then
+            NUPP_STAGE0=$STAGE0
+            export NUPP_STAGE0
+        fi
+    fi
+    [ -n "$STAGE0" ] || return 1
+    printf '%s\n' "$STAGE0"
+}
+
 TOOLCHAIN_LPEG="$TOOLCHAIN_PREFIX/lpeg"
 if [ -f "$TOOLCHAIN_LPEG/.complete" ]; then
     LUA_PATH="$TOOLCHAIN_LPEG/share/?.lua;$LUA_PATH"
@@ -342,15 +371,13 @@ build_now() {
             release_build_lock
             return 0
         fi
-        if [ -f "$BOOTSTRAP" ]; then
-            echo "nupp: falling back to the bootstrap compiler" >&2
-        fi
+        echo "nupp: falling back to the stage-zero compiler" >&2
     fi
-    if [ -f "$BOOTSTRAP" ]; then
+    if stage0=$(stage0_path); then
         if [ -n "$BUILD_COLOR_ARG" ]; then
-            (cd "$ROOT" && luajit "$LUA_BOOTSTRAP" build "$BUILD_COLOR_ARG")
+            (cd "$ROOT" && luajit "$stage0" build "$BUILD_COLOR_ARG")
         else
-            (cd "$ROOT" && luajit "$LUA_BOOTSTRAP" build)
+            (cd "$ROOT" && luajit "$stage0" build)
         fi
         build_status=$?
     fi
@@ -465,10 +492,10 @@ fi
 # a better answer than a bundle from whenever stage zero was last refreshed.
 if [ -f "$BUILT" ]; then
     set -- luajit -e "$LUAPATH" "$LUA_BUILT" "$@"
-elif [ -f "$BOOTSTRAP" ]; then
-    set -- luajit "$LUA_BOOTSTRAP" "$@"
+elif stage0=$(stage0_path); then
+    set -- luajit "$stage0" "$@"
 else
-    echo "nupp: no built compiler and no bootstrap compiler found" >&2
+    echo "nupp: no built compiler, and the stage-zero compiler is not available" >&2
     exit 1
 fi
 

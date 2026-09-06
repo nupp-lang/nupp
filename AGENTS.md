@@ -21,6 +21,25 @@ actual incident — one that changes the design or implementation in a way
 the original work did not anticipate. Adjusting code to resolve a rebase
 conflict does not on its own meet that bar.
 
+### The stage-zero compiler
+
+The compiler is written in Nupp, so the first build of a checkout is done by
+another compiler: the release named by `STAGE0_TAG` in
+`scripts/toolchain.pins`, fetched and verified against the digest beside it by
+`scripts/toolchain stage0` and cached once per machine. Nothing about it is
+committed, and `bin/nupp` asks for it only when there is no built compiler.
+
+That imposes one rule on `src/`, the standard library and the runtime beneath
+them: **they may only use language features the pinned release already
+understands.** A feature you add today reaches the compiler's own sources a
+release later, once a tag carrying it is published and the pin moves to it.
+`nupp fixpoint` is what catches a violation, because its first stage is built by
+that release. [NEP 32](docs/neps/0032-fetched-stage-zero.md) records the trade.
+
+The same rule reaches `nupp.lua`: the pinned release reads that manifest, so a
+manifest key it does not know about fails every build before anything is
+compiled.
+
 ### The development rock tree
 
 `.rocks` holds the rocks this repository develops against -- lunamark and
@@ -165,7 +184,8 @@ reports it is usually already testing somebody else's commit. `git push
   from the ones the change caused.
 - CSS or styling-only changes do not require the test suite. Verify the
   affected generated site or assets instead.
-- `./bin/nupp fixpoint` verifies that the compiler rebuilds byte-identically.
+- `./bin/nupp fixpoint` verifies that the compiler rebuilds byte-identically,
+  starting from the pinned stage zero.
 
 ## Speed
 

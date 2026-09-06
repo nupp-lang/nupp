@@ -112,18 +112,21 @@ function M.launcherBuildsTheProviderThroughTheToolchainDriver()
    end
    local root = temporary()
    local fake = root .. "/fake-bin"
-   assert(os.execute(("mkdir -p %s/bin %s/bootstrap %s/scripts %s/build/lib %s")
-      :format(quote(root), quote(root), quote(root), quote(root), quote(fake))) == 0)
+   assert(os.execute(("mkdir -p %s/bin %s/scripts %s/build/lib %s")
+      :format(quote(root), quote(root), quote(root), quote(fake))) == 0)
    assert(os.execute(("cp %s/bin/nupp %s/bin/nupp && chmod +x %s/bin/nupp")
       :format(quote(ROOT), quote(root), quote(root))) == 0)
    assert(os.execute(("cp %s/scripts/luajit.sh %s/scripts/luajit.sh")
       :format(quote(ROOT), quote(root))) == 0)
-   write(root .. "/bootstrap/nupp.lua", "return true\n")
+   -- The compiler this tree has no build of. It reaches the launcher through the
+   -- driver below, the way a real one reaches it out of the toolchain cache.
+   write(root .. "/stage0.lua", "return true\n")
    -- A driver that records what it was asked for and answers with a file it
    -- made, which is the whole of the contract the launcher relies on.
    write(root .. "/scripts/toolchain", [[#!/bin/sh
 case "${1:-}" in
    native-rust) printf '%s\n' "$*" >> "$NUPP_TEST_RECORD" ;;
+   stage0) printf '%s\n' "$NUPP_TEST_STAGE0"; exit 0 ;;
 esac
 printf 'built\n' > "$NUPP_TEST_BUILT"
 printf '%s\n' "$NUPP_TEST_BUILT"
@@ -137,8 +140,8 @@ exit 0
    assert(os.execute("chmod +x " .. quote(fake) .. "/*") == 0)
 
    local record, built = root .. "/asked.txt", root .. "/provider.dylib"
-   local environment = ("PATH=%s:$PATH NUPP_TEST_RECORD=%s NUPP_TEST_BUILT=%s ")
-      :format(quote(fake), quote(record), quote(built))
+   local environment = ("PATH=%s:$PATH NUPP_TEST_RECORD=%s NUPP_TEST_BUILT=%s NUPP_TEST_STAGE0=%s ")
+      :format(quote(fake), quote(record), quote(built), quote(root .. "/stage0.lua"))
    assert(os.execute(environment .. quote(root .. "/bin/nupp") .. " clean") == 0)
    local asked = read(record)
    assert(asked == "native-rust base,files,http,net,process,tls,uri,uuid\n",

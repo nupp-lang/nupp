@@ -126,8 +126,10 @@ type project.CleanOptions = {
 
 --- What a fixpoint run was asked for.
 type project.FixpointOptions = {
-    --- Rewrite the checked-in stage zero from what the run just built.
-    updateBootstrap: boolean?,
+    --- Where to write the stage-zero bundle the verified compiler composes. Nothing
+    --- reads it back here: it is the artifact a release publishes for the next
+    --- checkout to start from, and asking for it is asking for that file.
+    emitStage0: string?,
 
     --- What happened, instead of the human line saying so.
     result: {[string]: any}?
@@ -1317,7 +1319,12 @@ local function copyTree(source, destination)
     return true
 end
 
-local function bootstrapText(root: string, config: manifest.Config): string?, string?
+--- The whole compiler as one Lua file: what a checkout with no compiler starts from.
+---
+--- It is generated rather than committed, and a release publishes it so the next
+--- checkout can fetch it against a pinned digest. Nothing in an ordinary build makes
+--- one; `nupp fixpoint --emit-stage0` does, from the compiler the same run verified.
+local function stage0Text(root: string, config: manifest.Config): string?, string?
     local targetName = config.selfHost and (config.selfHost.bootstrapTarget or config.selfHost.target) or nil
     local target, targetErr = targetConfig(config, targetName)
     if not target then
@@ -1331,7 +1338,7 @@ local function bootstrapText(root: string, config: manifest.Config): string?, st
         root,
         config,
         target,
-        "-- Generated stage-0 compiler. Update with: nupp fixpoint --update-bootstrap\n",
+        "-- Generated stage-zero compiler. Rebuild with: nupp fixpoint --emit-stage0 PATH\n",
         state and state.modules or nil
     )
 
@@ -1435,21 +1442,70 @@ function project.binaryFixpoint(root: string?, opts: project.FixpointOptions?): 
     return 0
 end
 
-function project.fixpoint(root: string?, opts: project.FixpointOptions?): integer
-    root, opts = root or ".", (opts or {}) as project.FixpointOptions
-    local config, err = project.loadManifest(root)
-    if not config then
-        io.stderr:write(tostring(err) .. "\n");
-        return 1
+--- Where the compiler that compiles this project's first stage comes from.
+---
+--- `selfHost.bootstrap` names a command; its last line of output is the path. The
+--- project owns that because a self-hosted compiler cannot compile its own sources
+--- until some other compiler has, and what that other one is -- a fetched release, a
+--- packaged toolchain, an already-installed compiler -- is the project's business
+--- rather than the build system's.
+local function stage0Compiler(root: string, config: manifest.Config): string?, string?
+    local spelled = config.selfHost and config.selfHost.bootstrap or nil
+    local command = {}
+    for word in tostring(spelled or ""):gmatch("%S+") do
+        command[#command + 1] = word
     end
-    local targetName = config.selfHost and config.selfHost.target or nil
-    local stage1, stage2 = "_stage1", "_stage2"
-    removeTree(join(root, stage1));
-    removeTree(join(root, stage2))
-    if project.build(root, {target = targetName, outDir = stage1}) ~= 0 then
-        return 1
+    if #command == 0 then
+        return nil, "selfHost.bootstrap names no command to find the stage-zero compiler with"
     end
-    local target = assert(targetConfig(config, targetName))
+    local status, output = process.capture(command, {cwd = root})
+    if status ~= 0 then
+        return nil, table.concat(command, " ") .. " failed: " .. output
+    end
+    local path: string? = nil
+    for line in tostring(output):gmatch("[^\r\n]+") do
+        path = line
+    end
+    if not path or path == "" then
+        return nil, table.concat(command, " ") .. " named no stage-zero compiler"
+    end
+    if not fs.exists(path) then
+        return nil, "the stage-zero compiler is not at " .. path
+    end
+
+    return path, nil
+end
+
+--- Runs one compiler to build this project into `outDir`.
+---
+--- `packageRoot` is the output tree that compiler's own modules live in, or nil for a
+--- stage zero, which is one self-contained file and loads nothing beside it.
+local function buildWithCompiler(
+    root: string,
+    compiler: string,
+    packageRoot: string?,
+    outDir: string,
+    targetName: string?
+): boolean
+    local argv = {"luajit"}
+    if packageRoot then
+        argv[#argv + 1] = "-e"
+        argv[#argv + 1] = "package.path=" .. string.format("%q", packageRoot .. "/?.lua;") .. " .. package.path"
+    end
+    argv[#argv + 1] = compiler
+    argv[#argv + 1] = "build"
+    argv[#argv + 1] = "--out-dir"
+    argv[#argv + 1] = outDir
+    if targetName then
+        argv[#argv + 1] = "--target"
+        argv[#argv + 1] = targetName
+    end
+
+    return process.run(argv, {cwd = root}) == 0
+end
+
+--- Where the compiler a stage built lives, so the next stage can be run from it.
+local function stageMain(root: string, config: manifest.Config, target: manifest.Target, outDir: string): string
     local entry = (target.entries or {})[1] or "nupp.compiler.main"
     local moduleName = entry:match("%.nupp$") and envMod.moduleNameForPath(
         envMod.new(root, {
@@ -1458,79 +1514,112 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
         join(root, entry)
     ) or entry
     moduleName = moduleName or "nupp.compiler.main"
-    local mainPath = join(root, join(stage1, moduleName:gsub("%.", "/") .. ".lua"))
-    local packagePath = join(root, stage1) .. "/?.lua;"
-    local argv = {
-        "luajit",
-        "-e",
-        "package.path=" .. string.format("%q", packagePath) .. " .. package.path",
-        mainPath,
-        "build",
-        "--out-dir",
-        stage2
-    }
-    if targetName then
-        argv[#argv + 1] = "--target";
-        argv[#argv + 1] = targetName
-    end
-    if process.run(argv, {cwd = root}) ~= 0 then
+
+    return join(root, join(outDir, moduleName:gsub("%.", "/") .. ".lua"))
+end
+
+--- Verifies that the compiler reproduces itself from the stage zero a checkout starts
+--- from.
+---
+--- Three stages, because the first one is not a claim about anything. Stage zero is a
+--- previous release: it compiles the current sources, but with its own generator, so
+--- what stage one contains is this project as an older compiler would emit it. Stage
+--- one then compiles the sources again, and stage two is the first tree emitted by
+--- code the current sources describe. Stage three is stage two doing it once more.
+--- Two and three must be identical, and their being so says the compiler is a fixed
+--- point of itself rather than of whatever built it.
+---
+--- What it no longer says anything about is a tracked file. Stage zero is pinned to a
+--- release and is meant to differ from the current compiler; see
+--- [NEP 32](docs/neps/0032-fetched-stage-zero.md).
+function project.fixpoint(root: string?, opts: project.FixpointOptions?): integer
+    root, opts = root or ".", (opts or {}) as project.FixpointOptions
+    local config, err = project.loadManifest(root)
+    if not config then
+        io.stderr:write(tostring(err) .. "\n");
         return 1
     end
-    local first = treeDigest(join(root, stage1))
-    local second = treeDigest(join(root, stage2))
-    if first ~= second then
+    local targetName = config.selfHost and config.selfHost.target or nil
+    local target, targetErr = targetConfig(config, targetName)
+    if not target then
+        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+        return 1
+    end
+    local stage0, stage0Err = stage0Compiler(root, config)
+    if not stage0 then
+        io.stderr:write("nupp: " .. tostring(stage0Err) .. "\n")
+        return 1
+    end
+
+    local stages = {"_stage1", "_stage2", "_stage3"}
+    for _, stage in ipairs(stages) do
+        removeTree(join(root, stage))
+    end
+    -- Stage zero is one file that loads nothing beside it; every stage after it is an
+    -- output tree, and is run with that tree on the module path.
+    local compiler: string = stage0
+    local packageRoot: string? = nil
+    for _, stage in ipairs(stages) do
+        if not buildWithCompiler(root, compiler, packageRoot, stage, targetName) then
+            io.stderr:write(("nupp: %s did not build %s\n"):format(compiler, stage))
+            if opts.result then
+                opts.result.reason = "a stage did not build"
+            end
+            return 1
+        end
+        compiler, packageRoot = stageMain(root, config, target, stage), join(root, stage)
+    end
+
+    local second = treeDigest(join(root, stages[2]))
+    local third = treeDigest(join(root, stages[3]))
+    if second ~= third then
         io.stderr:write("nupp: self-hosting fixpoint mismatch; stages kept for inspection\n")
         if opts.result then
             opts.result.reason = "the two stages differ"
         end
         return 1
     end
-    -- The tracked bootstrap is a compiler artifact too. Comparing only two
-    -- freshly-built stages lets it retain an old declaration surface or old
-    -- lowering passes indefinitely, until some unrelated change finally needs
-    -- a refresh. Build what stage zero should be on every fixpoint and either
-    -- update it explicitly or require the tracked bytes to agree.
-    local bootstrapTarget = config.selfHost and config.selfHost.bootstrapTarget or nil
-    if bootstrapTarget and project.build(root, {target = bootstrapTarget}) ~= 0 then
-        return 1
-    end
-    local generatedBootstrap, bootstrapErr = bootstrapText(root, config)
-    if not generatedBootstrap then
-        io.stderr:write("nupp: " .. tostring(bootstrapErr) .. "\n");
-        return 1
-    end
-    local bootstrapPath = join(root, config.selfHost and config.selfHost.bootstrap or "bootstrap/nupp.lua")
-    if not opts.updateBootstrap then
-        local trackedBootstrap = readFile(bootstrapPath)
-        if trackedBootstrap ~= generatedBootstrap then
-            io.stderr:write("nupp: tracked bootstrap is stale; run nupp fixpoint --update-bootstrap\n")
-            if opts.result then
-                opts.result.reason = "the tracked bootstrap is stale"
-            end
-            return 1
-        end
-    end
+
     local destination = join(root, target.outDir or "build")
-    local copied, copyErr = copyTree(join(root, stage2), destination)
+    local copied, copyErr = copyTree(join(root, stages[3]), destination)
     if not copied then
         io.stderr:write("nupp: " .. copyErr .. "\n");
         return 1
     end
-    writeFile(join(destination, ".nupp-complete"), second .. "\n")
-    if opts.updateBootstrap then
-        local written, writeErr = writeFile(bootstrapPath, generatedBootstrap)
+    writeFile(join(destination, ".nupp-complete"), third .. "\n")
+    for _, stage in ipairs(stages) do
+        removeTree(join(root, stage))
+    end
+
+    -- After the verification and from the compiler it verified, which is the whole
+    -- claim a published stage zero makes: the bytes another checkout will start from
+    -- came out of a tree that reproduces itself.
+    if opts.emitStage0 then
+        local stage0Target = config.selfHost and config.selfHost.bootstrapTarget or nil
+        if stage0Target and project.build(root, {target = stage0Target}) ~= 0 then
+            return 1
+        end
+        local text, textErr = stage0Text(root, config)
+        if not text then
+            io.stderr:write("nupp: " .. tostring(textErr) .. "\n");
+            return 1
+        end
+        local written, writeErr = writeFile(opts.emitStage0, text)
         if not written then
             io.stderr:write("nupp: " .. tostring(writeErr) .. "\n");
             return 1
         end
     end
-    removeTree(join(root, stage1));
-    removeTree(join(root, stage2))
+
     if opts.result then
         opts.result.target = targetName
-        opts.result.updatedBootstrap = opts.updateBootstrap and true or false
+        opts.result.stage0 = stage0
+        opts.result.emittedStage0 = opts.emitStage0
     else
-        io.write("fixpoint ok: compiler rebuilds itself byte-identically\n")
+        io.write(("fixpoint ok: %s rebuilds itself byte-identically\n"):format(stage0))
+        if opts.emitStage0 then
+            io.write(("wrote the stage-zero compiler to %s\n"):format(opts.emitStage0))
+        end
     end
 
     return 0

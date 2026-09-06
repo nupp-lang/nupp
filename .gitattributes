@@ -5,10 +5,11 @@ host/notices/*.txt text eol=lf
 # anything reads it. Windows is where that happens.
 *.nupp text eol=lf
 
-# The tracked stage-0 compiler is compared byte-for-byte with a fresh bundle.
-# Its non-Nupp text resources are embedded verbatim, so every one needs one
-# checkout spelling on Windows as well as Unix hosts.
-bootstrap/nupp.lua text eol=lf
+# The stage-zero compiler embeds these verbatim, and its digest is pinned in
+# `scripts/toolchain.pins` as a value anyone can reproduce by rebuilding the
+# bundle from the tagged source. A checkout that translates line endings
+# reproduces a different one, which is Windows, so every embedded resource needs
+# one checkout spelling.
 tests/run.lua text eol=lf
 src/nupp/compiler/doc/theme.css text eol=lf
 src/nupp/compiler/build/stub-catalog.json text eol=lf

@@ -33,3 +33,20 @@ LPEG_SHA256=4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a
 LPEG_URL='https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-${LPEG_VERSION}.tar.gz'
 LPEG_MARKER=lptree.c
 LPEG_DIRECTORY='lpeg-${LPEG_VERSION}'
+
+# The stage-zero compiler: the previous release's own compiler, lowered to one
+# Lua file, which is what compiles this tree's Nupp the first time. It is the
+# one pin whose subject is Nupp itself, and it is why the compiler's sources are
+# written in the language of the tag below rather than the language of this
+# commit -- a feature reaches them only after a release carrying it is tagged
+# and this pin moves to it. NEP 32 records why.
+#
+# The digest is of the decompressed bundle, not of the `.gz` the release
+# publishes. Two gzips given identical input write different bytes, so pinning
+# the compressed form would pin whichever gzip cut the release; the digest of
+# the source the compiler actually loads is reproducible from the tag by anyone
+# who rebuilds it. `scripts/toolchain stage0` verifies it after decompressing
+# and before installing, and an offline builder may supply either spelling.
+STAGE0_TAG=v0.0.2
+STAGE0_SHA256=8da74e00bf2e1e67792fb41ee7c9ede4269002411a99e2e7a49ac658bf93d7e4
+STAGE0_URL='https://github.com/nupp-lang/nupp/releases/download/${STAGE0_TAG}/nupp-stage0-${STAGE0_TAG}.lua.gz'
