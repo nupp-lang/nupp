@@ -84,16 +84,39 @@ export function findKey(name: string): unknown
     return named[name]
 end
 
---- Returns a fresh table from every registered name to its id.
---- @return the caller-owned listing
+--- The step of [](nupp.data.registeredKeys).
+---
+--- Terminating on nil is the generic for's business, so the surface type
+--- promises what the loop delivers rather than what the last call returns.
 --- @export
-export function listKeys(): {[string]: integer}
-    local result: {[string]: integer} = {}
-    for name, key in pairs(named) do
-        result[name] = key.id
+export type KeyStep = function(any, integer): (integer, string)
+
+local function nextKey(_: any, after: integer): (integer?, string?)
+    local id: integer = after + 1
+    local last: integer = nextId - 1
+    while id <= last do
+        local name: string? = names[id]
+        if name ~= nil then
+            return id, name
+        end
+        id = id + 1
     end
 
-    return result
+    return nil, nil
+end
+
+--- Walks every registered name, ascending by id.
+---
+--- The walk allocates nothing: the step is one shared function and the control
+--- variable is the id it last reported. The registry itself is never handed
+--- out, so nothing the loop is given can be used to reach or change it. An
+--- anonymous key registers no name and is not walked.
+--- @return the step the loop calls
+--- @return nothing to carry, since the ids are the whole state
+--- @return the id to resume after, 0 to start
+--- @export
+export function keys(): (KeyStep, any, integer)
+    return nextKey as KeyStep, nil, 0
 end
 
 --- Creates an empty store.

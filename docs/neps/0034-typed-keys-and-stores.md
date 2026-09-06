@@ -97,7 +97,10 @@ end
 
 function nupp.data.newKey<T>(name: string?): Key<T>
 function nupp.data.findKey(name: string): unknown
-function nupp.data.listKeys(): {[string]: integer}
+--- The step the generic for is handed; nil-terminating is the loop's business.
+type nupp.data.KeyStep = function(any, integer): (integer, string)
+
+function nupp.data.registeredKeys(): (KeyStep, any, integer)
 function nupp.data.newStore(): Store
 function nupp.data.clearStore(store: Store): nil
 --- The step the generic for is handed; nil-terminating is the loop's business.
@@ -180,7 +183,11 @@ never carry one.
 
 **Lookup.** `findKey` returns the registered key or `nil`, typed `unknown`. The
 caller casts to `Key<T>` and owns that claim; the registry knows the name's id
-and nothing about its type. `listKeys` returns a fresh table from name to id.
+and nothing about its type. `registeredKeys` walks every registered name
+ascending by id. Listing the registry must not cost garbage to list it, so the
+walk allocates nothing and drives on the ids alone: the registry table is never
+handed to the loop, and so never to the caller either. An anonymous key
+registers no name and is not walked.
 
 **Stores.** `newStore` creates an independent bag; two stores share keys and
 nothing else. `clearStore` drops every value and touches no registration.

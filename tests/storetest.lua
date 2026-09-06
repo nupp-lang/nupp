@@ -84,15 +84,28 @@ function M.findKeyReturnsTheRegisteredIdentityOrNil()
     check.equal(data.findKey("store.test.absent"), nil)
 end
 
-function M.listKeysIsADetachedSnapshot()
-    local key = data.newKey("store.test.list")
-    local listing = data.listKeys()
-    check.equal(listing["store.test.list"], key.id)
-    listing["store.test.list"] = -1
-    listing["store.test.injected"] = 99
-    local again = data.listKeys()
-    check.equal(again["store.test.list"], key.id)
-    check.equal(again["store.test.injected"], nil)
+function M.registeredKeysWalksNamesAscendingByIdWithoutTheRegistry()
+    local first = data.newKey("store.test.list.first")
+    local anonymous = data.newKey(nil)
+    local second = data.newKey("store.test.list.second")
+    local seen = {}
+    for id, name in data.registeredKeys() do
+        seen[name] = id
+        check.assert(id ~= anonymous.id, "an anonymous key was walked")
+    end
+    check.equal(seen["store.test.list.first"], first.id)
+    check.equal(seen["store.test.list.second"], second.id)
+    -- Ascending by id, where the old snapshot came back in pairs order.
+    local ids = {}
+    for id in data.registeredKeys() do
+        ids[#ids + 1] = id
+    end
+    for index = 2, #ids do
+        check.assert(ids[index] > ids[index - 1], "ids did not ascend")
+    end
+    -- The loop is handed a step and an integer, so there is no registry to reach.
+    local _, state = data.registeredKeys()
+    check.equal(state, nil)
 end
 
 function M.storesAreIndependentAndKeysAreShared()

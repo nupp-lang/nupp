@@ -93,12 +93,15 @@ Names are opaque strings registered once per runtime state. The empty name and
 a name already registered raise before an id is used; anonymous keys are always
 fresh. `findKey` returns the registered key as `unknown`, because the registry
 knows the name's id and nothing about its type, and the caller casts to the
-`Key<T>` it claims. `listKeys` returns a fresh table from name to id.
+`Key<T>` it claims. `registeredKeys` walks every registered name ascending by
+id, allocating nothing and never handing out the registry itself.
 
 ```nupp
 local found = nupp.data.findKey("game.frames") as nupp.data.Key<integer>
 assert(found.id == frames.id)
-assert(nupp.data.listKeys()["game.frames"] == frames.id)
+for id, name in nupp.data.registeredKeys() do
+    assert(id > 0 and #name > 0)
+end
 ```
 
 Ids are allocated in declaration order and identify a key inside this runtime
@@ -264,6 +267,9 @@ export type Store = store.Store
 --- The step of [](nupp.data.storeEntries).
 export type StoreStep = store.StoreStep
 
+--- The step of [](nupp.data.registeredKeys).
+export type KeyStep = store.KeyStep
+
 --- Creates a key whose type argument comes from the annotation at its declaration.
 ---
 --- @param name the opaque name to register, or nil for an anonymous key
@@ -283,11 +289,13 @@ function data.findKey(name: string): unknown
     return store.findKey(name)
 end
 
---- Returns a fresh table from every registered name to its id.
---- @return the caller-owned listing
+--- Walks every registered name, ascending by id.
+--- @return the step the loop calls
+--- @return nothing to carry, since the ids are the whole state
+--- @return the id to resume after, 0 to start
 --- @export
-function data.listKeys(): {[string]: integer}
-    return store.listKeys()
+function data.registeredKeys(): (KeyStep, any, integer)
+    return store.keys()
 end
 
 --- Creates an empty store.
