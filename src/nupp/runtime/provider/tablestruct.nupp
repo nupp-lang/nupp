@@ -178,10 +178,14 @@ function provider.define(layout: any, methods: table): any
         return type(value) == "table" and getmetatable(value) == instances
     end
 
+    -- Indexing a LuaJIT ctype consults its metatype's index table, which is how
+    -- a struct's generated constructor and its statics are reached through the
+    -- declaration. The portable declaration resolves the same names the same way.
     setmetatable(fixed, {
         __call = function(_, ...)
             return fixed:of(...)
         end,
+        __index = methods.__index,
     })
 
     return fixed

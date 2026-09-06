@@ -3,6 +3,15 @@ local struct Point
     y: int16
 end
 
+local struct Scaled
+    x: uint8
+    y: int16 = 2
+
+    constructor(self, x: integer)
+        self.x = x * 2
+    end
+end
+
 local simd = require("nupp.simd")
 
 local function main(): string
@@ -58,6 +67,7 @@ local function main(): string
     local cleared = next(presized) == nil
     local cloned = table.clone({value = 14})
     local point = new Point(258, -2)
+    local scaled = new Scaled(3)
     local shifted = (0x55 | 0xaa) << 1
     local species = simd.preferredU8()
     local digits = species:loadString("aZ09............", 0):inRange(48, 57):count()
@@ -70,7 +80,8 @@ local function main(): string
         nil,
         nil
     )}:${called}:${bracketed}:${methodValue}:${mutable?.value}:${total}:${customary}:${separated}:${hexadecimal}:${calls}:${unpacked}:${loaded}:${cleared}:${cloned.value}:${point.x == 2
-        and point.y == -2}:${shifted}:${digits}:${wideWrapped < wideValue}`
+        and point.y == -2}:${scaled.x == 6
+        and scaled.y == 2}:${shifted}:${digits}:${wideWrapped < wideValue}`
 end
 
 print(main())

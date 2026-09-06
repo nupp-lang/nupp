@@ -5125,6 +5125,10 @@ function gen.generate(
                     if entry.kind == "inlineMethod" then
                         entry.inlineRuntimeOwner = mt .. ".__index"
                         emit(entry)
+                    elseif entry.kind == "constructorDecl" then
+                        entry.inlineRuntimeOwner = mt .. ".__index"
+                        entry.structAllocator = path or x.name.text
+                        emit(entry)
                     end
                 end
                 emitInheritedDefaults(x, mt .. ".__index")
@@ -5230,6 +5234,14 @@ function gen.generate(
             for _, entry in ipairs(x.entries or {}) do
                 if entry.kind == "inlineMethod" then
                     entry.inlineRuntimeOwner = mt .. ".__index"
+                    emit(entry)
+                elseif entry.kind == "constructorDecl" then
+                    -- `new S(...)` resolves to `S.__nuppCtorN(...)`, and indexing the
+                    -- ctype consults the same metatype table an instance does, so the
+                    -- constructor lives beside the methods and is reached through the
+                    -- declaration itself.
+                    entry.inlineRuntimeOwner = mt .. ".__index"
+                    entry.structAllocator = path or x.name.text
                     emit(entry)
                 end
             end
@@ -6366,18 +6378,40 @@ function gen.generate(
                     ) .. pluck.renderData(default.value)
                 end
             end
-            e(
-                (
-                    "function %s.%s(%s) local self = setmetatable({%s}, %s)"
-                ):format(
-                    owner,
-                    constructorMember(x.constructorIndex),
-                    table.concat(names, ", "),
-                    table.concat(seeded, ", "),
-                    owner
-                ),
-                line
-            )
+            if x.structAllocator then
+                -- A struct instance is the ctype's own allocation, zero-filled, and
+                -- has no table to seed at construction: a default is a field write
+                -- like the ones the body makes, in declaration order ahead of it.
+                local writes = {}
+                for _, assignment in ipairs(seeded) do
+                    writes[#writes + 1] = " self." .. assignment
+                end
+                e(
+                    (
+                        "function %s.%s(%s) local self = %s()%s"
+                    ):format(
+                        owner,
+                        constructorMember(x.constructorIndex),
+                        table.concat(names, ", "),
+                        x.structAllocator,
+                        table.concat(writes)
+                    ),
+                    line
+                )
+            else
+                e(
+                    (
+                        "function %s.%s(%s) local self = setmetatable({%s}, %s)"
+                    ):format(
+                        owner,
+                        constructorMember(x.constructorIndex),
+                        table.concat(names, ", "),
+                        table.concat(seeded, ", "),
+                        owner
+                    ),
+                    line
+                )
+            end
             if body.varargParam then
                 e(("const %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
             end

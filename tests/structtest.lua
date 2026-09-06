@@ -295,4 +295,80 @@ function M.bitWidthNeedsAStructToLiveIn()
    assertEq(diagsOf("local record R\n   f: uint32 : 1\nend"), "NUPP2201:2")
 end
 
+-- A struct may declare a constructor the way a record does, and `new` then runs
+-- it. The checker already routed the call to the minted member; the struct branch
+-- of the emitter never wrote that member, so the call failed at run time with
+-- the ctype reporting it had no such name.
+local SCALED = table.concat({
+   "local struct S",
+   "   x: float",
+   "   y: float = 2.0",
+   "   constructor(self, x: float)",
+   "      self.x = x * 2",
+   "   end",
+   "end",
+}, "\n")
+
+function M.structConstructorRunsUnderNew()
+   assertClean(SCALED .. "\nlocal s = new S(1.5)\nlocal n: number = s.x + s.y")
+   local x, y = run(SCALED .. "\nlocal s = new S(1.5)\nreturn s.x, s.y")
+   assertEq(x, 3, "the body ran on the allocated instance")
+   assertEq(y, 2, "a field default is seeded before the body")
+end
+
+function M.structConstructorReturnsTheCdata()
+   local isCdata, sizeMatches = run(SCALED .. table.concat({
+      "",
+      "local s = new S(4)",
+      "local ffi = require(\"ffi\")",
+      "return type(s) == \"cdata\", ffi.sizeof(s) == ffi.sizeof(S)",
+   }, "\n"))
+   assertEq(isCdata, true, "the constructor hands back the ctype's allocation")
+   assertEq(sizeMatches, true, "and it is an instance of that struct")
+end
+
+function M.structConstructorAttachesToTheMetatypeIndex()
+   local code = compile(SCALED .. "\nreturn new S(1)")
+   assert(code:find("function __nuppMt_S.__index.__nuppCtor1(x) local self = S() self.y = 2", 1, true),
+      code)
+   assert(code:find("S .__nuppCtor1 ( 1 )", 1, true), code)
+   assert(not code:find("setmetatable", 1, true), "a struct constructor allocates no table")
+end
+
+function M.dottedStructConstructorReachesItsMetatable()
+   local m, x = run(table.concat({
+      "local m = {}",
+      "struct m.Vec",
+      "   x: number",
+      "   constructor(self, x: number)",
+      "      self.x = x + 1",
+      "   end",
+      "end",
+      "local v = new m.Vec(1)",
+      "return m, v.x",
+   }, "\n"))
+   assert(type(m) == "table", "the dotted owner is the authored table")
+   assertEq(x, 2)
+end
+
+function M.structConstructorClosesPositionalConstruction()
+   -- Declaring a constructor is declaring how the struct is built, so the
+   -- positional form has to match the constructor's parameters rather than the
+   -- fields.
+   local got = diagsOf(SCALED .. "\nlocal s = new S(1.5, 2.5)")
+   assert(got:find("NUPP2", 1, true), "two arguments to a one-parameter constructor: " .. got)
+end
+
+function M.structConstructorMustFillEveryField()
+   assertEq(diagsOf(table.concat({
+      "local struct S",
+      "   x: float",
+      "   y: float",
+      "   constructor(self, x: float)",
+      "      self.x = x",
+      "   end",
+      "end",
+   }, "\n")), "NUPP2208:4")
+end
+
 return M

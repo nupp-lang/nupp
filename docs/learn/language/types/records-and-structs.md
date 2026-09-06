@@ -282,6 +282,27 @@ local a = new Vec2(1.0, 2.0) -- positional, in field order
 local b: Vec2 -- zero-initialized
 ```
 
+A struct may declare a [constructor](#constructors-and-result-policies) the
+way a record does, and `new` then runs it instead of filling fields
+positionally. The instance is the ctype's own zero-filled allocation, so a
+field default is written into it before the body runs, and the body assigns
+the rest. The generated function sits on the metatype beside the struct's
+methods and returns the cdata it allocated:
+
+```nupp
+local struct Scaled
+    x: float
+    y: float = 2.0
+
+    constructor(self, x: float)
+        self.x = x * 2
+    end
+end
+
+local s = new Scaled(1.5)
+print(s.x, s.y) -- 3 2
+```
+
 ### Struct field types
 
 The field type has to be reifiable, meaning something with a C layout:
