@@ -14,18 +14,6 @@ local backends = {}
 
 local registry = require("nupp.runtime.seam.registry")
 
--- Reading a backend module off disk is a host service, and this file is compiled
--- into a browser compiler that has no disk. The name is a parameter so closure
--- discovery treats the require as computed and the portable bundle does not carry
--- `nupp.compiler.fs` -- which reaches `nupp.io.files` and the FFI beneath it, none
--- of which stock Lua 5.1 can compile.
---
--- Two literals joined at the call said the same thing until they were folded back
--- into one, and the generated Lua then named the module outright.
-local function compilerPrivate(name: string): any
-    return require("nupp.compiler." .. name)
-end
-
 --- The Lua value of a string literal node, or nil for anything else.
 local function literalString(node: any): string?
     local token = node and node.kind == "string" and node.token or nil
@@ -223,7 +211,8 @@ function backends.resolve(inc: any, selected: {string}?): any?, string?, any?
             ), {module = moduleName, path = path}
         end
         descriptor.module = moduleName
-        local source = compilerPrivate("fs").readFile(path)
+        local fs: any = require("nupp.compiler." .. "fs")
+        local source = fs.readFile(path)
         if source ~= nil then
             descriptor.digest = require("nupp.compiler.hash").digest(source)
         end

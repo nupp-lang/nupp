@@ -22,29 +22,13 @@ importing the first.
 
 local bundled = {}
 
--- Guarded the way `os` is below. The portable compiler runs in a host with six
--- libraries and no `debug`, and it is also the one build that carries every
--- declaration inside itself -- so the question this answers, which checkout the
--- carried files came from, has no answer there and needs none.
 local function moduleDir(): string
-    local hostDebug: any = debug
-    if hostDebug == nil then
-        return "."
-    end
-    local source = hostDebug.getinfo(1, "S").source
-
+    local source = debug.getinfo(1, "S").source
     return source:match("^@(.*)[/\\]") or "."
 end
 
--- Guarded like the reads around it. There is no `io` in the six-library host either,
--- and no filesystem behind one if there were: a bundle that carries a file answers
--- from what it carries, and a file it does not carry is a file that is not there.
 local function readFile(path: string): string?
-    local hostIo: any = io
-    if hostIo == nil then
-        return nil
-    end
-    local file = hostIo.open(path, "rb")
+    local file = io.open(path, "rb")
     if not file then
         return nil
     end
