@@ -37,12 +37,21 @@ function triviaarena.install(provider: Provider): nil
     selected = provider
 end
 
+-- The name is a parameter so closure discovery treats the require as computed, the
+-- way `nupp.compiler.env` reaches its own host services. Concatenating two literals
+-- at the call read as computed only until something folded them back into one: the
+-- generated Lua then said `require("nupp.compiler.triviaarena.ffi")` outright, and the
+-- portable compiler's source closure acquired an FFI arena that stock Lua 5.1 cannot
+-- compile and that bundle never reaches.
+local function load(name: string): Provider
+    return require("nupp.compiler.triviaarena." .. name) as Provider
+end
+
 local function provider(): Provider
     if selected == nil then
-        -- Computed deliberately: a Lua 5.1 compiler bundle installs its table provider
-        -- before reaching this path and must not pull the FFI implementation into its
-        -- source closure merely because native compiler entry points default to it.
-        selected = require("nupp.compiler.triviaarena." .. "ffi") as Provider
+        -- A Lua 5.1 compiler bundle installs its table provider before reaching this
+        -- path; native compiler entry points default to the FFI one here.
+        selected = load("ffi")
     end
 
     return selected as Provider
