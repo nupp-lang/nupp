@@ -77,6 +77,8 @@ intrinsic namespaces and the declared modules:
   views.
 - [`nupp.mem.soa`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
+- [](nupp.mem.pool) leases cleared record instances from a free list, and
+  [](nupp.mem.arena) leases zero-filled struct rows from pages that never move.
 - [](nupp.gpu) owns resident buffers, generated kernel dispatches, and
   tensor views; its browser provider also supplies the bounded `xorU32`
   convenience operation. [](nupp.gpu.layout) owns the checked layout algebra.

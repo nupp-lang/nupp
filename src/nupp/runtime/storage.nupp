@@ -17,8 +17,14 @@ export function copy(destination: any, source: any, count: integer): nil
     ffi.copy(destination, source, count)
 end
 
+-- A struct reference is a pointer to its row here, so a row handed out of a
+-- `T[?]` clears with the same call as the array it sits in.
 export function fill(destination: any, count: integer, value: integer): nil
     ffi.fill(destination, count, value)
+end
+
+export function sizeOf(element: any): integer
+    return ffi.sizeof(element) as integer
 end
 
 export function string(source: any, count: integer): string

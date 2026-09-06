@@ -1,0 +1,211 @@
+-- nupp.mem.pool: record instances leased from a free list, cleared on release.
+local pool = require("nupp.mem.pool")
+local test = require("nupp.test")
+
+local M = {}
+
+local record Event
+    x: integer
+    name: string?
+end
+
+-- Bytes allocated while `body` ran, with the collector stopped: the count
+-- reports the current heap, so with the collector running a delta would
+-- measure what survived a collection rather than what was allocated.
+local function allocated(body: function(): nil): number
+    collectgarbage("collect")
+    collectgarbage("stop")
+    local before = collectgarbage("count")
+    local ok, problem = pcall(body)
+    local after = collectgarbage("count")
+    collectgarbage("restart")
+    collectgarbage("collect")
+    if not ok then
+        error(problem, 0)
+    end
+
+    return (after - before) * 1024
+end
+
+local function hasNoFields(value: Event): boolean
+    return next(value as any) == nil
+end
+
+function M.newReservesTheCapacityUpFront(): nil
+    local events = pool.new(Event, 4)
+    test.equal(events.capacity, 4)
+    test.equal(events:free(), 4)
+    test.equal(events:live(), 0)
+    test.equal(pool.new(Event).capacity, 32)
+    test.raises(
+        function()
+            pool.new(Event, -1)
+        end,
+        "negative"
+    )
+end
+
+function M.acquireStampsTheDeclarationWithNoFieldsSet(): nil
+    local events = pool.new(Event, 2)
+    local event = events:acquire()
+    assert(event is Event, "the instance carries the record's metatable")
+    assert(hasNoFields(event), "a fresh instance has no fields")
+    test.equal(events:live(), 1)
+    test.equal(events:free(), 1)
+    events:release(event)
+end
+
+function M.reserveThenAcquireWithinCapacityAllocatesNothing(): nil
+    local events = pool.new(Event, 64)
+    local function churn(rounds: integer): nil
+        for _ = 1, rounds do
+            local event = events:acquire()
+            event.x = 1
+            event.name = "warm"
+            events:release(event)
+        end
+    end
+
+    -- The first rounds are where the trace is recorded, which is its own
+    -- allocation; the measured rounds run on the warmed path.
+    churn(500)
+    local bytes = allocated(function()
+        churn(10000)
+    end)
+    assert(bytes < 1024, "acquire and release within capacity allocated " .. tostring(bytes) .. " bytes")
+
+    -- A burst of the whole capacity out at once and back, also warm.
+    local held: {Event} = {}
+    local function burst(rounds: integer): nil
+        for _ = 1, rounds do
+            for index = 1, 64 do
+                local event = events:acquire()
+                event.x = index
+                held[index] = event
+            end
+            for index = 1, 64 do
+                events:release(held[index])
+            end
+        end
+    end
+
+    burst(200)
+    bytes = allocated(function()
+        burst(100)
+    end)
+    assert(bytes < 1024, "a warm burst to capacity allocated " .. tostring(bytes) .. " bytes")
+end
+
+function M.releaseClearsEveryField(): nil
+    local events = pool.new(Event, 1)
+    local event = events:acquire()
+    event.x = 7
+    event.name = "seven"
+    events:release(event)
+    test.equal(events:live(), 0)
+    test.equal(events:free(), 1)
+    local again = events:acquire()
+    assert(again == event, "within capacity the same instance comes back")
+    assert(hasNoFields(again), "a released instance comes back with no fields")
+    events:release(again)
+end
+
+function M.instancesAreDistinctWhileLive(): nil
+    local events = pool.new(Event, 3)
+    local seen: {[Event]: boolean} = {}
+    local held: {Event} = {}
+    for index = 1, 8 do
+        local event = events:acquire()
+        assert(not seen[event], "a live instance was handed out twice")
+        seen[event] = true
+        event.x = index
+        held[index] = event
+    end
+    test.equal(events:live(), 8)
+    test.equal(events:free(), 0)
+    for index = 1, 8 do
+        test.equal(held[index].x, index)
+    end
+    for index = 1, 8 do
+        events:release(held[index])
+    end
+end
+
+function M.releaseDiscardsPastCapacity(): nil
+    local events = pool.new(Event, 2)
+    local held: {Event} = {}
+    for index = 1, 5 do
+        held[index] = events:acquire()
+    end
+    for index = 1, 5 do
+        events:release(held[index])
+    end
+    test.equal(events:free(), 2)
+    test.equal(events:live(), 0)
+end
+
+function M.reserveTopsTheFreeListUp(): nil
+    local events = pool.new(Event, 4)
+    local held: {Event} = {}
+    for index = 1, 4 do
+        held[index] = events:acquire()
+    end
+    test.equal(events:free(), 0)
+    events:reserve(2)
+    test.equal(events:free(), 2)
+    events:reserve(1)
+    test.equal(events:free(), 2, "reserve never shrinks the free list")
+    events:reserve(6)
+    test.equal(events:free(), 6, "reserve may hold more than capacity")
+    test.raises(
+        function()
+            events:reserve(-1)
+        end,
+        "negative"
+    )
+    for index = 1, 4 do
+        events:release(held[index])
+    end
+    test.equal(events:free(), 6, "releases past capacity are discarded, not the reserve")
+end
+
+function M.resetWithLiveInstancesRaisesAndChangesNothing(): nil
+    local events = pool.new(Event, 3)
+    local event = events:acquire()
+    test.raises(
+        function()
+            events:reset()
+        end,
+        "live"
+    )
+    test.equal(events:live(), 1)
+    test.equal(events:free(), 2)
+    test.equal(events.capacity, 3)
+    events:release(event)
+    events:reset()
+    test.equal(events:free(), 0)
+    test.equal(events:live(), 0)
+    test.equal(events.capacity, 3)
+    events:reserve(3)
+    test.equal(events:free(), 3)
+end
+
+function M.releaseRefusesWhatThePoolDidNotStamp(): nil
+    local events = pool.new(Event, 1)
+    test.raises(
+        function()
+            events:release(new Event(x = 1))
+        end,
+        "without a live instance"
+    )
+    local event = events:acquire()
+    test.raises(
+        function()
+            (events as any):release({})
+        end,
+        "did not stamp"
+    )
+    events:release(event)
+end
+
+return M

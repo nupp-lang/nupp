@@ -44,6 +44,8 @@ local BUNDLED = {
     "nupp.mem.span",
     "nupp.mem.heap",
     "nupp.mem.array",
+    "nupp.mem.pool",
+    "nupp.mem.arena",
     "nupp.runtime.backend.portable",
     "nupp.runtime.backend.wasm",
     "nupp.profile.zone",

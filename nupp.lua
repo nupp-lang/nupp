@@ -189,6 +189,8 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/wasmstorage.nupp",
     },
     {source = "src/nupp/mem/array.nupp", output = "nupp/compiler/nupp/mem/array.nupp"},
+    {source = "src/nupp/mem/pool.nupp", output = "nupp/compiler/nupp/mem/pool.nupp"},
+    {source = "src/nupp/mem/arena.nupp", output = "nupp/compiler/nupp/mem/arena.nupp"},
     {source = "src/nupp/runtime/seam/jsonsuite.nupp", output = "nupp/compiler/nupp/runtime/seam/jsonsuite.nupp",},
     {source = "src/nupp/runtime/seam/bitopssuite.nupp", output = "nupp/compiler/nupp/runtime/seam/bitopssuite.nupp",},
     {source = "src/nupp/data/utf8.nupp", output = "nupp/compiler/nupp/data/utf8.nupp"},

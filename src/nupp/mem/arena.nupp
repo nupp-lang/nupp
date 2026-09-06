@@ -1,0 +1,223 @@
+module nupp.mem.arena
+
+--[[
+A paged allocator of struct rows whose pages never move.
+
+Rows are handed out in order from fixed-size pages of one struct type. A page
+is allocated once and stays where it is, so a row reference is good for as
+long as the arena is; growth adds a page beside the others rather than moving
+anything. A reset rewinds to the first row of the first page and keeps every
+page, which is what makes the next epoch allocation-free.
+
+```nupp
+local arena = nupp.mem.arena
+
+local struct Impact
+    x: float
+    y: float
+end
+
+local impacts = arena.new(Impact, 256)
+local impact = impacts:acquire() -- zero-filled
+impact.x = 1.5
+impacts:release(impact)
+impacts:reset() -- rewinds; the page stays
+```
+
+Every acquired row reads as zero, whether it is fresh or one a reset made
+available again. A release ends a lease and nothing more: the cursor does not
+rewind until `reset`, and `reset` refuses while any lease is live, so a row
+that is out is never handed out twice.
+
+Storage comes from the `cstorage` capability, so the module is available on
+native LuaJIT and on the Wasm and browser backends, and refused by `portable`.
+Table-backed record instances are [](nupp.mem.pool).
+]]
+
+local storage = require("nupp.runtime.storage")
+local arena = {}
+
+--- A paged allocator of rows of one struct type.
+--- @export
+record arena.Arena<S>
+    private readonly element: any
+    private readonly width: integer
+
+    --- How many rows each page holds.
+    readonly pageSize: integer
+
+    private pageList: {S[?]}
+    private rows: {{S}}
+    private pageIndex: integer
+    private cursor: integer
+    private usedCount: integer
+    private liveCount: integer
+
+    --- Hands out the next row, zero-filled.
+    acquire: function(exclusive self: Arena<S>): S
+
+    --- Ends a lease without rewinding the cursor.
+    release: function(exclusive self: Arena<S>, borrows row: S): nil
+
+    --- Rewinds every used page's cursor and keeps the pages.
+    reset: function(exclusive self: Arena<S>): nil
+
+    --- How many pages the arena holds.
+    pages: function(self: Arena<S>): integer
+
+    --- How many rows were handed out since the last reset.
+    used: function(self: Arena<S>): integer
+
+    --- How many rows are acquired and not yet released.
+    live: function(self: Arena<S>): integer
+end
+
+-- Allocates page `index` and caches one reference per row, so an acquire is an
+-- array read and a cursor increment rather than an indexing operation that
+-- would box a fresh reference each time.
+local function addPage<S>(exclusive self: arena.Arena<S>, index: integer): nil
+    local page = storage.allocateArray(self.element, self.pageSize) as S[?]
+    local cached: {S} = {}
+    unsafe do
+        for offset = 0, self.pageSize - 1 do
+            cached[offset + 1] = page[offset]
+        end
+    end
+    self.pageList[index] = page
+    self.rows[index] = cached
+end
+
+--- Hands out the next row, zero-filled.
+---
+--- Once the page the cursor reaches exists, this allocates nothing: the row is
+--- a reference cached when its page was made. A cursor that runs off the last
+--- page allocates one more page, beside the others.
+---
+--- @param self the arena
+--- @return the row, live until it is released
+--- @export
+function arena.Arena.acquire<S>(exclusive self: arena.Arena<S>): S
+    local cursor = self.cursor
+    local page = self.pageIndex
+    if cursor >= self.pageSize then
+        page = page + 1
+        cursor = 0
+        if self.pageList[page] == nil then
+            addPage(self, page)
+        end
+        self.pageIndex = page
+    end
+    cursor = cursor + 1
+    self.cursor = cursor
+    self.usedCount = self.usedCount + 1
+    self.liveCount = self.liveCount + 1
+    local row = self.rows[page][cursor]
+    storage.fill(row, self.width, 0)
+
+    return row
+end
+
+--- Ends a lease.
+---
+--- The cursor does not rewind: the row's storage is not reused until `reset`,
+--- so a reference kept past its release still names the row it named.
+---
+--- @param self the arena
+--- @param row the row whose lease ends
+--- @raises when no lease is live
+--- @export
+@allow("unused-binding")
+function arena.Arena.release<S>(exclusive self: arena.Arena<S>, borrows row: S): nil
+    if self.liveCount == 0 then
+        error("arena release without a live lease", 2)
+    end
+    self.liveCount = self.liveCount - 1
+end
+
+--- Rewinds every used page's cursor to its first row and keeps the pages.
+---
+--- Refused while any lease is live, before anything changes, because a rewind
+--- would hand a live row out a second time. The rows read as zero again when
+--- they are next acquired.
+---
+--- @param self the arena
+--- @raises when any lease is live
+--- @export
+function arena.Arena.reset<S>(exclusive self: arena.Arena<S>): nil
+    if self.liveCount > 0 then
+        error("arena reset with " .. tostring(self.liveCount) .. " live leases", 2)
+    end
+    self.pageIndex = 0
+    self.cursor = self.pageSize
+    self.usedCount = 0
+end
+
+--- How many pages the arena holds, used or not.
+--- @param self the arena
+--- @return the page count
+--- @export
+function arena.Arena.pages<S>(self: arena.Arena<S>): integer
+    return #self.pageList
+end
+
+--- How many rows were handed out since the last reset.
+--- @param self the arena
+--- @return the used count
+--- @export
+function arena.Arena.used<S>(self: arena.Arena<S>): integer
+    return self.usedCount
+end
+
+--- How many rows are acquired and not yet released.
+--- @param self the arena
+--- @return the live count
+--- @export
+function arena.Arena.live<S>(self: arena.Arena<S>): integer
+    return self.liveCount
+end
+
+--- Creates an arena of `witness` rows with one page of `pageSize` rows already
+--- allocated.
+---
+--- ```nupp
+--- local struct Cell
+---     value: int32
+--- end
+---
+--- local cells = arena.new(Cell, 16)
+--- assert(cells:pages() == 1 and cells:used() == 0)
+--- ```
+---
+--- @param witness the struct declaration every row is laid out as
+--- @param pageSize rows per page, 256 when omitted
+--- @return the arena, holding its first page
+--- @raises when pageSize is not a positive integer
+--- @export
+function arena.new<S>(witness: Type<S>, pageSize: integer?): arena.Arena<S>
+    local rows = pageSize or 256
+    if rows < 1 or rows % 1 ~= 0 then
+        error("arena page size must be a positive integer", 2)
+    end
+    -- The physical descriptor is answered for a value: on LuaJIT the
+    -- declaration is already the ctype, and a table-backed provider knows a
+    -- struct by an instance carrying it. Calling the declaration gives one
+    -- either way.
+    local sample = (witness as any)()
+    local element = storage.descriptor(sample)
+    local created = new arena.Arena(
+        element = element,
+        width = storage.sizeOf(element),
+        pageSize = rows,
+        pageList = {},
+        rows = {},
+        pageIndex = 0,
+        cursor = rows,
+        usedCount = 0,
+        liveCount = 0
+    ) as arena.Arena<S>
+    addPage(created, 1)
+
+    return created
+end
+
+export = arena

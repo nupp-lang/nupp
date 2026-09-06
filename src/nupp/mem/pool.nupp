@@ -1,0 +1,204 @@
+module nupp.mem.pool
+
+--[[
+A pool of record instances of one declared type.
+
+An instance leaves the pool stamped with the declaration and carrying no
+fields, and comes back cleared, so a hot path that would otherwise build a
+table per event reuses the ones it already built.
+
+```nupp
+local pool = nupp.mem.pool
+
+local record Damage
+    amount: integer
+    source: string
+end
+
+local damage = pool.new(Damage, 64)
+local hit = damage:acquire()
+hit.amount = 12
+hit.source = "trap"
+damage:release(hit) -- cleared, and kept for the next acquire
+```
+
+`capacity` is how many released instances the pool keeps; it is not a limit on
+how many are out at once. An acquire past the free list allocates, and a
+release onto a full free list lets the collector have the instance. Within
+capacity, once the free list is warm, neither operation allocates.
+
+Nothing here reaches C storage: the pool is ordinary tables, so it is available
+on every backend. Struct rows are [](nupp.mem.arena).
+]]
+
+local pool = {}
+
+--- A pool of instances stamped with one record declaration.
+--- @export
+record pool.Pool<T is table>
+    private readonly witness: any
+
+    --- How many released instances the pool retains for reuse.
+    readonly capacity: integer
+
+    private freeList: {T}
+    private freeCount: integer
+    private liveCount: integer
+
+    --- Hands out an instance, from the free list or freshly stamped.
+    acquire: function(exclusive self: Pool<T>): T
+
+    --- Clears an instance and returns it to the free list.
+    release: function(exclusive self: Pool<T>, value: T): nil
+
+    --- Stamps free instances until at least `count` are waiting.
+    reserve: function(exclusive self: Pool<T>, count: integer): nil
+
+    --- How many instances are acquired and not yet released.
+    live: function(self: Pool<T>): integer
+
+    --- How many instances are waiting on the free list.
+    free: function(self: Pool<T>): integer
+
+    --- Drops the free list.
+    reset: function(exclusive self: Pool<T>): nil
+end
+
+--- Hands out an instance stamped with the pool's declaration and carrying no
+--- fields.
+---
+--- The free list is consulted first, so within capacity a warmed pool answers
+--- without allocating. Past it, a fresh table is stamped.
+---
+--- @param self the pool
+--- @return the instance, live until it is released
+--- @export
+function pool.Pool.acquire<T is table>(exclusive self: pool.Pool<T>): T
+    self.liveCount = self.liveCount + 1
+    local count = self.freeCount
+    if count == 0 then
+        return setmetatable({}, self.witness) as T
+    end
+    local value = self.freeList[count]
+    self.freeList[count] = nil
+    self.freeCount = count - 1
+
+    return value
+end
+
+--- Clears every field of an instance and returns it to the free list.
+---
+--- The instance is discarded instead when the free list already holds
+--- `capacity` instances, so a burst that acquired past capacity does not leave
+--- the pool holding the burst.
+---
+--- @param self the pool
+--- @param value the instance, spent by this call
+--- @raises when nothing is live, or value was not stamped by the pool's declaration
+--- @export
+function pool.Pool.release<T is table>(exclusive self: pool.Pool<T>, value: T): nil
+    if self.liveCount == 0 then
+        error("pool release without a live instance", 2)
+    end
+    if getmetatable(value) ~= self.witness then
+        error("pool release of a value the pool's declaration did not stamp", 2)
+    end
+    self.liveCount = self.liveCount - 1
+    table.clear(value as any)
+    local count = self.freeCount
+    if count >= self.capacity then
+        return
+    end
+    self.freeList[count + 1] = value
+    self.freeCount = count + 1
+end
+
+--- Stamps free instances until at least `count` are waiting.
+---
+--- A count above `capacity` is honoured: the surplus waits until it is
+--- acquired, and only releases are capped.
+---
+--- @param self the pool
+--- @param count how many free instances to have waiting
+--- @raises when count is negative
+--- @export
+function pool.Pool.reserve<T is table>(exclusive self: pool.Pool<T>, count: integer): nil
+    if count < 0 then
+        error("pool reserve count cannot be negative", 2)
+    end
+    local free = self.freeCount
+    while free < count do
+        free = free + 1
+        self.freeList[free] = setmetatable({}, self.witness) as T
+    end
+    self.freeCount = free
+end
+
+--- How many instances are acquired and not yet released.
+--- @param self the pool
+--- @return the live count
+--- @export
+function pool.Pool.live<T is table>(self: pool.Pool<T>): integer
+    return self.liveCount
+end
+
+--- How many instances are waiting on the free list.
+--- @param self the pool
+--- @return the free count
+--- @export
+function pool.Pool.free<T is table>(self: pool.Pool<T>): integer
+    return self.freeCount
+end
+
+--- Drops the free list, leaving the pool empty and its capacity unchanged.
+---
+--- Refused while anything is live, before anything changes: an instance that
+--- is out belongs to whoever holds it, and the pool is not going to be the
+--- one to say it is finished.
+---
+--- @param self the pool
+--- @raises when any instance is live
+--- @export
+function pool.Pool.reset<T is table>(exclusive self: pool.Pool<T>): nil
+    if self.liveCount > 0 then
+        error("pool reset with " .. tostring(self.liveCount) .. " live instances", 2)
+    end
+    self.freeList = {}
+    self.freeCount = 0
+end
+
+--- Creates a pool of `witness` instances with `capacity` of them stamped and
+--- waiting.
+---
+--- ```nupp
+--- local record Tick
+---     frame: integer
+--- end
+---
+--- local ticks = pool.new(Tick, 8)
+--- assert(ticks:free() == 8)
+--- ```
+---
+--- @param witness the record declaration, whose metatable stamps every instance
+--- @param capacity how many released instances to retain, 32 when omitted
+--- @return the pool, warmed to capacity
+--- @raises when capacity is negative
+--- @export
+function pool.new<T is table>(witness: Type<T>, capacity: integer?): pool.Pool<T>
+    local retained = capacity or 32
+    if retained < 0 then
+        error("pool capacity cannot be negative", 2)
+    end
+    local created = new pool.Pool(
+        witness = witness,
+        capacity = retained,
+        freeList = {},
+        freeCount = 0,
+        liveCount = 0
+    ) as pool.Pool<T>
+    created:reserve(retained)
+
+    return created
+end
+
+export = pool

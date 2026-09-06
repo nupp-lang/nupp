@@ -105,6 +105,10 @@ local MODULES = {
     ["nupp.time"] = selected("host", "host.time"),
     ["nupp.workers"] = selected("host", "host.workers"),
     ["nupp.mem.array"] = {kind = "unavailable", capability = "cstorage"},
+    -- Ordinary tables stamped with a record's metatable, so every backend has it.
+    ["nupp.mem.pool"] = {kind = "common"},
+    -- Pages are `S[?]` arrays reached through the storage seam.
+    ["nupp.mem.arena"] = {kind = "unavailable", capability = "cstorage"},
 }
 
 local FACILITIES = {

@@ -9,7 +9,10 @@ to index. Every member is a module of its own, reached by the name it has:
 for owned contiguous arrays on native and Wasm targets, [](nupp.mem.heap)
 for owned malloc-backed arrays, [](nupp.mem.soa) for structure-of-arrays
 storage, and [](nupp.mem.indexed) for the one inclusive range they all validate
-against.
+against. Two allocators hand storage out and take it back rather than viewing
+it: [](nupp.mem.arena) leases zero-filled struct rows from pages that never
+move, and [](nupp.mem.pool) leases cleared record instances, which are ordinary
+tables and so the one member here that needs no C storage at all.
 
 Nothing is re-exported here. A view knows its element count, and every index and
 slice is checked against it before the only unsafe pointer arithmetic in the

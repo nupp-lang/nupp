@@ -1,0 +1,217 @@
+-- nupp.mem.arena: zero-filled struct rows leased from pages that never move.
+local ffi = require("ffi")
+local arena = require("nupp.mem.arena")
+local test = require("nupp.test")
+
+local M = {}
+
+local struct Row
+    x: float
+    y: float
+end
+
+-- Where a row sits. A page's first row is at its start, so this also says
+-- where a page is.
+local function addressOf(row: Row): number
+    -- A struct reference converts to a pointer to its bytes, and a pointer to
+    -- an integer; a struct does not convert to an integer directly.
+    return tonumber(ffi.cast("uintptr_t", ffi.cast("void *", row)) as any) as number
+end
+
+-- Bytes allocated while `body` ran, with the collector stopped: the count
+-- reports the current heap, so with the collector running a delta would
+-- measure what survived a collection rather than what was allocated.
+local function allocated(body: function(): nil): number
+    collectgarbage("collect")
+    collectgarbage("stop")
+    local before = collectgarbage("count")
+    local ok, problem = pcall(body)
+    local after = collectgarbage("count")
+    collectgarbage("restart")
+    collectgarbage("collect")
+    if not ok then
+        error(problem, 0)
+    end
+
+    return (after - before) * 1024
+end
+
+function M.newHoldsOnePageAndHonoursThePageSize(): nil
+    local rows = arena.new(Row, 4)
+    test.equal(rows.pageSize, 4)
+    test.equal(rows:pages(), 1)
+    test.equal(rows:used(), 0)
+    test.equal(rows:live(), 0)
+    for _ = 1, 4 do
+        rows:acquire()
+    end
+    test.equal(rows:pages(), 1, "the page holds exactly pageSize rows")
+    rows:acquire()
+    test.equal(rows:pages(), 2, "the fifth row needs a second page")
+    test.equal(rows:used(), 5)
+    test.equal(rows:live(), 5)
+    test.equal(arena.new(Row).pageSize, 256)
+    test.raises(
+        function()
+            arena.new(Row, 0)
+        end,
+        "positive"
+    )
+end
+
+function M.rowsAreStructReferencesIntoThePage(): nil
+    local rows = arena.new(Row, 4)
+    local first = rows:acquire()
+    assert(ffi.istype(Row, first), "a row is a reference of the struct type")
+    first.x = 1.5
+    local second = rows:acquire()
+    second.x = 2.5
+    test.equal(first.x, 1.5, "rows do not alias")
+    test.equal(second.x, 2.5)
+    test.equal(addressOf(second) - addressOf(first), ffi.sizeof(Row), "rows are contiguous within a page")
+end
+
+function M.nestedAcquiresGiveDistinctRows(): nil
+    local rows = arena.new(Row, 8)
+    local outer = rows:acquire()
+    outer.x = 1
+    local inner = rows:acquire()
+    inner.x = 2
+    local innermost = rows:acquire()
+    innermost.x = 3
+    assert(addressOf(outer) ~= addressOf(inner) and addressOf(inner) ~= addressOf(innermost))
+    test.equal(outer.x, 1)
+    test.equal(inner.x, 2)
+    test.equal(innermost.x, 3)
+    rows:release(innermost)
+    rows:release(inner)
+    rows:release(outer)
+    test.equal(rows:live(), 0)
+    test.equal(rows:used(), 3, "a release does not rewind the cursor")
+    local next = rows:acquire()
+    assert(addressOf(next) ~= addressOf(outer), "a released row is not reused before a reset")
+end
+
+function M.acquireAllocatesNothingOnceItsPageExists(): nil
+    local rows = arena.new(Row, 64)
+    local function epoch(count: integer): nil
+        for _ = 1, count do
+            for _ = 1, 64 do
+                local row = rows:acquire()
+                row.x = 1
+                rows:release(row)
+            end
+            rows:reset()
+        end
+    end
+
+    -- The first epochs are where the trace is recorded, which is its own
+    -- allocation; the measured epochs run on the warmed path.
+    epoch(50)
+    local bytes = allocated(function()
+        epoch(200)
+    end)
+    assert(bytes < 1024, "acquire and release on an existing page allocated " .. tostring(bytes) .. " bytes")
+end
+
+function M.resetWithLiveLeasesRaisesAndChangesNothing(): nil
+    local rows = arena.new(Row, 4)
+    local first = rows:acquire()
+    local second = rows:acquire()
+    second.x = 9
+    test.raises(
+        function()
+            rows:reset()
+        end,
+        "live"
+    )
+    test.equal(rows:used(), 2)
+    test.equal(rows:live(), 2)
+    test.equal(rows:pages(), 1)
+    local third = rows:acquire()
+    assert(addressOf(third) ~= addressOf(first) and addressOf(third) ~= addressOf(second), "the cursor did not rewind")
+    test.equal(second.x, 9)
+    rows:release(first)
+    rows:release(second)
+    rows:release(third)
+end
+
+function M.resetRewindsToPageOneAndRowsReadAsZero(): nil
+    local rows = arena.new(Row, 2)
+    local first = rows:acquire()
+    first.x = 7
+    first.y = 8
+    local second = rows:acquire()
+    second.x = 9
+    local third = rows:acquire()
+    third.y = 10
+    test.equal(rows:pages(), 2)
+    rows:release(first)
+    rows:release(second)
+    rows:release(third)
+    rows:reset()
+    test.equal(rows:used(), 0)
+    test.equal(rows:live(), 0)
+    test.equal(rows:pages(), 2, "a reset keeps the pages")
+    test.equal(first.x, 7, "a reset does not touch the rows until they are leased again")
+
+    local again = rows:acquire()
+    test.equal(addressOf(again), addressOf(first), "the first lease after a reset is the first row of page one")
+    test.equal(again.x, 0)
+    test.equal(again.y, 0)
+    test.equal(addressOf(rows:acquire()), addressOf(second))
+    local reused = rows:acquire()
+    test.equal(addressOf(reused), addressOf(third), "page two is reused rather than allocated")
+    test.equal(reused.y, 0)
+    test.equal(rows:pages(), 2)
+end
+
+function M.pagesNeverMoveWhenTheArenaGrows(): nil
+    local rows = arena.new(Row, 2)
+    local first = rows:acquire()
+    first.x = 3
+    local pageOne = addressOf(first)
+    local kept: {Row} = {first}
+    -- Where each row was when it was leased, before any later page existed.
+    local leasedAt: {number} = {pageOne}
+    local pageStarts: {number} = {pageOne}
+    for index = 2, 8 do
+        local row = rows:acquire()
+        row.x = index + 2
+        kept[index] = row
+        leasedAt[index] = addressOf(row)
+        if index % 2 == 1 then
+            pageStarts[#pageStarts + 1] = addressOf(row)
+        end
+    end
+    test.equal(rows:pages(), 4)
+    test.equal(addressOf(first), pageOne, "the first page stayed where it was")
+    test.equal(first.x, 3, "a write through the old reference still lands in its page")
+    for index = 1, 8 do
+        test.equal(addressOf(kept[index]), leasedAt[index], "row " .. tostring(index) .. " did not move")
+        test.equal(kept[index].x, index + 2)
+    end
+    for index = 1, 8 do
+        rows:release(kept[index])
+    end
+    rows:reset()
+    for page = 1, 4 do
+        local row = rows:acquire()
+        test.equal(addressOf(row), pageStarts[page], "page " .. tostring(page) .. " is where it was")
+        rows:acquire()
+    end
+end
+
+function M.releaseWithoutALeaseRaises(): nil
+    local rows = arena.new(Row, 2)
+    local row = rows:acquire()
+    rows:release(row)
+    test.raises(
+        function()
+            rows:release(row)
+        end,
+        "without a live lease"
+    )
+end
+
+return M

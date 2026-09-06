@@ -125,7 +125,25 @@ function factory.new(memory: any): any
         memory.copy(destination, type(source) == "string" and memory.borrowString(source) or source, count)
     end
 
-    provider.fill = memory.fill
+    -- A struct or fixed-array reference is a table naming its page and byte
+    -- offset, where the host's fill wants a pointer. A byte-strided pointer
+    -- advanced to that offset addresses the same bytes, so a row handed out of a
+    -- `T[?]` clears the way the array it sits in does.
+    function provider.fill(destination: any, count: integer, value: integer): nil
+        if type(destination) == "table" then
+            local pointer = rawget(destination, "__nuppWasmPointer")
+            local byteOffset = rawget(destination, "__nuppWasmOffset")
+            assert(pointer ~= nil and byteOffset ~= nil, "nupp: fill needs a pointer or a struct reference")
+            destination = memory.offset(memory.typed(pointer, provider.scalar("uint8")), byteOffset)
+        end
+        memory.fill(destination, count, value)
+    end
+
+    function provider.sizeOf(element: any): integer
+        assert(descriptors[element], "nupp: sizes are answered for physical storage descriptors")
+        return element.size as integer
+    end
+
     provider.string = memory.string
 
     function provider.decodeUint8(bytes: string): any

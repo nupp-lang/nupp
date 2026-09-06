@@ -345,6 +345,58 @@ return #readable, readable[1].value
     assert(not code:find("require(\"ffi\")", 1, true), code)
 end
 
+function M.poolIsOrdinaryTablesOnEveryDialect()
+    -- A pool stamps and clears tables and reaches no C storage, so a portable
+    -- target checks it with no seam selected at all.
+    assertClean(
+        table.concat(
+            {
+                "local pool = require('nupp.mem.pool')",
+                "local record Event",
+                "    id: integer",
+                "end",
+                "local events = pool.new(Event, 4)",
+                "local event = events:acquire()",
+                "event.id = 1",
+                "events:release(event)",
+                "return events:free()",
+            },
+            "\n"
+        ),
+        {dialect = "lua51"}
+    )
+end
+
+function M.arenaLowersThroughTheStorageSeam()
+    -- Pages are `S[?]` arrays, so an arena needs the storage capability: a
+    -- portable target with no seam refuses the module on the line that reaches
+    -- it (and the struct beneath it), and one that selects the storage seam
+    -- answers without any `ffi`.
+    local source = table.concat(
+        {
+            "local arena = require('nupp.mem.arena')",
+            "local struct Sample",
+            "   value: float",
+            "end",
+            "local samples = arena.new(Sample, 8)",
+            "local sample = samples:acquire()",
+            "sample.value = 3",
+            "samples:release(sample)",
+            "return samples:used()",
+        },
+        "\n"
+    )
+    assertEq(diagsOf(source, {dialect = "lua51"}), "NUPP3006:1 NUPP3006:2", "an arena needs C storage")
+    local resolution = wasmResolution("fixtures.wasm_backend")
+    sharedEnv.loaded = {}
+    local tree = parser.parse(source, "wasm-arena.nupp")
+    local diags = check.check(tree, "wasm-arena.nupp", sharedEnv, {dialect = "lua51", backendResolution = resolution,})
+    assertEq(#diags, 0, "an arena checks through the storage seam" .. (diags[1] and (": " .. diags[1].msg) or ""))
+    local code, genDiags = gen.generate(tree, "wasm-arena.nupp", nil, nil, resolution)
+    assertEq(#genDiags, 0, "an arena lowers through the storage seam")
+    assert(not code:find("require(\"ffi\")", 1, true), code)
+end
+
 function M.wasmSeamNamesItsIsolatedContractSuite()
     assertEq(seamRegistry.get("host.wasm").suiteModule, "nupp.runtime.seam.wasmsuite")
 end
@@ -423,6 +475,8 @@ function M.standardSurfaceRequiresExactPortableSeams()
         "nupp.simd",
         "nupp.time",
         "nupp.mem.array",
+        "nupp.mem.pool",
+        "nupp.mem.arena",
         "nupp.test",
         "nupp.workers",
     }) do

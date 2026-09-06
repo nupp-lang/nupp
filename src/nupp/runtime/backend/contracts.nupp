@@ -175,6 +175,7 @@ export interface CstorageProvider
     castElements: function(element: any, pointer: any): any
     copy: function(destination: any, source: any, count: integer): nil
     fill: function(destination: any, count: integer, value: integer): nil
+    sizeOf: function(element: any): integer
     string: function(source: any, count: integer): string
     decodeUint8: function(bytes: string): any
     encodeUint8: function(value: any): string
