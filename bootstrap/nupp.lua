@@ -171675,7 +171675,7 @@ const newLines = lines . newLines ;__nuppExports["newLines"]=newLines
  end);if not __nuppOk then package.loaded["nupp.io"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.io.files"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G); local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT28={}; const function __nuppT25(...) return {n=select("#",...),...} end; const __nuppT29,__nuppT30,__nuppT31,__nuppT32,__nuppT33,__nuppT34,__nuppT35,__nuppT36=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT26(value) return value end; const function __nuppT27(primary,errors,start) const secondary={} for i=start,#errors do if errors[i]~=primary then secondary[#secondary+1]=errors[i] end end if #secondary==0 then return primary end return __nuppT34({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT35(v.primary) for _,reason in __nuppT36(v.suppressed) do text=text.."\ncleanup: "..__nuppT35(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io.internal.bytes#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.internal.bytes#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports={};package.loaded["nupp.io.files"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local append;__nuppExports["append"]=function(...) return append(...) end;local copy;__nuppExports["copy"]=function(...) return copy(...) end;local createDirectory;__nuppExports["createDirectory"]=function(...) return createDirectory(...) end;local createSymlink;__nuppExports["createSymlink"]=function(...) return createSymlink(...) end;local createTemporaryDirectory;__nuppExports["createTemporaryDirectory"]=function(...) return createTemporaryDirectory(...) end;local createTemporaryFile;__nuppExports["createTemporaryFile"]=function(...) return createTemporaryFile(...) end;local currentDirectory;__nuppExports["currentDirectory"]=function(...) return currentDirectory(...) end;local exists;__nuppExports["exists"]=function(...) return exists(...) end;local glob;__nuppExports["glob"]=function(...) return glob(...) end;local info;__nuppExports["info"]=function(...) return info(...) end;local isDirectory;__nuppExports["isDirectory"]=function(...) return isDirectory(...) end;local isFile;__nuppExports["isFile"]=function(...) return isFile(...) end;local isSymlink;__nuppExports["isSymlink"]=function(...) return isSymlink(...) end;local lines;__nuppExports["lines"]=function(...) return lines(...) end;local list;__nuppExports["list"]=function(...) return list(...) end;local open;__nuppExports["open"]=function(...) return open(...) end;local pendingTransfers;__nuppExports["pendingTransfers"]=function(...) return pendingTransfers(...) end;local read;__nuppExports["read"]=function(...) return read(...) end;local readLink;__nuppExports["readLink"]=function(...) return readLink(...) end;local remove;__nuppExports["remove"]=function(...) return remove(...) end;local rename;__nuppExports["rename"]=function(...) return rename(...) end;local setReadOnly;__nuppExports["setReadOnly"]=function(...) return setReadOnly(...) end;local userFolder;__nuppExports["userFolder"]=function(...) return userFolder(...) end;local write;__nuppExports["write"]=function(...) return write(...) end;local writeAtomic;__nuppExports["writeAtomic"]=function(...) return writeAtomic(...) end;
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G); local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT29={}; const function __nuppT26(...) return {n=select("#",...),...} end; const __nuppT30,__nuppT31,__nuppT32,__nuppT33,__nuppT34,__nuppT35,__nuppT36,__nuppT37=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT27(value) return value end; const function __nuppT28(primary,errors,start) const secondary={} for i=start,#errors do if errors[i]~=primary then secondary[#secondary+1]=errors[i] end end if #secondary==0 then return primary end return __nuppT35({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT36(v.primary) for _,reason in __nuppT37(v.suppressed) do text=text.."\ncleanup: "..__nuppT36(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io.internal.bytes#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.internal.bytes#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports={};package.loaded["nupp.io.files"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local append;__nuppExports["append"]=function(...) return append(...) end;local copy;__nuppExports["copy"]=function(...) return copy(...) end;local createDirectory;__nuppExports["createDirectory"]=function(...) return createDirectory(...) end;local createSymlink;__nuppExports["createSymlink"]=function(...) return createSymlink(...) end;local createTemporaryDirectory;__nuppExports["createTemporaryDirectory"]=function(...) return createTemporaryDirectory(...) end;local createTemporaryFile;__nuppExports["createTemporaryFile"]=function(...) return createTemporaryFile(...) end;local currentDirectory;__nuppExports["currentDirectory"]=function(...) return currentDirectory(...) end;local exists;__nuppExports["exists"]=function(...) return exists(...) end;local glob;__nuppExports["glob"]=function(...) return glob(...) end;local info;__nuppExports["info"]=function(...) return info(...) end;local isDirectory;__nuppExports["isDirectory"]=function(...) return isDirectory(...) end;local isFile;__nuppExports["isFile"]=function(...) return isFile(...) end;local isSymlink;__nuppExports["isSymlink"]=function(...) return isSymlink(...) end;local lines;__nuppExports["lines"]=function(...) return lines(...) end;local list;__nuppExports["list"]=function(...) return list(...) end;local open;__nuppExports["open"]=function(...) return open(...) end;local pendingTransfers;__nuppExports["pendingTransfers"]=function(...) return pendingTransfers(...) end;local read;__nuppExports["read"]=function(...) return read(...) end;local readLink;__nuppExports["readLink"]=function(...) return readLink(...) end;local remove;__nuppExports["remove"]=function(...) return remove(...) end;local rename;__nuppExports["rename"]=function(...) return rename(...) end;local setReadOnly;__nuppExports["setReadOnly"]=function(...) return setReadOnly(...) end;local userFolder;__nuppExports["userFolder"]=function(...) return userFolder(...) end;local write;__nuppExports["write"]=function(...) return write(...) end;local writeAtomic;__nuppExports["writeAtomic"]=function(...) return writeAtomic(...) end;
 
 
 
@@ -172253,6 +172253,22 @@ end
 
 
 
+local function readBytes ( handle , into , count ) 
+local output = ffi . new ( "size_t[1]" )
+local status = C . nuppNativeV2FileRead ( handle , into , count , output )
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
+end
+local got = tonumber ( output [ 0 ] )
+if got == 0 then
+return "" , nil
+end
+
+return ffi . string ( into , got ) , nil
+end
+
+
+
 
 
 
@@ -172432,17 +172448,8 @@ return nil , reason
 end
 local wanted = positive ( count , "FileReader:read count" , 2 )
 local into = scratch ( self , wanted )
-local output = ffi . new ( "size_t[1]" )
-local status = C . nuppNativeV2FileRead ( ( file ) . _handle , into , wanted , output )
-if status ~= 0 then
-return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
-end
-local got = tonumber ( output [ 0 ] )
-if got == 0 then
-return "" , nil
-end
 
-return ffi . string ( into , got ) , nil
+return readBytes ( ( file ) . _handle , into , wanted )
 end
 
 function FileReader:readSpan(destination) 
@@ -172486,17 +172493,17 @@ if taking == 0 then
 return 0 , nil
 end
 local input = span . fromString ( chunk )
-do local __nuppT37=0; local  __nuppT43 ; local __nuppT44=false ; const __nuppT38,__nuppT39,__nuppT40=__nuppT30(function() do const __nuppT45= destination : reserveWrite ( from , wanted ) ; __nuppT43= __nuppT45 ; __nuppT37=1;  __nuppT44=true;  local lease=__nuppT43;
+do local __nuppT38=0; local  __nuppT44 ; local __nuppT45=false ; const __nuppT39,__nuppT40,__nuppT41=__nuppT31(function() do const __nuppT46= destination : reserveWrite ( from , wanted ) ; __nuppT44= __nuppT46 ; __nuppT38=1;  __nuppT45=true;  local lease=__nuppT44;
 do
-do local __nuppT46=0; local  __nuppT52 ; local __nuppT53=false ; const __nuppT47,__nuppT48,__nuppT49=__nuppT30(function() do const __nuppT54= lease : span ( ) ; __nuppT52= __nuppT54 ; __nuppT46=1;  __nuppT53=true;  local output=__nuppT52;
+do local __nuppT47=0; local  __nuppT53 ; local __nuppT54=false ; const __nuppT48,__nuppT49,__nuppT50=__nuppT31(function() do const __nuppT55= lease : span ( ) ; __nuppT53= __nuppT55 ; __nuppT47=1;  __nuppT54=true;  local output=__nuppT53;
 for index = 1 , taking do
 output :set( index , input :get( index ) )
 end
-do __nuppT53=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT26); const __nuppT50={}; local __nuppT51=0; if __nuppT46>=1 and __nuppT53 then  const __nuppT55,__nuppT56=__nuppT29(__nuppCleanup1,__nuppT52);  if not __nuppT55 then __nuppT51=__nuppT51+1; __nuppT50[__nuppT51]=__nuppT56 end; end; if not __nuppT47 then if __nuppT51>0 then __nuppT31(__nuppT27(__nuppT48,__nuppT50,1),0) else __nuppT31(__nuppT48,0) end end; if __nuppT51>0 then if __nuppT51>1 then __nuppT31(__nuppT27(__nuppT50[1],__nuppT50,2),0) else __nuppT31(__nuppT50[1],0) end end; if __nuppT48=="return" then  return "return",__nuppT49  end; end
+do __nuppT54=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT27); const __nuppT51={}; local __nuppT52=0; if __nuppT47>=1 and __nuppT54 then  const __nuppT56,__nuppT57=__nuppT30(__nuppCleanup1,__nuppT53);  if not __nuppT56 then __nuppT52=__nuppT52+1; __nuppT51[__nuppT52]=__nuppT57 end; end; if not __nuppT48 then if __nuppT52>0 then __nuppT32(__nuppT28(__nuppT49,__nuppT51,1),0) else __nuppT32(__nuppT49,0) end end; if __nuppT52>0 then if __nuppT52>1 then __nuppT32(__nuppT28(__nuppT51[1],__nuppT51,2),0) else __nuppT32(__nuppT51[1],0) end end; if __nuppT49=="return" then  return "return",__nuppT50  end; end
 end
-do (function(__nuppT57,...)  __nuppT44=false;  return __nuppT57:commit(...)  end)( lease , taking ) end
+do (function(__nuppT58,...)  __nuppT45=false;  return __nuppT58:commit(...)  end)( lease , taking ) end
 
-return "return",__nuppT25( taking , nil ) end; return "normal" end,__nuppT26); const __nuppT41={}; local __nuppT42=0; if __nuppT37>=1 and __nuppT44 then  const __nuppT58,__nuppT59=__nuppT29(__nuppCleanup2,__nuppT43);  if not __nuppT58 then __nuppT42=__nuppT42+1; __nuppT41[__nuppT42]=__nuppT59 end; end; if not __nuppT38 then if __nuppT42>0 then __nuppT31(__nuppT27(__nuppT39,__nuppT41,1),0) else __nuppT31(__nuppT39,0) end end; if __nuppT42>0 then if __nuppT42>1 then __nuppT31(__nuppT27(__nuppT41[1],__nuppT41,2),0) else __nuppT31(__nuppT41[1],0) end end; if __nuppT39=="return" then  return __nuppT32(__nuppT40,1,__nuppT40.n)  end; end
+return "return",__nuppT26( taking , nil ) end; return "normal" end,__nuppT27); const __nuppT42={}; local __nuppT43=0; if __nuppT38>=1 and __nuppT45 then  const __nuppT59,__nuppT60=__nuppT30(__nuppCleanup2,__nuppT44);  if not __nuppT59 then __nuppT43=__nuppT43+1; __nuppT42[__nuppT43]=__nuppT60 end; end; if not __nuppT39 then if __nuppT43>0 then __nuppT32(__nuppT28(__nuppT40,__nuppT42,1),0) else __nuppT32(__nuppT40,0) end end; if __nuppT43>0 then if __nuppT43>1 then __nuppT32(__nuppT28(__nuppT42[1],__nuppT42,2),0) else __nuppT32(__nuppT42[1],0) end end; if __nuppT40=="return" then  return __nuppT33(__nuppT41,1,__nuppT41.n)  end; end
 end
 
 
@@ -173414,7 +173421,7 @@ if status ~= 0 then
 return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 local opened = setmetatable({ _handle =  output [ 0 ] ,  _closed =  false }, File)
-local reader = opened : newReader ( )
+local into = __nuppFfi.new("uint8_t[?]" , READ_SIZE )
 local held = ""
 local finished = false
 local function trimmed ( line ) 
@@ -173437,7 +173444,7 @@ held = held : sub ( ( stop ) + 1 )
 
 return trimmed ( line )
 end
-local chunk , why = reader : read ( READ_SIZE )
+local chunk , why = readBytes ( opened . _handle , into , READ_SIZE )
 if chunk == nil then
 
 
@@ -222762,8 +222769,8 @@ end
 -- because they name the records. The types are the contract either way.
 local newReaderOver: function(file: File): FileReader
 local newWriterOver: function(file: File): FileWriter
-local scratch: function(self: FileReader, count: integer): any
-local usable: function(self: FileReader): (File?, string?)
+local scratch: function(borrows self: FileReader, count: integer): any
+local usable: function(borrows self: FileReader): (File?, string?)
 local writable: function(borrows self: FileWriter): (File?, string?)
 
 --- @raises when value is neither a path nor a string
@@ -222823,6 +222830,22 @@ local function answer(status: integer, output: any): (string?, string?)
     end
 
     return native.bytes(output[0]), nil
+end
+
+-- Reads through a caller-owned native buffer. FileReader and the line iterator
+-- share this crossing; the iterator owns its file rather than borrowing a view.
+local function readBytes(handle: any, into: any, count: integer): (string?, string?)
+    local output = ffi.new("size_t[1]")
+    local status = C.nuppNativeV2FileRead(handle, into, count, output)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
+    end
+    local got = tonumber(output[0]) as integer
+    if got == 0 then
+        return "", nil
+    end
+
+    return ffi.string(into, got), nil
 end
 
 ----------------------------------------------------------------------------
@@ -223006,17 +223029,8 @@ export record FileReader is io.Reader
         end
         local wanted = positive(count, "FileReader:read count", 2)
         local into = scratch(self, wanted)
-        local output = ffi.new("size_t[1]")
-        local status = C.nuppNativeV2FileRead((file as File)._handle, into, wanted, output)
-        if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeV2LastError())
-        end
-        local got = tonumber(output[0]) as integer
-        if got == 0 then
-            return "", nil
-        end
 
-        return ffi.string(into, got as integer), nil
+        return readBytes((file as File)._handle, into, wanted)
     end
 
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
@@ -223296,7 +223310,7 @@ end
 
 -- Grown by doubling with a floor at one read, so a caller that asks for one byte at a
 -- time does not reallocate for each of them.
-scratch = function(self: FileReader, count: integer): any
+scratch = function(borrows self: FileReader, count: integer): any
     local state = self as any
     if count > (state._capacity as integer) then
         local size = (state._capacity as integer) * 2
@@ -223315,7 +223329,7 @@ end
 
 -- A reader and its file are closed independently, and either being closed is an
 -- ordinary answer rather than a failure.
-usable = function(self: FileReader): (File?, string?)
+usable = function(borrows self: FileReader): (File?, string?)
     local state = self as any
     if state._closed then
         return nil, "the reader is closed"
@@ -223988,7 +224002,7 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
         return nil, ffi.string(C.nuppNativeV2LastError())
     end
     local opened = new File(_handle = output[0], _closed = false)
-    local reader = opened:newReader()
+    local into = ffi.new<uint8[?]>(READ_SIZE)
     local held = ""
     local finished = false
     local function trimmed(line: string): string
@@ -224011,7 +224025,7 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
 
                 return trimmed(line)
             end
-            local chunk, why = reader:read(READ_SIZE)
+            local chunk, why = readBytes(opened._handle, into, READ_SIZE)
             if chunk == nil then
                 -- A failed read is not the end of the file, and the iterator has no
                 -- error channel to answer through, so finishing cleanly here would

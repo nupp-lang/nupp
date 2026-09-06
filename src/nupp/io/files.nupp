@@ -511,8 +511,8 @@ end
 -- because they name the records. The types are the contract either way.
 local newReaderOver: function(file: File): FileReader
 local newWriterOver: function(file: File): FileWriter
-local scratch: function(self: FileReader, count: integer): any
-local usable: function(self: FileReader): (File?, string?)
+local scratch: function(borrows self: FileReader, count: integer): any
+local usable: function(borrows self: FileReader): (File?, string?)
 local writable: function(borrows self: FileWriter): (File?, string?)
 
 --- @raises when value is neither a path nor a string
@@ -572,6 +572,22 @@ local function answer(status: integer, output: any): (string?, string?)
     end
 
     return native.bytes(output[0]), nil
+end
+
+-- Reads through a caller-owned native buffer. FileReader and the line iterator
+-- share this crossing; the iterator owns its file rather than borrowing a view.
+local function readBytes(handle: any, into: any, count: integer): (string?, string?)
+    local output = ffi.new("size_t[1]")
+    local status = C.nuppNativeV2FileRead(handle, into, count, output)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
+    end
+    local got = tonumber(output[0]) as integer
+    if got == 0 then
+        return "", nil
+    end
+
+    return ffi.string(into, got), nil
 end
 
 ----------------------------------------------------------------------------
@@ -755,17 +771,8 @@ export record FileReader is io.Reader
         end
         local wanted = positive(count, "FileReader:read count", 2)
         local into = scratch(self, wanted)
-        local output = ffi.new("size_t[1]")
-        local status = C.nuppNativeV2FileRead((file as File)._handle, into, wanted, output)
-        if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeV2LastError())
-        end
-        local got = tonumber(output[0]) as integer
-        if got == 0 then
-            return "", nil
-        end
 
-        return ffi.string(into, got as integer), nil
+        return readBytes((file as File)._handle, into, wanted)
     end
 
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
@@ -1045,7 +1052,7 @@ end
 
 -- Grown by doubling with a floor at one read, so a caller that asks for one byte at a
 -- time does not reallocate for each of them.
-scratch = function(self: FileReader, count: integer): any
+scratch = function(borrows self: FileReader, count: integer): any
     local state = self as any
     if count > (state._capacity as integer) then
         local size = (state._capacity as integer) * 2
@@ -1064,7 +1071,7 @@ end
 
 -- A reader and its file are closed independently, and either being closed is an
 -- ordinary answer rather than a failure.
-usable = function(self: FileReader): (File?, string?)
+usable = function(borrows self: FileReader): (File?, string?)
     local state = self as any
     if state._closed then
         return nil, "the reader is closed"
@@ -1737,7 +1744,7 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
         return nil, ffi.string(C.nuppNativeV2LastError())
     end
     local opened = new File(_handle = output[0], _closed = false)
-    local reader = opened:newReader()
+    local into = ffi.new<uint8[?]>(READ_SIZE)
     local held = ""
     local finished = false
     local function trimmed(line: string): string
@@ -1760,7 +1767,7 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
 
                 return trimmed(line)
             end
-            local chunk, why = reader:read(READ_SIZE)
+            local chunk, why = readBytes(opened._handle, into, READ_SIZE)
             if chunk == nil then
                 -- A failed read is not the end of the file, and the iterator has no
                 -- error channel to answer through, so finishing cleanly here would
