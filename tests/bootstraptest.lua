@@ -135,9 +135,6 @@ local function plantedTree()
     end
 
     plant("build/nupp/compiler/main.lua", 'print("BUILT")\n')
-    for _, name in ipairs({"libnupp_native_v2_dev.dylib", "libnupp_native_v2_dev.so", "nupp_native_v2_dev.dll",}) do
-        plant("build/lib/" .. name, "")
-    end
 
     -- One planted stage zero, pinned to its own digest, cached where this tree's
     -- toolchain will look and nowhere a real checkout can see.
@@ -152,6 +149,14 @@ local function plantedTree()
     assert(os.execute(("mkdir -p '%s/supplied'"):format(dir)) == 0)
     assert(os.execute(("gzip -c '%s/stage0.lua' > '%s/supplied/nupp-stage0-%s.lua.gz'"):format(dir, dir, tag)) == 0)
     plant("scripts/toolchain.pins", (pins:gsub("\nSTAGE0_SHA256=%x+", "\nSTAGE0_SHA256=" .. digest)))
+
+    -- Last, because the launcher stages a provider again whenever anything it is
+    -- keyed on is newer than the library -- and the pins file above is one of
+    -- those. Staged for real, this tree has no `rust-toolchain.toml` to name a
+    -- toolchain with, so the build these cases are watching never starts.
+    for _, name in ipairs({"libnupp_native_v2_dev.dylib", "libnupp_native_v2_dev.so", "nupp_native_v2_dev.dll",}) do
+        plant("build/lib/" .. name, "")
+    end
 
     local env = (
         "NUPP_TOOLCHAIN_DIR='%s/toolchain' NUPP_HOST_OFFLINE=1 NUPP_HOST_SOURCE_DIR='%s/supplied'"
