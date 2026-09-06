@@ -76,6 +76,10 @@ export NUPP_LAUNCHER_TOOLCHAIN_KEY NUPP_LAUNCHER_TOOLCHAIN_PREFIX
 # Memoized within this process, the failure included: both callers below may
 # ask, a cached answer still costs a digest of a twelve-megabyte file, and an
 # unreachable one has already said why it could not be had.
+#
+# Call it as a plain command and read `$STAGE0`, never as `$(stage0_path)`: a
+# command substitution runs it in a subshell, which discards both the memo and
+# the exported `NUPP_STAGE0` the compiler's own comptime workers are found by.
 STAGE0=
 STAGE0_TRIED=no
 stage0_path() {
@@ -373,11 +377,11 @@ build_now() {
         fi
         echo "nupp: falling back to the stage-zero compiler" >&2
     fi
-    if stage0=$(stage0_path); then
+    if stage0_path >/dev/null; then
         if [ -n "$BUILD_COLOR_ARG" ]; then
-            (cd "$ROOT" && luajit "$stage0" build "$BUILD_COLOR_ARG")
+            (cd "$ROOT" && luajit "$STAGE0" build "$BUILD_COLOR_ARG")
         else
-            (cd "$ROOT" && luajit "$stage0" build)
+            (cd "$ROOT" && luajit "$STAGE0" build)
         fi
         build_status=$?
     fi
@@ -492,8 +496,8 @@ fi
 # a better answer than a bundle from whenever stage zero was last refreshed.
 if [ -f "$BUILT" ]; then
     set -- luajit -e "$LUAPATH" "$LUA_BUILT" "$@"
-elif stage0=$(stage0_path); then
-    set -- luajit "$stage0" "$@"
+elif stage0_path >/dev/null; then
+    set -- luajit "$STAGE0" "$@"
 else
     echo "nupp: no built compiler, and the stage-zero compiler is not available" >&2
     exit 1

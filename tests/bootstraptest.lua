@@ -142,7 +142,10 @@ local function plantedTree()
     -- One planted stage zero, pinned to its own digest, cached where this tree's
     -- toolchain will look and nowhere a real checkout can see.
     local pins = assert(readFile(dir .. "/scripts/toolchain.pins"))
-    plant("stage0.lua", 'print("BOOTSTRAP")\n')
+    -- It reports the name the launcher gave it as well as which compiler it is,
+    -- because `theStageZeroIsNamedToWhatItRuns` asks for that and every other case
+    -- here reads only the first line.
+    plant("stage0.lua", 'print("BOOTSTRAP")\nprint("NUPP_STAGE0=" .. tostring(os.getenv("NUPP_STAGE0")))\n')
     local digest = capture(("shasum -a 256 '%s/stage0.lua' 2>/dev/null || sha256sum '%s/stage0.lua'"):format(dir, dir))
         :match("^(%x+)")
     local tag = pins:match("\nSTAGE0_TAG=(%S+)")
@@ -219,6 +222,33 @@ function M.aBuildWaitsForTheBuildAlreadyRunning()
 
     assert(out:find("while held: []", 1, true), "a build ran while another held the lock: " .. out)
     assert(out:find("after: [BUILT]", 1, true), "and did not run once the lock was free: " .. out)
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- A build the stage zero runs starts comptime workers of its own, and on Windows
+-- those are launched as a compiler rather than through this script. The launcher
+-- says which compiler it resolved so they can be the same one; a cold checkout has
+-- no built compiler for them to fall back to, and without the name every comptime
+-- evaluation in the build that produces the first compiler fails for want of a
+-- worker.
+--
+-- Asking for it in a command substitution used to discard the export along with
+-- the subshell that made it, and the only run that noticed was a first Windows
+-- build. The name is read here on every platform, where the export is the same.
+function M.theStageZeroIsNamedToWhatItRuns()
+    local dir, _, env = plantedTree()
+    assert(os.remove(dir .. "/build/nupp/compiler/main.lua"))
+
+    -- `--help` reads no source, so this is the launcher's own environment and
+    -- nothing a build put there.
+    local out = ran(dir, env, "--help")
+    assert(out:find("BOOTSTRAP", 1, true), "the planted stage zero did not run: " .. out)
+    local named = out:match("NUPP_STAGE0=([^\n]+)")
+    assert(named and named ~= "nil", "the launcher ran the stage zero without naming it: " .. out)
+    local compiler = readFile(named)
+    assert(compiler, "NUPP_STAGE0 names nothing readable: " .. named)
+    assert(compiler:find("BOOTSTRAP", 1, true), "NUPP_STAGE0 names some other compiler: " .. named)
 
     os.execute("rm -rf '" .. dir .. "'")
 end
