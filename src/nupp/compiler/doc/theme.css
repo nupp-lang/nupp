@@ -33,7 +33,9 @@
     --nuppdoc-layout-max-width: 1480px;
     --nuppdoc-content-width: 688px;
     --nuppdoc-sidebar-width: 272px;
-    --nuppdoc-outline-width: 256px
+    --nuppdoc-outline-width: 256px;
+    --nuppdoc-sidebar-indent: .7rem;
+    --nuppdoc-sidebar-guide-indent: .75rem
 }
 
 :root {
@@ -337,6 +339,7 @@ input {
 }
 
 .nuppdoc-sidebar a {
+    padding-left: var(--nuppdoc-sidebar-indent);
     font-size: .88rem
 }
 
@@ -1108,7 +1111,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-sidebar-section summary {
     position: relative;
     margin: 0;
-    padding: .24rem .55rem;
+    padding: .24rem .55rem .24rem var(--nuppdoc-sidebar-indent);
     color: var(--nuppdoc-text);
     font-size: .88rem;
     font-weight: 500;
@@ -1140,24 +1143,12 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     content: ""
 }
 
-.nuppdoc-sidebar-section details[open]>summary::before {
-    position: absolute;
-    top: 50%;
-    left: 0;
-    width: .6rem;
-    height: 50%;
-    border-top: 1px solid var(--nuppdoc-border);
-    border-left: 1px solid var(--nuppdoc-border);
-    content: ""
-}
-
 .nuppdoc-sidebar-section>details>summary.nuppdoc-sidebar-section-link {
     padding-top: 0;
     padding-bottom: 0
 }
 
 .nuppdoc-sidebar>ul>li.nuppdoc-sidebar-section>details>summary {
-    padding-left: 0;
     font-weight: 700
 }
 
@@ -1166,16 +1157,16 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     padding-right: .2rem
 }
 
-.nuppdoc-sidebar-section ul {
-    padding: 4px 0 0 0.6rem;
+.nuppdoc-sidebar-section ul,
+.nuppdoc-sidebar-section .nuppdoc-module-tree,
+.nuppdoc-module-branch .nuppdoc-module-tree {
+    padding: 4px 0 0 var(--nuppdoc-sidebar-guide-indent);
     border-left: 1px solid var(--nuppdoc-border)
 }
 
 .nuppdoc-sidebar-section .nuppdoc-module-tree {
     margin: 0;
-    padding: 4px 0 0 0.6rem;
-    list-style: none;
-    border-left: 1px solid var(--nuppdoc-border)
+    list-style: none
 }
 
 .nuppdoc-module-branch>details>summary {
@@ -1185,11 +1176,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 
 .nuppdoc-module-branch>details>summary>a {
     padding-right: .2rem
-}
-
-.nuppdoc-module-branch .nuppdoc-module-tree {
-    padding: 4px 0 0 0.6rem;
-    border-left: 1px solid var(--nuppdoc-border)
 }
 
 .nuppdoc-outline-title {
