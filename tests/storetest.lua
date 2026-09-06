@@ -120,7 +120,7 @@ function M.nilRemovesAndEveryOtherValueSurvives()
     check.equal(store[key], "")
     store[key] = nil
     check.equal(store[key], nil)
-    check.equal(#data.inspectStore(store), 0)
+    check.equal(data.nextStoreEntry(store, 0), nil)
 end
 
 function M.clearStoreDropsValuesAndKeepsRegistrations()
@@ -134,23 +134,34 @@ function M.clearStoreDropsValuesAndKeepsRegistrations()
     check.equal(store[key], "again")
 end
 
-function M.inspectStoreIsSortedDetachedAndValueFree()
+function M.storeEntriesAscendByIdAndCarryNoValue()
     local named = data.newKey("store.test.inspect")
     local anonymous = data.newKey(nil)
     local store = data.newStore()
     store[anonymous] = 4
     store[named] = "text"
-    local rows = data.inspectStore(store)
-    check.equal(#rows, 2)
-    check.equal(rows[1].id, named.id)
-    check.equal(rows[1].name, "store.test.inspect")
-    check.equal(rows[1].valueType, "string")
-    check.equal(rows[2].id, anonymous.id)
-    check.equal(rows[2].name, nil)
-    check.equal(rows[2].valueType, "number")
-    check.equal(rows[1].value, nil)
-    rows[1].name = "changed"
-    check.equal(data.inspectStore(store)[1].name, "store.test.inspect")
+    local seen = {}
+    for id, name, valueType in data.storeEntries(store) do
+        seen[#seen + 1] = {id = id, name = name, valueType = valueType}
+    end
+    check.equal(#seen, 2)
+    check.equal(seen[1].id, named.id)
+    check.equal(seen[1].name, "store.test.inspect")
+    check.equal(seen[1].valueType, "string")
+    check.equal(seen[2].id, anonymous.id)
+    check.equal(seen[2].name, nil)
+    check.equal(seen[2].valueType, "number")
+end
+
+function M.nextStoreEntryStepsTheSameWalk()
+    local key = data.newKey("store.test.step")
+    local store = data.newStore()
+    store[key] = "text"
+    local id, name, valueType = data.nextStoreEntry(store, 0)
+    check.equal(id, key.id)
+    check.equal(name, "store.test.step")
+    check.equal(valueType, "string")
+    check.equal(data.nextStoreEntry(store, id), nil)
 end
 
 -- Checker -------------------------------------------------------------------

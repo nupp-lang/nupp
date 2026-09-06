@@ -26,14 +26,6 @@ export interface Key<T>
     readonly _valueType: (function(value: T?): T?)?
 end
 
---- One occupied key of a store, detached from the store.
---- @export
-export record StoreEntry
-    id: integer
-    name: string?
-    valueType: string
-end
-
 --- An independent typed bag indexed by keys.
 --- @export
 export record Store
@@ -119,18 +111,49 @@ export function clear(store: Store): nil
     store.values = {}
 end
 
---- Describes every occupied key of a store, sorted by id, without its values.
---- @param store the store to describe
---- @return fresh rows, one per occupied key
+--- The step of [](nupp.data.storeEntries).
+---
+--- Terminating on nil is the generic for's business, so the surface type
+--- promises what the loop delivers rather than what the last call returns.
 --- @export
-export function inspect(borrows store: Store): {StoreEntry}
-    local rows: {StoreEntry} = {}
-    for id, value in pairs(store.values) do
-        rows[#rows + 1] = new StoreEntry(id = id, name = names[id], valueType = type(value))
-    end
-    table.sort(rows, function(a: StoreEntry, b: StoreEntry): boolean
-        return a.id < b.id
-    end)
+export type StoreStep = function(Store, integer): (integer, string?, string)
 
-    return rows
+--- Reports the first occupied key after an id, or nil when there is none.
+---
+--- This is the step [](entries) hands the generic for, exported for a caller
+--- that holds the store as a borrow and so cannot pass it to the loop.
+--- @param store the store to read
+--- @param after the id to resume after, 0 to start
+--- @return the id, or nil once the walk is done
+--- @return the key's name, nil for an anonymous key
+--- @return the Lua type name of the value
+--- @export
+export function nextEntry(borrows store: Store, after: integer): (integer?, string?, string?)
+    local id: integer = after + 1
+    local last: integer = nextId - 1
+    while id <= last do
+        local value: any = store.values[id]
+        if value ~= nil then
+            return id, names[id], type(value)
+        end
+        id = id + 1
+    end
+
+    return nil, nil, nil
+end
+
+--- Walks every occupied key of a store, ascending by id, without its values.
+---
+--- The walk allocates nothing: the step is one shared function, the state is
+--- the store, and the control variable is the id it last reported. Ids are
+--- dense and ascending, so the order is the sorted order without a sort. It
+--- never yields a value, so a caller can list a store without holding what is
+--- in it.
+--- @param store the store to walk
+--- @return the step the loop calls
+--- @return the store it walks
+--- @return the id to resume after, 0 to start
+--- @export
+export function entries(store: Store): (StoreStep, Store, integer)
+    return nextEntry as StoreStep, store, 0
 end

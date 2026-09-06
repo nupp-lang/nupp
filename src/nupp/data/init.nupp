@@ -107,13 +107,17 @@ id: the name is the identity that persists, and
 [schema-driven serde](docs/learn/runtime/data/serde.md#persisting-a-store) saves and
 loads a store by it.
 
-`clearStore` drops every value and touches no registration. `inspectStore`
-returns fresh rows sorted by id, one per occupied key, with the name, nil for
-an anonymous key, and the Lua type name of the value, never the value itself.
+`clearStore` drops every value and touches no registration. `storeEntries`
+walks the occupied keys ascending by id, reporting the id, the name, nil for an
+anonymous key, and the Lua type name of the value, never the value itself. The
+walk allocates nothing: the step is one shared function, the loop state is the
+store, and ids are dense and ascending, so the order is the sorted order
+without a sort. `nextStoreEntry` is that step on its own, for a caller holding
+the store as a borrow, which cannot hand it to a loop.
 
 ```nupp
-for _, row in ipairs(nupp.data.inspectStore(world)) do
-    assert(row.id > 0 and type(row.valueType) == "string")
+for id, name, valueType in nupp.data.storeEntries(world) do
+    assert(id > 0 and type(valueType) == "string")
 end
 ```
 
@@ -257,8 +261,8 @@ export type Key<T> = store.Key<T>
 --- An independent typed bag indexed by keys.
 export type Store = store.Store
 
---- One occupied key of a store, detached from the store.
-export type StoreEntry = store.StoreEntry
+--- The step of [](nupp.data.storeEntries).
+export type StoreStep = store.StoreStep
 
 --- Creates a key whose type argument comes from the annotation at its declaration.
 ---
@@ -301,12 +305,28 @@ function data.clearStore(value: Store): nil
     store.clear(value)
 end
 
---- Describes every occupied key of a store, sorted by id, without its values.
---- @param value the store to describe
---- @return fresh rows, one per occupied key
+--- Walks every occupied key of a store, ascending by id, without its values.
+--- @param value the store to walk
+--- @return the step the loop calls
+--- @return the store it walks
+--- @return the id to resume after, 0 to start
 --- @export
-function data.inspectStore(borrows value: Store): {StoreEntry}
-    return store.inspect(value)
+function data.storeEntries(value: Store): (StoreStep, Store, integer)
+    return store.entries(value)
+end
+
+--- Reports the first occupied key after an id, or nil when there is none.
+---
+--- This is the step [](nupp.data.storeEntries) hands the generic for, for a
+--- caller that holds the store as a borrow and so cannot pass it to the loop.
+--- @param value the store to read
+--- @param after the id to resume after, 0 to start
+--- @return the id, or nil once the walk is done
+--- @return the key's name, nil for an anonymous key
+--- @return the Lua type name of the value
+--- @export
+function data.nextStoreEntry(borrows value: Store, after: integer): (integer?, string?, string?)
+    return store.nextEntry(value, after)
 end
 
 export = data

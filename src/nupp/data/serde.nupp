@@ -1823,14 +1823,16 @@ end
 export function saveStore(borrows value: store.Store): {[string]: any}
     local profile = json().profile
     local out: {[string]: any} = {}
-    for _, row in ipairs(store.inspect(value)) do
-        local entry = persistedKeys[row.id]
+    local id, name = store.nextEntry(value, 0)
+    while id ~= nil do
+        local entry = persistedKeys[id]
         if entry == nil then
-            error("nupp: key " .. (row.name or ("#" .. tostring(row.id))) .. " has no binding to save it", 2)
+            error("nupp: key " .. (name or ("#" .. tostring(id))) .. " has no binding to save it", 2)
         end
         local binding: any = entry.binding
         local held = value[entry.key as store.Key<any>]
-        out[row.name as string] = toDocument(held, binding:schema(), profile, binding:extension(accessKey))
+        out[name as string] = toDocument(held, binding:schema(), profile, binding:extension(accessKey))
+        id, name = store.nextEntry(value, id)
     end
 
     return out

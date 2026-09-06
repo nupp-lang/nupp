@@ -88,13 +88,6 @@ interface nupp.data.Key<T>
     readonly _valueType: (function(value: T?): T?)?
 end
 
---- One row of inspectStore.
-record nupp.data.StoreEntry
-    id: integer
-    name: string?
-    valueType: string
-end
-
 --- An independent typed bag.
 record nupp.data.Store
     private values: {[integer]: any}
@@ -107,7 +100,11 @@ function nupp.data.findKey(name: string): unknown
 function nupp.data.listKeys(): {[string]: integer}
 function nupp.data.newStore(): Store
 function nupp.data.clearStore(store: Store): nil
-function nupp.data.inspectStore(borrows store: Store): {StoreEntry}
+--- The step the generic for is handed; nil-terminating is the loop's business.
+type nupp.data.StoreStep = function(Store, integer): (integer, string?, string)
+
+function nupp.data.storeEntries(store: Store): (StoreStep, Store, integer)
+function nupp.data.nextStoreEntry(borrows store: Store, after: integer): (integer?, string?, string?)
 
 --- Serde's side of the design. The store module does not depend on serde.
 function nupp.data.serde.key<T>(name: string, binding: Binding<T>): Key<T>
@@ -150,8 +147,8 @@ end
 local found = data.findKey("game.frames") as data.Key<integer>
 print(world[found])
 
-for _, row in ipairs(data.inspectStore(world)) do
-    print(row.id, row.name or "anonymous", row.valueType)
+for id, name, valueType in data.storeEntries(world) do
+    print(id, name or "anonymous", valueType)
 end
 ```
 
@@ -187,10 +184,17 @@ and nothing about its type. `listKeys` returns a fresh table from name to id.
 
 **Stores.** `newStore` creates an independent bag; two stores share keys and
 nothing else. `clearStore` drops every value and touches no registration.
-`inspectStore` returns fresh `StoreEntry` rows sorted by id, one per occupied
-key, with `name` nil for an anonymous key and `valueType` the Lua type name of
-the value. It never returns the values, so a tool can list a store without
-holding what is in it.
+`storeEntries` walks the occupied keys, reporting an id, `name` nil for an
+anonymous key, and `valueType` the Lua type name of the value. Listing a store
+must not cost garbage to list it, so the walk allocates nothing: the step is
+one shared function, the loop state is the store, and the control variable is
+the id it last reported. Ids are dense and ascending, so that order is the
+sorted order without a sort. It never reports the values, so a tool can list a
+store without holding what is in it.
+
+`storeEntries` hands the store to the loop, which a caller holding it as a
+borrow cannot do, so `nextStoreEntry` exposes the same step directly for that
+caller to drive.
 
 ### Persistence
 
