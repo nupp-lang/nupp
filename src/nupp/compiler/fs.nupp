@@ -79,24 +79,43 @@ local function absolute(path: string): string
     return prefix .. separator .. table.concat(parts, "/")
 end
 
+--- Windows's own spelling for a path the system is to take literally.
+--- `\\?\C:\x` names the file `C:\x` names, and everything here compares the
+--- ordinary spelling. A verbatim share is answered as nothing rather than
+--- rewritten: `\\?\UNC\host\share` is a spelling the rest of this module has
+--- never handled, and inventing one here would be the first.
+local function unverbatim(path: string): string?
+    if path:sub(1, 4) ~= "\\\\?\\" then
+        return path
+    end
+
+    return path:match("^\\\\%?\\([A-Za-z]:\\.*)$")
+end
+
 --- The filesystem identity of an existing path, following symbolic links. A
 --- missing path keeps its absolute spelling so it remains observable.
 ---
 --- Asked of the path provider rather than of a `realpath` child: callers ask
 --- once per file, and a process for each was most of what walking a generator's
---- inputs cost. Windows keeps the absolute spelling, as it always has -- the
---- provider's answer there carries the verbatim prefix, which nothing that
---- compares paths expects.
+--- inputs cost.
+---
+--- Windows resolves through the same provider, with the verbatim prefix its
+--- answer carries taken off. Leaving the resolution out kept the spelling it was
+--- given, so an 8.3 short name stayed short while a path built from the working
+--- directory came back long -- two spellings of one file that compare unequal,
+--- which is the whole of what this is asked for. A caller passing a short path
+--- to `nupp run` lost its entry's package identity that way.
 local function canonical(path: string): string
     local fallback = absolute(path)
-    if package.config:sub(1, 1) ~= "\\" then
-        local ok, resolved = pcall(function(): string?
-            local real = nupp.io.path.newPath(fallback):canonicalize()
+    local ok, resolved = pcall(function(): string?
+        local real = nupp.io.path.newPath(fallback):canonicalize()
 
-            return real and real:toString() or nil
-        end)
-        if ok and resolved then
-            return normalize(resolved)
+        return real and real:toString() or nil
+    end)
+    if ok and resolved then
+        local ordinary = unverbatim(resolved)
+        if ordinary then
+            return normalize(ordinary)
         end
     end
 
