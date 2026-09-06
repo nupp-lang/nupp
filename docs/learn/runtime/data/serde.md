@@ -190,13 +190,55 @@ assert(first == second and calls == 1)
 
 Metadata is supplied by a model builder or derive. Extensions differ by
 computing a derived value lazily from their host. Successful extension values
-and failures are cached, and recursive initialization reports an error. Each
-extension key receives a dense process-local slot, and hosts cache extension
-state by that integer rather than by key-object identity. Slots are acceleration
-values: their numbers may change with module initialization order and are never
-persistent metadata identifiers. JSON uses schema extensions for profile layouts
-and binding extensions for physical access, so format facts do not leak into the
-logical schema.
+and failures are cached, and recursive initialization reports an error. An
+extension key is an anonymous [`nupp.data.Key`](standard-library.md), and hosts
+cache extension state by its id rather than by key-object identity. Ids are
+acceleration values: their numbers may change with module initialization order
+and are never persistent metadata identifiers. JSON uses schema extensions for
+profile layouts and binding extensions for physical access, so format facts do
+not leak into the logical schema.
+
+## Persisting a store
+
+A [`nupp.data.Store`](standard-library.md) holds live values under typed keys,
+and its keys persist by name. `serde.key` declares a named key whose value
+type comes from the binding that will carry it, so no annotation is needed,
+and `saveStore` and `loadStore` move the store through plain values:
+
+```nupp
+const serde = nupp.data.serde
+
+@derive(nupp.derive.Serde)
+local record Settings
+    volume: number
+    fullscreen: boolean
+end
+
+local settings = serde.key("game.settings", serde.of(Settings)) -- Key<Settings>
+
+local world = nupp.data.newStore()
+world[settings] = new Settings(volume = 0.5, fullscreen = false)
+local saved = serde.saveStore(world)
+assert(saved["game.settings"].volume == 0.5)
+local text = nupp.data.json.encode(saved)
+
+local restored = nupp.data.newStore()
+serde.loadStore(restored, nupp.data.json.decode(text) as {[string]: any})
+local back = restored[settings]
+assert(back ~= nil and back.volume == 0.5)
+```
+
+`saveStore` walks the occupied keys and encodes each value through its
+binding, under the key's name, into the document a JSON codec with default
+field names would write. An occupied key that is anonymous or was declared
+with `nupp.data.newKey` rather than `serde.key` raises, naming the key: a save
+that silently drops state is worse than one that fails. `loadStore` looks each
+name up in this runtime state's registry, raises for one that is not
+registered or has no binding, decodes the value through that key's binding,
+and writes the store. Keys the saved table does not mention are left as they
+are. A value is therefore checked against the schema this program gave the
+name, and a save written under another meaning of a name fails in decode
+rather than loading as something else.
 
 ## Relationship to the JSON derive
 

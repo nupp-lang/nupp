@@ -679,6 +679,156 @@ print(narrowed)
     )
 end
 
+function M.metadataKeysKeepTheirValueType()
+    local problems = diagnostics(
+        [=[
+local label: nupp.data.serde.MetadataKey<string> = nupp.data.serde.metadataKey()
+local narrowed: nupp.data.serde.MetadataKey<integer> = label
+print(narrowed)
+]=]
+    )
+    local first
+    for _, problem in ipairs(problems) do
+        if problem.severity ~= "warning" and problem.severity ~= "note" then
+            first = problem
+            break
+        end
+    end
+    assert(first and first.code == "NUPP2001", "a metadata key was narrowed to another value type")
+end
+
+function M.persistedKeysTakeTheirTypeFromTheBinding()
+    local problems = diagnostics(
+        [=[
+@derive(nupp.derive.Serde)
+local record Settings
+    volume: number
+end
+const serde = nupp.data.serde
+local settings = serde.key("fixture.persisted.settings", serde.of(Settings))
+local store = nupp.data.newStore()
+store[settings] = new Settings(volume = 0.5)
+store[settings] = "loud"
+local widened: nupp.data.Key<string> = settings
+print(widened)
+]=]
+    )
+    local found = {}
+    for _, problem in ipairs(problems) do
+        if problem.severity ~= "warning" and problem.severity ~= "note" then
+            found[#found + 1] = problem.code
+        end
+    end
+    assert(
+        found[1] == "NUPP2006" and found[2] == "NUPP2001" and found[3] == nil,
+        "a binding-declared key did not fix its value type: " .. table.concat(found, ",")
+    )
+end
+
+function M.storesRoundTripThroughPlainValues()
+    local result = run(
+        [=[
+@derive(nupp.derive.Serde)
+local record Settings
+    volume: number
+    fullscreen: boolean
+end
+const serde = nupp.data.serde
+local settings = serde.key("test.persisted.settings", serde.of(Settings))
+local world = nupp.data.newStore()
+world[settings] = new Settings(volume = 0.5, fullscreen = false)
+local saved = serde.saveStore(world)
+local text = nupp.data.json.encode(saved)
+local restored = nupp.data.newStore()
+serde.loadStore(restored, nupp.data.json.decode(text) as {[string]: any})
+local back = restored[settings]
+local decoded = nupp.data.json.decode(text) as {[string]: any}
+return {
+    plainVolume = saved["test.persisted.settings"].volume,
+    textVolume = decoded["test.persisted.settings"].volume,
+    textFullscreen = decoded["test.persisted.settings"].fullscreen,
+    volume = back and back.volume,
+    fullscreen = back and back.fullscreen,
+    typed = back ~= nil and getmetatable(back) == getmetatable(world[settings]),
+}
+]=]
+    )
+    assert(result.plainVolume == 0.5, "saveStore did not write a plain value")
+    assert(
+        result.textVolume == 0.5 and result.textFullscreen == false,
+        "the saved store did not encode under its key name"
+    )
+    assert(result.volume == 0.5 and result.fullscreen == false, "loadStore did not restore the value")
+    assert(result.typed, "loadStore did not restore the record type")
+end
+
+function M.savingRejectsKeysWithoutABinding()
+    local result = run(
+        [=[
+@derive(nupp.derive.Serde)
+local record Settings
+    volume: number
+end
+const serde = nupp.data.serde
+local settings = serde.key("test.persisted.unbound.settings", serde.of(Settings))
+local plain: nupp.data.Key<integer> = nupp.data.newKey("test.persisted.unbound.plain")
+local anonymous: nupp.data.Key<integer> = nupp.data.newKey(nil)
+local function saving(store: nupp.data.Store): (boolean, any)
+    return pcall(function(): {[string]: any}
+        return serde.saveStore(store)
+    end)
+end
+local store = nupp.data.newStore()
+store[settings] = new Settings(volume = 1)
+local okBound = saving(store)
+store[plain] = 1
+local okPlain, whyPlain = saving(store)
+store[plain] = nil
+store[anonymous] = 1
+local okAnonymous, whyAnonymous = saving(store)
+return {okBound = okBound, okPlain = okPlain, whyPlain = tostring(whyPlain),
+    okAnonymous = okAnonymous, whyAnonymous = tostring(whyAnonymous)}
+]=]
+    )
+    assert(result.okBound == true, "a store of bound keys did not save")
+    assert(
+        result.okPlain == false and result.whyPlain:find("test.persisted.unbound.plain has no binding", 1, true),
+        "an unbound key was saved: " .. result.whyPlain
+    )
+    assert(
+        result.okAnonymous == false and result.whyAnonymous:find("key #", 1, true),
+        "an anonymous key was saved: " .. result.whyAnonymous
+    )
+end
+
+function M.loadingRejectsUnregisteredNames()
+    local result = run(
+        [=[
+const serde = nupp.data.serde
+local store = nupp.data.newStore()
+local plain: nupp.data.Key<integer> = nupp.data.newKey("test.persisted.load.plain")
+local function loading(saved: {[string]: any}): (boolean, any)
+    return pcall(function(): nil
+        serde.loadStore(store, saved)
+    end)
+end
+local okMissing, whyMissing = loading({["test.persisted.load.missing"] = {}})
+local okPlain, whyPlain = loading({["test.persisted.load.plain"] = 1})
+return {okMissing = okMissing, whyMissing = tostring(whyMissing), okPlain = okPlain, whyPlain = tostring(whyPlain),
+    untouched = store[plain] == nil}
+]=]
+    )
+    assert(
+        result.okMissing == false and result.whyMissing:find("is not registered", 1, true),
+        "an unregistered name loaded: " .. result.whyMissing
+    )
+    assert(
+        result.okPlain == false and result.whyPlain:find("has no binding to load", 1, true),
+        "a key without a binding loaded: " .. result.whyPlain
+    )
+    assert(result.untouched, "a rejected load wrote the store")
+end
+
 function M.recordOnlyDerivesStayRecordOnly()
     local problems = diagnostics([=[
 @derive(nupp.derive.JSON)

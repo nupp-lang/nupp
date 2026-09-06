@@ -1862,9 +1862,16 @@ end
 --- assert(NextKind == "union")
 --- ```
 record nupp.reflect
-    --- An opaque typed identity for data derived lazily from a reflection descriptor,
+    --- A typed identity for data derived lazily from a reflection descriptor,
     --- schema, or binding.
+    ---
+    --- It has the shape of `nupp.data.Key<T>`, declared here because the prelude
+    --- is read before any module is. `_valueType` is never present; it mentions
+    --- `T` in both positions so that keys are invariant.
     interface ExtensionKey<T>
+        readonly id: integer
+        readonly name: string?
+        readonly _valueType: (function(value: T?): T?)?
     end
 
     --- One checked member supplied to a reflected typed annotation.

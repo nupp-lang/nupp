@@ -12,30 +12,24 @@ host. Schema and binding use this directly; reflection delegates to the same sta
 machine while retaining its existing public descriptor surface.
 ]]
 
+local store = require("nupp.data.internal.store")
+
 local extensions = {}
 local states: any = setmetatable({}, {__mode = "k"})
 local legacySlots: any = setmetatable({}, {__mode = "k"})
-local nextSlot: integer = 0
-
-local function allocateSlot(): integer
-    nextSlot = nextSlot + 1
-    return nextSlot
-end
-
---- A typed identity and provider for lazily derived host data.
---- @export
-record extensions.Key<T>
-    -- Slots identify metadata only inside this process. They may change when
-    -- module initialization order changes and must never become persistent or
-    -- wire identities.
-    private readonly slot: integer
-    private readonly build: function(host: any): T
-end
+-- The provider behind each key, by id. A key is an anonymous `nupp.data.Key`:
+-- its id identifies the extension only inside this process, may change when
+-- module initialization order changes, and must never become a persistent or
+-- wire identity.
+local providers: {[integer]: any} = {}
 
 --- Creates a typed extension key.
 --- @export
 function extensions.key<T>(build: function(host: any): T): nupp.reflect.ExtensionKey<T>
-    return new extensions.Key(slot = allocateSlot(), build = build) as any as nupp.reflect.ExtensionKey<T>
+    local key: store.Key<T> = store.newKey(nil)
+    providers[key.id] = build
+
+    return key
 end
 
 --- Registers an immutable object as an extension host.
@@ -62,15 +56,17 @@ function extensions.resolve<T>(host: any, key: nupp.reflect.ExtensionKey<T>): T
     -- tables. Assign those a slot lazily so every host cache still has one dense
     -- representation while old extension providers retain their identity.
     local token: any = key
-    local slot = token.slot as integer?
+    local slot = token.id as integer?
     if slot == nil then
         slot = legacySlots[token]
         if slot == nil then
-            slot = allocateSlot()
+            local reserved: store.Key<any> = store.newKey(nil)
+            slot = reserved.id
             legacySlots[token] = slot
         end
     end
     local index = slot as integer
+    local build = providers[index] or token.build
     local cached: any = state.values[index]
     if cached ~= nil then
         if cached.state == "ready" then
@@ -82,7 +78,7 @@ function extensions.resolve<T>(host: any, key: nupp.reflect.ExtensionKey<T>): T
     end
     local initializing: any = {state = "initializing"}
     state.values[index] = initializing
-    local ok, value = pcall(token.build, host)
+    local ok, value = pcall(build, host)
     if not ok then
         initializing.state = "failed"
         initializing.error = tostring(value)

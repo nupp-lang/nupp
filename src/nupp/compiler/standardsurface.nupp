@@ -29,6 +29,8 @@ local MODULES = {
     ["nupp.io.storage"] = selected("host", "host.storage", true),
     ["nupp.data"] = {kind = "members"},
     ["nupp.data.internal.bitset"] = {kind = "unavailable", capability = "cstorage"},
+    -- Tables, integers, and one metatable: nothing a dialect could lack.
+    ["nupp.data.internal.store"] = {kind = "common"},
     ["nupp.data.json"] = selected("runtime", "data.json"),
     -- Two seams, and only the first stands between a target and this module.
     -- `numeric.bitops` is what the digests are written against and a `lua51`

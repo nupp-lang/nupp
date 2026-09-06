@@ -1,0 +1,136 @@
+module nupp.data.internal.store
+
+--[[
+Typed keys and the stores they index.
+
+A key is a phantom-typed identity: Nupp remembers `T`, the runtime holds an id
+and an optional name. A store is one table indexed by id behind two generic
+metamethods, so `store[key]` reads `T?` and `store[key] = value` accepts `T?`.
+
+Names are opaque strings registered once per runtime state. Ids are allocated
+in declaration order and identify a key inside this state only; the name is the
+identity that persists. [NEP 34](docs/neps/0034-typed-keys-and-stores.md)
+records why the key is shaped the way it is.
+]]
+
+--- A typed identity for one value in a [](nupp.data.Store).
+---
+--- `id` and `name` are all a key holds at runtime. `_valueType` is never
+--- present: it mentions `T` in both positions so that keys are invariant, which
+--- is what makes a wrong write through one a checker error rather than a
+--- silent widening.
+--- @export
+export interface Key<T>
+    readonly id: integer
+    readonly name: string?
+    readonly _valueType: (function(value: T?): T?)?
+end
+
+--- One occupied key of a store, detached from the store.
+--- @export
+export record StoreEntry
+    id: integer
+    name: string?
+    valueType: string
+end
+
+--- An independent typed bag indexed by keys.
+--- @export
+export record Store
+    private values: {[integer]: any}
+    metamethod __index: function<T>(self, key: Key<T>): T?
+    metamethod __newindex: function<T>(self, key: Key<T>, value: T?)
+end
+
+Store.__index = function<T>(self: Store, key: Key<T>): T?
+    return self.values[key.id] as T?
+end
+
+Store.__newindex = function<T>(self: Store, key: Key<T>, value: T?): nil
+    self.values[key.id] = value
+end
+
+local nextId: integer = 1
+local named: {[string]: Key<any>} = {}
+local names: {[integer]: string} = {}
+
+--- Creates a key.
+---
+--- The type argument comes from the annotation at the declaration. A named key
+--- is registered for the runtime state's lifetime; an anonymous key is
+--- retained by nothing but its holders.
+--- @param name the opaque name to register, or nil for an anonymous key
+--- @return the key
+--- @raises when the name is empty or already registered, before an id is used
+--- @export
+export function newKey<T>(name: string?): Key<T>
+    if name ~= nil then
+        if name == "" then
+            error("nupp: a key name must not be empty", 2)
+        elseif named[name] ~= nil then
+            error("nupp: key " .. name .. " is already registered", 2)
+        end
+    end
+    local key: Key<T> = {id = nextId, name = name}
+    nextId = nextId + 1
+    if name ~= nil then
+        named[name] = key as Key<any>
+        names[key.id] = name
+    end
+
+    return key
+end
+
+--- Finds a registered key by name.
+---
+--- The registry knows the name's id and nothing about its type, so the result
+--- is `unknown` and the caller casts to the `Key<T>` it claims.
+--- @param name the registered name
+--- @return the key, or nil when the name is not registered
+--- @export
+export function findKey(name: string): unknown
+    return named[name]
+end
+
+--- Returns a fresh table from every registered name to its id.
+--- @return the caller-owned listing
+--- @export
+export function listKeys(): {[string]: integer}
+    local result: {[string]: integer} = {}
+    for name, key in pairs(named) do
+        result[name] = key.id
+    end
+
+    return result
+end
+
+--- Creates an empty store.
+--- @return the store
+--- @export
+export function new(): Store
+    return new Store(values = {})
+end
+
+--- Removes every value from a store without touching any registration.
+--- @param store the store to clear
+--- @return nothing
+--- @export
+export function clear(store: Store): nil
+    store.values = {}
+end
+
+--- Describes every occupied key of a store, sorted by id, without its values.
+--- @param store the store to describe
+--- @return fresh rows, one per occupied key
+--- @export
+export function inspect(borrows store: Store): {StoreEntry}
+    local rows: {StoreEntry} = {}
+    for id, value in pairs(store.values) do
+        rows[#rows + 1] = new StoreEntry(id = id, name = names[id], valueType = type(value))
+    end
+    table.sort(rows, function(a: StoreEntry, b: StoreEntry): boolean
+        return a.id < b.id
+    end)
+
+    return rows
+end

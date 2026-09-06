@@ -15,8 +15,8 @@ visible:set(37)
 
 The small byte algorithms and identifiers live directly on `nupp.data`:
 `fnv1a64`, `crc32`, `sha256`, `uuid4`, and `uuid7`. `Bitset` is its growable
-set of bit positions. The facilities with their own substantial runtime remain
-modules of their own.
+set of bit positions, and `Key` and `Store` are its typed heterogeneous bag.
+The facilities with their own substantial runtime remain modules of their own.
 
 - See [](nupp.data.binary) for detached plain values with binary strings and
   numeric table keys.
@@ -57,6 +57,70 @@ clearing, and testing beyond its current capacity are defined; setting beyond
 it grows the private storage. Set algebra works a word at a time, and `count`
 computes the population on demand.
 
+## Keys and stores
+
+A `Store` holds values of many types under identities that are not strings,
+so a reader gets the type it stored and a writer cannot store the wrong one.
+A `Key<T>` is that identity: an integer id and an optional name at runtime,
+with `T` fixed by the annotation at its declaration and nowhere else.
+
+```nupp
+local record Settings
+    volume: number
+end
+
+local settings: nupp.data.Key<Settings> = nupp.data.newKey("game.settings")
+local frames: nupp.data.Key<integer> = nupp.data.newKey("game.frames")
+local scratch: nupp.data.Key<string> = nupp.data.newKey(nil)
+
+local world = nupp.data.newStore()
+world[settings] = new Settings(volume = 0.5)
+world[frames] = (world[frames] or 0) + 1
+world[scratch] = "temporary"
+world[scratch] = nil -- removes the entry
+
+local current = world[settings] -- Settings?
+assert(current ~= nil and current.volume == 0.5)
+```
+
+A read is `T?`, a write accepts `T?`, and `nil` removes the entry; `false`,
+zero, and the empty string are stored as given. A wrong write through a key
+is `NUPP2006`, a wrong read is `NUPP2001`, and a key does not widen or narrow
+to another value type. A declaration with no annotation is `Key<any>`, which
+the store checks nothing through, so the annotation is what makes a key typed.
+
+Names are opaque strings registered once per runtime state. The empty name and
+a name already registered raise before an id is used; anonymous keys are always
+fresh. `findKey` returns the registered key as `unknown`, because the registry
+knows the name's id and nothing about its type, and the caller casts to the
+`Key<T>` it claims. `listKeys` returns a fresh table from name to id.
+
+```nupp
+local found = nupp.data.findKey("game.frames") as nupp.data.Key<integer>
+assert(found.id == frames.id)
+assert(nupp.data.listKeys()["game.frames"] == frames.id)
+```
+
+Ids are allocated in declaration order and identify a key inside this runtime
+state only. A worker has its own registry, and a save file must never carry an
+id: the name is the identity that persists, and
+[schema-driven serde](docs/learn/runtime/data/serde.md#persisting-a-store) saves and
+loads a store by it.
+
+`clearStore` drops every value and touches no registration. `inspectStore`
+returns fresh rows sorted by id, one per occupied key, with the name, nil for
+an anonymous key, and the Lua type name of the value, never the value itself.
+
+```nupp
+for _, row in ipairs(nupp.data.inspectStore(world)) do
+    assert(row.id > 0 and type(row.valueType) == "string")
+end
+```
+
+[NEP 34](docs/neps/0034-typed-keys-and-stores.md) records why a key is shaped
+this way, and why serde's `MetadataKey` and reflection's `ExtensionKey` are
+the same key.
+
 ## Native selection
 
 Which functions are native is not part of the contract. The build selects the
@@ -71,6 +135,7 @@ that, and the same digest on every target either way.
 
 local data = {}
 local bitset = require("nupp.data.internal.bitset")
+local store = require("nupp.data.internal.store")
 const digest = require("nupp.data.digest")
 const native = require("nupp.runtime.native")
 
@@ -185,5 +250,63 @@ end
 export type Bitset = bitset.Bitset
 
 data.Bitset = bitset.Bitset
+
+--- A typed identity for one value in a [](nupp.data.Store).
+export type Key<T> = store.Key<T>
+
+--- An independent typed bag indexed by keys.
+export type Store = store.Store
+
+--- One occupied key of a store, detached from the store.
+export type StoreEntry = store.StoreEntry
+
+--- Creates a key whose type argument comes from the annotation at its declaration.
+---
+--- @param name the opaque name to register, or nil for an anonymous key
+--- @return the key
+--- @raises when the name is empty or already registered
+--- @export
+function data.newKey<T>(name: string?): Key<T>
+    return store.newKey(name)
+end
+
+--- Finds a registered key by name; the caller casts the `unknown` result.
+---
+--- @param name the registered name
+--- @return the key, or nil when the name is not registered
+--- @export
+function data.findKey(name: string): unknown
+    return store.findKey(name)
+end
+
+--- Returns a fresh table from every registered name to its id.
+--- @return the caller-owned listing
+--- @export
+function data.listKeys(): {[string]: integer}
+    return store.listKeys()
+end
+
+--- Creates an empty store.
+--- @return the store
+--- @export
+function data.newStore(): Store
+    return store.new()
+end
+
+--- Removes every value from a store without touching any registration.
+--- @param value the store to clear
+--- @return nothing
+--- @export
+function data.clearStore(value: Store): nil
+    store.clear(value)
+end
+
+--- Describes every occupied key of a store, sorted by id, without its values.
+--- @param value the store to describe
+--- @return fresh rows, one per occupied key
+--- @export
+function data.inspectStore(borrows value: Store): {StoreEntry}
+    return store.inspect(value)
+end
 
 export = data

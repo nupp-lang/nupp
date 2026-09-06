@@ -56,7 +56,8 @@ table: the members a file names are the members that get emitted.
 The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
-- [](nupp.data) owns JSON, UTF-8, identifiers, hashes and checksums.
+- [](nupp.data) owns JSON, UTF-8, identifiers, hashes and checksums, and the
+  typed keys and stores that hold values of many types under one identity.
 - [](nupp.data.hash) provides SHA-256 and HMAC-SHA256, streaming or one-shot.
 - [](nupp.data.crypto) provides host-backed cryptographic randomness, digests, and
   identifiers through the selected backend.

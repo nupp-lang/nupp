@@ -1,6 +1,6 @@
 ---
 title: Typed keys and stores
-status: Accepted
+status: Implemented
 created: 2026-09-06
 ---
 

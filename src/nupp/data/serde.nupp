@@ -35,6 +35,7 @@ local value = binding:bind{id = 41, name = "Ada"}
 ]==]
 
 local extensions = require("nupp.compiler.runtime.extensions")
+local store = require("nupp.data.internal.store")
 
 ----------------------------------------------------------------------------
 -- The logical vocabulary
@@ -70,22 +71,19 @@ export type Kind = "unit"
 export interface Serializable
 end
 
-local nextMetadataSlot: integer = 0
-
 --- A typed identity for format-neutral schema metadata.
 ---
---- Its dense slot is process-local acceleration data. Applications retain the key,
---- never its number, and may use the same key with static and run-time schemas.
+--- It is a [](nupp.data.Key): its id is process-local, so applications retain
+--- the key, never its number, and may use the same key with static and run-time
+--- schemas.
 --- @export
-export record MetadataKey<T>
-    private readonly slot: integer
-end
+export type MetadataKey<T> = store.Key<T>
 
 --- Creates a typed schema metadata identity.
+--- @return the key
 --- @export
 export function metadataKey<T>(): MetadataKey<T>
-    nextMetadataSlot = nextMetadataSlot + 1
-    return new MetadataKey(slot = nextMetadataSlot)
+    return store.newKey(nil)
 end
 
 --- Standard Debug policy metadata shared by derived and dynamic schemas.
@@ -105,11 +103,11 @@ export record Member
     readonly hasDefault: boolean
     private readonly defaultValue: any
     private readonly owner: any
-    private readonly metadataValues: any
+    private readonly metadataValues: store.Store
 
     --- Answers typed metadata attached to this member.
     function metadata<T>(self, key: MetadataKey<T>): T?
-        return self.metadataValues[key.slot] as T?
+        return self.metadataValues[key]
     end
 end
 
@@ -128,7 +126,7 @@ export record Schema
 
     --- Answers typed metadata attached to this schema node.
     function metadata<T>(self, key: MetadataKey<T>): T?
-        return self.state.metadata[key.slot] as T?
+        return (self.state.metadata as store.Store)[key]
     end
 
     --- Finds a structure member by its logical name.
@@ -166,7 +164,7 @@ end
 local function makeSchema(kind: Kind, name: string?, members: {Member}?, extra: any?): Schema
     local state: any = extra or {}
     state.byName = state.byName or {}
-    state.metadata = state.metadata or {}
+    state.metadata = state.metadata or store.new()
     local schema = new Schema(kind = kind, name = name, members = members or {}, state = state)
     extensions.host(schema)
 
@@ -242,7 +240,7 @@ end
 
 local function builderMutable(self: any): any
     if self.state == nil then
-        self.state = {kind = nil, name = nil, members = {}, metadata = {}, frozen = false}
+        self.state = {kind = nil, name = nil, members = {}, metadata = store.new(), frozen = false}
     end
     if self.state.frozen then
         error("nupp: schema builder is frozen", 2)
@@ -323,7 +321,8 @@ export record SchemaBuilder
     --- Attaches typed metadata to the root schema.
     function metadata<T>(self, key: MetadataKey<T>, value: T): SchemaBuilder
         local state = builderMutable(self)
-        state.metadata[key.slot] = value
+        local metadata = state.metadata as store.Store
+        metadata[key] = value
         return self
     end
 
@@ -333,7 +332,8 @@ export record SchemaBuilder
         local state = builderMutable(self)
         for _, member in ipairs(state.members) do
             if member.name == name then
-                member.metadata[key.slot] = value
+                local metadata = member.metadata as store.Store
+                metadata[key] = value
                 return self
             end
         end
@@ -683,7 +683,7 @@ local function schemaForSpec(spec: any): Schema
                 hasDefault = false,
                 defaultValue = nil,
                 owner = schema,
-                metadataValues = {}
+                metadataValues = store.new()
             )
             members[index] = member
             schemaState.byName[member.name] = member
@@ -722,12 +722,12 @@ bindingForEntry = function(entry: any): any
     })
     entry.serdeBinding = binding
     for index, field in ipairs(recipe.fields) do
-        local metadata: any = {}
+        local metadata = store.new()
         if field.debugSkip then
-            metadata[debugSkip.slot] = true
+            metadata[debugSkip] = true
         end
         if field.debugRedact then
-            metadata[debugRedact.slot] = true
+            metadata[debugRedact] = true
         end
         local member = new Member(
             index = index,
@@ -1786,4 +1786,81 @@ export function json(options: any?): JsonCodec
     end
 
     return new JsonCodec(profile = profile)
+end
+
+----------------------------------------------------------------------------
+-- Persisted stores
+----------------------------------------------------------------------------
+
+--- The binding each persisted key was declared with, by id.
+local persistedKeys: {[integer]: any} = {}
+
+--- Declares a named key whose value type is fixed by the binding that persists it.
+---
+--- The key is registered as `nupp.data.newKey` registers one, so the name is
+--- opaque and unique, and the binding is retained so `saveStore` and
+--- `loadStore` can carry the value under that name.
+--- @param name the opaque name to register
+--- @param binding the binding that encodes and decodes the value
+--- @return the key
+--- @raises when the name is empty or already registered
+--- @export
+export function key<T>(name: string, binding: Binding<T>): store.Key<T>
+    local created: store.Key<T> = store.newKey(name)
+    persistedKeys[created.id] = {key = created, binding = binding}
+
+    return created
+end
+
+--- Encodes every occupied key of a store into plain values under its name.
+---
+--- The values are the documents a JSON codec with default field names writes,
+--- so a saved store rides inside whatever document the application encodes.
+--- @param value the store to save
+--- @return a fresh table from name to plain value
+--- @raises when an occupied key is anonymous or was declared without a binding
+--- @export
+export function saveStore(borrows value: store.Store): {[string]: any}
+    local profile = json().profile
+    local out: {[string]: any} = {}
+    for _, row in ipairs(store.inspect(value)) do
+        local entry = persistedKeys[row.id]
+        if entry == nil then
+            error("nupp: key " .. (row.name or ("#" .. tostring(row.id))) .. " has no binding to save it", 2)
+        end
+        local binding: any = entry.binding
+        local held = value[entry.key as store.Key<any>]
+        out[row.name as string] = toDocument(held, binding:schema(), profile, binding:extension(accessKey))
+    end
+
+    return out
+end
+
+--- Decodes plain values written by `saveStore` back into a store.
+---
+--- Each name is looked up in this runtime state's registry and its value is
+--- decoded through the binding that key was declared with, so a value is
+--- checked against the schema this program gave the name. Keys the saved
+--- table does not mention are left as they are.
+--- @param value the store to write
+--- @param saved the table `saveStore` returned, or one decoded from a document
+--- @return nothing
+--- @raises when a name is not registered, its key has no binding, or a value does not
+---     fit
+--- @export
+export function loadStore(exclusive value: store.Store, saved: {[string]: any}): nil
+    local profile = json().profile
+    for name, plain in pairs(saved) do
+        local found = store.findKey(name)
+        if found == nil then
+            error("nupp: key " .. name .. " is not registered", 2)
+        end
+        local target = found as store.Key<any>
+        local entry = persistedKeys[target.id]
+        if entry == nil then
+            error("nupp: key " .. name .. " has no binding to load it", 2)
+        end
+        local binding: any = entry.binding
+        value[target] = fromDocument(plain, binding:schema(), profile, binding:extension(accessKey))
+    end
 end
