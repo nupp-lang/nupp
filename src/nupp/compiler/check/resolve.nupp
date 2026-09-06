@@ -1672,11 +1672,20 @@ function resolve.install(c: state.Checker): nil
                     end
                 end
             end
-            local borrowsParam, borrowsSelf, borrowsParams
-            local firstResult = node.rets and node.rets[1]
-            if firstResult and firstResult.kind == "tborrows" then
+            local borrowsParam, borrowsSelf, borrowsParams, borrowsResult
+            for result, ret in ipairs(node.rets or {}) do
+                if ret.kind == "tborrows" then
+                    if borrowsResult then
+                        c.diag("NUPP2621", ret, "only one result may declare a borrow")
+                    else
+                        borrowsResult = result
+                    end
+                end
+            end
+            local borrowed = borrowsResult and (node.rets as {cst.Node})[borrowsResult] as cst.Tborrows or nil
+            if borrowed and borrowsResult then
                 borrowsParams = {}
-                for _, source in ipairs(firstResult.params or {firstResult.param}) do
+                for _, source in ipairs(borrowed.params or {borrowed.param}) do
                     if source and source.text == "self" and byname.self then
                         borrowsSelf = true
                     elseif source and byname[source.text] then
@@ -1688,12 +1697,12 @@ function resolve.install(c: state.Checker): nil
                 if #borrowsParams == 1 then
                     borrowsParam, borrowsParams = borrowsParams[1], nil
                 end
-                if rets[1] then
+                if rets[borrowsResult] then
                     -- Borrow provenance lives on the callable and is attached to the
                     -- produced value at the call. Do not replace an owning result's
                     -- discharge obligation with the borrow relation it also carries.
-                    if rets[1].tag ~= "affine" then
-                        rets[1] = T.borrowed(T.unwrapOwnership(rets[1]))
+                    if rets[borrowsResult].tag ~= "affine" then
+                        rets[borrowsResult] = T.borrowed(T.unwrapOwnership(rets[borrowsResult]))
                     end
                     retPack = T.pack(rets, retPack.tail, retPack.modes)
                 end
@@ -1740,7 +1749,8 @@ function resolve.install(c: state.Checker): nil
                 end)() or nil,
                 -- `sendable function(...)`: the way to require a reproducible callable
                 -- where its origin is not visible here, such as a parameter or field.
-                node.sendable
+                node.sendable,
+                borrowsResult
             )
             if node.comptimeOnly then
                 c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1

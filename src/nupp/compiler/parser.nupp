@@ -640,11 +640,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, returnPack)
         end
         n.rets = returnPack.kind == "tpack" and returnPack.types or {}
-        local firstResult = (n.rets or {})[1]
-        if firstResult and firstResult.kind == "tborrows" then
-            local borrowed = firstResult as cst.Tborrows
-            if borrowsExternalSource(n.params as {cst.Param | cst.TfuncParam}, borrowed) then
-                return borrowed
+        for _, result in ipairs(n.rets or {}) do
+            if result.kind == "tborrows" then
+                local borrowed = result as cst.Tborrows
+                if borrowsExternalSource(n.params as {cst.Param | cst.TfuncParam}, borrowed) then
+                    return borrowed
+                end
             end
         end
 

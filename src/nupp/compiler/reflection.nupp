@@ -263,6 +263,7 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             out.noYield = t.noYield or false
             out.borrowedFrom = t.borrowsParam
             out.borrowedFromMany = t.borrowsParams or {}
+            out.borrowedResult = t.borrowsResult or 1
             out.typeParameters, out.typeBounds, out.packParameters = {}, {}, {}
             for position, parameter in ipairs(t.typeParams or {}) do
                 out.typeParameters[position] = intern(parameter)

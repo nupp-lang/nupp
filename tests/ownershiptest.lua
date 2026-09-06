@@ -2232,6 +2232,95 @@ function M.aMethodBorrowedReturnElidesToTheReceiver()
     )
 end
 
+-- A generic for is handed an iterator, a state and a control variable, so a function
+-- that gives a loop something it only borrows puts that borrow in the second result.
+-- The relation used to be readable on the first result alone: a clause anywhere else
+-- was parsed and dropped, and the return then reported NUPP2608 with help naming the
+-- clause that was already written.
+function M.aBorrowedResultMayBeAnyResult()
+    assertClean(
+        POOL .. table.concat(
+            {
+                "",
+                "local function walk(borrows p: Pool): (function(Pool, integer): (integer, Res), Pool borrows (p), integer)",
+                "   return function(source: Pool, index: integer): (integer, Res)",
+                "      return index + 1, source.items[index]",
+                "   end, p, 0",
+                "end",
+                "local pool = open_pool()",
+                "for index, item in walk(pool) do",
+                "   print(index, item.name)",
+                "end",
+                "drop(pool)",
+            },
+            "\n"
+        )
+    )
+end
+
+-- The relation states one position, so it holds that position and no other.
+function M.aBorrowedResultHoldsOnlyItsOwnSlot()
+    assertEq(
+        codes(
+            POOL .. table.concat(
+                {
+                    "",
+                    "local function both(borrows p: Pool): (Pool, Pool borrows (p))",
+                    "   return p, p",
+                    "end",
+                    "print(both)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2608"
+    )
+end
+
+-- One callable records one borrow relation, so two of them are refused rather than
+-- silently keeping the first. The second clause having been refused, returning that
+-- result's borrow is an unbacked one, which is the NUPP2608 beside it.
+function M.onlyOneResultMayDeclareABorrow()
+    assertEq(
+        codes(
+            POOL .. table.concat(
+                {
+                    "",
+                    "local function pair(borrows left: Pool, borrows right: Pool): (Pool borrows (left), Pool borrows (right))",
+                    "   return left, right",
+                    "end",
+                    "print(pair)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2621 NUPP2608"
+    )
+end
+
+-- A borrow in a later slot is still tied to its owner at the call site, so binding it
+-- and dropping the owner underneath it is caught where a first-slot borrow would be.
+function M.aLaterBorrowedResultStillOutlivesNothing()
+    assertEq(
+        codes(
+            POOL .. table.concat(
+                {
+                    "",
+                    "local function view(borrows p: Pool): (integer, Pool borrows (p))",
+                    "   return 0, p",
+                    "end",
+                    "local pool = open_pool()",
+                    "local count, held = view(pool)",
+                    "drop(pool)",
+                    "print(count, held.items)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602"
+    )
+end
+
 -- The member type callers read was derived from the annotations before the body was
 -- checked, and that pass never worked out what a `borrows` result borrows from. The
 -- result kept its qualifier and lost its source, so a call had nothing to tie the value

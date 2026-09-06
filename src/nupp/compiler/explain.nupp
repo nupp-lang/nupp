@@ -2133,6 +2133,18 @@ ENTRIES[
 ENTRIES[
     #ENTRIES + 1
 ] = {
+    code = "NUPP2621",
+    summary = "More than one result declares a borrow",
+    rule = "A callable carries one borrow relation, and it states the result it is about: `borrows (param)` may be written on any result, but only one of them. Two results borrowing from two different parameters would be two relations, which the callable has nowhere to record and a call site nowhere to attach; return the second value owned, or hand the caller the borrowed one and let it derive the rest.",
+    wrong = "local record Buffer\n    value: string\nend\n\nlocal function bad(borrows left: Buffer, borrows right: Buffer): (Buffer borrows (left), Buffer borrows (right))\n    return left, right\nend\n\nreturn bad\n",
+    right = "local record Buffer\n    value: string\nend\n\nlocal function ok(borrows left: Buffer, borrows right: Buffer): (Buffer borrows (left, right), integer)\n    return left, #right.value\nend\n\nreturn ok\n",
+    related = {"NUPP2608", "NUPP2618", "NUPP2109"},
+    docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
     code = "NUPP3002",
     summary = "A struct field's type has no C declarator the generator can emit",
     rule = "Every field of a reified `struct` lowers to a literal C declarator inside the `ffi.typeof` string the record compiles to. The checker admits any pointer or fixed array uniformly as a reifiable field, but the generator still has to spell each concrete shape syntactically, and some admitted shapes have no case in that spelling, chief among them an array whose element is itself a pointer. Such a field is refused at generation rather than at check.",

@@ -470,6 +470,11 @@ record types.Func
     --- Every 1-based parameter a multi-source borrowed result depends on.
     borrowsParams: {integer}?
 
+    --- The 1-based result slot the borrow relation lands on, 1 when absent. A generic
+    --- for wants its state in the second slot, so the relation states the position it
+    --- is about the way an owning or preserving result already does.
+    borrowsResult: integer?
+
     --- For each fixed result slot, the 1-based parameter whose complete capability
     --- that result transports. A nil entry is a fresh or unrestricted result.
     preservesResults: {integer}?
@@ -2652,7 +2657,8 @@ function types.func(
     partitionResults: {[integer]: {[string]: string}}?,
     comptimeOnly: boolean?,
     explicitPreserves: {[integer]: boolean}?,
-    sendable: boolean?
+    sendable: boolean?,
+    borrowsResult: integer?
 ): types.Type
     -- A single declared result of `never` is a promise the call never comes back, the
     -- same promise `noreturn` records; deriving it here means a signature only has to
@@ -2709,6 +2715,9 @@ function types.func(
     end
     if borrowsParams and #borrowsParams > 0 then
         key = key .. "|borrows(" .. table.concat(borrowsParams, ",") .. ")"
+    end
+    if borrowsResult and borrowsResult ~= 1 then
+        key = key .. "|borrowsinto" .. borrowsResult
     end
     for _, output in ipairs(ffiOut or {}) do
         local cleanupIds = {}
@@ -2814,6 +2823,7 @@ function types.func(
             borrowsParam = borrowsParam,
             borrowsSelf = borrowsSelf,
             borrowsParams = borrowsParams,
+            borrowsResult = borrowsResult,
             preservesResults = preservesResults,
             explicitPreserves = explicitPreserves,
             preservesPaths = next(preservesPaths) and preservesPaths or nil,
@@ -2869,6 +2879,7 @@ local FUNC_FIELDS: {
     "comptimeOnly",
     "explicitPreserves",
     "sendable",
+    "borrowsResult",
 }
 
 --- The same function with some of its fields replaced, interned as `types.func` would
@@ -2932,7 +2943,8 @@ function types.funcWith(fn: types.Func, overrides: {[string]: any}): types.Type
         field.partitionResults,
         field.comptimeOnly,
         field.explicitPreserves,
-        field.sendable
+        field.sendable,
+        field.borrowsResult
     )
 end
 

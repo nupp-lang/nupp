@@ -1279,7 +1279,8 @@ return m
             "NUPP2614",
             "NUPP2615",
             "NUPP2616",
-            "NUPP2620"
+            "NUPP2620",
+            "NUPP2621"
         },
         body = [=[
 `affine(T[, cleanup])` is a transparent compile-time type-generator call,
@@ -1311,7 +1312,9 @@ captured owners by default. `takes (source)` makes a single-shot closure, and
 A result relation carries a capability out of a call. `T preserves value` moves
 an exact capability through one unambiguous result path, and callable assignment
 keeps that relation exactly. `T borrows (source)` ties a result or a nominal
-field to a root. Affine nominal fields have path-sensitive state, so a field is
+field to a root; written on a result it may be any of them, one per callable, so
+a function handing a generic for a state it borrows states the second slot.
+Affine nominal fields have path-sensitive state, so a field is
 tracked apart from the record holding it, and suspension cannot strand an
 obligation.
 

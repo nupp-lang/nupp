@@ -324,6 +324,19 @@ local function view(borrows value: table): table borrows (value)
 end
 ```
 
+The clause states the result it is about, so it may be written on any of them.
+A generic for is handed an iterator, a state and a control variable, so a
+function that gives a loop something it only borrows puts that borrow second:
+
+```nupp
+local function entries(borrows value: table): (function(table, integer): (integer, string), table borrows (value), integer)
+    return step, value, 0
+end
+```
+
+A callable records one borrow relation. Two results each declaring their own
+source is refused with NUPP2621, and every other result stays owned as it was.
+
 ### Pinning
 
 `pinned(T)` pairs a pointer with a strong Lua anchor, so C may retain the

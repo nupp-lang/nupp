@@ -370,6 +370,7 @@ local function memberIsA(have: Type, want: Type): boolean
                 borrowsParam = false,
                 borrowsSelf = false,
                 borrowsParams = false,
+                borrowsResult = false,
                 ffiOut = false,
                 noreturn = false,
                 paramPack = T.pack(params, ft.paramPack.tail, modes),

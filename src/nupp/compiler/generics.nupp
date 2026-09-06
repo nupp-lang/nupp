@@ -2168,6 +2168,8 @@ function generics.dropSelf(ft: Type): Type
             borrowsParam = borrowsParam or false,
             borrowsSelf = borrowsSelf or false,
             borrowsParams = next(borrowsParams) and borrowsParams or false,
+            -- Binding the receiver shifts parameters, not results.
+            borrowsResult = ft.borrowsResult or false,
             paramPack = paramPack,
             paramNames = names,
             preservesResults = next(preserves) and preserves or false,

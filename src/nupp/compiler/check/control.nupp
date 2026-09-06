@@ -431,7 +431,8 @@ function control.install(c: state.Checker): state.StatHandlers
             end
         end
         for j, valueT in ipairs(ts) do
-            local borrowContract = j == 1 and c.borrowReturnStack[#c.borrowReturnStack] or nil
+            local declaredBorrow = c.borrowReturnStack[#c.borrowReturnStack]
+            local borrowContract = declaredBorrow and declaredBorrow.result == j and declaredBorrow.contract or nil
             if borrowContract then
                 local expected, missing = {}, nil
                 for _, sourceToken in ipairs(borrowContract.params or {borrowContract.param}) do
@@ -456,7 +457,7 @@ function control.install(c: state.Checker): state.StatHandlers
                     c.diag("NUPP2619", stat.exprs[j] or stat, "cannot prove all declared borrowed-result sources")
                 end
             end
-            if ownershipKind(valueT) == "borrowed" and not (j == 1 and c.borrowReturnStack[#c.borrowReturnStack]) then
+            if ownershipKind(valueT) == "borrowed" and not borrowContract then
                 local expr = stat.exprs[j] or stat
                 local root = provenanceOwners(expr)[1]
                 local related = root and root.definition and c.related(

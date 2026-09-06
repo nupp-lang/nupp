@@ -2373,8 +2373,9 @@ function calls.install(c: state.Checker): calls.Ops
                     c.diag("NUPP2619", source, "a borrowed result needs a rooted argument to borrow from")
                 end
             end
+            local borrowedSlot = calleeT.borrowsResult or 1
             if #owners > 0 then
-                c.own.capabilityFacts(node).roots = owners
+                c.own.capabilityFacts(node, borrowedSlot).roots = owners
             end
             local exclusiveResult = calleeT.borrowsParam and calleeT.paramModes[calleeT.borrowsParam] == "exclusive"
             if not exclusiveResult then
@@ -2386,7 +2387,7 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
             if exclusiveResult and #owners > 0 then
-                c.own.capabilityFacts(node).exclusive = true
+                c.own.capabilityFacts(node, borrowedSlot).exclusive = true
             end
             local resultRoot, resultPath, consistent = nil, nil, true
             for _, source in ipairs(sources) do
