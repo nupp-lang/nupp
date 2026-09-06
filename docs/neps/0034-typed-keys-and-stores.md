@@ -192,9 +192,10 @@ the id it last reported. Ids are dense and ascending, so that order is the
 sorted order without a sort. It never reports the values, so a tool can list a
 store without holding what is in it.
 
-`storeEntries` hands the store to the loop, which a caller holding it as a
-borrow cannot do, so `nextStoreEntry` exposes the same step directly for that
-caller to drive.
+`storeEntries` hands the store to the loop by returning it, which a caller
+holding it as a borrow cannot do, so `nextStoreEntry` exposes the same step for
+that caller to name alongside its own state:
+`for id, name in nextStoreEntry as StoreStep, store, 0 do`.
 
 ### Persistence
 

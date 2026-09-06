@@ -120,8 +120,9 @@ export type StoreStep = function(Store, integer): (integer, string?, string)
 
 --- Reports the first occupied key after an id, or nil when there is none.
 ---
---- This is the step [](entries) hands the generic for, exported for a caller
---- that holds the store as a borrow and so cannot pass it to the loop.
+--- This is the step [](entries) hands the generic for. A caller holding the
+--- store as a borrow cannot return it from `entries`, so it names the step and
+--- the state itself: `for id, name in nextEntry as StoreStep, store, 0 do`.
 --- @param store the store to read
 --- @param after the id to resume after, 0 to start
 --- @return the id, or nil once the walk is done

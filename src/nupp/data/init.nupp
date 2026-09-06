@@ -317,8 +317,13 @@ end
 
 --- Reports the first occupied key after an id, or nil when there is none.
 ---
---- This is the step [](nupp.data.storeEntries) hands the generic for, for a
---- caller that holds the store as a borrow and so cannot pass it to the loop.
+--- This is the step [](nupp.data.storeEntries) hands the generic for. A caller
+--- holding the store as a borrow cannot pass it to `storeEntries`, so it names
+--- the step and the state itself:
+---
+--- ```nupp
+--- for id, name in nupp.data.nextStoreEntry as nupp.data.StoreStep, store, 0 do
+--- ```
 --- @param value the store to read
 --- @param after the id to resume after, 0 to start
 --- @return the id, or nil once the walk is done

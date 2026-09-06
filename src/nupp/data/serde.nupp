@@ -1823,8 +1823,7 @@ end
 export function saveStore(borrows value: store.Store): {[string]: any}
     local profile = json().profile
     local out: {[string]: any} = {}
-    local id, name = store.nextEntry(value, 0)
-    while id ~= nil do
+    for id, name in store.nextEntry as store.StoreStep, value, 0 do
         local entry = persistedKeys[id]
         if entry == nil then
             error("nupp: key " .. (name or ("#" .. tostring(id))) .. " has no binding to save it", 2)
@@ -1832,7 +1831,6 @@ export function saveStore(borrows value: store.Store): {[string]: any}
         local binding: any = entry.binding
         local held = value[entry.key as store.Key<any>]
         out[name as string] = toDocument(held, binding:schema(), profile, binding:extension(accessKey))
-        id, name = store.nextEntry(value, id)
     end
 
     return out
