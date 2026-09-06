@@ -573,6 +573,45 @@ jobs:
             release/compiler-pack-windows-result.json
           if-no-files-found: error
 
+  stage-zero:
+    name: Stage-zero compiler
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # The compiler a checkout with no compiler starts from, published so it can
+      # be fetched against a pinned digest rather than carried in every clone.
+      # NEP 32 says why.
+      #
+      # This tag still tracks the bundle, and the self-hosting fixpoint is what
+      # holds the tracked bytes to what the verified compiler composes, so the
+      # tracked file is already the artifact and is published as it stands. A
+      # release cut after the tree stops tracking it composes it instead.
+      #
+      # Gzipped, but the digest a checkout pins is of the file inside: two gzips
+      # write different bytes for identical input, and what a checkout verifies is
+      # the source its compiler loads. Printed here so the pin that follows a
+      # release is a value read off the job that made it.
+      - name: Publish the tracked stage-zero compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          name="nupp-stage0-${GITHUB_REF_NAME:-untagged}.lua"
+          cp bootstrap/nupp.lua "release/$name"
+          gzip -9 -n "release/$name"
+          printf 'STAGE0_SHA256 for this release: %s\n' \
+            "$(gzip -dc "release/$name.gz" | sha256sum | cut -d' ' -f1)"
+
+      - name: Upload the stage-zero compiler
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupp-stage0
+          path: release/nupp-stage0-*.lua.gz
+          if-no-files-found: error
+
   catalog:
     name: Assemble the next stub catalog
     needs:
@@ -730,6 +769,7 @@ jobs:
       - build-windows
       - build-compiler-pack-linux
       - build-compiler-pack-windows
+      - stage-zero
       - catalog
       - verify-cross-unix
       - verify-cross-windows
