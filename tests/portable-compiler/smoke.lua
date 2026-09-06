@@ -61,7 +61,7 @@ print(storage.get("key"), hash.hmacHex("key", "message"), crypto.uuid4())
 
     local browserGpu = session:compile(
         [[
-local gpu = require("nupp.experimental.webgpu")
+local gpu = require("nupp.gpu")
 local u32 = nupp.math.u32.wrap
 local values: {uint32} = {u32(0), u32(1)}
 local result = gpu.xorU32(values, u32(0xa5a5a5a5))

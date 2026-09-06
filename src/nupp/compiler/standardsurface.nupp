@@ -54,7 +54,6 @@ local MODULES = {
     ["nupp.gpu.internal"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.gpu.layoutfacts"] = {kind = "common"},
     ["nupp.gpu.layout"] = {kind = "common"},
-    ["nupp.experimental.webgpu"] = selected("host", "host.wasm"),
     ["nupp.runtime.hotreload"] = {kind = "unavailable", capability = "cinterop"},
     -- The core byte types are cdata: a view is a pointer and a length, and no
     -- table stands in for one. A dialect without C storage cannot have them,

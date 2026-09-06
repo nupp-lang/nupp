@@ -245,7 +245,7 @@ the runtime can provide another database name or a storage adapter.
 The browser backend can run admitted `@aot(target = "gpu")` map kernels through
 WebGPU while keeping their storage in Wasm memory. See
 [gpu.md](gpu.md#browser-gpu-kernels) for the generated WGSL profile and the
-separate `nupp.experimental.webgpu` effect API.
+browser provider's convenience operation.
 
 ## Application host
 

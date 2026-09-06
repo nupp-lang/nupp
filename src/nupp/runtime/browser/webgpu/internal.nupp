@@ -4,8 +4,11 @@ module nupp.runtime.browser.webgpu.internal
 --[[WebGPU provider over the browser Worker's Wasm memory and effect boundary.]]
 
 local response = require("nupp.runtime.browser.response")
-local span = require("nupp.mem.span")
+local json = require("nupp.runtime.provider.lunajson")
+local {type Span, type WriteSpan} = require("nupp.mem.span")
 local gpu = {}
+
+local MAX_XOR_VALUES = 262144
 
 -- The portable compiler also runs under an ordinary native Lua 5.1 host,
 -- where the browser's Wasm memory service is intentionally absent. Keep the
@@ -24,6 +27,31 @@ end
 
 const gpu.PORTABLE_WORKGROUP_THREADS = 256
 const gpu.PORTABLE_SCRATCH_BYTES = 16384
+
+--- Xors every uint32 in `values` with `mask` in one WebGPU invocation per
+--- element. The result is copied back only after the Worker observes completion.
+--- @raises when WebGPU is unavailable or the request is outside the portable cap
+function gpu.xorU32(values: {uint32}, mask: uint32): {uint32}
+    if #values == 0 then
+        return {}
+    end
+    if #values > MAX_XOR_VALUES then
+        error("nupp: browser GPU xor accepts at most " .. MAX_XOR_VALUES .. " uint32 values", 2)
+    end
+
+    local input: {any} = json.asArray({})
+    for index, value in ipairs(values) do
+        input[index] = value
+    end
+
+    local answer = response.await("gpu", {operation = "xor-u32", values = input, mask = mask,})
+    local output = answer.values
+    if type(output) ~= "table" or #output ~= #values then
+        error("nupp: browser GPU returned an invalid xor result", 2)
+    end
+
+    return output as {uint32}
+end
 
 record gpu.Layout
 end
@@ -131,18 +159,18 @@ record gpu.Context is gpu.ContextToken
     releaseBuffer: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
     private releaseKernel: function(borrows self: gpu.Context, borrows kernel: gpu.Kernel): nil
     private releaseBinding: function(borrows self: gpu.Context, exclusive binding: gpu.Binding): nil
-    upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: span.Span<T>): nil
+    upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: Span<T>): nil
     enqueueDownload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
     synchronize: function(borrows self: gpu.Context): nil
     readDownloaded: function<T>(
         borrows self: gpu.Context,
         borrows buffer: gpu.Buffer<T>,
-        exclusive destination: span.WriteSpan<T>
+        exclusive destination: WriteSpan<T>
     ): nil
     download: function<T>(
         borrows self: gpu.Context,
         borrows buffer: gpu.Buffer<T>,
-        exclusive destination: span.WriteSpan<T>
+        exclusive destination: WriteSpan<T>
     ): nil
 end
 
@@ -364,11 +392,7 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
     memory.releaseLease(lease)
 end
 
-function gpu.Context.upload<T>(
-    borrows self: gpu.Context,
-    borrows buffer: gpu.Buffer<T>,
-    borrows source: span.Span<T>
-): nil
+function gpu.Context.upload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: Span<T>): nil
     live(self)
     local pointer, count = source:ref()
     if count ~= buffer.count or buffer._released then
@@ -400,7 +424,7 @@ end
 function gpu.Context.readDownloaded<T>(
     borrows self: gpu.Context,
     borrows buffer: gpu.Buffer<T>,
-    exclusive destination: span.WriteSpan<T>
+    exclusive destination: WriteSpan<T>
 ): nil
     live(self)
     local pointer, count = destination:ref()
@@ -417,7 +441,7 @@ end
 function gpu.Context.download<T>(
     borrows self: gpu.Context,
     borrows buffer: gpu.Buffer<T>,
-    exclusive destination: span.WriteSpan<T>
+    exclusive destination: WriteSpan<T>
 ): nil
     self:enqueueDownload(buffer)
     self:synchronize()

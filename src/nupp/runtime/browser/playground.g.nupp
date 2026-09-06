@@ -6,9 +6,9 @@ module nupp.runtime.browser.playground
 -- output capture without synthesizing Lua source in JavaScript.
 
 local json = require("nupp.runtime.provider.lunajson")
--- Keep the public browser GPU module in the checked application bundle. User
+-- Keep the public GPU module in the checked application bundle. User
 -- programs load it later from package.preload, just like the other providers.
-local browserGpu = require("nupp.experimental.webgpu")
+local browserGpu = require("nupp.gpu")
 -- The derive runtime and the two libraries a derived binding reaches, for the
 -- same reason: a program that derives `Serde` compiles to `require("nupp.derive")`,
 -- and a module the bundle does not carry is a program that checks, compiles, and

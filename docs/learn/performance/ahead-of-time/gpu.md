@@ -163,13 +163,13 @@ graphics API is substituted when it is unavailable.
 See [wasm.md](wasm.md#browser-package) for the application package and Worker
 host around this kernel.
 
-## Browser GPU effect
+## Browser convenience operation
 
-`nupp.experimental.webgpu.xorU32` is a smaller browser-only surface for a program that
-needs one checked WebGPU operation without owning a generated kernel binding:
+The browser's `nupp.gpu` provider adds `xorU32` for a program that needs one
+checked WebGPU operation without owning a generated kernel binding:
 
 ```nupp:playground
-local gpu = nupp.experimental.webgpu
+local gpu = nupp.gpu
 local u32 = nupp.math.u32.wrap
 
 local values = {u32(0), u32(0x00ff00ff), u32(0xffffffff)}

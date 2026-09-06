@@ -19,6 +19,7 @@ export type Context = implementation.Context
 export const Context = implementation.Context
 export const PORTABLE_WORKGROUP_THREADS = implementation.PORTABLE_WORKGROUP_THREADS
 export const PORTABLE_SCRATCH_BYTES = implementation.PORTABLE_SCRATCH_BYTES
+export const xorU32 = implementation.xorU32
 export const destroyContext = implementation.destroyContext
 export const workgroups = implementation.workgroups
 export const open = implementation.open

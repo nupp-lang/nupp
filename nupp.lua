@@ -300,7 +300,6 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/effects.g.nupp",
     "src/nupp/runtime/browser/response.g.nupp",
     "src/nupp/runtime/browser/workercodec.g.nupp",
-    "src/nupp/experimental/webgpu.g.nupp",
     "src/nupp/runtime/browser/crypto.g.nupp",
     "src/nupp/runtime/browser/http.g.nupp",
     "src/nupp/runtime/browser/path.nupp",
