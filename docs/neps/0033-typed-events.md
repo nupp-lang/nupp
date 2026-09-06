@@ -31,6 +31,10 @@ events its Teal router had.
 - Warmed emission of a scalar event to non-suspending observers performs no
   allocation the bus owns: no envelope, no closure, no vararg table, no fresh
   payload.
+- Registering and clearing observers at entity churn rates allocates nothing
+  in steady state, and an unobserved address costs nothing at all, so a world
+  of millions of entities pays for the observers it has and not for the
+  entities it could have.
 - An observer may mutate the payload and may suspend, and cannot retain the
   payload or a view of it past its own return.
 - A source that owns observers passes itself to them exclusively, without a
@@ -287,6 +291,41 @@ Addresses are table keys compared by identity. Tecs supplies its packed
 entity ids with their generation, so a recycled slot is a new address, and
 zero is a Tecs convention for the world rather than anything the bus knows.
 
+### Registrations
+
+Observer state is a map from address to a map from event identity to one flat
+array per pair, and nothing exists for an address or a pair until something
+observes it. An entity nobody observes has no entry, which is what lets a
+world of four million entities with a few thousand observed ones hold a few
+thousand entries. Emission at an unobserved address is the source's
+registration count, which short-circuits everything when it is zero, and then
+two hash lookups that find nothing.
+
+A registration is two slots of that flat array, the callback and its name or
+`false`, interleaved, with the live count kept in slot zero rather than in the
+array's length. There is no record per registration. The Teal router chose
+this layout and the reason survives it: at a million registrations a record
+each is on the order of a hundred megabytes where two slots each is on the
+order of thirty, and the dispatch loop reads an array slot per observer
+instead of a field of a table it had to fetch first. The count lives in slot
+zero so that a removal can leave a hole to be swapped out later without the
+length lying about how many observers a delivery should visit.
+
+A removal during delivery and a consumed once registration are the same
+operation: the callback slot is overwritten with a tombstone, a function that
+does nothing. A nested or interleaved delivery that reaches the slot calls the
+tombstone, which is how "cannot be invoked again" is guaranteed without a
+flags array or a check in the loop. Compaction swaps tombstones out after the
+outermost delivery leaves, in one pass over the arrays a removal touched.
+
+The per-address maps, the per-pair arrays, and the deferred-compaction list
+come from pools the source owns and go back to them when they empty. Under
+entity churn an observer registered at spawn and cleared at despawn would
+otherwise allocate two tables per entity per lifetime, which at the entity
+counts above is the one steady-state allocation the bus itself would own. A
+detached list is returned to its pool only after the last delivery holding it
+has exited, since an in-flight loop is reading it.
+
 ### Storage
 
 Storage is a general facility that events consume. `nupp.mem.pool` is a table
@@ -323,10 +362,10 @@ Delivery is synchronous. An observer that suspends suspends the emission with
 it, and storage stays leased until it returns or is cancelled. Observers run in
 array order and see each other's mutations. A delivery reads the array length
 on entry, so an observer added during it joins the next emission, including a
-nested one. Removal during delivery marks the registrations it resolved when
-it was asked for and compacts by swap after the outermost delivery leaves;
-removal by callback marks every match, removal by name the first. A once
-registration is marked consumed before its callback is invoked, so nothing
+nested one. Removal during delivery tombstones the registrations it resolved
+when it was asked for and compacts by swap after the outermost delivery
+leaves; removal by callback tombstones every match, removal by name the first.
+A once registration is tombstoned before its callback is invoked, so nothing
 nested or interleaved reaches it again. Clearing an address or resetting the
 source detaches its lists; a delivery holding a detached list finishes it, and
 the list is recycled after the last such delivery exits. `reset` clears
@@ -417,6 +456,18 @@ observers cannot retain a payload, nothing can read one after the outermost
 delivery leaves, so a rewind at quiescence retains exactly what a frame reset
 would, minus the concept. An engine that wants a longer epoch installs an
 explicit arena.
+
+**A record per registration.** The shape the current Tecs world has, and the
+easier one to read. It costs a table per observer, a field fetch per observer
+in the dispatch loop, and a flags field or a side list to mark a removal in
+flight, and none of that scales with entity count in a direction anyone
+wants. The interleaved array is what the Teal router had settled on for the
+same reasons.
+
+**Observer tables allocated on demand and left to the collector.** Correct,
+and free of bookkeeping, and it makes subscription churn the one thing the bus
+allocates for in steady state. The pools cost a few lines and were already
+there once.
 
 **Assigning event ids at compile time.** Ids would then have to be stable
 across incremental rebuilds and separate compilations, which is a wire
