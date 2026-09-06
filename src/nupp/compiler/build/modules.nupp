@@ -1155,9 +1155,21 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- chunk becomes the body. A modules build executes nothing and therefore needs no
     -- entry. Entries never say what exists.
     local queue, queuedPaths = {}, {}
+
+    -- A `lua51` target does not compile what a selected seam replaced. What the
+    -- artifact requires there is the provider, and the implementation standing in for
+    -- it is the one thing the dialect is least likely to be able to express -- being
+    -- unable to express it is usually why the seam exists. The bundles were reported
+    -- against the FFI implementations of physical storage and of the path and URI
+    -- providers, none of which they contain and none of which stock Lua 5.1 could run.
+    --
+    -- Only there. A native target compiles the replaced implementation perfectly well,
+    -- and what a payload carries is decided from what was compiled: skipping these
+    -- everywhere left an installed component without `nupp.runtime.backend.contracts`
+    -- at the preload its entry reads.
     local function seed(name, path)
         path = normalize(path)
-        if queuedPaths[path] then
+        if queuedPaths[path] or (portableTarget and seamReplaces(name)) then
             return
         end
         queuedPaths[path] = true
