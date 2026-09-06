@@ -1140,6 +1140,17 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     content: ""
 }
 
+.nuppdoc-sidebar-section details[open]>summary::before {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: .6rem;
+    height: 50%;
+    border-top: 1px solid var(--nuppdoc-border);
+    border-left: 1px solid var(--nuppdoc-border);
+    content: ""
+}
+
 .nuppdoc-sidebar-section>details>summary.nuppdoc-sidebar-section-link {
     padding-top: 0;
     padding-bottom: 0
