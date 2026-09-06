@@ -397,7 +397,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 if requested == "gpu" then
                     -- A GPU map assigns one source iteration to one invocation;
                     -- CPU register gangs are a separate lowering and do not run.
-                    targetBody.lanesDeclined = true
+                    targetBody.vectorizeRequest = "decline"
                     if targetKind ~= "localFuncStmt" then
                         c.diag(
                             "NUPP2902",
@@ -409,9 +409,9 @@ function pragma.install(c: state.Checker): state.StatHandlers
                         c.diag("NUPP2115", vectorize, "@aot(target = \"gpu\") does not take a vectorize override")
                     end
                 elseif vectorize and vectorize.expr and vectorize.expr.kind == "falseExpr" then
-                    targetBody.lanesDeclined = true
+                    targetBody.vectorizeRequest = "decline"
                 elseif vectorize and vectorize.expr and vectorize.expr.kind == "trueExpr" then
-                    targetBody.lanesRequired = true
+                    targetBody.vectorizeRequest = "prefer"
                 end
             end
             if stat.stat then

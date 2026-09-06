@@ -312,12 +312,12 @@ local function outcome(program: any, artifacts: any): string
         return "lowered"
     end
     -- A GPU kernel never passes through lane selection, so `lanes` and
-    -- `lanesDeclined` stay unset; its compiled artifact is the evidence it
+    -- `vectorizeDeclined` stay unset; its compiled artifact is the evidence it
     -- lowered rather than refusing.
     if artifacts and artifacts.gpu and artifacts.gpu[program.symbol] ~= nil then
         return "lowered"
     end
-    if program.lanesDeclined == true then
+    if program.vectorizeDeclined == true then
         return "declined"
     end
 

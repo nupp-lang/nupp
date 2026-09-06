@@ -3075,7 +3075,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         local body = lanes as scalarIR.LaneBody
         local shape = lane.SHAPE_BY_NAME[body.shape]
         holds(
-            program.wantsLanes == true and shape ~= nil and body.lanes == (shape as lane.Shape).lanes,
+            program.vectorizeAttempted == true and shape ~= nil and body.lanes == (shape as lane.Shape).lanes,
             "invalid lane width or missing SIMD contract"
         )
         local binaries, unaries = laneSignatures(shape as lane.Shape)

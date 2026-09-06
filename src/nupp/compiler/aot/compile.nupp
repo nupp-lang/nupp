@@ -659,8 +659,8 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
         program.simdWidth = (selected.tier == "avx2" or selected.tier == "avx512f") and 32 or 16
     end
     if program.loop == nil then
-        program.wantsLanes = false
-        program.lanesDeclined = true
+        program.vectorizeAttempted = false
+        program.vectorizeDeclined = true
         return
     end
     local estimate = intensity.estimate(program)
@@ -668,12 +668,12 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
     program.operations = estimate.operations
     program.touchedBytes = estimate.bytes
     program.stridedFields = estimate.fieldAccesses > 0
-    if program.lanesRequired ~= true and not estimate.worthwhile then
-        program.wantsLanes = false
+    if program.vectorizeRequest ~= "prefer" and not estimate.worthwhile then
+        program.vectorizeAttempted = false
         program.thin = true
     end
-    program.lanesDeclined = program.wantsLanes ~= true
-    if program.wantsLanes ~= true then
+    program.vectorizeDeclined = program.vectorizeAttempted ~= true
+    if program.vectorizeAttempted ~= true then
         return
     end
 
@@ -683,7 +683,7 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
     local shapes = targets.gangs(selected)
     if #shapes == 0 then
         program.laneRefusals = {loopDiagnostic(program, filename, targets.noGangReason(selected))}
-        program.lanesDeclined = false
+        program.vectorizeDeclined = false
 
         return
     end
@@ -703,7 +703,7 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
         program.laneRefusals = refusals
         -- Lanes were wanted and not taken, which is the case a vectorisation
         -- check has something to say about. Declining is the other case.
-        program.lanesDeclined = false
+        program.vectorizeDeclined = false
 
         return
     end

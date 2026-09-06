@@ -119,14 +119,16 @@ interface cst.Hints
     --- established CPU target; `gpu` is consumed by the GPU emitter.
     aotTarget: string?
 
-    --- `@aot(vectorize = false)` declines lane lowering for a body that would
-    --- otherwise be lowered lane-parallel, so the vectorisation check does not
-    --- report a loop that is deliberately scalar.
-    lanesDeclined: boolean?
-
-    --- `@aot(vectorize = true)` takes lane lowering whatever the arithmetic-intensity
-    --- estimate says, for a body whose measurement disagrees with it.
-    lanesRequired: boolean?
+    --- What `@aot(vectorize = ...)` asked for. `"prefer"` takes lane lowering
+    --- whatever the arithmetic-intensity estimate says, for a body whose
+    --- measurement disagrees with it; `"decline"` refuses it for a body that is
+    --- deliberately scalar, so the vectorisation check stays quiet about it.
+    --- Absent leaves the decision to the estimate.
+    ---
+    --- This is the request and never the outcome. Whether a body ended up
+    --- lane-parallel is `scalarIR.Program.vectorizeDeclined`, which is decided
+    --- after the estimate and the lowering have both had their say.
+    vectorizeRequest: string?
 
     --- Whether an `@aot` body has the one-top-level-numeric-loop shape that lane
     --- lowering can take. Recorded by the subset pass so the vectorisation check

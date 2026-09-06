@@ -5584,8 +5584,8 @@ if program . usesSimd == true then
 program . simdWidth = ( selected . tier == "avx2" or selected . tier == "avx512f" ) and 32 or 16
 end
 if program . loop == nil then
-program . wantsLanes = false
-program . lanesDeclined = true
+program . vectorizeAttempted = false
+program . vectorizeDeclined = true
 return
 end
 local estimate = intensity . estimate ( program )
@@ -5593,12 +5593,12 @@ program . intensity = estimate . perByte
 program . operations = estimate . operations
 program . touchedBytes = estimate . bytes
 program . stridedFields = estimate . fieldAccesses > 0
-if program . lanesRequired ~= true and not estimate . worthwhile then
-program . wantsLanes = false
+if program . vectorizeRequest ~= "prefer" and not estimate . worthwhile then
+program . vectorizeAttempted = false
 program . thin = true
 end
-program . lanesDeclined = program . wantsLanes ~= true
-if program . wantsLanes ~= true then
+program . vectorizeDeclined = program . vectorizeAttempted ~= true
+if program . vectorizeAttempted ~= true then
 return
 end
 
@@ -5608,7 +5608,7 @@ end
 local shapes = targets . gangs ( selected )
 if # shapes == 0 then
 program . laneRefusals = { loopDiagnostic ( program , filename , targets . noGangReason ( selected ) ) }
-program . lanesDeclined = false
+program . vectorizeDeclined = false
 
 return
 end
@@ -5628,7 +5628,7 @@ if program . lanes == nil then
 program . laneRefusals = refusals
 
 
-program . lanesDeclined = false
+program . vectorizeDeclined = false
 
 return
 end
@@ -14972,7 +14972,7 @@ local outcome
 
 = program . lanes ~= nil
 and "lowered"
-or program . lanesDeclined == true
+or program . vectorizeDeclined == true
 and "declined"
 or "refused"
 append (
@@ -20407,8 +20407,6 @@ lower.Contract = {} lower.Contract.__index = lower.Contract
 
 
 
-
-
 function lower . contract (
 application ,
 body ,
@@ -20419,9 +20417,8 @@ local relaxed = body . relaxedGuarantees
 local contract = setmetatable({ target =
 body . aotTarget == "gpu" and "gpu" or "cpu" ,  fpContract =
 relaxed ~= nil and relaxed [ "fp-contract" ] == true ,  fpTranscendentals =
-relaxed ~= nil and relaxed [ "fp-transcendentals" ] == true ,  wantsLanes =
-body . lanesDeclined ~= true ,  lanesRequired =
-body . lanesRequired == true }, lower.Contract)
+relaxed ~= nil and relaxed [ "fp-transcendentals" ] == true ,  vectorizeRequest =
+body . vectorizeRequest }, lower.Contract)
 
 if checked then
 return contract
@@ -20445,15 +20442,15 @@ local token = value ~= nil and cst . firstToken ( value ) or nil
 local requested = token ~= nil and ( token ) . text or ""
 if requested == "\"gpu\"" or requested == "'gpu'" then
 contract . target = "gpu"
-contract . wantsLanes = false
+contract . vectorizeRequest = "decline"
 elseif requested ~= "\"cpu\"" and requested ~= "'cpu'" then
 context . reject ( lower . site ( argument ) , "@aot target must be \"cpu\" or \"gpu\"" )
 end
 elseif value ~= nil and value . kind == "falseExpr" then
-contract . wantsLanes = false
+contract . vectorizeRequest = "decline"
 end
 if ( name == "vectorize" or name == "lanes" ) and value ~= nil and value . kind == "trueExpr" then
-contract . lanesRequired = true
+contract . vectorizeRequest = "prefer"
 end
 end
 elseif written == "relax" then
@@ -20810,8 +20807,7 @@ symbol ,  entryMode =
 "kernel" ,  executionTarget =
 "gpu" ,  fpContract =
 contract . fpContract ,  fpTranscendentals =
-contract . fpTranscendentals ,  wantsLanes =
-false ,  lanesRequired =
+contract . fpTranscendentals ,  vectorizeAttempted =
 false ,  params =
 signature . params ,  layouts =
 layouts . ordered ,  regions =
@@ -20857,7 +20853,7 @@ mapShape = true
 end
 
 if not mapShape then
-if contract . lanesRequired then
+if contract . vectorizeRequest == "prefer" then
 context . reject ( lower . site ( body ) , "required scalar-source lanes need the admitted map-loop shape" )
 end
 
@@ -20896,8 +20892,7 @@ kernel . builderMode ,  runtimeAbi =
 kernel . usesLua and "lua-5.1" or nil ,  registrar =
 kernel . usesLua and symbol .. "_register" or nil ,  fpContract =
 contract . fpContract ,  fpTranscendentals =
-contract . fpTranscendentals ,  wantsLanes =
-false ,  lanesRequired =
+contract . fpTranscendentals ,  vectorizeAttempted =
 false ,  params =
 signature . params ,  layouts =
 layouts . ordered ,  regions =
@@ -20999,9 +20994,9 @@ symbol ,  entryMode =
 "kernel" ,  executionTarget =
 contract . target ,  fpContract =
 contract . fpContract ,  fpTranscendentals =
-contract . fpTranscendentals ,  wantsLanes =
-contract . wantsLanes ,  lanesRequired =
-contract . lanesRequired ,  params =
+contract . fpTranscendentals ,  vectorizeRequest =
+contract . vectorizeRequest ,  vectorizeAttempted =
+contract . vectorizeRequest ~= "decline" ,  params =
 signature . params ,  layouts =
 layouts . ordered ,  regions =
 regions ,  aliasFacts =
@@ -25290,6 +25285,11 @@ scalarIR.LaneBody = {} scalarIR.LaneBody.__index = scalarIR.LaneBody
 
 
 scalarIR.Program = {} scalarIR.Program.__index = scalarIR.Program
+
+
+
+
+
 
 
 
@@ -31002,7 +31002,7 @@ holds ( loop ~= nil , "a general block kernel carried scalar-source lanes" )
 local body = lanes
 local shape = lane . SHAPE_BY_NAME [ body . shape ]
 holds (
-program . wantsLanes == true and shape ~= nil and body . lanes == ( shape ) . lanes ,
+program . vectorizeAttempted == true and shape ~= nil and body . lanes == ( shape ) . lanes ,
 "invalid lane width or missing SIMD contract"
 )
 local binaries , unaries = laneSignatures ( shape )
@@ -73659,7 +73659,7 @@ local vectorize = values and ( values . vectorize or values . lanes )
 if requested == "gpu" then
 
 
-targetBody . lanesDeclined = true
+targetBody . vectorizeRequest = "decline"
 if targetKind ~= "localFuncStmt" then
 c . diag (
 "NUPP2902" ,
@@ -73671,9 +73671,9 @@ if vectorize ~= nil then
 c . diag ( "NUPP2115" , vectorize , "@aot(target = \"gpu\") does not take a vectorize override" )
 end
 elseif vectorize and vectorize . expr and vectorize . expr . kind == "falseExpr" then
-targetBody . lanesDeclined = true
+targetBody . vectorizeRequest = "decline"
 elseif vectorize and vectorize . expr and vectorize . expr . kind == "trueExpr" then
-targetBody . lanesRequired = true
+targetBody . vectorizeRequest = "prefer"
 end
 end
 if stat . stat then
@@ -77906,7 +77906,7 @@ end
 if artifacts and artifacts . gpu and artifacts . gpu [ program . symbol ] ~= nil then
 return "lowered"
 end
-if program . lanesDeclined == true then
+if program . vectorizeDeclined == true then
 return "declined"
 end
 
@@ -90559,6 +90559,8 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local lexer = require ( "nupp.compiler.lexer" )
 
 local cst = { }
+
+
 
 
 

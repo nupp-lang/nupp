@@ -177,7 +177,7 @@ function loops.program(program: scalarIR.Program): {loops.Report}
             | 'declined'
             | 'refused' = program.lanes ~= nil
             and "lowered"
-            or program.lanesDeclined == true
+            or program.vectorizeDeclined == true
             and "declined"
             or "refused"
         append(

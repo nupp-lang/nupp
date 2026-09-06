@@ -5397,11 +5397,9 @@ record lower.Contract
     --- Whether fixed-width transcendentals may select a native implementation.
     fpTranscendentals: boolean
 
-    --- Whether lane lowering is attempted at all.
-    wantsLanes: boolean
-
-    --- Whether it is taken whatever the arithmetic-intensity estimate says.
-    lanesRequired: boolean
+    --- What the source asked for: `"prefer"`, `"decline"`, or nothing at all
+    --- to leave the arithmetic-intensity estimate to decide.
+    vectorizeRequest: string?
 end
 
 --- Reads one application's contract.
@@ -5420,8 +5418,7 @@ function lower.contract(
         target = body.aotTarget == "gpu" and "gpu" or "cpu",
         fpContract = relaxed ~= nil and relaxed["fp-contract"] == true,
         fpTranscendentals = relaxed ~= nil and relaxed["fp-transcendentals"] == true,
-        wantsLanes = body.lanesDeclined ~= true,
-        lanesRequired = body.lanesRequired == true
+        vectorizeRequest = body.vectorizeRequest
     )
     if checked then
         return contract
@@ -5445,15 +5442,15 @@ function lower.contract(
                     local requested = token ~= nil and (token as lexer.Token).text or ""
                     if requested == "\"gpu\"" or requested == "'gpu'" then
                         contract.target = "gpu"
-                        contract.wantsLanes = false
+                        contract.vectorizeRequest = "decline"
                     elseif requested ~= "\"cpu\"" and requested ~= "'cpu'" then
                         context.reject(lower.site(argument), "@aot target must be \"cpu\" or \"gpu\"")
                     end
                 elseif value ~= nil and value.kind == "falseExpr" then
-                    contract.wantsLanes = false
+                    contract.vectorizeRequest = "decline"
                 end
                 if (name == "vectorize" or name == "lanes") and value ~= nil and value.kind == "trueExpr" then
-                    contract.lanesRequired = true
+                    contract.vectorizeRequest = "prefer"
                 end
             end
         elseif written == "relax" then
@@ -5811,8 +5808,7 @@ function lower.program(
             executionTarget = "gpu",
             fpContract = contract.fpContract,
             fpTranscendentals = contract.fpTranscendentals,
-            wantsLanes = false,
-            lanesRequired = false,
+            vectorizeAttempted = false,
             params = signature.params,
             layouts = layouts.ordered,
             regions = regions,
@@ -5857,7 +5853,7 @@ function lower.program(
     end
 
     if not mapShape then
-        if contract.lanesRequired then
+        if contract.vectorizeRequest == "prefer" then
             context.reject(lower.site(body), "required scalar-source lanes need the admitted map-loop shape")
         end
 
@@ -5897,8 +5893,7 @@ function lower.program(
             registrar = kernel.usesLua and symbol .. "_register" or nil,
             fpContract = contract.fpContract,
             fpTranscendentals = contract.fpTranscendentals,
-            wantsLanes = false,
-            lanesRequired = false,
+            vectorizeAttempted = false,
             params = signature.params,
             layouts = layouts.ordered,
             regions = regions,
@@ -6000,8 +5995,8 @@ function lower.program(
         executionTarget = contract.target,
         fpContract = contract.fpContract,
         fpTranscendentals = contract.fpTranscendentals,
-        wantsLanes = contract.wantsLanes,
-        lanesRequired = contract.lanesRequired,
+        vectorizeRequest = contract.vectorizeRequest,
+        vectorizeAttempted = contract.vectorizeRequest ~= "decline",
         params = signature.params,
         layouts = layouts.ordered,
         regions = regions,

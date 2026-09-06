@@ -74,7 +74,7 @@ if arg[3] == "--check-lanes" then
       io.write(("%s: declined, too little arithmetic per byte for lanes to pay\n"):format(input))
       os.exit(0)
    end
-   if artifacts.ir.lanesDeclined then
+   if artifacts.ir.vectorizeDeclined then
       io.write(("%s: lane lowering declined by `@aot(vectorize = false)`\n"):format(input))
       os.exit(0)
    end

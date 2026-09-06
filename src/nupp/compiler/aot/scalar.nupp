@@ -1395,12 +1395,14 @@ record scalarIR.Program
     rangeGuard: scalarIR.RangeGuard?
     lanes: scalarIR.LaneBody?
 
-    --- Whether lane lowering was asked for at all, which is separate from
-    --- whether one was produced.
-    wantsLanes: boolean?
+    --- What the source asked for: `"prefer"`, `"decline"`, or nothing at all.
+    --- The request the body arrived with, which the estimate below may narrow
+    --- but never widens.
+    vectorizeRequest: string?
 
-    --- Whether it is taken whatever the arithmetic-intensity estimate says.
-    lanesRequired: boolean?
+    --- Whether lane lowering was attempted, which the request and the estimate
+    --- together decide. Separate from whether one was produced.
+    vectorizeAttempted: boolean?
 
     --- Arithmetic operations per byte the loop body touches, and the two counts
     --- it came from. What decides whether running several iterations at once is
@@ -1417,7 +1419,10 @@ record scalarIR.Program
     --- Whether lane lowering was declined rather than attempted and refused.
     --- The two are different: a declined loop is one nobody expected to
     --- vectorise, and a refused one is a loop that wanted to and could not.
-    lanesDeclined: boolean?
+    ---
+    --- The outcome, decided here, as against `vectorizeRequest` above, which is
+    --- what the source asked for before anything was tried.
+    vectorizeDeclined: boolean?
 
     --- Whether it was declined by the intensity estimate specifically.
     thin: boolean?
