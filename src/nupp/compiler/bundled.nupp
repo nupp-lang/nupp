@@ -27,7 +27,7 @@ local bundled = {}
 -- declaration inside itself -- so the question this answers, which checkout the
 -- carried files came from, has no answer there and needs none.
 local function moduleDir(): string
-    local hostDebug: any = rawget(_G, "debug")
+    local hostDebug: any = debug
     if hostDebug == nil then
         return "."
     end
@@ -40,7 +40,7 @@ end
 -- and no filesystem behind one if there were: a bundle that carries a file answers
 -- from what it carries, and a file it does not carry is a file that is not there.
 local function readFile(path: string): string?
-    local hostIo: any = rawget(_G, "io")
+    local hostIo: any = io
     if hostIo == nil then
         return nil
     end
