@@ -238,13 +238,21 @@ select_luajit "$ROOT" || exit 1
 # than asking the build system costs ten milliseconds where a warm build costs
 # two seconds, and this runs before every command.
 #
+# Every file under both trees, not just `*.nupp`: the compiler bundles plain
+# files alongside the ones it compiles -- theme.css and stub-catalog.json
+# under src/nupp/compiler, the project scaffolding under templates -- and a
+# build copies them in the same pass that compiles everything else. Narrowing
+# this to source extensions once meant an edit to one of those was never seen:
+# the copy stayed old until something else forced a rebuild. `.DS_Store` is
+# the one file worth ignoring outright, since Finder touches it on its own.
+#
 # It says whether the last build finished and saw every edit, which is not the
 # same question as whether there is a compiler here. Only the rebuild decision
 # asks this one; which compiler to run is decided further down on the compiler.
 built_is_current() {
     [ -f "$STAMP" ] && [ -f "$BUILT" ] || return 1
-    [ -z "$(find "$ROOT/src" -name '*.nupp' -newer "$STAMP" 2>/dev/null \
-        | head -n 1)" ]
+    [ -z "$(find "$ROOT/src" "$ROOT/templates" -type f ! -name '.DS_Store' \
+        -newer "$STAMP" 2>/dev/null | head -n 1)" ]
 }
 
 # One build at a time, per tree.
