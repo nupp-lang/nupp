@@ -55,10 +55,19 @@ local type ModuleRecord = nupp.compiler.build.cache.ModuleRecord
 --- chosen by looking rather than by hoping. The leading newline is there because Lua
 --- drops one immediately after the opening bracket, and a file whose first line matters
 --- would otherwise come back one line short.
+---
+--- Opening brackets count as much as closing ones. Lua 5.1 refuses an opening sequence
+--- nested inside a long string of the same level -- "nesting of [[...]] is deprecated"
+--- -- where later Luas and LuaJIT read it as text. The portable compiler is the one
+--- artifact stock 5.1 reads, and a carried source whose pattern spelled `%[[%x:.]+%]`
+--- stopped it loading, while every LuaJIT host had been reading the same bytes.
 local function longString(text: string): string
     local level = 0
     for closing in text:gmatch("%]=*%]") do
         level = math.max(level, #closing - 2 + 1)
+    end
+    for opening in text:gmatch("%[=*%[") do
+        level = math.max(level, #opening - 2 + 1)
     end
     local equals = ("="):rep(level)
 
