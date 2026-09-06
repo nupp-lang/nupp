@@ -1126,19 +1126,23 @@ function M.sessionPinsAndObservesMappedNativeArtifacts()
         ),
     })
     local sourcePath = dir .. "/main.nupp"
-    local artifactPath = require("nupp.compiler.fs").absolute(dir .. "/libmini.bin")
     local session = hotSession.new(dir, {cache = false})
     local built = session:initial({sourcePath})
     assertEq(built.kind, "initial")
-    assert(built.entryCode:find(artifactPath, 1, true), "watch generation loads the configured artifact exactly")
     session:loaded(built.entryManifest.module, 1, built.entryManifest)
-    local found = false
+    -- Asked of the session rather than spelled again here. A mapped library is watched
+    -- and generated under one path, and which spelling that is depends on the host: a
+    -- project directory reached through a link or a short name resolves to something
+    -- other than its own absolute spelling, and on Windows most temporary directories
+    -- are short names.
+    local artifactPath = nil
     for _, input in ipairs(session:watchedInputs()) do
-        if input.path == artifactPath and input.kind == "native-artifact" then
-            found = true
+        if input.kind == "native-artifact" then
+            artifactPath = input.path
         end
     end
-    assert(found, "mapped artifact joins the watch set")
+    assert(artifactPath, "mapped artifact joins the watch set")
+    assert(built.entryCode:find(artifactPath, 1, true), "watch generation loads the artifact it pins")
     write(artifactPath, "generation two")
     session:diskChanged(artifactPath, 2)
     local result = session:prepare({artifactPath})
