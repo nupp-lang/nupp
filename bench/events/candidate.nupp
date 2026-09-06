@@ -1,0 +1,187 @@
+-- The nupp.events side of bench/events: one scenario per row of the report,
+-- each doing the work bench/events/reference/router.lua does with the Teal
+-- router, so the two sides are compared on the same observers, addresses and
+-- payloads. `make(name)` answers a fresh scenario whose `run(n)` performs n
+-- operations and whose `read()` answers the checksum and callback count since
+-- the last read, which the harness asserts equal across the two sides.
+local events = require("nupp.events")
+
+--- A scalar event: the one-field record most rows emit.
+@derive(events.Event)
+local record Tick
+    value: number
+end
+
+--- A wider record with defaults, for the row that measures construction into
+--- pooled storage.
+@derive(events.Event)
+local record Damage
+    amount: number
+    source: integer
+    kind: string = "physical"
+    critical: boolean = false
+    knockback: number
+end
+
+--- A fixed-layout event, arena backed.
+@derive(events.Event)
+local struct Contact
+    a: number
+    b: number
+    impulse: float
+end
+
+--- What a nested delivery emits from inside a Tick observer.
+@derive(events.Event)
+local record Follow
+    value: number
+end
+
+local ADDRESSES: integer = 10000
+
+local record Scenario
+    run: function(n: integer): nil
+    read: function(): (number, integer)
+end
+
+local candidate = {}
+
+function candidate.make(name: string): Scenario
+    local bus: events.MessageBus<integer> = events.newMessageBus()
+    local checksum: number = 0
+    local calls: integer = 0
+    local function read(): (number, integer)
+        local sum, count = checksum, calls
+        checksum, calls = 0, 0
+        return sum, count
+    end
+
+    local function tick(borrows event: Tick): nil
+        calls = calls + 1
+        checksum = checksum + event.value
+    end
+
+    if name == "no-observers" then
+        -- Something observes elsewhere, so the emission pays for both lookups
+        -- rather than the registration-count short circuit.
+        bus:observe(1, Tick, tick)
+        return new Scenario(
+            run = function(n: integer): nil
+                for index = 1, n do
+                    bus:emit(2, Tick, index)
+                end
+            end,
+            read = read
+        )
+    elseif name == "observers-1" or name == "observers-4" or name == "observers-32" then
+        local count = tonumber(name:match("%d+$")) as integer
+        for _ = 1, count do
+            bus:observe(1, Tick, tick)
+        end
+        return new Scenario(
+            run = function(n: integer): nil
+                for index = 1, n do
+                    bus:emit(1, Tick, index)
+                end
+            end,
+            read = read
+        )
+    elseif name == "addresses-10000" then
+        for address = 1, ADDRESSES do
+            bus:observe(address as integer, Tick, tick)
+        end
+        return new Scenario(
+            run = function(n: integer): nil
+                for index = 1, n do
+                    bus:emit((index % ADDRESSES + 1) as integer, Tick, index)
+                end
+            end,
+            read = read
+        )
+    elseif name == "record-pool" then
+        bus:observe(1, Damage, |event| -> do
+            calls = calls + 1
+            checksum = checksum + event.amount + event.source + event.knockback + #event.kind
+            if event.critical then
+                checksum = checksum + 1
+            end
+        end)
+        return new Scenario(
+            run = function(n: integer): nil
+                for index = 1, n do
+                    bus:emit(1, Damage, amount = index, source = 3, knockback = 0.5)
+                end
+            end,
+            read = read
+        )
+    elseif name == "struct-arena" then
+        bus:observe(1, Contact, |event| -> do
+            calls = calls + 1
+            checksum = checksum + event.a + event.b + event.impulse
+        end)
+        return new Scenario(
+            run = function(n: integer): nil
+                for index = 1, n do
+                    bus:emit(1, Contact, index, 2, 0.5)
+                end
+            end,
+            read = read
+        )
+    elseif name == "deliver" then
+        bus:observe(1, Tick, tick)
+        local held = new Tick(value = 0)
+        return new Scenario(
+            run = function(n: integer): nil
+                for index = 1, n do
+                    held.value = index
+                    bus:deliver(1, Tick, held)
+                end
+            end,
+            read = read
+        )
+    elseif name == "nested" then
+        bus:observe(1, Tick, |event, source| -> do
+            calls = calls + 1
+            checksum = checksum + event.value
+            source:emit(2, Follow, event.value * 2)
+        end)
+        bus:observe(2, Follow, |event| -> do
+            calls = calls + 1
+            checksum = checksum + event.value
+        end)
+        return new Scenario(
+            run = function(n: integer): nil
+                for index = 1, n do
+                    bus:emit(1, Tick, index)
+                end
+            end,
+            read = read
+        )
+    elseif name == "once" then
+        return new Scenario(
+            run = function(n: integer): nil
+                for index = 1, n do
+                    bus:observeOnce(1, Tick, tick)
+                    bus:emit(1, Tick, index)
+                end
+            end,
+            read = read
+        )
+    elseif name == "churn" then
+        -- An observer registered at an address nothing else observes and
+        -- removed again: the entity spawn and despawn case, where the
+        -- per-address map and list come and go each time.
+        return new Scenario(
+            run = function(n: integer): nil
+                for index = 1, n do
+                    bus:observe(index, Tick, tick, "churn")
+                    bus:stopObserving(index, Tick, "churn")
+                end
+            end,
+            read = read
+        )
+    end
+    error("unknown scenario " .. name)
+end
+
+return candidate

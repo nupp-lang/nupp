@@ -1,0 +1,80 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local internal = require("tecs.internal.events")
+local types = require("tecs.types")
+
+local events = {}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+events.newEvent = internal.newEvent
+events.newFFIEvent = internal.newFFIEvent
+events.newMessageBus = internal.MessageBus.new
+
+return events
