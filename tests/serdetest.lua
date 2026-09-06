@@ -7,31 +7,33 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function diagnostics(source)
-   local parsed = parser.parse(source, "serde_test.g.nupp")
-   assert(#parsed.errors == 0, "serde fixture parses")
-   return check.check(parsed, "serde_test.g.nupp", env)
+    local parsed = parser.parse(source, "serde_test.g.nupp")
+    assert(#parsed.errors == 0, "serde fixture parses")
+    return check.check(parsed, "serde_test.g.nupp", env)
 end
 
 local function run(source)
-   local parsed = parser.parse(source, "serde_test.g.nupp")
-   assert(#parsed.errors == 0, "serde fixture parses")
-   local problems = check.check(parsed, "serde_test.g.nupp", env)
-   for _, problem in ipairs(problems) do
-      if problem.severity ~= "warning" and problem.severity ~= "note" then
-         error(problem.code .. ": " .. problem.msg, 2)
-      end
-   end
-   local code, generated = gen.generate(parsed, "serde_test")
-   assert(#generated == 0, generated[1] and generated[1].msg)
-   local chunk, why = loadstring(code, "@serde_test")
-   assert(chunk, why and (why .. "\n---\n" .. code))
-   return chunk(), code
+    local parsed = parser.parse(source, "serde_test.g.nupp")
+    assert(#parsed.errors == 0, "serde fixture parses")
+    local problems = check.check(parsed, "serde_test.g.nupp", env)
+    for _, problem in ipairs(problems) do
+        if problem.severity ~= "warning" and problem.severity ~= "note" then
+            error(problem.code .. ": " .. problem.msg, 2)
+        end
+    end
+    local code, generated = gen.generate(parsed, "serde_test")
+    assert(#generated == 0, generated[1] and generated[1].msg)
+    local chunk, why = loadstring(code, "@serde_test")
+    assert(chunk, why and (why .. "\n---\n" .. code))
+
+    return chunk(), code
 end
 
 local M = {}
 
 function M.preparesAndCachesRecordJson()
-   local result = run([=[
+    local result = run(
+        [=[
 @derive(nupp.derive.Serde)
 local record User
     id: uint32
@@ -114,40 +116,53 @@ return {
     nullableName = nullable and nullable.name,
     nullableProblem = nullableProblem,
 }
-]=])
-   assert(result.sameBinding and result.samePrepared, "serde preparation was not cached")
-   assert(result.schemaName == "User" and result.memberIndex == 2,
-      "derived schema lost its logical identity")
-   assert(result.text == '{"id":41,"active":true,"name":"Ada"}', result.text)
-   assert(result.buffered == '{"id":42,"active":false}', result.buffered)
-   assert(result.largeBuffered == 'prefix:{"id":43,"active":true,"name":"'
-      .. string.rep("x", 4096) .. '"}', "large prepared write did not append exactly")
-   assert(result.streamed == '{"id":44,"active":true,"name":"streamed"}',
-      "prepared writer traversal did not append exactly")
-   assert(result.stagedLength > 128 * 1024 and result.largeStreamedLength == result.stagedLength + 1,
-      "prepared writer did not threshold-flush during a large root")
-   assert(result.id == 41 and result.name == "Ada" and result.problem == nil,
-      "prepared record did not round-trip")
-   assert(result.bufferedId == 41 and result.bufferedProblem == nil,
-      "prepared buffer decode did not round-trip")
-   assert(result.emptyRestored == nil and result.emptyProblem ~= nil,
-      "empty prepared buffer decode did not report malformed JSON")
-   assert(result.rejected == nil and result.rejection:find("extra", 1, true),
-      "strict raw-key decoding accepted an unknown member")
-   assert(result.wrongScalar == nil and result.wrongScalarProblem,
-      "native prepared decode accepted a string for uint32")
-   assert(result.missing == nil and result.missingProblem:find("active", 1, true),
-      "native prepared decode accepted a missing required member")
-   assert(result.fractional == nil and result.fractionalProblem,
-      "native prepared decode accepted a fractional uint32")
-   assert(result.overflow == nil and result.overflowProblem,
-      "native prepared decode accepted an overflowing uint32")
-   assert(result.nullableId == 41 and result.nullableName == nil
-      and result.nullableProblem == nil, "native prepared decode rejected optional null")
+]=]
+    )
+    assert(result.sameBinding and result.samePrepared, "serde preparation was not cached")
+    assert(result.schemaName == "User" and result.memberIndex == 2, "derived schema lost its logical identity")
+    assert(result.text == '{"id":41,"active":true,"name":"Ada"}', result.text)
+    assert(result.buffered == '{"id":42,"active":false}', result.buffered)
+    assert(
+        result.largeBuffered == 'prefix:{"id":43,"active":true,"name":"' .. string.rep("x", 4096) .. '"}',
+        "large prepared write did not append exactly"
+    )
+    assert(
+        result.streamed == '{"id":44,"active":true,"name":"streamed"}',
+        "prepared writer traversal did not append exactly"
+    )
+    assert(
+        result.stagedLength > 128 * 1024 and result.largeStreamedLength == result.stagedLength + 1,
+        "prepared writer did not threshold-flush during a large root"
+    )
+    assert(result.id == 41 and result.name == "Ada" and result.problem == nil, "prepared record did not round-trip")
+    assert(result.bufferedId == 41 and result.bufferedProblem == nil, "prepared buffer decode did not round-trip")
+    assert(
+        result.emptyRestored == nil and result.emptyProblem ~= nil,
+        "empty prepared buffer decode did not report malformed JSON"
+    )
+    assert(
+        result.rejected == nil and result.rejection:find("extra", 1, true),
+        "strict raw-key decoding accepted an unknown member"
+    )
+    assert(
+        result.wrongScalar == nil and result.wrongScalarProblem,
+        "native prepared decode accepted a string for uint32"
+    )
+    assert(
+        result.missing == nil and result.missingProblem:find("active", 1, true),
+        "native prepared decode accepted a missing required member"
+    )
+    assert(result.fractional == nil and result.fractionalProblem, "native prepared decode accepted a fractional uint32")
+    assert(result.overflow == nil and result.overflowProblem, "native prepared decode accepted an overflowing uint32")
+    assert(
+        result.nullableId == 41 and result.nullableName == nil and result.nullableProblem == nil,
+        "native prepared decode rejected optional null"
+    )
 end
 
 function M.profilesRenameKeysAndIgnoreUnknownValues()
-   local result = run([=[
+    local result = run(
+        [=[
 @derive(nupp.derive.Serde)
 local record Item
     value: integer
@@ -162,14 +177,15 @@ local prepared = codec:prepare(nupp.data.serde.of(Item))
 local text = prepared:encode(new Item(value = 7))
 local restored, problem = prepared:decode([[{"ignored":{"deep":[1,2]},"a\"b":9}]])
 return {text = text, value = restored and restored.value, problem = problem}
-]=])
-   assert(result.text == '{"a\\"b":7}', result.text)
-   assert(result.value == 9 and result.problem == nil,
-      "profile raw-byte lookup did not decode the escaped wire name")
+]=]
+    )
+    assert(result.text == '{"a\\"b":7}', result.text)
+    assert(result.value == 9 and result.problem == nil, "profile raw-byte lookup did not decode the escaped wire name")
 end
 
 function M.dynamicValuesUseDenseResolvedSlots()
-   local result = run([=[
+    local result = run(
+        [=[
 const serde = nupp.data.serde
 local builder = new serde.SchemaBuilder()
 builder:structure("example.Request")
@@ -195,17 +211,22 @@ return {
     missingOk = missingOk,
     missing = tostring(missing),
 }
-]=])
-   assert(result.direct == 11 and result.id == 12 and result.active == true
-      and result.region == "us",
-      "dynamic slots or defaults were not preserved")
-   assert(result.problem == nil, result.problem)
-   assert(not result.missingOk and result.missing:find("missing required member id", 1, true),
-      "dynamic binding skipped required validation")
+]=]
+    )
+    assert(
+        result.direct == 11 and result.id == 12 and result.active == true and result.region == "us",
+        "dynamic slots or defaults were not preserved"
+    )
+    assert(result.problem == nil, result.problem)
+    assert(
+        not result.missingOk and result.missing:find("missing required member id", 1, true),
+        "dynamic binding skipped required validation"
+    )
 end
 
 function M.dynamicValuesValidateSchemaKindsAndIntegerRanges()
-   local result = run([=[
+    local result = run(
+        [=[
 const serde = nupp.data.serde
 local builder = new serde.SchemaBuilder()
 builder:structure("example.Range")
@@ -222,17 +243,25 @@ return {
     decoded = decoded,
     decodeProblem = decodeProblem,
 }
-]=])
-   assert(not result.wrongTypeOk and result.wrongType:find("must be an integer", 1, true),
-      "dynamic binding accepted the wrong scalar kind")
-   assert(not result.rangeOk and result.range:find("outside uint8", 1, true),
-      "dynamic binding accepted an out-of-range integer")
-   assert(result.decoded == nil and result.decodeProblem:find("range", 1, true),
-      "prepared native decode accepted an out-of-range integer")
+]=]
+    )
+    assert(
+        not result.wrongTypeOk and result.wrongType:find("must be an integer", 1, true),
+        "dynamic binding accepted the wrong scalar kind"
+    )
+    assert(
+        not result.rangeOk and result.range:find("outside uint8", 1, true),
+        "dynamic binding accepted an out-of-range integer"
+    )
+    assert(
+        result.decoded == nil and result.decodeProblem:find("range", 1, true),
+        "prepared native decode accepted an out-of-range integer"
+    )
 end
 
 function M.documentMembersStayInsideThePreparedTraversal()
-   local result = run([=[
+    local result = run(
+        [=[
 const serde = nupp.data.serde
 local builder = new serde.SchemaBuilder()
 builder:structure("example.Envelope")
@@ -252,14 +281,18 @@ return {
     enabled = payload and payload.enabled,
     problem = problem,
 }
-]=])
-   assert(result.text:find('"payload":', 1, true), result.text)
-   assert(result.second == 2 and result.enabled == true and result.problem == nil,
-      "document member did not round-trip through prepared serde")
+]=]
+    )
+    assert(result.text:find('"payload":', 1, true), result.text)
+    assert(
+        result.second == 2 and result.enabled == true and result.problem == nil,
+        "document member did not round-trip through prepared serde"
+    )
 end
 
 function M.structsShareTheTypedWitnessAndCodec()
-   local result, code = run([=[
+    local result, code = run(
+        [=[
 @derive(nupp.derive.Serde)
 local struct Vec3
     x: float
@@ -272,14 +305,16 @@ local prepared = nupp.data.serde.json():prepare(binding)
 local text = prepared:encode(new Vec3(1.25, 2.5, 5.0))
 local value, problem = prepared:decode(text)
 return {text = text, y = value and value.y, problem = problem}
-]=])
-   assert(result.text == '{"x":1.25,"y":2.5,"z":5.0}', result.text)
-   assert(result.y == 2.5 and result.problem == nil, "struct serde did not round-trip")
-   assert(code:find("__derive.register", 1, true), "struct derive data was not registered")
+]=]
+    )
+    assert(result.text == '{"x":1.25,"y":2.5,"z":5.0}', result.text)
+    assert(result.y == 2.5 and result.problem == nil, "struct serde did not round-trip")
+    assert(code:find("__derive.register", 1, true), "struct derive data was not registered")
 end
 
 function M.preparedDebugSharesRecordAndStructSerdeBindings()
-   local result, code = run([=[
+    local result, code = run(
+        [=[
 @derive(nupp.derive.Debug, nupp.derive.Serde)
 local record Credentials
     user: string
@@ -311,23 +346,26 @@ return {
     structMethod = point:debug(),
     structPrepared = serde.prepareDebug(serde.of(Vec2)):format(point),
 }
-]=])
-   local expected = 'Credentials { user = "ada", password = <redacted> }'
-   assert(result.method == expected and result.prepared == expected
-      and result.written == expected, "record Debug paths did not share one plan")
-   assert(result.same == true, "prepared Debug was not cached on the binding")
-   assert(result.structMethod == "Vec2 { x = 1.25, y = 2.5 }"
-      and result.structPrepared == result.structMethod,
-      "struct Debug did not use its serde binding")
-   assert(not code:find("debugType", 1, true),
-      "Debug emitted its obsolete per-field type recipe")
-   local _, serdeRecipes = code:gsub('%["serde"%]', "")
-   assert(serdeRecipes == 2,
-      "Debug and Serde did not merge to one schema recipe per declaration")
+]=]
+    )
+    local expected = 'Credentials { user = "ada", password = <redacted> }'
+    assert(
+        result.method == expected and result.prepared == expected and result.written == expected,
+        "record Debug paths did not share one plan"
+    )
+    assert(result.same == true, "prepared Debug was not cached on the binding")
+    assert(
+        result.structMethod == "Vec2 { x = 1.25, y = 2.5 }" and result.structPrepared == result.structMethod,
+        "struct Debug did not use its serde binding"
+    )
+    assert(not code:find("debugType", 1, true), "Debug emitted its obsolete per-field type recipe")
+    local _, serdeRecipes = code:gsub('%["serde"%]', "")
+    assert(serdeRecipes == 2, "Debug and Serde did not merge to one schema recipe per declaration")
 end
 
 function M.dynamicSchemasUseIndexedDebugMetadata()
-   local result = run([=[
+    local result = run(
+        [=[
 const serde = nupp.data.serde
 local label: nupp.data.serde.MetadataKey<string> = serde.metadataKey()
 local childBuilder = new serde.SchemaBuilder()
@@ -361,17 +399,20 @@ return {
     rootMetadata = schema:metadata(label),
     redacted = schema:expectMember("password"):metadata(serde.debugRedact),
 }
-]=])
-   local expected = 'example.Credentials { user = "ada", password = <redacted>, '
-      .. 'profile = example.Profile { region = "us-east-1" } }'
-   assert(result.formatted == expected and result.written == expected,
-      "dynamic Debug did not use the prepared schema")
-   assert(result.rootMetadata == "credentials" and result.redacted == true,
-      "indexed schema metadata did not retain its typed values")
+]=]
+    )
+    local expected = 'example.Credentials { user = "ada", password = <redacted>, '
+        .. 'profile = example.Profile { region = "us-east-1" } }'
+    assert(result.formatted == expected and result.written == expected, "dynamic Debug did not use the prepared schema")
+    assert(
+        result.rootMetadata == "credentials" and result.redacted == true,
+        "indexed schema metadata did not retain its typed values"
+    )
 end
 
 function M.debugOnlyBindingsStayInternal()
-   local result = run([=[
+    local result = run(
+        [=[
 @derive(nupp.derive.Debug)
 local record DebugOnly
     value: integer
@@ -380,26 +421,32 @@ local ok, problem = pcall(function(): any
     return nupp.data.serde.of(DebugOnly)
 end)
 return {debugged = (new DebugOnly(value = 7)):debug(), ok = ok, problem = tostring(problem)}
-]=])
-   assert(result.debugged == "DebugOnly { value = 7 }", result.debugged)
-   assert(result.ok == false and result.problem:find("Serde was not derived", 1, true),
-      "Debug-only internal binding escaped through serde.of")
+]=]
+    )
+    assert(result.debugged == "DebugOnly { value = 7 }", result.debugged)
+    assert(
+        result.ok == false and result.problem:find("Serde was not derived", 1, true),
+        "Debug-only internal binding escaped through serde.of"
+    )
 end
 
 function M.schemaDebugPreservesWideIntegerSupport()
-   local result = run([=[
+    local result = run(
+        [=[
 @derive(nupp.derive.Debug)
 local record Wide
     signed: int64
     unsigned: uint64
 end
 return (new Wide(signed = -7LL, unsigned = 9ULL)):debug()
-]=])
-   assert(result == "Wide { signed = -7LL, unsigned = 9ULL }", result)
+]=]
+    )
+    assert(result == "Wide { signed = -7LL, unsigned = 9ULL }", result)
 end
 
 function M.debugPoliciesDoNotRequireTraversableFieldTypes()
-   local result = run([=[
+    local result = run(
+        [=[
 @derive(nupp.derive.Debug)
 local record Policies
     shown: string
@@ -410,12 +457,14 @@ local record Policies
 end
 local noop = function(): nil end
 return (new Policies(shown = "yes", callback = noop, secretCallback = noop)):debug()
-]=])
-   assert(result == 'Policies { shown = "yes", secretCallback = <redacted> }', result)
+]=]
+    )
+    assert(result == 'Policies { shown = "yes", secretCallback = <redacted> }', result)
 end
 
 function M.recursiveContainersUseTheSameLogicalGraph()
-   local result = run([=[
+    local result = run(
+        [=[
 @derive(nupp.derive.Serde)
 local record Child
     label: string
@@ -446,16 +495,21 @@ return {
     second = value and value.values[2],
     problem = problem,
 }
-]=])
-   assert(result.childKind == "structure" and result.childName == "Child",
-      "nested declaration became an untyped document")
-   assert(result.label == "nested" and result.listed == "listed"
-      and result.second == 2 and result.problem == nil,
-      "nested prepared fallback did not preserve nominal values")
+]=]
+    )
+    assert(
+        result.childKind == "structure" and result.childName == "Child",
+        "nested declaration became an untyped document"
+    )
+    assert(
+        result.label == "nested" and result.listed == "listed" and result.second == 2 and result.problem == nil,
+        "nested prepared fallback did not preserve nominal values"
+    )
 end
 
 function M.recursiveContainerCanContainItsOwningRecord()
-   local result = run([=[
+    local result = run(
+        [=[
 @derive(nupp.derive.Serde)
 local record Node
     name: string
@@ -475,14 +529,18 @@ return {
     leaf = restored and restored.children[1].name,
     problem = problem,
 }
-]=])
-   assert(result.text == '{"name":"root","children":[{"name":"leaf","children":[]}]}', result.text)
-   assert(result.root == "root" and result.leaf == "leaf" and result.problem == nil,
-      "recursive Serde round trip lost nominal values")
+]=]
+    )
+    assert(result.text == '{"name":"root","children":[{"name":"leaf","children":[]}]}', result.text)
+    assert(
+        result.root == "root" and result.leaf == "leaf" and result.problem == nil,
+        "recursive Serde round trip lost nominal values"
+    )
 end
 
 function M.oneSchemaSupportsNominalAndDynamicBindingsTogether()
-   local result = run([=[
+    local result = run(
+        [=[
 @derive(nupp.derive.Serde)
 local record Child
     label: string
@@ -522,14 +580,20 @@ return {
     dynamicList = (dynamicValue:get("children")[1] as nupp.data.serde.DynamicValue):get("label"),
     second = dynamicValue:get("values")[2],
 }
-]=])
-   assert(result.nominal == "nominal" and result.dynamic == "dynamic"
-      and result.dynamicList == "dynamic-list" and result.second == 4,
-      "one logical schema did not preserve its separate physical bindings")
+]=]
+    )
+    assert(
+        result.nominal == "nominal"
+        and result.dynamic == "dynamic"
+        and result.dynamicList == "dynamic-list"
+        and result.second == 4,
+        "one logical schema did not preserve its separate physical bindings"
+    )
 end
 
 function M.typedExtensionsComputeOnce()
-   local result = run([=[
+    local result = run(
+        [=[
 local calls = 0
 local key = nupp.reflect.extensionKey(function(schema: any): string
     calls = calls + 1
@@ -540,14 +604,18 @@ local builder = new serde.SchemaBuilder()
 builder:structure("example.Extension")
 local schema = builder:freeze()
 return {first = schema:extension(key), second = schema:extension(key), calls = calls}
-]=])
-   assert(result.first == "example.Extension" and result.second == result.first,
-      "typed extension returned the wrong value")
-   assert(result.calls == 1, "typed extension was recomputed")
+]=]
+    )
+    assert(
+        result.first == "example.Extension" and result.second == result.first,
+        "typed extension returned the wrong value"
+    )
+    assert(result.calls == 1, "typed extension was recomputed")
 end
 
 function M.typedExtensionSlotsSeparateKeysAndHosts()
-   local result = run([=[
+    local result = run(
+        [=[
 local leftCalls = 0
 local rightCalls = 0
 local left = nupp.reflect.extensionKey(function(schema: any): string
@@ -573,37 +641,68 @@ return {
     leftCalls = leftCalls,
     rightCalls = rightCalls,
 }
-]=])
-   assert(result.left == "left:First" and result.leftAgain == result.left,
-      "one extension slot did not retain its value")
-   assert(result.right == "right:First", "extension slots collided on one host")
-   assert(result.otherHost == "left:Second", "extension slots leaked between hosts")
-   assert(result.leftCalls == 2 and result.rightCalls == 1,
-      "extension providers did not run once per host and slot")
+]=]
+    )
+    assert(
+        result.left == "left:First" and result.leftAgain == result.left,
+        "one extension slot did not retain its value"
+    )
+    assert(result.right == "right:First", "extension slots collided on one host")
+    assert(result.otherHost == "left:Second", "extension slots leaked between hosts")
+    assert(result.leftCalls == 2 and result.rightCalls == 1, "extension providers did not run once per host and slot")
+end
+
+function M.typedExtensionKeysKeepTheirValueType()
+    local problems = diagnostics(
+        [=[
+local text = nupp.reflect.extensionKey(function(_host: any): string
+    return "text"
+end)
+local narrowed: nupp.reflect.ExtensionKey<integer> = text
+print(narrowed)
+]=]
+    )
+    local first
+    for _, problem in ipairs(problems) do
+        if problem.severity ~= "warning" and problem.severity ~= "note" then
+            first = problem
+            break
+        end
+    end
+    assert(
+        first and first.code == "NUPP2001" and first.msg:find(
+            "ExtensionKey<string> is not a ExtensionKey<integer>",
+            1,
+            true
+        ),
+        "an extension key was narrowed to another value type"
+    )
 end
 
 function M.recordOnlyDerivesStayRecordOnly()
-   local problems = diagnostics([=[
+    local problems = diagnostics([=[
 @derive(nupp.derive.JSON)
 local struct NotJson
     value: int32
 end
 ]=])
-   assert(problems[1] and problems[1].code == "NUPP2806"
-      and problems[1].msg:find("only for records", 1, true),
-      "general struct derive attachment broadened JSON")
+    assert(
+        problems[1] and problems[1].code == "NUPP2806" and problems[1].msg:find("only for records", 1, true),
+        "general struct derive attachment broadened JSON"
+    )
 end
 
 function M.structPointersRequireAnExplicitAdapter()
-   local problems = diagnostics([=[
+    local problems = diagnostics([=[
 @derive(nupp.derive.Serde)
 local struct Borrowed
     value: int32*
 end
 ]=])
-   assert(problems[1] and problems[1].code == "NUPP2803"
-      and problems[1].msg:find("not supported by Serde", 1, true),
-      "Serde guessed pointer ownership")
+    assert(
+        problems[1] and problems[1].code == "NUPP2803" and problems[1].msg:find("not supported by Serde", 1, true),
+        "Serde guessed pointer ownership"
+    )
 end
 
 return M
