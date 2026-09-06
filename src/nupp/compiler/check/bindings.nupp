@@ -184,6 +184,15 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 local contextual: any = initializer
                 contextual.sendableContext = true
             end
+            -- A literal initializing an annotated callable is checked against that
+            -- annotation the way a call argument is checked against its slot, so
+            -- its parameters take the types and modes the annotation names.
+            if initializer and rawAnnotation.tag == "func" and (
+                initializer.kind == "shortfn" or initializer.kind == "funcExpr"
+            ) then
+                local contextual: any = initializer
+                contextual.expectedCallable = annotation
+            end
         end
         local inferred = inferList(stat.exprs, #stat.names)
         local initializerCount = #initializers

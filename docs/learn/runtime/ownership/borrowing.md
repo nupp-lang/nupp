@@ -287,10 +287,11 @@ print(checksum(file)) -- `file` is still live and still owed a close
 drop file
 ```
 
-A function literal or short function written where a callable is expected
-adopts the expected slot's `borrows` or `exclusive` mode for any parameter it
-leaves without one, so a callback slot states the contract once and every
-literal passed to it is checked under it. `|event| -> ...` handed to a
+A function literal or short function written where a callable is expected,
+as a call argument or as the initializer of a local annotated with a function
+type, adopts the expected slot's `borrows` or `exclusive` mode for any
+parameter it leaves without one, so a callback slot states the contract once
+and every literal passed to it is checked under it. `|event| -> ...` handed to a
 `function(borrows event: E): nil` parameter borrows `event` for the call, and
 a body that stores it is reported. A mode the literal writes itself is kept,
 and `takes` is never adopted, since an obligation the literal never wrote is

@@ -151,6 +151,87 @@ consume(|token| -> print(token.closed))
 ]]), "NUPP2006", "a literal does not adopt takes")
 end
 
+function M.anAnnotatedLocalHandsItsCallableTypeToALiteral()
+    clean(OBSERVED .. [[
+local f: Observer = |event| -> print(event.amount)
+local g: Observer = function(event, world)
+    world.frame = world.frame + 1
+    event.amount = 2
+end
+bus:observe(f)
+bus:observe(g)
+]])
+    assertEq(codes(OBSERVED .. [[
+local kept: {Damage} = {}
+local h: Observer = |event| -> do
+    kept[1] = event
+end
+bus:observe(h)
+]]), "NUPP2603", "an adopted borrow stored from an annotated local")
+end
+
+function M.aCallbackBodyKeepsOnlyItsSecondPassDiagnostics()
+    -- A generic call infers a callback once with `any` parameters to bind its
+    -- generics. A named argument on a method of such a parameter is refused in
+    -- that pass and accepted in the real one; only the real one is reported.
+    clean([[
+local record Damage
+    amount: number
+    source: integer
+    kind: string = "physical"
+end
+
+local record Bus
+    frame: number
+
+    function send(exclusive self, amount: number, source: integer, kind: string?): nil
+        self.frame = self.frame + amount + source + #(kind or "")
+    end
+end
+
+local function each<E>(event: Type<E>, bus: Bus, callback: function(borrows event: E, exclusive bus: Bus): nil): nil
+    callback(new Damage(amount = 1, source = 1) as any as E, bus)
+end
+
+each(Damage, new Bus(frame = 0), |event, bus| -> do
+    bus:send(amount = event.amount, source = event.source)
+end)
+]])
+end
+
+function M.aParameterBorrowSuspendsThroughAHandledCallOnly()
+    -- A handled suspension leaves a handler responsible for the continuation,
+    -- so an observer holding the borrowed event may park. A raw yield leaves
+    -- nobody responsible, and the caller's owner would be stranded through
+    -- this frame, which is why a parameter borrow counts as an obligation.
+    clean([[
+local time = require("nupp.time")
+
+local record Damage
+    amount: number
+end
+
+local function observe(borrows event: Damage): nil
+    time.sleep(1)
+    event.amount = event.amount + 1
+end
+
+print(observe)
+]])
+    assertEq(codes([[
+local record Damage
+    amount: number
+end
+
+local function observe(borrows event: Damage): nil
+    coroutine.yield()
+    event.amount = event.amount + 1
+end
+
+print(observe)
+]]), "NUPP2603", "a raw yield with a parameter borrow live")
+end
+
 ---------------------------------------------------------------------------
 -- Pack binders forward contracts
 ---------------------------------------------------------------------------

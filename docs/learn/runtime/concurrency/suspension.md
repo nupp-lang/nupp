@@ -261,6 +261,13 @@ handled suspension with one outstanding is allowed, because responsibility
 transfers to a handler that owns the continuation and its cancellation until the
 park returns or unwinds.
 
+A `borrows` or `exclusive` parameter counts as an outstanding obligation for
+this purpose even though the owner is the caller's. The check sees one frame,
+and the caller's owner would be stranded through a callee that raw-yields
+while holding the view; the callee cannot know whether its caller may. An
+observer that parks while holding a borrowed event therefore does so through
+a handled suspension, which every waiting library call already is.
+
 That permission rests on a trusted handler contract rather than on a proof. The
 checker cannot prove anything about an arbitrary scheduler's cancellation
 behavior, and the invariant being trusted is not that a wait completes, which it

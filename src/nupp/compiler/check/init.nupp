@@ -1876,7 +1876,21 @@ function checkMod.check(
             if paramModes and paramModes[j] == "scoped" then
                 c.scopedCaptureDepth = priorScoped + 1
             end
-            local valueT = c.infer(e)
+            local literal = e.kind == "shortfn" or e.kind == "funcExpr"
+            local valueT
+            if literal and e.expectedCallable then
+                valueT = c.apply.inferExpected(e, e.expectedCallable)
+            elseif literal then
+                -- A literal argument is inferred here with `any` for whatever it
+                -- did not annotate, so the call can bind its generics, and again
+                -- against the bound signature once it has. What follows from the
+                -- placeholder types is the second pass's to report.
+                c.provisionalDepth = (c.provisionalDepth or 0) + 1
+                valueT = c.infer(e)
+                c.provisionalDepth = c.provisionalDepth - 1
+            else
+                valueT = c.infer(e)
+            end
             c.scopedCaptureDepth = priorScoped
             local produced = e.valuePack
             local pack = j == #exprs and EXPANDS[e.kind] and produced or nil

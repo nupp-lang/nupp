@@ -1391,7 +1391,10 @@ function calls.install(c: state.Checker): calls.Ops
             for _, arg in ipairs(args) do
                 if not cst.isToken(arg) then
                     local value = (arg.kind == "namedArg" or arg.kind == "pluckArg") and arg.value or arg
-                    if arg.kind == "namedArg" or arg.kind == "pluckArg" then
+                    -- Inside a callback body inferred with placeholder types the
+                    -- callee is `any` only for now; the pass against the bound
+                    -- signature reports it if it still is.
+                    if (arg.kind == "namedArg" or arg.kind == "pluckArg") and (c.provisionalDepth or 0) == 0 then
                         c.diag("NUPP2006", arg, "named and plucked arguments require a statically known callable")
                     end
                     local argumentType = c.infer(value)
@@ -1499,6 +1502,10 @@ function calls.install(c: state.Checker): calls.Ops
                     local valueType
                     if cst.isToken(argument) then
                         valueType = argument.kind == "string" and T.string or T.any
+                    elseif argument.kind == "shortfn" or argument.kind == "funcExpr" then
+                        c.provisionalDepth = (c.provisionalDepth or 0) + 1
+                        valueType = c.infer(argument)
+                        c.provisionalDepth = c.provisionalDepth - 1
                     else
                         valueType = c.infer(argument)
                     end

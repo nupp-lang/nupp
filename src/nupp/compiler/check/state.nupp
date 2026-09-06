@@ -232,6 +232,10 @@ record state.Checker
     --- Nonzero while checking an inline closure passed to a scoped callback slot.
     scopedCaptureDepth: integer
 
+    --- How many callback literals are being inferred with placeholder types to
+    --- bind a call's generics, ahead of the pass against the bound signature.
+    provisionalDepth: integer?
+
     --- Ownership-capture contracts for the nested functions currently being checked.
     closureCaptureStack: {any}
 
