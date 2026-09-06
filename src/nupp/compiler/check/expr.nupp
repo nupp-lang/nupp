@@ -1241,16 +1241,17 @@ function expr.install(c: state.Checker): nil
             local function inferShort(): Type
                 c.pushScope()
                 c.scope.completionScope = node.body or node
-                local params, paramNames = {}, {}
+                local params, paramNames, paramModes = {}, {}, {}
                 local vararg = false
                 local expectedParams: {Type}? = nil
+                local expectedModes: {string}? = nil
                 local expected = expectedShortfns[node]
                 if expected then
                     local expectedFunc = rawType(expected)
                     if expectedFunc.tag == "func" then
-                        expectedParams = require(
-                            "nupp.compiler.generics"
-                        ).expectedParameters(expectedFunc, c.reductionControl)
+                        local generics = require("nupp.compiler.generics")
+                        expectedParams = generics.expectedParameters(expectedFunc, c.reductionControl)
+                        expectedModes = generics.expectedParameterModes(expectedFunc, c.reductionControl)
                     end
                 end
                 for _, p in ipairs(node.params) do
@@ -1267,13 +1268,28 @@ function expr.install(c: state.Checker): nil
                         else
                             params[#params + 1] = pt
                             paramNames[#params] = pname and pname.text or ""
+                            -- A short function has nowhere to write a parameter mode,
+                            -- so it takes the one the expected slot asks for. Only the
+                            -- call-scoped modes are adopted: `takes` carries an
+                            -- obligation the body would have to discharge, which a
+                            -- literal that never wrote it has not promised.
+                            local mode = expectedModes and expectedModes[#params] or "plain"
+                            if mode ~= "borrows" and mode ~= "exclusive" then
+                                mode = "plain"
+                            end
+                            paramModes[#params] = mode
                             if pname then
                                 if p.type then
                                     c.fixedWidth.storageOnly(p.type, pt, "a parameter")
                                 end
-                                c.bindVar(pname.text, pt, p.type ~= nil, pname, "parameter")
+                                local bound = mode ~= "plain" and T.borrowed(pt) or pt
+                                c.bindVar(pname.text, bound, p.type ~= nil, pname, "parameter")
+                                c.scope.vars[pname.text].mutationParameter = #params
                                 c.fixedWidth.mark(c.scope.vars[pname.text], pt)
                                 c.fixedWidth.trust(c.scope.vars[pname.text], pt)
+                                if mode == "exclusive" then
+                                    c.own.capabilityFacts(c.scope.vars[pname.text]).exclusive = true
+                                end
                             end
                         end
                     end
@@ -1312,6 +1328,7 @@ function expr.install(c: state.Checker): nil
                     params,
                     rets,
                     vararg,
+                    paramModes,
                     nil,
                     nil,
                     nil,
@@ -1321,8 +1338,7 @@ function expr.install(c: state.Checker): nil
                     nil,
                     nil,
                     nil,
-                    nil,
-                    T.pack(params, vararg and {kind = "unknown", type = T.any} or nil),
+                    T.pack(params, vararg and {kind = "unknown", type = T.any} or nil, paramModes),
                     retPack,
                     nil,
                     nil,

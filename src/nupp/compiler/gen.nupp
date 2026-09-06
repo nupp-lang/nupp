@@ -341,6 +341,12 @@ end
 -- crosses; a registry keyed by name would be a link step the language does not have.
 -- The prefix keeps it out of the way of declared fields.
 local CONSTRUCTOR_MEMBER = "__nuppCtor"
+local INITIALIZER_MEMBER = "__nuppInit"
+
+--- The hidden member an initializer is minted as, numbered like its constructor.
+local function initializerMember(index: integer?): string
+    return INITIALIZER_MEMBER .. tostring(index or 1)
+end
 
 local function constructorMember(index)
     return CONSTRUCTOR_MEMBER .. tostring(index or 1)
@@ -1555,6 +1561,52 @@ function gen.generate(
             return
         end
         needRuntimeEffect("stdlib.derives")
+        local nominal = x.resolvedType
+        if recipe.initializer and nominal and #(nominal.constructorEntries or {}) == 0 then
+            -- A declaration with no constructor is built from its fields, so its
+            -- initializer assigns each stored field from the matching argument and
+            -- applies the declaration's default where the argument is nil: the one
+            -- place a default can be applied for a call whose tail was computed.
+            local memberOwner = memberRuntimeName or runtimeName
+            local parameters, writes = {}, {}
+            local position = 0
+            for _, field in ipairs(nominal.fieldOrder or {}) do
+                local fieldType = nominal.byname and nominal.byname[field] or nil
+                local stored = fieldType ~= nil and fieldType.tag ~= "func" and fieldType.tag ~= "typeobject" and not (
+                    nominal.nestedTypes and nominal.nestedTypes[field]
+                ) and not (nominal.privateFields and nominal.privateFields[field])
+                if stored then
+                    position = position + 1
+                    local parameter = "a" .. tostring(position)
+                    parameters[position] = parameter
+                    local default = nominal.fieldDefaults and nominal.fieldDefaults[field] or nil
+                    local target = cst.identifier(field) and ("self." .. field) or ("self[%q]"):format(field)
+                    if default then
+                        local rendered, why = recipeCodec.render(default.value, {limit = recipeCodec.MAX_OUTPUT_BYTES,})
+                        if not rendered then
+                            error("invalid field default: " .. tostring(why))
+                        end
+                        writes[
+                            #writes + 1
+                        ] = (
+                            " if %s == nil then %s = %s else %s = %s end"
+                        ):format(parameter, target, rendered, target, parameter)
+                    else
+                        writes[#writes + 1] = (" %s = %s"):format(target, parameter)
+                    end
+                end
+            end
+            e(
+                (
+                    ";%s.%s=function(self%s)%s return self end"
+                ):format(
+                    memberOwner,
+                    recipe.initializer,
+                    #parameters > 0 and (", " .. table.concat(parameters, ", ")) or "",
+                    table.concat(writes)
+                )
+            )
+        end
         e(";do local __nuppDerived=" .. renderedRecipe)
         e((";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)"):format(recipe.key, runtimeName))
 
@@ -6378,14 +6430,33 @@ function gen.generate(
                     ) .. pluck.renderData(default.value)
                 end
             end
-            if x.structAllocator then
+            -- A derive that asked for the initializer wants this body run against
+            -- storage it did not allocate, so the body becomes its own member
+            -- taking the instance first, and the constructor allocates and calls
+            -- it. Defaults are written by the initializer in that case, since the
+            -- storage it is handed was never seeded.
+            local split = nominal and nominal.initializerNeeded or false
+            local initializer = split and initializerMember(x.constructorIndex) or nil
+            local defaultWrites = {}
+            for _, assignment in ipairs(seeded) do
+                defaultWrites[#defaultWrites + 1] = " self." .. assignment
+            end
+            if split then
+                e(
+                    (
+                        "function %s.%s(self%s)%s"
+                    ):format(
+                        owner,
+                        initializer,
+                        #names > 0 and (", " .. table.concat(names, ", ")) or "",
+                        table.concat(defaultWrites)
+                    ),
+                    line
+                )
+            elseif x.structAllocator then
                 -- A struct instance is the ctype's own allocation, zero-filled, and
                 -- has no table to seed at construction: a default is a field write
                 -- like the ones the body makes, in declaration order ahead of it.
-                local writes = {}
-                for _, assignment in ipairs(seeded) do
-                    writes[#writes + 1] = " self." .. assignment
-                end
                 e(
                     (
                         "function %s.%s(%s) local self = %s()%s"
@@ -6394,7 +6465,7 @@ function gen.generate(
                         constructorMember(x.constructorIndex),
                         table.concat(names, ", "),
                         x.structAllocator,
-                        table.concat(writes)
+                        table.concat(defaultWrites)
                     ),
                     line
                 )
@@ -6423,7 +6494,27 @@ function gen.generate(
             emitDepth.endActivation()
             emitDepth.fn = emitDepth.fn - 1
             local endTok = pluck.endToken(body)
-            e("return self end", endTok and endTok.line or nil)
+            if split then
+                local allocation = x.structAllocator and (
+                    x.structAllocator .. "()"
+                ) or ("setmetatable({}, " .. owner .. ")")
+                e(
+                    (
+                        "return self end function %s.%s(%s) return %s.%s(%s%s) end"
+                    ):format(
+                        owner,
+                        constructorMember(x.constructorIndex),
+                        table.concat(names, ", "),
+                        owner,
+                        initializer,
+                        allocation,
+                        #names > 0 and (", " .. table.concat(names, ", ")) or ""
+                    ),
+                    endTok and endTok.line or nil
+                )
+            else
+                e("return self end", endTok and endTok.line or nil)
+            end
             return
 
         elseif kind == "inlineMethod" and x.inlineRuntimeOwner then

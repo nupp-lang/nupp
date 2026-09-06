@@ -965,6 +965,67 @@ function declare.install(
         return out
     end
 
+    --- Whether a constructor body lets `self` out, or moves an owned parameter in.
+    ---
+    --- `self` is the instance under construction. Read through, as `self.x` or
+    --- `self:m()`, it stays where it is; anywhere else, as a call argument, a table
+    --- value, a return, or the right side of an assignment, a reference to it now
+    --- lives past the body, and storage that is later reused would be found there.
+    --- A `takes` parameter written into a field moves its obligation into the
+    --- instance, which reused storage cannot carry either. Neither is wrong of a
+    --- constructor; both are what stops it from doubling as an initializer.
+    local function constructorLeaks(body: any): boolean, boolean
+        local takes = {}
+        for _, p in ipairs(body and body.params or {}) do
+            if p.name and p.modeTok and p.modeTok.text == "takes" then
+                takes[p.name.text] = true
+            end
+        end
+        local escapes, moves = false, false
+        local walk
+        walk = function(node: any, viaMember: boolean)
+            if not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "name" and node.token and node.token.text == "self" then
+                if not viaMember then
+                    escapes = true
+                end
+                return
+            end
+            if node.kind == "assignStmt" then
+                for j, target in ipairs(node.targets or {}) do
+                    local base = target.obj
+                    local value = node.exprs and node.exprs[j]
+                    if target.kind == "dotIndex"
+                        and base
+                        and base.kind == "name"
+                        and base.token
+                        and base.token.text == "self"
+                        and value
+                        and value.kind == "name"
+                        and value.token
+                        and takes[
+                        value.token.text
+                    ] then
+                        moves = true
+                    end
+                end
+            end
+            for _, child in ipairs(node) do
+                local member = node.kind == "dotIndex"
+                    or node.kind == "bracketIndex"
+                    or node.kind == "safeIndex"
+                    or node.kind == "methodCall"
+                    or node.kind == "call"
+                walk(child, child == node.obj and member)
+            end
+        end
+        walk(body and body.body or nil, false)
+
+        return escapes, moves
+    end
+
     --- Checks a `constructor(...)` body and records it on the declaration.
     ---
     --- The instance exists before the body runs and is returned after it, so the body
@@ -1126,7 +1187,17 @@ function declare.install(
         n.constructors[#n.constructors + 1] = ft
         n.constructorEntries = n.constructorEntries or {}
         local index = #n.constructorEntries + 1
-        n.constructorEntries[index] = {signature = ft, result = constructorResult, declaration = e, index = index,}
+        local escapesSelf, movesOwner = constructorLeaks(e.body)
+        n.constructorEntries[
+            index
+        ] = {
+            signature = ft,
+            result = constructorResult,
+            declaration = e,
+            index = index,
+            escapesSelf = escapesSelf,
+            movesOwner = movesOwner,
+        }
         e.constructorIndex = index
         e.ownerNominal = n
     end

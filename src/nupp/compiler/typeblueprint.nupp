@@ -403,7 +403,17 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                         end
                     end
                     if not why then
-                        value = T.pack(head, tail and {kind = "homogeneous", type = tail} or nil, copiedModes)
+                        local names = node.names
+                        if names ~= nil and (type(names) ~= "table" or #names > #head) then
+                            why = "type blueprint pack names do not align with its head"
+                        else
+                            value = T.pack(
+                                head,
+                                tail and {kind = "homogeneous", type = tail} or nil,
+                                copiedModes,
+                                names
+                            )
+                        end
                     end
                 end
             end

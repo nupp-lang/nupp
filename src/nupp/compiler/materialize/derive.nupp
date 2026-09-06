@@ -204,12 +204,17 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
             methods = true,
             statics = true,
             data = true,
-            effects = true
+            effects = true,
+            initializer = true
         }) or type(
             specification.methods or {}
         ) ~= "table" or type(
             specification.statics or {}
-        ) ~= "table" or type(specification.data or {}) ~= "table" or not denseArray(specification.effects or {}) then
+        ) ~= "table" or type(
+            specification.data or {}
+        ) ~= "table" or not denseArray(
+            specification.effects or {}
+        ) or (specification.initializer ~= nil and type(specification.initializer) ~= "boolean") then
             return nil, failure(
                 "NUPP2810",
                 (
@@ -226,6 +231,7 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
                 statics = specification.statics or {},
                 data = specification.data or {},
                 effects = specification.effects or {},
+                initializer = specification.initializer == true or nil,
             },
             provenance(at, "implement")
         )
@@ -652,6 +658,7 @@ function deriveProvider.finalize(state: any, root: any): any, any
         statics = statics,
         data = {},
         effects = rootEntry.payload.effects or {},
+        initializer = rootEntry.payload.initializer == true or nil,
         inputs = state.deriveInputDescriptors or {},
     }
     for name, value in pairs(rootEntry.payload.data or {}) do

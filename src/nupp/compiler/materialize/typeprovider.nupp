@@ -319,6 +319,51 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         return setLikeHandle(at, "union", "optional", {args[1], library.nil_})
     end)
 
+    -- The parameters a declaration is constructed with, as a pack whose slots are
+    -- named, so `...: unpackof nupp.types.construction(E)` binds named arguments
+    -- and admits an omitted slot the declaration defaults. A slot with a default
+    -- is optional here rather than filled: the initializer that runs against
+    -- acquired storage applies the default when it sees nil, which is the one
+    -- place that can, since a positional call never passes through this check.
+    installIntrinsic(state, library, "construction", function(at, args)
+        local found = entry(state, args[1], "Type")
+        local nominal = found and found.payload.kind == "reference" and found.payload.nominal or nil
+        local construction = nominal and nominal.construction or nil
+        if not construction then
+            return nil, failure("NUPP2415", "nupp.types.construction needs a record or struct handle")
+        end
+        if construction.overloaded then
+            return nil, failure(
+                "NUPP2415",
+                "nupp.types.construction needs a declaration with one constructor, and " .. tostring(
+                    nominal.name
+                ) .. " declares several"
+            )
+        end
+        local head, names, modes, keys = {}, {}, {}, {}
+        for position, parameter in ipairs(construction.params or {}) do
+            local member = parameter.type
+            if not member then
+                return nil, failure("NUPP2415", "nupp.types.construction found a parameter without a type")
+            end
+            if parameter.optional then
+                member = setLikeHandle(at, "union", "optional", {member, library.nil_})
+            end
+            local mode = parameter.mode == "borrows" and "borrowed" or parameter.mode or "plain"
+            head[position], names[position], modes[position] = member, parameter.name or "", mode
+            keys[position] = composeKey(mode, {keyOf(state, member), names[position]})
+        end
+        keys[#keys + 1] = "-"
+
+        return make(
+            state,
+            opaque,
+            "Pack",
+            {kind = "pack", head = head, modes = modes, names = names, key = composeKey("pack", keys),},
+            provenance(at, "construction")
+        )
+    end)
+
     local function unary(name, kind)
         installIntrinsic(state, library, name, function(at, args)
             local inner = entry(state, args[1], "Type")
@@ -952,6 +997,27 @@ function typeprovider.importDescriptor(
             for position, argument in ipairs(node.typeArguments or {}) do
                 reflected.arguments[position] = import(argument)
             end
+            -- How the declaration is constructed: its one constructor's parameters,
+            -- or its stored fields when it declares none. `nupp.types.construction`
+            -- answers this as a pack whose slots carry the names a call binds by.
+            if node.construction then
+                local construction = {
+                    declared = node.construction.declared == true,
+                    overloaded = node.construction.overloaded == true,
+                    params = {},
+                }
+                for position, parameter in ipairs(node.construction.params or {}) do
+                    construction.params[
+                        position
+                    ] = {
+                        name = parameter.name,
+                        type = parameter.type and import(parameter.type) or nil,
+                        optional = parameter.optional == true,
+                        mode = parameter.mode or "plain",
+                    }
+                end
+                reflected.construction = construction
+            end
         elseif PRIMITIVES[kind] then
             made = make(
                 state,
@@ -1142,24 +1208,32 @@ function typeprovider.importDescriptor(
                 )
             end
         elseif kind == "pack" then
-            local headIndices, modes = {}, {}
+            local headIndices, modes, names = {}, {}, {}
             for position, member in ipairs(node.head or {}) do
                 headIndices[position] = member.type
                 modes[position] = member.mode or "plain"
+                names[position] = member.name or ""
             end
             local head = list(headIndices, "pack")
             local tail = node.tail and node.tail.type and import(node.tail.type) or nil
             if head then
                 local keys = {}
                 for position, member in ipairs(head) do
-                    keys[position] = composeKey(modes[position], {keyOf(state, member)})
+                    keys[position] = composeKey(modes[position], {keyOf(state, member), names[position]})
                 end
                 keys[#keys + 1] = tail and keyOf(state, tail) or "-"
                 made = make(
                     state,
                     opaque,
                     "Pack",
-                    {kind = "pack", head = head, modes = modes, tail = tail, key = composeKey("pack", keys),},
+                    {
+                        kind = "pack",
+                        head = head,
+                        modes = modes,
+                        names = names,
+                        tail = tail,
+                        key = composeKey("pack", keys),
+                    },
                     nil
                 )
             end
@@ -1303,7 +1377,7 @@ local function finalizeGraph(state, root)
             node.parameters = intern(payload.parameters)
             node.results = intern(payload.results)
         elseif payload.kind == "pack" then
-            node.head, node.modes = {}, payload.modes
+            node.head, node.modes, node.names = {}, payload.modes, payload.names
             for position, member in ipairs(payload.head or {}) do
                 node.head[position] = intern(member)
             end

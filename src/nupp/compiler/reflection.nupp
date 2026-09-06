@@ -27,6 +27,22 @@ end
 --- Converts the checker's interned, possibly recursive graph into plain acyclic data.
 --- Every type appears once in `types`; edges are integer indices, so recursive
 --- declarations survive JSON transport without exposing checker objects or identities.
+--- Whether a stored field may be left out of a construction: nil fits its type.
+local function admitsNil(t: any): boolean
+    if t == T.nil_ or t == T.any or t == T.unknown then
+        return true
+    end
+    if t.tag == "union" then
+        for _, member in ipairs(t.members or {}) do
+            if member == T.nil_ then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 function reflection.describe(root: any, qualifiedName: string?, includeSources: boolean?): any
     local indices, types, sources = {}, {}, {}
 
@@ -128,6 +144,58 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             out.supertypes = {}
             for _, supertype in ipairs(t.supertypes or {}) do
                 out.supertypes[#out.supertypes + 1] = intern(supertype)
+            end
+            -- The construction contract: the one declared constructor's parameters,
+            -- or the stored fields in declaration order when there is none. A slot
+            -- is optional when the field has a default or already admits nil; a
+            -- declaration with several constructors has no single contract and says
+            -- so, which is what `nupp.types.construction` refuses.
+            local entries = t.constructorEntries or {}
+            if #entries > 1 then
+                out.construction = {overloaded = true, params = {}}
+            elseif #entries == 1 then
+                local signature = entries[1].signature
+                local names = signature.paramNames or {}
+                local declared = signature.params or {}
+                local params = {}
+                -- The receiver is not an argument of `new`, however the signature
+                -- happens to carry it: beside the parameters, or ahead of them.
+                local offset = (#names == #declared + 1 and names[1] == "self") and 1 or 0
+                local start = (offset == 0 and names[1] == "self") and 2 or 1
+                for position = start, #declared do
+                    params[
+                        #params + 1
+                    ] = {
+                        name = names[position + offset] or "",
+                        type = intern(declared[position]),
+                        optional = false,
+                        mode = signature.paramModes and signature.paramModes[position] or "plain",
+                    }
+                end
+                out.construction = {declared = true, params = params}
+            elseif t.declKind == "record" or t.declKind == "struct" then
+                local params = {}
+                for _, name in ipairs(t.fieldOrder or {}) do
+                    local fieldType = t.byname and t.byname[name] or nil
+                    local stored = fieldType ~= nil
+                        and fieldType.tag ~= "func"
+                        and fieldType.tag ~= "typeobject"
+                        and not (
+                        t.nestedTypes and t.nestedTypes[name]
+                    ) and not (t.privateFields and t.privateFields[name])
+                    if stored then
+                        local hasDefault = t.fieldDefaults ~= nil and t.fieldDefaults[name] ~= nil
+                        params[
+                            #params + 1
+                        ] = {
+                            name = name,
+                            type = intern(fieldType),
+                            optional = hasDefault or admitsNil(fieldType),
+                            mode = "plain",
+                        }
+                    end
+                end
+                out.construction = {declared = false, params = params}
             end
             out.arrayOf = intern(t.arrayOf)
             out.typeParameters, out.typeBounds, out.packParameters, out.constParameters = {}, {}, {}, {}

@@ -1597,12 +1597,40 @@ function calls.install(c: state.Checker): calls.Ops
                 return {pack = T.pack(types), types = types, nodes = nodes, lowered = lowered}
             end
 
+            --- The signature a named argument is matched against. A computed tail
+            --- has no names until the generics it depends on are bound, and they are
+            --- bound by the positional prefix, so that prefix binds first and the
+            --- tail is expanded before a name is looked up. A signature without a
+            --- computed tail is its own answer.
+            local function namedAgainst(ft: T.Func): T.Func
+                local tail = ft.paramPack and ft.paramPack.tail or nil
+                if not tail or tail.kind ~= "computed" then
+                    return ft
+                end
+                local prefix = {}
+                for _, argument in ipairs(rawArguments) do
+                    if argument.kind == "named" then
+                        break
+                    end
+                    prefix[#prefix + 1] = argument.type
+                end
+                local map = {}
+                unifyPack(ft.paramPack, T.pack(prefix), map)
+                local instantiated = generics.instantiateFunction(ft, map, c.reductionControl)
+                if instantiated and instantiated.tag == "func" then
+                    return instantiated as T.Func
+                end
+
+                return ft
+            end
+
             local function chooseFor(ft: T.Func): any, T.Func?, string?
-                local choice, why = normalization(ft)
+                local target = namedAgainst(ft)
+                local choice, why = normalization(target)
                 if not choice then
                     return nil, nil, why
                 end
-                local specialized, rejected = probeSignature(ft, choice.pack, node.cdefCall, c.reductionControl)
+                local specialized, rejected = probeSignature(target, choice.pack, node.cdefCall, c.reductionControl)
                 if specialized then
                     return choice, specialized
                 end

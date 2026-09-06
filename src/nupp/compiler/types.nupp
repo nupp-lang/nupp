@@ -363,6 +363,10 @@ record types.Pack
     modes: {string}
     tail: any
     alternatives: {types.Pack}?
+
+    --- The parameter name each head slot binds under, when the pack came from a
+    --- declaration's construction contract and a call may name its arguments.
+    names: {string}?
 end
 
 --- A coroutine protocol. Bare `thread` remains its gradual erased supertype.
@@ -2308,15 +2312,19 @@ local function packTailId(tail: any): string
 end
 
 --- Interns a fixed-head pack with an optional tail.
-function types.pack(head: {types.Type}?, tail: types.PackTail?, modes: {string}?): types.Pack
+function types.pack(head: {types.Type}?, tail: types.PackTail?, modes: {string}?, names: {string}?): types.Pack
     local hs, ms, copied = {}, {}, {}
+    local named = false
+    local copiedNames: {string} = {}
     for j, t in ipairs(head or {}) do
         copied[j], hs[j] = t, t.id
         ms[j] = modes and modes[j] or "plain"
+        copiedNames[j] = names and names[j] or ""
+        named = named or copiedNames[j] ~= ""
     end
     local keyParts = {}
     for j, id in ipairs(hs) do
-        keyParts[j] = ms[j] .. ":" .. id
+        keyParts[j] = ms[j] .. ":" .. id .. (copiedNames[j] ~= "" and ("=" .. copiedNames[j]) or "")
     end
     local key = "pack(" .. table.concat(keyParts, ",") .. packTailId(tail) .. ")"
     local found = packArena[key]
@@ -2324,6 +2332,9 @@ function types.pack(head: {types.Type}?, tail: types.PackTail?, modes: {string}?
         return found
     end
     local made = new types.Pack(tag = "pack", head = copied, modes = ms, tail = tail)
+    if named then
+        made.names = copiedNames
+    end
     made.id = inheritedMarks(key) .. serial("p")
     packArena[key] = made
 

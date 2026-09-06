@@ -612,11 +612,14 @@ function functions.install(c: state.Checker): state.StatHandlers
         local varargModeToken = nil
         local typeParams, typeBounds, packParams, constParams, paramKinds
         local expectedParams: {Type}? = nil
+        local expectedModes: {string}? = nil
         local expected = expectedFuncbodies[body]
         if expected then
             local expectedFunc = rawType(expected)
             if expectedFunc.tag == "func" then
-                expectedParams = require("nupp.compiler.generics").expectedParameters(expectedFunc, c.reductionControl)
+                local generics = require("nupp.compiler.generics")
+                expectedParams = generics.expectedParameters(expectedFunc, c.reductionControl)
+                expectedModes = generics.expectedParameterModes(expectedFunc, c.reductionControl)
             end
         end
         c.functionDepth = c.functionDepth + 1
@@ -710,11 +713,24 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
                 params[#params + 1] = pt
                 paramNames[#params] = p.name.text
-                if not declaredModes[sourceIndex] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
-                    mode = "scoped"
-                end
-                if not declaredModes[sourceIndex] and mode ~= "takes" and not pointerShaped(pt) then
-                    mode = "plain"
+                -- A literal written where a callable is expected adopts the mode the
+                -- slot asks for on any parameter it left bare, so `function(event)`
+                -- passed to a `function(borrows event: E)` slot is checked as a borrow
+                -- rather than collapsing to plain and failing the exact-mode rule at
+                -- the call. Only the call-scoped modes are adopted: `takes` is an
+                -- obligation the body never promised to discharge.
+                local expectedMode = expectedModes and expectedModes[#params] or nil
+                if not declaredModes[sourceIndex] and (expectedMode == "borrows" or expectedMode == "exclusive") then
+                    mode = expectedMode
+                else
+                    if not declaredModes[
+                        sourceIndex
+                    ] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
+                        mode = "scoped"
+                    end
+                    if not declaredModes[sourceIndex] and mode ~= "takes" and not pointerShaped(pt) then
+                        mode = "plain"
+                    end
                 end
                 paramModes[#params] = mode
                 if mode == "retains" or mode == "releases" then

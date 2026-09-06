@@ -132,7 +132,7 @@ substPackWith = function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
         end
     end
 
-    return T.pack(head, tail, modes)
+    return T.pack(head, tail, modes, pack.names)
 end
 
 substWith = function(t: Type, map: Bindings, unmapped: string): Type
@@ -525,7 +525,7 @@ function generics.normalizePack(pack: T.Pack): generics.NormalizedPack
         tail = {kind = "homogeneous", type = (normalize(tail.type, memo, budget)), mode = tail.mode}
     end
 
-    return {pack = T.pack(head, tail, pack.modes), gradual = budget.gradual, cycle = budget.cycle,}
+    return {pack = T.pack(head, tail, pack.modes, pack.names), gradual = budget.gradual, cycle = budget.cycle,}
 end
 
 --- Rebuilds `t` with the binders `map` names replaced, and every other binder left
@@ -937,7 +937,7 @@ normalizeReductionPack = function(pack, memo, budget)
         tail = {kind = "computed", type = reduced}
     end
 
-    return T.pack(head, tail, pack.modes)
+    return T.pack(head, tail, pack.modes, pack.names)
 end
 
 normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Type, string?
@@ -1347,6 +1347,24 @@ function generics.materializePack(pack: T.Pack, map: Bindings): T.Pack
     return substPackWith(pack, map, MATERIALIZE)
 end
 
+--- The parameter names an expanded signature binds under: the written names for
+--- the fixed head, and for a slot the computed tail contributed, the name its
+--- contract gave it, so a call may name it the way it names a written parameter.
+--- Nil when the expansion added no names, so a signature without any keeps what
+--- it had.
+local function expandedParameterNames(t: T.Func, paramPack: T.Pack): {string}?
+    if not paramPack.names then
+        return nil
+    end
+    local paramNames = {}
+    for position = 1, #paramPack.head do
+        local written = position <= #t.params and t.paramNames and t.paramNames[position] or nil
+        paramNames[position] = written ~= nil and written ~= "" and written or paramPack.names[position] or ""
+    end
+
+    return paramNames
+end
+
 --- Resolves a computed tail after its dependencies have been substituted. Tuples add
 --- fixed slots, arrays become a homogeneous tail, and an undecidable type stays
 --- gradual so a signature can retain its dynamic fallback.
@@ -1367,26 +1385,31 @@ function generics.expandComputedPack(pack: T.Pack, control: generics.ReductionCo
         for _, value in ipairs(computed.elems) do
             head[#head + 1], modes[#modes + 1] = value, "plain"
         end
-        return T.pack(head, nil, modes)
+        return T.pack(head, nil, modes, pack.names)
     end
     if computed.tag == "array" then
         if computed.elem == T.never then
-            return T.pack(pack.head, nil, pack.modes)
+            return T.pack(pack.head, nil, pack.modes, pack.names)
         end
-        return T.pack(pack.head, {kind = "homogeneous", type = computed.elem}, pack.modes)
+        return T.pack(pack.head, {kind = "homogeneous", type = computed.elem}, pack.modes, pack.names)
     end
     if computed.tag == "packResult" then
-        local head, modes = {}, {}
+        local head, modes, names = {}, {}, {}
+        local named = false
         for position, value in ipairs(pack.head) do
             head[position], modes[position] = value, pack.modes[position] or "plain"
+            names[position] = pack.names and pack.names[position] or ""
+            named = named or names[position] ~= ""
         end
         for position, value in ipairs(computed.pack.head) do
             head[#head + 1], modes[#modes + 1] = value, computed.pack.modes[position] or "plain"
+            names[#head] = computed.pack.names and computed.pack.names[position] or ""
+            named = named or names[#head] ~= ""
         end
-        return T.pack(head, computed.pack.tail, modes)
+        return T.pack(head, computed.pack.tail, modes, named and names or nil)
     end
     if computed == T.any or computed == T.unknown or computed.tag == "neutral" or computed.tag == "typevar" then
-        return T.pack(pack.head, {kind = "unknown", type = T.any}, pack.modes)
+        return T.pack(pack.head, {kind = "unknown", type = T.any}, pack.modes, pack.names)
     end
 
     return pack, ("unpackof type must reduce to a tuple or array, got %s"):format(T.tostring(computed))
@@ -1404,6 +1427,22 @@ function generics.expectedParameters(t: T.Func, control: generics.ReductionContr
     end
 
     return expanded.head
+end
+
+--- The parameter modes a callable asks of a literal written where it is expected,
+--- aligned with `expectedParameters`. A literal that leaves a parameter without a
+--- mode adopts the one here, which is how a slot typed `function(borrows event: E)`
+--- reaches a `|event| -> ...` that has nowhere to write the mode itself. A pack
+--- spells the borrowed mode differently from a parameter list, so it is mapped.
+function generics.expectedParameterModes(t: T.Func, control: generics.ReductionControl?): {string}
+    local expanded, problem = generics.expandComputedPack(t.paramPack, control)
+    local modes = problem and t.paramModes or expanded.modes
+    local out = {}
+    for index, mode in ipairs(modes or {}) do
+        out[index] = mode == "borrowed" and "borrows" or mode
+    end
+
+    return out
 end
 
 --- Expands a signature's computed packs, so whoever reads it sees the parameters the
@@ -1435,6 +1474,7 @@ function generics.expandFunctionPacks(t: T.Func, control: generics.ReductionCont
         paramModes = paramPack.modes,
         paramPack = paramPack,
         retPack = retPack,
+        paramNames = expandedParameterNames(t, paramPack),
     }) as T.Func
 end
 
@@ -1480,6 +1520,7 @@ function generics.instantiateFunction(t: T.Func, map: Bindings, control: generic
         packParams = false,
         constParams = false,
         paramKinds = false,
+        paramNames = expandedParameterNames(concrete, paramPack),
     }) as T.Func
 end
 

@@ -591,6 +591,25 @@ function derive.entry(typeObject: any): derive.Entry?
     return derivedByType[typeObject]
 end
 
+--- Reads the initializer a derive asked the compiler to mint for a type.
+---
+--- It is the declaration's constructor body, or its field list, as a function
+--- taking the instance first: `initializer(storage, ...)` fills storage the caller
+--- already holds and answers it. Nothing allocates here, which is what a pool or an
+--- arena wants from it.
+--- @param typeObject the record or struct witness
+--- @return the initializer, or nil when no derive on the type asked for one
+--- @internal
+function derive.initializer(typeObject: any): any
+    local entry = derivedByType[typeObject]
+    local name = entry and entry.schema and entry.schema.initializer or nil
+    if type(name) ~= "string" then
+        return nil
+    end
+
+    return entry.mt[name]
+end
+
 --- Builds the JSON codec for a type, or answers the one already built.
 ---
 --- Deferred rather than built during `register`, because a program that derives JSON

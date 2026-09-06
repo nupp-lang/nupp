@@ -386,6 +386,7 @@ function derive.install(c: state.Checker): derive.Ops
             fields = {},
             annotations = item.ownerDescriptor.annotations or {},
             hasConstructor = #(n.constructorEntries or {}) > 0,
+            constructorCount = #(n.constructorEntries or {}),
             reference = "owner",
         }
         local permittedReferences = {}
@@ -1050,6 +1051,45 @@ function derive.install(c: state.Checker): derive.Ops
         plan.inputs = plan.inputs or {}
         for _, input in ipairs(providerInputs) do
             plan.inputs[#plan.inputs + 1] = {identity = input.identity, fingerprint = input.fingerprint,}
+        end
+        -- A recipe asking for the initializer wants the declaration's constructor
+        -- body, or its field list, run against storage it did not allocate. That is
+        -- sound only when the body cannot notice the difference: one construction
+        -- contract, no owned value moved into the instance, and no reference to
+        -- the instance kept anywhere the next lease would find it.
+        if envelope.payload.initializer then
+            local entries = n.constructorEntries or {}
+            local site = provider.site.arg.expr or provider.site.arg
+            local refusal: string? = nil
+            if n.typeParams and #n.typeParams > 0 then
+                refusal = ("%s is generic, so every specialization shares one runtime identity"):format(n.name)
+            elseif #entries > 1 then
+                refusal = (
+                    "%s declares %d constructors, and an initializer needs one contract"
+                ):format(n.name, #entries)
+            elseif entries[1] and entries[1].escapesSelf then
+                refusal = ("%s's constructor lets self escape, so it cannot run against reused storage"):format(n.name)
+            elseif entries[1] and entries[1].movesOwner then
+                refusal = (
+                    "%s's constructor moves an owned value into self, which reused storage cannot hold"
+                ):format(n.name)
+            else
+                for _, name in ipairs(n.fieldOrder or {}) do
+                    local fieldType = n.byname and n.byname[name] or nil
+                    if fieldType and fieldType.tag == "affine" then
+                        refusal = (
+                            "%s.%s is affine, so an instance cannot be initialized in place"
+                        ):format(n.name, name)
+                        break
+                    end
+                end
+            end
+            if refusal then
+                c.diag("NUPP2810", site, refusal)
+                return
+            end
+            n.initializerNeeded = true
+            plan.initializer = "__nuppInit" .. tostring(entries[1] and entries[1].index or 1)
         end
     end
 
