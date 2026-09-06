@@ -546,7 +546,12 @@ return {
         -- checkout that has never been built. NEP 32 says why it is fetched rather
         -- than committed, and what that costs: the sources below may only use a
         -- language feature the pinned release already understands.
-        bootstrap = "scripts/toolchain stage0",
+        --
+        -- Run through `sh`, because this is a shell script and the command is
+        -- spawned rather than handed to a shell: Windows cannot execute it by name
+        -- and reported it as an unrecognized program, which is where `nupp fixpoint`
+        -- stopped there. Every host that can run `bin/nupp` at all has `sh`.
+        bootstrap = "sh scripts/toolchain stage0",
         -- The target `nupp fixpoint --binary` stamps twice. Naming it here rather
         -- than in the command keeps the compiler from knowing anything about how
         -- this particular project chose to package itself.
