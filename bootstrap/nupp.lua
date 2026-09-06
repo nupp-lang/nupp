@@ -160433,7 +160433,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local version = { }
 
 
-version . VERSION = "0.0.2-dev"
+version . VERSION = "0.0.2"
 
 
 
@@ -209539,13 +209539,15 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 }
 
 .nuppdoc-sidebar-section ul {
-    padding: 4px 0 0 0.6rem
+    padding: 4px 0 0 0.6rem;
+    border-left: 1px solid var(--nuppdoc-border)
 }
 
 .nuppdoc-sidebar-section .nuppdoc-module-tree {
     margin: 0;
     padding: 4px 0 0 0.6rem;
-    list-style: none
+    list-style: none;
+    border-left: 1px solid var(--nuppdoc-border)
 }
 
 .nuppdoc-module-branch>details>summary {
@@ -209558,7 +209560,8 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 }
 
 .nuppdoc-module-branch .nuppdoc-module-tree {
-    padding: 4px 0 0 0.6rem
+    padding: 4px 0 0 0.6rem;
+    border-left: 1px solid var(--nuppdoc-border)
 }
 
 .nuppdoc-outline-title {

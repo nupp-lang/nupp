@@ -20,7 +20,7 @@ behind it -- which is also what makes it usable to check that an install works.
 local version = {}
 
 --- The release this source is, without a leading "v"; the tag adds one.
-version.VERSION = "0.0.2-dev"
+version.VERSION = "0.0.2"
 
 --- The one line `nupp --version` prints. A single stable line, because this is what
 --- an install script and a bug report both read.
