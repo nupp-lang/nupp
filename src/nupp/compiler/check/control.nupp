@@ -603,25 +603,6 @@ function control.install(c: state.Checker): state.StatHandlers
             for j, expected in ipairs(annotatedPack.head) do
                 local got = T.packAt(returnedPack, j) or T.nil_
                 local expr = fixedExpression(j)
-                -- A table written with positional entries where a tuple is declared
-                -- is that tuple, entry by entry, rather than the array of their union
-                -- the literal reads as on its own -- the same reading an annotated
-                -- local gives its initializer.
-                if expr and expr.kind == "tableExpr" and rawType(expected).tag == "tuple" then
-                    local elems: {T.Type} = {}
-                    local positionalOnly = true
-                    for _, field in ipairs(expr.fields or {}) do
-                        if field.kind ~= "fieldItem" or not field.value then
-                            positionalOnly = false
-                            break
-                        end
-                        local value: any = field.value
-                        elems[#elems + 1] = value.inferredType or T.any
-                    end
-                    if positionalOnly then
-                        got = T.tuple(elems)
-                    end
-                end
                 local freshConstruction = expr and (
                     expr.kind == "newExpr" or expr.kind == "call" and expr.recordConstruct ~= nil
                 )
