@@ -6451,6 +6451,48 @@ function M.anOwnerCannotBeConstructedIntoAnAnyField()
     )
 end
 
+-- A callee that borrows a parameter promises to keep nothing, and a plain slot is
+-- never handed an owner, so the promise fits the slot the way `scoped` does. The
+-- other way round stays refused: a plain body may keep what a borrowing caller
+-- handed it.
+function M.aBorrowingFunctionFitsAPlainCallableSlot()
+    assertClean(
+        table.concat(
+            {
+                "local record Counter",
+                "   value: integer",
+                "   label: function(self: Counter): string",
+                "end",
+                "local function describe(borrows self: Counter): string",
+                "   return tostring(self.value)",
+                "end",
+                "local c = new Counter(value = 1, label = describe)",
+                "local d = new Counter(value = 2, label = tostring)",
+                "print(c.value + d.value)",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "local record Counter",
+                    "   value: integer",
+                    "end",
+                    "local function plain(self: Counter): string",
+                    "   return tostring(self.value)",
+                    "end",
+                    "local slot: function(borrows self: Counter): string = plain",
+                    "print(slot)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001"
+    )
+end
+
 -- The prelude's identity and rendering helpers read their argument and keep
 -- nothing, so a borrow may reach them. They were declared over plain `any`, and
 -- holding a borrow at the any boundary then refused `tostring(view)` and

@@ -1417,8 +1417,10 @@ local function check(a: Type, b: Type): boolean, string?
             -- during the call and never kept -- so a function that makes it fits a
             -- slot that did not ask, where a caller is held to the plain rules. The
             -- other way round would let a borrowing closure reach a body free to
-            -- keep it.
-            if am ~= bm and not (am == "scoped" and bm == "plain") then
+            -- keep it. `borrows` is the same promise about any argument: a plain
+            -- slot is never handed an owner, so a callee that keeps nothing fits
+            -- it, and `tostring` may stand in a `function(self: T): string` field.
+            if am ~= bm and not ((am == "scoped" or am == "borrows") and bm == "plain") then
                 return false, ("%s is not a %s (parameter %d ownership mode)"):format(T.tostring(a), T.tostring(b), j)
             end
             -- contravariant parameters
