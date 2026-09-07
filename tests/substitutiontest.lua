@@ -353,4 +353,25 @@ function M.aLiteralArgumentBindsItsBaseType()
    clean(body .. "local zeros: {integer} = map({1, 2}, function(x) return 0 end)\nreturn zeros\n")
 end
 
+-- A table written with positional entries where a tuple result is declared is that
+-- tuple, the way an annotated local reads its initializer, so a generic body can
+-- return a pair of its binders.
+function M.aPositionalLiteralReturnsAsTheDeclaredTuple()
+   clean(table.concat({
+      "local function pair<A, B>(a: A, b: B): {A, B}",
+      "   return {a, b}",
+      "end",
+      'local p = pair(1, "x")',
+      "local n: integer = p[1]",
+      "local s: string = p[2]",
+      "return n, s",
+   }, "\n"))
+   reports(table.concat({
+      "local function swapped<A, B>(a: A, b: B): {A, B}",
+      "   return {b, a}",
+      "end",
+      "return swapped",
+   }, "\n"), "NUPP2002")
+end
+
 return M

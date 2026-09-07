@@ -1625,6 +1625,21 @@ function relations.typevarMismatch(actual: Type, expected: Type): boolean
         end
         return not (actual.bound and isA(actual.bound, expected))
     end
+    -- Matching structure is compared part by part, so a `{B, A}` returned where a
+    -- `{A, B}` is declared is caught the way a bare B returned as an A is. A nominal
+    -- is left to the gradual relation: a phantom argument construction cannot infer
+    -- is `any` there by design, and `Key<any>` has to keep standing for a `Key<T>`.
+    if actual.tag == "tuple" and expected.tag == "tuple" and #actual.elems == #expected.elems then
+        for j, member in ipairs(actual.elems) do
+            if relations.typevarMismatch(member, expected.elems[j]) then
+                return true
+            end
+        end
+        return false
+    end
+    if actual.tag == "array" and expected.tag == "array" then
+        return relations.typevarMismatch(actual.elem, expected.elem)
+    end
     if expected.tag == "typevar" then
         if actual == expected or actual.id == expected.id or actual == T.never then
             return false
