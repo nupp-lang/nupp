@@ -1875,4 +1875,28 @@ function M.aDefaultTypeArgumentIsCheckedAgainstItsBoundWhereDeclared()
     assertEq(codes(body .. "local function make<T is Named = integer>(): T?\n   return nil\nend\nreturn make\n"), "NUPP2116")
 end
 
+-- A default body lives on the interface's table and reaches only a declaration
+-- that names the interface with `is`, so a shape has to carry the member itself:
+-- one that does not is refused, wherever the interface is wanted.
+function M.aShapeMustCarryAnInterfacesDefaultMember()
+    local body = table.concat({
+        "local interface Named",
+        "   name: string",
+        "   function greet(self): string",
+        '      return "hi " .. self.name',
+        "   end",
+        "end",
+        "local function greet(v: Named): string",
+        "   return v:greet()",
+        "end",
+    }, "\n") .. "\n"
+    assertEq(codes(body .. 'local n: Named = {name = "x"}\nreturn n\n'), "NUPP2001")
+    assertEq(codes(body .. 'print(greet({name = "y"}))\n'), "NUPP2006")
+    assertEq(codes(body .. 'local t: {name: string} = {name = "z"}\nprint(greet(t))\n'), "NUPP2006")
+    clean(body .. table.concat({
+        'local n: Named = {name = "x", greet = function(self: Named): string return "yo" end}',
+        "print(greet(n))",
+    }, "\n"))
+end
+
 return M

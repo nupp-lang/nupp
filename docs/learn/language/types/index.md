@@ -164,7 +164,10 @@ nupp check --strict
 
 ## Gradual escape hatches
 
-`any` is compatible with everything in both directions. Reading a field of
+`any` is compatible with everything in both directions, with one exception: a
+generic body's type parameter. A `T` stands for one unknown-but-fixed type
+there, and `any` is no more that type than a `string` is, so a value of `any`
+cannot be returned or stored as a `T`; narrow it or cast it. Reading a field of
 `any` gives `any`; calling it gives `any` with no arity or argument checks. It
 swallows unions too, so `any | string` is `any`:
 

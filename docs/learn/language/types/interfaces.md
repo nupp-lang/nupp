@@ -30,6 +30,12 @@ required, and a plain table shape works the same way:
 local n: Named = {name = "anonymous"}
 ```
 
+A member the interface implements with a body counts as one of its members
+here. The body is installed only on a declaration that names the interface
+with `is`, so a shape or an undeclared record has to carry that member itself
+to satisfy the interface, and one that lacks it is refused rather than left to
+find nothing at the call.
+
 Members and indexers may be declared `readonly` and `writeonly` independently,
 which controls both access and variance. See [properties.md](properties.md) for
 what each capability admits.

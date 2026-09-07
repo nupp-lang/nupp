@@ -27,7 +27,12 @@ return fromText, fromTokens
 ```
 
 Selection is exact: the call is an error unless exactly one entry accepts it.
-Nothing is ranked, and nothing is dispatched at run time.
+Nothing is ranked, and nothing is dispatched at run time. One thing does break
+a tie between entries that both accept the call: parameter ownership modes. A
+plain or borrowed callback prefers an entry whose slot is `scoped`, and an
+owner prefers an entry whose slot `takes` it, so a pair of arms differing only
+in mode selects the arm written for that kind of argument rather than
+reporting an ambiguity.
 
 ## Callable intersections
 
