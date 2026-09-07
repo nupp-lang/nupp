@@ -1000,6 +1000,7 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.noSuspendStmt = function(stat: cst.NoSuspendStmt)
+        c.nosuspend.region(stat)
         c.noSuspendDepth = c.noSuspendDepth + 1
         c.pushScope()
         c.checkBlock(stat.body, true)
@@ -1144,6 +1145,9 @@ function control.install(c: state.Checker): state.StatHandlers
                 resultPack = T.packUnion(live)
             end
         end
+        -- The loop calls the iterator itself, once per step, so a region that forbids
+        -- suspending hears about that invocation here or not at all.
+        c.nosuspend.iterator(stat, iterT)
         local iterator = stat.exprs and stat.exprs[1]
         local callee = iterator and iterator.kind == "call" and iterator.obj or nil
         local calleeTok = callee and callee.kind == "name" and callee.token or nil

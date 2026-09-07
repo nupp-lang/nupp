@@ -23,7 +23,8 @@ export interface Arena
 end
 
 export interface Provider
-    new: function(source: string): Arena
+    -- Read only, so a provider whose `new` is inferred not to suspend still fits.
+    readonly new: function(source: string): Arena
 end
 
 local selected: Provider?

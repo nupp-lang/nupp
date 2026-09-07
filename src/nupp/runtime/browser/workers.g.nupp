@@ -237,7 +237,14 @@ local function protectedCall(body: function(): any): (boolean, any)
         if coroutine.status(thread) == "dead" then
             return true, value
         end
-        passed = coroutine.yield(value)
+        -- The park is the inner thread's, handed on to whoever drives this frame,
+        -- which resumes it as the scheduler does every other park. Written as a
+        -- raw yield because that is what forwarding is, and under `unsafe` because
+        -- callers hold borrows across it -- `Scope.close` settling its tasks -- and
+        -- the driver, not a handler, is what answers for the continuation.
+        unsafe do
+            passed = coroutine.yield(value)
+        end
     end
 end
 

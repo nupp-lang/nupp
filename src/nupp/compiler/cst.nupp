@@ -504,6 +504,10 @@ interface cst.Hints
     --- handler is responsible for.
     rawYield: boolean?
 
+    --- Set instead of `rawYield` on the same call written inside `unsafe do`: the
+    --- author has taken responsibility for the continuation, as a handler would.
+    trustedYield: boolean?
+
     --- Stable keyed C declaration identity when the checker can prove which
     --- declaration this operation reaches. A missing identity on a C operation keeps
     --- hot reload on its conservative module-wide fallback.

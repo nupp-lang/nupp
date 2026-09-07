@@ -1241,7 +1241,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
-        if isCoroutine then
+        if isCoroutine and c.unsafeDepth > 0 then
+            -- Written inside `unsafe do`: the author answers for the continuation,
+            -- the way a handler does for a handled suspension. A driver that forwards
+            -- a nested thread's park to whoever resumes it is the shape this is for.
+            node.trustedYield = true
+        elseif isCoroutine then
             node.rawYield = true
             local obligation = c.liveSuspensionObligation()
             if obligation then

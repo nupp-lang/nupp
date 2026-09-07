@@ -93,6 +93,23 @@ function effectregions.install(c: state.Checker): effectregions.Ops
                     return
                 end
             end
+            -- An owner's automatic cleanup runs at this statement's scope boundary
+            -- without a call being written, so the edge is found on the owner rather
+            -- than on a callee.
+            for _, owner in ipairs(node.automaticOwners or {}) do
+                for _, cleanup in ipairs(owner.cleanups or {}) do
+                    local operation = cleanup
+                    while operation and operation.kind == "field" do
+                        operation = operation.cleanup
+                    end
+                    local token = operation and operation.kind == "function" and operation.token or nil
+                    local reached = token and queries.known and queries.known(token) or nil
+                    if reached and reached.summary and (reached.summary.top or reached.summary[effect]) then
+                        found = {info = reached, token = token}
+                        return
+                    end
+                end
+            end
             for _, child in ipairs(node) do
                 walk(child)
             end
@@ -114,8 +131,8 @@ function effectregions.install(c: state.Checker): effectregions.Ops
             if not step then
                 break
             end
-            local callee = step.at.obj
-            local token = callee and (callee.token or callee.name) or nil
+            local callee = step.at and step.at.obj or nil
+            local token = step.token or callee and (callee.token or callee.name) or nil
             if token then
                 related[
                     #related + 1

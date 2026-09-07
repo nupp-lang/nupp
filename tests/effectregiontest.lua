@@ -160,9 +160,12 @@ function M.unknownCallbacksAndForeignCallsNeedTrustedContracts()
 end
 
 function M.automaticCleanupParticipatesInTheRaisingSummary()
+   -- The contract is what the summary reads for `close`, so it has to admit the
+   -- raise: a contract that did not would be reported, and the cleanup would be
+   -- believed quiet.
    local found = refusals(table.concat({
       "local record Resource end",
-      "@effects(yields = false)",
+      "@effects(yields = false, raises = true)",
       "local function close(takes value: Resource): nil error('close') end",
       "local function open(): affine(Resource, close) return new Resource() end",
       "local function use(): nil local value = open() end",

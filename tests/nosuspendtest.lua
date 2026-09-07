@@ -100,6 +100,146 @@ function M.refusesAnUnresolvableCall()
    assertEq(#refusals, 1, "an unresolved callee is refused")
 end
 
+function M.constructsARecordWithoutSuspending()
+   -- A construction runs its declared constructor and nothing else. Without one it
+   -- is a table and a metatable; with one, the constructor's body answers.
+   local plain = "local record P\n    x: integer\nend\n"
+   assertEq(#diagnose(plain .. "nosuspend do\n    local p = new P(x = 1)\nend"), 0,
+      "a record with no constructor cannot suspend")
+   assertEq(#diagnose(plain .. "local function make(): P\n    return new P(x = 1)\nend\n"
+      .. "nosuspend do\n    local p = make()\nend"), 0,
+      "a helper that constructs one is answered by its summary")
+   local quiet = "local record Q\n    x: integer\n    constructor(self, x: integer)\n"
+      .. "        self.x = x\n    end\nend\n"
+   assertEq(#diagnose(quiet .. "nosuspend do\n    local q = new Q(1)\nend"), 0,
+      "a constructor that cannot suspend is silent")
+   local noisy = "local record R\n    x: integer\n    constructor(self, x: integer)\n"
+      .. "        coroutine.yield()\n        self.x = x\n    end\nend\n"
+   local refusals = diagnose(noisy .. "nosuspend do\n    local r = new R(1)\nend")
+   assertEq(#refusals, 1, "a constructor that suspends is refused")
+   assertTrue(refusals[1].msg:find("R", 1, true) ~= nil, "it names the record: " .. refusals[1].msg)
+end
+
+function M.judgesTheIteratorOfAGenericFor()
+   -- The loop calls the iterator itself, once per step: a call nobody wrote, judged
+   -- by the type the header answered because its body is never visible here.
+   local plain = "local function iter(): function(): integer?\n"
+      .. "    return function(): integer?\n        coroutine.yield()\n        return nil\n    end\nend\n"
+   local refusals = diagnose(plain .. "nosuspend do\n    for v in iter() do\n        print(v)\n    end\nend")
+   assertEq(#refusals, 1, "an iterator that may suspend is refused")
+   assertTrue(refusals[1].msg:find("iterator", 1, true) ~= nil, "it says what was judged: " .. refusals[1].msg)
+   local quiet = "local function iter(): nosuspend function(): integer?\n"
+      .. "    return function(): integer?\n        return nil\n    end\nend\n"
+   assertEq(#diagnose(quiet .. "nosuspend do\n    for v in iter() do\n        print(v)\n    end\nend"), 0,
+      "an iterator that cannot suspend is silent")
+   -- The prelude's traversals answer the same way.
+   assertEq(#diagnose(table.concat({
+      "local t: {[string]: integer} = {}",
+      "local a: {integer} = {}",
+      "nosuspend do",
+      "    for k, v in pairs(t) do print(k, v) end",
+      "    for i, v in ipairs(a) do print(i, v) end",
+      "    for k, v in next, t do print(k, v) end",
+      "end",
+   }, "\n")), 0, "pairs, ipairs and next cannot suspend")
+end
+
+function M.judgesADispatchedMetamethod()
+   -- An operator reaching a declared contract is a call nobody wrote, judged by the
+   -- contract's type exactly as a callable slot is.
+   local function operand(contract)
+      return table.concat({
+         "local record V",
+         "    x: integer",
+         "    metamethod __add: " .. contract,
+         "end",
+         "local a, b: V, V = new V(x = 1), new V(x = 2)",
+         "nosuspend do",
+         "    local c = a + b",
+         "end",
+      }, "\n")
+   end
+   local refusals = diagnose(operand("function(left: V, right: V): V"))
+   assertEq(#refusals, 1, "a contract that may suspend is refused")
+   assertTrue(refusals[1].msg:find("__add", 1, true) ~= nil, "it names the metamethod: " .. refusals[1].msg)
+   assertEq(#diagnose(operand("nosuspend function(left: V, right: V): V")), 0,
+      "a contract that cannot suspend is silent")
+end
+
+function M.resolvesTheSelectedOverload()
+   -- An overload set is several signatures; the one the arguments selected is the
+   -- one that runs, and the one whose guarantee is asked for.
+   local src = table.concat({
+      "local f: nosuspend function(n: integer): (nil) & function(s: string): (nil)",
+      "nosuspend do",
+      "    f(1)",
+      "    f('x')",
+      "end",
+   }, "\n")
+   local refusals = diagnose(src)
+   assertEq(#refusals, 1, "only the arm that may suspend is refused")
+   assertEq(refusals[1].line, 4, "and it is the string arm")
+end
+
+function M.judgesTheTerminalsARegionDischarges()
+   -- A terminal runs where an owner is discharged, and no call names it: at the
+   -- statement that bound the owner, at a `with`, or at an explicit `drop`. Each is
+   -- judged where it stands, and the terminal is reported once per region.
+   local resource = table.concat({
+      "local record Resource value: integer end",
+      "local park: function(): nil = nil as any",
+      "local function settling(takes value: Resource): nil",
+      "    park()",
+      "end",
+      "local function quiet(takes value: Resource): nil",
+      "end",
+      "local function openSettling(): affine(Resource, settling)",
+      "    return new Resource(value = 1)",
+      "end",
+      "local function openQuiet(): affine(Resource, quiet)",
+      "    return new Resource(value = 1)",
+      "end",
+   }, "\n") .. "\n"
+   local refusals = diagnose(resource .. table.concat({
+      "nosuspend do",
+      "    local value = openSettling()",
+      "end",
+   }, "\n"))
+   assertEq(#refusals, 1, "an owner discharged at its scope boundary is judged")
+   assertTrue(refusals[1].msg:find("settling", 1, true) ~= nil, "it names the terminal: " .. refusals[1].msg)
+   refusals = diagnose(resource .. table.concat({
+      "nosuspend do",
+      "    with value = openSettling() do",
+      "        print(value.value)",
+      "    end",
+      "end",
+   }, "\n"))
+   assertEq(#refusals, 1, "a with acquisition is judged")
+   refusals = diagnose(resource .. table.concat({
+      "nosuspend do",
+      "    local value = openSettling()",
+      "    drop(value)",
+      "end",
+   }, "\n"))
+   assertEq(#refusals, 1, "an explicit drop is the same obligation, reported once")
+   assertEq(#diagnose(resource .. table.concat({
+      "nosuspend do",
+      "    local value = openQuiet()",
+      "    with other = openQuiet() do",
+      "        print(other.value)",
+      "    end",
+      "end",
+   }, "\n")), 0, "a terminal that cannot suspend is silent")
+   assertEq(#diagnose(resource .. table.concat({
+      "local function later(): nil",
+      "    local value = openSettling()",
+      "end",
+      "nosuspend do",
+      "    local keep = later",
+      "end",
+   }, "\n")), 0, "a nested function's owners run outside the region")
+end
+
 function M.nestsAndEnds()
    local src = QUIET .. NOISY .. table.concat({
       "nosuspend do",

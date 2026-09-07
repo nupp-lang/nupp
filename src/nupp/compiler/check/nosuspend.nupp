@@ -41,8 +41,11 @@ local MAX_CHAIN = 8
 
 --- What `install` answers with.
 type nosuspend.Ops = {
+    readonly region: function(any),
     readonly call: function(any),
     readonly obligation: function(any),
+    readonly iterator: function(any, any),
+    readonly contract: function(any, string): any,
     readonly callback: function(any, string),
     readonly cleanup: function(any, any),
     readonly sweep: function(any)
@@ -72,7 +75,7 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
     ---
     --- @param call the call expression
     function ops.obligation(call: any)
-        if not call then
+        if not call or c.unsafeDepth > 0 then
             return
         end
         local live = c.liveSuspensionObligation()
@@ -89,9 +92,87 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         if c.noSuspendDepth <= 0 or not call then
             return
         end
+        -- Registered before the call is inferred, so the type the verdict falls back
+        -- on is read at the sweep, once the checker has selected what runs.
+        candidates[#candidates + 1] = {call = call, code = "NUPP2701", construction = call.isNew == true}
+    end
+
+    -- The type the verdict falls back on when no summary answers. The callee's own
+    -- type is an overload set where several signatures were written, and a
+    -- construction's is the record: in both, the signature the checker selected is
+    -- the one that runs.
+    local function signatureOf(call: any): any
+        local target = call.calleeType
+        if target and target.tag == "func" then
+            return target
+        end
+        local signature = call.signatureType
+        if signature and signature.tag == "func" then
+            return signature
+        end
+
+        return target
+    end
+
+    --- Registers the implicit call a generic `for` makes to its iterator, if a region
+    --- encloses the loop.
+    ---
+    --- The iterator is invoked once per step by the loop itself rather than by any
+    --- call written in the body, so nothing else registers it. Its body is never
+    --- visible here -- it is whatever the header's expression answered -- so its
+    --- type is the whole of the answer.
+    ---
+    --- @param stat the loop
+    --- @param iteratorType the type of what the header's first expression answered
+    function ops.iterator(stat: any, iteratorType: any)
+        if c.noSuspendDepth <= 0 or not stat then
+            return
+        end
         candidates[
             #candidates + 1
-        ] = {call = call, calleeType = call.calleeType or call.signatureType, code = "NUPP2701"}
+        ] = {
+            call = stat,
+            calleeType = iteratorType and iteratorType.tag == "func" and iteratorType or nil,
+            code = "NUPP2701",
+            iterator = true,
+        }
+    end
+
+    --- Registers an operator dispatched to a declared metamethod contract, if a
+    --- region encloses it.
+    ---
+    --- The contract's type is settled after selection, so the candidate is answered
+    --- back to the caller, which fills in the signature that was chosen. One that
+    --- never resolves stays unresolved, and is refused as any call the compiler
+    --- cannot follow is.
+    ---
+    --- @param site the operator expression
+    --- @param operation the metamethod's name
+    --- @return the candidate to complete, or nil outside every region
+    function ops.contract(site: any, operation: string): any
+        if c.noSuspendDepth <= 0 or not site then
+            return nil
+        end
+        local candidate = {call = site, calleeType = nil, code = "NUPP2701", operation = operation}
+        candidates[#candidates + 1] = candidate
+
+        return candidate
+    end
+
+    -- The regions themselves, walked at the sweep for what is discharged inside them.
+    local regions: {any} = {}
+
+    --- Registers a `nosuspend` region.
+    ---
+    --- What a region discharges -- an owner at its statement's boundary, a `with`
+    --- acquisition, an explicit `drop` -- runs a terminal no call names, so the region
+    --- is walked for those once inference can say whether each terminal parks.
+    ---
+    --- @param stat the region statement
+    function ops.region(stat: any)
+        if stat then
+            regions[#regions + 1] = stat
+        end
     end
 
     -- Callback bodies invoked from C, registered as implicit regions.
@@ -210,10 +291,118 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         end
     end
 
+    -- Whether a terminal may park, from its visible body where this file has one and
+    -- from its type where it does not.
+    local function cleanupMayYield(cleanup: any, queries: any): boolean
+        local token = cleanup and cleanup.token
+        local info = token and queries and queries.known and queries.known(token) or nil
+        local mayYield = false
+        if cleanup and cleanup.functionType and cleanup.functionType.foreign then
+            mayYield = false
+        elseif info and info.summary then
+            mayYield = info.summary.top == true or info.summary.external == true or info.summary.yields == true
+            if mayYield and info.body then
+                local calls = {}
+                callsWithin(info.body, calls)
+                local allTypedNonYielding = #calls > 0
+                for _, call in ipairs(calls) do
+                    local target = call.calleeType or call.signatureType
+                    -- An ownership intrinsic is not a call to something that could
+                    -- yield: it lowers to generated code that calls the terminals
+                    -- named in it, and those are judged as the cleanups they are.
+                    if call.ownershipIntrinsic then
+                        target = nil
+                    elseif not target or target.tag ~= "func" or not target.noYield then
+                        allTypedNonYielding = false
+                    end
+                end
+                if allTypedNonYielding then
+                    mayYield = false
+                end
+            end
+        elseif cleanup and cleanup.functionType and cleanup.functionType.tag == "func" then
+            mayYield = cleanup.functionType.noYield ~= true and cleanup.visibleBody == true
+        end
+
+        return mayYield
+    end
+
+    -- The terminal a cleanup runs: a field cleanup names the function that closes
+    -- the field.
+    local function terminalOf(cleanup: any): any
+        local operation = cleanup
+        while operation and operation.kind == "field" do
+            operation = operation.cleanup
+        end
+        if operation and operation.kind == "function" then
+            return operation
+        end
+
+        return nil
+    end
+
+    -- Every terminal discharged inside a body, with where it is discharged: an owner
+    -- at the statement that bound it, a `with` acquisition at its expression, and an
+    -- explicit `drop` at the call. Nested functions run at a time the region does not
+    -- cover.
+    local function dischargedWithin(body: any, into: {any})
+        if not body or cst.isToken(body) then
+            return
+        end
+        local kind = body.kind
+        if kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt" then
+            return
+        end
+        for _, owner in ipairs(body.automaticOwners or {}) do
+            for _, cleanup in ipairs(owner.cleanups or {}) do
+                into[#into + 1] = {cleanup = cleanup, at = body}
+            end
+        end
+        if kind == "withStmt" then
+            for _, binding in ipairs(body.bindings or {}) do
+                for _, cleanup in ipairs(binding.ownerCleanups or {}) do
+                    into[#into + 1] = {cleanup = cleanup, at = binding.expr or body}
+                end
+            end
+        end
+        if body.ownershipIntrinsic == "drop" or body.ownershipIntrinsic == "attemptAll" then
+            for _, cleanup in ipairs(body.ownerCleanups or {}) do
+                into[#into + 1] = {cleanup = cleanup, at = body}
+            end
+        end
+        for _, child in ipairs(body.stats or {}) do
+            dischargedWithin(child, into)
+        end
+        for _, child in ipairs(body) do
+            dischargedWithin(child, into)
+        end
+    end
+
     --- Judges every registered call once effect inference has settled.
     ---
     --- @param queries the analysis query surface, or nil when nothing was analyzed
     function ops.sweep(queries: any)
+        -- A terminal is reported once per region, where it is first discharged: an
+        -- owner dropped by hand is the same obligation as the one its statement
+        -- would have discharged, and two reports would say one thing twice.
+        for _, region in ipairs(regions) do
+            local discharged: {any} = {}
+            dischargedWithin(region.body, discharged)
+            local reported = {}
+            for _, candidate in ipairs(discharged) do
+                local terminal = terminalOf(candidate.cleanup)
+                if terminal and not reported[terminal] and cleanupMayYield(terminal, queries) then
+                    reported[terminal] = true
+                    c.diag(
+                        "NUPP2701",
+                        candidate.at,
+                        ("cleanup %q may suspend, and this region forbids suspending"):format(terminal.name),
+                        nil,
+                        {help = "discharge the owner outside the region, or give it a terminal that cannot suspend"}
+                    )
+                end
+            end
+        end
         for _, candidate in ipairs(obligations) do
             local call = candidate.call
             -- Written at the call: already refused where it stands.
@@ -240,36 +429,7 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         end
         for _, candidate in ipairs(cleanupContracts) do
             local cleanup = candidate.cleanup
-            local token = cleanup and cleanup.token
-            local info = token and queries and queries.known and queries.known(token) or nil
-            local mayYield = false
-            if cleanup and cleanup.functionType and cleanup.functionType.foreign then
-                mayYield = false
-            elseif info and info.summary then
-                mayYield = info.summary.top == true or info.summary.external == true or info.summary.yields == true
-                if mayYield and info.body then
-                    local calls = {}
-                    callsWithin(info.body, calls)
-                    local allTypedNonYielding = #calls > 0
-                    for _, call in ipairs(calls) do
-                        local target = call.calleeType or call.signatureType
-                        -- An ownership intrinsic is not a call to something that could
-                        -- yield: it lowers to generated code that calls the terminals
-                        -- named in it, and those are judged as the cleanups they are.
-                        if call.ownershipIntrinsic then
-                            target = nil
-                        elseif not target or target.tag ~= "func" or not target.noYield then
-                            allTypedNonYielding = false
-                        end
-                    end
-                    if allTypedNonYielding then
-                        mayYield = false
-                    end
-                end
-            elseif cleanup and cleanup.functionType and cleanup.functionType.tag == "func" then
-                mayYield = cleanup.functionType.noYield ~= true and cleanup.visibleBody == true
-            end
-            if mayYield then
+            if cleanupMayYield(cleanup, queries) then
                 c.diag(
                     "NUPP2701",
                     candidate.at,
@@ -283,18 +443,24 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
             local found: {any} = {}
             callsWithin(region.body, found)
             for _, call in ipairs(found) do
-                candidates[
-                    #candidates + 1
-                ] = {call = call, calleeType = call.calleeType, code = "NUPP2702", where = region.where,}
+                candidates[#candidates + 1] = {call = call, code = "NUPP2702", where = region.where}
             end
         end
         for _, candidate in ipairs(candidates) do
             local call = candidate.call
             local callee = call.obj
             local token = callee and (callee.token or callee.name) or nil
+            if candidate.iterator then
+                local header = call.exprs and call.exprs[1] or nil
+                token = header and cst.firstToken(header) or nil
+            end
             local info = queries and queries.callee and queries.callee(call) or nil
             local mayYield, why = nil, nil
-            if info and info.summary and not info.external then
+            if candidate.construction and not call.constructorEntry then
+                -- A construction with no declared constructor runs no code of its
+                -- own: the values are the arguments, judged where they were written.
+                mayYield = false
+            elseif info and info.summary and not info.external then
                 -- Seen here: the summary is the answer, and a widened one is a callee
                 -- that reached something this file could not follow.
                 if info.summary.top then
@@ -305,6 +471,9 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
                 end
             else
                 local target = candidate.calleeType
+                if target == nil and not candidate.iterator and not candidate.operation then
+                    target = signatureOf(call)
+                end
                 if target and target.tag == "func" then
                     mayYield = not target.noYield
                     why = "may suspend"
@@ -316,6 +485,11 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
             end
             if mayYield then
                 local named = token and ("`" .. token.text .. "`") or "this call"
+                if candidate.iterator then
+                    named = "the iterator " .. named
+                elseif candidate.operation then
+                    named = "`" .. candidate.operation .. "`"
+                end
                 local message
                 if candidate.code == "NUPP2702" then
                     -- The boundary belongs to the invocation. Saying which call reaches

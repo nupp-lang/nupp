@@ -521,6 +521,13 @@ local function inferFunction(info, byDefinition)
         end
         local known = knownCall(call, byDefinition)
         local args = callArgs(call)
+        if not known and call.isNew and not call.constructorEntry then
+            -- A construction with no declared constructor builds the value from its
+            -- arguments and runs nothing else: an allocation, and the arguments are
+            -- walked as the expressions they are.
+            out.allocates = true
+            return
+        end
         if known then
             local effects = known.summary
             if effects.top then
@@ -550,7 +557,9 @@ local function inferFunction(info, byDefinition)
         -- The checker settled whether this is the library's yield -- read from the
         -- library table, or through a name bound to the function -- by provenance;
         -- the spelling is what an unchecked file offers.
-        if call.rawYield or name == "coroutine.yield" then
+        if call.trustedYield then
+            out.yields = true
+        elseif call.rawYield or name == "coroutine.yield" then
             out.yields = true
             out.rawYields = true
         elseif PURE_BUILTINS[name or ""] then

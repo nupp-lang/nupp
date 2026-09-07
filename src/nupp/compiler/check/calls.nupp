@@ -796,6 +796,9 @@ function calls.install(c: state.Checker): calls.Ops
         -- metamethod or other contract is therefore unknown unless its exact body is a
         -- normal checked call elsewhere in the file.
         site.effectUnknownOperation = true
+        -- A region that forbids suspending judges the dispatch by the signature
+        -- selected below, which is filled in once it is known.
+        local regionCandidate = c.nosuspend and c.nosuspend.contract and c.nosuspend.contract(site, operation) or nil
         local overloads = ft and callableMembers(ft) or nil
         if overloads then
             local argPack = T.pack(ats)
@@ -818,6 +821,9 @@ function calls.install(c: state.Checker): calls.Ops
         if not ft or ft.tag ~= "func" then
             c.diag("NUPP2003", site, operation .. " contract is not a function")
             return T.any
+        end
+        if regionCandidate then
+            regionCandidate.calleeType = ft
         end
         local params, rets = ft.params, ft.rets
         local paramPack, retPack = ft.paramPack, ft.retPack

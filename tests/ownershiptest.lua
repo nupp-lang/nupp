@@ -3526,6 +3526,34 @@ function M.aHandledSuspensionThroughAHelperIsAllowed()
     )
 end
 
+function M.aYieldWrittenUnderUnsafeIsTheAuthorsToAnswerFor()
+    -- `unsafe do` is where the author takes over a guarantee the checker cannot
+    -- see: a driver that forwards a nested thread's park to whoever resumes it
+    -- yields raw because that is what forwarding is, and its callers keep their
+    -- borrows across it.
+    assertClean(
+        RESOURCE .. table.concat(
+            {
+                "",
+                "local function forward()",
+                "   unsafe do",
+                "      coroutine.yield()",
+                "   end",
+                "end",
+                "local function pause()",
+                "   local value = resource_new()",
+                "   forward()",
+                "   unsafe do",
+                "      coroutine.yield()",
+                "   end",
+                "   resource_free(value)",
+                "end",
+            },
+            "\n"
+        )
+    )
+end
+
 function M.aRawYieldThroughABoundFunctionIsRefused()
     -- `local y = coroutine.yield` binds the function rather than the table, and a
     -- call through that name, or a name bound to it in turn, is the same raw yield.
