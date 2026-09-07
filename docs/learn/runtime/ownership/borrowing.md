@@ -212,6 +212,11 @@ reported. An owner handed out by a `for … in` iterator is a local of the loop
 body: it is destroyed at the end of each iteration, and on every exit from the
 body.
 
+An owned temporary — a call result nothing binds, such as `use(open())` into a
+`borrows` parameter, `open().id`, or `if open() then` — has no scope to be
+destroyed at, so it is reported (NUPP2603); bind it to a local, or pass it to a
+`takes` parameter.
+
 Assigning to a name that still holds a live owner is refused (NUPP2602), since
 nothing would run the old value's terminal: `drop` it first, or move it out.
 A `Res?` local may be set to `nil` once its owner is discharged, and one that
