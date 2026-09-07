@@ -129,4 +129,32 @@ function M.arrayCtypeIsBuiltOncePerElementType()
       "allocates through the cache:\n" .. code)
 end
 
+function M.elementReadBorrowsTheArray()
+   -- an element of a reified array is a reference into the array's memory
+   assertEq(diagsOf(P .. table.concat({
+      "",
+      "local function grab(): P",
+      "   local ps = carray(P, 4)",
+      "   return ps[3]",
+      "end",
+   }, "\n")), "NUPP2608")
+   assertEq(diagsOf(P .. table.concat({
+      "",
+      "local ps = carray(P, 4)",
+      "local first = ps[0]",
+      "first.x = 1.5",
+      "ps[1] = ps[0]",
+      "ps[2].y = ps[1].x",
+      "print(first.x, ps[2].y)",
+   }, "\n")), "")
+   assertEq(run(P .. table.concat({
+      "",
+      "local ps = carray(P, 4)",
+      "local first = ps[0]",
+      "first.x = 1.5",
+      "ps[1] = ps[0]",
+      "return ps[1].x",
+   }, "\n")), 1.5)
+end
+
 return M

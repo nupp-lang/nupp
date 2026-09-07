@@ -963,7 +963,16 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         end
                     end
                 end
-                if et and ownershipKind(et) and not partialReinit and not taskAggregateWrite then
+                -- A struct or fixed array assigned into a struct field or array slot
+                -- is copied byte for byte, so a borrowed source is read there and
+                -- nothing of it is retained.
+                local rawTarget = tt and rawType(tt) or nil
+                local aggregateCopy = ownershipKind(
+                    et
+                ) == "borrowed" and target.fixedWidthPhysicalStore == true and rawTarget ~= nil and (
+                    rawTarget.tag == "carray" or rawTarget.tag == "nominal" and rawTarget.declKind == "struct"
+                )
+                if et and ownershipKind(et) and not partialReinit and not taskAggregateWrite and not aggregateCopy then
                     c.diag(
                         "NUPP2603",
                         written or stat,

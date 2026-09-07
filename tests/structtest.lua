@@ -371,4 +371,77 @@ function M.structConstructorMustFillEveryField()
    }, "\n")), "NUPP2208:4")
 end
 
+function M.nestedStructReadBorrowsItsParent()
+   -- LuaJIT hands back a reference cdata for a by-value struct field, and nothing
+   -- anchors the parent to it: the read is a borrow of the parent.
+   local NESTED = table.concat({
+      "local struct Inner",
+      "   v: int32",
+      "end",
+      "local struct Outer",
+      "   inner: Inner",
+      "   n: int32",
+      "end",
+   }, "\n") .. "\n"
+   assertEq(diagsOf(NESTED .. table.concat({
+      "local function grab(): Inner",
+      "   local o = new Outer(new Inner(1), 2)",
+      "   return o.inner",
+      "end",
+   }, "\n")), "NUPP2608:10")
+   assertEq(diagsOf(NESTED .. table.concat({
+      "local kept: {Inner} = {}",
+      "local o = new Outer(new Inner(1), 2)",
+      "kept[1] = o.inner",
+   }, "\n")), "NUPP2603:10")
+   -- in place, through a local view, copied into another struct, or handed to a
+   -- borrows parameter, the reference never outlives the parent
+   assertClean(NESTED .. table.concat({
+      "local function bump(borrows i: Inner): nil",
+      "   i.v = i.v + 1",
+      "end",
+      "local o = new Outer(new Inner(1), 2)",
+      "o.inner.v = 5",
+      "local view = o.inner",
+      "view.v = 6",
+      "bump(o.inner)",
+      "local other = new Outer(o.inner, 3)",
+      "other.inner = o.inner",
+      "print(o.inner.v, other.inner.v)",
+   }, "\n"))
+   -- a temporary parent has no lifetime for the reference to borrow
+   assertEq(diagsOf(NESTED .. table.concat({
+      "local function make(): Outer",
+      "   return new Outer(new Inner(1), 2)",
+      "end",
+      "local view = make().inner",
+   }, "\n")), "NUPP2619:11")
+   -- the reference is a live view of the parent, not a copy
+   assertEq(run(NESTED .. table.concat({
+      "local o = new Outer(new Inner(1), 2)",
+      "local view = o.inner",
+      "view.v = 6",
+      "return o.inner.v",
+   }, "\n")), 6)
+end
+
+function M.fixedArrayFieldReadBorrowsItsParent()
+   local ARRAYED = "local struct V\n   pos: float[3]\nend\n"
+   assertEq(diagsOf(ARRAYED .. table.concat({
+      "local function grab(): float[3]",
+      "   local v = new V()",
+      "   return v.pos",
+      "end",
+   }, "\n")), "NUPP2608:6")
+   assertClean(ARRAYED .. table.concat({
+      "local v = new V()",
+      "v.pos[0] = 1.5",
+      "local pos = v.pos",
+      "pos[1] = 2.5",
+      "local w = new V()",
+      "w.pos = v.pos",
+      "print(v.pos[0], w.pos[1])",
+   }, "\n"))
+end
+
 return M

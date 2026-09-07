@@ -243,6 +243,37 @@ function index.install(c: state.Checker): state.ExprHandlers
         return holder ~= nil and holder.requiredModule ~= nil
     end
 
+    --- Whether reading a `t` out of C memory hands back a reference cdata rather
+    --- than a value. A nested struct or a fixed array sits inline in its parent's
+    --- bytes, and LuaJIT returns a reference into them that anchors nothing.
+    local function aggregateValue(t: Type): boolean
+        local raw = rawType(t)
+        while raw.tag == "const" do
+            raw = rawType(raw.inner)
+        end
+
+        return raw.tag == "carray" or raw.tag == "nominal" and raw.declKind == "struct"
+    end
+
+    --- Types a read of an inline aggregate as a borrow of the parent it lives in:
+    --- usable in place and copyable out, but never able to outlive the parent
+    --- (NUPP2608 on return, NUPP2603 on a store through a reference).
+    local function referenceRead(node, parent, t: Type): Type
+        if c.ownershipKind(t) or not aggregateValue(t) then
+            return t
+        end
+        local roots = c.own.provenanceOwners(parent)
+        if #roots == 0 then
+            c.diag("NUPP2619", node, "a reference into a temporary struct needs a rooted parent", nil, {
+                help = "bind the struct or array it lives in to a local first"
+            })
+        else
+            c.own.capabilityFacts(node).roots = roots
+        end
+
+        return T.borrowed(t)
+    end
+
     local fieldOf: function(node: cst.DotIndex | cst.SafeIndex): Type
     fieldOf = function(node: cst.DotIndex | cst.SafeIndex): Type
         local kind = node.kind
@@ -448,6 +479,10 @@ function index.install(c: state.Checker): state.ExprHandlers
             local after = c.fieldType(base, memberName)
             if not after then
                 node.postWriteType = false
+            elseif node.fixedWidthPhysicalStore and after and aggregateValue(after) then
+                -- The store copied the bytes in; the next read is a fresh reference
+                -- into this struct, not the value that was written.
+                node.postWriteType = false
             elseif after ~= ft then
                 node.postWriteType = after
             end
@@ -643,6 +678,9 @@ function index.install(c: state.Checker): state.ExprHandlers
         c.markToken(member, fieldDef, ft, "property")
         member.additionalDefinitions = fieldDefs
         local out = kind == "safeIndex" and T.optional(ft) or ft
+        if not writing and aggregateValue(base) then
+            out = referenceRead(node, target, out)
+        end
         node.resolvedType = out
         if kind == "dotIndex" and target.indexedAccess then
             local access = target.indexedAccess
@@ -781,6 +819,13 @@ function index.install(c: state.Checker): state.ExprHandlers
                 c.fixedWidth.mark(node, result)
                 c.fixedWidth.trust(node, result)
             end
+            if view.adapter == "span" then
+                if writing then
+                    node.postWriteType = false
+                else
+                    result = referenceRead(node, target, result)
+                end
+            end
             return result
         end
         local staticallyBounded = ot.tag == "carray" and ot.count ~= nil and it.tag == "literal" and type(
@@ -912,11 +957,14 @@ function index.install(c: state.Checker): state.ExprHandlers
             -- zero-based, and always present: no optional here
             if writing then
                 node.fixedWidthPhysicalStore = true
+                if aggregateValue(ot.elem) then
+                    node.postWriteType = false
+                end
                 return ot.elem
             end
             local loaded = fixedWidth.loaded(ot.elem)
             c.fixedWidth.mark(node, loaded)
-            return loaded
+            return referenceRead(node, target, loaded)
         end
         if ot.tag == "nominal" and ot.arrayOf then
             if not (it == T.any or isA(it, T.integer)) then

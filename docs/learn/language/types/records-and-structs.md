@@ -401,6 +401,34 @@ print(origin.x) -- 1
 
 Copy explicitly when you want a copy.
 
+Reading a nested struct field or an element of a `T[N]` array or `carray` does
+not copy either: LuaJIT hands back a reference into the parent's bytes, and
+nothing anchors the parent to it. The checker types that read as a borrow of
+the parent, so it may be used in place, handed to a `borrows` parameter, or
+copied into another struct's field, but it cannot be returned (`NUPP2608`) or
+stored through a reference (`NUPP2603`), which is where it would outlive the
+memory it points into. A parent that is only a temporary has no lifetime to
+borrow from, so bind it to a local before reading into it (`NUPP2619`).
+
+```nupp
+local struct Inner
+    v: int32
+end
+
+local struct Outer
+    inner: Inner
+end
+
+local function grab(o: Outer): Inner
+    return o.inner -- NUPP2608: the reference would outlive o
+end
+
+local o = new Outer(new Inner(1))
+local view = o.inner -- a live view of o's bytes, rooted in o
+view.v = 6
+print(o.inner.v) -- 6
+```
+
 ## Choosing
 
 Reach for a **record** when you want identity, dynamism, arbitrary field types,
