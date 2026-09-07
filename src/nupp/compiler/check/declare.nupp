@@ -2241,7 +2241,15 @@ function declare.install(
                     end
                     local receiver = hasReceiver(e.body, stat.declKind)
                     local checked = c.checkFuncbody(e.body, receiver and n or nil)
-                    local ft = receiver and addSelf(checked, n, e.body.receiverMode) or checked
+                    -- A receiver spelled `self: const T` takes a read-only one, which
+                    -- is what lets a const value call the method.
+                    local first = e.body.params and e.body.params[1]
+                    local constReceiver = receiver and first and first.type and first.type.kind == "tconst"
+                    local ft = receiver and addSelf(
+                        checked,
+                        constReceiver and T.constOf(n) or n,
+                        e.body.receiverMode
+                    ) or checked
                     c.raises.check(e, e.body)
                     local callable = (receiver and dropSelf(ft) or ft) as T.Func
                     local parameterKey = methodslots.parameters(callable)

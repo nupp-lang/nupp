@@ -366,13 +366,21 @@ for what a C boundary adds to a pointer.
 
 ## `const`
 
-`const T` is a read-only view. A mutable value satisfies a `const` parameter; a
-`const` value does not satisfy a mutable one:
+`const T` is a read-only view of the whole value. A mutable value satisfies a
+`const` parameter; a `const` value does not satisfy a mutable one:
 
 ```nupp
 local function render(buffer: const Buffer)
 end
 ```
+
+The view reaches everything read through it: a table-shaped member or element
+read from a `const` value is itself a `const` view, so `o.inner.n = 5` through
+a `const Outer` is refused as a write through `const Inner`. A method is called
+on a `const` value only when it asked for a read-only receiver, spelled `self:
+const T`; `r:bump()` on a `const R` whose `bump` takes a plain `self` is refused
+the way `bump(r)` is. Iteration is the one gap: `pairs` and `ipairs` over a
+`const` table yield its elements as they are declared, not as `const` views.
 
 This is unrelated to the `const` binding modifier, which makes a local
 immutable:

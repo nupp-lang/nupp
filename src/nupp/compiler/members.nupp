@@ -19,6 +19,26 @@ local T = require("nupp.compiler.types")
 
 local members = {}
 
+--- What a read through a const view yields. A table-shaped member is itself a
+--- const view, which is what carries the promise to the whole value: `o.inner.n
+--- = 5` through a `const Outer` is a write through `const Inner`. A scalar, a
+--- callable, or an owner is what it was.
+function members.constRead(t: T.Type): T.Type
+    local tag = t.tag
+    if tag == "union" then
+        local wrapped: {T.Type} = {}
+        for j, member in ipairs((t as T.Union).members) do
+            wrapped[j] = members.constRead(member)
+        end
+        return T.union(wrapped)
+    end
+    if tag == "shape" or tag == "nominal" or tag == "array" or tag == "map" or tag == "tuple" then
+        return T.constOf(t)
+    end
+
+    return t
+end
+
 type members.Entry = {
     name: string,
     readType: T.Type?,
@@ -356,7 +376,7 @@ build = function(t: T.Type, memo: ViewMemo): members.View
         for _, source in ipairs(inner.ordered) do
             local entry: members.Entry = {
                 name = source.name,
-                readType = source.readType,
+                readType = source.readType and members.constRead(source.readType) or nil,
                 declarationKind = source.declarationKind,
                 definition = source.definition,
                 definitions = source.definitions,
@@ -365,7 +385,12 @@ build = function(t: T.Type, memo: ViewMemo): members.View
             out.ordered[#out.ordered + 1] = entry
             out.byname[entry.name] = entry
         end
-        out.readIndexer = inner.readIndexer
+        if inner.readIndexer then
+            out.readIndexer = {
+                keyType = inner.readIndexer.keyType,
+                valueType = members.constRead(inner.readIndexer.valueType),
+            }
+        end
     elseif t.tag == "map" then
         out = empty()
         if t.readable then
@@ -412,7 +437,7 @@ lookup = function(t: T.Type, name: string): members.Entry?
 
         return {
             name = inner.name,
-            readType = inner.readType,
+            readType = inner.readType and members.constRead(inner.readType) or nil,
             declarationKind = inner.declarationKind,
             definition = inner.definition,
             definitions = inner.definitions,

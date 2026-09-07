@@ -1921,6 +1921,33 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             c.markToken(member, fieldDef, mt, callable and "method" or "property")
             member.additionalDefinitions = fieldDefs
+            -- A const receiver is passed as `self`, so the method has to have asked
+            -- for a read-only one: `r:bump()` through a `const R` is the write that
+            -- `bump(r)` already refuses.
+            if callable and rawReceiver.tag == "const" then
+                local signatures = mt.tag == "intersection" and mt.members or {mt}
+                local accepts = false
+                for _, signature in ipairs(signatures) do
+                    local selfParam = signature.tag == "func" and signature.params[1] or nil
+                    if not selfParam or selfParam == T.any or selfParam == T.unknown or rawType(
+                        selfParam
+                    ).tag == "const" then
+                        accepts = true
+                        break
+                    end
+                end
+                if not accepts then
+                    c.diag(
+                        "NUPP2006",
+                        receiver,
+                        (
+                            "receiver: %s is read-only; %s does not take a const self"
+                        ):format(T.tostring(rawReceiver), member.text),
+                        nil,
+                        {help = "declare the receiver as `self: const T`, or call the method on a mutable value"}
+                    )
+                end
+            end
             -- o:m(...) desugars to m(o, ...): drop the self parameter
             local methodType = callable and specializeReceiver(mt, ot) or mt
             local nominal = rawReceiver.tag == "nominal" and rawReceiver as T.Nominal or nil

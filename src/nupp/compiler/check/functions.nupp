@@ -25,6 +25,14 @@ local type Type = T.Type
 
 local functions = {}
 
+--- Whether a spelled receiver asks for a read-only one: `self: const T`. The
+--- spelling is the only thing read off the annotation; the receiver's type is
+--- the owner's whatever it says.
+local function constSelf(explicitSelf: any): boolean
+    local annotation = explicitSelf and explicitSelf.type or nil
+    return annotation ~= nil and annotation.kind == "tconst"
+end
+
 --- Installs the function statements on one run.
 ---
 --- @param c the run's state
@@ -680,9 +688,10 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         body.takenCaptures = captures
         if selfType then
+            local owner = constSelf(explicitSelf) and T.constOf(selfType) or selfType
             local receiverType = receiverMode == "takes" and T.affine(
-                selfType
-            ) or (receiverMode == "borrows" or receiverMode == "exclusive") and T.borrowed(selfType) or selfType
+                owner
+            ) or (receiverMode == "borrows" or receiverMode == "exclusive") and T.borrowed(owner) or owner
             c.bindVar(
                 "self",
                 receiverType,
@@ -1223,7 +1232,10 @@ function functions.install(c: state.Checker): state.StatHandlers
             typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(body.generics, "function")
         end
         if selfType then
-            params[1] = selfType
+            -- A receiver spelled `self: const T` asks for a read-only one, which is
+            -- what lets a const value call the method. Anything else it is spelled
+            -- with is the owner type, so the annotation is only read for that.
+            params[1] = constSelf(explicitSelf) and T.constOf(selfType) or selfType
             local mode = "plain"
             if explicitSelf then
                 mode = inferredModes[1] or "borrows"

@@ -20,6 +20,7 @@ local scalarIntrinsics = require("nupp.compiler.scalarintrinsics")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local native = require("nupp.compiler.native")
 local indexedViews = require("nupp.compiler.indexedviews")
+local members = require("nupp.compiler.members")
 local runtimeSurface = require("nupp.compiler.runtimesurface")
 local standardSurface = require("nupp.compiler.standardsurface")
 local narrowing = require("nupp.compiler.narrowing")
@@ -788,7 +789,25 @@ function index.install(c: state.Checker): state.ExprHandlers
     -- Bracket access
     ---------------------------------------------------------------------
 
+    local bracketIndex: function(node: cst.BracketIndex | cst.SafeBracket): Type
+
+    --- A read through a const view yields a const view of a table-shaped element,
+    --- so the promise reaches `xs[1].n = 5` through a `const {Inner}` too.
     handlers.bracketIndex = function(node: cst.BracketIndex | cst.SafeBracket): Type
+        local out = bracketIndex(node)
+        local target = node.obj
+        if node.writeContext or not target then
+            return out
+        end
+        local receiver = rawType(c.infer(target))
+        if receiver.tag == "const" then
+            return members.constRead(out)
+        end
+
+        return out
+    end
+
+    bracketIndex = function(node: cst.BracketIndex | cst.SafeBracket): Type
         local kind = node.kind
         local target, key = node.obj, node.expr
         if not target or not key then

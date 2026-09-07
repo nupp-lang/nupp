@@ -949,6 +949,61 @@ function M.aBoundLiteralIsNoLongerFresh()
    }, "\n"))
 end
 
+-- `const T` reaches the whole value: a table-shaped member read through a const
+-- view is itself a const view, and a method may only be called on one when it
+-- asked for a read-only receiver.
+function M.constReachesTheWholeValue()
+   local decls = table.concat({
+      "local record Inner",
+      "   n: integer",
+      "   xs: {integer}",
+      "end",
+      "local record Outer",
+      "   inner: Inner",
+      "   m: {[string]: integer}",
+      "   function bump(self): nil",
+      "      self.inner.n = self.inner.n + 1",
+      "   end",
+      "   function peek(self: const Outer): integer",
+      "      return self.inner.n",
+      "   end",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(decls .. table.concat({
+      "",
+      "local function f(o: const Outer): nil",
+      "   o.inner.n = 5",
+      "   o.m.k = 1",
+      "   o.inner.xs[1] = 3",
+      "   o:bump()",
+      "   local i: Inner = o.inner",
+      "end",
+      "print(f)",
+   }, "\n")), "NUPP2009:16 NUPP2009:17 NUPP2009:18 NUPP2006:19 NUPP2001:20")
+   assertClean(decls .. table.concat({
+      "",
+      "local function f(o: const Outer): integer",
+      "   local ci: const Inner = o.inner",
+      "   local first: integer = o.inner.xs[1]",
+      "   local k: integer? = o.m.k",
+      "   return o:peek() + o.inner.n + ci.n + first + (k or 0)",
+      "end",
+      "local o = new Outer(inner = new Inner(n = 1, xs = {}), m = {})",
+      "o:bump()",
+      "print(f(o), Outer.peek(o))",
+   }, "\n"))
+   -- a const self is read-only inside the method too
+   assertEq(diagsOf(table.concat({
+      "local record R",
+      "   n: integer",
+      "   function reset(self: const R): nil",
+      "      self.n = 0",
+      "   end",
+      "end",
+      "print(R)",
+   }, "\n")), "NUPP2009:4")
+end
+
 function M.namedVarargsAreConst()
    assertClean("local function f(...args) return args.n, args[1], ... end")
    assertClean("local f = |...args| -> args.n")
