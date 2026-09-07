@@ -499,6 +499,11 @@ interface cst.Hints
     --- Set on a call that crosses into C.
     cdefCall: boolean?
 
+    --- Set on a call of the coroutine library's `yield`, reached through the
+    --- library table or a name bound to the function: a raw yield, which no
+    --- handler is responsible for.
+    rawYield: boolean?
+
     --- Stable keyed C declaration identity when the checker can prove which
     --- declaration this operation reaches. A missing identity on a C operation keeps
     --- hot reload on its conservative module-wide fallback.

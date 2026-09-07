@@ -3459,6 +3459,130 @@ function M.aRawYieldThroughAChainOfAliasesIsRefused()
     )
 end
 
+function M.aRawYieldThroughAHelperIsRefused()
+    -- The helper is where the yield is written; the obligation is live at its
+    -- caller. Nobody is responsible for the abandoned continuation either way, so
+    -- the helper's summary answers for the call, one hop or several away.
+    assertEq(
+        codes(
+            RESOURCE .. table.concat(
+                {
+                    "",
+                    "local function pause()",
+                    "   coroutine.yield()",
+                    "end",
+                    "local function rest()",
+                    "   pause()",
+                    "end",
+                    "local function body()",
+                    "   local value = resource_new()",
+                    "   rest()",
+                    "   resource_free(value)",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603"
+    )
+    -- With nothing live at the call, the helper is free to yield.
+    assertClean(
+        table.concat(
+            {
+                "local function pause()",
+                "   coroutine.yield()",
+                "end",
+                "local function body()",
+                "   pause()",
+                "end",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.aHandledSuspensionThroughAHelperIsAllowed()
+    -- A handler took the resume and the cancellation, so a helper that parks the
+    -- handled way is not a raw yield however far away it is.
+    assertClean(
+        RESOURCE .. table.concat(
+            {
+                "",
+                'local suspension = require("nupp.suspension")',
+                "local function pause()",
+                "   suspension.suspend('test', function(resume: function(any), _: any): (function()?)",
+                "      resume(true)",
+                "      return nil",
+                "   end)",
+                "end",
+                "local function body()",
+                "   local value = resource_new()",
+                "   pause()",
+                "   resource_free(value)",
+                "end",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.aRawYieldThroughABoundFunctionIsRefused()
+    -- `local y = coroutine.yield` binds the function rather than the table, and a
+    -- call through that name, or a name bound to it in turn, is the same raw yield.
+    assertEq(
+        codes(
+            RESOURCE .. table.concat(
+                {
+                    "",
+                    "local y = coroutine.yield",
+                    "local function pause()",
+                    "   local value = resource_new()",
+                    "   y()",
+                    "   resource_free(value)",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603"
+    )
+    assertEq(
+        codes(
+            RESOURCE .. table.concat(
+                {
+                    "",
+                    "local co = coroutine",
+                    "local y = co.yield",
+                    "local also = y",
+                    "local function pause()",
+                    "   local value = resource_new()",
+                    "   also()",
+                    "   resource_free(value)",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603"
+    )
+    -- A binding read from somebody else's table is left alone.
+    assertClean(
+        RESOURCE .. table.concat(
+            {
+                "",
+                "local coroutine = {yield = function() end}",
+                "local y = coroutine.yield",
+                "local function pause()",
+                "   local value = resource_new()",
+                "   y()",
+                "   resource_free(value)",
+                "end",
+            },
+            "\n"
+        )
+    )
+end
+
 function M.rebindingTheNameToItselfIsStillTheLibrary()
     -- `local coroutine = coroutine` reads the outer binding and rebinds the name, so
     -- resolving that name afterwards can answer with the binding being made. The

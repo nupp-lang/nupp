@@ -42,6 +42,13 @@ type analysis.Summary = {[string]: any}
 local LISTS = {"reads", "writes", "shapes", "metatables", "escapes", "calls"}
 local FLAGS = {"allocates", "yields", "raises", "external"}
 
+-- Facts a summary carries beside the contract vocabulary. `rawYields` says the body
+-- reaches a `coroutine.yield` itself, through however many visible callees: a
+-- handled suspension is a yield too, but one a handler is responsible for, and the
+-- raw-yield check while an obligation is live is about the other kind. It is
+-- inferred and never declared, so a contract neither states nor is held to it.
+local INFERRED_FLAGS = {"rawYields"}
+
 local function setOf(values)
     local out = {}
     for _, value in ipairs(values or {}) do
@@ -64,6 +71,7 @@ local function summary(): analysis.Summary
         yields = false,
         raises = false,
         external = false,
+        rawYields = false,
         top = false,
     }
 end
@@ -103,6 +111,9 @@ local function copy(value)
     for _, name in ipairs(FLAGS) do
         out[name] = value[name] == true
     end
+    for _, name in ipairs(INFERRED_FLAGS) do
+        out[name] = value[name] == true
+    end
 
     return out
 end
@@ -125,6 +136,11 @@ local function join(into: analysis.Summary, other: analysis.Summary): boolean
         end
     end
     for _, name in ipairs(FLAGS) do
+        if other[name] and not into[name] then
+            into[name], changed = true, true
+        end
+    end
+    for _, name in ipairs(INFERRED_FLAGS) do
         if other[name] and not into[name] then
             into[name], changed = true, true
         end
@@ -523,18 +539,27 @@ local function inferFunction(info, byDefinition)
                     out[flag] = true
                 end
             end
+            for _, flag in ipairs(INFERRED_FLAGS) do
+                if effects[flag] then
+                    out[flag] = true
+                end
+            end
             return
         end
         local name = callName(call)
-        if PURE_BUILTINS[name or ""] then
+        -- The checker settled whether this is the library's yield -- read from the
+        -- library table, or through a name bound to the function -- by provenance;
+        -- the spelling is what an unchecked file offers.
+        if call.rawYield or name == "coroutine.yield" then
+            out.yields = true
+            out.rawYields = true
+        elseif PURE_BUILTINS[name or ""] then
             local root = rootOf(args[1])
             if root then
                 out.reads[root .. "[*]"] = true
             end
         elseif name == "error" or name == "assert" then
             out.raises = true
-        elseif name == "coroutine.yield" then
-            out.yields = true
         else
             out.top = true
         end
@@ -720,6 +745,9 @@ local function inferFunction(info, byDefinition)
                     end
                     if known.summary.yields then
                         out.yields = true
+                    end
+                    if known.summary.rawYields then
+                        out.rawYields = true
                     end
                 end
             end

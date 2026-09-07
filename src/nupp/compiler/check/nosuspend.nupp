@@ -42,6 +42,7 @@ local MAX_CHAIN = 8
 --- What `install` answers with.
 type nosuspend.Ops = {
     readonly call: function(any),
+    readonly obligation: function(any),
     readonly callback: function(any, string),
     readonly cleanup: function(any, any),
     readonly sweep: function(any)
@@ -57,10 +58,34 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
     -- Calls made inside a region, in source order, judged once inference has settled.
     local candidates: {any} = {}
 
+    -- Calls made while a temporal obligation is live, with the obligation's name,
+    -- judged once inference says which callees reach a raw yield.
+    local obligations: {any} = {}
+
+    --- Registers a call made while an owner, borrow or loan is live in this frame.
+    ---
+    --- A raw yield written at the call is refused where it stands, by `callexpr`; one
+    --- reached through a visible helper is the same abandonment one call further
+    --- away, and only the helper's summary can say so. The obligation is read here
+    --- because it is a flow fact: what is live at this call is not what is live at
+    --- the sweep.
+    ---
+    --- @param call the call expression
+    function ops.obligation(call: any)
+        if not call then
+            return
+        end
+        local live = c.liveSuspensionObligation()
+        if live then
+            obligations[#obligations + 1] = {call = call, obligation = live}
+        end
+    end
+
     --- Registers a call to judge at the end of the file, if a region encloses it.
     ---
     --- @param call the call expression
     function ops.call(call: any)
+        ops.obligation(call)
         if c.noSuspendDepth <= 0 or not call then
             return
         end
@@ -110,7 +135,7 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
     -- call that also suspends, resolved the same way the verdict resolves one: a
     -- summary records that a body yields, not which of its callees made it yield, so
     -- the edge has to be re-found rather than read off.
-    local function firstSuspendingCall(queries, body)
+    local function firstSuspendingCall(queries, body, flag)
         local found = nil
         local function walk(node)
             if not node or found or cst.isToken(node) then
@@ -119,7 +144,7 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
             local kind = node.kind
             if kind == "call" or kind == "safeCall" or kind == "methodCall" then
                 local reached = queries.callee and queries.callee(node) or nil
-                if reached and reached.summary and reached.summary.yields then
+                if reached and reached.summary and reached.summary[flag] then
                     found = {info = reached, at = node}
                     return
                 end
@@ -134,14 +159,14 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         return found
     end
 
-    local function chain(queries, info)
+    local function chain(queries, info, flag)
         local related, seen, current = {}, {}, info
         while current and #related < MAX_CHAIN do
             if seen[current] or not current.body then
                 break
             end
             seen[current] = true
-            local step = firstSuspendingCall(queries, current.body)
+            local step = firstSuspendingCall(queries, current.body, flag or "yields")
             if not step then
                 break
             end
@@ -189,6 +214,30 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
     ---
     --- @param queries the analysis query surface, or nil when nothing was analyzed
     function ops.sweep(queries: any)
+        for _, candidate in ipairs(obligations) do
+            local call = candidate.call
+            -- Written at the call: already refused where it stands.
+            if not call.rawYield then
+                local info = queries and queries.callee and queries.callee(call) or nil
+                if info and info.summary and info.summary.rawYields and not info.external then
+                    local callee = call.obj
+                    local token = callee and (callee.token or callee.name) or nil
+                    c.diag(
+                        "NUPP2603",
+                        callee or call,
+                        (
+                            "%s reaches a raw coroutine.yield, and temporal obligation %q is live"
+                        ):format(token and ("`" .. token.text .. "`") or "this call", candidate.obligation),
+                        nil,
+                        {
+                            help = "suspend inside a `handle suspension` region, where a "
+                            .. "handler is responsible for resuming or cancelling it",
+                            related = chain(queries, info, "rawYields"),
+                        }
+                    )
+                end
+            end
+        end
         for _, candidate in ipairs(cleanupContracts) do
             local cleanup = candidate.cleanup
             local token = cleanup and cleanup.token

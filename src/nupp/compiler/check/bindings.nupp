@@ -393,6 +393,40 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     isLibrary = true
                 end
                 boundEntry.coroutineLibrary = isLibrary
+                -- `local pause = yielder` hands the function on, however many hops back
+                -- it was read from the library.
+                boundEntry.coroutineYield = source ~= nil and source.coroutineYield == true
+            end
+            -- `local y = coroutine.yield` binds the function itself rather than the
+            -- table it was read from, and a call through that name is a raw yield as
+            -- much as `coroutine.yield()` is. The base is judged by provenance, exactly
+            -- as `local co = coroutine` is above.
+            if boundEntry
+                and initNode
+                and initNode.kind == "dotIndex"
+                and initNode.name
+                and initNode.name.text == "yield"
+                and initNode.obj
+                and initNode.obj.kind == "name"
+                and initNode.obj.token
+            then
+                local globals = c.env and c.env.globals or {}
+                local coroutineGlobal = globals.coroutine
+                local baseTok = initNode.obj.token
+                local source = c.lookupEntry(baseTok.text)
+                local isLibrary = false
+                if source ~= nil and source.coroutineLibrary == true then
+                    isLibrary = true
+                elseif coroutineGlobal ~= nil then
+                    if source ~= nil then
+                        isLibrary = source == coroutineGlobal or (
+                            source.definition ~= nil and source.definition == coroutineGlobal.definition
+                        )
+                    else
+                        isLibrary = baseTok.text == "coroutine"
+                    end
+                end
+                boundEntry.coroutineYield = isLibrary
             end
             if boundEntry and initNode and initNode.wrappedProtocol then
                 boundEntry.wrappedProtocol = initNode.wrappedProtocol
