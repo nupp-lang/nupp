@@ -322,4 +322,30 @@ return keep
    assertEq(T.tostring(moduleType.varargType), "integer", "vararg")
 end
 
+-- A module field's type is every write the file makes to it, widened from the
+-- literal, and not whichever write came last: a write inside a function body
+-- runs after the module loaded, so it widens the field rather than replacing it,
+-- and a field only a body writes is absent until that body runs.
+function M.moduleFieldWritesWidenAcrossTheFile()
+   local source = [[
+local M = {}
+M.count = "s"
+M.limit = 10
+function M.bump()
+   M.count = 5
+end
+function M.init()
+   M.late = 7
+end
+return M
+]]
+   local parsed = parser.parse(source, "widen.lua")
+   local diagnostics, moduleType = check.check(parsed, "widen.lua")
+   assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+   assert(moduleType and moduleType.tag == "shape", "the module did not export a shape")
+   assertEq(T.tostring(moduleType.byname.count), "integer | string", "a body write widens")
+   assertEq(T.tostring(moduleType.byname.limit), "integer", "a literal widens to its type")
+   assertEq(T.tostring(moduleType.byname.late), "integer?", "a body-only write is absent at load")
+end
+
 return M

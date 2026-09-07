@@ -2147,7 +2147,26 @@ function checkMod.check(
         if not baseTok or baseTok.text ~= c.moduleLocal then
             return
         end
-        c.moduleFields[member.text] = t or T.any
+        -- The field's type is what every write to it can leave there, not what the
+        -- last write in the file happens to put. A literal is one value of its
+        -- type, so it widens; a write inside a function body runs after the module
+        -- has loaded, if it runs at all, so it cannot establish the field on its own
+        -- and the field is absent until then; and two writes that disagree leave
+        -- the union, which is the one answer both are honest under.
+        local written = t or T.any
+        if written.tag == "literal" then
+            written = written.base or T.string
+        end
+        local previous = c.moduleFields[member.text]
+        if not constant then
+            if c.functionDepth > 0 and not previous then
+                written = T.union({written, T.nil_})
+            end
+            if previous and previous ~= written then
+                written = T.union({previous, written})
+            end
+        end
+        c.moduleFields[member.text] = written
         c.moduleFieldTokens[member.text] = member
         if value then
             c.moduleFieldValues[member.text] = value
