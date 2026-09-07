@@ -747,6 +747,13 @@ local function check(a: Type, b: Type): boolean, string?
         return true
     end
     local atag, btag = a.tag, b.tag
+    -- Nothing but `never` itself fits `never`, a gradual source included: a value
+    -- of `any` may be anything, and anything is more than nothing. Letting one
+    -- through would let a `never` function return, and every guard clause that
+    -- trusted it to leave the block would lie.
+    if btag == "never" then
+        return false, ("%s is not never; no value is"):format(T.tostring(a))
+    end
     if atag == "any" or btag == "any" then
         return true
     end

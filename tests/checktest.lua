@@ -314,10 +314,15 @@ function M.logicalOperatorsKeepTheSelectedFalsyValue()
 end
 
 function M.assertRemovesFalseFromItsResult()
-   assertClean(table.concat({
+   -- the prelude's assert, which is the one that narrows
+   local envMod = require("nupp.compiler.env")
+   local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+   local result = parser.parse(table.concat({
       "local impossible: never = assert(false)",
       "return impossible",
-   }, "\n"))
+   }, "\n"), "test.g.nupp")
+   local diags = check.check(result, "test.g.nupp", envMod.new(here .. "/.."))
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
 end
 
 function M.callsInvalidateNarrowingThroughMutationAndCapture()
@@ -550,6 +555,16 @@ function M.neverIsTheBottomType()
    assert(not isA(T.integer, T.never))
    assert(not isA(T.string, T.never))
    assert(not isA(T.nil_, T.never))
+   -- a gradual source is not nothing either: `any` may be anything
+   assert(not isA(T.any, T.never))
+   assert(not isA(T.unknown, T.never))
+   assertEq(diagsOf(table.concat({
+      "local function fail(): never",
+      "   local x: any = 1",
+      "   return x",
+      "end",
+      "print(fail)",
+   }, "\n")), "NUPP2002:3")
 end
 
 ---------------------------------------------------------------------------
