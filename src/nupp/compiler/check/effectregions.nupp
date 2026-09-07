@@ -215,7 +215,11 @@ function effectregions.install(c: state.Checker): effectregions.Ops
                 and node.op.kind == ".."
             ) and effect == "allocates" then
                 return false
+            elseif node.wideArithmetic and effect == "allocates" then
+                return false
             elseif node.effectUnknownOperation then
+                return false
+            elseif node.gradualIndex and effect == "raises" then
                 return false
             elseif node.indexedAccess and effect == "raises" and not node.rangeProvenNoRaise then
                 return false
@@ -269,9 +273,16 @@ function effectregions.install(c: state.Checker): effectregions.Ops
             ) and effect == "allocates" and not diagnosed[node] then
                 diagnosed[node] = true
                 report(effect, node, "constructs a managed value", nil, queries)
+            elseif node.wideArithmetic and effect == "allocates" and not diagnosed[node] then
+                -- LuaJIT boxes every 64-bit integer result in a fresh cdata object.
+                diagnosed[node] = true
+                report(effect, node, "boxes a 64-bit integer result", nil, queries)
             elseif node.effectUnknownOperation and not diagnosed[node] then
                 diagnosed[node] = true
                 report(effect, node, "may invoke code with unknown effects", nil, queries)
+            elseif node.gradualIndex and effect == "raises" and not diagnosed[node] then
+                diagnosed[node] = true
+                report(effect, node, "indexes a gradual value, which may raise", nil, queries)
             elseif node.indexedAccess and effect == "raises" and not node.rangeProvenNoRaise then
                 if not diagnosed[node] then
                     diagnosed[node] = true

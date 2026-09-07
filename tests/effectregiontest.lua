@@ -57,6 +57,44 @@ function M.fixedWidthScalarOperationsSatisfyBothRegions()
    assertEq(#found, 0, "fixed-width scalar calls have modeled negative effects")
 end
 
+function M.boxedSixtyFourBitArithmeticAllocates()
+   -- LuaJIT boxes every int64 and uint64 result in a fresh cdata object, so the
+   -- arithmetic allocates however scalar its operands are, and a helper doing it
+   -- carries that in its summary.
+   local found = refusals(table.concat({
+      "local function sum(a: int64, n: integer): int64",
+      "   local v = a",
+      "   noalloc do",
+      "      for _ = 1, n do v = v + a end",
+      "   end",
+      "   return v",
+      "end",
+      "local function twice(a: uint64): uint64 return a * 2ULL end",
+      "noalloc do local w = twice(1ULL) end",
+      "noalloc do local b = 1LL & 2LL end",
+      "noalloc do local m = -1LL end",
+   }, "\n"))
+   assertEq(#found, 4, "each boxed result is an allocation: " .. tostring(found[1] and found[1].msg))
+   for _, diag in ipairs(found) do
+      assertEq(diag.code, "NUPP2710", "allocation diagnostic")
+   end
+end
+
+function M.aGradualIndexMayRaise()
+   -- Nothing says what `any` holds: an `__index` that runs user code, or a value
+   -- that cannot be indexed. A gradual call is refused for the same reason.
+   local found = refusals(table.concat({
+      "local function read(g: any): any",
+      "   local n: any = 0",
+      "   noraise do n = g.field end",
+      "   noalloc do n = g.field end",
+      "   return n",
+      "end",
+   }, "\n"))
+   assertEq(#found, 1, "indexing a gradual value may raise")
+   assertEq(found[1].code, "NUPP2711", "raising diagnostic")
+end
+
 function M.aCheckedRangeDischargesMatchingSpanBoundsOnly()
    local found = refusals(table.concat({
       "local span = require('nupp.mem.span')",

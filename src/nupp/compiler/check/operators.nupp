@@ -411,6 +411,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
             c.numericOperand(t, node, op)
             if t.tag == "int64" or t.tag == "uint64" then
                 capabilities.require(c, "int64", opTok)
+                node.wideArithmetic = true
                 return t
             end
             if t.tag == "literal" and type(t.constant) == "number" then
@@ -422,6 +423,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
         elseif op == "~" then
             local wide = t.tag == "int64" or t.tag == "uint64"
             capabilities.require(c, wide and "int64" or "bitops", opTok)
+            if wide then
+                node.wideArithmetic = true
+            end
             c.numericOperand(t, node, op)
             if not wide and fixedBitOperand(operand) then
                 c.fixedWidth.mark(node, T.int32)
@@ -528,6 +532,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
             ) and T.uint64 or (lt.tag == "int64" or rt.tag == "int64") and T.int64 or nil
             if wide then
                 capabilities.require(c, "int64", opTok)
+                -- The result is a fresh cdata box, which is an allocation however
+                -- scalar the operands are.
+                node.wideArithmetic = true
                 return wide
             end
             if op == "/" or op == "^" then
@@ -573,6 +580,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 and rt
                 or nil
             capabilities.require(c, wide and "int64" or "bitops", opTok)
+            if wide then
+                node.wideArithmetic = true
+            end
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
             if not wide and fixedBitOperand(lhs) and fixedBitOperand(rhs) then

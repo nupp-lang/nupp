@@ -621,6 +621,13 @@ local function inferFunction(info, byDefinition)
             end
         elseif node.effectUnknownOperation then
             out.top = true
+        elseif node.wideArithmetic then
+            -- A 64-bit integer result is a fresh cdata box.
+            out.allocates = true
+        elseif node.gradualIndex then
+            -- Indexing `any` may reach an `__index` that raises, or a value that
+            -- cannot be indexed.
+            out.raises = true
         elseif node.indexedAccess and not node.rangeProvenNoRaise then
             out.raises = true
         elseif kind == "call" or kind == "methodCall" then

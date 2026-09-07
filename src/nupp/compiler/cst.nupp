@@ -1856,6 +1856,10 @@ record cst.DotIndex is cst.Hints
     --- Names the production this node stands for.
     kind: 'dotIndex'
 
+    --- Set when what is indexed is `any`: the access may reach an `__index` that
+    --- runs user code, or a value that cannot be indexed, so it may raise.
+    gradualIndex: boolean?
+
     --- What is being indexed.
     obj: cst.Node?
 
@@ -1914,6 +1918,9 @@ record cst.SafeIndex is cst.Hints
 
     --- Names the production this node stands for.
     kind: 'safeIndex'
+
+    --- Set when what is indexed is `any`, as on a `dotIndex`.
+    gradualIndex: boolean?
 
     --- What is being indexed.
     obj: cst.Node?
@@ -2114,6 +2121,10 @@ record cst.Unop is cst.Hints
 
     --- What it applies to.
     operand: cst.Node?
+
+    --- Set when the result is a 64-bit integer, which LuaJIT boxes in a fresh
+    --- cdata object: an allocation a `noalloc` region has to hear about.
+    wideArithmetic: boolean?
 end
 
 --- A binary operator and its two sides.
@@ -2131,6 +2142,10 @@ record cst.Binop is cst.Hints
 
     --- The right side.
     rhs: cst.Node?
+
+    --- Set when the result is a 64-bit integer, which LuaJIT boxes in a fresh
+    --- cdata object: an allocation a `noalloc` region has to hear about.
+    wideArithmetic: boolean?
 end
 
 --- `e as T`, which asserts a type rather than checking one.
