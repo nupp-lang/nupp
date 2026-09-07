@@ -653,6 +653,50 @@ function control.install(c: state.Checker): state.StatHandlers
                         .. " return needs a matching annotation"
                     )
                 else
+                    -- An owner rooted in a binding of this function is a view of that
+                    -- binding as much as a borrow is: a root the result does not
+                    -- declare is dropped here, or forgotten by the caller, either way
+                    -- read after it is closed.
+                    local declaredSources = {}
+                    for _, sourceToken in ipairs(
+                        borrowContract and (borrowContract.params or {borrowContract.param}) or {}
+                    ) do
+                        local source = ownershipState(c.lookupEntry(sourceToken.text))
+                        if source then
+                            declaredSources[borrowRoot(source)] = true
+                        end
+                    end
+                    for _, root in ipairs(own.rootsOf(stat.exprs[j])) do
+                        if not declaredSources[root] and (root.functionDepth or 0) >= c.functionDepth then
+                            local rootName = root.definition
+                                and root.definition.token
+                                and root.definition.token.text
+                                or "?"
+                            local parameter = root.definition and root.definition.kind == "parameter"
+                            local related = root.definition and c.related(
+                                root.definition,
+                                "the root is declared here"
+                            ) or nil
+                            c.diag(
+                                "NUPP2608",
+                                stat.exprs[j] or stat,
+                                parameter and (
+                                    "an owning result rooted in parameter %q must declare `borrows (%s)`"
+                                ):format(
+                                    rootName,
+                                    rootName
+                                ) or ("an owning result rooted in %q outlives it"):format(rootName),
+                                nil,
+                                {
+                                    help = parameter
+                                    and "write the relation on the result so the caller keeps the root alive"
+                                    or "return an owner that stands on its own, or root it in a parameter the result declares",
+                                    related = related and {related} or nil,
+                                }
+                            )
+                            break
+                        end
+                    end
                     local source = ownershipState((c.ownershipEntry(stat.exprs[j])))
                     local promoted = ownReturns and ownReturns[j] and source and ownershipKind(source.t) ~= valueKind
                     if not promoted then

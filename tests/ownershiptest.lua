@@ -6375,4 +6375,122 @@ function M.anAnnotationCannotMintAnOwnerFromAny()
     )
 end
 
+-- An owner rooted in another owner is a view of it as much as a borrow is. The
+-- assignment path moved the value and forgot the roots, so a rooted owner assigned
+-- to a binding in an outer scope, or returned, outlived a root that lexical
+-- destruction then closed underneath it.
+function M.aRootedOwnerCannotOutliveItsRoot()
+    assertEq(
+        codes(
+            LAYERED .. table.concat(
+                {
+                    "",
+                    "local tls: affine(TLS, close_tls)",
+                    "do",
+                    "   local sock = open_socket()",
+                    "   tls = open_tls(sock)",
+                    "end",
+                    "drop(tls)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2608",
+        "assigned to an outer binding"
+    )
+    assertEq(
+        codes(
+            LAYERED .. table.concat(
+                {
+                    "",
+                    "local function leak(): affine(TLS, close_tls)",
+                    "   local sock = open_socket()",
+                    "   return open_tls(sock)",
+                    "end",
+                    "drop(leak())",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2608",
+        "returned over a local root"
+    )
+    assertEq(
+        codes(
+            LAYERED .. table.concat(
+                {
+                    "",
+                    "local function forget(borrows sock: Socket): affine(TLS, close_tls)",
+                    "   return open_tls(sock)",
+                    "end",
+                    "local sock = open_socket()",
+                    "drop(forget(sock))",
+                    "drop(sock)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2608",
+        "returned without declaring the parameter it is rooted in"
+    )
+end
+
+-- Assigned to a binding declared after its root, a rooted owner is held on the
+-- same terms a `local` would hold it: the root cannot be dropped first.
+function M.anAssignedRootedOwnerHoldsItsRoot()
+    assertClean(
+        LAYERED .. table.concat(
+            {
+                "",
+                "local sock = open_socket()",
+                "local tls: affine(TLS, close_tls)",
+                "tls = open_tls(sock)",
+                "drop(tls)",
+                "drop(sock)",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            LAYERED .. table.concat(
+                {
+                    "",
+                    "local sock = open_socket()",
+                    "local tls: affine(TLS, close_tls)",
+                    "tls = open_tls(sock)",
+                    "drop(sock)",
+                    "drop(tls)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602"
+    )
+end
+
+-- A child span is rooted in the writer it was sliced from, so it cannot be handed
+-- to a binding that outlives that writer either.
+function M.aChildSpanCannotOutliveItsWriter()
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "local spans = require('nupp.mem.span')",
+                    "local storage = ffi.new<int32[4]>()",
+                    "local child: spans.Writable<int32>",
+                    "do",
+                    "   local writable = spans.writeCarray(storage, 4)",
+                    "   child = writable:slice(2, 3)",
+                    "end",
+                    "child[1] = 1 as int32",
+                    "drop child",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2608"
+    )
+end
+
 return M

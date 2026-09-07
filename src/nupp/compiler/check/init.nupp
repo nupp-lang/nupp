@@ -1292,6 +1292,11 @@ function checkMod.check(
     end
 
     local function auditScope(s)
+        -- Release first: a borrow this scope holds of an owner this scope holds ends
+        -- with the scope, and only a borrow held elsewhere is one the audit reports.
+        for _, entry in pairs(s.vars or {}) do
+            c.releaseBorrowLinks(entry)
+        end
         for name, entry in pairs(s.vars or {}) do
             local state = entry.ownershipOrigin or entry
             if not entry.ownershipOrigin and ownershipKind and ownershipKind(
@@ -1304,6 +1309,19 @@ function checkMod.check(
                         "owned value %q leaves scope without being consumed, "
                         .. "dropped, returned, or released with unsafe release"
                     ):format(name)
+                )
+            elseif not entry.ownershipOrigin and ownershipKind and ownershipKind(
+                state.t
+            ) == "affine" and not state.moved and (state.activeBorrows or 0) > 0 then
+                -- Lexical destruction discharges the owner exactly as `drop` would,
+                -- and `drop` refuses while a borrow is live. The scope's own borrows
+                -- were released before this audit, so what is left is held outside.
+                c.diag(
+                    "NUPP2602",
+                    entry.definition and entry.definition.token,
+                    ("owner %q leaves scope while a derived borrow is still live"):format(name),
+                    nil,
+                    c.own.conflictDetails(state, nil)
                 )
             elseif not entry.ownershipOrigin and c.own.capabilityFacts(
                 state,
@@ -1324,9 +1342,6 @@ function checkMod.check(
 
     c.popScope = function()
         auditScope(c.scope)
-        for _, entry in pairs(c.scope.vars or {}) do
-            c.releaseBorrowLinks(entry)
-        end
         c.scope = c.scope.parent
     end
     -- Var entries: { t = type, ann = boolean, constant = boolean }. Assignment
@@ -1484,8 +1499,13 @@ function checkMod.check(
             })
         end
     end
+    -- Bindings are destroyed in the reverse of the order they were made, across
+    -- scopes as within one, so a later ordinal is a shorter life. A value rooted in
+    -- an owner may only be held by a binding that dies before the owner does.
+    local bindingOrdinal = 0
     c.bindVar = function(name, t, annotated, tok, kind, constant)
         local old = c.scope.vars[name]
+        bindingOrdinal = bindingOrdinal + 1
         if tok then
             local s = c.scope
             while s do
@@ -1517,6 +1537,7 @@ function checkMod.check(
             ownership = t and (t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") and t.tag or nil,
             moved = false,
             functionDepth = c.functionDepth,
+            bindingOrdinal = bindingOrdinal,
         }
         c.scope.vars[name] = entry
         -- A visible `takes` body has no producer-specific cleanup witness: its mode

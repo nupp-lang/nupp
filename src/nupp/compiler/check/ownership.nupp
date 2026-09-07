@@ -85,6 +85,10 @@ type ownership.Ops = {
     --- recorded: a borrowed type, or roots the walk left on the node.
     carriesProvenance: function(expr: any, t: Type?): boolean,
 
+    --- The owners an expression's value is rooted in, and only those: a binding
+    --- that is itself an owner is nobody's root.
+    rootsOf: function(expr: any): {any},
+
     --- The owner one expression came from, and every owner a whole expression did.
     provenanceOwner: function(expr: any): any,
 
@@ -746,6 +750,43 @@ function ownership.install(c: state.Checker): ownership.Ops
         local roots = expr and own.capabilityFacts(expr, nil, false).roots or nil
 
         return roots ~= nil and roots[1] ~= nil
+    end
+
+    function own.rootsOf(expr)
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "newExpr") do
+            expr = expr.kind == "newExpr" and expr.call or expr.expr
+        end
+        local out, seen = {}, {}
+        if not expr or cst.isToken(expr) then
+            return out
+        end
+        -- A root that was moved is not one: an owner preserved through a call moved
+        -- into the result and was recorded as its root, and a root moved out from
+        -- under a live borrow is refused at the move.
+        local function add(roots)
+            for _, root in ipairs(roots or {}) do
+                local owner = not own.ownershipState(root).moved and own.borrowRoot(root) or nil
+                if owner and not seen[owner] then
+                    seen[owner], out[#out + 1] = true, owner
+                end
+            end
+        end
+
+        local exprRoots = own.capabilityFacts(expr, nil, false).roots
+        if exprRoots then
+            add(exprRoots)
+        elseif expr.kind == "name" then
+            local entry = own.ownershipState(c.lookupEntry(expr.token.text))
+            add(entry and own.capabilityFacts(entry, nil, false).roots or nil)
+        elseif expr.kind == "dotIndex"
+            or expr.kind == "safeIndex"
+            or expr.kind == "bracketIndex"
+            or expr.kind == "safeBracket"
+        then
+            return own.rootsOf(expr.obj)
+        end
+
+        return out
     end
 
     function own.provenanceOwner(expr)

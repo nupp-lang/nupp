@@ -769,6 +769,98 @@ function bindings.install(c: state.Checker): state.StatHandlers
     -- Assignment
     ---------------------------------------------------------------------
 
+    --- Moves the roots of an assigned owner onto the binding that now holds it, so
+    --- the root cannot be dropped underneath it. A `local` does the same as it is
+    --- made; an assignment reaches a binding made earlier, possibly in an outer
+    --- scope, and one destroyed after its root is refused rather than held.
+    local function holdProvenance(state, target, written)
+        local writtenFacts = c.own.capabilityFacts(written, 1, false)
+        local roots = {}
+        for _, root in ipairs(writtenFacts.roots or {}) do
+            -- An owner preserved through a call moved into the value and was recorded
+            -- as its root; nothing is rooted in a binding that no longer holds
+            -- anything.
+            if not ownershipState(root).moved then
+                roots[#roots + 1] = root
+            end
+        end
+        local regionRoot, regionPath = writtenFacts.regionRoot, writtenFacts.regionPath
+        if not roots[1] and not regionRoot then
+            return
+        end
+        -- The first binding along the chain of roots that is destroyed before `state`
+        -- is: every owner on the way is one the value depends on, where a borrow on
+        -- the way holds nothing of its own.
+        local function outlived(root)
+            local seen = {}
+            local entry = ownershipState(root)
+            while entry and not seen[entry] do
+                seen[entry] = true
+                if ownershipKind(
+                    entry.t
+                ) ~= "borrowed" and not entry.moved and (entry.bindingOrdinal or 0) > (state.bindingOrdinal or 0) then
+                    return entry
+                end
+                local next = c.own.capabilityFacts(entry, nil, false).roots
+                entry = next and next[1] and ownershipState(next[1]) or nil
+            end
+
+            return nil
+        end
+
+        local candidates = {}
+        for _, root in ipairs(roots) do
+            candidates[#candidates + 1] = root
+        end
+        if regionRoot then
+            candidates[#candidates + 1] = regionRoot
+        end
+        for _, root in ipairs(candidates) do
+            local owner = outlived(root)
+            if owner then
+                local ownerName = owner.definition and owner.definition.token and owner.definition.token.text or "?"
+                local related = owner.definition and c.related(owner.definition, "the root is declared here") or nil
+                c.diag(
+                    "NUPP2608",
+                    written,
+                    ("a value rooted in %q cannot be held by a binding that outlives it"):format(ownerName),
+                    nil,
+                    {
+                        help = "assign it to a binding declared after the root, or keep the root alive as long",
+                        related = related and {related} or nil,
+                    }
+                )
+                return
+            end
+        end
+        local facts = c.own.capabilityFacts(state)
+        local held = {}
+        for index, owner in ipairs(roots) do
+            held[index] = owner
+            owner.activeBorrows = (owner.activeBorrows or 0) + 1
+            owner.activeBorrowSites = owner.activeBorrowSites or {}
+            owner.activeBorrowSites[state] = target
+            if writtenFacts.exclusive then
+                owner.activeExclusiveBorrows = (owner.activeExclusiveBorrows or 0) + 1
+            end
+        end
+        if held[1] then
+            facts.roots = held
+        end
+        if writtenFacts.exclusive then
+            facts.exclusive = true
+        end
+        if regionRoot and regionPath then
+            facts.regionRoot, facts.regionPath = regionRoot, regionPath
+            regionRoot.activeRegions = regionRoot.activeRegions or {}
+            regionRoot.activeRegions[regionPath] = (regionRoot.activeRegions[regionPath] or 0) + 1
+            if writtenFacts.exclusive then
+                regionRoot.activeExclusiveRegions = regionRoot.activeExclusiveRegions or {}
+                regionRoot.activeExclusiveRegions[regionPath] = (regionRoot.activeExclusiveRegions[regionPath] or 0) + 1
+            end
+        end
+    end
+
     handlers.assignStmt = function(stat: cst.AssignStmt)
         local values = stat.exprs or {}
         local valueCount = #values
@@ -944,6 +1036,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     end
                     entry.t, entry.ownership = et, incomingKind
                     entryState.t, entryState.ownership, entryState.moved = et, incomingKind, false
+                    if written then
+                        holdProvenance(entryState, target, written)
+                    end
                 elseif et and ownershipKind(et) == "borrowed" and written then
                     c.diag("NUPP2608", written, "borrowed value cannot escape through assignment")
                 end
