@@ -804,11 +804,11 @@ function http.Response._decode(self: http.Response): nil
 end
 
 function http.Response.drop(takes self: http.Response): nil
+    -- The body's own drop is what guards a repeated call, so it runs on every
+    -- path and the field is discharged on each.
     nosuspend do
-        if not self._closed then
-            self._closed = true
-            self.body:drop()
-        end
+        self._closed = true
+        self.body:drop()
     end
 end
 

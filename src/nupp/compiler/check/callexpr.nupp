@@ -1004,11 +1004,28 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
                 node.ownershipIntrinsic = "drop"
                 node.ownerCleanups = {}
+                node.ownerCleanupGuards = nil
                 local state = args[1] and c.ownershipState((c.ownershipEntry(args[1]))) or nil
                 for _, cleanup in ipairs(dropped.cleanups or {}) do
-                    if not (
-                        cleanup.kind == "field" and state and state.movedFields and state.movedFields[cleanup.field]
-                    ) then
+                    local movedField = cleanup.kind == "field" and state and state.movedFields and state.movedFields[
+                        cleanup.field
+                    ] or false
+                    -- A field moved on only some paths is still held on the others.
+                    -- The automatic owner keeps a run-time record per field, so the
+                    -- drop runs that cleanup under it rather than leaving it out.
+                    local conditional = movedField
+                        and state.automaticOwner
+                        and state.conditionalMovedFields
+                        and state.conditionalMovedFields[
+                        cleanup.field
+                    ] or false
+                    if conditional then
+                        node.ownerCleanups[#node.ownerCleanups + 1] = cleanup
+                        node.ownerCleanupGuards = node.ownerCleanupGuards or {}
+                        node.ownerCleanupGuards[
+                            #node.ownerCleanups
+                        ] = {owner = state.automaticOwner, field = cleanup.field}
+                    elseif not movedField then
                         node.ownerCleanups[#node.ownerCleanups + 1] = cleanup
                     end
                 end

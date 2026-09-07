@@ -299,15 +299,18 @@ record state.Checker
     --- Branch-local ownership state used by both statement and expression joins.
     ownershipSnapshot: function(): {any}
 
-    ownershipRewind: function(
-        snapshot: {any},
-        moved: {[any]: boolean},
-        recordMoves: boolean,
-        kept: {[any]: boolean}?
-    ): nil
+    ownershipRewind: function(snapshot: {any}, moved: {[any]: boolean}, recordMoves: boolean, join: any?): nil
 
-    --- Reports a consuming parameter that surviving arms disagree about.
-    auditConsumedOnEveryPath: function(moved: {[any]: boolean}, kept: {[any]: boolean}, at: any): nil
+    --- A fresh record of what one branching statement's surviving arms did.
+    ownershipJoin: function(): any
+
+    --- Notes, before a surviving arm's scope is popped, which consuming parameters
+    --- it narrowed to nil.
+    noteArmEnd: function(join: any): nil
+
+    --- Applies the arms' moves after the last one ran and reports what they disagree
+    --- about without a run-time record to settle it.
+    auditOwnershipJoin: function(moved: {[any]: boolean}, join: any, at: any): nil
 
     --- Set while the hoisting pre-pass runs. It resolves annotations early to publish
     --- signatures, and anything wrong with them is reported when the declaration itself

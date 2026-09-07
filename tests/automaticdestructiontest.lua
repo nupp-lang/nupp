@@ -745,4 +745,33 @@ function M.aParenthesisedOwnerMovesIntoItsNewBindingOnce()
    assertEq(chunk(), "ab")
 end
 
+function M.aFieldMovedOnOnePathIsStillDroppedWithTheRecordOnTheOther()
+   -- `drop` left a moved field out of the record's cleanup for good, so the path
+   -- that never moved it leaked it. The field's run-time record now decides.
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "local record Bundle",
+      "   first: affine(Resource, close_resource)",
+      "   second: affine(Resource, close_resource)",
+      "end",
+      "local function consume(takes value: affine(Resource, close_resource)): nil",
+      "   calls = calls .. '<' .. value.name .. '>'",
+      "   drop(value)",
+      "end",
+      "local function run(flag: boolean)",
+      "   local bundle = new Bundle(",
+      "      first = open_resource('a'),",
+      "      second = open_resource('b')",
+      "   )",
+      "   if flag then consume(bundle.first) end",
+      "   drop(bundle)",
+      "   calls = calls .. '|'",
+      "end",
+      "run(true)",
+      "run(false)",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), "<a>ab|ba|")
+end
+
 return M

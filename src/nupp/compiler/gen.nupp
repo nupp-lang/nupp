@@ -6078,21 +6078,33 @@ function gen.generate(
                 end
                 e(")")
             else -- drop
-                -- The body reads its parameter and nothing else, so the cleanups a
-                -- `drop`
-                -- runs are the same function every time it runs them.
+                -- The body reads its parameters and nothing else, so the cleanups a
+                -- `drop` runs are the same function every time it runs them. A field
+                -- moved on only some paths is still held on the others: its cleanup
+                -- runs under the field's run-time record, passed in beside the value.
                 local statements = {"if __nuppV == nil then return end "}
-                for _, cleanup in ipairs(x.ownerCleanups or {}) do
+                local params, guardFlags = "__nuppV", {}
+                for index, cleanup in ipairs(x.ownerCleanups or {}) do
                     local call = cleanupCall(cleanup, "__nuppV")
-                    if call then
+                    local guard = x.ownerCleanupGuards and x.ownerCleanupGuards[index] or nil
+                    local flag = guard and activeFlag(guard) or nil
+                    if call and guard and flag then
+                        local param = ("__nuppG%d"):format(#guardFlags + 1)
+                        guardFlags[#guardFlags + 1] = flag
+                        params = params .. "," .. param
+                        statements[#statements + 1] = "if " .. param .. " then " .. call .. " end; "
+                    elseif call and not guard then
                         statements[#statements + 1] = call .. "; "
                     end
                 end
-                e(pluck.declareHelper("__nuppDrop", "__nuppV", table.concat(statements)) .. "(", line)
+                e(pluck.declareHelper("__nuppDrop", params, table.concat(statements)) .. "(", line)
                 if args[1] then
                     emit(args[1])
                 else
                     e("nil")
+                end
+                for _, flag in ipairs(guardFlags) do
+                    e("," .. flag)
                 end
                 e(")")
             end

@@ -950,11 +950,19 @@ function ownership.install(c: state.Checker): ownership.Ops
         then
             local field = expr.name.text
             if dropOperation.allowed[field] then
-                if dropOperation.done[field] then
+                -- Recorded on the parameter's state rather than on the operation, so a
+                -- loop's back edge and a branch's join compare the field like any
+                -- other moved field, and an arm sees only what its own path did.
+                local rootState = own.ownershipState(c.lookupEntry(dropOperation.root))
+                if rootState and rootState.movedFields and rootState.movedFields[field] then
                     c.diag("NUPP2602", expr, ("owned field %q is dropped more than once"):format(field))
                     return false
                 end
                 dropOperation.done[field] = true
+                if rootState then
+                    rootState.movedFields = rootState.movedFields or {}
+                    rootState.movedFields[field] = true
+                end
                 return true
             end
         end

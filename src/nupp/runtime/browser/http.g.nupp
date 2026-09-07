@@ -84,10 +84,11 @@ record http.Response is nupp.Closeable
     end
 
     function close(takes self): nil
-        if not self._closed then
-            self._closed = true
-            self.body:close()
+        if self._closed then
+            return
         end
+        self._closed = true
+        self.body:close()
     end
 
     function drop(takes self): nil

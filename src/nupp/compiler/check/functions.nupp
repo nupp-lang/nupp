@@ -655,7 +655,6 @@ function functions.install(c: state.Checker): state.StatHandlers
         return inferred
     end
 
-
     --- Whether control can reach the end of a function body: it does not end in a
     --- return, a call that never comes back, or a complete branch of those.
     local function fallsThrough(block): boolean
@@ -1010,6 +1009,10 @@ function functions.install(c: state.Checker): state.StatHandlers
                 owned[field] = true
             end
             consumingContext = {root = root, allowed = owned, done = {}}
+            local aggregateState = ownershipState(c.scope.vars[root])
+            if aggregateState then
+                aggregateState.auditedFields = {root = root, fields = owned}
+            end
         end
         c.consumingFieldStack[#c.consumingFieldStack + 1] = consumingContext or false
         -- A consuming parameter whose type names a terminal is an owner the body has
@@ -1154,8 +1157,9 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         c.consumingFieldStack[#c.consumingFieldStack] = nil
         if consumingContext and not consumingContext.wholeMoved then
+            local fieldState = ownershipState(c.lookupEntry(consumingRoot))
             for field in pairs(consumingContext.allowed) do
-                if not consumingContext.done[field] then
+                if not (fieldState and fieldState.movedFields and fieldState.movedFields[field]) then
                     c.diag("NUPP2603", body, ("consuming function leaves owned field %q live"):format(field))
                 end
             end

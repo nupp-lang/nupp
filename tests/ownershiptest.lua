@@ -5809,9 +5809,8 @@ function M.terminalDefinitionsAreTheEndpointOfTheirParameter()
                 "local record Sock is nupp.Closeable",
                 "   closed: boolean",
                 "   function flush(exclusive self): nil end",
-                "   close: function(takes self: Sock): nil",
+                "   function close(takes self): nil self.closed = true end",
                 "end",
-                "function Sock.close(takes self: Sock): nil self.closed = true end",
                 "local file = openFile()",
                 "drop file",
                 "local sock = new Sock(closed = false)",
@@ -5878,6 +5877,138 @@ function M.anOwnedTemporaryThatIsBoundMovedOrReturnedIsAccepted()
             },
             "\n"
         )
+    )
+end
+
+-- A field moved out of an owning record is state that flows like the whole
+-- owner's: a loop that moves it again on its next iteration, and a branch that
+-- moves it on some arms only, used to pass because the moved-field set was
+-- recorded once and never compared at a back edge or a join.
+local PAIR = table.concat(
+    {
+        CONSUMABLE,
+        "local record Pair",
+        "   left: Res",
+        "   right: Res",
+        "end",
+        "local function consume(takes r: Res): nil drop r end",
+        "local function pair(): Pair return new Pair(left = open(1), right = open(2)) end",
+    },
+    "\n"
+)
+
+function M.aFieldMovedInsideALoopIsReportedAtTheBackEdge()
+    assertEq(codes(PAIR .. "\nlocal p = pair()\nfor i = 1, 2 do consume(p.left) end"), "NUPP2609")
+    assertEq(
+        codes(PAIR .. "\nlocal p = pair()\nlocal n = 0\nwhile n < 2 do n = n + 1 consume(p.left) end"),
+        "NUPP2609"
+    )
+    assertClean(PAIR .. "\nlocal p = pair()\nfor i = 1, 2 do consume(p.left) break end")
+end
+
+function M.aFieldMovedOnSomePathsOfAnAutomaticOwnerIsDroppedConditionally()
+    assertClean(
+        PAIR
+        .. "\n"
+        .. table.concat(
+            {
+                "local function run(flag: boolean): nil",
+                "   local p = pair()",
+                "   if flag then consume(p.left) end",
+                "   drop p",
+                "end",
+                "local function lexical(flag: boolean): nil",
+                "   local p = pair()",
+                "   if flag then consume(p.left) end",
+                "end",
+                "run(true)",
+                "lexical(false)",
+            },
+            "\n"
+        )
+    )
+    -- The field may still be live on the other path, so it cannot be refilled; the
+    -- refused store is then judged as any other store of an owner is.
+    assertEq(
+        codes(
+            PAIR
+            .. "\n"
+            .. table.concat(
+                {
+                    "local p = pair()",
+                    "if p.right.id == 2 then consume(p.left) end",
+                    "p.left = open(3)",
+                    "drop p",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602 NUPP2603"
+    )
+end
+
+function M.aFieldMovedOnSomePathsOfAConsumingParameterIsReported()
+    -- A parameter has no run-time record of which fields it still holds, so the
+    -- arms have to agree.
+    assertEq(
+        codes(
+            PAIR
+            .. "\n"
+            .. table.concat(
+                {
+                    "local function sink(takes p: Pair, flag: boolean): nil",
+                    "   if flag then consume(p.left) end",
+                    "   drop p.left",
+                    "   drop p.right",
+                    "end",
+                    "sink(pair(), true)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603 NUPP2601 NUPP2602"
+    )
+    assertClean(
+        PAIR
+        .. "\n"
+        .. table.concat(
+            {
+                "local function sink(takes p: Pair, flag: boolean): nil",
+                "   if flag then consume(p.left) else drop p.left end",
+                "   drop p.right",
+                "end",
+                "sink(pair(), true)",
+            },
+            "\n"
+        )
+    )
+end
+
+-- An optional consuming parameter that an arm narrows to nil holds nothing on
+-- that arm, so discharging it on the other arm only is not a partial discharge.
+function M.anOptionalConsumingParameterNarrowedToNilIsDischarged()
+    assertClean(
+        CONSUMABLE
+        .. "\n"
+        .. table.concat(
+            {
+                "local function sink(takes r: Res?): nil",
+                "   if r ~= nil then drop r end",
+                "end",
+                "local function other(takes r: Res?): nil",
+                "   if r == nil then return end",
+                "   drop r",
+                "end",
+                "sink(open(1))",
+                "sink(nil)",
+                "other(open(2))",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(CONSUMABLE .. "\nlocal function sink(takes r: Res?, flag: boolean): nil\n   if flag then drop r end\nend\nsink(open(1), true)"),
+        "NUPP2603"
     )
 end
 

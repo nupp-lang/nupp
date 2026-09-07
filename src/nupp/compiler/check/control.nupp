@@ -173,12 +173,18 @@ function control.install(c: state.Checker): state.StatHandlers
                 local state = ownershipState(entry)
                 if state and state.ownership and not seen[state] then
                     seen[state] = true
+                    local movedFields = nil
+                    for field in pairs(state.movedFields or {}) do
+                        movedFields = movedFields or {}
+                        movedFields[field] = true
+                    end
                     snapshot[
                         #snapshot + 1
                     ] = {
                         state = state,
                         moved = state.moved or false,
                         movedAt = state.movedAt,
+                        movedFields = movedFields,
                         retained = own.capabilityFacts(state, nil, false).retention ~= nil,
                         capability = own.capabilityOf(state.t, state).id,
                         activeBorrows = state.activeBorrows or 0,
@@ -196,28 +202,90 @@ function control.install(c: state.Checker): state.StatHandlers
 
     -- Rewinds every owner to the state the branch began in, and records the ones this
     -- arm moved so the statement can apply them once the last arm has run.
-    local function ownershipRewind(
-        snapshot: {any},
-        moved: {[any]: boolean},
-        recordMoves: boolean,
-        kept: {[any]: boolean}?
-    ): nil
-        for _, item in ipairs(snapshot) do
-            if recordMoves and item.state.moved and not item.moved then
-                moved[item.state] = true
-            elseif recordMoves and kept and not item.state.moved then
-                kept[item.state] = true
+
+    --- What the surviving arms of one branching statement did to the owners it began
+    --- with, so the join can tell a move every arm made from one only some did.
+    local function ownershipJoin(): any
+        return {arms = 0, kept = {}, fieldMoved = {}, nilAtEnd = {}, fieldEmpty = {}}
+    end
+
+    --- Called before a surviving arm's scope is popped: a consuming parameter the arm
+    --- has narrowed to nil holds nothing there, so leaving it undischarged on that
+    --- arm is not a leak. The same goes for an audited field the arm has narrowed to
+    --- a type without an owner: nil after a nil test, or the plain members of a union
+    --- once an `is` test has taken the owning one out.
+    local function noteArmEnd(join: any): nil
+        local arm = join.arms + 1
+        local scope = c.scope
+        local seen: {[any]: boolean} = {}
+        while scope do
+            for _, entry in pairs(scope.vars or {}) do
+                local state = ownershipState(entry)
+                if state and state.auditedConsumer and entry.t == T.nil_ then
+                    join.nilAtEnd[state] = join.nilAtEnd[state] or {}
+                    join.nilAtEnd[state][arm] = true
+                end
+                if state and state.auditedFields and not seen[state] then
+                    seen[state] = true
+                    for field in pairs(state.auditedFields.fields) do
+                        local narrowed = c.lookupNarrowed(state.auditedFields.root .. "." .. field)
+                        if narrowed and ownershipKind(narrowed) == nil then
+                            local fields = join.fieldEmpty[state] or {}
+                            join.fieldEmpty[state] = fields
+                            fields[field] = fields[field] or {}
+                            fields[field][arm] = true
+                        end
+                    end
+                end
             end
-            item.state.moved, item.state.movedAt = item.moved, item.movedAt
+            scope = scope.parent
         end
     end
 
-    --- A consuming parameter has no run-time record of whether it was discharged, so
-    --- a statement whose surviving arms disagree about it leaves a path that never
-    --- did. Reported here rather than at the scope end so the branch is named.
-    local function auditConsumedOnEveryPath(moved: {[any]: boolean}, kept: {[any]: boolean}, at): nil
+    c.noteArmEnd = noteArmEnd
+
+    local function ownershipRewind(snapshot: {any}, moved: {[any]: boolean}, recordMoves: boolean, join: any?): nil
+        if recordMoves and join then
+            join.arms = join.arms + 1
+        end
+        for _, item in ipairs(snapshot) do
+            local state = item.state
+            local nilHere = join and join.nilAtEnd[state] and join.nilAtEnd[state][join.arms] or false
+            if recordMoves and state.moved and not item.moved then
+                moved[state] = true
+            elseif recordMoves and join and not state.moved and not nilHere then
+                join.kept[state] = true
+            end
+            if recordMoves and join then
+                for field in pairs(state.movedFields or {}) do
+                    if not (item.movedFields and item.movedFields[field]) then
+                        local fields = join.fieldMoved[state] or {}
+                        join.fieldMoved[state] = fields
+                        fields[field] = fields[field] or {}
+                        fields[field][join.arms] = true
+                    end
+                end
+            end
+            state.moved, state.movedAt = item.moved, item.movedAt
+            local movedFields = nil
+            for field in pairs(item.movedFields or {}) do
+                movedFields = movedFields or {}
+                movedFields[field] = true
+            end
+            state.movedFields = movedFields
+        end
+    end
+
+    --- Applies what a branching statement's arms did once every arm has run, so the
+    --- arms were judged independently of each other. A whole owner moved on some
+    --- surviving paths is moved afterwards; the generator keeps a run-time record for
+    --- an automatic one, but a consuming parameter has none, so disagreement about it
+    --- leaves a path that never discharged it. A field moved on some paths is likewise
+    --- moved afterwards: an automatic owner's field keeps its own run-time record,
+    --- which a later `drop` of the whole consults, and any other owner's is refused.
+    local function auditOwnershipJoin(moved: {[any]: boolean}, join: any, at): nil
         for state in pairs(moved) do
-            if state.auditedConsumer and kept[state] then
+            if state.auditedConsumer and join.kept[state] then
                 local name = state.definition and state.definition.token and state.definition.token.text or "?"
                 c.diag(
                     "NUPP2603",
@@ -227,10 +295,44 @@ function control.install(c: state.Checker): state.StatHandlers
                     {help = "drop it, move it, or return it on every path, or on none of them"}
                 )
             end
+            state.moved = true
+        end
+        for state, fields in pairs(join.fieldMoved) do
+            for field, movedOn in pairs(fields) do
+                state.movedFields = state.movedFields or {}
+                state.movedFields[field] = true
+                -- Still held on an arm that neither moved it nor narrowed it to
+                -- something without an owner.
+                local empty = join.fieldEmpty[state] and join.fieldEmpty[state][field] or nil
+                local held = false
+                for arm = 1, join.arms do
+                    if not movedOn[arm] and not (empty and empty[arm]) then
+                        held = true
+                    end
+                end
+                if held then
+                    if state.automaticOwner then
+                        state.conditionalMovedFields = state.conditionalMovedFields or {}
+                        state.conditionalMovedFields[field] = true
+                    elseif state.auditedFields then
+                        local name = state.definition and state.definition.token and state.definition.token.text or "?"
+                        c.diag(
+                            "NUPP2603",
+                            at,
+                            (
+                                "owned field %q of %q is moved on only some paths through this statement"
+                            ):format(field, name),
+                            nil,
+                            {help = "move the field on every path, or on none of them"}
+                        )
+                    end
+                end
+            end
         end
     end
 
-    c.auditConsumedOnEveryPath = auditConsumedOnEveryPath
+    c.ownershipJoin = ownershipJoin
+    c.auditOwnershipJoin = auditOwnershipJoin
 
     c.ownershipSnapshot = ownershipSnapshot
     c.ownershipRewind = ownershipRewind
@@ -269,9 +371,20 @@ function control.install(c: state.Checker): state.StatHandlers
             capabilityChanged = capabilityChanged or regionSignature(
                 state.activeRegions
             ) ~= item.activeRegions or regionSignature(state.activeExclusiveRegions) ~= item.activeExclusiveRegions
+            local fieldsChanged = false
+            for field in pairs(state.movedFields or {}) do
+                if not (item.movedFields and item.movedFields[field]) then
+                    fieldsChanged = true
+                end
+            end
+            for field in pairs(item.movedFields or {}) do
+                if not (state.movedFields and state.movedFields[field]) then
+                    fieldsChanged = true
+                end
+            end
             if state.moved ~= item.moved or (
                 own.capabilityFacts(state, nil, false).retention ~= nil
-            ) ~= item.retained or capabilityChanged then
+            ) ~= item.retained or capabilityChanged or fieldsChanged then
                 c.diag(
                     "NUPP2609",
                     state.movedAt or at,
@@ -548,8 +661,10 @@ function control.install(c: state.Checker): state.StatHandlers
         -- this path never discharged; the scope audit only sees the fall-through end.
         local consumingEntry = functionBody and functionBody.consumingEntry or nil
         local consumingState = consumingEntry and ownershipState(consumingEntry) or nil
-        if consumingState and not consumingState.moved then
-            local name = consumingEntry.definition and consumingEntry.definition.token
+        local name = consumingEntry and consumingEntry.definition and consumingEntry.definition.token or nil
+        -- One this path has narrowed to nil holds nothing here.
+        local current = name and c.lookupEntry(name.text) or nil
+        if consumingState and not consumingState.moved and not (current and current.t == T.nil_) then
             c.diag(
                 "NUPP2603",
                 stat,
@@ -761,7 +876,7 @@ function control.install(c: state.Checker): state.StatHandlers
         local paths = {}
         local ownershipBefore = ownershipSnapshot()
         local branchMoved: {[any]: boolean} = {}
-        local branchKept: {[any]: boolean} = {}
+        local join = ownershipJoin()
         for _, clause in ipairs(stat.clauses) do
             -- analyze under the accumulated else-facts so that subtraction chains
             -- compose ("elseif v is number" sees v already minus the earlier branches)
@@ -785,9 +900,10 @@ function control.install(c: state.Checker): state.StatHandlers
             c.checkBlock(body, true)
             if not alwaysExits(body) then
                 paths[#paths + 1] = snapshotNarrowed()
+                noteArmEnd(join)
             end
             c.popScope()
-            ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(body), branchKept)
+            ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(body), join)
             accumulatedElse = mergeFacts(accumulatedElse, facts.f)
             if cond then
                 local key, seen = nil, 0
@@ -847,28 +963,27 @@ function control.install(c: state.Checker): state.StatHandlers
             c.checkBlock(elseBody, true)
             if not alwaysExits(elseBody) then
                 paths[#paths + 1] = snapshotNarrowed()
+                noteArmEnd(join)
             end
             c.popScope()
-            ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(elseBody), branchKept)
+            ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(elseBody), join)
         else
-            -- the implicit else: everything the conditions ruled out
+            -- the implicit else: everything the conditions ruled out, which moves
+            -- nothing
             c.pushScope()
             applyFacts(accumulatedElse)
             paths[#paths + 1] = snapshotNarrowed()
+            noteArmEnd(join)
             c.popScope()
+            join.arms = join.arms + 1
             for _, item in ipairs(ownershipBefore) do
-                if not item.moved then
-                    branchKept[item.state] = true
+                local nilHere = join.nilAtEnd[item.state] and join.nilAtEnd[item.state][join.arms] or false
+                if not item.moved and not nilHere then
+                    join.kept[item.state] = true
                 end
             end
         end
-        -- Every arm has run, so a move any of them made is what the statement leaves
-        -- behind. Applying it here rather than in the arm is what kept the arms
-        -- independent of each other.
-        auditConsumedOnEveryPath(branchMoved, branchKept, stat)
-        for state in pairs(branchMoved) do
-            state.moved = true
-        end
+        auditOwnershipJoin(branchMoved, join, stat)
         -- Join: a key is known afterwards only if every surviving path says something
         -- about it, and then it holds the union of what they say. A key one path is
         -- silent about could be anything there, so it stays at its declared type.

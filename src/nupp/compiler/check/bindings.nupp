@@ -944,6 +944,14 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     ) == "affine" and tt and ownershipKind(tt) == "affine" and container then
                         if not (container.movedFields and container.movedFields[field]) then
                             c.diag("NUPP2602", target, ("assignment overwrites live affine field %q"):format(field))
+                        elseif container.conditionalMovedFields and container.conditionalMovedFields[field] then
+                            c.diag(
+                                "NUPP2602",
+                                target,
+                                (
+                                    "assignment may overwrite owned field %q, which is still live on some paths"
+                                ):format(field)
+                            )
                         else
                             local prior = container.movedFieldTypes and container.movedFieldTypes[field]
                             if prior and prior.id ~= et.id then
