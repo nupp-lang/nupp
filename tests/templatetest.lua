@@ -385,15 +385,13 @@ function M.everyBuiltInTemplateFileIsStagedByTheManifest()
       end
    end
    -- A template is a project, and running one leaves the things running a project
-   -- leaves: a dependency tree, a build directory. They are ignored by the
-   -- repository and are nobody's template source, so a run that left one behind
-   -- must not read as a template file somebody forgot to list.
-   local _, listing = shell("find '" .. ROOT .. "/templates' -type f"
-      .. " -not -path '*/.nupp/*' -not -path '*/build/*'"
-      .. " -not -path '*/dist/*' -not -path '*/.rocks/*'")
+   -- leaves: a dependency tree, a build directory. Opening the tree in a file
+   -- browser leaves a `.DS_Store`. All of it is ignored by the repository and is
+   -- nobody's template source, so the listing is what the repository would take:
+   -- tracked files, and untracked ones the ignore rules do not exclude.
+   local _, listing = shell("cd '" .. ROOT .. "' && git ls-files --cached --others --exclude-standard templates")
    local missing = {}
-   for path in listing:gmatch("[^\n]+") do
-      local relative = path:sub(#ROOT + 2)
+   for relative in listing:gmatch("[^\n]+") do
       if not staged[relative] then missing[#missing + 1] = relative end
    end
    assertEq(#missing, 0,
