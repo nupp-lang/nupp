@@ -254,6 +254,39 @@ function M.aLimitParksSpawnUntilAChildSettles()
    assertTrue(time.now() - started >= 40, "six children under a limit of two finished in fewer than three rounds")
 end
 
+function M.aSpawnParkedForASlotDropsItsBodyWhenASiblingFails()
+   -- The body handed to `spawn` was transferred at the call, so when a sibling's
+   -- failure ends the wait for a slot, the uncalled body is released -- which is
+   -- what runs the cleanup of a single-shot closure's captures -- rather than
+   -- leaked. The runtime asks the body for its release hook the way the compiler
+   -- writes one.
+   local released, ran = 0, false
+   local body = setmetatable({__nuppRelease = function() released = released + 1 end},
+      {__call = function() ran = true end})
+   local problem = raises(function()
+      scoped({limit = 1}, function(scope)
+         scope:spawn(function() time.sleep(10) error("first fails", 0) end)
+         scope:spawn(body)
+      end)
+   end)
+   assertEq(tostring(problem), "first fails", "the sibling's failure is the scope's")
+   assertEq(ran, false, "the parked body ran")
+   assertEq(released, 1, "the parked body was not released")
+
+   -- Refused before parking, by a failure the scope already owns: the same.
+   released, ran = 0, false
+   problem = raises(function()
+      scoped(nil, function(scope)
+         local first = scope:spawn(function() error("first fails", 0) end)
+         pcall(first.await, first)
+         scope:spawn(body)
+      end)
+   end)
+   assertEq(tostring(problem), "first fails", "the earlier failure is the scope's")
+   assertEq(ran, false, "the refused body ran")
+   assertEq(released, 1, "the refused body was not released")
+end
+
 function M.aLimitCountsAChildSpawningIntoItsOwnScope()
    -- A child that spawns siblings while the scope is full parks, and is resumed
    -- when a sibling settles, so the bound holds whoever is spawning.

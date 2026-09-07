@@ -874,13 +874,21 @@ local function awaitSlot(owner: ScopeState, operation: string): nil
     settleAgainstScope(owner)
 end
 
-local function spawnRaw(scope: tasks.Scope, name: string, body: any, arguments: Packed?): Child
-    const owner = state(scope)
-    if owner.closed then
-        error("nupp: the task scope is closed", 2)
-    end
+--- What stands between a `spawn` and its child running: what the scope already owns,
+--- and room under its limit.
+---
+--- @raises the scope's failure or cancellation, or the waiting child's cancellation
+local function admit(owner: ScopeState, name: string): nil
     settleAgainstScope(owner)
     awaitSlot(owner, name)
+end
+
+local function spawnRaw(scope: tasks.Scope, name: string, body: any, arguments: Packed?): Child
+    const owner = state(scope)
+    -- The body was transferred at the call: a single-shot closure's captures now
+    -- belong to the child. The record that can give them back exists before anything
+    -- here can refuse the child, so a spawn parked for a slot when a sibling fails
+    -- drops the uncalled body rather than leaking what it captured.
     const child: Child = {
         thread = nil,
         name = name,
@@ -902,6 +910,15 @@ local function spawnRaw(scope: tasks.Scope, name: string, body: any, arguments: 
         if type(candidate) == "table" and type(candidate.__nuppRelease) == "function" then
             candidate.__nuppRelease()
         end
+    end
+    if owner.closed then
+        releaseUncalled(child)
+        error("nupp: the task scope is closed", 2)
+    end
+    const admitted, problem = pcall(admit, owner, name)
+    if not admitted then
+        releaseUncalled(child)
+        error(problem, 0)
     end
     const co = suspension.create(function(): Packed
         -- Cancelled between being spawned and first being resumed: there is no
