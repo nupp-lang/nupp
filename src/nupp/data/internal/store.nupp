@@ -9,8 +9,7 @@ so `store:get(key)` reads `T?` and `store:set(key, value)` accepts `T`.
 
 Names are opaque strings registered once per runtime state. Ids are allocated
 in declaration order and identify a key inside this state only; the name is the
-identity that persists. [NEP 34](docs/neps/0034-typed-keys-and-stores.md)
-records why the key is shaped the way it is.
+identity that persists.
 ]]
 
 --- A typed identity for one value in a [](nupp.data.Store).

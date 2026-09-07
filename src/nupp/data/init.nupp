@@ -122,10 +122,6 @@ for id, name, valueType in store:entries() do
 end
 ```
 
-[NEP 34](docs/neps/0034-typed-keys-and-stores.md) records why a key is shaped
-this way, and why serde's `MetadataKey` and reflection's `ExtensionKey` are
-the same key.
-
 ## Native selection
 
 Which functions are native is not part of the contract. The build selects the

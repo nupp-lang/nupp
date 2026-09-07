@@ -406,11 +406,11 @@ worker waiter lists could use is the storage half of this proposal, the
 pooled interleaved array, not the bus.
 
 Hot reload is the one place a bus would be an addition rather than a
-migration. The runtime is pull-based by [NEP 35](0035-filesystem-watching.md)'s
+migration. The runtime is pull-based by [NEP 34](0034-filesystem-watching.md)'s
 rule that a consumer asks for changes rather than being called, so nothing
 observes a committed generation today; a program that wants to be told would
 observe a `GenerationCommitted` event at the runtime's address. That is a
-change to NEP 35's contract and is left to a proposal of its own, with this
+change to NEP 34's contract and is left to a proposal of its own, with this
 bus as the mechanism it would name.
 
 ### What lands, and in what order
