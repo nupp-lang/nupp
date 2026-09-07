@@ -523,6 +523,20 @@ function index.install(c: state.Checker): state.ExprHandlers
                 )
                 return T.any
             end
+            -- A metatable the receiver declared nothing for still has the two
+            -- fields Lua itself reads: `__index` is a table to defer to or a function
+            -- to run, `__newindex` the same for writes, and either may be absent.
+            if base.tag == "metatable" and (memberName == "__index" or memberName == "__newindex") then
+                local handler = memberName == "__index" and T.func(
+                    {T.any, T.any},
+                    {T.any},
+                    false
+                ) or T.func({T.any, T.any, T.any}, {}, false)
+                local installed = T.optional(T.union({T.table_, handler}))
+                c.markToken(member, nil, installed, "property")
+                node.resolvedType = installed
+                return installed
+            end
             if indexedView then
                 c.diag("NUPP2004", member, ("no field %q in %s"):format(memberName, T.tostring(base)), nil, {
                     help = "use #view for length and view[index] for element access"

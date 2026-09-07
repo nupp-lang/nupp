@@ -119,6 +119,23 @@ end
 ]]), "")
 end
 
+-- A metatable the receiver declared nothing for still has the fields Lua reads:
+-- `__index` is a table or a function, and it may be absent.
+function M.aMetatableExposesItsIndexHandlers()
+    assertEq(diagsUnderPrelude([[
+local t = setmetatable({}, {__metatable = "locked"})
+local mt = getmetatable(t)
+if mt then
+    local handler = mt.__index
+    if type(handler) == "table" then
+        print(handler)
+    end
+    local n: integer = mt.__index
+    print(n)
+end
+]]), "NUPP2001:8")
+end
+
 function M.everyBundledDeclarationResolvesUnderStrict()
     local env = strictEnv()
     local lost = {}
