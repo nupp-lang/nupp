@@ -327,4 +327,30 @@ function M.aCallbackResultJoinsTheBinderItReturns()
    clean(body .. "local n: string = q.name\nreturn n\n")
 end
 
+-- A literal argument binds a type argument to its base type, as construction from
+-- a literal already did: a `Cell<0>` could never hold another value. A binder whose
+-- bound the base type fails keeps the literal it was passed.
+function M.aLiteralArgumentBindsItsBaseType()
+   local body = table.concat({
+      "local record Cell<T>",
+      "   value: T",
+      "end",
+      "local function cell<T>(v: T): Cell<T>",
+      "   return new Cell(value = v)",
+      "end",
+      'local function pick<T is "a" | "b">(v: T): T',
+      "   return v",
+      "end",
+      "local function map<A, B>(xs: {A}, f: function(A): B): {B}",
+      "   local out: {B} = {}",
+      "   for i, x in ipairs(xs) do out[i] = f(x) end",
+      "   return out",
+      "end",
+   }, "\n") .. "\n"
+   clean(body .. "local c = cell(0)\nc.value = 5\nlocal d: Cell<integer> = c\nreturn d\n")
+   clean(body .. 'local a: "a" = pick("a")\nreturn a\n')
+   reports(body .. 'local b: "b" = pick("a")\nreturn b\n', "NUPP2001")
+   clean(body .. "local zeros: {integer} = map({1, 2}, function(x) return 0 end)\nreturn zeros\n")
+end
+
 return M

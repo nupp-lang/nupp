@@ -144,29 +144,170 @@ local function binderInScope(c: state.Checker, expected: T.Type): boolean
     return visible ~= nil and (visible == wanted or visible.id == wanted.id)
 end
 
---- A field is a slot the value can be replaced in, so a type argument that
---- construction inferred from a literal is the literal's type rather than the
---- one value: `new Box(value = 1)` is a `Box<integer>`, as `{1}` is an `{integer}`.
-local function widenLiteralBindings(map: {[any]: any}): nil
-    for tv, bound in pairs(map) do
-        if tv.tag == "typevar" then
-            if bound.tag == "literal" then
-                map[tv] = bound.base or T.string
-            elseif bound.tag == "union" then
-                local members, changed = {}, false
-                for j, member in ipairs(bound.members) do
-                    if member.tag == "literal" then
-                        members[j], changed = member.base or T.string, true
-                    else
-                        members[j] = member
-                    end
+--- The binders a signature holds in a slot -- a nominal's type argument, an array
+--- element, a map key or value, a shape field -- and in no type-level operation,
+--- keyed true; a binder some computed term reads is keyed false whatever else it
+--- does, since the term needs the type as written.
+local function slotBinders(signature: T.Func): {[any]: boolean}
+    local found: {[any]: boolean} = {}
+    local walk
+    local function walkPack(pack: T.Pack?, inSlot: any)
+        if not pack then
+            return
+        end
+        for _, member in ipairs(pack.head or {}) do
+            walk(member, inSlot)
+        end
+        local tail = pack.tail
+        if tail then
+            if tail.kind == "computed" then
+                -- Whatever the term names is read as written.
+                if tail.type then
+                    walk(tail.type, "opaque")
                 end
-                if changed then
-                    map[tv] = T.union(members)
+                if tail.term then
+                    walk(tail.term, "opaque")
+                end
+            elseif tail.type then
+                walk(tail.type, inSlot)
+            end
+        end
+        for _, arm in ipairs(pack.alternatives or {}) do
+            walkPack(arm, inSlot)
+        end
+    end
+
+    walk = function(t: any, inSlot: any)
+        if type(t) ~= "table" or not t.tag then
+            return
+        end
+        local tag = t.tag
+        if tag == "typevar" then
+            if inSlot == "opaque" then
+                found[t] = false
+            elseif inSlot == true and found[t] == nil then
+                found[t] = true
+            end
+        elseif tag == "nominal" then
+            for _, argument in ipairs(t.typeArgs or {}) do
+                walk(argument, inSlot == "opaque" and inSlot or true)
+            end
+            for _, argument in ipairs(t.packArgs or {}) do
+                walkPack(argument, inSlot == "opaque" and inSlot or true)
+            end
+        elseif tag == "array" then
+            walk(t.elem, inSlot == "opaque" and inSlot or true)
+        elseif tag == "map" then
+            walk(t.key, inSlot == "opaque" and inSlot or true)
+            walk(t.value, inSlot == "opaque" and inSlot or true)
+            walk(t.writeKey, inSlot == "opaque" and inSlot or true)
+            walk(t.writeValue, inSlot == "opaque" and inSlot or true)
+        elseif tag == "shape" then
+            for _, field in ipairs(t.fields or {}) do
+                walk(field.read, inSlot == "opaque" and inSlot or true)
+                walk(field.write, inSlot == "opaque" and inSlot or true)
+            end
+        elseif tag == "tuple" then
+            for _, member in ipairs(t.elems or {}) do
+                walk(member, inSlot)
+            end
+        elseif tag == "union" or tag == "intersection" then
+            for _, member in ipairs(t.members or {}) do
+                walk(member, inSlot)
+            end
+        elseif tag == "affine" or tag == "borrowed" or tag == "pinned" or tag == "const" then
+            walk(t.inner, inSlot)
+        elseif tag == "func" then
+            walkPack(t.paramPack, inSlot)
+            walkPack(t.retPack, inSlot)
+        elseif tag == "ptr" or tag == "carray" then
+            walk(t.elem, inSlot)
+        elseif tag == "ctype" or tag == "metatable" or tag == "typeobject" then
+            walk(t.of, inSlot)
+        elseif tag == "neutral" or tag == "projection" or tag == "typeHandle" or tag == "packResult" then
+            -- A type-level operation reads its operands as written: what they are
+            -- bound to is its input, literal and all.
+            for _, child in pairs(t) do
+                if type(child) == "table" then
+                    if child.tag then
+                        walk(child, "opaque")
+                    else
+                        for _, grandchild in pairs(child) do
+                            walk(grandchild, "opaque")
+                        end
+                    end
                 end
             end
         end
     end
+    walkPack(signature.paramPack, false)
+    walkPack(signature.retPack, false)
+
+    return found
+end
+
+--- The widened form of a literal type: its base, or a union of literals as the
+--- union of their bases. Nil when nothing in it was a literal.
+local function widenedLiteral(t: T.Type): T.Type?
+    if t.tag == "literal" then
+        return t.base or T.string
+    elseif t.tag == "union" then
+        local members, changed = {}, false
+        for j, member in ipairs(t.members) do
+            if member.tag == "literal" then
+                members[j], changed = member.base or T.string, true
+            else
+                members[j] = member
+            end
+        end
+        if changed then
+            return T.union(members)
+        end
+    end
+
+    return nil
+end
+
+--- A field is a slot the value can be replaced in, so a type argument that
+--- construction inferred from a literal is the literal's type rather than the
+--- one value: `new Box(value = 1)` is a `Box<integer>`, as `{1}` is an `{integer}`.
+--- `only` restricts this to the binders it names.
+local function widenLiteralBindings(map: {[any]: any}, only: {[any]: boolean}?): nil
+    for tv, bound in pairs(map) do
+        if tv.tag == "typevar" and (only == nil or only[tv]) then
+            local widened = widenedLiteral(bound)
+            local declared = (tv as T.TypeVar).bound
+            if widened and (not declared or isA(widened, declared)) then
+                map[tv] = widened
+            end
+        end
+    end
+end
+
+--- What a literal argument binds when its parameter is a binder the signature holds
+--- in a slot: `cell(0)` builds a `Cell<integer>`, not a cell of the one value 0, the
+--- way construction from a literal already did. Anything else binds as written. A
+--- binder whose bound the base type fails keeps the literal, which is what lets
+--- `T is "a" | "b"` take the "a" it was passed; one a signature reads at the type
+--- level -- `match`'s pattern decides its captures -- or never puts in a slot keeps
+--- it too, the literal being the more precise answer there. Only a bare literal
+--- argument widens: a literal inside a container the argument already is -- a map
+--- keyed by "bool" -- is part of that container's identity.
+local function widenedArgument(param: T.Type, actual: T.Type, slots: {[any]: boolean}): T.Type
+    local binder = T.unwrapOwnership(param)
+    if binder.tag ~= "typevar" or slots[binder] ~= true then
+        return actual
+    end
+    local widened = widenedLiteral(actual)
+    if not widened then
+        return actual
+    end
+    local declared = (binder as T.TypeVar).bound
+    if declared and not isA(widened, declared) then
+        return actual
+    end
+
+    return widened
 end
 
 local function constInferenceProblem(ft: T.Func, map: {[any]: any}): string?
@@ -1846,7 +1987,13 @@ function calls.install(c: state.Checker): calls.Ops
         ) then
             local map = {}
             genericMap = map
-            unifyPack(paramPack, argPack, map)
+            local slots = slotBinders(calleeT)
+            local unified = {}
+            for j, actual in ipairs(argPack.head) do
+                local param = paramPack.head[j] or varargType
+                unified[j] = param and widenedArgument(param, actual, slots) or actual
+            end
+            unifyPack(paramPack, T.pack(unified, argPack.tail, argPack.modes), map)
             local constProblem = constInferenceProblem(calleeT, map)
             if constProblem then
                 constInferenceFailed = true
@@ -1856,7 +2003,7 @@ function calls.install(c: state.Checker): calls.Ops
             -- `math.min(a, b)` over integers stay an integer.
             if varargType then
                 for j = #params + 1, #ats do
-                    unify(varargType, ats[j], map)
+                    unify(varargType, widenedArgument(varargType, ats[j], slots), map)
                 end
             end
             ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, map, node)
@@ -1973,7 +2120,22 @@ function calls.install(c: state.Checker): calls.Ops
                 -- The provisional pass can only infer a callback's parameters. Once
                 -- checked against those parameters, its concrete return pack can bind
                 -- result-only variables such as U in function(T): U.
+                local settled = {}
+                for tv in pairs(genericMap) do
+                    settled[tv] = true
+                end
                 unifyPack(declaredParamPack, argPack, genericMap)
+                -- A binder the callback's results bound to a literal widens as an
+                -- argument would have; one the arguments already settled is left as
+                -- they settled it.
+                local slots = slotBinders(calleeT)
+                local fresh = {}
+                for tv in pairs(genericMap) do
+                    if not settled[tv] and slots[tv] == true then
+                        fresh[tv] = true
+                    end
+                end
+                widenLiteralBindings(genericMap, fresh)
                 local paramEval = generics.evaluatePack(substPack(declaredParamPack, genericMap), c.reductionControl)
                 local retEval = generics.evaluatePack(substPack(declaredRetPack, genericMap), c.reductionControl)
                 if not paramEval.error and not retEval.error then
