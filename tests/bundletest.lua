@@ -781,8 +781,12 @@ export function cancellable(limit: integer): integer
 end
 
 export function returnsAfterCancellation(): integer
-    const stop = os.clock() + 0.05
-    while os.clock() < stop do end
+    -- Spins until the cancellation has been requested, then returns anyway:
+    -- this is the body that ignores its cancellation, and waiting for the
+    -- request orders the return after it however loaded the machine is. A
+    -- fixed wait raced the caller and lost on a busy runner.
+    const stop = os.clock() + 5
+    while os.clock() < stop and pcall(tasks.checkpoint) do end
 
     return 7
 end
