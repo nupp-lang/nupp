@@ -136,6 +136,17 @@ end
 ]]), "NUPP2001:8")
 end
 
+-- A computed module name is a boundary nothing declared, so a strict file gets
+-- `unknown` back and has to narrow or cast before reading anything from it.
+function M.aDynamicRequireIsUnknownUnderStrict()
+    assertEq(diagsUnderPrelude([[
+local name: string = "os"
+local m = require(name)
+local s: string = m.nothing
+print(s)
+]]), "NUPP2004:3")
+end
+
 function M.everyBundledDeclarationResolvesUnderStrict()
     local env = strictEnv()
     local lost = {}

@@ -204,6 +204,11 @@ local unpack: function<T>(t: {T}, i: number?, j: number?): ...T
 --- Loads module `name` the first time it is asked for and returns its value. Later
 --- calls hand back the value cached in `package.loaded`.
 ---
+--- A call through the unshadowed builtin with a literal name is resolved by the
+--- checker to the module's declared type, and one with a computed name answers
+--- `unknown` in a strict file. The `any` declared here is what a gradual file gets
+--- for a computed name, and what any call through a shadowing binding gets.
+---
 --- @param name the module name, with `.` separating path components
 --- @return the value the module returned
 local require: function(name: string): any

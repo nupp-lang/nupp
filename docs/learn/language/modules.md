@@ -123,8 +123,11 @@ end
 ```
 
 A literal call through the unshadowed builtin is a static dependency and is
-checked against the declared interface. A dynamic name or a locally shadowed
-`require` keeps ordinary gradual Lua behavior.
+checked against the declared interface. A dynamic name is a boundary nothing
+declared: in a strict file what comes back is `unknown`, to be narrowed or
+cast before it is used, and in a gradual file it is `any`. A locally shadowed
+`require` is an ordinary call of a function declared to return `any`, whatever
+the file is.
 
 ### Naming a member from another file
 
