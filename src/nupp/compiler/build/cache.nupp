@@ -592,6 +592,71 @@ function cache.subsystemFingerprint(
     return answer as string
 end
 
+local declarationMemo: string? = nil
+
+--- The digest of the declarations the compiler carries under `decls/`: the prelude,
+--- the Lua surface, and the FFI and library declarations beside them.
+---
+--- A module is checked against these as much as against the checker, and they are
+--- not modules, so no subsystem fingerprint reaches them. Stamped with the code
+--- alone, a module's stored diagnostics went on being believed after the
+--- declaration they were computed against had changed: every module in the project
+--- kept reporting an argument that no longer failed to fit `table.sort`, while a
+--- fresh file checked clean, until the store was deleted by hand.
+---
+--- The readers are parameters so a test can hand in declarations of its own; a
+--- caller passing none reads what this compiler carries, once per process.
+---
+--- @param contentDigest the digest to stamp with, or the build's own
+--- @param listDeclarations lists the carried files under a prefix, or the compiler's
+--- @param readDeclaration reads one carried file by that spelling, or the compiler's
+--- @return the digest of every carried declaration and its content
+function cache.declarationFingerprint(
+    contentDigest: (function(string): string)?,
+    listDeclarations: (function(string): {string})?,
+    readDeclaration: (function(string): string?)?
+): string
+    local own = contentDigest == nil and listDeclarations == nil and readDeclaration == nil
+    if own and declarationMemo ~= nil then
+        return declarationMemo as string
+    end
+    local digest = contentDigest or hash.digest
+    local list = listDeclarations or require("nupp.compiler.bundledlist").list
+    local read = readDeclaration or require("nupp.compiler.bundled").source
+    local parts = {}
+    for _, relative in ipairs(list("/decls")) do
+        parts[#parts + 1] = relative .. "\0" .. (read(relative) or "missing")
+    end
+    table.sort(parts)
+    local answer = digest(table.concat(parts, "\0"))
+    if own then
+        declarationMemo = answer
+    end
+
+    return answer
+end
+
+--- The stamp a module's checked record and built artifact are reused under: the code
+--- that compiles a module, and the declarations it was compiled against.
+---
+--- @param cacheDir where the module graph is kept between commands, if anywhere
+--- @param contentDigest the digest to stamp with, or the build's own
+--- @param listDeclarations see `declarationFingerprint`
+--- @param readDeclaration see `declarationFingerprint`
+--- @return one digest covering both
+function cache.moduleCompilerFingerprint(
+    cacheDir: string?,
+    contentDigest: (function(string): string)?,
+    listDeclarations: (function(string): {string})?,
+    readDeclaration: (function(string): string?)?
+): string
+    local digest = contentDigest or hash.digest
+    local code = cache.subsystemFingerprint({"nupp.compiler.build.modules"}, cacheDir, contentDigest)
+    local declarations = cache.declarationFingerprint(contentDigest, listDeclarations, readDeclaration)
+
+    return digest(code .. "\0" .. declarations)
+end
+
 -- Bumped whenever a recorded digest stops meaning what it meant, which discards the
 -- last version's state instead of comparing hex that was computed by a different
 -- function. Version 2 is where the cache keys moved off SHA-256.

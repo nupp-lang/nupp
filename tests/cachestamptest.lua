@@ -89,6 +89,39 @@ function M.aCallerWithSomewhereToKeepTheGraphKeepsItAfterOneThatHadNot()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A module is checked against the carried declarations as much as against the
+-- checker, and they are not modules, so the subsystem stamp never reached them. An
+-- edit to `lua.d.nupp` then left every module's stored diagnostics believed while a
+-- fresh file checked clean, until `checks.buf` was deleted by hand.
+function M.theModuleStampMovesWhenACarriedDeclarationChanges()
+   local list = function()
+      return {"/decls/lua.d.nupp", "/decls/prelude.d.nupp"}
+   end
+   local function reader(sort)
+      return function(path)
+         if path == "/decls/lua.d.nupp" then
+            return "sort: " .. sort
+         end
+         return "prelude"
+      end
+   end
+   local before, after = reader("function(a, b)"), reader("function(a: T, b: T)")
+   local declared = cache.declarationFingerprint(nil, list, before)
+   assert(declared == cache.declarationFingerprint(nil, list, before),
+      "the same declarations have to stamp the same")
+   assert(declared ~= cache.declarationFingerprint(nil, list, after),
+      "an edited declaration left the declaration stamp where it was")
+   assert(cache.moduleCompilerFingerprint(nil, nil, list, before)
+      ~= cache.moduleCompilerFingerprint(nil, nil, list, after),
+      "the module stamp does not reach the declarations")
+   assert(cache.moduleCompilerFingerprint(nil, nil, list, before)
+      ~= cache.subsystemFingerprint({"nupp.compiler.build.modules"}),
+      "the module stamp is the code alone")
+   assert(cache.declarationFingerprint()
+      ~= cache.declarationFingerprint(nil, function() return {} end),
+      "the compiler's own declarations were not read")
+end
+
 -- A build adds its generated directory to the include roots and nothing else does.
 -- Keyed on the roots, that made every header a build stored a header a check missed.
 function M.twoEnvironmentsAgreeOnAHeaderKeyWhenTheModuleNameAgrees()

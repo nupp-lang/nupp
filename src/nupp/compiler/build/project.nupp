@@ -376,9 +376,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- What compiling a module reaches, rather than everything the compiler contains. An
     -- edit to a command, to the language server, or to anything else the module build
     -- does not call now leaves the last build's artifacts reusable, where before it
-    -- rebuilt the project.
-    newState.moduleCompilerHash = cache.subsystemFingerprint(
-        {"nupp.compiler.build.modules"},
+    -- rebuilt the project. The carried declarations are part of it: a module is
+    -- checked against `lua.d.nupp` as much as against the checker.
+    newState.moduleCompilerHash = cache.moduleCompilerFingerprint(
         cache.sharedCacheDir(join(root, join(outDir, "cache")))
     )
     newState.configHash = hash.digest(stable(config))
