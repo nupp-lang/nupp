@@ -1285,6 +1285,11 @@ function declare.install(
             c.moduleExports.typeDefs[name] = def
             if t.tag == "nominal" and t.declKind == "struct" and not stat.isAnnotationDefinition then
                 c.moduleExports.values[name] = t
+            elseif t.tag == "nominal" and t.declKind == "record" and not stat.isAnnotationDefinition then
+                -- The value an exported record is, reached through its module, is its
+                -- witness: the same `Type<R>` its own module sees, so a `Type<T>`
+                -- directed API takes it from either side of the boundary.
+                c.moduleExports.values[name] = T.typeObject(t)
             end
         elseif visibility == "global" and c.env then
             -- Project globals live in the reactive project index. Only

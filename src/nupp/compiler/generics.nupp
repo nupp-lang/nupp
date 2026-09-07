@@ -1832,6 +1832,12 @@ end
 --- @param param the declared parameter type, binders and all
 --- @param arg what the call passed there
 --- @param map accumulates the bindings
+--- How many callback parameter lists unification is inside. A binder met there
+--- is in a contravariant position: what the callback accepts may be wider than
+--- what the call binds elsewhere, and that is checked by subtyping once the
+--- binder is settled, so it never widens a binding the arguments already made.
+local contravariantDepth: integer = 0
+
 function generics.unify(param: Type, arg: Type, map: Bindings): nil
     param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
     if not T.hasTypevar(param) then
@@ -1842,8 +1848,12 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         if arg ~= T.any then
             -- A binder in two positions holds what both arguments were. An index by a
             -- computed key has no name to narrow, so the previous binding is read into
-            -- one.
+            -- one. A callback's own parameter is the exception: it accepts, so it
+            -- may be wider than the binding, and it is not evidence for one.
             local bound = map[param]
+            if bound and contravariantDepth > 0 then
+                return
+            end
             map[param] = bound and T.union({bound, arg}) or arg
         end
     elseif tag == "neutral" and param.op == "singleton" and param.constTerm and param.constTerm.tag == "constVar" then
@@ -1946,7 +1956,9 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         end
     elseif tag == "func" then
         if arg.tag == "func" then
+            contravariantDepth = contravariantDepth + 1
             generics.unifyPack(param.paramPack, arg.paramPack, map)
+            contravariantDepth = contravariantDepth - 1
             generics.unifyPack(param.retPack, arg.retPack, map)
         end
     elseif tag == "nominal" then

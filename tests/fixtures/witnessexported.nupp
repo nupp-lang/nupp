@@ -1,0 +1,15 @@
+module tests.fixtures.witnessexported
+
+--- An exported record's module value is its witness.
+export record Spawned
+    entity: integer
+end
+
+export record Sized
+    width: integer
+    height: integer
+    constructor(self, width: integer, height: integer)
+        self.width = width
+        self.height = height
+    end
+end

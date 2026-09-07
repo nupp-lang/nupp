@@ -2354,7 +2354,11 @@ function checkMod.check(
                 -- The same two kinds code generation writes onto the table. An
                 -- interface reaches here as a record declaration too, and is erased.
                 local carriesValue = stat.declKind == "record" or stat.declKind == "struct"
-                exportValue(stat.name, t, stat.name and stat.name.definition, stat, true, carriesValue)
+                -- A record's value is its witness, the `Type<R>` its own scope binds,
+                -- so a consumer reaching it through the module holds what a
+                -- `Type<T>` directed API takes. A struct's ctype is its own witness.
+                local published = stat.declKind == "record" and not stat.isAnnotationDefinition and T.typeObject(t) or t
+                exportValue(stat.name, published, stat.name and stat.name.definition, stat, true, carriesValue)
             end
             return
         end

@@ -45,6 +45,18 @@ function M.attachesADeriveThroughAnExportWrapper()
     assert(output == "Point { x = 3 }\n", output)
 end
 
+function M.publishesAnExportedRecordAsItsWitness()
+    -- Reached through its module, an exported record is the `Type<R>` its own
+    -- scope binds, so a `Type<T>` directed API and a construction pack take it
+    -- from either side of the boundary.
+    local main = HERE .. "/fixtures/witnessexported_main.nupp"
+    local checked, checkOutput = process.capture({NUPP, "check", "--strict", main})
+    assert(checked == 0, checkOutput)
+    local ran, output = process.capture({NUPP, "run", main})
+    assert(ran == 0, output)
+    assert(output == "true\t1\t2\n", output)
+end
+
 function M.runsAProviderThatDeclaresItsOwnMember()
     local example = HERE .. "/../editors/playground/src/examples/custom-derive.nupp"
     local checked, checkOutput = process.capture({NUPP, "check", "--strict", example})

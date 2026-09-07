@@ -1,0 +1,12 @@
+local exported = require("tests.fixtures.witnessexported")
+
+local comptime function Construction(E: type): typepack
+    return nupp.types.construction(E)
+end
+
+local function count<E>(event: Type<E>, ...: unpackof Construction(E)): integer
+    return select("#", ...)
+end
+
+local witness: Type<exported.Spawned> = exported.Spawned
+print(witness == exported.Spawned, count(exported.Spawned, entity = 7), count(exported.Sized, 1, 2))

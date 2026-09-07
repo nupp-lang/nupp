@@ -320,6 +320,10 @@ interface cst.Hints
     --- The runtime table of a record, which is its identity.
     recordName: string?
 
+    --- The runtime names of a union alias's record members, for an `is` that
+    --- asks each declaration in turn.
+    recordNames: {string}?
+
     --- The runtime table of an interface, which exists only to hold the default bodies
     --- a declaration taking the contract references.
     interfaceName: string?

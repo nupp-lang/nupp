@@ -1195,6 +1195,8 @@ function expr.install(c: state.Checker): nil
                 or typeNode
                 and typeNode.recordName
                 or typeNode
+                and typeNode.recordNames
+                or typeNode
                 and typeNode.reified
             if not runtimeIdentity then
                 c.diag(

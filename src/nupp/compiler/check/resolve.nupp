@@ -118,6 +118,34 @@ local function setField(
     end
 end
 
+--- The runtime names of a union's members when every one is a record, so an
+--- `is` test against a union alias can ask each declaration in turn; nil when
+--- any member is something a test could not answer for.
+local function unionRecordNames(t: any, currentModule: string?): {string}?
+    if not t or t.tag ~= "union" then
+        return nil
+    end
+    local names: {string} = {}
+    for _, member in ipairs(t.members or {}) do
+        if member.tag ~= "nominal" or member.declKind ~= "record" then
+            return nil
+        end
+        local origin = member.origin or member
+        local moduleName = origin.moduleName
+        local simple = (origin.name or ""):match("[^.]+$") or origin.name
+        if moduleName and moduleName ~= currentModule then
+            names[#names + 1] = ("require(%q).%s"):format(moduleName, simple)
+        else
+            names[#names + 1] = origin.runtimePath or simple
+        end
+    end
+    if #names == 0 then
+        return nil
+    end
+
+    return names
+end
+
 --- Installs type-annotation resolution on one run. It answers through the run rather
 --- than through a table of its own, because everything that resolves an annotation
 --- already has the run in hand.
@@ -983,6 +1011,8 @@ function resolve.install(c: state.Checker): nil
                             node.recordName = declared.runtimePath or key
                         elseif declared.tag == "nominal" and declared.declKind == "interface" then
                             node.interfaceName = declared.runtimePath or key
+                        elseif declared.tag == "union" then
+                            node.recordNames = unionRecordNames(declared, c.result.moduleName)
                         end
                         return applyWrittenType(declared, node)
                     end
@@ -1136,6 +1166,8 @@ function resolve.install(c: state.Checker): nil
                         node.recordName = ("require(%q).%s"):format(resolvedModule, typeName)
                     elseif t.tag == "nominal" and t.declKind == "interface" then
                         node.interfaceName = ("require(%q).%s"):format(resolvedModule, typeName)
+                    elseif t.tag == "union" then
+                        node.recordNames = unionRecordNames(t, c.result.moduleName)
                     end
                     return applyWrittenType(t, node)
                 end
@@ -1266,6 +1298,8 @@ function resolve.install(c: state.Checker): nil
                     else
                         node.recordName = name
                     end
+                elseif namedType.tag == "union" then
+                    node.recordNames = unionRecordNames(namedType, c.result.moduleName)
                 elseif namedType.tag == "nominal" and namedType.declKind == "interface" then
                     -- An interface has a table only when it carries defaults, and then
                     -- only so a declaration taking one can reach the body.

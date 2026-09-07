@@ -234,6 +234,77 @@ print(observe)
 ]]), "NUPP2603", "a raw yield with a parameter borrow live")
 end
 
+function M.aCallbackTypedWithAUnionDoesNotWidenAWitnessBoundBinder()
+    -- The witness binds E; what the callback accepts is contravariant and is
+    -- checked by subtyping, so a callback written against the shape union fits
+    -- a slot for one of its members.
+    clean([[
+local record Down
+    kind: "down"
+    x: number
+end
+
+local record Up
+    kind: "up"
+    x: number
+end
+
+local type Button = Down | Up
+
+local function observe<E>(event: Type<E>, callback: function(borrows event: E): nil): nil
+    print(event, callback)
+end
+
+observe(Down, |event: Button| -> print(event.kind))
+observe(Up, function(event: Button)
+    print(event.x)
+end)
+]])
+end
+
+function M.anIsTestAcceptsAUnionOfRecords()
+    clean([[
+local record Down
+    kind: "down"
+end
+
+local record Up
+    kind: "up"
+end
+
+local record Other
+    name: string
+end
+
+local type Button = Down | Up
+
+local function describe(event: Button | Other): string
+    if event is Button then
+        return event.kind
+    end
+    return event.name
+end
+
+print(describe(new Down(kind = "down")))
+]])
+    assertEq(codes([[
+local record Down
+    kind: "down"
+end
+
+local type Named = Down | {name: string}
+
+local function describe(event: Named | integer): string
+    if event is Named then
+        return "named"
+    end
+    return "other"
+end
+
+print(describe)
+]]), "NUPP3001", "a union with a structural member has no identity to test")
+end
+
 ---------------------------------------------------------------------------
 -- Pack binders forward contracts
 ---------------------------------------------------------------------------

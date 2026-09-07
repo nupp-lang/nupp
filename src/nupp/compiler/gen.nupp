@@ -5542,6 +5542,20 @@ function gen.generate(
                     emit(x.expr)
                     e(")?.__index == " .. t.recordName .. " )")
                 end
+            elseif t.recordNames then
+                -- A union of records is nominal member by member: the value came from
+                -- one of these declarations or none. The subject is evaluated once
+                -- and its identity compared against each, in the union's order.
+                local test = pluck.declareHelper(
+                    "__nuppIsRecordIn",
+                    "value,...",
+                    "local mt=getmetatable(value);if mt==nil then return false end;local identity=mt.__index;"
+                    .. "for index=1,select(\"#\",...) do if select(index,...)==identity then return true end end;"
+                    .. "return false"
+                )
+                e(test .. "(", firstTok and firstTok.line)
+                emit(x.expr)
+                e("," .. table.concat(t.recordNames, ",") .. ")")
             elseif t.reified and pluck.structvalue.enabled then
                 pluck.needRuntimeEffect(pluck.structvalue.effect)
                 e(t.reified .. ":isa(", firstTok and firstTok.line)
