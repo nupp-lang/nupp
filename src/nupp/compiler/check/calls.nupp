@@ -129,6 +129,21 @@ local function isPluckPath(node: cst.Node?): boolean
     return node.kind == "dotIndex" and isPluckPath(node.obj)
 end
 
+--- Whether a parameter naming a binder names one this body can see. A generic
+--- function passed as a value keeps its own binders in its signature, so a pack
+--- bound from it -- `pcall(deliverTo, source, ...)` -- asks for that function's `S`,
+--- which no argument here can be and which the gradual relation admits by design.
+--- Only a binder in scope is one unknown-but-fixed type that an argument must be.
+local function binderInScope(c: state.Checker, expected: T.Type): boolean
+    local wanted = T.unwrapOwnership(expected)
+    if wanted.tag ~= "typevar" then
+        return true
+    end
+    local visible = c.lookupType((wanted as T.TypeVar).name)
+
+    return visible ~= nil and (visible == wanted or visible.id == wanted.id)
+end
+
 --- A field is a slot the value can be replaced in, so a type argument that
 --- construction inferred from a literal is the literal's type rather than the
 --- one value: `new Box(value = 1)` is a `Box<integer>`, as `{1}` is an `{integer}`.
@@ -2067,6 +2082,12 @@ function calls.install(c: state.Checker): calls.Ops
                     cst.isToken(argNodes[j]) and node or argNodes[j],
                     physical
                 )
+                if ok and binderInScope(c, expected) and relations.typevarMismatch(actualForCheck, expected) then
+                    ok = false
+                    why = (
+                        "%s is not a value of the generic type %s"
+                    ):format(T.tostring(actualForCheck), T.tostring(expected))
+                end
             end
             if not ok and not reported then
                 c.diag(

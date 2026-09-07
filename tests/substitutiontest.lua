@@ -146,4 +146,86 @@ function M.anOperationOverAnInstantiatedNominalIsSubstitutedAtTheCall()
    }, "\n"))
 end
 
+-- A bound says what a T can do, not what may stand in for one. Answering a
+-- `T is Named` result with some record that is Named hands whoever passed a
+-- different record the wrong type, so only the binder itself fits a result of T,
+-- an argument of T, or a field of T, however the bound is satisfied.
+function M.aBoundedBinderAcceptsOnlyItself()
+   local body = table.concat({
+      "local interface Named",
+      "   name: string",
+      "end",
+      "local record P is Named",
+      "   name: string",
+      "end",
+      "local record Cell<T is Named>",
+      "   item: T",
+      "end",
+   }, "\n") .. "\n"
+   reports(body .. table.concat({
+      "local function same<T is Named>(x: T): T",
+      '   return new P(name = "p")',
+      "end",
+      "return same",
+   }, "\n"), "NUPP2002")
+   reports(body .. table.concat({
+      "local function store<T is Named>(cell: Cell<T>): nil",
+      '   cell.item = new P(name = "p")',
+      "end",
+      "return store",
+   }, "\n"), "NUPP2001")
+   reports(body .. table.concat({
+      "local function keep<T is Named>(x: T): nil",
+      "   local held: T = x",
+      '   held = new P(name = "p")',
+      "end",
+      "return keep",
+   }, "\n"), "NUPP2001")
+   reports(body .. table.concat({
+      "local function fill<T is Named>(cell: Cell<T>, x: P): nil",
+      "   local function put(item: T) cell.item = item end",
+      "   put(x)",
+      "end",
+      "return fill",
+   }, "\n"), "NUPP2006")
+   clean(body .. table.concat({
+      "local function same<T is Named>(x: T): T",
+      "   local held: T = x",
+      "   return held",
+      "end",
+      "local function other<T is Named, U is T>(x: T, y: U): T",
+      "   local function put(item: T) print(item.name) end",
+      "   put(y)",
+      "   return y",
+      "end",
+      "local function stop<T is Named>(x: T): T",
+      '   error("never")',
+      "end",
+      "return same, other, stop",
+   }, "\n"))
+end
+
+-- Passing a T where a concrete parameter is wanted is the same mistake in the
+-- other direction: a bound satisfies the parameter, an absent bound does not.
+function M.aBinderReachesOnlyWhatItsBoundAllows()
+   reports(table.concat({
+      "local function label(x: string): string return x end",
+      "local function show<T>(x: T): string",
+      "   return label(x)",
+      "end",
+      "return show",
+   }, "\n"), "NUPP2006")
+   clean(table.concat({
+      "local function label(x: string): string return x end",
+      "local function show<T is string>(x: T): string",
+      "   return label(x)",
+      "end",
+      "local function optional<T>(x: T): T",
+      "   if x ~= nil then print(x) end",
+      "   return x",
+      "end",
+      "return show, optional",
+   }, "\n"))
+end
+
 return M

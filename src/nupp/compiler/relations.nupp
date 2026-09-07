@@ -1607,17 +1607,63 @@ end
 
 --- Whether ordinary gradual typevar compatibility would hide an invalid operation
 --- inside a generic body. A binder is one unknown-but-fixed type there: it exposes its
---- bound, and only that same binder can be produced for a result of T.
+--- bound, and only that same binder can be produced for a result of T. The bound says
+--- what a T can do, not what may stand in for one: a `T is Named` result answered with
+--- some record that is Named would hand a caller who passed a different record the
+--- wrong type. `never` fits, having no values, and a binder declared `U is T` fits T.
 function relations.typevarMismatch(actual: Type, expected: Type): boolean
     actual, expected = T.unwrapOwnership(actual), T.unwrapOwnership(expected)
-    if actual.tag == "typevar" and not containsBinder(expected, actual) then
+    if actual.tag == "typevar" then
+        if containsBinder(expected, actual) then
+            return false
+        end
+        if expected.tag == "typevar" then
+            return not (actual.bound and not relations.typevarMismatch(actual.bound, expected))
+        end
         if expected == T.any or expected == T.unknown then
             return false
         end
         return not (actual.bound and isA(actual.bound, expected))
     end
-    if expected.tag == "typevar" and actual ~= expected and actual.id ~= expected.id then
-        return not expected.bound and actual ~= T.never and not T.hasTypevar(actual)
+    if expected.tag == "typevar" then
+        if actual == expected or actual.id == expected.id or actual == T.never then
+            return false
+        end
+        local tag = actual.tag
+        if tag == "union" then
+            -- `T?` still fits: a binder admits nil, so a T narrowed against nil rejoins
+            -- as `T?` and is the same value it was.
+            for _, member in ipairs(actual.members) do
+                if member ~= T.nil_ and relations.typevarMismatch(member, expected) then
+                    return true
+                end
+            end
+            return false
+        elseif tag == "intersection" then
+            for _, member in ipairs(actual.members) do
+                if not relations.typevarMismatch(member, expected) then
+                    return false
+                end
+            end
+            return true
+        elseif tag == "nominal" then
+            -- Inside a declaration's own methods `self` carries the declaration's
+            -- type, and a record inherits from nothing but interfaces, so a value of
+            -- the declaration is exactly what its `self` binder stands for.
+            local owner = actual as T.Nominal
+            local binder = owner.selfType or owner.origin and (owner.origin as T.Nominal).selfType or nil
+            return not (binder and (binder == expected or binder.id == expected.id))
+        elseif tag == "array"
+            or tag == "map"
+            or tag == "tuple"
+            or tag == "shape"
+            or tag == "func"
+            or tag == "literal"
+        then
+            -- Built around a binder, perhaps, but not the binder.
+            return true
+        end
+        return not T.hasTypevar(actual)
     end
 
     return false

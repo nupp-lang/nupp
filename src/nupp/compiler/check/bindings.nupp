@@ -849,6 +849,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         written.fixedWidthTargetTypeNode = entry.annotationNode
                     end
                     local ok, why, reported = c.fixedWidth.fits(et, declared, written or stat)
+                    if ok and relations.typevarMismatch(et, declared) then
+                        ok = false
+                        why = ("%s is not a value of the generic type %s"):format(T.tostring(et), T.tostring(declared))
+                    end
                     if not ok and not reported then
                         c.diag("NUPP2001", written or stat, ("cannot assign to %s: %s"):format(targetName, why))
                     end
@@ -1019,6 +1023,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         written or stat,
                         target.fixedWidthPhysicalStore == true and "store" or false
                     )
+                    if ok and relations.typevarMismatch(et, tt) then
+                        ok = false
+                        why = ("%s is not a value of the generic type %s"):format(T.tostring(et), T.tostring(tt))
+                    end
                     if not ok and not reported then
                         c.diag("NUPP2001", written or stat, ("cannot assign: %s"):format(why))
                     end
