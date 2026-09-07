@@ -278,6 +278,35 @@ function M.aShapeFitsAWritableMapOnlyThroughWritableFields()
    }, "\n"))
 end
 
+-- An array is a map from integer to its element: read covariantly, and written
+-- exactly, since what the map writes is what the array's readers find. A tuple
+-- reads as a map to any of its positions and is written through no map.
+function M.anArrayIsAnIntegerKeyedMap()
+   assertClean(table.concat({
+      "local xs: {integer} = {1, 2}",
+      "local same: {[integer]: integer} = xs",
+      "local wider: {readonly [integer]: number} = xs",
+      "local t: {string, integer} = {'a', 1}",
+      "local positions: {readonly [integer]: string | integer} = t",
+      "return {same, wider, positions}",
+   }, "\n"))
+   assertEq(diagsOf(table.concat({
+      "local xs: {integer} = {1, 2}",
+      "local m: {[integer]: number} = xs",
+      "return m",
+   }, "\n")), "NUPP2001:2")
+   assertEq(diagsOf(table.concat({
+      "local xs: {integer} = {1, 2}",
+      "local m: {[string]: integer} = xs",
+      "return m",
+   }, "\n")), "NUPP2001:2")
+   assertEq(diagsOf(table.concat({
+      "local t: {string, integer} = {'a', 1}",
+      "local m: {[integer]: string | integer} = t",
+      "return m",
+   }, "\n")), "NUPP2001:2")
+end
+
 function M.arrayCovarianceCannotLaunderFunctionEffects()
    assertEq(diagsOf(table.concat({
       "local safe: {nosuspend function(number): number} = {math.floor}",

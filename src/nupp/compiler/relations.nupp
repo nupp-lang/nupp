@@ -1269,6 +1269,23 @@ local function check(a: Type, b: Type): boolean, string?
         return true
     end
 
+    -- An array is a sequence indexed by integers, so it is a map from integer to
+    -- its element: read covariantly, written exactly, since what the map writes is
+    -- what the array's readers then find. A tuple is read the same way, as a map to
+    -- any of its positions, and written through no map, since its positions differ.
+    if (atag == "array" or atag == "tuple") and btag == "map" then
+        local element = atag == "array" and (a as T.Array).elem or T.union((a as T.Tuple).elems)
+        if b.readable and (not isA(T.integer, b.key) or not isA(element, b.value)) then
+            return fail(a, b)
+        end
+        if b.writeValue and (
+            atag == "tuple" or not optionalIsA(b.writeKey, T.integer) or not isA(b.writeValue, element)
+        ) then
+            return fail(a, b)
+        end
+        return true
+    end
+
     if atag == "map" and btag == "map" then
         if b.readable and (not a.readable or not isA(b.key, a.key) or not isA(a.value, b.value)) then
             return fail(a, b)
