@@ -774,4 +774,21 @@ function M.aFieldMovedOnOnePathIsStillDroppedWithTheRecordOnTheOther()
    assertEq(chunk(), "<a>ab|ba|")
 end
 
+function M.aForInOwnerIsClosedAtTheEndOfEachIteration()
+   -- The iterator hands out an owner per iteration; the loop variable takes a
+   -- hidden name and a local of the written name owns the value for the body.
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "local function iter(state: integer, control: integer): (integer?, affine(Resource, close_resource)?)",
+      "   if control >= 2 then return nil, nil end",
+      "   return control + 1, open_resource(tostring(control + 1))",
+      "end",
+      "for i, r in iter, 0, 0 do",
+      "   if r then calls = calls .. '<' .. r.name .. '>' end",
+      "end",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), "<1>1<2>2")
+end
+
 return M

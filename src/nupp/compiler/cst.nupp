@@ -908,6 +908,11 @@ record cst.ForinStmt is cst.Hints
     --- The names the iterator binds.
     names: {lexer.Token}
 
+    --- The written name of each loop variable the checker gave a hidden name, keyed
+    --- by position: the iterator hands out an owner there, and a local of the
+    --- written name at the top of the body takes it so it is dropped per iteration.
+    loopOwnerNames: any
+
     --- The iterator expression list.
     exprs: {cst.Node}
 
@@ -997,6 +1002,10 @@ record cst.LocalStmt is cst.Hints
 
     --- Names the production this node stands for.
     kind: 'localStmt'
+
+    --- Inserted by the checker at the top of a generic-for body to take an owner out
+    --- of the hidden loop variable; nothing was written, so nothing is unused.
+    syntheticLoopOwner: boolean?
 
     --- Whether it was written `const`.
     isConst: boolean?

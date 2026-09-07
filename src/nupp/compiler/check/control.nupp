@@ -1396,6 +1396,43 @@ function control.install(c: state.Checker): state.StatHandlers
             if (mode == "borrowed" or mode == "borrows" or mode == "exclusive") and ownershipKind(vt) == nil then
                 vt = T.borrowed(vt)
             end
+            -- An owner the iterator hands out is dropped at the end of each iteration
+            -- like a local, and every exit from the body runs that cleanup. The loop
+            -- variable takes a hidden name, and a local of the written name moves the
+            -- value out of it at the top of the body: that local is what the
+            -- generator already knows how to protect.
+            if ownershipKind(vt) == "affine" and #((vt as T.Affine).cleanups or {}) > 0 and stat.body then
+                stat.loopOwnerNames = stat.loopOwnerNames or {}
+                if not stat.loopOwnerNames[j] then
+                    local hidden: any = {}
+                    for key, value in pairs(nameTok) do
+                        hidden[key] = value
+                    end
+                    c.loopOwnerCount = (c.loopOwnerCount or 0) + 1
+                    hidden.text = ("__nuppLoopOwner%d"):format(c.loopOwnerCount)
+                    hidden.definition = nil
+                    stat.loopOwnerNames[j] = nameTok
+                    stat.names[j] = hidden
+                    for index, child in ipairs(stat) do
+                        if child == nameTok then
+                            stat[index] = hidden
+                        end
+                    end
+                    local value: any = {kind = "name", token = hidden}
+                    value[1] = hidden
+                    local ownerStat: any = {
+                        kind = "localStmt",
+                        names = {nameTok},
+                        types = {},
+                        exprs = {value},
+                        syntheticLoopOwner = true,
+                    }
+                    local body: any = stat.body
+                    table.insert(body.stats, 1, ownerStat)
+                    table.insert(body, 1, ownerStat)
+                end
+                nameTok = stat.names[j]
+            end
             c.bindVar(nameTok.text, vt, false, nameTok)
             local entry = c.scope.vars[nameTok.text]
             if entry and ownershipKind(vt) == "borrowed" then

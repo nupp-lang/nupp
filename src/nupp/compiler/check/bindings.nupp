@@ -650,7 +650,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
             -- Last, so the entry is complete: which module it holds decides whether an
             -- unread binding is reported as a stale require or as a stale local.
-            if boundEntry then
+            if boundEntry and not stat.syntheticLoopOwner then
                 c.unused.declared(nameTok, boundEntry, boundEntry.requiredModule and "require" or "variable")
             end
         end

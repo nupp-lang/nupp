@@ -235,6 +235,9 @@ record state.Checker
     --- happens to pass.
     functionBodies: {any}
 
+    --- Hidden loop variables handed out so far, so each takes a distinct name.
+    loopOwnerCount: integer?
+
     --- One list per statement being checked, innermost last: the owned temporaries
     --- its expressions produced. Whatever is still on the list when the statement
     --- ends was neither bound nor consumed, so nothing will ever run its terminal.

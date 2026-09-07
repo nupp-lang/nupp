@@ -208,7 +208,9 @@ end -- destroys `sink`, then `source`
 ```
 
 An obligation still live on a path that leaves without discharging it is
-reported.
+reported. An owner handed out by a `for … in` iterator is a local of the loop
+body: it is destroyed at the end of each iteration, and on every exit from the
+body.
 
 ### Exact extents with `with`
 

@@ -6012,4 +6012,27 @@ function M.anOptionalConsumingParameterNarrowedToNilIsDischarged()
     )
 end
 
+-- An owner handed out by an iterator is dropped at the end of each iteration
+-- like a local; it used to be reported as leaking at the loop variable.
+function M.aForInVariableHoldingAnOwnerIsDroppedEachIteration()
+    assertClean(
+        CONSUMABLE
+        .. "\n"
+        .. table.concat(
+            {
+                "local function use(borrows r: Res): nil print(r.id) end",
+                "local function iter(state: integer, control: integer): (integer?, Res?)",
+                "   if control >= 2 then return nil, nil end",
+                "   return control + 1, open(control + 1)",
+                "end",
+                "for i, r in iter, 0, 0 do",
+                "   if r then use(r) end",
+                "   if i == 2 then break end",
+                "end",
+            },
+            "\n"
+        )
+    )
+end
+
 return M
