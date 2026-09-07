@@ -53,7 +53,43 @@ local BUNDLED = {
     "nupp.profile",
 }
 
+-- Checks a strict program against the prelude and answers its diagnostics as
+-- "CODE:line" strings, which is what a case about one declaration wants to see.
+local function diagsUnderPrelude(source)
+    local result = parser.parse(source, "test.nupp")
+    assertEq(#result.errors, 0, "syntax errors in test source: " .. (result.errors[1] and result.errors[1].msg or ""))
+    local out = {}
+    for _, d in ipairs(check.check(result, "test.nupp", strictEnv(), {strict = true}) or {}) do
+        if d.severity == "error" then
+            out[#out + 1] = d.code .. ":" .. d.line
+        end
+    end
+
+    return table.concat(out, " ")
+end
+
 local M = {}
+
+-- What `pcall` hands back on failure is whatever was raised, so the error slot is
+-- `unknown`: an unguarded read of it cannot launder into a typed binding, while
+-- the correlated `ok` test still reveals the callee's own results.
+function M.pcallErrorSlotIsUnknown()
+    assertEq(diagsUnderPrelude([[
+local function g(): integer
+    error("boom")
+end
+local ok, v = pcall(g)
+if ok then
+    local n: integer = v
+    print(n)
+else
+    print(tostring(v))
+end
+local ok2, v2 = pcall(g)
+local m: integer = v2
+print(ok2, m)
+]]), "NUPP2001:12")
+end
 
 function M.everyBundledDeclarationResolvesUnderStrict()
     local env = strictEnv()

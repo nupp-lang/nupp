@@ -169,9 +169,10 @@ local error: nosuspend function(msg: any, level: number?): never
 --- @param f the function to call
 --- @param ... the arguments to pass to `f`
 --- @return true when the call finished, false when it raised
---- @return the call's results, or the error value
-local pcall: function<A..., R...>(scoped f: function(A...): R..., A...): ((true, R...) | (false, any))
-    & function<A..., R...>(takes f: function(A...): R..., A...): ((true, R...) | (false, any))
+--- @return the call's results, or the error value, which is whatever was raised and
+--- so has to be narrowed or cast before it is used as anything in particular
+local pcall: function<A..., R...>(scoped f: function(A...): R..., A...): ((true, R...) | (false, unknown))
+    & function<A..., R...>(takes f: function(A...): R..., A...): ((true, R...) | (false, unknown))
 
 --- Like `pcall`, but runs `handler` on the error before the stack unwinds, so it can
 --- still collect a traceback.
