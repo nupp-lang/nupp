@@ -10,3 +10,15 @@ end
 
 local witness: Type<exported.Spawned> = exported.Spawned
 print(witness == exported.Spawned, count(exported.Spawned, entity = 7), count(exported.Sized, 1, 2))
+
+-- An `is` against an alias of an exported record tests the declaration it
+-- names, from another module.
+local type Spawn = exported.Spawned
+local function describe(event: Spawn | integer): string
+    if event is Spawn then
+        return "spawned"
+    end
+    return "number"
+end
+
+print(describe(new exported.Spawned(entity = 3)), describe(4))

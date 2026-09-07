@@ -54,7 +54,7 @@ function M.publishesAnExportedRecordAsItsWitness()
     assert(checked == 0, checkOutput)
     local ran, output = process.capture({NUPP, "run", main})
     assert(ran == 0, output)
-    assert(output == "true\t1\t2\n", output)
+    assert(output == "true\t1\t2\nspawned\tnumber\n", output)
 end
 
 function M.runsAProviderThatDeclaresItsOwnMember()

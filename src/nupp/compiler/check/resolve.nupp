@@ -118,6 +118,19 @@ local function setField(
     end
 end
 
+--- The runtime name of a record declaration as seen from the module being
+--- checked: its own path here, or a `require` of its module elsewhere. A test
+--- against an alias asks the declaration the alias names, not the alias.
+local function recordRuntimeName(t: any, currentModule: string?): string
+    local origin = t.origin or t
+    local simple = (origin.name or ""):match("[^.]+$") or origin.name
+    if origin.moduleName and origin.moduleName ~= currentModule then
+        return ("require(%q).%s"):format(origin.moduleName, simple)
+    end
+
+    return origin.runtimePath or simple
+end
+
 --- The runtime names of a union's members when every one is a record, so an
 --- `is` test against a union alias can ask each declaration in turn; nil when
 --- any member is something a test could not answer for.
@@ -130,14 +143,7 @@ local function unionRecordNames(t: any, currentModule: string?): {string}?
         if member.tag ~= "nominal" or member.declKind ~= "record" then
             return nil
         end
-        local origin = member.origin or member
-        local moduleName = origin.moduleName
-        local simple = (origin.name or ""):match("[^.]+$") or origin.name
-        if moduleName and moduleName ~= currentModule then
-            names[#names + 1] = ("require(%q).%s"):format(moduleName, simple)
-        else
-            names[#names + 1] = origin.runtimePath or simple
-        end
+        names[#names + 1] = recordRuntimeName(member, currentModule)
     end
     if #names == 0 then
         return nil
@@ -1008,7 +1014,7 @@ function resolve.install(c: state.Checker): nil
                         if declared.tag == "nominal" and declared.declKind == "struct" then
                             node.reified = declared.runtimePath or key
                         elseif declared.tag == "nominal" and declared.declKind == "record" then
-                            node.recordName = declared.runtimePath or key
+                            node.recordName = recordRuntimeName(declared, c.result.moduleName)
                         elseif declared.tag == "nominal" and declared.declKind == "interface" then
                             node.interfaceName = declared.runtimePath or key
                         elseif declared.tag == "union" then
@@ -1163,7 +1169,7 @@ function resolve.install(c: state.Checker): nil
                     if t.tag == "nominal" and t.declKind == "struct" then
                         node.reified = ("require(%q).%s"):format(resolvedModule, typeName)
                     elseif t.tag == "nominal" and t.declKind == "record" then
-                        node.recordName = ("require(%q).%s"):format(resolvedModule, typeName)
+                        node.recordName = recordRuntimeName(t, c.result.moduleName)
                     elseif t.tag == "nominal" and t.declKind == "interface" then
                         node.interfaceName = ("require(%q).%s"):format(resolvedModule, typeName)
                     elseif t.tag == "union" then
@@ -1292,9 +1298,12 @@ function resolve.install(c: state.Checker): nil
                 elseif namedType.tag == "nominal" and namedType.declKind == "record" then
                     -- a record's runtime table is its identity, which is what `is`
                     -- compares against. An interface has none: it is conformance, not
-                    -- provenance, so it stays uncompilable.
-                    if moduleName and visibility ~= "global" then
-                        node.recordName = ("require(%q).%s"):format(moduleName, name)
+                    -- provenance, so it stays uncompilable. The name written may be
+                    -- an alias; the declaration it names is what is tested.
+                    local origin = (namedType.origin or namedType) as any
+                    local simple = ((origin.name or "") as string):match("[^.]+$") or origin.name
+                    if simple ~= name or (moduleName and visibility ~= "global") then
+                        node.recordName = recordRuntimeName(namedType, c.result.moduleName)
                     else
                         node.recordName = name
                     end
