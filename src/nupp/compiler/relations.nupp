@@ -549,7 +549,12 @@ function relations.packIsA(have: T.Pack, want: T.Pack): boolean, string?
         return false, ("pack %s fits no alternative of %s"):format(T.tostringPack(have), T.tostringPack(want))
     end
     for j, expected in ipairs(want.head) do
+        -- A slot read out of a homogeneous tail may be absent, so it is an optional
+        -- of the element here: `function(): ...string` does not promise a string.
         local actual = T.packAt(have, j) or T.nil_
+        if not have.head[j] and have.tail and have.tail.kind == "homogeneous" then
+            actual = T.optional(actual)
+        end
         if not isA(actual, expected) then
             return false, ("pack slot %d: %s is not a %s"):format(j, T.tostring(actual), T.tostring(expected))
         end

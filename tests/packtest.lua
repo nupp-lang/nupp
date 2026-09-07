@@ -42,6 +42,27 @@ end
 
 local M = {}
 
+-- A homogeneous tail may be empty, so a result pack whose slot comes out of one
+-- promises only an optional of the element: `function(): ...string` does not
+-- fit `function(): string`.
+function M.aHomogeneousTailSlotReadsAsOptional()
+   assertEq(strictCodes(table.concat({
+      "local function none(): ...string",
+      "   return",
+      "end",
+      "local f: function(): string = none",
+      "print(f)",
+   }, "\n")), "NUPP2001")
+   clean(table.concat({
+      "local function none(): ...string",
+      "   return",
+      "end",
+      "local f: function(): string? = none",
+      "local g: function(): ...string = none",
+      "print(f, g)",
+   }, "\n"))
+end
+
 function M.genericPacksPreserveHeterogeneousValues()
    clean(table.concat({
       "local function forward<A...>(...: A...): A...",
