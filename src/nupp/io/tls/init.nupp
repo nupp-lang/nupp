@@ -111,7 +111,7 @@ end
 --- The session has no reactor of its own: what it is waiting for is always the
 --- socket underneath it, so this drives that one rather than registering a
 --- second source that would poll the same thing twice.
-local function await(operation: string, scoped ready: function(): boolean): nil
+local function await(operation: string, ready: function(): boolean): nil
     if ready() then
         return
     end
@@ -412,13 +412,16 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
         if not self._ready then
             return false, "the handshake has not finished"
         end
+        -- The wait's callback is kept by the reactor until the write lands, so it
+        -- holds the backend and the session rather than the exclusive receiver.
+        const backend, session = self._backend, self._session
         local at = 1
         while at <= #bytes do
             local took: integer? = nil
             local failure: string? = nil
             const remaining = bytes:sub(at)
             await("nupp.io.tls write", function(): boolean
-                const moved, why = self._backend:write(self._session, remaining)
+                const moved, why = backend:write(session, remaining)
                 if why ~= nil then
                     failure = why
 

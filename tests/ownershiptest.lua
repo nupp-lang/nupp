@@ -2825,6 +2825,75 @@ function M.aCallbackOnlyInvokedIsInferredScoped()
     )
 end
 
+
+-- A declared scoped callback was counted as invoked directly when the invocation
+-- sat inside a nested closure, which may be stored and run after the call has
+-- returned, so the borrow the callback carried outlived its owner.
+function M.aDeclaredScopedCallbackCannotEscapeThroughANestedClosure()
+    local resource = table.concat(
+        {
+            "local record Res name: string end",
+            "local function close(takes r: Res): nil end",
+            "local function open(name: string): affine(Res, close) return new Res(name = name) end",
+            "local stash: function(): nil = function(): nil end",
+        },
+        "\n"
+    )
+    assertEq(
+        codes(
+            resource .. table.concat(
+                {
+                    "",
+                    "local function run(scoped cb: function(): nil): nil",
+                    "   stash = function(): nil",
+                    "      cb()",
+                    "   end",
+                    "   cb()",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602",
+        "a nested closure"
+    )
+    assertEq(
+        codes(
+            resource .. table.concat(
+                {
+                    "",
+                    "local function run(scoped cb: function(): nil): nil",
+                    "   local function step(): nil",
+                    "      cb()",
+                    "   end",
+                    "   step()",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602",
+        "a nested local function"
+    )
+    assertClean(
+        resource .. table.concat(
+            {
+                "",
+                "local function run(scoped cb: function(): nil): nil",
+                "   stash = function(): nil print('later') end",
+                "   cb()",
+                "end",
+                "local function body(): nil",
+                "   local r = open('a')",
+                "   run(function(): nil borrows (r) print(r.name) end)",
+                "   drop(r)",
+                "end",
+            },
+            "\n"
+        )
+    )
+end
+
 function M.affineTerminalsMustTakeTheirResource()
     assertEq(
         codes(

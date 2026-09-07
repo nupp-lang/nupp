@@ -78,7 +78,7 @@ local function spanString(borrows source: span.ByteSpan): string
     return ffiString(pointer, #source)
 end
 
-local progressed, releasePump, await, pumpOnce, readForCompletion
+local progressed, releasePump, await, pumpOnce
 -- Typed where it is declared, because `communicate` hands it a local function that
 -- borrows the child's streams, and a borrow may not cross an untyped call.
 local awaitTick: function(self: any, operation: string, scoped interest: function(): backendapi.Interest): nil
@@ -209,6 +209,46 @@ record process.Reader is nupp.io.Reader
         return chunk
     end
 
+    --- The shared Reader operation uses the concrete bounded poll but still waits
+    --- through the same state machine as every other completion-oriented call.
+    --- Keeping the limit here avoids a surplus buffer and its second notion of EOF.
+    function readCompletion(self, limit: integer): (string?, string?)
+        if self.closed or self.eof then
+            return nil
+        end
+        local chunk: string? = nil
+        local stopAt = self.owner.backend:now() + self.timeoutMs
+        local completed = await(
+            self.owner,
+            "process stream read",
+            function(): boolean
+                if self.closed or self.eof then
+                    return true
+                end
+                local got = self:poll(limit)
+                if got == nil then
+                    return true
+                end
+                if #got > 0 then
+                    chunk = got
+
+                    return true
+                end
+
+                return false
+            end,
+            function(): backendapi.Interest
+                return new backendapi.Interest(child = self.owner.handle, read = {self.handle}, write = {})
+            end,
+            stopAt
+        )
+        if not completed then
+            return nil, "the process read timed out"
+        end
+
+        return chunk
+    end
+
     --- Bounds the next completion-oriented read.
     --- @raises when timeoutMs is outside 0 through 2147483647
     function setTimeout(self, timeoutMs: integer): nil
@@ -222,7 +262,7 @@ record process.Reader is nupp.io.Reader
         if self.closed then
             return nil, "the process reader is closed"
         end
-        local chunk, reason = readForCompletion(self, positive(count, "process reader count", 2))
+        local chunk, reason = self:readCompletion(positive(count, "process reader count", 2))
         if reason ~= nil then
             return nil, reason
         end
@@ -1166,7 +1206,7 @@ end
 await = function(
     self: any,
     operation: string,
-    scoped ready: function(): boolean,
+    ready: function(): boolean,
     scoped interest: function(): backendapi.Interest,
     stopAt: number?
 ): boolean
@@ -1221,46 +1261,6 @@ await = function(
     end
 
     return true
-end
-
--- The shared Reader operation uses the concrete bounded poll but still waits through
--- the same state machine as every other completion-oriented call. Keeping the limit
--- here avoids a surplus buffer and its second notion of EOF.
-readForCompletion = function(borrows source: process.Reader, limit: integer): (string?, string?)
-    if source.closed or source.eof then
-        return nil
-    end
-    local chunk: string? = nil
-    local stopAt = source.owner.backend:now() + source.timeoutMs
-    local completed = await(
-        source.owner,
-        "process stream read",
-        function(): boolean
-            if source.closed or source.eof then
-                return true
-            end
-            local got = source:poll(limit)
-            if got == nil then
-                return true
-            end
-            if #got > 0 then
-                chunk = got
-
-                return true
-            end
-
-            return false
-        end,
-        function(): backendapi.Interest
-            return new backendapi.Interest(child = source.owner.handle, read = {source.handle}, write = {})
-        end,
-        stopAt
-    )
-    if not completed then
-        return nil, "the process read timed out"
-    end
-
-    return chunk
 end
 
 newReader = function(owner: any, handle: any): process.Reader

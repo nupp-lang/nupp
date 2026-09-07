@@ -184,7 +184,7 @@ end
 --- The source carries both a poll and a wait, so a host with its own loop drives
 --- the reactor from its frame and a command-line program blocks in it. Neither
 --- spelling appears at a call site: a caller writes the read it wanted.
-local function await(operation: string, scoped ready: function(): boolean): nil
+local function await(operation: string, ready: function(): boolean): nil
     if ready() then
         return
     end

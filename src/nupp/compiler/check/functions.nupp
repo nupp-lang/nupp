@@ -431,25 +431,34 @@ function functions.install(c: state.Checker): state.StatHandlers
                 tokenByName[p.name.text] = p.name
             end
         end
-        local function walk(node, parent)
+        -- An invocation from inside a nested function is not an invocation during
+        -- the call: the closure may be stored, returned, or handed on, and run after
+        -- the call has returned, so any mention there is an escape.
+        local function walk(node, parent, nested)
             if not node or cst.isToken(node) then
                 return
             end
             if node.kind == "name" and node.token and candidates[node.token.text] ~= nil then
-                local invoked = parent and parent.kind == "call" and parent.obj == node
+                local invoked = not nested and parent and parent.kind == "call" and parent.obj == node
                 if not invoked then
                     candidates[node.token.text] = false
                 end
                 return
             end
+            local kind = node.kind
+            local inner = nested
+                or kind == "funcExpr"
+                or kind == "shortfn"
+                or kind == "localFuncStmt"
+                or kind == "funcStmt"
             for _, child in ipairs(node) do
                 if not cst.isToken(child) then
-                    walk(child, node)
+                    walk(child, node, inner)
                 end
             end
         end
 
-        walk(body and body.body, nil)
+        walk(body and body.body, nil, false)
         if report then
             for _, p in ipairs(body and body.params or {}) do
                 if p.modeTok and p.modeTok.text == "scoped" and candidates[p.name.text] == false then
