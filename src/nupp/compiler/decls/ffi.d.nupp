@@ -43,7 +43,7 @@ local record ffi
     offsetof: function(ct: any, field: string): integer?
 
     --- Bulk copy between cdata (or from a Lua string).
-    copy: function(dst: any, src: any, len: (integer | int64 | uint64)?)
+    copy: function(borrows dst: any, borrows src: any, len: (integer | int64 | uint64)?)
 
     --- Fills memory with a byte value (zero by default).
     fill: function(dst: any, len: integer | int64 | uint64, c: integer?)

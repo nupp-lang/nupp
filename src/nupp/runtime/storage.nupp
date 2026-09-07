@@ -13,7 +13,7 @@ export function borrowString(borrows bytes: string): const uint8[?] borrows (byt
     return ffi.cast<const uint8[?]>(bytes)
 end
 
-export function copy(destination: any, source: any, count: integer): nil
+export function copy(borrows destination: any, borrows source: any, count: integer): nil
     ffi.copy(destination, source, count)
 end
 
@@ -248,6 +248,6 @@ end
 
 -- Native raw references retain the existing explicit extent contract. The
 -- checked physical host additionally verifies the extent of its rooted handle.
-export function boundedCount(source: any, count: integer): integer
+export function boundedCount(borrows source: any, count: integer): integer
     return count
 end

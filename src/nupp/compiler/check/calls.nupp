@@ -2563,7 +2563,13 @@ function calls.install(c: state.Checker): calls.Ops
                 -- A borrow crosses on the same terms as an owner: what an untyped
                 -- callee does with it cannot be seen, and a borrow it keeps is read
                 -- after its root is closed.
-                local liveAcrossAny = plainExpected == T.any and not ownershipUseReported and (
+                --
+                -- A generic pack tail is not an any slot: `pcall(f, value)` hands
+                -- `value` on to `f`, whose own parameter says what it does with it, so
+                -- a borrow rides through. An owner still cannot, since nothing there
+                -- receives the obligation.
+                local forwarded = tailSlot and varargType == nil and actualOwnership == "borrowed"
+                local liveAcrossAny = plainExpected == T.any and not forwarded and not ownershipUseReported and (
                     not entry or not entry.moved and (entry.activeBorrows or 0) == 0
                 )
                 if plainExpected ~= T.any or liveAcrossAny then

@@ -468,13 +468,13 @@ function M.fieldProjectionRequiresAResolvedStoredField()
 local particles = soa.allocate(ffi.typeof<Particle>(), 1)
 local name = "x"
 local xs = particles:read():field(name)
-print(xs)
+print(xs ~= nil)
 ]]), "NUPP2403", "a dynamic field name is not a place")
 
    assertEq(codes(PRELUDE .. [[
 local particles = soa.allocate(ffi.typeof<Particle>(), 1)
 local xs = particles:read():field("missing")
-print(xs)
+print(xs ~= nil)
 ]]), "NUPP2403", "an unknown field is diagnosed at the projection")
 end
 

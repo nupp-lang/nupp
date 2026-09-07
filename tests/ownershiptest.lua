@@ -2131,7 +2131,7 @@ function M.aCallableSlotCannotForgetABorrowRelation()
     assertEq(
         codes(
             POOL .. table.concat(
-                {"", "local f: function(borrows p: Pool): Pool = peek", "local pool = open_pool()", "local v = f(pool)", "drop(pool)", "print(v)",},
+                {"", "local f: function(borrows p: Pool): Pool = peek", "local pool = open_pool()", "local v = f(pool)", "drop(pool)", "print(v ~= nil)",},
                 "\n"
             )
         ),
@@ -2146,7 +2146,7 @@ function M.aCallableSlotCannotForgetABorrowRelation()
                     "local pool = open_pool()",
                     "local v = f(pool)",
                     "drop(pool)",
-                    "print(v)",
+                    "print(v ~= nil)",
                 },
                 "\n"
             )
@@ -2161,7 +2161,7 @@ function M.aCallableSlotCannotForgetABorrowRelation()
                 "local pool = open_pool()",
                 "do",
                 "   local v = f(pool)",
-                "   print(v)",
+                "   print(v ~= nil)",
                 "end",
                 "drop(pool)",
             },

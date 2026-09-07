@@ -243,7 +243,7 @@ record events.Observers<A>
 
     private depth: integer
     private pending: boolean
-    private dirty: {any}
+    private dirty: {[A]: boolean}
     private detached: {any}
     private freeLists: {any}
     private freeMaps: {any}
@@ -353,7 +353,7 @@ end
 
 --- Prunes an empty list out of its map, and an empty map out of the address
 --- table, returning both to the pools.
-local function prune(observers: any, address: any, eventId: integer, list: any): nil
+local function prune(observers: any, borrows address: any, eventId: integer, list: any): nil
     if list.n ~= 0 then
         return
     end
@@ -382,16 +382,25 @@ local function settle(observers: any): nil
         return
     end
     observers.pending = false
-    -- Three slots per entry, the list, the address, and the event identity,
-    -- flat, so recording a removal during a delivery allocates nothing.
+    -- Keyed by the address a removal touched, so recording one during a delivery
+    -- allocates nothing and holds the address as `byAddress` holds it: as a key.
+    -- Every list at the address is compacted, which costs nothing for one with
+    -- no tombstone; the walk stops when pruning has given the map back.
     local dirty = observers.dirty
-    for base = #dirty - 2, 1, -3 do
-        local list, address, eventId = dirty[base], dirty[base + 1], dirty[base + 2]
-        dirty[base + 2] = nil
-        dirty[base + 1] = nil
-        dirty[base] = nil
-        compact(list)
-        prune(observers, address, eventId as integer, list)
+    local byAddress = observers.byAddress
+    for address in pairs(dirty) do
+        dirty[address] = nil
+        local map = byAddress[address]
+        local eventId, list = next(map)
+        while eventId ~= nil do
+            local following, followingList = next(map, eventId)
+            compact(list)
+            prune(observers, address, eventId as integer, list)
+            if byAddress[address] ~= map then
+                break
+            end
+            eventId, list = following, followingList
+        end
     end
     local detached = observers.detached
     for index = #detached, 1, -1 do
@@ -405,20 +414,11 @@ local function settle(observers: any): nil
     end
 end
 
---- Records a list as needing compaction, or compacts it now when nothing is
---- being delivered.
-local function touched(observers: any, address: any, eventId: integer, list: any): nil
+--- Records an address as holding a list that needs compaction, or compacts the
+--- list now when nothing is being delivered.
+local function touched(observers: any, borrows address: any, eventId: integer, list: any): nil
     if observers.depth > 0 then
-        local dirty = observers.dirty
-        local count = #dirty
-        for base = 1, count, 3 do
-            if dirty[base] == list then
-                return
-            end
-        end
-        dirty[count + 1] = list
-        dirty[count + 2] = address
-        dirty[count + 3] = eventId
+        observers.dirty[address] = true
         observers.pending = true
         return
     end
@@ -717,7 +717,7 @@ local function deliverTo<A, S is events.Source<A>, E>(
     observers: any,
     list: any,
     event: E,
-    address: any,
+    borrows address: any,
     eventId: integer
 ): nil
     local n: integer = list.n

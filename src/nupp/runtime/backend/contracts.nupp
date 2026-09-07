@@ -163,7 +163,7 @@ end
 
 --- `representation.cstorage`, physical operations below shared library policy.
 export interface CstorageProvider
-    boundedCount: function(source: any, count: integer): integer
+    boundedCount: function(borrows source: any, count: integer): integer
     layout: function(subject: any): any
     scalar: function(kind: string): any
     descriptor: function(value: any): any
@@ -173,7 +173,7 @@ export interface CstorageProvider
     borrowString: function(bytes: string): any
     castBytes: function(pointer: any): any
     castElements: function(element: any, pointer: any): any
-    copy: function(destination: any, source: any, count: integer): nil
+    copy: function(borrows destination: any, borrows source: any, count: integer): nil
     fill: function(destination: any, count: integer, value: integer): nil
     sizeOf: function(element: any): integer
     string: function(source: any, count: integer): string

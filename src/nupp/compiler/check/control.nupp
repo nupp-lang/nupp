@@ -666,8 +666,14 @@ function control.install(c: state.Checker): state.StatHandlers
                             declaredSources[borrowRoot(source)] = true
                         end
                     end
+                    -- A plain root is kept alive by the garbage collector for as long
+                    -- as the result refers to it; only an owner is destroyed at scope
+                    -- exit, and only a borrowed parameter stands for one the caller
+                    -- holds.
                     for _, root in ipairs(own.rootsOf(stat.exprs[j])) do
-                        if not declaredSources[root] and (root.functionDepth or 0) >= c.functionDepth then
+                        if not declaredSources[
+                            root
+                        ] and (root.functionDepth or 0) >= c.functionDepth and ownershipKind(root.t) ~= nil then
                             local rootName = root.definition
                                 and root.definition.token
                                 and root.definition.token.text
@@ -818,8 +824,15 @@ function control.install(c: state.Checker): state.StatHandlers
             for j, expected in ipairs(annotatedPack.head) do
                 local got = T.packAt(returnedPack, j) or T.nil_
                 local expr = fixedExpression(j)
-                local freshConstruction = expr and (
-                    expr.kind == "newExpr" or expr.kind == "call" and expr.recordConstruct ~= nil
+                -- A cast or a paren around a construction is still that construction:
+                -- `(new Impl(...)) as Public<T>` is how a module returns its private
+                -- record under its public name.
+                local constructed = expr
+                while constructed and (constructed.kind == "paren" or constructed.kind == "castExpr") do
+                    constructed = constructed.expr
+                end
+                local freshConstruction = constructed and (
+                    constructed.kind == "newExpr" or constructed.kind == "call" and constructed.recordConstruct ~= nil
                 )
                 if ownReturns and ownReturns[j] and (not ownershipKind(got) or freshConstruction) then
                     expected = ownReturns[j]

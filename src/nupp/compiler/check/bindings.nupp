@@ -788,17 +788,18 @@ function bindings.install(c: state.Checker): state.StatHandlers
         if not roots[1] and not regionRoot then
             return
         end
-        -- The first binding along the chain of roots that is destroyed before `state`
+        -- The first owner along the chain of roots that is destroyed before `state`
         -- is: every owner on the way is one the value depends on, where a borrow on
-        -- the way holds nothing of its own.
+        -- the way holds nothing of its own and a plain value is kept by the collector.
         local function outlived(root)
             local seen = {}
             local entry = ownershipState(root)
             while entry and not seen[entry] do
                 seen[entry] = true
-                if ownershipKind(
-                    entry.t
-                ) ~= "borrowed" and not entry.moved and (entry.bindingOrdinal or 0) > (state.bindingOrdinal or 0) then
+                local kind = ownershipKind(entry.t)
+                if (
+                    kind == "affine" or kind == "pinned"
+                ) and not entry.moved and (entry.bindingOrdinal or 0) > (state.bindingOrdinal or 0) then
                     return entry
                 end
                 local next = c.own.capabilityFacts(entry, nil, false).roots
