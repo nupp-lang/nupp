@@ -1333,6 +1333,29 @@ function calls.install(c: state.Checker): calls.Ops
                     {help = "use a public constructor declared by that module"}
                 )
             end
+            -- The owners this construction is rooted in: every borrow or rooted value
+            -- a field took carries its roots onto the record, which is then a view of
+            -- the same owners and leaves the scope on the same terms they do.
+            local aggregateRoots, rootSeen = {}, {}
+            local function rootedIn(value: any)
+                for _, root in ipairs(c.own.provenanceOwners(value)) do
+                    if not rootSeen[root] then
+                        rootSeen[root], aggregateRoots[#aggregateRoots + 1] = true, root
+                    end
+                end
+            end
+
+            local function finished(resultType: Type): (Type, {Type})
+                if #aggregateRoots > 0 then
+                    c.own.capabilityFacts(node).roots = aggregateRoots
+                    if not c.ownershipKind(resultType) then
+                        resultType = T.borrowed(resultType)
+                    end
+                end
+
+                return resultType, {resultType}
+            end
+
             local bindings, bound = {}, {}
             local function bindField(fname: string?, value: any, site: any, label: string)
                 if not fname then
@@ -1368,6 +1391,22 @@ function calls.install(c: state.Checker): calls.Ops
                 local suppliesBorrowedField = false
                 for _, source in pairs(calleeT.fieldBorrowSources or {}) do
                     suppliesBorrowedField = suppliesBorrowedField or source == fname
+                end
+                -- An owning field is discharged by the record's cleanup, so a borrow
+                -- put there would be closed by something that never owned it. Any
+                -- other field may hold a borrow or a rooted owner, and the record
+                -- becomes a view of the same roots; a field declared `borrows
+                -- (sibling)` is held to that sibling below instead.
+                local valueKind = c.ownershipKind(vt)
+                local dependentField = calleeT.fieldBorrowSources and calleeT.fieldBorrowSources[fname] ~= nil
+                if c.own.carriesProvenance(value, vt) then
+                    if storesCapability and valueKind ~= "affine" and valueKind ~= "pinned" then
+                        c.diag("NUPP2603", value, "borrowed value cannot fill an owning record field", nil, {
+                            help = "move an owner into the field, or declare it `borrows (sibling)` naming the field it borrows from",
+                        })
+                    elseif not dependentField then
+                        rootedIn(value)
+                    end
                 end
                 if storesCapability and (c.ownershipKind(vt) == "affine" or c.ownershipKind(vt) == "pinned") then
                     affineValues[fname] = vt
@@ -1490,11 +1529,8 @@ function calls.install(c: state.Checker): calls.Ops
                 -- the type arguments follow from the values supplied
                 widenLiteralBindings(genericMap)
                 ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, genericMap, node)
-                local inst = instantiateNominal(calleeT, genericMap)
-                return inst, {inst}
+                return finished(instantiateNominal(calleeT, genericMap))
             end
-            local aggregateRoots = {}
-            local rootSeen = {}
             for field, source in pairs(calleeT.fieldBorrowSources or {}) do
                 local borrowedValue = constructionFields[field]
                 local rootValue = constructionFields[source]
@@ -1539,12 +1575,8 @@ function calls.install(c: state.Checker): calls.Ops
             for _, root in pairs(deferredAffineRoots) do
                 c.moveExpression(root.node, root.type, "affine record construction", c.ownershipKind(root.type))
             end
-            if #aggregateRoots > 0 then
-                c.own.capabilityFacts(node).roots = aggregateRoots
-            end
             if calleeT.inherentCleanup then
-                local owned = T.affine(calleeT, {calleeT.inherentCleanup})
-                return owned, {owned}
+                return finished(T.affine(calleeT, {calleeT.inherentCleanup}))
             end
             if calleeT.affineFields and #calleeT.affineFields > 0 then
                 local cleanups, obligations, transferOnly = {}, {}, false
@@ -1567,16 +1599,14 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 end
                 if #obligations == 0 then
-                    return calleeT, {calleeT}
+                    return finished(calleeT)
                 end
-                local owned = T.affine(calleeT, cleanups, transferOnly, T.aggregateObligation(obligations))
-                return owned, {owned}
+                return finished(T.affine(calleeT, cleanups, transferOnly, T.aggregateObligation(obligations)))
             end
             if calleeT.fieldBorrowSources and next(calleeT.fieldBorrowSources) then
-                local borrowed = T.borrowed(calleeT)
-                return borrowed, {borrowed}
+                return finished(T.borrowed(calleeT))
             end
-            return calleeT, {calleeT}
+            return finished(calleeT)
         end
 
         -- A bounded receiver reaches `__call` through its bound, and so does a

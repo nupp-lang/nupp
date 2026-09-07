@@ -81,6 +81,10 @@ type ownership.Ops = {
     --- reached through.
     ownershipEntry: function(expr: any): (any, any),
 
+    --- Whether an expression's value is tied to an owner's lifetime, however that was
+    --- recorded: a borrowed type, or roots the walk left on the node.
+    carriesProvenance: function(expr: any, t: Type?): boolean,
+
     --- The owner one expression came from, and every owner a whole expression did.
     provenanceOwner: function(expr: any): any,
 
@@ -726,6 +730,23 @@ function ownership.install(c: state.Checker): ownership.Ops
     ---------------------------------------------------------------------
     -- Provenance
     ---------------------------------------------------------------------
+
+    -- Provenance is recorded two ways. A function literal and a borrow-mode
+    -- parameter wrap the type in `borrowed`; a local function, a rooted result and a
+    -- name read through an entry with roots leave the roots as facts on the node and
+    -- keep the payload type. A place a value can be put has to ask both, or it lets
+    -- one spelling through that it refuses in the other.
+    function own.carriesProvenance(expr, t)
+        if t and own.ownershipKind(t) == "borrowed" then
+            return true
+        end
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+            expr = expr.expr
+        end
+        local roots = expr and own.capabilityFacts(expr, nil, false).roots or nil
+
+        return roots ~= nil and roots[1] ~= nil
+    end
 
     function own.provenanceOwner(expr)
         -- `new` wraps the construction it decides, and provenance is about where a

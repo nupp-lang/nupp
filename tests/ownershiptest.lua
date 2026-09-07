@@ -6202,4 +6202,85 @@ function M.aLocalFunctionStillBorrowsItsCaptureAtEachCall()
     )
 end
 
+-- A record built from a borrow is a view of what the borrow came from, so it
+-- leaves the scope on the borrow's terms: returned only under a declared
+-- `borrows (source)`. The argument path only asked about owners, so a closure over
+-- an owner and a local function reading one landed in a field, and the record was
+-- returned and used after its root was closed.
+function M.aRecordBuiltFromABorrowIsAViewOfItsRoot()
+    local function constructed(field, value)
+        return CLOSURE_RESOURCE .. table.concat(
+            {
+                "",
+                "local record Holder",
+                "   " .. field,
+                "end",
+                "local function make(): Holder",
+                "   local resource = openClosureResource(7)",
+                "   local function peek(): integer",
+                "      return resource.value",
+                "   end",
+                "   return new Holder(" .. value .. ")",
+                "end",
+                "print(make())",
+            },
+            "\n"
+        )
+    end
+    assertEq(
+        codes(constructed("peek: function(): integer", "peek = function(): integer return resource.value end")),
+        "NUPP2608",
+        "a closure over an owner"
+    )
+    assertEq(codes(constructed("peek: function(): integer", "peek = peek")), "NUPP2608", "a local function")
+    assertClean(
+        CLOSURE_RESOURCE .. table.concat(
+            {
+                "",
+                "local record Holder",
+                "   peek: function(): integer",
+                "end",
+                "local function wrap(borrows resource: ClosureResource): Holder borrows (resource)",
+                "   return new Holder(peek = function(): integer return resource.value end)",
+                "end",
+                "local resource = openClosureResource(7)",
+                "do",
+                "   local holder = wrap(resource)",
+                "   print(holder.peek())",
+                "end",
+                "drop(resource)",
+            },
+            "\n"
+        )
+    )
+end
+
+-- An owning field is discharged by the record's cleanup, so a borrow put there
+-- would be closed by something that never owned it: a double close once the root
+-- is dropped too. No declared relation makes that sound, so it is refused outright.
+function M.aBorrowCannotFillAnOwningRecordField()
+    assertEq(
+        codes(
+            CLOSURE_RESOURCE .. table.concat(
+                {
+                    "",
+                    "local record Holder",
+                    "   kept: affine(ClosureResource, closeClosureResource)",
+                    "end",
+                    "local function wrap(borrows resource: ClosureResource): Holder",
+                    "   return new Holder(kept = resource)",
+                    "end",
+                    "local resource = openClosureResource(7)",
+                    "local holder = wrap(resource)",
+                    "drop(resource)",
+                    "drop(holder)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603",
+        "a borrows parameter into an owning field"
+    )
+end
+
 return M
