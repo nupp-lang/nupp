@@ -74,6 +74,15 @@ function M.truthinessNarrowing()
    }, "\n"))
 end
 
+function M.orDropsAFalseLeftOperand()
+   -- `cond and nil or x` is the Lua spelling of a conditional; its left side can
+   -- only be nil or false, neither of which `or` yields.
+   assertClean("local i = 2\nlocal v: string = i == 2 and nil or 's'")
+   assertClean("local i = 2\nlocal w: string = (i == 2 and false) or 's'")
+   assertClean("local f: false | nil = nil\nlocal s: string = f or 's'")
+   assertEq((diagsOf("local b: boolean = true\nlocal s: string = b or 's'")), "NUPP2001:2")
+end
+
 function M.isNarrowing()
    assertClean(table.concat({
       "local v: number | string",
