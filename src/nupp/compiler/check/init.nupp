@@ -980,6 +980,7 @@ function checkMod.check(
         moduleFieldValues = {},
         nominalEffectOwners = {},
         nominalEffectEntries = {},
+        conformanceEffects = {},
         constModulePaths = {},
         moduleLocalAnnotated = false
     )
@@ -2997,6 +2998,7 @@ function checkMod.check(
         end
     end
     finalizeNominalEffects(c)
+    declare.checkEffectConformance(c)
     relations.invalidate()
     -- Structural bounds on generic terminals can depend on the inferred
     -- `nosuspend` guarantee of an inline method. Nominal callable slots receive that

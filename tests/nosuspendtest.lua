@@ -478,6 +478,45 @@ function M.doesNotMistakeALocalNamedTableForThePrelude()
    end
 end
 
+-- A record's method is qualified only once the file's effects have settled, so what
+-- an interface asks of it on that score is compared then: an implementation that
+-- provably suspends does not satisfy a member the interface declared `nosuspend`.
+function M.anImplementationOfANoSuspendMemberMayNotSuspend()
+   local iface = table.concat({
+      "local interface Flusher",
+      "    flush: nosuspend function(self): nil",
+      "end",
+   }, "\n")
+   local _, diags = diagnose(NOISY .. iface .. table.concat({
+      "",
+      "local record Bad is Flusher",
+      "    function flush(self): nil",
+      "        noisy()",
+      "    end",
+      "end",
+      "return Bad",
+   }, "\n"))
+   local refused = nil
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2118" then refused = diag end
+   end
+   assertTrue(refused ~= nil, "a suspending body does not implement a nosuspend member")
+   assertEq(refused.line, 8, "reported at the method")
+   assertTrue(refused.msg:find("nosuspend", 1, true) ~= nil,
+      "and the refusal says why: " .. refused.msg)
+   local _, quietDiags = diagnose(QUIET .. iface .. table.concat({
+      "",
+      "local record Good is Flusher",
+      "    function flush(self): nil",
+      "        quiet()",
+      "    end",
+      "end",
+      "return Good",
+   }, "\n"))
+   assertEq(#quietDiags, 0, "a proved-quiet body is silent"
+      .. (quietDiags[1] and (": " .. quietDiags[1].msg) or ""))
+end
+
 function M.aMetamethodIsNotARegionByItself()
    -- The boundary is the invocation, not the kind of body. An ordinary metamethod may
    -- yield on this baseline, so declaring one is not a reason to refuse anything.

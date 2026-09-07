@@ -1014,7 +1014,7 @@ function M.aRefinementIsProvedAgainstDeclaredFields()
    assertClean(enabled .. "\nlocal record Either is Enabled\n   enabled: boolean\nend")
    local numbered = table.concat({
       "local interface Numbered",
-      "   name: string",
+      "   name: string | integer",
       "   satisfies |self| -> type(self.name) == 'number'",
       "end",
    }, "\n")

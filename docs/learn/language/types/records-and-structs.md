@@ -154,7 +154,9 @@ A field without a default may also be omitted. This intentionally supports
 staged initialization by constructors and runtime registrars; Nupp does not
 perform a definite-initialization proof. Until some later write fills that field,
 the underlying record contains Lua's `nil`, so do not read an omitted required
-field during that interval.
+field during that interval. An affine field is omitted the same way, and a
+construction that omits it carries no obligation for it; a declared constructor
+is held to completeness instead (NUPP2208).
 
 A constructor begins with the same defaults already installed, then its body
 runs. The body can read, refine, or replace them, and a defaulted required field

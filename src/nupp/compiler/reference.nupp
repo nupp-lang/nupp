@@ -704,7 +704,8 @@ return m
         codes = {"NUPP2001", "NUPP2136"},
         body = [=[
 An interface declares a shape without a body. `record X is Y` states that X
-includes Y, and the checker holds it to that.
+includes Y. The checker holds every member X writes to Y's own, and trusts X for
+the members it leaves to be installed at run time.
 
 `sealed interface` instead requires an explicit `is` declaration in its owning
 module. The modifier follows visibility: `local sealed interface Token`. It adds

@@ -645,6 +645,198 @@ function M.overridingADefaultIsDeclared()
    }, "\n")), "NUPP2118:4")
 end
 
+-- `is I` is trusted for the members a record leaves to run-time installation, and
+-- for nothing it writes itself: a member the record declares has to fit what the
+-- contract says it is, or I's callers read one thing and the instance holds another.
+function M.aDeclaredMemberMustFitTheClaimedContract()
+   local iface = table.concat({
+      "local interface Named",
+      "   name: string",
+      "   describe: function(self): string",
+      "end",
+   }, "\n")
+   -- a missing member is the documented trust
+   assertClean(iface .. table.concat({
+      "",
+      "local record Later is Named",
+      "   n: integer",
+      "end",
+      "return Later",
+   }, "\n"))
+   -- a field of the wrong type is not
+   assertEq(diagsOf(iface .. table.concat({
+      "",
+      "local record Bad is Named",
+      "   name: integer",
+      "   describe: function(self): string",
+      "end",
+   }, "\n")), "NUPP2118:6")
+   -- nor a method with the wrong result, nor a field standing where a method is
+   assertEq(diagsOf(iface .. table.concat({
+      "",
+      "local record Worse is Named",
+      "   name: string",
+      "   function describe(self): integer",
+      "      return 1",
+      "   end",
+      "end",
+   }, "\n")), "NUPP2118:7")
+   assertEq(diagsOf(iface .. table.concat({
+      "",
+      "local record Data is Named",
+      "   name: string",
+      "   describe: integer",
+      "end",
+   }, "\n")), "NUPP2118:7")
+   -- a method may narrow its result, as any implementation may
+   assertClean(iface .. table.concat({
+      "",
+      "local record Fine is Named",
+      "   name: string",
+      "   function describe(self): 'fine'",
+      "      return 'fine'",
+      "   end",
+      "end",
+      "return Fine",
+   }, "\n"))
+end
+
+-- An affine contract's terminal consumes its receiver. Implementing it with a
+-- borrowing receiver would run as the terminal without taking anything.
+function M.aTerminalTakesItsReceiverTheWayTheContractSays()
+   local iface = table.concat({
+      "local affine interface Closer",
+      "   terminal close: nosuspend function(takes self: Closer): nil",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(iface .. table.concat({
+      "",
+      "local record Borrowing is Closer",
+      "   open: boolean",
+      "   function close(self): nil",
+      "      self.open = false",
+      "   end",
+      "end",
+   }, "\n")), "NUPP2118:6")
+   assertClean(iface .. table.concat({
+      "",
+      "local record Taking is Closer",
+      "   open: boolean",
+      "   function close(takes self): nil",
+      "      local state = unsafe release self",
+      "      state.open = false",
+      "   end",
+      "end",
+      "return Taking",
+   }, "\n"))
+end
+
+-- A generic contract is compared as instantiated: the member's type is fully known
+-- once the argument is written after `is`.
+function M.aGenericContractIsCheckedAsInstantiated()
+   local iface = table.concat({
+      "local interface Sink<T>",
+      "   push: function(self, v: T): nil",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(iface .. table.concat({
+      "",
+      "local record StrSink is Sink<integer>",
+      "   function push(self, v: string): nil",
+      "      print(v)",
+      "   end",
+      "end",
+   }, "\n")), "NUPP2118:5")
+   assertClean(iface .. table.concat({
+      "",
+      "local record IntSink is Sink<integer>",
+      "   function push(self, v: integer): nil",
+      "      print(v)",
+      "   end",
+      "end",
+      "return IntSink",
+   }, "\n"))
+end
+
+-- A capability the record withholds is withheld: `readonly` beside `is I` keeps the
+-- field read-only whatever I grants, and the disagreement is reported rather than
+-- I's write entry grafted over the record's own.
+function M.aReadonlyFieldStaysReadonlyUnderAWritableContract()
+   assertEq(diagsOf(table.concat({
+      "local interface Mut",
+      "   value: string",
+      "end",
+      "local record Cell is Mut",
+      "   readonly value: string",
+      "end",
+      "local c = new Cell(value = 'a')",
+      "c.value = 'b'",
+      "return c",
+   }, "\n")), "NUPP2118:5 NUPP2009:8")
+   -- the other way round, a record may grant more than the contract asks
+   assertClean(table.concat({
+      "local interface RO",
+      "   readonly value: string | integer",
+      "end",
+      "local record Wide is RO",
+      "   value: string | integer",
+      "end",
+      "local w = new Wide(value = 's')",
+      "w.value = 1",
+      "return w",
+   }, "\n"))
+end
+
+-- A stored field of a default's name would shadow the default on every instance,
+-- whatever its type. Replacing a default is written as a method.
+function M.aFieldCannotStandWhereADefaultIs()
+   local iface = table.concat({
+      "local interface Greeter",
+      "   name: string",
+      "   function greet(self): string",
+      "      return 'hello, ' .. self.name",
+      "   end",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(iface .. table.concat({
+      "",
+      "local record Person is Greeter",
+      "   name: string",
+      "   greet: string",
+      "end",
+   }, "\n")), "NUPP2118:9")
+   assertEq(diagsOf(iface .. table.concat({
+      "",
+      "local record Callable is Greeter",
+      "   name: string",
+      "   greet: function(self): string",
+      "end",
+   }, "\n")), "NUPP2118:9")
+end
+
+-- A struct's layout is closed, so a member no struct field could hold cannot be
+-- installed later either; the claim is refused where a record's would be trusted.
+function M.aStructCannotClaimAFieldItCannotHold()
+   local iface = table.concat({
+      "local interface HasName",
+      "   name: string",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(iface .. table.concat({
+      "",
+      "local struct S is HasName",
+      "   x: int32",
+      "end",
+   }, "\n")), "NUPP2118:4")
+   assertClean(iface .. table.concat({
+      "",
+      "local record R is HasName",
+      "   x: integer",
+      "end",
+      "return R",
+   }, "\n"))
+end
+
 -- Two interfaces providing the same name are two implementations and no reason
 -- to prefer either, so the declaration has to say which behaviour it means.
 function M.aDefaultInheritedTwiceMustBeChosen()

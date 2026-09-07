@@ -180,6 +180,96 @@ local function inheritMembers(n: any, super: any, selfMap: {[any]: any}): nil
     end
 end
 
+--- The same member with no suspension guarantee asked of it.
+---
+--- A declaration's own methods are qualified only once the file's effects have
+--- settled, so what an interface asks on that score is held separately, after that,
+--- by `declare.checkEffectConformance`.
+local function withoutYieldGuarantee(t: Type): Type
+    if t.tag == "func" then
+        return T.withYields(t, true)
+    elseif t.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(t.members) do
+            members[j] = withoutYieldGuarantee(member)
+        end
+
+        return T.intersection(members)
+    end
+
+    return t
+end
+
+--- Whether a member's type is a function, or an overload group of them, under
+--- whatever ownership wrapper a borrowed result relation put on it.
+local function isCallable(t: Type): boolean
+    t = T.unwrapOwnership(t)
+    if t.tag == "func" then
+        return true
+    end
+    if t.tag == "intersection" then
+        for _, member in ipairs(t.members) do
+            if member.tag ~= "func" then
+                return false
+            end
+        end
+
+        return #t.members > 0
+    end
+
+    return false
+end
+
+--- Holds a declaration's methods to the suspension guarantees the contracts it claims
+--- ask of them, once the file's effects have settled.
+---
+--- `checkTypedecl` compares every member a declaration writes against its contracts
+--- while the declaration is checked, and leaves out only this: a method's own guarantee
+--- is inferred from its body, and the answer is not in until the whole file has been
+--- read. Called after nominal effects are finalized, when it is.
+---
+--- Only a proven suspension is reported. A body that reaches something whose effects
+--- cannot be followed -- a call through `any`, or through a callable field with no
+--- guarantee on its type -- is not proved either way, and the declaration's claim
+--- stands for it as a bodyless declaration's would; `nosuspend` regions ask more of a
+--- callee, and say so where the call is made.
+---
+--- @param c the run's state
+function declare.checkEffectConformance(c: state.Checker): nil
+    for _, obligation in ipairs(c.conformanceEffects or {}) do
+        local owner, name = obligation.owner, obligation.name
+        local wants = obligation.want.tag == "intersection" and obligation.want.members or {obligation.want}
+        local quietKeys: {[string]: boolean} = {}
+        local quiet = 0
+        for _, want in ipairs(wants) do
+            if want.tag == "func" and want.noYield then
+                quietKeys[methodslots.parameters(dropSelf(want))] = true
+                quiet = quiet + 1
+            end
+        end
+        local entries = owner.methodEntries and owner.methodEntries[name] or {}
+        for _, entry in ipairs(entries) do
+            local body = entry.declaration and entry.declaration.body
+            local summary = body and body.effectSummary
+            local held = quiet > 0 and (#wants == 1 and #entries == 1 or quietKeys[entry.parameterKey])
+            if held and summary and summary.yields == true then
+                c.diag(
+                    "NUPP2118",
+                    entry.declaration.name,
+                    (
+                        "%s declares %q as a method that suspends, but %s declares it nosuspend"
+                    ):format(owner.name, name, T.tostring(obligation.super)),
+                    nil,
+                    {
+                        help = "call only what cannot suspend in its body, "
+                        .. "or drop `nosuspend` from the interface member"
+                    }
+                )
+            end
+        end
+    end
+end
+
 --- Installs the declaration checking on one run. It answers through `c.checkTypedecl`
 --- and the publishing operations beside it, so there is nothing to hand back.
 ---
@@ -831,13 +921,106 @@ function declare.install(
         return nil
     end
 
+    --- Holds the members a declaration writes to the contracts it claims.
+    ---
+    --- `is I` is a claim the checker trusts for the members the declaration leaves to
+    --- run-time installation. A member it does write is not left to trust: the
+    --- declaration and the contract both say what that member is, and they have to
+    --- agree, or I's callers read one thing and the instance holds another. Members
+    --- compare covariantly, with the capabilities held separately: a declaration may
+    --- narrow what it inherits, which is how a tagged interface refines `kind: string`
+    --- to `kind: "circle"` and a method implements a contract with a narrower result,
+    --- and what it declares `readonly` stays so whatever the contract grants. A
+    --- method's own suspension guarantee is not known until the file's effects have
+    --- settled, so that part waits for `declare.checkEffectConformance`.
+    ---
+    --- An inline method matching one of a contract's dispatch entries is compared
+    --- against that entry where the entries are reconciled, and a field standing where
+    --- a default is expected is reported with the defaults; neither is repeated here.
+    ---
+    --- A struct is held to one more thing: its layout is closed, so a member no struct
+    --- field could hold cannot be installed later either.
+    local function checkDeclaredConformance(stat: any, n: any, localMembers: {[string]: any}): nil
+        local reported: {[string]: boolean} = {}
+        local function conflict(name: string, at: any, message: string, help: string?): nil
+            if reported[name] then
+                return
+            end
+            reported[name] = true
+            c.diag("NUPP2118", at or stat.name, message, nil, help and {help = help} or nil)
+        end
+
+        for _, super in ipairs(n.supertypes or {}) do
+            local selfMap = super.selfType and {[super.selfType] = n.selfType} or {}
+            local dispatch = super.methodDispatchEntries or {}
+            local defaults = super.defaults or {}
+            local superName = T.tostring(super)
+            for name, inherited in pairs(super.byname or {}) do
+                local state = localMembers[name]
+                local want = substType(inherited, selfMap)
+                if not state then
+                    if stat.declKind == "struct" and not isCallable(
+                        want
+                    ) and not reifiableField(T.unwrapOwnership(want), false) then
+                        conflict(
+                            name,
+                            nil,
+                            (
+                                "struct %s claims %s, whose member %q: %s no struct field can hold"
+                            ):format(n.name, superName, name, T.tostring(want)),
+                            "declare the member, or claim the contract from a record"
+                        )
+                    end
+                elseif state.method and dispatch[name] and #dispatch[name] > 0 then
+                    -- Reconciled against its dispatch entry below.
+                elseif not state.method and defaults[name] then
+                    -- Reported with the inherited defaults.
+                else
+                    local have = n.byname[name]
+                    if not have then
+                        conflict(
+                            name,
+                            state.at,
+                            ("%s declares %q write-only, but %s reads it"):format(n.name, name, superName),
+                            "drop `writeonly`, or declare the member `writeonly` in " .. superName
+                        )
+                    elseif not relations.memberIsA(have, state.method and withoutYieldGuarantee(want) or want) then
+                        conflict(
+                            name,
+                            state.at,
+                            (
+                                "%s declares %q as %s, which does not satisfy %s's %s"
+                            ):format(n.name, name, T.tostring(have), superName, T.tostring(want)),
+                            "give the member a type that fits the contract, or drop `is " .. superName .. "`"
+                        )
+                    elseif state.method and isCallable(want) then
+                        c.conformanceEffects[
+                            #c.conformanceEffects + 1
+                        ] = {owner = n, name = name, want = want, super = super}
+                    end
+                end
+            end
+            for name in pairs(super.writeByname or {}) do
+                local state = localMembers[name]
+                if state and not state.method and not defaults[name] and not n.writeByname[name] then
+                    conflict(
+                        name,
+                        state.at,
+                        ("%s declares %q read-only, but %s writes it"):format(n.name, name, superName),
+                        "drop `readonly`, or declare the member `readonly` in " .. superName
+                    )
+                end
+            end
+        end
+    end
+
     --- Records which defaults a declaration takes, and refuses the ones it cannot
     --- choose between.
     ---
     --- Two interfaces providing the same name are two implementations and no reason to
     --- prefer either, so the declaration has to say which behaviour it means by writing
     --- the member itself.
-    local function checkInheritedDefaults(stat: any, n: any)
+    local function checkInheritedDefaults(stat: any, n: any, localMembers: {[string]: any})
         n.inheritedDefaults = {}
         local providers: {[string]: {any}} = {}
         for _, super in ipairs(n.supertypes or {}) do
@@ -855,13 +1038,25 @@ function declare.install(
             end
         end
         for member, from in pairs(providers) do
-            if #from > 1 and not localSlots[member] then
+            local methodName = from[1].methodName
+            local field = localMembers[methodName]
+            if field and not field.method then
+                -- A stored field of that name would shadow the default on every
+                -- instance, whatever its type; a replacement is written as a method.
+                c.diag(
+                    "NUPP2118",
+                    field.at or stat.name,
+                    ("field %q stands where the default %s provides would be"):format(methodName, from[1].name),
+                    nil,
+                    {help = ("write %s as a method with @override, or rename the field"):format(methodName)}
+                )
+                n.inheritedDefaults[member] = nil
+            elseif #from > 1 and not localSlots[member] then
                 local names = {}
                 for j, provider in ipairs(from) do
                     names[j] = provider.name
                 end
                 table.sort(names)
-                local methodName = from[1].methodName
                 c.diag(
                     "NUPP2118",
                     stat.name,
@@ -1822,7 +2017,7 @@ function declare.install(
                     end
                     local state = localMembers[name]
                     if not state then
-                        state = {}
+                        state = {at = e.name}
                         localMembers[name] = state
                         n.fieldOrder[#n.fieldOrder + 1] = name
                     end
@@ -1866,6 +2061,18 @@ function declare.install(
                         state.write = true
                         n.writeByname[name] = ft
                         n.writeFieldDefs[name] = definition
+                    end
+                    -- A capability the declaration withholds is withheld from what it
+                    -- inherits too: `readonly` beside `is I` keeps the field read-only
+                    -- whatever I grants, and the disagreement is reported with the rest
+                    -- of the conformance check rather than papered over with I's entry.
+                    if not grantsRead and not state.read then
+                        n.byname[name] = nil
+                        n.fieldDefs[name] = nil
+                    end
+                    if not grantsWrite and not state.write then
+                        n.writeByname[name] = nil
+                        n.writeFieldDefs[name] = nil
                     end
                     c.markToken(e.name, definition, ft, "property")
                     if e.bitWidth then
@@ -2029,7 +2236,7 @@ function declare.install(
                         c.diag("NUPP2118", e.name, ("duplicate record member %q"):format(name))
                     end
                     if not state then
-                        state = {read = true, write = true, method = true}
+                        state = {read = true, write = true, method = true, at = e.name}
                         localMembers[name] = state
                     end
                     local receiver = hasReceiver(e.body, stat.declKind)
@@ -2165,6 +2372,7 @@ function declare.install(
                     end
                 end
             end
+            checkDeclaredConformance(stat, n, localMembers)
             for field, source in pairs(n.fieldBorrowSources or {}) do
                 if field == source then
                     c.diag("NUPP2602", stat, ("field %q cannot borrow from itself"):format(field))
@@ -2363,7 +2571,7 @@ function declare.install(
                     end
                 end
             end
-            checkInheritedDefaults(stat, n)
+            checkInheritedDefaults(stat, n, localMembers)
             checkInheritedRefinements(stat, n)
             -- The declaration's surface is complete. Anything the relation decided
             -- about it while it was still being filled was decided about a type that

@@ -1386,6 +1386,7 @@ isA = function(a: Type, b: Type): boolean, string?
 end
 
 relations.isA = isA
+relations.memberIsA = memberIsA
 
 local function containsBinder(t: Type, binder: T.TypeVar): boolean
     if t == binder or t.id == binder.id then

@@ -29,7 +29,7 @@ export sealed interface Lines is nupp.Closeable
     isReleased: function(self: Lines): boolean
 
     --- Releases this reader and the source it took.
-    close: function(takes self: Lines): nil
+    close: nosuspend function(takes self: Lines): nil
 end
 
 local record LineReader is Lines

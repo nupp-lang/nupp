@@ -70,13 +70,43 @@ end
 ```
 
 `is` does two things. It inherits the parent's members and metamethods, with
-`self` rebound from the parent to the child. And it declares satisfaction, which
-the checker trusts rather than re-proving.
+`self` rebound from the parent to the child. And it declares satisfaction.
 
-That second part matters: a record declaring `is Component` satisfies
-`Component` even if a runtime registrar has not installed the members yet. It is
-the same trust boundary as a declaration file or an FFI signature. If nothing
-ever installs them, the program still fails at run time.
+What that declaration is trusted for is exactly the members the record does not
+write. A record declaring `is Component` satisfies `Component` even if a runtime
+registrar has not installed the members yet. It is the same trust boundary as a
+declaration file or an FFI signature. If nothing ever installs them, the program
+still fails at run time.
+
+Every member the record does write is held to the parent's, at the declaration,
+and a conflict is NUPP2118:
+
+- A field or method has to fit the parent's member. `name: integer` does not
+  satisfy `name: string`, and `describe: integer` does not satisfy a method.
+  The comparison is covariant: a record may narrow a parent's field, which is
+  how a tagged interface refines `kind: string` to `kind: "circle"`, and a
+  method is compared the way any implementation is, with the receiver skipped
+  and a narrower result allowed.
+- A generic parent is compared as instantiated. `record StrSink is Sink<integer>`
+  cannot declare `push(self, v: string)`.
+- A capability the record withholds is withheld. `readonly value` beside a parent
+  whose `value` is writable is a conflict, not a field the parent's write entry
+  quietly reopens, and the record's own writes to it are refused as well.
+- A stored field cannot stand where the parent provides a default method,
+  whatever its type: on an instance the field would shadow the default.
+  Replacing a default is written as a method with `@override`.
+- An affine parent's terminal takes its receiver, so implementing
+  `close(takes self)` as `close(self)` is refused.
+- A method implementing a member the parent declared `nosuspend function` may
+  not suspend. A method's own guarantee is inferred from its body, so this is
+  checked once the file's effects have settled, and only a proven suspension is
+  reported: a body whose calls cannot be followed keeps the claim, as a bodyless
+  declaration would. A `nosuspend` region asks more of what it calls, and says so
+  at the call.
+
+A struct is held to one more thing. Its layout is closed, so a parent member no
+struct field can hold, such as `name: string`, cannot be installed later either,
+and the claim is refused where a record's would be trusted.
 
 Only interfaces may be named after `is`, and anything else is reported.
 Multiple parents are allowed:

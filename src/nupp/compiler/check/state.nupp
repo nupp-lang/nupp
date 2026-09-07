@@ -529,6 +529,12 @@ record state.Checker
     --- declarations need the same provenance kept alongside their destination slot.
     nominalEffectEntries: {any}
 
+    --- Callable members a declaration wrote against an interface it claims, each with
+    --- the contract's member. The types were compared when the declaration was
+    --- checked; the suspension guarantee the contract asks is compared once effects
+    --- have settled, by `declare.checkEffectConformance`.
+    conformanceEffects: {any}
+
     --- Every immutable path rooted at the returned module table. This includes nested
     --- `const` fields in a fresh exported table constructor.
     constModulePaths: {[string]: boolean}
