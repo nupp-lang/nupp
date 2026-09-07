@@ -962,6 +962,34 @@ function index.install(c: state.Checker): state.ExprHandlers
                 return T.any
             end
         end
+        if ot.tag == "ptr" then
+            -- The unsafe gate above is what admits this; what is left is the element
+            -- the pointer names, loaded or stored the way a C array slot is.
+            if not (it == T.any or isA(it, T.number)) then
+                c.diag("NUPP2004", key, ("pointer index must be numeric, got %s"):format(T.tostring(it)))
+            end
+            local elem = ot.elem
+            local readOnly = false
+            while elem.tag == "const" do
+                elem, readOnly = elem.inner, true
+            end
+            if writing then
+                if readOnly then
+                    c.diag("NUPP2009", node, "cannot write through a const pointer")
+                    return T.any
+                end
+                node.fixedWidthPhysicalStore = true
+                if aggregateValue(elem) then
+                    node.postWriteType = false
+                elseif fixedWidth.isPhysical(elem) then
+                    node.postWriteType = fixedWidth.loaded(elem)
+                end
+                return elem
+            end
+            local loaded = fixedWidth.loaded(elem)
+            c.fixedWidth.mark(node, loaded)
+            return referenceRead(node, target, loaded)
+        end
         if ot.tag == "carray" then
             -- numeric, not strictly integer: `integer` here is advisory, and ordinary
             -- arithmetic on an index yields `number`

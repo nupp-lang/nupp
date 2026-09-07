@@ -401,6 +401,13 @@ function cheader.typeFromString(spec: string, resolver: cheader.Resolver?): T.Ty
     if not model then
         return nil, err
     end
+    -- A literal "unsigned char *" or "uint8_t *" names the bytes of a value rather
+    -- than text: it is indexed, under unsafe, and never handed a Lua string. A header
+    -- keeps the text reading for its parameters, where LuaJIT does convert one.
+    local pointee = model.kind == "pointer" and model.to or nil
+    if pointee and pointee.kind == "integer" and pointee.bits == 8 and pointee.unsigned then
+        return T.optional(T.ptr(T.uint8))
+    end
 
     return nuppType(model, nil, adoptingResolver(resolver))
 end

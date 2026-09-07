@@ -266,4 +266,23 @@ function M.aStandardFacilityDoesNotDisplaceAFilesOwnDeclarations()
    }, "\n")), "NUPP2004", "and does not see the facility's bindings")
 end
 
+function M.unsignedBytePointerCastsAreIndexableUnderUnsafe()
+   -- "unsigned char *" and "uint8_t *" name the bytes of a value, not text
+   local V = P .. "\nlocal ffi = require('ffi')\nlocal v = new P(1.0, 2.0)\n"
+   assertEq(diagsOf(V .. table.concat({
+      "local raw = ffi.cast('unsigned char*', v)",
+      "local raw2 = ffi.cast('uint8_t*', v)",
+      "unsafe do",
+      "   local a: uint32 = raw[0]",
+      "   local b: uint32 = raw2[4]",
+      "   raw[1] = 7",
+      "end",
+   }, "\n")), "")
+   assertEq(diagsOf(V .. "local raw = ffi.cast('unsigned char*', v)\nlocal a = raw[0]"), "NUPP2604")
+   assertEq(diagsOf(V .. "local raw = ffi.cast('unsigned char*', v)\nunsafe do\n   raw[0] = 300\nend"), "NUPP2001")
+   -- a plain char pointer is still text
+   assertEq(diagsOf(V .. "local text = ffi.cast('const char*', v)\nlocal s: cstring = text"), "")
+   assertEq(run(V .. "local raw = ffi.cast('uint8_t*', v)\nunsafe do return raw[3] + raw[7] end"), 127)
+end
+
 return M
