@@ -216,15 +216,15 @@ end
 
 local settings = serde.key("game.settings", serde.of(Settings)) -- Key<Settings>
 
-local world = nupp.data.newStore()
-world[settings] = new Settings(volume = 0.5, fullscreen = false)
-local saved = serde.saveStore(world)
+local store = nupp.data.newStore()
+store:set(settings, new Settings(volume = 0.5, fullscreen = false))
+local saved = serde.saveStore(store)
 assert(saved["game.settings"].volume == 0.5)
 local text = nupp.data.json.encode(saved)
 
 local restored = nupp.data.newStore()
 serde.loadStore(restored, nupp.data.json.decode(text) as {[string]: any})
-local back = restored[settings]
+local back = restored:get(settings)
 assert(back ~= nil and back.volume == 0.5)
 ```
 

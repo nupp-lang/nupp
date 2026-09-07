@@ -2,7 +2,7 @@
 -- that hold a key to its value type.
 --
 -- A key is a phantom-typed identity over an integer id; a store is one table
--- behind two generic metamethods. What matters is observable at both layers:
+-- behind generic methods. What matters is observable at both layers:
 -- the runtime must keep ids unique and values intact, and the checker must
 -- reject a wrong write through a key without rejecting the annotation-driven
 -- declaration every caller writes.
@@ -112,53 +112,60 @@ function M.storesAreIndependentAndKeysAreShared()
     local score = data.newKey("store.test.score")
     local first = data.newStore()
     local second = data.newStore()
-    first[score] = 10
-    second[score] = 20
-    check.equal(first[score], 10)
-    check.equal(second[score], 20)
-    check.equal(data.newStore()[score], nil)
+    first:set(score, 10)
+    second:set(score, 20)
+    check.equal(first:get(score), 10)
+    check.equal(second:get(score), 20)
+    check.equal(data.newStore():get(score), nil)
 end
 
-function M.nilRemovesAndEveryOtherValueSurvives()
+function M.removeDeletesAndSetRejectsNil()
     local key = data.newKey(nil)
     local store = data.newStore()
     local held = {}
-    store[key] = held
-    check.assert(rawequal(store[key], held), "reference identity was lost")
-    store[key] = false
-    check.assert(rawequal(store[key], false), "false was not stored")
-    store[key] = 0
-    check.equal(store[key], 0)
-    store[key] = ""
-    check.equal(store[key], "")
-    store[key] = nil
-    check.equal(store[key], nil)
+    store:set(key, held)
+    check.assert(rawequal(store:get(key), held), "reference identity was lost")
+    store:set(key, false)
+    check.assert(rawequal(store:get(key), false), "false was not stored")
+    store:set(key, 0)
+    check.equal(store:get(key), 0)
+    store:set(key, "")
+    check.equal(store:get(key), "")
+    raises(
+        function()
+            store:set(key, nil)
+        end,
+        "use Store:remove"
+    )
+    check.equal(store:get(key), "")
+    store:remove(key)
+    check.equal(store:get(key), nil)
     local remaining = 0
-    for _ in data.storeEntries(store) do
+    for _ in store:entries() do
         remaining = remaining + 1
     end
     check.equal(remaining, 0)
 end
 
-function M.clearStoreDropsValuesAndKeepsRegistrations()
+function M.clearDropsValuesAndKeepsRegistrations()
     local key = data.newKey("store.test.clear")
     local store = data.newStore()
-    store[key] = "ready"
-    data.clearStore(store)
-    check.equal(store[key], nil)
+    store:set(key, "ready")
+    store:clear()
+    check.equal(store:get(key), nil)
     check.assert(rawequal(data.findKey("store.test.clear"), key), "clearing touched the registry")
-    store[key] = "again"
-    check.equal(store[key], "again")
+    store:set(key, "again")
+    check.equal(store:get(key), "again")
 end
 
-function M.storeEntriesAscendByIdAndCarryNoValue()
+function M.entriesAscendByIdAndCarryNoValue()
     local named = data.newKey("store.test.inspect")
     local anonymous = data.newKey(nil)
     local store = data.newStore()
-    store[anonymous] = 4
-    store[named] = "text"
+    store:set(anonymous, 4)
+    store:set(named, "text")
     local seen = {}
-    for id, name, valueType in data.storeEntries(store) do
+    for id, name, valueType in store:entries() do
         seen[#seen + 1] = {id = id, name = name, valueType = valueType}
     end
     check.equal(#seen, 2)
@@ -170,14 +177,14 @@ function M.storeEntriesAscendByIdAndCarryNoValue()
     check.equal(seen[2].valueType, "number")
 end
 
-function M.storeEntriesWalksABorrowedStore()
+function M.entriesWalkABorrowedStore()
     -- The walk returns the store it was handed as its loop state, so a caller
     -- holding the store as a borrow can drive it without naming the step.
     local key = data.newKey("store.test.step")
     local store = data.newStore()
-    store[key] = "text"
+    store:set(key, "text")
     local seen = {}
-    for id, name, valueType in data.storeEntries(store) do
+    for id, name, valueType in store:entries() do
         seen[#seen + 1] = {id = id, name = name, valueType = valueType}
     end
     check.equal(#seen, 1)
@@ -202,11 +209,11 @@ function M.annotatedDeclarationsTypeTheKey()
         #errors(
             PRELUDE
             .. [=[
-store[frames] = (store[frames] or 0) + 1
-store[state] = new State(frames = 1)
-store[state] = nil
-local current = store[state]
-print(current and current.frames, store[frames])
+store:set(frames, (store:get(frames) or 0) + 1)
+store:set(state, new State(frames = 1))
+store:remove(state)
+local current = store:get(state)
+print(current and current.frames, store:get(frames))
 ]=]
         ),
         0
@@ -215,14 +222,14 @@ end
 
 function M.wrongWritesAndReadsAreRejected()
     check.equal(codes(PRELUDE .. [=[
-store[frames] = "one"
+store:set(frames, "one")
 ]=])[1], "NUPP2006")
     check.equal(codes(PRELUDE .. [=[
-local text: string = store[frames]
+local text: string = store:get(frames)
 print(text)
 ]=])[1], "NUPP2001")
     check.equal(codes(PRELUDE .. [=[
-store[state] = {frames = 1}
+store:set(state, {frames = 1})
 ]=])[1], "NUPP2006")
 end
 
@@ -267,8 +274,8 @@ print(direct)
             PRELUDE
             .. [=[
 local found = nupp.data.findKey("fixture.frames") as nupp.data.Key<integer>
-store[found] = 2
-print(store[found])
+store:set(found, 2)
+print(store:get(found))
 ]=]
         ),
         0
@@ -285,8 +292,8 @@ function M.anUnannotatedKeyIsGradual()
             PRELUDE
             .. [=[
 local loose = nupp.data.newKey("fixture.loose")
-store[loose] = 7
-local text: string? = store[loose]
+store:set(loose, 7)
+local text: string? = store:get(loose)
 print(text)
 ]=]
         ),

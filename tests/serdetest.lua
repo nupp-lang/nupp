@@ -707,8 +707,8 @@ end
 const serde = nupp.data.serde
 local settings = serde.key("fixture.persisted.settings", serde.of(Settings))
 local store = nupp.data.newStore()
-store[settings] = new Settings(volume = 0.5)
-store[settings] = "loud"
+store:set(settings, new Settings(volume = 0.5))
+store:set(settings, "loud")
 local widened: nupp.data.Key<string> = settings
 print(widened)
 ]=]
@@ -735,13 +735,13 @@ local record Settings
 end
 const serde = nupp.data.serde
 local settings = serde.key("test.persisted.settings", serde.of(Settings))
-local world = nupp.data.newStore()
-world[settings] = new Settings(volume = 0.5, fullscreen = false)
-local saved = serde.saveStore(world)
+local sourceStore = nupp.data.newStore()
+sourceStore:set(settings, new Settings(volume = 0.5, fullscreen = false))
+local saved = serde.saveStore(sourceStore)
 local text = nupp.data.json.encode(saved)
 local restored = nupp.data.newStore()
 serde.loadStore(restored, nupp.data.json.decode(text) as {[string]: any})
-local back = restored[settings]
+local back = restored:get(settings)
 local decoded = nupp.data.json.decode(text) as {[string]: any}
 return {
     plainVolume = saved["test.persisted.settings"].volume,
@@ -749,7 +749,7 @@ return {
     textFullscreen = decoded["test.persisted.settings"].fullscreen,
     volume = back and back.volume,
     fullscreen = back and back.fullscreen,
-    typed = back ~= nil and getmetatable(back) == getmetatable(world[settings]),
+    typed = back ~= nil and getmetatable(back) == getmetatable(sourceStore:get(settings)),
 }
 ]=]
     )
@@ -779,12 +779,12 @@ local function saving(store: nupp.data.Store): (boolean, any)
     end)
 end
 local store = nupp.data.newStore()
-store[settings] = new Settings(volume = 1)
+store:set(settings, new Settings(volume = 1))
 local okBound = saving(store)
-store[plain] = 1
+store:set(plain, 1)
 local okPlain, whyPlain = saving(store)
-store[plain] = nil
-store[anonymous] = 1
+store:remove(plain)
+store:set(anonymous, 1)
 local okAnonymous, whyAnonymous = saving(store)
 return {okBound = okBound, okPlain = okPlain, whyPlain = tostring(whyPlain),
     okAnonymous = okAnonymous, whyAnonymous = tostring(whyAnonymous)}
@@ -815,7 +815,7 @@ end
 local okMissing, whyMissing = loading({["test.persisted.load.missing"] = {}})
 local okPlain, whyPlain = loading({["test.persisted.load.plain"] = 1})
 return {okMissing = okMissing, whyMissing = tostring(whyMissing), okPlain = okPlain, whyPlain = tostring(whyPlain),
-    untouched = store[plain] == nil}
+    untouched = store:get(plain) == nil}
 ]=]
     )
     assert(

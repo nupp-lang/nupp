@@ -73,21 +73,22 @@ local settings: nupp.data.Key<Settings> = nupp.data.newKey("game.settings")
 local frames: nupp.data.Key<integer> = nupp.data.newKey("game.frames")
 local scratch: nupp.data.Key<string> = nupp.data.newKey(nil)
 
-local world = nupp.data.newStore()
-world[settings] = new Settings(volume = 0.5)
-world[frames] = (world[frames] or 0) + 1
-world[scratch] = "temporary"
-world[scratch] = nil -- removes the entry
+local store = nupp.data.newStore()
+store:set(settings, new Settings(volume = 0.5))
+store:set(frames, (store:get(frames) or 0) + 1)
+store:set(scratch, "temporary")
+store:remove(scratch)
 
-local current = world[settings] -- Settings?
+local current = store:get(settings) -- Settings?
 assert(current ~= nil and current.volume == 0.5)
 ```
 
-A read is `T?`, a write accepts `T?`, and `nil` removes the entry; `false`,
-zero, and the empty string are stored as given. A wrong write through a key
-is `NUPP2006`, a wrong read is `NUPP2001`, and a key does not widen or narrow
-to another value type. A declaration with no annotation is `Key<any>`, which
-the store checks nothing through, so the annotation is what makes a key typed.
+`Store:get` returns `T?`; `Store:set` accepts `T` and raises on nil, while
+`Store:remove` deletes an entry. `false`, zero, and the empty string are stored
+as given. An incompatible non-nil value passed to `set` is `NUPP2006`, a wrong
+read is `NUPP2001`, and a key does not widen or narrow to another value type. A
+declaration with no annotation is `Key<any>`, which the store checks nothing
+through, so the annotation is what makes a key typed.
 
 Names are opaque strings registered once per runtime state. The empty name and
 a name already registered raise before an id is used; anonymous keys are always
@@ -110,15 +111,15 @@ id: the name is the identity that persists, and
 [schema-driven serde](docs/learn/runtime/data/serde.md#persisting-a-store) saves and
 loads a store by it.
 
-`clearStore` drops every value and touches no registration. `storeEntries`
-walks the occupied keys ascending by id, reporting the id, the name, nil for an
-anonymous key, and the Lua type name of the value, never the value itself. The
-walk allocates nothing: the step is one shared function, the loop state is the
-store, and ids are dense and ascending, so the order is the sorted order
-without a sort.
+`Store:remove` drops one value and `Store:clear` drops every value, neither
+touching registration. `Store:entries` walks the occupied keys ascending by id,
+reporting the id, the name, nil for an anonymous key, and the Lua type name of
+the value, never the value itself. The walk allocates nothing: the step is one
+shared function, the loop state is the store, and ids are dense and ascending,
+so the order is the sorted order without a sort.
 
 ```nupp
-for id, name, valueType in nupp.data.storeEntries(world) do
+for id, name, valueType in store:entries() do
     assert(id > 0 and type(valueType) == "string")
 end
 ```
@@ -263,7 +264,7 @@ export type Key<T> = store.Key<T>
 --- An independent typed bag indexed by keys.
 export type Store = store.Store
 
---- The step of [](nupp.data.storeEntries).
+--- The step of [](nupp.data.Store.entries).
 export type StoreStep = store.StoreStep
 
 --- The step of [](nupp.data.registeredKeys).
@@ -302,24 +303,6 @@ end
 --- @export
 function data.newStore(): Store
     return store.new()
-end
-
---- Removes every value from a store without touching any registration.
---- @param value the store to clear
---- @return nothing
---- @export
-function data.clearStore(value: Store): nil
-    store.clear(value)
-end
-
---- Walks every occupied key of a store, ascending by id, without its values.
---- @param value the store to walk
---- @return the step the loop calls
---- @return the store it walks
---- @return the id to resume after, 0 to start
---- @export
-function data.storeEntries(borrows value: Store): (StoreStep, Store borrows (value), integer)
-    return store.step as StoreStep, value, 0
 end
 
 export = data

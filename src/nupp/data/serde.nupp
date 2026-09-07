@@ -107,7 +107,7 @@ export record Member
 
     --- Answers typed metadata attached to this member.
     function metadata<T>(self, key: MetadataKey<T>): T?
-        return self.metadataValues[key]
+        return self.metadataValues:get(key)
     end
 end
 
@@ -126,7 +126,7 @@ export record Schema
 
     --- Answers typed metadata attached to this schema node.
     function metadata<T>(self, key: MetadataKey<T>): T?
-        return (self.state.metadata as store.Store)[key]
+        return (self.state.metadata as store.Store):get(key)
     end
 
     --- Finds a structure member by its logical name.
@@ -274,7 +274,7 @@ local function builderAdd(
         required = required,
         hasDefault = hasDefault,
         defaultValue = defaultValue,
-        metadata = {},
+        metadata = store.new(),
     }
 end
 
@@ -322,7 +322,7 @@ export record SchemaBuilder
     function metadata<T>(self, key: MetadataKey<T>, value: T): SchemaBuilder
         local state = builderMutable(self)
         local metadata = state.metadata as store.Store
-        metadata[key] = value
+        metadata:set(key, value)
         return self
     end
 
@@ -333,7 +333,7 @@ export record SchemaBuilder
         for _, member in ipairs(state.members) do
             if member.name == name then
                 local metadata = member.metadata as store.Store
-                metadata[key] = value
+                metadata:set(key, value)
                 return self
             end
         end
@@ -724,10 +724,10 @@ bindingForEntry = function(entry: any): any
     for index, field in ipairs(recipe.fields) do
         local metadata = store.new()
         if field.debugSkip then
-            metadata[debugSkip] = true
+            metadata:set(debugSkip, true)
         end
         if field.debugRedact then
-            metadata[debugRedact] = true
+            metadata:set(debugRedact, true)
         end
         local member = new Member(
             index = index,
@@ -1823,13 +1823,13 @@ end
 export function saveStore(borrows value: store.Store): {[string]: any}
     local profile = json().profile
     local out: {[string]: any} = {}
-    for id, name in store.entries(value) do
+    for id, name in value:entries() do
         local entry = persistedKeys[id]
         if entry == nil then
             error("nupp: key " .. (name or ("#" .. tostring(id))) .. " has no binding to save it", 2)
         end
         local binding: any = entry.binding
-        local held = value[entry.key as store.Key<any>]
+        local held = value:get(entry.key as store.Key<any>)
         out[name as string] = toDocument(held, binding:schema(), profile, binding:extension(accessKey))
     end
 
@@ -1861,6 +1861,6 @@ export function loadStore(exclusive value: store.Store, saved: {[string]: any}):
             error("nupp: key " .. name .. " has no binding to load it", 2)
         end
         local binding: any = entry.binding
-        value[target] = fromDocument(plain, binding:schema(), profile, binding:extension(accessKey))
+        value:set(target, fromDocument(plain, binding:schema(), profile, binding:extension(accessKey)))
     end
 end

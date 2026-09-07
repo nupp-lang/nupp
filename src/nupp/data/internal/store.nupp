@@ -4,8 +4,8 @@ module nupp.data.internal.store
 Typed keys and the stores they index.
 
 A key is a phantom-typed identity: Nupp remembers `T`, the runtime holds an id
-and an optional name. A store is one table indexed by id behind two generic
-metamethods, so `store[key]` reads `T?` and `store[key] = value` accepts `T?`.
+and an optional name. A store is one table indexed by id behind generic methods,
+so `store:get(key)` reads `T?` and `store:set(key, value)` accepts `T`.
 
 Names are opaque strings registered once per runtime state. Ids are allocated
 in declaration order and identify a key inside this state only; the name is the
@@ -30,16 +30,24 @@ end
 --- @export
 export record Store
     private values: {[integer]: any}
-    metamethod __index: function<T>(self, key: Key<T>): T?
-    metamethod __newindex: function<T>(self, key: Key<T>, value: T?)
-end
 
-Store.__index = function<T>(self: Store, key: Key<T>): T?
-    return self.values[key.id] as T?
-end
+    --- Answers the value held under a key.
+    get: function<T>(self: Store, key: Key<T>): T?
 
-Store.__newindex = function<T>(self: Store, key: Key<T>, value: T?): nil
-    self.values[key.id] = value
+    --- Stores a non-nil value under a key.
+    --- @raises when value is nil; use [](remove) to delete an entry
+    set: function<T>(self: Store, key: Key<T>, value: T): nil
+
+    --- Removes the value held under a key.
+    remove: function<T>(self: Store, key: Key<T>): nil
+
+    --- Removes every value without touching key registration.
+    clear: function(self: Store): nil
+
+    --- Walks every occupied key ascending by id, without its value.
+    entries: function(
+        borrows self: Store
+    ): (function(Store, integer): (integer, string?, string), Store borrows (self), integer)
 end
 
 local nextId: integer = 1
@@ -126,31 +134,40 @@ export function new(): Store
     return new Store(values = {})
 end
 
---- Removes every value from a store without touching any registration.
---- @param store the store to clear
---- @return nothing
---- @export
-export function clear(store: Store): nil
-    store.values = {}
+function Store.get<T>(self: Store, key: Key<T>): T?
+    return self.values[key.id] as T?
 end
 
---- The step of [](nupp.data.storeEntries).
+function Store.set<T>(self: Store, key: Key<T>, value: T): nil
+    if value == nil then
+        error("nupp: Store:set value must not be nil; use Store:remove", 2)
+    end
+    self.values[key.id] = value
+end
+
+function Store.remove<T>(self: Store, key: Key<T>): nil
+    self.values[key.id] = nil
+end
+
+function Store.clear(self: Store): nil
+    self.values = {}
+end
+
+--- The step of [](Store.entries).
 ---
 --- Terminating on nil is the generic for's business, so the surface type
 --- promises what the loop delivers rather than what the last call returns.
 --- @export
 export type StoreStep = function(Store, integer): (integer, string?, string)
 
---- The step the walk hands the generic for: the first occupied key after an
---- id, or nil once there is none. Exported for the public walk, which returns
---- its own borrowed parameter as the loop state beside it.
+--- The step the walk hands the generic for: the first occupied key after an id,
+--- or nil once there is none.
 --- @param store the store to read
 --- @param after the id to resume after, 0 to start
 --- @return the id, or nil once the walk is done
 --- @return the key's name, nil for an anonymous key
 --- @return the Lua type name of the value
---- @export
-export function step(store: Store, after: integer): (integer?, string?, string?)
+local function step(store: Store, after: integer): (integer?, string?, string?)
     local id: integer = after + 1
     local last: integer = nextId - 1
     while id <= last do
@@ -171,11 +188,10 @@ end
 --- dense and ascending, so the order is the sorted order without a sort. It
 --- never yields a value, so a caller can list a store without holding what is
 --- in it.
---- @param store the store to walk
+--- @param self the store to walk
 --- @return the step the loop calls
 --- @return the store it walks
 --- @return the id to resume after, 0 to start
---- @export
-export function entries(borrows store: Store): (StoreStep, Store borrows (store), integer)
-    return step as StoreStep, store, 0
+function Store.entries(borrows self: Store): (StoreStep, Store borrows (self), integer)
+    return step as StoreStep, self, 0
 end
