@@ -22,7 +22,8 @@ local runtime = {}
 function runtime.install(
     env: envMod.Env,
     compile: function(path: string, env: envMod.Env): (string?, string?),
-    loaded: function(name: string, path: string, ok: boolean)?
+    loaded: function(name: string, path: string, ok: boolean)?,
+    checkPlain: function(path: string, env: envMod.Env): boolean?
 ): function(): nil
     local loaders = package.loaders
     assert(loaders, "this Lua runtime does not expose package loaders")
@@ -65,6 +66,14 @@ function runtime.install(
             end
             chunk, loadErr = loadstring(code, "@" .. path)
         else
+            -- A plain Lua module runs as written, but what its annotations claim is
+            -- what a typed caller was checked against, so a body that breaks its own
+            -- contract is refused the way a `.nupp` module with an error is. Without
+            -- this a `.lua` dependency could hand strict code a value of the wrong
+            -- type, which `nupp build` refuses and `nupp run` used to let through.
+            if checkPlain and not checkPlain(path, env) then
+                error(("error checking lua module '%s' from '%s': type errors"):format(name, path), 0)
+            end
             chunk, loadErr = loadfile(path)
         end
         if not chunk then

@@ -207,6 +207,41 @@ print(answer.value)
    end)
 end
 
+-- A `.lua` dependency whose body breaks the contract its annotations declare is
+-- refused at run, the way a `.nupp` dependency with an error is: strict code was
+-- checked against the claim, so running the body would hand it the wrong value.
+function M.cliRunRefusesALuaDependencyThatBreaksItsContract()
+   withProject({
+      ["nupp.lua"] = "return { include = { 'src' } }\n",
+      ["main.nupp"] = [[
+local cats = require("runtimelyingcats")
+local name: string = cats.name()
+print(name:upper())
+]],
+      ["src/runtimelyingcats.lua"] = [[
+local M = {}
+---@return string
+function M.name()
+   local v = 42
+   return v
+end
+return M
+]],
+   }, function(dir)
+      local output = dir .. "/output.txt"
+      local errors = dir .. "/errors.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run main.nupp "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
+      local status = os.execute(command)
+      assert(status ~= 0, "a lying .lua dependency ran")
+      local said = readFile(errors)
+      assert(said:find("NUPP2002", 1, true), "the contract violation was not reported: " .. said)
+      assert(said:find("error checking lua module 'runtimelyingcats'", 1, true),
+         "the run was not refused for the dependency: " .. said)
+      assertEq(readFile(output), "", "the program ran anyway")
+   end)
+end
+
 function M.cliRunLoadsCrossModuleDeriveDependencies()
    withProject({
       ["nupp.lua"] = "return { include = { 'src' } }\n",

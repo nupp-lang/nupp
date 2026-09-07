@@ -218,7 +218,12 @@ local function run(parsed: any): integer
             return compile.module(modulePath, env, settings)
         end
     end
-    local removeLoader = runtime.install(projectEnv, compileLoaded, loaded)
+    -- A `.lua` dependency is checked before it runs, so a LuaCATS contract its body
+    -- breaks refuses the run rather than reaching strict code as the wrong value.
+    local checkPlain = function(modulePath: string, env: any): boolean
+        return compile.check(modulePath, env, {strict = settings.strict, dialect = settings.dialect}) ~= nil
+    end
+    local removeLoader = runtime.install(projectEnv, compileLoaded, loaded, checkPlain)
     local ok, runErr = pcall(chunk, unpack(programArgs))
     removeLoader()
     if watch then
