@@ -1056,6 +1056,29 @@ function functions.install(c: state.Checker): state.StatHandlers
         body.partitionResults = nil
         body.partitionReturnSeen = {}
         c.checkBlock(body.body, true) -- scope already pushed
+        -- Running off the end returns nothing, which a declared result has to admit
+        -- the way it would admit `return` with no values. A constructor's result is
+        -- what `new` yields, not what its body returns.
+        if annotated and #annotated > 0 and not body.constructorOwner and c.fallsThrough(body.body) then
+            local missing = nil
+            for j, resultT in ipairs(annotated) do
+                if not isA(T.nil_, resultT) then
+                    missing = j
+                    break
+                end
+            end
+            if missing then
+                local last = body[#body]
+                local endTok = last and cst.isToken(last) and last.text == "end" and last or nil
+                c.diag(
+                    "NUPP2002",
+                    endTok or body.body or body,
+                    (
+                        "control reaches the end of the function without returning result %d: %s"
+                    ):format(missing, T.tostring(annotated[missing]))
+                )
+            end
+        end
         c.constructorFieldStack[#c.constructorFieldStack] = nil
         c.closureCaptureStack[#c.closureCaptureStack] = nil
         if #captures > 0 and body.body and not body.captureBindingStat then

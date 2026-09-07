@@ -991,6 +991,13 @@ function control.install(c: state.Checker): state.StatHandlers
                 allBranchesLeave = false
             end
         end
+        -- A chain that leaves through every branch and handles every member of its
+        -- subject is complete: nothing runs after it, so the end of the enclosing
+        -- body is not reached through it. One that misses members is reported below
+        -- as the dispatch it claims to be, rather than again as a missing return.
+        if dispatchKey and dispatchKey ~= false and not stat.elseClause and allBranchesLeave and dispatchTotal then
+            (stat as any).exhaustiveDispatch = true
+        end
         if dispatchKey
             and dispatchKey ~= false
             and not stat.elseClause
@@ -1002,6 +1009,7 @@ function control.install(c: state.Checker): state.StatHandlers
             local remaining = accumulatedElse[dispatchKey]
             local missing = remaining and memberSet(remaining) or nil
             if missing and #missing > 0 then
+                (stat as any).exhaustiveDispatch = true
                 local names = {}
                 for j, m in ipairs(missing) do
                     names[j] = ("%q"):format(m.tag == "literal" and m.constant or "?")

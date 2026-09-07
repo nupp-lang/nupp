@@ -2060,6 +2060,99 @@ function checkMod.check(
         return false
     end
 
+    --- Whether a loop body can leave the loop early: a `break` that belongs to this
+    --- loop rather than to one nested inside it, or to a function literal.
+    ---
+    --- @param x the loop body, or a node within it
+    local function breaksOut(x: Node?): boolean
+        if not x or cst.isToken(x) then
+            return false
+        end
+        local kind = x.kind
+        if kind == "breakStmt" then
+            return true
+        end
+        if kind == "funcbody"
+            or kind == "shortfn"
+            or kind == "whileStmt"
+            or kind == "repeatStmt"
+            or kind == "fornumStmt"
+            or kind == "forinStmt"
+        then
+            return false
+        end
+        for _, child in ipairs(x) do
+            if not cst.isToken(child) and breaksOut(child as Node) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    local completesNormally
+
+    --- Whether control can run off the end of this block: no statement on the way
+    --- always leaves, or a label lets a jump land past one that does. Where a
+    --- statement's exits cannot be told apart syntactically -- a loop whose condition
+    --- is not the literal `true`, an `if` chain the checker did not find exhaustive --
+    --- the block is taken to complete, so a function is only ever asked for a
+    --- `return` it may truly be missing rather than one it wrote another way.
+    ---
+    --- @param block the body to judge
+    local function fallsThrough(block: Node?): boolean
+        local stats = block and block.kind == "block" and block.stats or {}
+        local reachable = true
+        for _, stat in ipairs(stats) do
+            if stat.kind == "labelStmt" then
+                reachable = true
+            elseif reachable and not completesNormally(stat) then
+                reachable = false
+            end
+        end
+
+        return reachable
+    end
+
+    --- Whether this statement can complete and hand control to the one after it.
+    ---
+    --- @param stat the statement to judge
+    completesNormally = function(node: Node): boolean
+        local stat = node as any
+        local kind = stat.kind
+        if kind == "returnStmt" or kind == "breakStmt" or kind == "continueStmt" or kind == "gotoStmt" then
+            return false
+        elseif kind == "callStmt" then
+            return not neverReturns(stat.expr)
+        elseif kind == "doStmt"
+            or kind == "unsafeStmt"
+            or kind == "noSuspendStmt"
+            or kind == "effectRegionStmt"
+            or kind == "withStmt"
+            or kind == "handleStmt"
+        then
+            return fallsThrough(stat.body)
+        elseif kind == "ifStmt" then
+            if not stat.elseClause then
+                return not stat.exhaustiveDispatch
+            end
+            for _, clause in ipairs(stat.clauses) do
+                if fallsThrough(clause.body) then
+                    return true
+                end
+            end
+            return fallsThrough(stat.elseClause.body)
+        elseif kind == "whileStmt" then
+            local cond = stat.cond
+            return not (cond and cond.kind == "trueExpr") or breaksOut(stat.body)
+        elseif kind == "repeatStmt" then
+            local cond = stat.cond
+            return not (cond and cond.kind == "falseExpr") or breaksOut(stat.body)
+        end
+
+        return true
+    end
+
     --- Whether every path out of this block raises rather than returning: the last
     --- statement is a call that never comes back, or a `do` block or a complete `if`
     --- chain of which the same is true. This is what makes a helper that only ever
@@ -2246,6 +2339,7 @@ function checkMod.check(
     c.recordModuleField = recordModuleField
     c.constModuleField = constModuleField
     c.alwaysExits = alwaysExits
+    c.fallsThrough = fallsThrough
     c.alwaysRaises = alwaysRaises
     c.returnsSomewhere = returnsSomewhere
 

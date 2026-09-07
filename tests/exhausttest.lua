@@ -119,7 +119,7 @@ end
 function M.chainsOverDifferentSubjectsAreLeftAlone()
    assertEq(diagsOf(COLOR .. table.concat({
       "",
-      "local function pick(a: Color, b: Color): string",
+      "local function pick(a: Color, b: Color): string?",
       "    if a == 'red' then",
       "        return 'a'",
       "    elseif b == 'green' then",
@@ -131,7 +131,7 @@ end
 
 function M.nonEnumChainsAreUnaffected()
    assertEq(diagsOf(table.concat({
-      "local function f(s: string): string",
+      "local function f(s: string): string?",
       "    if s == 'a' then",
       "        return '1'",
       "    elseif s == 'b' then",

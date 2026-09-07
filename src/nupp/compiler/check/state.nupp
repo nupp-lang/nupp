@@ -672,6 +672,9 @@ record state.Checker
     --- Whether every path out of a block leaves it, and whether every path raises.
     alwaysExits: function(block: Node?): boolean
 
+    --- Whether control can run off the end of this block.
+    fallsThrough: function(block: Node?): boolean
+
     alwaysRaises: function(block: Node?): boolean
 
     --- Whether a node returns a value anywhere inside it.

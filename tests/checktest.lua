@@ -1065,6 +1065,52 @@ function M.omittedArgumentMustAcceptNil()
    assertClean("local xs = {3, 1}\ntable.sort(xs)")
 end
 
+function M.fallingOffTheEndNeedsAnOptionalResult()
+   -- Running off the end returns nothing, so a declared result has to admit nil.
+   local code, diags = diagsOf(table.concat({
+      "local function maybe(flag: boolean): string",
+      "    if flag then return 's' end",
+      "end",
+      "return maybe",
+   }, "\n"))
+   assertEq(code, "NUPP2002:3")
+   assert(diags[1].msg:find("end of the function without returning", 1, true), diags[1].msg)
+   assertEq((diagsOf("local function f(): integer, string\n    return 1\nend")), "NUPP2002:2")
+   assertClean("local function maybe(flag: boolean): string?\n    if flag then return 's' end\nend")
+   assertClean("local function f(): string, integer?\n    return 's'\nend")
+   assertClean("local function f(flag: boolean): string\n    if flag then return 'a' else return 'b' end\nend")
+   assertClean("local function f(n: integer): string\n    if n == 1 then return 'a' elseif n == 2 then return 'b' else error('x') end\nend")
+   assertClean("local function f(): string\n    do return 'a' end\nend")
+   assertClean("local function f(): string\n    while true do\n        return 'a'\n    end\nend")
+   assertClean("local function f(): string\n    repeat\n        return 'a'\n    until false\nend")
+   assertClean("local function f(): string\n    error('never')\nend")
+   assertClean("local function f(): string\n    ::again::\n    do return 'a' end\n    goto again\nend")
+   assertEq((diagsOf("local function f(flag: boolean): string\n    while flag do return 'a' end\nend")), "NUPP2002:3")
+   assertEq((diagsOf("local function f(): string\n    while true do\n        if math.random() > 0.5 then break end\n    end\nend")), "NUPP2002:5")
+   assertEq((diagsOf("local function f(): string\n    for _ = 1, 3 do return 'a' end\nend")), "NUPP2002:3")
+   assertEq((diagsOf("local function f(flag: boolean): string\n    if flag then return 'a' elseif not flag then return 'b' end\nend")), "NUPP2002:3")
+   -- Reaching the end of a body that ends in a label is reaching a target.
+   assertEq((diagsOf("local function f(): string\n    do return 'a' end\n    ::done::\nend")), "NUPP2002:4")
+   -- A chain over every member of a literal union, leaving through each, is complete.
+   assertClean(table.concat({
+      "local type Color = 'red' | 'green'",
+      "local function name(c: Color): string",
+      "    if c == 'red' then return 'r' elseif c == 'green' then return 'g' end",
+      "end",
+   }, "\n"))
+   -- A constructor's result is what `new` yields, not what its body returns.
+   assertClean(table.concat({
+      "local record Box",
+      "    value: integer",
+      "    constructor(self, value: integer): Box",
+      "        self.value = value",
+      "    end",
+      "end",
+      "local b = new Box(1)",
+      "print(b.value)",
+   }, "\n"))
+end
+
 function M.fieldChecking()
    assertEq((diagsOf(
       "local p: {x: number} = {x = 1}\nlocal y = p.nope")), "NUPP2004:2")
