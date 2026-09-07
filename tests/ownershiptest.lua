@@ -6451,6 +6451,29 @@ function M.anOwnerCannotBeConstructedIntoAnAnyField()
     )
 end
 
+-- The prelude's identity and rendering helpers read their argument and keep
+-- nothing, so a borrow may reach them. They were declared over plain `any`, and
+-- holding a borrow at the any boundary then refused `tostring(view)` and
+-- `rawequal(view, other)` alongside the stores that actually retain.
+function M.aBorrowMayReachThePreludesNonRetainingHelpers()
+    assertClean(
+        CLOSURE_RESOURCE .. table.concat(
+            {
+                "",
+                "local function probe(borrows r: ClosureResource): string",
+                "   local same = rawequal(r, r)",
+                "   local n = rawlen({})",
+                "   return type(r) .. tostring(r) .. tostring(same) .. tostring(n)",
+                "end",
+                "local r = openClosureResource(1)",
+                "print(probe(r))",
+                "drop(r)",
+            },
+            "\n"
+        )
+    )
+end
+
 -- An owner is introduced by a typed producer or an audited adoption. Annotating a
 -- binding minted one on whatever the initializer was -- a plain table from any --
 -- and the scope exit then ran cleanup on something that was never a resource.

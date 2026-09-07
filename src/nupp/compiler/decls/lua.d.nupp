@@ -45,7 +45,7 @@ local print: nosuspend function(...: any)
 ---
 --- @param v the value to classify
 --- @return the type name
-local type: nosuspend function(v: any): ("nil"
+local type: nosuspend function(borrows v: any): ("nil"
     | "boolean"
     | "number"
     | "string"
@@ -59,7 +59,7 @@ local type: nosuspend function(v: any): ("nil"
 ---
 --- @param v the value to convert
 --- @return the string form of `v`
-local tostring: nosuspend function(v: any): string
+local tostring: nosuspend function(borrows v: any): string
 
 --- Converts a value to a number, or nil when it has no numeric meaning. With `base`,
 --- `v` is read as an unsigned integer numeral in that base.
@@ -124,13 +124,13 @@ local rawset: nosuspend function(t: table, k: any, v: any): table
 --- @param a the left value
 --- @param b the right value
 --- @return whether the values are primitively equal
-local rawequal: nosuspend function(a: any, b: any): boolean
+local rawequal: nosuspend function(borrows a: any, borrows b: any): boolean
 
 --- Returns the length of a table or string without consulting a `__len` metamethod.
 ---
 --- @param v the table or string to measure
 --- @return the length
-local rawlen: nosuspend function(v: any): integer
+local rawlen: nosuspend function(borrows v: any): integer
 
 --- Sets `t`'s metatable, or removes it when `mt` is nil. Raises when the current
 --- metatable has a `__metatable` field.
