@@ -608,6 +608,12 @@ function expr.install(c: state.Checker): nil
                 if exact then
                     arm.switchStaticResult = exact
                 end
+                -- An owner an arm names leaves with the switch's value, so it moves
+                -- on that arm; the join then treats the arms like a branch's. Last,
+                -- after the arm's final read of it above.
+                if c.ownershipKind(resultType) == "affine" and c.ownershipEntry(arm.expr) then
+                    c.moveExpression(arm.expr, resultType, "switch result", "affine")
+                end
             elseif arm.body then
                 expressionResultsOnly = false
                 local yielded: {Type} = {}

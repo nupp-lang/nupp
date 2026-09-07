@@ -437,9 +437,13 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         collector[#collector + 1] = valueT
         stat.switchResultType = valueT
-        -- The value leaves with the switch, whose own statement accounts for it.
+        -- The value leaves with the switch, whose own statement accounts for it; a
+        -- named owner moves out here.
         if ownershipKind(valueT) == "affine" then
             c.markTemporaryConsumed(stat.value)
+            if c.ownershipEntry(stat.value) then
+                moveExpression(stat.value, valueT, "switch result", "affine")
+            end
         end
     end
 

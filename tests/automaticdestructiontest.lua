@@ -806,4 +806,25 @@ function M.anOptionalSlotFilledLaterIsDroppedAtScopeEnd()
    assertEq(chunk(), "<b>b")
 end
 
+function M.aSwitchArmHandsItsOwnerToTheBindingOnce()
+   -- The binding's switch used to fail to lift, and once lifted the arm that
+   -- named an owner left its slot active, so both closed it.
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "local function pick(flag: boolean): nil",
+      "   local a = open_resource('a')",
+      "   local b = switch flag do",
+      "      case true -> a",
+      "      else -> do yield open_resource('b') end",
+      "   end",
+      "   calls = calls .. '<' .. b.name .. '>'",
+      "end",
+      "pick(true)",
+      "calls = calls .. '|'",
+      "pick(false)",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), "<a>a|<b>ba")
+end
+
 return M

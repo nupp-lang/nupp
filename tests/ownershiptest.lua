@@ -6063,4 +6063,50 @@ function M.anOptionalOwnerSlotIsFilledOnceAndClearedAfterDischarge()
     )
 end
 
+-- A switch arm that names an owner moves it into the switch's value, so the name
+-- is spent afterwards and the binding that takes the value closes it once.
+function M.aSwitchArmNamingAnOwnerMovesIt()
+    assertClean(
+        CONSUMABLE
+        .. "\n"
+        .. table.concat(
+            {
+                "local function pick(flag: boolean): nil",
+                "   local a = open(1)",
+                "   local b = switch flag do",
+                "      case true -> a",
+                "      else -> do yield open(2) end",
+                "   end",
+                "   drop b",
+                "end",
+                "pick(true)",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            CONSUMABLE
+            .. "\n"
+            .. table.concat(
+                {
+                    "local function use(borrows r: Res): nil print(r.id) end",
+                    "local function pick(flag: boolean): nil",
+                    "   local a = open(1)",
+                    "   local b = switch flag do",
+                    "      case true -> a",
+                    "      else -> open(2)",
+                    "   end",
+                    "   use(a)",
+                    "   drop b",
+                    "end",
+                    "pick(true)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2601"
+    )
+end
+
 return M

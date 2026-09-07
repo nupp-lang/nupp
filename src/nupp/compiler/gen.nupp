@@ -2868,6 +2868,22 @@ function gen.generate(
 
     local lowerSwitch
     local planSwitchStatement
+    local activeFlag, ownershipMoveOf
+
+    -- The result of a switch arm that names an owner moves it: its region flag is
+    -- cleared right after the value is taken, as a binding's acquisition would.
+    -- On emitDepth rather than a local: the generator is at Lua's local limit, and
+    -- the statement emitter at its upvalue limit.
+    function emitDepth.emitArmResult(resultName, expr)
+        e(resultName .. "=")
+        emit(expr)
+        local move = ownershipMoveOf(expr)
+        local flag = move and activeFlag(move) or nil
+        if flag then
+            e(("; %s=false"):format(flag))
+        end
+    end
+
     local function switchOperands(node): {cst.Node}?
         local kind = node.kind
         if kind == "paren" or kind == "castExpr" or kind == "isExpr" or kind == "unsafeOwnershipExpr" then
@@ -3149,8 +3165,7 @@ function gen.generate(
             end
             if arm.expr then
                 lowerSwitches(arm.expr)
-                e(resultName .. "=")
-                emit(arm.expr)
+                emitDepth.emitArmResult(resultName, arm.expr)
             elseif arm.body then
                 local prior = emitDepth.switchResult
                 emitDepth.switchResult = resultName
@@ -3165,8 +3180,7 @@ function gen.generate(
             coverageHit("statement", arm)
             if arm.expr then
                 lowerSwitches(arm.expr)
-                e(resultName .. "=")
-                emit(arm.expr)
+                emitDepth.emitArmResult(resultName, arm.expr)
             elseif arm.body then
                 local prior = emitDepth.switchResult
                 emitDepth.switchResult = resultName
@@ -3797,7 +3811,7 @@ function gen.generate(
     -- function tracks that owner. Only a move is looked up: a lookup without one
     -- has no flag to answer with, and a lookup that once fell back to the region
     -- itself wrote that table into the output.
-    local function activeFlag(move)
+    activeFlag = function(move)
         local owner = move.owner or move
         for index = #cleanupStack, 1, -1 do
             local ctx = cleanupStack[index]
@@ -3815,7 +3829,7 @@ function gen.generate(
         return nil
     end
 
-    local function ownershipMoveOf(expr)
+    ownershipMoveOf = function(expr)
         while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
             expr = expr.expr
         end
@@ -4064,8 +4078,8 @@ function gen.generate(
             local resultName = emitDepth.switchResult
             if resultName and x.value then
                 emitDepth.lowerSwitches(x.value)
-                e(resultName .. "=", sourceLine(x))
-                emit(x.value)
+                e("", sourceLine(x))
+                emitDepth.emitArmResult(resultName, x.value)
             else
                 e("nil", sourceLine(x))
             end
@@ -6667,6 +6681,14 @@ function gen.generate(
             emit(region)
 
         elseif kind == "cleanupRegion" or kind == "withStmt" then
+            -- A declaration that became this region's first binding was a switch
+            -- statement root before the region replaced it, and a switch in its
+            -- value is lifted here as it would have been there. Lifting the first
+            -- acquisition keeps evaluation order: nothing of the region has run yet.
+            local first = x.bindings and x.bindings[1] or nil
+            if first and first.expr and #x.bindings == 1 and emitDepth.switchContains(first.expr) then
+                emitDepth.lowerSwitches(first.expr)
+            end
             if kind == "withStmt" then
                 x.enclosingCaptures = automaticCaptures(x.body, x.bindings)
                 x.capturesEnclosing = #x.enclosingCaptures > 0
@@ -6973,8 +6995,18 @@ function gen.generate(
                     return table.concat(clauses, " or ")
                 end
 
+                -- Each acquisition is a statement of its own here, so a switch in its
+                -- value is lifted just ahead of it, where the declaration would have
+                -- lifted it before the region replaced the declaration.
+                local function liftSwitches(expr)
+                    if expr and not emitDepth.switchTemps[expr] and emitDepth.switchContains(expr) then
+                        emitDepth.lowerSwitches(expr)
+                    end
+                end
+
                 local function activate(j, binding, deferName)
                     local value = nextTemp()
+                    liftSwitches(binding.expr)
                     e(("const %s="):format(value), sourceLine(binding.expr))
                     local cleared = emitAcquired(binding, binding.expr)
                     e(";")
@@ -7003,6 +7035,7 @@ function gen.generate(
                             end
                             local staged = {}
                             for exprIndex, expr in ipairs(exprs) do
+                                liftSwitches(expr)
                                 if exprIndex == #exprs and #names > #exprs then
                                     local packed = nextTemp()
                                     e(("const %s=%s("):format(packed, cleanupPackName), sourceLine(expr))

@@ -542,6 +542,8 @@ local size = switch handle do
 end
 ```
 
+An arm whose value names an owner moves it: the name is spent on that arm, and
+the switch's value carries the obligation to whatever binds or consumes it.
 A block arm may `return` an owner under the ordinary return contract, or `yield`
 a value to the switch merge. When a yield leaves a `with` region, its automatic
 cleanup completes before evaluation resumes after the switch, as it does for
