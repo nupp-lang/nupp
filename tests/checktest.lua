@@ -307,6 +307,25 @@ function M.anArrayIsAnIntegerKeyedMap()
    }, "\n")), "NUPP2001:2")
 end
 
+-- A dotted name is a string literal key, so an indexer keyed by literals admits
+-- the names it lists and no other, the same as the bracketed spelling.
+function M.aDottedNameIsALiteralKeyOfAnIndexer()
+   assertClean(table.concat({
+      "local type K = 'a' | 'b'",
+      "local m: {[K]: integer} = {}",
+      "m.a = 1",
+      "local v: integer? = m.b",
+      "local w: integer? = m['a']",
+      "return {v, w}",
+   }, "\n"))
+   assertEq(diagsOf(table.concat({
+      "local type K = 'a' | 'b'",
+      "local m: {[K]: integer} = {}",
+      "m.c = 1",
+      "return m.d",
+   }, "\n")), "NUPP2004:3 NUPP2004:4")
+end
+
 function M.arrayCovarianceCannotLaunderFunctionEffects()
    assertEq(diagsOf(table.concat({
       "local safe: {nosuspend function(number): number} = {math.floor}",

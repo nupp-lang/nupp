@@ -486,7 +486,7 @@ function calls.install(c: state.Checker): calls.Ops
         -- Only a miss needs the indexer, and composing one across alternatives is what
         -- the view is for. A hit -- which is nearly every access -- never builds one.
         local indexer = members.view(t).readIndexer
-        if indexer and isA(T.string, indexer.keyType) then
+        if indexer and isA(T.literal(name, T.string), indexer.keyType) then
             return T.optional(indexer.valueType)
         end
 
@@ -549,7 +549,7 @@ function calls.install(c: state.Checker): calls.Ops
         end
         -- As above: the view is built only when the name is not a member.
         local indexer = members.view(t).writeIndexer
-        if indexer and isA(T.string, indexer.keyType) then
+        if indexer and isA(T.literal(name, T.string), indexer.keyType) then
             return indexer.valueType
         end
 
