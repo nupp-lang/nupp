@@ -1,4 +1,4 @@
--- The checker rules NEP 33 introduced for typed events: closure literals adopting
+-- The checker rules supporting typed events: closure literals adopting
 -- the modes of the slot they are passed to, pack binders forwarding the contracts
 -- of the arguments that bound them, a declaration's construction contract as a
 -- named pack, and the derive's refusals. The end-to-end fixtures run the compiler

@@ -1,6 +1,6 @@
 ---
 title: Typed events with reusable storage
-status: Superseded by NEP 35
+status: Implemented
 created: 2026-09-06
 ---
 
@@ -11,7 +11,8 @@ created: 2026-09-06
 event by type constructs it into storage the bus already owns, and only when
 something is observing; emitting an existing instance borrows it without
 allocating. Observers receive the event as a call-scoped borrow they can mutate
-but not keep, and the source that delivered it as an exclusive borrow.
+but not keep. State beyond the event comes from an ordinary capture or an event
+field.
 
 The design needs five things the compiler did not have: an initializer split
 out of every constructor, a comptime view of a declaration's construction
@@ -39,8 +40,7 @@ events its Teal router had.
   entities it could have.
 - An observer may mutate the payload and may suspend, and cannot retain the
   payload or a view of it past its own return.
-- A source that owns observers passes itself to them exclusively, without a
-  second bus object whose borrow would overlap its own.
+- A source owns observer state without becoming part of the observer contract.
 - Struct events keep their fixed layout on every backend that has physical
   storage, and are refused rather than degraded where none exists.
 - Every storage and dispatch rule is a checker fixture or a runtime test
@@ -111,14 +111,10 @@ instances are not, so the overloads are disjoint. A struct's witness is the
 bare nominal, so `emit(address, Contact)` and `emit(address, contact)` are
 the same call to the checker and report `NUPP2126`.
 
-**A source and its bus cannot both be borrowed.** Tecs observers take
-`exclusive world: World`. If observer state lived in a `world.events` object
-with its own exclusive `emit`, the dispatcher would hold `world.events` while
-handing `world` to a callback, and a parent region overlaps every descendant
-([NEP 4](0004-ownership.md)), so that is `NUPP2607` unconditionally. The
-current Tecs world avoids it by keeping observer tables as its own fields and
-dispatching from a `World` method, which is the shape a reusable
-implementation has to keep.
+**Observer state needs one owner.** Keeping registrations and reusable storage
+on the source gives registration, dispatch, and cleanup one lifetime. A
+separate bus object would add another ownership root without adding an event
+capability.
 
 ## Overview and specification
 
@@ -144,7 +140,7 @@ end
 
 local bus: events.MessageBus<integer> = events.newMessageBus()
 
-bus:observe(enemy, Damage, |event, source| -> print(event.amount, event.kind), "log")
+bus:observe(enemy, Damage, |event| -> print(event.amount, event.kind), "log")
 bus:observeOnce(enemy, Damage, |event| -> print(event.amount))
 
 bus:emit(enemy, Damage, amount = 10, source = player)
@@ -250,7 +246,7 @@ specialization shares one runtime table and would share one event identity.
 
 ### Observers and their borrows
 
-An observer's type is `function(borrows event: E, exclusive source: S)`. This
+An observer's type is `function(borrows event: E)`. This
 proposal adds one rule to closure checking: a function literal or short
 function checked against an expected function type adopts, for each parameter
 it leaves without a mode, the mode of the corresponding expected parameter.
@@ -264,13 +260,8 @@ With `event` a `borrows` parameter, the checks that already exist do the rest:
 storing it in a table is `NUPP2603`, returning it or assigning it outward is
 `NUPP2608`, and a rooted view derived from it cannot leave the call. Mutation
 is permitted because a shared borrow proves non-invalidation, not
-non-mutation. An observer that takes one parameter fits, since a callable may
-ignore trailing arguments.
-
-`source` is exclusive because the observers Tecs writes mutate the world. The
-dispatcher holds the source exclusively as its own parameter and forwards it,
-which is the sequential forwarding the checker already admits; nothing else
-borrows the source while a callback runs.
+non-mutation. Other state is either captured by the callback or carried by the
+event itself.
 
 ### Sources
 
@@ -292,10 +283,8 @@ each taking it exclusively and reaching observer state through the
 `observers` field. `MessageBus<A>` is a record with that field whose methods
 forward to them; Tecs's `World` adds the field and the same forwarding
 methods. There is no bus object beside the source to overlap it. The observer
-table is an ordinary field, which is what lets the dispatcher read a callback
-list from it and then pass the source on exclusively: a plain table field is
-not a tracked region, and the fixture that proves the whole shape is the first
-thing built.
+table is an ordinary field reached through the source while dispatch updates
+registration bookkeeping.
 
 Addresses are table keys compared by identity. Tecs supplies its packed
 entity ids with their generation, so a recycled slot is a new address, and
@@ -451,10 +440,9 @@ measured separately through the Wasm project harness.
 - **Named slots in a computed tail bet that names belong to packs.** If a pack
   turns out to need to stay nameless, emission by type falls back to the
   derived static in the alternatives, which costs a generic member recipe.
-- **A plain table field is assumed not to be a region.** The dispatcher shape
-  depends on reading `source.observers` and then passing `source` exclusively.
-  The current Tecs world does exactly this and checks, but the fixture is
-  written before anything else in case a later ownership change closes it.
+- **A plain table field is assumed not to be a region.** The dispatcher reaches
+  `source.observers` while holding the source exclusively. The fixture checks
+  that ownership shape directly.
 - **The initializer is a second entry to every constructor body.** Anything
   that reasons about a constructor as one whole, such as the refusal of `@aot`
   on one, has to see both.
