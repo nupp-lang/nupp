@@ -7,8 +7,7 @@ An event is a `record` or a fixed-layout `struct` marked `@derive(events.Event)`
 Emitting one by type constructs it into storage the source already owns, and
 only when something at that address is observing; delivering an instance the
 caller built allocates nothing. Observers receive the event as a call-scoped
-borrow they may write to but not keep, and the source that delivered it as an
-exclusive borrow.
+borrow they may write to but not keep.
 
 ```nupp
 local events = nupp.events
@@ -21,17 +20,19 @@ local record Damage
 end
 
 local bus: events.MessageBus<integer> = events.newMessageBus()
-bus:observe(7, Damage, |event, source| -> print(event.amount, event.kind), "log")
+bus:observe(7, Damage, |event| -> print(event.amount, event.kind), "log")
 bus:emit(7, Damage, amount = 10, source = 3)
 ```
 
 Observer state belongs to a source: `MessageBus<A>` is one, and any record with
 an `observers` field implements [](nupp.events.Source) and dispatches through
-the same functions, passing itself to its observers. Record events draw from a
-[](nupp.mem.pool) and struct events from a [](nupp.mem.arena), each created
-the first time an event type is emitted through a source; `setAllocator`
-installs one the caller owns instead. [NEP 33](../../neps/0033-typed-events.md)
-records why the design is shaped this way.
+the same functions. Record events draw from a [](nupp.mem.pool) and struct
+events from a [](nupp.mem.arena), each created the first time an event type is
+emitted through a source; `setAllocator` installs one the caller owns instead.
+[NEP 33](../../neps/0033-typed-events.md) records the storage design, and [NEP
+35](../../neps/0035-event-only-observers.md) records why observers take only the
+event and reach any other state through explicit event fields or ordinary
+captures.
 ]]
 
 local derive = require("nupp.derive")
@@ -52,14 +53,13 @@ local events = {}
 interface events.Emittable
 end
 
---- An observer of one event type at one source.
+--- An observer of one event type.
 ---
 --- The event is borrowed for the call: it may be read and written, and cannot be
---- stored or returned. The source is the bus or world that delivered it, held
---- exclusively so an observer may change it. A callback that takes only the event
---- fits, since a callable may ignore trailing arguments.
+--- stored or returned. State beyond the event is explicit: capture it in the
+--- observer or carry it as an event field.
 --- @export
-type events.Observer<E, S> = function(borrows event: E, exclusive source: S): nil
+type events.Observer<E> = function(borrows event: E): nil
 
 --- Storage an event type is constructed into and returned to.
 ---
@@ -268,11 +268,11 @@ function events.newObservers<A>(): events.Observers<A>
     )
 end
 
---- Something that owns observers and delivers events to them.
+--- Something that owns observer state.
 ---
 --- A bus or a world implements this by holding an `observers` field; the
 --- dispatch functions take the source exclusively and reach its state through
---- that field, which is what lets a source pass itself to its observers.
+--- that field. The source is not implicitly passed to observers.
 --- @export
 interface events.Source<A>
     observers: events.Observers<A>
@@ -447,7 +447,7 @@ local function register<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
     event: Type<E>,
-    callback: events.Observer<E, S>,
+    callback: events.Observer<E>,
     id: string?,
     once: boolean
 ): nil
@@ -498,7 +498,7 @@ function events.observe<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
     event: Type<E>,
-    callback: events.Observer<E, S>,
+    callback: events.Observer<E>,
     id: string?
 ): nil
     register(source, address, event, callback, id, false)
@@ -519,7 +519,7 @@ function events.observeOnce<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
     event: Type<E>,
-    callback: events.Observer<E, S>,
+    callback: events.Observer<E>,
     id: string?
 ): nil
     register(source, address, event, callback, id, true)
@@ -541,7 +541,7 @@ function events.stopObserving<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
     event: Type<E>,
-    callbackOrId: events.Observer<E, S> | string
+    callbackOrId: events.Observer<E> | string
 ): boolean
     local observers = source.observers as any
     if observers.count == 0 then
@@ -709,28 +709,20 @@ end
 ---
 --- The length is read once, so an observer added during the delivery joins the
 --- next one. A once registration is tombstoned before its callback runs. This
---- runs under `pcall`, which forwards the source with the exclusive contract
---- the emitting call held, and the event as the plain value the source leased
---- or was handed; each observer receives them under its own contract.
-local function deliverTo<A, S is events.Source<A>, E>(
-    exclusive source: S,
-    observers: any,
-    list: any,
-    event: E,
-    borrows address: any,
-    eventId: integer
-): nil
+--- runs under `pcall`, passing the event as the plain value the source leased or
+--- was handed; the observer receives it under its borrowed contract.
+local function deliverTo<E>(observers: any, list: any, borrows event: E, borrows address: any, eventId: integer): nil
     local n: integer = list.n
     if list.once == 0 and list.holes == 0 then
         -- Nothing to consume and nothing to skip: the loop is the calls.
         for index = 1, n do
-            (list[(index - 1) * STRIDE + 2] as events.Observer<E, S>)(event, source)
+            (list[(index - 1) * STRIDE + 2] as events.Observer<E>)(event)
         end
         return
     end
     for index = 1, n do
         local base = (index - 1) * STRIDE
-        local callback = list[base + 2] as events.Observer<E, S>
+        local callback = list[base + 2] as events.Observer<E>
         if callback ~= tombstone then
             if list[base + 3] then
                 list[base + 2] = tombstone
@@ -740,7 +732,7 @@ local function deliverTo<A, S is events.Source<A>, E>(
                 observers.count = observers.count - 1
                 touched(observers, address, eventId, list)
             end
-            callback(event, source)
+            callback(event)
         end
     end
 end
@@ -805,7 +797,7 @@ function events.emit<A, S is events.Source<A>, E is events.Emittable>(
     local fill = info.initializer as function(storage: E, ...: any): E
     local ok, failure = pcall(fill, storage, ...)
     if ok then
-        ok, failure = pcall(deliverTo, source, observers, list, storage, address, info.id)
+        ok, failure = pcall(deliverTo, observers, list, storage, address, info.id)
     end
     finish(observers, allocator, storage, ok, failure)
 end
@@ -837,7 +829,7 @@ function events.deliver<A, S is events.Source<A>, E is events.Emittable>(
         return
     end
     observers.depth = observers.depth + 1
-    local ok, failure = pcall(deliverTo, source, observers, list, instance, address, info.id)
+    local ok, failure = pcall(deliverTo, observers, list, instance, address, info.id)
     finish(observers, nil, nil, ok, failure)
 end
 
@@ -848,8 +840,7 @@ end
 --- A source that is nothing but its observers.
 ---
 --- Every method forwards to the function of the same name, passing the bus as
---- the source, so an observer registered here receives the bus as its second
---- argument.
+--- the source that owns observer state.
 --- @export
 record events.MessageBus<A> is events.Source<A>
     observers: events.Observers<A>
@@ -859,7 +850,7 @@ record events.MessageBus<A> is events.Source<A>
         exclusive self: MessageBus<A>,
         address: A,
         event: Type<E>,
-        callback: events.Observer<E, MessageBus<A>>,
+        callback: events.Observer<E>,
         id: string?
     ): nil
 
@@ -869,7 +860,7 @@ record events.MessageBus<A> is events.Source<A>
         exclusive self: MessageBus<A>,
         address: A,
         event: Type<E>,
-        callback: events.Observer<E, MessageBus<A>>,
+        callback: events.Observer<E>,
         id: string?
     ): nil
 
@@ -878,7 +869,7 @@ record events.MessageBus<A> is events.Source<A>
         exclusive self: MessageBus<A>,
         address: A,
         event: Type<E>,
-        callbackOrId: events.Observer<E, MessageBus<A>> | string
+        callbackOrId: events.Observer<E> | string
     ): boolean
 
     --- Whether anything observes an event here; see [](nupp.events.hasObservers).
@@ -918,7 +909,7 @@ function events.MessageBus.observe<A, E is events.Emittable>(
     exclusive self: events.MessageBus<A>,
     address: A,
     event: Type<E>,
-    callback: events.Observer<E, events.MessageBus<A>>,
+    callback: events.Observer<E>,
     id: string?
 ): nil
     events.observe(self, address, event, callback, id)
@@ -928,7 +919,7 @@ function events.MessageBus.observeOnce<A, E is events.Emittable>(
     exclusive self: events.MessageBus<A>,
     address: A,
     event: Type<E>,
-    callback: events.Observer<E, events.MessageBus<A>>,
+    callback: events.Observer<E>,
     id: string?
 ): nil
     events.observeOnce(self, address, event, callback, id)
@@ -938,7 +929,7 @@ function events.MessageBus.stopObserving<A, E is events.Emittable>(
     exclusive self: events.MessageBus<A>,
     address: A,
     event: Type<E>,
-    callbackOrId: events.Observer<E, events.MessageBus<A>> | string
+    callbackOrId: events.Observer<E> | string
 ): boolean
     return events.stopObserving(self, address, event, callbackOrId)
 end

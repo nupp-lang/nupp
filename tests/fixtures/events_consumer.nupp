@@ -29,8 +29,8 @@ local seen: {string} = {}
 bus:observe(
     7,
     Damage,
-    |event, source| -> do
-        seen[#seen + 1] = ("damage %s %s %s %d"):format(event.amount, event.source, event.kind, source.observers.count)
+    |event| -> do
+        seen[#seen + 1] = ("damage %s %s %s %d"):format(event.amount, event.source, event.kind, bus.observers.count)
         event.amount = event.amount + 1
     end,
     "first"

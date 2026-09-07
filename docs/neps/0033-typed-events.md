@@ -1,6 +1,6 @@
 ---
 title: Typed events with reusable storage
-status: Implemented
+status: Superseded by NEP 35
 created: 2026-09-06
 ---
 

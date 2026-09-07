@@ -230,7 +230,7 @@ function M.observersRunInRegistrationOrderAndSeeEachOthersMutations(): nil
     bus:observe(
         7,
         Damage,
-        |event, source| -> do
+        |event| -> do
             order[#order + 1] = "first " .. tostring(event.amount)
             event.amount = event.amount + 1
         end,
@@ -255,17 +255,24 @@ function M.observersRunInRegistrationOrderAndSeeEachOthersMutations(): nil
     test.equal(order[3], "third 20")
 end
 
-function M.observersReceiveTheSourceThatDelivered(): nil
+function M.observersReachOtherStateThroughCaptures(): nil
     local bus = newBus()
-    local sameBus = false
     local countSeen = 0
-    bus:observe(7, Damage, |event, source| -> do
-        sameBus = rawequal(source, bus)
-        countSeen = source.observers.count
+    bus:observe(7, Damage, |event| -> do
+        countSeen = bus.observers.count
     end)
     bus:emit(7, Damage, amount = 1, source = 1)
-    assert(sameBus, "the bus passes itself as the source")
     test.equal(countSeen, 1)
+end
+
+function M.observersReceiveOnlyTheEvent(): nil
+    local bus = newBus()
+    local argumentCount = 0
+    bus:observe(7, Damage, function(...: any): nil
+        argumentCount = select("#", ...)
+    end)
+    bus:emit(7, Damage, amount = 1, source = 1)
+    test.equal(argumentCount, 1)
 end
 
 function M.deliverHandsTheCallersInstanceToEveryObserverWithoutLeasing(): nil
@@ -394,10 +401,10 @@ function M.anObserverAddedDuringDeliveryJoinsTheNextEmission(): nil
     bus:observe(
         7,
         Damage,
-        |event, source| -> do
+        |event| -> do
             firstRuns = firstRuns + 1
             if firstRuns == 1 then
-                source:observe(
+                bus:observe(
                     7,
                     Damage,
                     |late| -> do
@@ -424,11 +431,11 @@ function M.removalDuringDeliveryTakesEffectNowAndCompactsAfterTheDeliveryLeaves(
     bus:observe(
         7,
         Damage,
-        |event, source| -> do
+        |event| -> do
             order[#order + 1] = "first"
-            assert(source:stopObserving(7, Damage, "third"), "the later registration is removable mid-delivery")
-            assert(source:stopObserving(7, Damage, "first"), "and so is the running one")
-            test.equal(source.observers.count, 1, "the count drops at once")
+            assert(bus:stopObserving(7, Damage, "third"), "the later registration is removable mid-delivery")
+            assert(bus:stopObserving(7, Damage, "first"), "and so is the running one")
+            test.equal(bus.observers.count, 1, "the count drops at once")
         end,
         "first"
     )
@@ -470,9 +477,9 @@ function M.removingTheLastRegistrationDuringDeliveryPrunesTheAddressAfterwards()
     bus:observe(
         7,
         Damage,
-        |event, source| -> do
-            source:stopObserving(7, Damage, "only")
-            assert(source:hasObservers(7, Damage) == false, "nothing live remains at once")
+        |event| -> do
+            bus:stopObserving(7, Damage, "only")
+            assert(bus:hasObservers(7, Damage) == false, "nothing live remains at once")
         end,
         "only"
     )
@@ -496,12 +503,12 @@ function M.aOnceRegistrationIsConsumedBeforeItsCallbackRuns(): nil
     bus:observeOnce(
         7,
         Damage,
-        |event, source| -> do
+        |event| -> do
             onceRuns = onceRuns + 1
-            test.equal(source.observers.count, 1, "the once registration is already gone")
+            test.equal(bus.observers.count, 1, "the once registration is already gone")
             -- Re-emitting the same event at the same address must not reach this
             -- callback a second time.
-            source:emit(7, Damage, event.amount + 1, 1)
+            bus:emit(7, Damage, event.amount + 1, 1)
         end,
         "once"
     )
@@ -521,8 +528,8 @@ end
 function M.aOnceRegistrationNotYetReachedCanStillBeRemovedDuringDelivery(): nil
     local bus = newBus()
     local onceRuns = 0
-    bus:observe(7, Damage, |event, source| -> do
-        assert(source:stopObserving(7, Damage, "once"))
+    bus:observe(7, Damage, |event| -> do
+        assert(bus:stopObserving(7, Damage, "once"))
     end)
     bus:observeOnce(
         7,
@@ -540,10 +547,10 @@ end
 function M.clearAddressDuringDeliveryLetsTheDeliveryFinish(): nil
     local bus = newBus()
     local order: {string} = {}
-    bus:observe(7, Damage, |event, source| -> do
+    bus:observe(7, Damage, |event| -> do
         order[#order + 1] = "first"
-        source:clearAddress(7)
-        test.equal(source.observers.count, 1, "only the other address remains counted")
+        bus:clearAddress(7)
+        test.equal(bus.observers.count, 1, "only the other address remains counted")
     end)
     bus:observe(7, Damage, |event| -> do
         order[#order + 1] = "second"
@@ -579,10 +586,10 @@ end
 function M.resetDuringDeliveryLetsTheDeliveryFinish(): nil
     local bus = newBus()
     local order: {string} = {}
-    bus:observe(7, Damage, |event, source| -> do
+    bus:observe(7, Damage, |event| -> do
         order[#order + 1] = "first"
-        source:reset()
-        test.equal(source.observers.count, 0)
+        bus:reset()
+        test.equal(bus.observers.count, 0)
     end)
     bus:observe(7, Damage, |event| -> do
         order[#order + 1] = "second"
@@ -747,8 +754,8 @@ function M.aRemovalMadeBeforeAFailureIsStillCompacted(): nil
     bus:observe(
         7,
         Damage,
-        |event, source| -> do
-            source:stopObserving(7, Damage, "second")
+        |event| -> do
+            bus:stopObserving(7, Damage, "second")
             error("boom")
         end,
         "first"
@@ -806,16 +813,16 @@ function M.nestedEmissionOfTheSameTypeUsesDistinctStorage(): nil
     local outerAfter = 0
     local innerSeen = 0
     local peakLive = 0
-    bus:observe(1, Damage, |event, source| -> do
+    bus:observe(1, Damage, |event| -> do
         outerIdentity = tostring(event)
-        source:emit(2, Damage, 50, 2)
+        bus:emit(2, Damage, 50, 2)
         outerAfter = event.amount
     end)
-    bus:observe(2, Damage, |event, source| -> do
+    bus:observe(2, Damage, |event| -> do
         innerIdentity = tostring(event)
         innerSeen = event.amount
         event.amount = event.amount + 1
-        peakLive = source.observers.count > 0 and counting.live or 0
+        peakLive = bus.observers.count > 0 and counting.live or 0
     end)
     bus:emit(1, Damage, amount = 1, source = 1)
     test.notEqual(innerIdentity, outerIdentity, "the nested lease is a different instance")
@@ -830,14 +837,14 @@ end
 function M.nestedEmissionAcrossTypesAndAddressesRunsToDepth(): nil
     local bus = newBus()
     local trail: {string} = {}
-    bus:observe(1, Damage, |event, source| -> do
+    bus:observe(1, Damage, |event| -> do
         trail[#trail + 1] = "damage " .. tostring(event.amount)
-        source:emit(1, Heal, event.amount)
+        bus:emit(1, Heal, event.amount)
         trail[#trail + 1] = "damage done"
     end)
-    bus:observe(1, Heal, |event, source| -> do
+    bus:observe(1, Heal, |event| -> do
         trail[#trail + 1] = "heal " .. tostring(event.amount)
-        source:emit(0, Contact, event.amount, 2, 0.5)
+        bus:emit(0, Contact, event.amount, 2, 0.5)
         trail[#trail + 1] = "heal done"
     end)
     bus:observe(0, Contact, |event| -> do
@@ -883,11 +890,11 @@ function M.defaultArenasRewindWhenTheOutermostDeliveryLeaves(): nil
     local bus = newBus()
     local usedInside = 0
     local usedNested = 0
-    bus:observe(0, Contact, |event, source| -> do
-        local rows = defaultAllocatorOf(source, Contact)
+    bus:observe(0, Contact, |event| -> do
+        local rows = defaultAllocatorOf(bus, Contact)
         usedInside = rows:used()
         if event.a == 1 then
-            source:emit(0, Contact, 2, 0, 0)
+            bus:emit(0, Contact, 2, 0, 0)
             usedNested = rows:used()
         end
     end)
@@ -949,9 +956,9 @@ function M.setAllocatorDuringDeliveryRaises(): nil
     local bus = newBus()
     local replacement = newCounting()
     local problem = ""
-    bus:observe(7, Damage, |event, source| -> do
+    bus:observe(7, Damage, |event| -> do
         local ok, failure = pcall(function()
-            source:setAllocator(Damage, replacement)
+            bus:setAllocator(Damage, replacement)
         end)
         problem = ok and "" or tostring(failure)
     end)

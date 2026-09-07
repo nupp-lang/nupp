@@ -140,10 +140,10 @@ function candidate.make(name: string): Scenario
             read = read
         )
     elseif name == "nested" then
-        bus:observe(1, Tick, |event, source| -> do
+        bus:observe(1, Tick, |event| -> do
             calls = calls + 1
             checksum = checksum + event.value
-            source:emit(2, Follow, event.value * 2)
+            bus:emit(2, Follow, event.value * 2)
         end)
         bus:observe(2, Follow, |event| -> do
             calls = calls + 1
