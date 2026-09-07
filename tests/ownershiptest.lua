@@ -6035,4 +6035,32 @@ function M.aForInVariableHoldingAnOwnerIsDroppedEachIteration()
     )
 end
 
+-- A `Res?` local keeps its optionality: nil fills the slot back once the owner
+-- is discharged, and a slot that starts nil takes its first owner without
+-- overwriting anything. A live owner is still never overwritten.
+function M.anOptionalOwnerSlotIsFilledOnceAndClearedAfterDischarge()
+    assertClean(CONSUMABLE .. "\nlocal a: Res? = open(1)\ndrop a\na = nil")
+    assertEq(codes(CONSUMABLE .. "\nlocal a: Res? = open(1)\na = nil"), "NUPP2602")
+    assertClean(
+        CONSUMABLE
+        .. "\n"
+        .. table.concat(
+            {
+                "local function use(borrows r: Res): nil print(r.id) end",
+                "local function late(flag: boolean): nil",
+                "   local b: Res? = nil",
+                "   if flag then b = open(1) end",
+                "   if b ~= nil then use(b) end",
+                "end",
+                "late(true)",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(CONSUMABLE .. "\nlocal function twice(flag: boolean): nil\n   local c: Res? = nil\n   if flag then c = open(2) end\n   c = open(3)\nend\ntwice(true)"),
+        "NUPP2602"
+    )
+end
+
 return M

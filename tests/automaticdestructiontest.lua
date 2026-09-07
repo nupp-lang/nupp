@@ -791,4 +791,19 @@ function M.aForInOwnerIsClosedAtTheEndOfEachIteration()
    assertEq(chunk(), "<1>1<2>2")
 end
 
+function M.anOptionalSlotFilledLaterIsDroppedAtScopeEnd()
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "local function late(flag: boolean): nil",
+      "   local b: affine(Resource, close_resource)? = nil",
+      "   if flag then b = open_resource('b') end",
+      "   if b ~= nil then calls = calls .. '<' .. b.name .. '>' end",
+      "end",
+      "late(false)",
+      "late(true)",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), "<b>b")
+end
+
 return M

@@ -241,9 +241,17 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- literal just as an annotated binding keeps its exact declared type.
             local bound = ann or init or T.any
             -- Keep the cleanup list discovered at the initializer even when the source
-            -- spells only `affine(T, cleanup)`.
+            -- spells only `affine(T, cleanup)`; an annotation that names the terminal
+            -- itself is kept whole, so `Res?` stays optional and can be set back to
+            -- nil once its owner is discharged.
             if ann and init and ownershipKind(ann) == "affine" and ownershipKind(init) == "affine" then
-                bound = init
+                if #((ann as T.Affine).cleanups or {}) > 0 then
+                    bound = ann
+                elseif c.own.optionalOwned(ann) then
+                    bound = T.affine(rawType(ann), (init as T.Affine).cleanups)
+                else
+                    bound = init
+                end
             end
             if not ann then
                 local initNode = initializers[j]
@@ -299,6 +307,11 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
             c.bindVar(nameTok.text, bound, ann ~= nil, nameTok, nil, stat.isConst)
             local boundEntry = c.scope.vars[nameTok.text]
+            -- A declared owner slot that starts out nil holds no obligation yet: its
+            -- first owner fills it rather than overwriting anything.
+            if boundEntry and ownershipKind(bound) == "affine" and init == T.nil_ then
+                ownershipState(boundEntry).emptySlot = true
+            end
             local initNode = initializers[
                 j
             ] or initializerCount > 0 and j >= initializerCount and initializers[initializerCount] or nil
@@ -869,6 +882,26 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         ("%q cannot be assigned while a derived borrow is live"):format(targetName)
                     )
                 end
+                -- An owner slot holding nil takes its first owner without overwriting
+                -- anything, and a discharged slot may be set back to nil; a live one
+                -- may not, since nothing would run its terminal.
+                local fillsEmptySlot = false
+                if entry and entryState and ownershipKind(entry.t) == "affine" then
+                    if et == T.nil_ then
+                        if not entryState.moved and not entryState.emptySlot then
+                            c.diag(
+                                "NUPP2602",
+                                target,
+                                ("assignment overwrites live affine value %q"):format(targetName)
+                            )
+                        end
+                        entryState.emptySlot = true
+                    elseif entryState.emptySlot and ownershipKind(et) == "affine" then
+                        entryState.emptySlot = nil
+                        entryState.moved = true
+                        fillsEmptySlot = true
+                    end
+                end
                 if entry and et and (ownershipKind(et) == "affine" or ownershipKind(et) == "pinned") then
                     -- The branch above is what proves it has one.
                     local incomingKind = ownershipKind(et) as string
@@ -899,6 +932,12 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
                 if entry then
                     c.fixedWidth.setBinding(entry, written, fixedResultIndex)
+                end
+                -- Filling the slot is a reinitialization to the generator: the hidden
+                -- slot the cleanup reads has to take the value.
+                if fillsEmptySlot and written and entry.automaticOwner then
+                    entry.automaticOwner.moved = true
+                    written.automaticOwnerReinit = {owner = entry.automaticOwner}
                 end
             elseif not wasConstModuleField then
                 target.writeContext = true

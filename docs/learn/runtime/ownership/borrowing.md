@@ -212,6 +212,19 @@ reported. An owner handed out by a `for … in` iterator is a local of the loop
 body: it is destroyed at the end of each iteration, and on every exit from the
 body.
 
+Assigning to a name that still holds a live owner is refused (NUPP2602), since
+nothing would run the old value's terminal: `drop` it first, or move it out.
+A `Res?` local may be set to `nil` once its owner is discharged, and one that
+starts as `nil` takes its first owner without overwriting anything. A swap is
+spelled through a temporary, each assignment landing on a name whose owner has
+already moved out:
+
+```nupp
+local held = first
+first = second
+second = held
+```
+
 ### Exact extents with `with`
 
 `with` gives an owner a stricter extent than its enclosing block. The
