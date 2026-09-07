@@ -6109,4 +6109,13 @@ function M.aSwitchArmNamingAnOwnerMovesIt()
     )
 end
 
+-- An implicit global has no declaration, so a leak through it used to be
+-- reported at 0:0; the assignment that made the global is where it belongs.
+function M.aLeakThroughAnImplicitGlobalIsReportedAtTheAssignment()
+    local _, diags = checked(CONSUMABLE .. "\nlocal function stash(): nil\n   local a = open(1)\n   kept = a\nend\nstash()")
+    assertEq(#diags, 1, diags[1] and diags[1].msg or "one leak")
+    assertEq(diags[1].code, "NUPP2603")
+    assertEq(diags[1].line, 9, "reported at the assignment")
+end
+
 return M

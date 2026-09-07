@@ -1299,7 +1299,7 @@ function checkMod.check(
             ) == "affine" and not state.moved and not (state.automaticOwner and state.automaticOwner.lowerable) then
                 c.diag(
                     "NUPP2603",
-                    entry.definition and entry.definition.token,
+                    entry.definition and entry.definition.token or entry.assignedAt,
                     (
                         "owned value %q leaves scope without being consumed, "
                         .. "dropped, returned, or released with unsafe release"

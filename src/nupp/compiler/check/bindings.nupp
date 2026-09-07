@@ -1103,7 +1103,14 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 et = rawWritten == rawType(et) and target.pointerStoreType or T.optional(target.pointerStoreType)
             end
             if key and et and et ~= T.any then
+                local declared = c.lookupEntry(key) ~= nil
                 applyFacts({[key] = et})
+                -- An implicit global has no declaration; the assignment that made it
+                -- is where a leak through it is reported.
+                local made = not declared and target.kind == "name" and c.scope.vars[key] or nil
+                if made then
+                    made.assignedAt = (target as any).token
+                end
             end
         end
         local exprCount = #(values or {})
