@@ -2466,7 +2466,21 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                     exclusiveRegions[#exclusiveRegions + 1] = {root = regionRoot, path = regionPath}
                 end
-                if c.ownershipKind(ats[j]) == "borrowed" then
+                if not entry and regionRoot and regionPath and regionPath ~= "" then
+                    -- A field or index path names a region of a root that has no
+                    -- entry of its own, and a borrow live on the root or on an
+                    -- overlapping region is what an exclusive use of it invalidates.
+                    local base = c.own.pathBase(argNodes[j])
+                    if c.own.regionBlocked(regionRoot, base, nil, regionRoot, regionPath, false) then
+                        c.diag(
+                            "NUPP2607",
+                            argNodes[j] or node,
+                            "an exclusive parameter cannot invalidate a region while a derived borrow is live",
+                            nil,
+                            c.own.conflictDetails(regionRoot, regionPath)
+                        )
+                    end
+                elseif c.ownershipKind(ats[j]) == "borrowed" then
                     local sole
                     if entryFacts and entryFacts.exclusive then
                         sole = (entry.activeBorrows or 0) == 0
@@ -2536,8 +2550,9 @@ function calls.install(c: state.Checker): calls.Ops
                         sharedRegions[#sharedRegions + 1] = {root = regionRoot, path = regionPath}
                     end
                     local roots = entry and {entry} or c.own.provenanceOwners(argNodes[j])
+                    local base = entry or c.own.pathBase(argNodes[j])
                     for _, root in ipairs(roots) do
-                        if c.own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, true) then
+                        if c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, true) then
                             c.diag(
                                 "NUPP2607",
                                 nameNode or argNodes[j] or node,
@@ -2670,11 +2685,17 @@ function calls.install(c: state.Checker): calls.Ops
                 -- returned pointer.
                 local sourceEntry = source and c.ownershipEntry(source) or nil
                 sourceEntry = c.own.ownershipState(sourceEntry)
+                -- A path is used under the loan its base holds, so a result borrowed
+                -- from `split.right` derives from `split`, and a use through it is
+                -- authorized by that loan rather than in conflict with it.
+                local base = not sourceEntry and source and c.own.pathBase(source) or nil
                 local found
                 if sourceEntry and (
                     c.ownershipKind(sourceEntry.t) == "affine" or c.ownershipKind(sourceEntry.t) == "pinned"
                 ) then
                     found = {sourceEntry}
+                elseif base then
+                    found = {base}
                 else
                     found = source and c.own.provenanceOwners(source) or {}
                 end

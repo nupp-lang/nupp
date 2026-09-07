@@ -6527,4 +6527,53 @@ function M.aPartiallyMovedRecordCannotBeBorrowedWhole()
     assertClean(PAIR .. "\nprint(pair.right.value)\ndrop(pair)")
 end
 
+-- A loan names a place, and a place written as a field or index path has no entry
+-- of its own, so the exclusive argument check found nothing to compare against
+-- and let a writer in under a live view of the whole value. The region check now
+-- counts a borrow of the whole root as overlapping every region below it.
+function M.anExclusivePathArgumentIsCheckedAgainstLiveBorrowsOfItsRoot()
+    local ROOTED = table.concat(
+        {
+            "local record Slot",
+            "   n: integer",
+            "end",
+            "local record Root",
+            "   one: Slot",
+            "   items: {Slot}",
+            "end",
+            "local function excl(exclusive s: Slot): nil",
+            "   s.n = s.n + 1",
+            "end",
+            "local function view(borrows r: Root): Root borrows (r)",
+            "   return r",
+            "end",
+            "local function exclView(exclusive r: Root): Root borrows (r)",
+            "   return r",
+            "end",
+            "local function viewSlot(borrows s: Slot): Slot borrows (s)",
+            "   return s",
+            "end",
+            "local root = new Root(one = new Slot(n = 3), items = {new Slot(n = 1)})",
+        },
+        "\n"
+    )
+    assertEq(
+        codes(ROOTED .. "\nlocal a = view(root)\nexcl(root.one)\nprint(a.one.n)"),
+        "NUPP2607",
+        "a field under a whole view"
+    )
+    assertEq(
+        codes(ROOTED .. "\nlocal a = view(root)\nexcl(root.items[1])\nprint(a.one.n)"),
+        "NUPP2607",
+        "an index under a whole view"
+    )
+    assertEq(
+        codes(ROOTED .. "\nlocal w = exclView(root)\nviewSlot(root.one)\nprint(w.one.n)"),
+        "NUPP2607",
+        "a shared field view under a whole exclusive view"
+    )
+    assertClean(ROOTED .. "\nlocal b = viewSlot(root.one)\nexcl(root.items[1])\nprint(b.n)")
+    assertClean(ROOTED .. "\ndo\n   local a = view(root)\n   print(a.one.n)\nend\nexcl(root.one)")
+end
+
 return M

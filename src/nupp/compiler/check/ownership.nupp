@@ -85,6 +85,10 @@ type ownership.Ops = {
     --- recorded: a borrowed type, or roots the walk left on the node.
     carriesProvenance: function(expr: any, t: Type?): boolean,
 
+    --- The binding a field or index path is reached through, which holds the loan the
+    --- path is used under rather than one that conflicts with it.
+    pathBase: function(expr: any): any,
+
     --- The owners an expression's value is rooted in, and only those: a binding
     --- that is itself an owner is nobody's root.
     rootsOf: function(expr: any): {any},
@@ -563,6 +567,27 @@ function ownership.install(c: state.Checker): ownership.Ops
         return nil, expr
     end
 
+    function own.pathBase(expr)
+        while expr do
+            if expr.kind == "paren" or expr.kind == "castExpr" then
+                expr = expr.expr
+            elseif expr.kind == "dotIndex"
+                or expr.kind == "safeIndex"
+                or expr.kind == "bracketIndex"
+                or expr.kind == "safeBracket"
+            then
+                expr = expr.obj
+            else
+                break
+            end
+        end
+        if expr and expr.kind == "name" then
+            return own.ownershipState(c.lookupEntry(expr.token.text))
+        end
+
+        return nil
+    end
+
     function own.regionsOverlap(left, right)
         return T.regionsOverlap(left, right)
     end
@@ -619,6 +644,33 @@ function ownership.install(c: state.Checker): ownership.Ops
                     return true
                 end
             end
+            -- A borrow of the whole value overlaps every region below it. Those are
+            -- counted on the root rather than under a path, so the region table above
+            -- never sees them. The loans the use is made under -- the entry itself
+            -- and every borrow it derives from -- authorize it rather than conflict.
+            local held = {}
+            local function hold(candidate)
+                candidate = own.ownershipState(candidate)
+                if not candidate or held[candidate] then
+                    return
+                end
+                held[candidate] = true
+                for _, derived in ipairs(own.capabilityFacts(candidate, nil, false).roots or {}) do
+                    hold(derived)
+                end
+            end
+
+            hold(entry)
+            for borrowed in pairs(regionRoot.activeBorrowSites or {}) do
+                local borrowedFacts = own.capabilityFacts(borrowed, nil, false)
+                if not held[
+                    borrowed
+                ] and not borrowed.moved and (
+                    not exclusive or borrowedFacts.exclusive
+                ) and (borrowedFacts.regionPath == nil or borrowedFacts.regionPath == "") then
+                    return true
+                end
+            end
             return false
         end
         if exclusive then
@@ -638,8 +690,9 @@ function ownership.install(c: state.Checker): ownership.Ops
             c.diag("NUPP2602", at or receiver, "an indexed write requires a named or rooted exclusive view")
             return
         end
+        local base = entry or own.pathBase(receiver)
         for _, root in ipairs(roots) do
-            if own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, false) then
+            if own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, false) then
                 c.diag(
                     "NUPP2607",
                     nameNode or at or receiver,

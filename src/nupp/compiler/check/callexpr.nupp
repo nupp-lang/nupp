@@ -2225,11 +2225,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     regionPath = T.regionField(regionPath, node.soaFieldProjection.name)
                 end
                 local roots = entry and {entry} or c.own.provenanceOwners(receiver)
+                local base = entry or c.own.pathBase(receiver)
                 if #roots == 0 then
                     c.diag("NUPP2602", receiver, "an exclusive receiver requires a named or rooted value")
                 else
                     for _, root in ipairs(roots) do
-                        if c.own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, false) then
+                        if c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, false) then
                             c.diag(
                                 "NUPP2607",
                                 nameNode or receiver,
@@ -2258,8 +2259,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     regionPath = T.regionField(regionPath, node.soaFieldProjection.name)
                 end
                 local roots = entry and {entry} or c.own.provenanceOwners(receiver)
+                local base = entry or c.own.pathBase(receiver)
                 for _, root in ipairs(roots) do
-                    if c.own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, true) then
+                    if c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, true) then
                         c.diag(
                             "NUPP2607",
                             nameNode or receiver,
