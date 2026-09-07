@@ -6342,4 +6342,37 @@ function M.anOwnerCannotBeConstructedIntoAnAnyField()
     )
 end
 
+-- An owner is introduced by a typed producer or an audited adoption. Annotating a
+-- binding minted one on whatever the initializer was -- a plain table from any --
+-- and the scope exit then ran cleanup on something that was never a resource.
+function M.anAnnotationCannotMintAnOwnerFromAny()
+    assertEq(
+        codes(
+            RESOURCE .. table.concat(
+                {"", "local raw: any = {}", "local value: affine(resource*, resource_free) = raw", "drop(value)",},
+                "\n"
+            )
+        ),
+        "NUPP2611"
+    )
+    assertEq(
+        codes(
+            RESOURCE .. table.concat(
+                {
+                    "",
+                    "local raw: resource* = resource_create()",
+                    "local value: affine(resource*, resource_free) = raw",
+                    "drop(value)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001",
+        "a plain value is not the affine type"
+    )
+    assertClean(
+        RESOURCE .. table.concat({"", "local value: affine(resource*, resource_free)? = nil", "print(value == nil)",}, "\n")
+    )
+end
+
 return M

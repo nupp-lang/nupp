@@ -230,6 +230,23 @@ function bindings.install(c: state.Checker): state.StatHandlers
                             ownershipKind(init) as string
                         ) .. " value needs a matching ownership annotation"
                     )
+                elseif ok and not ownershipKind(
+                    init
+                ) and init ~= T.nil_ and (ownershipKind(ann) == "affine" or ownershipKind(ann) == "pinned") then
+                    -- The annotation would mint an obligation on a value nothing
+                    -- produced as one: cleanup then runs on a plain table, or twice on
+                    -- a resource somebody else still owns. Owners come from a typed
+                    -- producer, or from an audited adoption that says so.
+                    local erased = init == T.any or init == T.unknown
+                    c.diag(
+                        erased and "NUPP2611" or "NUPP2603",
+                        initializers[j] or stat,
+                        erased and "a value of type any cannot become an owner by annotation" or (
+                            "%s cannot become an owner by annotation"
+                        ):format(T.tostring(init)),
+                        nil,
+                        {help = "obtain the owner from a typed producer, or adopt it with unsafe adopt"}
+                    )
                 end
             end
             -- Inferred types are hints rather than shackles, so mutable unannotated
