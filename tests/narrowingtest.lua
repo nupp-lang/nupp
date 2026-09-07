@@ -38,6 +38,43 @@ local CFG = table.concat({
 
 local M = {}
 
+-- `type(u) == "table"` classifies an `unknown` for the branch it holds in. The
+-- test proves nothing about a declared type, which `is` narrows, and the other
+-- branch keeps claiming nothing.
+function M.typeNameTestsClassifyAnUnknown()
+   assertClean(table.concat({
+      "local record Point",
+      "    x: integer",
+      "end",
+      "local function classify(u: unknown, w: unknown): string",
+      "    if type(u) == \"table\" then",
+      "        local t: table = u",
+      "        print(t)",
+      "    end",
+      "    if type(w) ~= \"string\" then",
+      "        return \"other\"",
+      "    end",
+      "    return w",
+      "end",
+      "return classify",
+   }, "\n"))
+   assertEq(diagsOf(table.concat({
+      "local function still(u: unknown): string",
+      "    if type(u) == \"table\" then",
+      "        return \"table\"",
+      "    end",
+      "    return u",
+      "end",
+      "local function named(s: string | number): string",
+      "    if type(s) == \"string\" then",
+      "        return s",
+      "    end",
+      "    return \"no\"",
+      "end",
+      "return still, named",
+   }, "\n")), "NUPP2002:5 NUPP2002:9")
+end
+
 function M.nilChecksNarrowThroughFieldPaths()
    assertClean(CFG .. table.concat({
       "",

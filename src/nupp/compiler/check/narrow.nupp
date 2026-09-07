@@ -28,6 +28,21 @@ local subtract = narrowing.subtract
 local truthiness = narrowing.truthiness
 local withoutMember = narrowing.withoutMember
 
+--- What each name `type` can answer classifies a value as. A name with no entry,
+--- such as "function", proves nothing a type could spell honestly and is left alone.
+local LUA_TYPE_NAMES: {
+    [string]: Type
+} = {
+    ["nil"] = T.nil_,
+    boolean = T.boolean,
+    number = T.number,
+    string = T.string,
+    table = T.table_,
+    thread = T.thread,
+    userdata = T.userdata,
+    cdata = T.cdata,
+}
+
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
@@ -448,6 +463,40 @@ function narrow.install(c: state.Checker): narrow.Ops
                         end
                     end
                     return none
+                end
+                -- `type(u) == "table"` on an `unknown` proves what the name says, in
+                -- the branch the test holds in. `type` answers from a closed set, so
+                -- the name is the value's whole classification; and `unknown` claimed
+                -- nothing, so the one fact is the one the test adds and the other
+                -- branch goes on claiming nothing. Only `unknown`: `any` is gradual
+                -- and a declared type is what `is` narrows.
+                local typeCall = lhs.kind == "call" and lhs or rhs.kind == "call" and rhs or nil
+                local typeName = typeCall == lhs and rhs or lhs
+                if typeCall and typeName and typeName.kind == "string" then
+                    local typeCallee = typeCall.obj
+                    local typeTok = typeCallee and typeCallee.kind == "name" and typeCallee.token or nil
+                    local typeGlobal = c.env and c.env.globals and c.env.globals.type or nil
+                    local typeEntry = typeTok and typeTok.text == "type" and c.lookupEntry("type") or nil
+                    local typeArgs = typeCall.args
+                    local subjects = typeArgs and typeArgs.kind == "args" and typeArgs.exprs or {}
+                    local subject = #subjects == 1 and subjects[1] or nil
+                    local subjectKey = subject and facts.pathKey(subject) or nil
+                    if subjectKey
+                        and subject
+                        and typeGlobal
+                        and typeEntry
+                        and typeGlobal.definition == typeEntry.definition
+                    then
+                        local named = c.infer(typeName)
+                        local proves = named.tag == "literal" and LUA_TYPE_NAMES[tostring(named.constant)] or nil
+                        if proves and c.refType(subject) == T.unknown then
+                            local proven = {[subjectKey] = proves}
+                            if op == "==" then
+                                return {t = proven, f = {}}
+                            end
+                            return {t = {}, f = proven}
+                        end
+                    end
                 end
                 -- Discriminant: `v.tag == "circle"` narrows the field to that value
                 -- and, when the base is a union, keeps only the members whose field
