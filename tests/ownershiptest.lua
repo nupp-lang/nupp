@@ -6493,4 +6493,38 @@ function M.aChildSpanCannotOutliveItsWriter()
     )
 end
 
+-- A callee borrowing the whole record sees every field, including the one that is
+-- gone. A whole move of a partially moved record is refused; the borrow argument
+-- path never asked, so the callee read a closed resource through the borrow.
+function M.aPartiallyMovedRecordCannotBeBorrowedWhole()
+    local PAIR = RESOURCE .. table.concat(
+        {
+            "",
+            "local record Pair",
+            "   left: affine(resource*, resource_free)",
+            "   right: affine(resource*, resource_free)",
+            "   function peek(self): nil",
+            "      print(self.left.value)",
+            "   end",
+            "end",
+            "local function consume(takes value: affine(resource*, resource_free)): nil",
+            "   resource_free(value)",
+            "end",
+            "local function peek(borrows pair: Pair): nil",
+            "   print(pair.left.value)",
+            "end",
+            "local function poke(exclusive pair: Pair): nil",
+            "   print(pair.left.value)",
+            "end",
+            "local pair = new Pair(left = resource_new(), right = resource_new())",
+            "consume(pair.left)",
+        },
+        "\n"
+    )
+    assertEq(codes(PAIR .. "\npeek(pair)\ndrop(pair)"), "NUPP2602", "a borrows parameter")
+    assertEq(codes(PAIR .. "\npoke(pair)\ndrop(pair)"), "NUPP2602", "an exclusive parameter")
+    assertEq(codes(PAIR .. "\npair:peek()\ndrop(pair)"), "NUPP2602", "a method receiver")
+    assertClean(PAIR .. "\nprint(pair.right.value)\ndrop(pair)")
+end
+
 return M

@@ -2192,6 +2192,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
                 node.overloadMember = node.overloadMember or selectedMember
             end
+            if receiverMode ~= "takes" then
+                -- A method sees the whole record, including a field that was moved
+                -- out; consuming or moving such a record is refused, and so is lending
+                -- it, whichever mode the receiver states.
+                local receiverEntry = c.ownershipState((c.ownershipEntry(receiver)))
+                if receiverEntry and receiverEntry.movedFields and next(receiverEntry.movedFields) then
+                    c.diag("NUPP2602", receiver, "a partially moved record cannot be borrowed as a whole", nil, {
+                        help = "borrow the fields that remain, or refill the moved field first"
+                    })
+                end
+            end
             if receiverMode == "takes" then
                 if node.safeObj or node.safeMethod then
                     c.diag("NUPP2602", receiver, "a conditional method call cannot take its receiver; narrow it first")

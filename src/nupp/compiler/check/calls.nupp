@@ -2432,6 +2432,15 @@ function calls.install(c: state.Checker): calls.Ops
                 entry = c.ownershipState(entry)
                 local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
                 local regionRoot, regionPath = c.regionOf(argNodes[j])
+                if entry and entry.movedFields and next(entry.movedFields) then
+                    c.diag(
+                        "NUPP2602",
+                        nameNode or argNodes[j] or node,
+                        "a partially moved record cannot be borrowed as a whole",
+                        nil,
+                        {help = "borrow the fields that remain, or refill the moved field first"}
+                    )
+                end
                 if regionRoot and regionPath ~= nil then
                     for _, prior in ipairs(sharedRegions) do
                         if prior.root == regionRoot and c.regionsOverlap(prior.path, regionPath) then
@@ -2500,6 +2509,17 @@ function calls.install(c: state.Checker): calls.Ops
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
                 local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
+                if entry and entry.movedFields and next(entry.movedFields) then
+                    -- The callee sees the whole record and may read the field that
+                    -- is gone, the same way a whole move or consumption is refused.
+                    c.diag(
+                        "NUPP2602",
+                        nameNode or argNodes[j] or node,
+                        "a partially moved record cannot be borrowed as a whole",
+                        nil,
+                        {help = "borrow the fields that remain, or refill the moved field first"}
+                    )
+                end
                 if not (entry and entryFacts and entryFacts.exclusive and (entry.activeBorrows or 0) == 0) then
                     local regionRoot, regionPath = c.regionOf(argNodes[j])
                     if regionRoot and regionPath ~= nil then
