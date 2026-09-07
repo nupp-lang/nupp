@@ -1,0 +1,1192 @@
+module nupp.compiler.check.mutation
+
+--[[
+What the functions a file declares may write to, read from the source alone.
+
+A narrowing holds until the value it speaks about is written, and a call is
+where a write can hide: through a parameter, through the receiver, or through a
+name the callee captured. The checker records what each body it has walked
+assigns, but that record is written after the body and keyed on the binding it
+lands in, so a callee named before its body is checked, a recursive one, or one
+reached through a chain of other callees says nothing at the call.
+
+This pass answers from syntax instead. It walks the whole file once before the
+check begins, notes for every function what it assigns and whom it calls, and
+folds each callee's writes into its callers until nothing changes. The result is
+keyed the way a call spells its callee -- `f`, `M.f`, or a method name -- so a
+call site can ask for it whatever order the declarations came in. Keying on
+spelling means two functions spelled alike share one answer; the shared answer
+is the union of both, which only ever forgets more.
+
+A write is recorded as the path it lands on, relative to the binding it is rooted
+at: `.kind` for `s.kind = v`, `.items*` for `s.items[i] = v`, where the star says
+anything beneath may have changed, and `*` alone for `s[k] = v`. The empty path
+is the binding itself, which only a captured name can be rebound by.
+]]
+
+local cst = require("nupp.compiler.cst")
+
+local mutation = {}
+
+--- The paths written beneath one binding, relative to it.
+local type Paths = {[string]: boolean}
+
+--- What one function may write to, as far as the source says.
+record mutation.Summary
+    --- Parameter positions written through, and the paths written beneath each.
+    params: {[integer]: Paths}
+
+    --- The parameter names, in order, for a call that names its arguments.
+    paramNames: {string}
+
+    --- Whether the receiver is written through, and the paths written beneath it.
+    self: boolean
+
+    selfPaths: Paths
+
+    --- Names the body rebinds that it did not declare.
+    captured: {[string]: boolean}
+
+    --- Names the body writes beneath that it did not declare, with the paths.
+    capturedBelow: {[string]: Paths}
+
+    --- Whether the body calls something this pass cannot name.
+    unknown: boolean
+end
+
+--- Everything the pass worked out for one file.
+record mutation.Summaries
+    --- By the spelling a call uses: a name, or a dotted path.
+    byKey: {[string]: mutation.Summary}
+
+    --- By method name, for a call through a receiver, merged over every method of
+    --- that name in the file.
+    byMethod: {[string]: mutation.Summary}
+
+    --- By the function literal itself: its `funcbody`, or the `shortfn`.
+    byBody: {[any]: mutation.Summary}
+
+    --- Every name some function literal in the file writes to as a capture.
+    capturedAnywhere: {[string]: boolean}
+
+    --- Every name anything in the file writes to, as the root of the write.
+    assignedAnywhere: {[string]: boolean}
+end
+
+--- Builtins that call the function they are handed, with the arguments after it.
+local INVOKERS: {
+    [string]: integer
+} = {pcall = 1, xpcall = 1, ["coroutine.wrap"] = 1, ["coroutine.create"] = 1, ["table.sort"] = 2, ["string.gsub"] = 3,}
+
+local function newSummary(): mutation.Summary
+    return new mutation.Summary(
+        params = {},
+        paramNames = {},
+        self = false,
+        selfPaths = {},
+        captured = {},
+        capturedBelow = {},
+        unknown = false
+    )
+end
+
+--- Operators whose result is a number, so a key computed by one is never a field.
+local ARITHMETIC: {[string]: boolean} = {["+"] = true, ["-"] = true, ["*"] = true, ["//"] = true, ["%"] = true,}
+
+--- What an index expression can name: a `field` when it is a string literal, an
+--- `integer` when it is a number, a length, arithmetic, or a name known to hold
+--- one, and `any` otherwise. An integer key is never a field, so writing through
+--- one reaches nothing a narrowing speaks about.
+---
+--- @param expr the expression between the brackets
+--- @param integers names known to hold integers
+--- @return the shape, and the field name when it is a literal
+function mutation.indexShape(expr: any, integers: {[string]: boolean}?): string, string?
+    while expr and not cst.isToken(expr) and (expr.kind == "paren" or expr.kind == "castExpr") do
+        expr = expr.expr
+    end
+    if not expr or cst.isToken(expr) then
+        return "any", nil
+    end
+    local kind = expr.kind
+    if kind == "string" then
+        local literal = expr.token and expr.token.value or nil
+        if type(literal) == "string" then
+            return "field", literal
+        end
+        return "any", nil
+    elseif kind == "number" then
+        return "integer", nil
+    elseif kind == "unop" then
+        return expr.op and expr.op.kind == "#" and "integer" or "any", nil
+    elseif kind == "binop" then
+        return expr.op and ARITHMETIC[expr.op.kind] and "integer" or "any", nil
+    elseif kind == "name" then
+        local name = expr.token and expr.token.text or nil
+        return name and integers and integers[name] and "integer" or "any", nil
+    end
+
+    return "any", nil
+end
+
+--- The binding a reference is rooted at and the path it reaches beneath it:
+--- `a.b[c].d` is `a` and `.b*`, since past the index nothing is known; `a` is `a`
+--- and the empty path; `a.b["c"]` is `a` and `.b.c`; `a.b[1]` is nothing at all,
+--- because an integer key is never a field a narrowing could speak about.
+---
+--- @param node the reference
+--- @param integers names known to hold integers
+--- @return the root name, and the path beneath it
+local function splitPath(node: any, integers: {[string]: boolean}?): string?, string
+    local segments = {}
+    local deep = false
+    while node and not cst.isToken(node) do
+        local kind = node.kind
+        if kind == "name" then
+            local root = node.token and node.token.text or nil
+            if not root then
+                return nil, ""
+            end
+            local suffix = ""
+            for index = #segments, 1, -1 do
+                suffix = suffix .. "." .. segments[index]
+            end
+            if deep then
+                suffix = suffix .. "*"
+            end
+            return root, suffix
+        elseif kind == "paren" or kind == "castExpr" then
+            node = node.expr
+        elseif kind == "dotIndex" or kind == "safeIndex" then
+            if not node.name then
+                return nil, ""
+            end
+            segments[#segments + 1] = node.name.text
+            node = node.obj
+        elseif kind == "bracketIndex" or kind == "safeBracket" then
+            local shape, literal = mutation.indexShape(node.expr, integers)
+            if shape == "field" then
+                segments[#segments + 1] = literal
+            elseif shape == "integer" then
+                return nil, ""
+            else
+                -- Anything beneath the index may be what changed; the segments
+                -- past it say nothing.
+                segments = {}
+                deep = true
+            end
+            node = node.obj
+        else
+            return nil, ""
+        end
+    end
+
+    return nil, ""
+end
+
+--- How many fields deep a recorded path goes before it gives up on precision.
+--- A callee handed `node.left` that writes `.left.visited` says, one fold later,
+--- that its caller writes `.left.left.visited`, and a recursive walk would say so
+--- without end; past this depth the path says only that something beneath it
+--- changed, which is what keeps the fold finite.
+local MAX_PATH_DEPTH = 3
+
+--- Joins a path beneath a binding onto a path that reaches the binding: a write
+--- of `.kind` through `s.inner` is a write of `.inner.kind` through `s`.
+local function joinPaths(prefix: string, suffix: string): string
+    if prefix:sub(-1) == "*" then
+        return prefix
+    end
+    local joined = suffix == "*" and prefix .. "*" or prefix .. suffix
+    local depth = 0
+    local cut = nil
+    for position in joined:gmatch("()%.") do
+        depth = depth + 1
+        if depth > MAX_PATH_DEPTH then
+            cut = position
+            break
+        end
+    end
+    if cut then
+        return joined:sub(1, cut - 1) .. "*"
+    end
+
+    return joined
+end
+
+--- Whether `paths` already says everything `suffix` would: the path itself, or a
+--- star at or above it.
+local function covered(paths: Paths, suffix: string): boolean
+    if paths[suffix] then
+        return true
+    end
+    local above = suffix:sub(-1) == "*" and suffix:sub(1, -2) or suffix
+    while true do
+        if paths[above .. "*"] then
+            return true
+        end
+        local shorter = above:match("^(.*)%.[^.]*$")
+        if not shorter then
+            return false
+        end
+        above = shorter
+    end
+end
+
+--- The spelling a call uses for its callee: a name or a dotted path, or nil when
+--- the callee is computed.
+---
+--- @param node the called expression
+local function keyOf(node: any): string?
+    while node and not cst.isToken(node) and (node.kind == "paren" or node.kind == "castExpr") do
+        node = node.expr
+    end
+    if not node or cst.isToken(node) then
+        return nil
+    end
+    if node.kind == "name" then
+        return node.token and node.token.text or nil
+    end
+    if node.kind == "dotIndex" and node.name then
+        local base = keyOf(node.obj)
+        return base and (base .. "." .. node.name.text) or nil
+    end
+
+    return nil
+end
+
+--- The node a function literal's summary is filed under, or nil for anything else.
+local function bodyOf(node: any): any
+    while node and not cst.isToken(node) and (node.kind == "paren" or node.kind == "castExpr") do
+        node = node.expr
+    end
+    if not node or cst.isToken(node) then
+        return nil
+    end
+    if node.kind == "funcExpr" then
+        return node.body
+    end
+    if node.kind == "shortfn" then
+        return node
+    end
+
+    return nil
+end
+
+mutation.splitPath = splitPath
+mutation.joinPaths = joinPaths
+mutation.keyOf = keyOf
+mutation.bodyOf = bodyOf
+
+--- One function being scanned: its summary and what it will need to fold in.
+local type Context = {
+    summary: mutation.Summary,
+
+    --- Names the function declares: parameters, locals, loop variables.
+    locals: {[string]: boolean},
+
+    --- Parameter positions by name.
+    paramIndex: {[string]: integer},
+
+    --- Whether `self` names the receiver.
+    hasSelf: boolean,
+
+    --- A local copied from another reference: the root and the path beneath it.
+    aliases: {[string]: {
+        root: string,
+        path: string
+    }},
+
+    --- The calls the body makes, folded in once every summary exists.
+    calls: {any},
+
+    --- The token declaring each visible name, innermost block last. A function
+    --- starts with its enclosing function's scopes, so a capture resolves.
+    scopes: {{[string]: any}},
+
+    --- The loops open around the node being scanned, outermost first, as the
+    --- offsets of their first and last tokens.
+    loops: {{
+        from: integer,
+        to: integer
+    }},
+
+    --- Names a numeric loop or an `ipairs` walk binds to an integer.
+    integers: {[string]: boolean}
+}
+
+--- Records that `name` is declared by `token` in the innermost open block.
+local function declare(ctx: Context, name: string, token: any): nil
+    local top = ctx.scopes[#ctx.scopes]
+    if top then
+        top[name] = token
+    end
+end
+
+--- The token declaring the visible `name`, or nil for a global.
+local function declarationOf(ctx: Context, name: string): any
+    for index = #ctx.scopes, 1, -1 do
+        local token = ctx.scopes[index][name]
+        if token then
+            return token
+        end
+    end
+
+    return nil
+end
+
+--- Records a write on the binding it lands on: the path written, where, and the
+--- innermost loop around it. The checker reads these off the declaring token
+--- when it asks whether a function literal may run after the write.
+local function markBinding(ctx: Context, target: any, root: string?, suffix: string): nil
+    if not root then
+        return
+    end
+    local token = declarationOf(ctx, root)
+    if not token then
+        return
+    end
+    local at = cst.firstToken(target)
+    local loop = ctx.loops[#ctx.loops]
+    local writes = token.writes or {}
+    token.writes = writes
+    writes[
+        #writes + 1
+    ] = {
+        offset = at and at.offset or 0,
+        loopFrom = loop and loop.from or nil,
+        loopTo = loop and loop.to or nil,
+        path = root .. suffix,
+    }
+end
+
+--- The binding a local was ultimately copied from, following copies of copies,
+--- and the path the copy reaches beneath it.
+local function resolveAlias(ctx: Context, name: string): string, string, boolean
+    local resolved: string = name
+    local prefix = ""
+    local copied = false
+    local seen = {}
+    while not seen[resolved] do
+        seen[resolved] = true
+        local origin = ctx.aliases[resolved]
+        if not origin then
+            break
+        end
+        resolved = origin.root
+        prefix = joinPaths(origin.path, prefix)
+        copied = true
+    end
+
+    return resolved, prefix, copied
+end
+
+--- Installs the effect of a write through `root` at `suffix` on the context:
+--- through a parameter, the receiver, or a captured name. A parameter or the
+--- receiver rebound whole is the callee's own affair; only a write beneath one
+--- reaches what the caller holds.
+---
+--- @return whether the summary learnt something
+local function noteWrite(ctx: Context, root: string?, suffix: string): boolean
+    if not root then
+        return false
+    end
+    local resolved, prefix, copied = resolveAlias(ctx, root)
+    if copied then
+        if suffix == "" then
+            return false
+        end
+        suffix = joinPaths(prefix, suffix)
+    end
+    local summary = ctx.summary
+    local index = ctx.paramIndex[resolved]
+    if index then
+        if suffix == "" then
+            return false
+        end
+        local paths = summary.params[index] or {}
+        summary.params[index] = paths
+        if covered(paths, suffix) then
+            return false
+        end
+        paths[suffix] = true
+        return true
+    elseif resolved == "self" and ctx.hasSelf then
+        if suffix == "" or covered(summary.selfPaths, suffix) then
+            return false
+        end
+        summary.self = true
+        summary.selfPaths[suffix] = true
+        return true
+    elseif not ctx.locals[resolved] then
+        if suffix == "" then
+            if summary.captured[resolved] then
+                return false
+            end
+            summary.captured[resolved] = true
+            return true
+        end
+        local paths = summary.capturedBelow[resolved] or {}
+        summary.capturedBelow[resolved] = paths
+        if covered(paths, suffix) then
+            return false
+        end
+        paths[suffix] = true
+        return true
+    end
+
+    return false
+end
+
+--- Merges what `callee` may write into `ctx`, through the arguments of one call.
+---
+--- @return whether anything changed
+local function fold(ctx: Context, call: any, callee: mutation.Summary): boolean
+    local summary = ctx.summary
+    local changed = false
+    local function through(root: string?, prefix: string, paths: Paths)
+        if not root then
+            return
+        end
+        for suffix in pairs(paths) do
+            if noteWrite(ctx, root, joinPaths(prefix, suffix)) then
+                changed = true
+            end
+        end
+    end
+
+    for name in pairs(callee.captured) do
+        if not summary.captured[name] and not ctx.locals[name] then
+            summary.captured[name] = true
+            changed = true
+        end
+    end
+    for name, paths in pairs(callee.capturedBelow) do
+        if not ctx.locals[name] then
+            local mine = summary.capturedBelow[name] or {}
+            summary.capturedBelow[name] = mine
+            for suffix in pairs(paths) do
+                if not mine[suffix] then
+                    mine[suffix] = true
+                    changed = true
+                end
+            end
+        end
+    end
+    if callee.unknown and not summary.unknown then
+        summary.unknown = true
+        changed = true
+    end
+    if call.merge then
+        -- Two bodies filed under one spelling answer as one.
+        for index, paths in pairs(callee.params) do
+            local mine = summary.params[index] or {}
+            summary.params[index] = mine
+            for suffix in pairs(paths) do
+                if not mine[suffix] then
+                    mine[suffix] = true
+                    changed = true
+                end
+            end
+        end
+        for suffix in pairs(callee.selfPaths) do
+            if not summary.selfPaths[suffix] then
+                summary.self = true
+                summary.selfPaths[suffix] = true
+                changed = true
+            end
+        end
+        return changed
+    end
+    if callee.self and call.receiver then
+        through(call.receiver, call.receiverPath, callee.selfPaths)
+    end
+    for _, argument in ipairs(call.args) do
+        local position: integer? = argument.position
+        if argument.name then
+            position = nil
+            for j, paramName in ipairs(callee.paramNames) do
+                if paramName == argument.name then
+                    position = j
+                    break
+                end
+            end
+        end
+        -- A method called through its owner passes the receiver first.
+        if call.receiver == nil and call.method and position then
+            if position == 1 and callee.self then
+                through(argument.root, argument.path, callee.selfPaths)
+            end
+            position = position - 1
+        end
+        local paths = position and callee.params[position] or nil
+        if paths then
+            through(argument.root, argument.path, paths)
+        end
+    end
+
+    return changed
+end
+
+--- Scans one file.
+---
+--- @param root the parsed chunk
+--- @return what every function it declares may write
+function mutation.prescan(root: any): mutation.Summaries
+    local byKey: {[string]: mutation.Summary} = {}
+    local byMethod: {[string]: mutation.Summary} = {}
+    local byBody: {[any]: mutation.Summary} = {}
+    local assignedAnywhere: {[string]: boolean} = {}
+    local contexts: {Context} = {}
+    -- A body filed under a spelling another body already answers to.
+    local merges: {any} = {}
+
+    local function file(summary: mutation.Summary, key: string?, method: string?): nil
+        if key then
+            local existing = byKey[key]
+            if existing and existing ~= summary then
+                merges[#merges + 1] = {into = existing, from = summary}
+            elseif not existing then
+                byKey[key] = summary
+            end
+        end
+        if method then
+            local existing = byMethod[method]
+            if existing and existing ~= summary then
+                merges[#merges + 1] = {into = existing, from = summary}
+            elseif not existing then
+                byMethod[method] = summary
+            end
+        end
+    end
+
+    local walk
+
+    local function scanCall(ctx: Context, node: any): nil
+        local kind = node.kind
+        local args = node.args
+        local exprs = args and args.kind == "args" and args.exprs or {}
+        local call: any = {args = {}}
+        if kind == "methodCall" then
+            call.method = node.name and node.name.text or nil
+            call.receiver, call.receiverPath = splitPath(node.obj)
+        else
+            local callee = node.obj
+            call.key = keyOf(callee)
+            call.body = bodyOf(callee)
+            if callee and not cst.isToken(callee) and callee.kind == "dotIndex" and callee.name then
+                call.method = callee.name.text
+            end
+            if not call.key and not call.body then
+                ctx.summary.unknown = true
+            end
+        end
+        local position: integer = 0
+        for _, argument in ipairs(exprs) do
+            if not cst.isToken(argument) then
+                local value = argument
+                local name = nil
+                if argument.kind == "namedArg" then
+                    name = argument.name and argument.name.text or nil
+                    value = argument.value
+                elseif argument.kind == "pluckArg" then
+                    value = argument.value
+                end
+                position = position + 1
+                local argRoot, argPath = splitPath(value, ctx.integers)
+                call.args[
+                    #call.args + 1
+                ] = {position = position, name = name, root = argRoot, path = argPath, node = value}
+                -- A function handed to a call may run during it, whoever the callee
+                -- is, so what it writes is what the call writes.
+                if bodyOf(value) or keyOf(value) then
+                    ctx.calls[#ctx.calls + 1] = {args = {}, body = bodyOf(value), key = keyOf(value), handed = true}
+                end
+            end
+        end
+        ctx.calls[#ctx.calls + 1] = call
+        -- A builtin that invokes its argument passes it the arguments after it.
+        local invoker = call.key and INVOKERS[call.key] or nil
+        if invoker then
+            local handed = call.args[invoker]
+            if handed and handed.node and (bodyOf(handed.node) or keyOf(handed.node)) then
+                local inner: any = {args = {}, key = keyOf(handed.node), body = bodyOf(handed.node)}
+                for j = invoker + 1, #call.args do
+                    local argument = call.args[j]
+                    inner.args[
+                        #inner.args + 1
+                    ] = {position = j - invoker, root = argument.root, path = argument.path, node = argument.node}
+                end
+                ctx.calls[#ctx.calls + 1] = inner
+            elseif handed then
+                ctx.summary.unknown = true
+            end
+        end
+    end
+
+    --- Scans a function body under a fresh context that sees `outer`'s names.
+    local function scanFunction(outer: Context?, body: any, key: string?, method: string?, hasSelf: boolean): nil
+        if not body or cst.isToken(body) then
+            return
+        end
+        local summary = byBody[body] or newSummary()
+        byBody[body] = summary
+        file(summary, key, method)
+        local inherited = {}
+        for index, scope in ipairs(outer and outer.scopes or {}) do
+            inherited[index] = scope
+        end
+        inherited[#inherited + 1] = {}
+        local ctx: Context = {
+            summary = summary,
+            locals = {},
+            paramIndex = {},
+            hasSelf = hasSelf,
+            aliases = {},
+            calls = {},
+            scopes = inherited,
+            loops = {},
+            integers = {},
+        }
+        local position: integer = 0
+        for _, p in ipairs(body.params or {}) do
+            if not cst.isToken(p) and p.name then
+                local name = p.name.text
+                ctx.locals[name] = true
+                declare(ctx, name, p.name)
+                if name == "self" and position == 0 then
+                    ctx.hasSelf = true
+                elseif not p.namedVararg then
+                    position = position + 1
+                    ctx.paramIndex[name] = position
+                    summary.paramNames[position] = name
+                end
+            end
+        end
+        contexts[#contexts + 1] = ctx
+        if body.kind == "shortfn" then
+            walk(ctx, body.body or body.expr)
+        else
+            walk(ctx, body.body)
+        end
+    end
+
+    --- Files a function literal under a spelling, scanning it if it is one.
+    local function literalUnder(ctx: Context, value: any, key: string?, method: string?): boolean
+        local body = bodyOf(value)
+        if not body then
+            return false
+        end
+        scanFunction(ctx, body, key, method, false)
+
+        return true
+    end
+
+    --- Records a direct write in the body being scanned.
+    local function written(ctx: Context, target: any): nil
+        local root, suffix = splitPath(target, ctx.integers)
+        noteWrite(ctx, root, suffix)
+        markBinding(ctx, target, root, suffix)
+        if root then
+            assignedAnywhere[root] = true
+        end
+    end
+
+    walk = function(ctx: Context, node: any): nil
+        if not node or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "localFuncStmt" then
+            local name = node.name and node.name.text or nil
+            if name then
+                ctx.locals[name] = true
+                declare(ctx, name, node.name)
+            end
+            scanFunction(ctx, node.body, name, nil, false)
+            return
+        elseif kind == "funcStmt" then
+            local fname: any = node.name
+            local key, method, hasSelf = nil, nil, false
+            if fname and fname.kind == "funcname" then
+                local parts = {}
+                for _, child in ipairs(fname) do
+                    if cst.isToken(child) and child.kind == "name" then
+                        parts[#parts + 1] = child.text
+                    end
+                end
+                if fname.method then
+                    method = fname.method.text
+                    hasSelf = true
+                    -- The method token is among the names; the owner is the rest.
+                    parts[#parts] = nil
+                    key = table.concat(parts, ".") .. ":" .. method
+                else
+                    key = table.concat(parts, ".")
+                    if #parts > 1 then
+                        -- `M.f` may also be called as a method on `M`.
+                        method = parts[#parts]
+                    elseif #parts == 1 then
+                        assignedAnywhere[parts[1]] = true
+                        markBinding(ctx, fname, parts[1], "")
+                    end
+                end
+            end
+            scanFunction(ctx, node.body, key, method, hasSelf)
+            return
+        elseif kind == "inlineMethod" then
+            scanFunction(ctx, node.body, nil, node.name and node.name.text or nil, true)
+            return
+        elseif kind == "funcExpr" then
+            scanFunction(ctx, node.body, nil, nil, false)
+            return
+        elseif kind == "shortfn" then
+            scanFunction(ctx, node, nil, nil, false)
+            return
+        elseif kind == "fieldNamed" or kind == "namedArg" then
+            -- `{clear = function() ... end}` answers to `.clear()`, wherever the
+            -- table ends up.
+            local name = node.name and node.name.text or nil
+            if name and literalUnder(ctx, node.value, nil, name) then
+                return
+            end
+        elseif kind == "localStmt" then
+            for _, nameTok in ipairs(node.names or {}) do
+                ctx.locals[nameTok.text] = true
+                declare(ctx, nameTok.text, nameTok)
+            end
+            for _, entry in ipairs(node.pattern or {}) do
+                local nameTok = entry.alias or entry.sourceName
+                if nameTok then
+                    ctx.locals[nameTok.text] = true
+                    declare(ctx, nameTok.text, nameTok)
+                end
+            end
+            local exprs = node.exprs or {}
+            local single = #(node.names or {}) == 1 and node.names[1] or nil
+            local init = exprs[1]
+            if single and init and #exprs == 1 and not cst.isToken(init) then
+                if literalUnder(ctx, init, single.text, nil) then
+                    return
+                end
+                local root, path = splitPath(init, ctx.integers)
+                if root and root ~= single.text then
+                    ctx.aliases[single.text] = {root = root, path = path}
+                end
+            end
+            for _, expr in ipairs(exprs) do
+                walk(ctx, expr)
+            end
+            if node.patternSource then
+                walk(ctx, node.patternSource)
+            end
+            return
+        elseif kind == "assignStmt" then
+            local targets, exprs = node.targets or {}, node.exprs or {}
+            local handled: {[any]: boolean} = {}
+            for j, target in ipairs(targets) do
+                written(ctx, target)
+                -- A function stored under a spelling answers to that spelling.
+                local value = exprs[j]
+                local key = value and keyOf(target) or nil
+                if key and literalUnder(ctx, value, key, key:match("%.([^.]+)$")) then
+                    handled[value] = true
+                end
+                walk(ctx, target)
+            end
+            for _, expr in ipairs(exprs) do
+                if not handled[expr] then
+                    walk(ctx, expr)
+                end
+            end
+            return
+        elseif kind == "compoundAssign" then
+            written(ctx, node.target)
+        elseif kind == "call" or kind == "methodCall" or kind == "safeCall" then
+            scanCall(ctx, node)
+        end
+        -- Loop variables are declared in the body's block; a block opens a scope.
+        local opened = false
+        local looped = false
+        if kind == "whileStmt" or kind == "repeatStmt" or kind == "fornumStmt" or kind == "forinStmt" then
+            local first, last = cst.firstToken(node), cst.lastToken(node)
+            ctx.loops[#ctx.loops + 1] = {from = first and first.offset or 0, to = last and last.offset or 0}
+            looped = true
+        end
+        if kind == "block" then
+            ctx.scopes[#ctx.scopes + 1] = {}
+            opened = true
+        elseif kind == "fornumStmt" or kind == "forinStmt" then
+            ctx.scopes[#ctx.scopes + 1] = {}
+            opened = true
+            local var: any = node.var
+            if var and cst.isToken(var) then
+                ctx.locals[var.text] = true
+                ctx.integers[var.text] = true
+                declare(ctx, var.text, var)
+            end
+            local iterator = node.exprs and node.exprs[1] or nil
+            local counts = iterator ~= nil and iterator.kind == "call" and keyOf(iterator.obj) == "ipairs"
+            for index, nameTok in ipairs(node.names or {}) do
+                if cst.isToken(nameTok) then
+                    ctx.locals[nameTok.text] = true
+                    if index == 1 and counts then
+                        ctx.integers[nameTok.text] = true
+                    end
+                    declare(ctx, nameTok.text, nameTok)
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            if not cst.isToken(child) then
+                walk(ctx, child)
+            end
+        end
+        if opened then
+            ctx.scopes[#ctx.scopes] = nil
+        end
+        if looped then
+            ctx.loops[#ctx.loops] = nil
+        end
+    end
+
+    -- The chunk itself is a function: what it assigns matters to nothing that
+    -- calls it, but what it declares scopes the names the bodies inside capture.
+    local top: Context = {
+        summary = newSummary(),
+        locals = {},
+        paramIndex = {},
+        hasSelf = false,
+        aliases = {},
+        calls = {},
+        scopes = {{}},
+        loops = {},
+        integers = {},
+    }
+    contexts[#contexts + 1] = top
+    for _, block in ipairs(root and root.blocks or {}) do
+        walk(top, block)
+    end
+    for _, merge in ipairs(merges) do
+        for _, ctx in ipairs(contexts) do
+            if ctx.summary == merge.into then
+                ctx.calls[#ctx.calls + 1] = {args = {}, merge = merge.from}
+            end
+        end
+    end
+
+    -- Fold callees into callers until the answers settle.
+    local changed = true
+    local rounds = 0
+    while changed and rounds < 64 do
+        changed = false
+        rounds = rounds + 1
+        for _, ctx in ipairs(contexts) do
+            for _, call in ipairs(ctx.calls) do
+                local callee = call.merge or call.body and byBody[call.body] or call.key and byKey[call.key] or nil
+                if not callee and call.method then
+                    callee = byMethod[call.method]
+                end
+                if callee then
+                    if callee ~= ctx.summary and fold(ctx, call, callee) then
+                        changed = true
+                    end
+                elseif call.key and ctx.locals[call.key] and not call.handed then
+                    -- A local holding a function value nothing here declared.
+                    if not ctx.summary.unknown then
+                        ctx.summary.unknown = true
+                        changed = true
+                    end
+                end
+            end
+        end
+    end
+
+    local capturedAnywhere: {[string]: boolean} = {}
+    for _, ctx in ipairs(contexts) do
+        if ctx ~= top then
+            for name in pairs(ctx.summary.captured) do
+                capturedAnywhere[name] = true
+            end
+            for name in pairs(ctx.summary.capturedBelow) do
+                capturedAnywhere[name] = true
+            end
+        end
+    end
+
+    return new mutation.Summaries(
+        byKey = byKey,
+        byMethod = byMethod,
+        byBody = byBody,
+        capturedAnywhere = capturedAnywhere,
+        assignedAnywhere = assignedAnywhere
+    )
+end
+
+--- Whether a binding may be written after a function literal at `offset` is
+--- made, so that the literal could run after the write: a write later in the
+--- source, or one anywhere in a loop the literal sits in. `path` names what the
+--- literal read through the binding; a write to a different field beneath the
+--- same binding does not count, a write to the binding itself always does.
+---
+--- @param token the binding's declaring token
+--- @param offset where the literal begins
+--- @param path the path read, from the binding's name
+function mutation.writtenAfter(token: any, offset: integer, path: string): boolean
+    for _, write in ipairs(token and token.writes or {}) do
+        local later = write.offset > offset or (
+            write.loopFrom ~= nil and write.loopFrom <= offset and offset <= write.loopTo
+        )
+        if later then
+            local wrote: string = write.path
+            local reaches
+            if wrote:sub(-1) == "*" then
+                local above = wrote:sub(1, -2)
+                reaches = path == above or path:sub(1, #above + 1) == above .. "."
+            else
+                reaches = wrote == path or path:sub(1, #wrote + 1) == wrote .. "."
+            end
+            if reaches then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+--- What the pass built for a call's callee: by its spelling, by the literal
+--- called where it stands, or by the method name when the call goes through a
+--- receiver or a field.
+---
+--- @param summaries what the pass built for the file
+--- @param node the call
+--- @return the callee's summary, or nil when the pass could not name it
+function mutation.calleeSummary(summaries: mutation.Summaries, node: any): mutation.Summary?
+    if node.kind == "methodCall" then
+        local name = node.name and node.name.text or nil
+        return name and summaries.byMethod[name] or nil
+    end
+    local callee = node.obj
+    local body = bodyOf(callee)
+    if body and summaries.byBody[body] then
+        return summaries.byBody[body]
+    end
+    local key = keyOf(callee)
+    if key and summaries.byKey[key] then
+        return summaries.byKey[key]
+    end
+    if callee and not cst.isToken(callee) and callee.kind == "dotIndex" and callee.name then
+        return summaries.byMethod[callee.name.text]
+    end
+
+    return nil
+end
+
+--- What one call may write, as the pass sees it: the callee's summary, and what
+--- any function handed to the call would write if the call ran it. Nil when the
+--- pass knows neither the callee nor anything handed to it.
+---
+--- @param summaries what the pass built for the file
+--- @param node the call
+--- @return a summary for the call, and whether the callee itself was found
+function mutation.callEffects(summaries: mutation.Summaries, node: any): mutation.Summary?, boolean
+    local callee = mutation.calleeSummary(summaries, node)
+    local args = node.args
+    local exprs = args and args.kind == "args" and args.exprs or {}
+    local handed: {mutation.Summary} = {}
+    for _, argument in ipairs(exprs) do
+        if not cst.isToken(argument) then
+            local value = (argument.kind == "namedArg" or argument.kind == "pluckArg") and argument.value or argument
+            local body = bodyOf(value)
+            local summary = body and summaries.byBody[body] or nil
+            if not summary then
+                local key = keyOf(value)
+                summary = key and summaries.byKey[key] or nil
+            end
+            if summary then
+                handed[#handed + 1] = summary
+            end
+        end
+    end
+    if #handed == 0 then
+        return callee, callee ~= nil
+    end
+    local merged = newSummary()
+    if callee then
+        merged.params = callee.params
+        merged.paramNames = callee.paramNames
+        merged.self = callee.self
+        merged.selfPaths = callee.selfPaths
+        merged.unknown = callee.unknown
+        for name in pairs(callee.captured) do
+            merged.captured[name] = true
+        end
+        for name, paths in pairs(callee.capturedBelow) do
+            merged.capturedBelow[name] = paths
+        end
+    end
+    for _, summary in ipairs(handed) do
+        for name in pairs(summary.captured) do
+            merged.captured[name] = true
+        end
+        for name, paths in pairs(summary.capturedBelow) do
+            local mine = merged.capturedBelow[name] or {}
+            merged.capturedBelow[name] = mine
+            for suffix in pairs(paths) do
+                mine[suffix] = true
+            end
+        end
+        if summary.unknown then
+            merged.unknown = true
+        end
+    end
+
+    return merged, callee ~= nil
+end
+
+--- Tells `note` every path one call writes, as the pass sees it: through the
+--- receiver, through the arguments, and through the names the callee captured,
+--- each as the full path from the binding at the call site and whether only
+--- what lies beneath it changes.
+---
+--- @param summaries what the pass built for the file
+--- @param node the call
+--- @param note told each written path
+--- @return whether the pass had anything to say about the call
+function mutation.eachWrite(
+    summaries: mutation.Summaries,
+    node: any,
+    note: function(key: string, below: boolean)
+): boolean
+    local callee = mutation.callEffects(summaries, node)
+    if not callee then
+        return false
+    end
+    local function each(root: string?, prefix: string, paths: Paths)
+        if not root then
+            return
+        end
+        for suffix in pairs(paths) do
+            local full = joinPaths(prefix, suffix)
+            if full:sub(-1) == "*" then
+                note(root .. full:sub(1, -2), true)
+            else
+                note(root .. full, false)
+            end
+        end
+    end
+
+    for name in pairs(callee.captured) do
+        note(name, false)
+    end
+    for name, paths in pairs(callee.capturedBelow) do
+        each(name, "", paths)
+    end
+    local isMethod = node.kind == "methodCall"
+    if callee.self and isMethod then
+        local root, prefix = splitPath(node.obj)
+        each(root, prefix, callee.selfPaths)
+    end
+    local called = node.obj
+    local viaOwner = not isMethod and called and not cst.isToken(called) and called.kind == "dotIndex"
+    local args = node.args
+    local exprs = args and args.kind == "args" and args.exprs or {}
+    local position: integer = 0
+    for _, argument in ipairs(exprs) do
+        if not cst.isToken(argument) then
+            position = position + 1
+            local value = (argument.kind == "namedArg" or argument.kind == "pluckArg") and argument.value or argument
+            local at: integer = position
+            if argument.kind == "namedArg" and argument.name then
+                at = 0
+                for j, paramName in ipairs(callee.paramNames) do
+                    if paramName == argument.name.text then
+                        at = j
+                    end
+                end
+            end
+            local root, prefix = splitPath(value)
+            if viaOwner and callee.self then
+                if at == 1 then
+                    each(root, prefix, callee.selfPaths)
+                end
+                at = at - 1
+            end
+            local paths = callee.params[at]
+            if paths then
+                each(root, prefix, paths)
+            end
+        end
+    end
+
+    return true
+end
+
+--- The paths a block assigns, directly or through the calls it makes: what a
+--- loop entry or a label has to forget before the body runs again.
+---
+--- @param summaries what the pass built for the file
+--- @param block the loop body, or the statements a backward jump repeats
+--- @return the paths written, and the paths written beneath
+function mutation.writtenRoots(summaries: mutation.Summaries, block: any): {[string]: boolean}, {[string]: boolean}
+    local whole: {[string]: boolean} = {}
+    local below: {[string]: boolean} = {}
+    local function note(key: string, under: boolean)
+        if under then
+            below[key] = true
+        else
+            whole[key] = true
+        end
+    end
+
+    local integers: {[string]: boolean} = {}
+    local function direct(target: any)
+        local root, suffix = splitPath(target, integers)
+        if not root then
+            return
+        end
+        if suffix:sub(-1) == "*" then
+            note(root .. suffix:sub(1, -2), true)
+        else
+            note(root .. suffix, false)
+        end
+    end
+
+    local function walk(node: any)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt" then
+            return
+        elseif kind == "fornumStmt" and node.var and cst.isToken(node.var) then
+            integers[node.var.text] = true
+        elseif kind == "forinStmt" then
+            local iterator = node.exprs and node.exprs[1] or nil
+            local first = node.names and node.names[1] or nil
+            if first and iterator ~= nil and iterator.kind == "call" and keyOf(iterator.obj) == "ipairs" then
+                integers[first.text] = true
+            end
+        elseif kind == "assignStmt" then
+            for _, target in ipairs(node.targets or {}) do
+                direct(target)
+            end
+        elseif kind == "compoundAssign" then
+            direct(node.target)
+        elseif kind == "call" or kind == "methodCall" or kind == "safeCall" then
+            mutation.eachWrite(summaries, node, note)
+        end
+        for _, child in ipairs(node) do
+            if not cst.isToken(child) then
+                walk(child)
+            end
+        end
+    end
+
+    walk(block)
+
+    return whole, below
+end
+
+export = mutation
