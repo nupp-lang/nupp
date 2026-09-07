@@ -139,7 +139,9 @@ A child name is also the operation an installed suspension handler sees when
 that child parks.
 
 A `takes` capture moves into the child. Cancelling before the child starts
-drops the uncalled closure and its captures. A borrowed affine capture is
+drops the uncalled closure and its captures, and so does a `spawn` the scope
+refuses -- one parked for a slot under a `limit` when a sibling fails, or one
+made after the scope already owns a failure. A borrowed affine capture is
 refused because `spawn` returns before the child must settle.
 
 ## Failure ownership
@@ -216,9 +218,11 @@ end
 
 Expiry requests ordinary structured cancellation, and it reaches the block's own
 wait as it reaches a child's. It does not preempt running Lua, C, or
-operating-system code, and the scope still waits for cleanup. A deadline's
-cancellation is the scope's promise broken, so unlike `scope:cancel()` it is
-raised where the block is left.
+operating-system code, and the scope still waits for cleanup: settling drives
+every parked child far enough to unwind through its cleanup, exactly as
+`cancel` does, before anything is raised. A deadline's cancellation is the
+scope's promise broken, so unlike `scope:cancel()` it is raised where the block
+is left, once the children have settled.
 
 Both arguments are named: `open()`, `open(limit = 8)`, `open(deadline = 500)`,
 or `open(limit = 8, deadline = 500)`.

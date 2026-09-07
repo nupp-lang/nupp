@@ -261,6 +261,16 @@ handled suspension with one outstanding is allowed, because responsibility
 transfers to a handler that owns the continuation and its cancellation until the
 park returns or unwinds.
 
+The yield is recognized by what it is rather than how it is spelled: through the
+library table, through a local bound to that table, or through a name bound to
+the function itself, as `local pause = coroutine.yield` is. A helper this file
+can see is judged by its body, so a call that reaches a raw yield through one or
+several visible functions is refused at the call while the obligation is live. A
+callee reached through a type is answered by that type, as `nosuspend` is. A
+yield written inside `unsafe do` is the author's to answer for -- the shape a
+driver takes when it forwards a nested coroutine's park to whoever resumes it --
+and is not counted.
+
 A `borrows` or `exclusive` parameter counts as an outstanding obligation for
 this purpose even though the owner is the caller's. The check sees one frame,
 and the caller's owner would be stranded through a callee that raw-yields

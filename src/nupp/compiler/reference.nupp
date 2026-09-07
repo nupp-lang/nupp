@@ -2111,6 +2111,11 @@ must never be reassigned, and must be copyable into another Lua state. The lane
 receives an independent copy, not the parent's binding or table identity. Module
 locals are reconstructed when the declared module loads in that lane.
 
+The checker holds each capture to its declared type, one level deep. What a
+table, a record, or an `any` actually holds is not a fact of the type, so it is
+verified when the message is built: a closure, a foreign metatable, or a cycle
+found inside one is refused at the spawn, naming the position it was found at.
+
 `nupp.workers` is what asks for this today. Its source form puts the callable
 last: `scope:spawn(arguments..., callable)`. See
 [workers.md](docs/learn/runtime/concurrency/workers.md).

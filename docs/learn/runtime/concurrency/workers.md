@@ -332,7 +332,9 @@ A type that says nothing definite is left to the copy. `any`, a bare `table`,
 and a record all describe values that may or may not be copyable. A record built
 with `new` carries its declaration table and crosses with that identity; a plain
 table cast to the same record type remains plain. The type alone cannot decide
-which value arrives.
+which value arrives. The checker's guarantee is therefore one level deep -- each
+capture and argument is held to its declared type -- and the transport walks the
+values themselves when the message is built, at `spawn` or `fork`.
 
 The following are therefore still rejected while copying:
 
