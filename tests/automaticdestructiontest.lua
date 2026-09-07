@@ -723,4 +723,26 @@ function M.aTakingMethodCalledWithAStringArgumentReceivesIt()
    assertEq(closed, "r")
 end
 
+
+function M.aParenthesisedOwnerMovesIntoItsNewBindingOnce()
+   -- The checker records the move on the name inside `(a)`, and the generator
+   -- read it off the parentheses, so the source slot stayed active and both
+   -- bindings ran the cleanup.
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "do",
+      "   local a = open_resource('a')",
+      "   local b = (a)",
+      "end",
+      "do",
+      "   local a = open_resource('b')",
+      "   local b = (a) as Resource",
+      "   local raw = unsafe release (b)",
+      "   calls = calls .. raw.name",
+      "end",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), "ab")
+end
+
 return M

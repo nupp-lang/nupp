@@ -3949,7 +3949,7 @@ function gen.generate(
     local function emitPackedReturn(ctx, x)
         local actives, seen = {}, {}
         for _, expr in ipairs(x.exprs or {}) do
-            local move = expr.automaticOwnerMove
+            local move = ownershipMoveOf(expr)
             local active = move and activeFlag(move) or nil
             if active and not seen[active] then
                 seen[active] = true
@@ -5442,7 +5442,7 @@ function gen.generate(
             emit(x.expr) -- `as T` vanishes; the operand keeps its grouping
 
         elseif kind == "unsafeOwnershipExpr" then
-            local move = x.expr and x.expr.automaticOwnerMove or nil
+            local move = ownershipMoveOf(x.expr)
             local movedActive = move and activeFlag(move) or nil
             if x.operation == "release" and movedActive then
                 pluck.loweredFunction(
@@ -6679,7 +6679,7 @@ function gen.generate(
                 local binding = x.bindings[1]
                 e("do const ", x.withTok and x.withTok.line or sourceLine(x))
                 e(binding.name.text .. "=", sourceLine(binding.expr))
-                local move = binding.expr and binding.expr.automaticOwnerMove or nil
+                local move = ownershipMoveOf(binding.expr)
                 local movedActive = move and activeFlag(move) or nil
                 emit(binding.expr)
                 if movedActive then
@@ -6809,7 +6809,7 @@ function gen.generate(
                 local binding = x.bindings[1]
                 e("do const ", (x.startTok or x.withTok) and (x.startTok or x.withTok).line or sourceLine(x))
                 e(("%s="):format(owners[1]), sourceLine(binding.expr))
-                local move = binding.expr and binding.expr.automaticOwnerMove or nil
+                local move = ownershipMoveOf(binding.expr)
                 local movedActive = move and activeFlag(move) or nil
                 emit(binding.expr)
                 if movedActive then
@@ -6917,9 +6917,12 @@ function gen.generate(
                 -- nothing runs between the acquisition and it that could tell the
                 -- difference, where wrapping it meant a function built per acquisition,
                 -- which is one a loop cannot record.
+                -- Read through parentheses and casts: the checker records the move
+                -- on the name inside `(a)`, and missing it here left the source slot
+                -- active, so both it and the new binding ran the cleanup.
                 local function emitAcquired(binding, expr): string?
                     emit(expr)
-                    local move = expr and expr.automaticOwnerMove or nil
+                    local move = ownershipMoveOf(expr)
 
                     return move and activeFlag(move) or nil
                 end
