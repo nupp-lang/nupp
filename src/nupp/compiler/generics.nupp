@@ -1887,6 +1887,41 @@ end
 --- binder is settled, so it never widens a binding the arguments already made.
 local contravariantDepth: integer = 0
 
+--- How many mutable container element positions unification is inside. A binder
+--- met there is invariant: the array or map already holds that element type, and a
+--- wider binding would let the other argument's value into it through the array
+--- covariance that reads allow. Such a binding is fixed, and a value position met
+--- elsewhere cannot widen it, so the argument check reports the value instead.
+local invariantDepth: integer = 0
+
+--- How many `const` views unification is inside, where an element position reads
+--- only and covariance is sound, so no binding is fixed there.
+local constDepth: integer = 0
+
+--- The binders each map fixed from an invariant position. Weak, so a finished
+--- call's map keeps nothing alive.
+local fixedBindings = setmetatable({}, {__mode = "k"})
+
+local function fixedFor(map: Bindings): {[Type]: boolean}
+    local fixed = fixedBindings[map]
+    if not fixed then
+        fixed = {}
+        fixedBindings[map] = fixed
+    end
+
+    return fixed
+end
+
+local function unifyInvariant(param: Type, arg: Type, map: Bindings)
+    if constDepth > 0 then
+        generics.unify(param, arg, map)
+        return
+    end
+    invariantDepth = invariantDepth + 1
+    generics.unify(param, arg, map)
+    invariantDepth = invariantDepth - 1
+end
+
 function generics.unify(param: Type, arg: Type, map: Bindings): nil
     param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
     if not T.hasTypevar(param) then
@@ -1898,12 +1933,22 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
             -- A binder in two positions holds what both arguments were. An index by a
             -- computed key has no name to narrow, so the previous binding is read into
             -- one. A callback's own parameter is the exception: it accepts, so it
-            -- may be wider than the binding, and it is not evidence for one.
+            -- may be wider than the binding, and it is not evidence for one. An
+            -- element of a mutable container is the other: it fixes the binding, and
+            -- a later value position leaves it fixed.
             local bound = map[param]
             if bound and contravariantDepth > 0 then
                 return
             end
-            map[param] = bound and T.union({bound, arg}) or arg
+            local fixed = fixedFor(map)
+            if invariantDepth > 0 then
+                if not fixed[param] then
+                    map[param] = arg
+                    fixed[param] = true
+                end
+            elseif not fixed[param] then
+                map[param] = bound and T.union({bound, arg}) or arg
+            end
         end
     elseif tag == "neutral" and param.op == "singleton" and param.constTerm and param.constTerm.tag == "constVar" then
         local actual = consteval.fromType(arg)
@@ -1918,7 +1963,7 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         end
     elseif tag == "array" then
         if arg.tag == "array" then
-            generics.unify(param.elem, arg.elem, map)
+            unifyInvariant(param.elem, arg.elem, map)
         elseif arg.tag == "tuple" then
             for _, e in ipairs(arg.elems) do
                 generics.unify(param.elem, e, map)
@@ -1946,12 +1991,12 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
     elseif tag == "map" then
         if arg.tag == "map" then
             if param.readable and arg.readable then
-                generics.unify(param.key, arg.key, map)
-                generics.unify(param.value, arg.value, map)
+                unifyInvariant(param.key, arg.key, map)
+                unifyInvariant(param.value, arg.value, map)
             end
             if param.writeKey and param.writeValue and arg.writeKey and arg.writeValue then
-                generics.unify(param.writeKey, arg.writeKey, map)
-                generics.unify(param.writeValue, arg.writeValue, map)
+                unifyInvariant(param.writeKey, arg.writeKey, map)
+                unifyInvariant(param.writeValue, arg.writeValue, map)
             end
         end
     elseif tag == "union" then
@@ -2073,11 +2118,13 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
             generics.unify(param.of, arg.of, map)
         end
     elseif tag == "const" then
+        constDepth = constDepth + 1
         if arg.tag == "const" then
             generics.unify(param.inner, arg.inner, map)
         else
             generics.unify(param.inner, arg, map)
         end
+        constDepth = constDepth - 1
     end
 end
 

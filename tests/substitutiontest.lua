@@ -374,4 +374,32 @@ function M.aPositionalLiteralReturnsAsTheDeclaredTuple()
    }, "\n"), "NUPP2002")
 end
 
+-- A binder met in a mutable container's element position is fixed there: the
+-- array already holds that type, and a value argument cannot widen the binding
+-- and then ride array covariance into it. A `const` view reads only, so it
+-- still unions.
+function M.aContainerElementFixesTheBinder()
+   local body = table.concat({
+      "local function push<T>(xs: {T}, v: T): nil",
+      "   xs[#xs + 1] = v",
+      "end",
+      "local function unshift<T>(v: T, xs: {T}): nil",
+      "   table.insert(xs, 1, v)",
+      "end",
+      "local function put<K, V>(m: {[K]: V}, k: K, v: V): nil",
+      "   m[k] = v",
+      "end",
+      "local function first<T>(xs: const {T}, fallback: T): T",
+      "   return xs[1] or fallback",
+      "end",
+      "local ints: {integer} = {1}",
+      "local names: {[string]: string} = {}",
+   }, "\n") .. "\n"
+   reports(body .. 'push(ints, "s")\nreturn ints\n', "NUPP2006")
+   reports(body .. 'unshift("s", ints)\nreturn ints\n', "NUPP2006")
+   reports(body .. 'put(names, "k", 5)\nreturn names\n', "NUPP2006")
+   clean(body .. "push(ints, 2)\nunshift(0, ints)\nput(names, 'k', 'v')\nreturn ints\n")
+   clean(body .. 'local either: integer | string = first(ints, "none")\nreturn either\n')
+end
+
 return M
