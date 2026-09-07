@@ -89,7 +89,16 @@ function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
         end
         local parameters = {}
         for _, param in ipairs(params or {}) do
-            local name = param.name and param.name.text or (param[1] and param[1].kind == "..." and "..." or nil)
+            local name = param.name and param.name.text or nil
+            -- A vararg written with a mode, `borrows ...: any`, keeps the mode token
+            -- ahead of the dots, so the dots are found rather than assumed first.
+            if not name then
+                for _, child in ipairs(param) do
+                    if (child as any).kind == "..." then
+                        name = "..."
+                    end
+                end
+            end
             -- `self` is also a type name, so a receiver in a function type is parsed
             -- as an unnamed parameter whose type is the contextual `self` binder.
             if not name and param.type and param.type.kind == "tname" and (

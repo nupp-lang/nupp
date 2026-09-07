@@ -1115,7 +1115,7 @@ local os: {
     ---
     --- @param code the exit status: true or 0 for success, false or another
     ---     number for failure
-    exit: function(code: any?),
+    exit: function(code: any?): never,
 
     --- Returns the value of the environment variable `name`.
     ---
