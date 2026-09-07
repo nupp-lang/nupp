@@ -2260,6 +2260,135 @@ function M.jsonDocumentationExposesTheParseOnlyModel()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+local ALIASED_PHASES = table.concat(
+    {
+        "module game.internal.phases",
+        "",
+        "--[[",
+        "The frame order.",
+        "]]",
+        "",
+        "--- A phase name.",
+        "export type Phase = string",
+        "",
+        "--- Names the first phase.",
+        "export const First: Phase = \"First\"",
+        "",
+        "--- Returns a phase by its position.",
+        "--- @param index the one-based position",
+        "--- @return the phase, or nil past the last one",
+        "export function at(index: integer): Phase?",
+        "   if index == 1 then",
+        "      return First",
+        "   end",
+        "",
+        "   return nil",
+        "end",
+    },
+    "\n"
+) .. "\n"
+
+local function aliasModel(files)
+    local json = require("testjson")
+    local dir = tempProject(files)
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = json.decode(readFile(dir .. "/api.json"))
+    os.execute("rm -rf '" .. dir .. "'")
+    local byName = {}
+    for _, module in ipairs(model.modules) do
+        byName[module.name] = module
+    end
+
+    return byName
+end
+
+-- `export const phases = phasevalues` publishes `game.phases.First`, which the checker
+-- resolves and a parse of the aliasing file alone cannot describe. The values behind
+-- the name have to reach the reader through it, because the module they are written in
+-- is internal and has no page.
+function M.aModuleAliasConstDocumentsTheNamespaceItPublishes()
+    local byName = aliasModel({
+        ["src/game/internal/phases.nupp"] = ALIASED_PHASES,
+        [
+            "src/game/init.nupp"
+        ] = table.concat(
+            {
+                "module game",
+                "",
+                'local phasevalues = require("game.internal.phases")',
+                "",
+                "--- A frame phase.",
+                "export type Phase = phasevalues.Phase",
+                "",
+                "--- The ordered frame phase constants.",
+                "export const phases = phasevalues",
+            },
+            "\n"
+        ) .. "\n",
+    })
+    assert(byName["game"], "the aliasing module is missing")
+    assert(not byName["game.internal.phases"], "an internal module must stay off the site")
+    for _, item in ipairs(byName["game"].items) do
+        assert(item.name ~= "phases", "the bare alias declaration outlived the module it published")
+    end
+    local namespace = byName["game.phases"]
+    assert(namespace, "the alias published no module")
+    assert(namespace.text == "The ordered frame phase constants.", namespace.text)
+    local byItem = {}
+    for _, item in ipairs(namespace.items) do
+        byItem[item.name] = item
+    end
+    assert(byItem.First and byItem.First.kind == "variable", "an aliased constant is missing")
+    assert(byItem.First.doc.text == "Names the first phase.", "an aliased constant lost its documentation")
+    assert(byItem.at and byItem.at.kind == "function", "an aliased function is missing")
+    assert(byItem.at.params[1].name == "index", "an aliased function lost its parameters")
+    -- A value binding carries no types, so `game.phases.Phase` is a spelling the
+    -- checker rejects. The type the module means to re-export is its own `export type`
+    -- alias.
+    assert(not byItem.Phase, "a type reached the page through a value binding")
+    local aliasedType = nil
+    for _, item in ipairs(byName["game"].items) do
+        if item.name == "Phase" then
+            aliasedType = item
+        end
+    end
+    assert(aliasedType and aliasedType.kind == "type", "the exported type alias is missing")
+end
+
+-- An aliased module the site already shows keeps its one page. The declaration says
+-- what it holds by naming it, which the symbol index links, rather than by being
+-- copied.
+function M.aModuleAliasNamesATargetTheSiteAlreadyDocuments()
+    local byName = aliasModel({
+        [
+            "src/game/phasevalues.nupp"
+        ] = ALIASED_PHASES:gsub("module game%.internal%.phases", "module game.phasevalues", 1),
+        [
+            "src/game/init.nupp"
+        ] = table.concat(
+            {
+                "module game",
+                "",
+                'local phasevalues = require("game.phasevalues")',
+                "",
+                "--- The ordered frame phase constants.",
+                "export const phases = phasevalues",
+            },
+            "\n"
+        ) .. "\n",
+    })
+    assert(byName["game.phasevalues"], "the aliased module lost its own page")
+    assert(not byName["game.phases"], "a documented module was copied onto a second page")
+    local alias = nil
+    for _, item in ipairs(byName["game"].items) do
+        if item.name == "phases" then
+            alias = item
+        end
+    end
+    assert(alias, "the alias declaration is missing")
+    assert(alias.signature == "const phases = game.phasevalues", alias.signature)
+end
+
 function M.aPageDirectoryPublishesEveryDocumentAndGeneratesItsIndex()
     local dir = tempProject({
         ["src/math.nupp"] = SOURCE,

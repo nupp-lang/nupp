@@ -173,6 +173,32 @@ at. This is how the [`nupp` standard
 library](../runtime/data/standard-library.md), whose native members have no file to
 require them by, gets pages nested under `nupp`.
 
+### Re-exported modules
+
+A public `const` bound to a whole required module is a namespace re-export, and
+the name it publishes is one the checker resolves:
+
+```nupp
+local phasevalues = require("app.internal.phases")
+
+--- The ordered frame phase constants.
+export const phases = phasevalues
+```
+
+`app.phases.Update` reaches the aliased module's constant, so `app.phases`
+documents as a module of its own: the declaration's docblock describes it, the
+aliased module's exported values and functions are its members, and the parent
+lists it among its submodules rather than showing a declaration that names none
+of them. An aliased module the site already shows keeps its one page instead of
+being copied onto a second, and the declaration spells its target, as
+`const phases = app.phases`.
+
+Values only. A value binding does not carry the aliased module's types, so
+`app.phases.Phase` is a spelling the checker rejects and the page would be
+documenting a program that does not compile. A type meant to be re-exported is
+written as its own `export type` alias, which the generator follows to the
+module declaring it.
+
 ## Public surface
 
 Without `--all`, an ordinary module shows its globals, its exported types, and

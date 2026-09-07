@@ -441,6 +441,100 @@ local function loadModules(root, config, settings, requested)
         end
         module.items = projectedItems
     end
+    -- Which modules the site will not show. Asked twice: once to decide whether a
+    -- namespace re-export has a page of its own to point at, and once to drop them.
+    local internalTrees = {}
+    for _, module in ipairs(modules) do
+        if module.documentationInternal and module.path and module.path:match("[/\\]init%.nupp$") then
+            internalTrees[#internalTrees + 1] = module.name
+        end
+    end
+    local function hiddenModule(module: any): boolean
+        if settings.includePrivate then
+            return false
+        end
+        if module.documentationInternal or internalModuleName(module.name) then
+            return true
+        end
+        if module.path and privateSource(root, module.path) then
+            return true
+        end
+        for _, namespace in ipairs(internalTrees) do
+            if module.name == namespace or module.name:sub(1, #namespace + 1) == namespace .. "." then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    -- The module a namespace re-export publishes, holding the values that reach a
+    -- reader through the alias rather than through the module they were written in.
+    local function aliasNamespace(module: any, item: any, origin: any): any
+        local name = module.name .. "." .. item.name
+        local alias = {
+            name = name,
+            -- The file declaring the alias, not the aliased one: the page names a
+            -- source a reader can open, and an internal file is not on the site to be
+            -- opened.
+            path = module.path,
+            text = item.doc.text ~= "" and item.doc.text or origin.text,
+            items = {},
+        }
+        for _, candidate in ipairs(origin.items) do
+            if candidate.kind == "variable" or candidate.kind == "function" then
+                local copied = copy(candidate)
+                copied.module = nil
+                copied.path = name .. "." .. candidate.name
+                for _, member in ipairs(copied.members or {}) do
+                    member.path = copied.path .. "." .. member.name
+                end
+                alias.items[#alias.items + 1] = copied
+            end
+        end
+
+        return alias
+    end
+
+    -- A public const bound to a whole required module is a namespace re-export, and the
+    -- name it publishes is one the checker resolves: `app.phases.Update` reaches
+    -- the aliased module's constant. A parse alone cannot say what the alias holds, so
+    -- the declaration renders as a bare `const phases` naming none of it, and where the
+    -- aliased module is internal its members reach the site through no other name at
+    -- all. Document the module that name already answers to.
+    --
+    -- Values only. A value binding does not carry the aliased module's types, so
+    -- `app.phases.Phase` is a spelling the checker rejects and publishing it here
+    -- would document a call that does not compile. A type meant to be re-exported is
+    -- written as its own `export type` alias, which `projected` above expands.
+    --
+    -- An aliased module the site already shows keeps its one page instead of being
+    -- copied onto a second. The declaration then spells its target, which the symbol
+    -- index links.
+    local aliasedNamespaces = {}
+    for _, module in ipairs(modules) do
+        local kept = {}
+        for _, item in ipairs(module.items) do
+            local binding = item.kind == "variable" and item.aliasSource and item.aliasSource:match(
+                "^[%a_][%w_]*$"
+            ) or nil
+            local imported = binding and module.imports and module.imports[binding] or nil
+            local origin = imported and byName[imported] or nil
+            if not origin or origin == module or byName[module.name .. "." .. item.name] then
+                kept[#kept + 1] = item
+            elseif hiddenModule(origin) then
+                aliasedNamespaces[#aliasedNamespaces + 1] = aliasNamespace(module, item, origin)
+            else
+                item.signature = item.signature .. " = " .. origin.name
+                kept[#kept + 1] = item
+            end
+        end
+        module.items = kept
+    end
+    for _, alias in ipairs(aliasedNamespaces) do
+        modules[#modules + 1] = alias
+        byName[alias.name] = byName[alias.name] or alias
+    end
     for _, module in ipairs(modules) do
         local kept = {}
         for _, item in ipairs(module.items) do
@@ -471,26 +565,9 @@ local function loadModules(root, config, settings, requested)
         table.sort(module.items, byKindThenName)
     end
     if not settings.includePrivate then
-        local internalTrees = {}
-        for _, module in ipairs(modules) do
-            if module.documentationInternal and module.path and module.path:match("[/\\]init%.nupp$") then
-                internalTrees[#internalTrees + 1] = module.name
-            end
-        end
         local public = {}
         for _, module in ipairs(modules) do
-            local hidden = (
-                module.documentationInternal or internalModuleName(
-                    module.name
-                ) or module.path and privateSource(root, module.path)
-            ) and true or false
-            for _, namespace in ipairs(internalTrees) do
-                if module.name == namespace or module.name:sub(1, #namespace + 1) == namespace .. "." then
-                    hidden = true
-                    break
-                end
-            end
-            if not hidden then
+            if not hiddenModule(module) then
                 public[#public + 1] = module
             end
         end
