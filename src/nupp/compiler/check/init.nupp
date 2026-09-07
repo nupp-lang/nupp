@@ -2050,7 +2050,7 @@ function checkMod.check(
             return false
         end
         local kind = last.kind
-        if kind == "returnStmt" or kind == "breakStmt" or kind == "continueStmt" then
+        if kind == "returnStmt" or kind == "breakStmt" or kind == "continueStmt" or kind == "gotoStmt" then
             return true
         end
         if kind == "callStmt" then

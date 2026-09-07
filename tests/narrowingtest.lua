@@ -75,6 +75,31 @@ function M.typeNameTestsClassifyAnUnknown()
    }, "\n")), "NUPP2002:5 NUPP2002:9")
 end
 
+function M.aGotoGuardNarrowsLikeABreak()
+   -- Leaving the branch through `goto` is leaving it, the same as `break`.
+   assertClean(table.concat({
+      "local items: {string?} = {'a', nil, 'c'}",
+      "for i = 1, 3 do",
+      "    local v = items[i]",
+      "    if v == nil then",
+      "        goto continue",
+      "    end",
+      "    print(#v)",
+      "    ::continue::",
+      "end",
+   }, "\n"))
+   assertClean(table.concat({
+      "local items: {string?} = {'a', nil, 'c'}",
+      "for i = 1, 3 do",
+      "    local v = items[i]",
+      "    if v == nil then",
+      "        break",
+      "    end",
+      "    print(#v)",
+      "end",
+   }, "\n"))
+end
+
 function M.nilChecksNarrowThroughFieldPaths()
    assertClean(CFG .. table.concat({
       "",
