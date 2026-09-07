@@ -28,7 +28,10 @@ end
 drop writable
 
 local output = array.new(new Sample(), 4096)
-scale(output:write(), input:read(), 2)
+local writable = output:write()
+local readable = input:read()
+scale(writable, readable, 2)
+drop writable
 local rows = output:read()
 
 return json.encode({project = "${name}", tier = "simd128", first = rows[1].value, last = rows[#rows].weight,})

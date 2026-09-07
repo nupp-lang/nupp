@@ -1269,7 +1269,7 @@ return wrong
       ["owned.nupp"] = [[
 local workers = require("nupp.workers")
 with scope = workers.scope() do
-    print(scope)
+    print(scope ~= nil)
 end
 return true
 ]],

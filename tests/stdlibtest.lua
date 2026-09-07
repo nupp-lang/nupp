@@ -2682,7 +2682,7 @@ function M.stringBufferBorrowBlocksInvalidation()
                         "local b = buffer.new()",
                         "local base, size = b:ref()",
                         "b:reset()",
-                        "print(base, size)",
+                        "print(size)",
                     },
                     "\n"
                 )

@@ -66,7 +66,7 @@ local function main(): string
     table.clear(presized)
     local cleared = next(presized) == nil
     local cloned = table.clone({value = 14})
-    local point = new Point(258, -2)
+    local point = new Point(2, -2)
     local scaled = new Scaled(3)
     local shifted = (0x55 | 0xaa) << 1
     local species = simd.preferredU8()

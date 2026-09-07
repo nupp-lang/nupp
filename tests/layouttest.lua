@@ -305,7 +305,11 @@ end
 local head = new Node(nil, 1)
 local tail = new Node(nil, 2)
 head.next = tail
-return head.next.value
+local value: int32 = 0
+unsafe do
+    value = head.next.value
+end
+return value
 ]], "chain")
    assertEq(value, 2, "the link is a real pointer to a real struct")
 end
@@ -364,7 +368,11 @@ local x = new A(nil, 7)
 local y = new B(nil, 8)
 x.b = y
 y.a = x
-return x.b.n * 10 + y.a.n
+local total: integer = 0
+unsafe do
+    total = x.b.n * 10 + y.a.n
+end
+return total
 ]], "mutual")
    assertEq(value, 87, "each side reaches the other")
 end
