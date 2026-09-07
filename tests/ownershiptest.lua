@@ -2124,6 +2124,65 @@ function M.returningABorrowStillNeedsTheAnnotation()
     )
 end
 
+-- A borrow relation is linear flow information the way a preservation relation
+-- is: a callable that forgets one lets its caller lose the root and read what the
+-- source freed. Callable assignment therefore keeps the relation exactly.
+function M.aCallableSlotCannotForgetABorrowRelation()
+    assertEq(
+        codes(
+            POOL .. table.concat(
+                {"", "local f: function(borrows p: Pool): Pool = peek", "local pool = open_pool()", "local v = f(pool)", "drop(pool)", "print(v)",},
+                "\n"
+            )
+        ),
+        "NUPP2001"
+    )
+    assertEq(
+        codes(
+            POOL .. table.concat(
+                {
+                    "",
+                    "local f: function(borrows p: Pool): Pool borrows (p) = peek",
+                    "local pool = open_pool()",
+                    "local v = f(pool)",
+                    "drop(pool)",
+                    "print(v)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602"
+    )
+    assertClean(
+        POOL .. table.concat(
+            {
+                "",
+                "local f: function(borrows p: Pool): Pool borrows (p) = peek",
+                "local pool = open_pool()",
+                "do",
+                "   local v = f(pool)",
+                "   print(v)",
+                "end",
+                "drop(pool)",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            POOL .. table.concat(
+                {
+                    "",
+                    "local function plain(borrows p: Pool): Pool return p end",
+                    "local f: function(borrows p: Pool): Pool borrows (p) = plain",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2608 NUPP2001"
+    )
+end
+
 -- Borrowing a borrow needs no separate machinery: a borrow can only be bound
 -- in the scope that creates it — it cannot be assigned outward, stored, or
 -- returned without a declaration — so a derived borrow can never outlive the

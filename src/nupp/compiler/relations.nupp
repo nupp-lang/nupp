@@ -424,6 +424,25 @@ local function affine(t)
     return false
 end
 
+--- The borrow relation a callable states, spelled so two callables that state the
+--- same one compare equal, and "" for none: which parameters the borrowed result
+--- reads, and which result slot it lands on.
+local function borrowRelation(ft: T.Func): string
+    local sources: {integer} = {}
+    if ft.borrowsParam then
+        sources[#sources + 1] = ft.borrowsParam
+    end
+    for _, param in ipairs(ft.borrowsParams or {}) do
+        sources[#sources + 1] = param
+    end
+    if #sources == 0 and not ft.borrowsSelf then
+        return ""
+    end
+    table.sort(sources)
+
+    return table.concat(sources, ",") .. (ft.borrowsSelf and "|self" or "") .. "|into" .. (ft.borrowsResult or 1)
+end
+
 --- Covariant compatibility between complete result packs.
 function relations.packIsA(have: T.Pack, want: T.Pack): boolean, string?
     if have == want then
@@ -1322,6 +1341,12 @@ local function check(a: Type, b: Type): boolean, string?
                     "%s is not a %s (return %d preservation relation)"
                 ):format(T.tostring(a), T.tostring(b), result)
             end
+        end
+        -- A borrow relation is the same kind of information. A slot that forgets
+        -- one lets its caller drop the source while the result still reads it, so
+        -- the relation is kept exactly as well.
+        if borrowRelation(a) ~= borrowRelation(b) then
+            return false, ("%s is not a %s (result borrow relation)"):format(T.tostring(a), T.tostring(b))
         end
         return true
     end
