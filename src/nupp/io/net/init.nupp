@@ -1301,7 +1301,12 @@ end
 
 local function slice(text: string): any
     local value = native.ffi.new("NuppNativeV2NetSlice")
-    value.data = text
+    -- The slice points into the Lua string; every caller hands it to C and returns
+    -- while `text` is still a live argument of its own, so the string outlives the
+    -- call.
+    unsafe do
+        value.data = text
+    end
     value.length = #text
 
     return value

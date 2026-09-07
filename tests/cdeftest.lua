@@ -477,4 +477,18 @@ function M.levelZeroCdefNameUntouched()
    assertClean("local t = { cdef = 1 }\nprint(t.cdef)")
 end
 
+function M.luaStringCannotBeStoredInACstringField()
+   -- a Lua string converts to const char * for the duration of a call, but a
+   -- struct field outlives the call and the collector may move on from the
+   -- string while the field still points at it
+   local HOLDER = "cdef struct holder\n   name: cstring\nend\n"
+   assertEq((diagsOf(HOLDER .. "local h = new holder()\nlocal text = 'a' .. 'b'\nh.name = text")),
+      "NUPP2604:6")
+   assertEq((diagsOf(HOLDER .. "local h = new holder('hi')")), "NUPP2604:4")
+   -- inside unsafe the author vouches that the string outlives the slot
+   assertClean(HOLDER .. "local h = new holder()\nlocal text = 'a' .. 'b'\nunsafe do\n   h.name = text\nend")
+   -- the call-scoped conversion is unchanged
+   assertClean("cdef function strlen2(s: cstring): uint64\nstrlen2('hi')")
+end
+
 return M

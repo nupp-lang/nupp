@@ -34,7 +34,12 @@ end
 local function slice(text: string): any
     requireFilesystem()
     local value = ffi.new<NuppNativeV2FilesystemSlice>()
-    value.data = text
+    -- The slice points into the Lua string; every caller hands it to C and returns
+    -- while `text` is still a live argument of its own, so the string outlives the
+    -- call.
+    unsafe do
+        value.data = text
+    end
     value.length = #text
 
     return value

@@ -997,7 +997,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         et,
                         tt,
                         written or stat,
-                        target.fixedWidthPhysicalStore == true
+                        target.fixedWidthPhysicalStore == true and "store" or false
                     )
                     if not ok and not reported then
                         c.diag("NUPP2001", written or stat, ("cannot assign: %s"):format(why))
@@ -1134,7 +1134,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 resultT,
                 writeT,
                 stat,
-                assignTarget.fixedWidthPhysicalStore == true
+                assignTarget.fixedWidthPhysicalStore == true and "store" or false
             )
             if not ok and not reported then
                 c.diag("NUPP2001", stat, ("cannot assign compound result: %s"):format(why))

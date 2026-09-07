@@ -169,8 +169,34 @@ function fixedCheck.install(c: state.Checker): Ops
         return out
     end
 
+    --- `physical` is truthy for a real C store or cdef argument, and "store" when
+    --- the slot outlives the statement: a struct field, an array element, or a
+    --- struct construction.
     ops.fits = function(source, target, node, physical)
         if physical then
+            -- A Lua string converts to `const char *` for the length of a call. A
+            -- field or array slot outlives the call, and the pointer it keeps
+            -- anchors nothing: the collector may free the string while the slot
+            -- still points at it.
+            if physical == "store" and T.unwrapOwnership(
+                target
+            ) == T.cstring and isA(T.unwrapOwnership(source), T.string) then
+                if c.unsafeDepth == 0 then
+                    c.diag(
+                        "NUPP2604",
+                        node,
+                        "storing a Lua string's pointer in C memory requires unsafe do; the slot outlives "
+                        .. "the conversion and nothing keeps the string alive for it",
+                        nil,
+                        {help = "copy the bytes into C memory the struct's owner also holds"}
+                    )
+                    return false, nil, true
+                end
+                if node then
+                    node.unsafeOwnershipOperation = "Lua string pointer stored in C memory"
+                end
+                return true, nil, false
+            end
             local accepted = fixed.physicalStoreAccepts(source, target)
             if accepted ~= nil then
                 return accepted, accepted and nil or (
