@@ -287,6 +287,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 ) then
                     bound = T.any
                 end
+                -- A literal that keeps its shape here is bound by name from now on,
+                -- so the latitude a literal has while it is being checked ends.
+                bound = T.settled(bound)
             end
             if (
                 ownershipKind(init) == "affine" or ownershipKind(init) == "pinned"

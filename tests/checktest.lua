@@ -757,6 +757,46 @@ function M.constBindings()
    assertEq((diagsOf("const function f() end\nf = nil")), "NUPP2008:2")
 end
 
+-- A table literal is contextually checked against the type it initializes, so a
+-- literal's field may be written as the wider type. The same latitude must not
+-- follow the literal into a name: a stored view of a binding would then write
+-- what the binding's own reads do not admit. A literal with a const field is the
+-- one that keeps its shape when bound (the others widen to `table`).
+function M.aBoundLiteralIsNoLongerFresh()
+   local animals = table.concat({
+      "local interface Animal",
+      "   name: string",
+      "end",
+      "local record Dog is Animal",
+      "   name: string",
+      "   bark: string",
+      "end",
+   }, "\n")
+   assertClean(animals .. table.concat({
+      "",
+      "local pen: {value: Animal} = {const tag = 'k', value = new Dog(name = 'rex', bark = 'woof')}",
+      "return pen",
+   }, "\n"))
+   assertEq(diagsOf(animals .. table.concat({
+      "",
+      "local kennel = {const tag = 'k', value = new Dog(name = 'rex', bark = 'woof')}",
+      "local pen: {value: Animal} = kennel",
+      "return pen",
+   }, "\n")), "NUPP2001:9")
+   assertEq(diagsOf(animals .. table.concat({
+      "",
+      "const kennel = {const tag = 'k', value = new Dog(name = 'rex', bark = 'woof')}",
+      "local pen: {value: Animal} = kennel",
+      "return pen",
+   }, "\n")), "NUPP2001:9")
+   assertClean(animals .. table.concat({
+      "",
+      "const kennel = {const tag = 'k', value = new Dog(name = 'rex', bark = 'woof')}",
+      "local pen: {readonly value: Animal} = kennel",
+      "return pen",
+   }, "\n"))
+end
+
 function M.namedVarargsAreConst()
    assertClean("local function f(...args) return args.n, args[1], ... end")
    assertClean("local f = |...args| -> args.n")

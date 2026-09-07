@@ -1371,6 +1371,25 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
     )
 end
 
+--- The same shape once its literal has been bound: what a fresh literal may still
+--- be checked as, a stored value may not, so the marker comes off with the binding.
+function types.settled(t: types.Type): types.Type
+    if t.tag ~= "shape" or not t.fresh then
+        return t
+    end
+    local fields: {types.Field} = {}
+    for j, f in ipairs(t.fields) do
+        fields[j] = f
+    end
+
+    return types.shape(fields, {
+        readKey = t.indexReadKey,
+        readValue = t.indexReadValue,
+        writeKey = t.indexWriteKey,
+        writeValue = t.indexWriteValue,
+    })
+end
+
 --- Adds `t` to a union under construction, flattening nested unions and merging two
 --- functions that differ only in their labels.
 ---
