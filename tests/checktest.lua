@@ -143,6 +143,52 @@ function M.subtypingRules()
    assert(not isA(takesInt, takesNum))
 end
 
+-- The extra parameters of a callable stand where the target's extra arguments
+-- arrive, so they compare against its vararg element type and mode the way any
+-- parameter position does; an untyped `...` promises nothing about them.
+function M.extraParametersCompareAgainstTheTargetsVararg()
+   local takesTwo = "local function takesTwo(x: string, n: integer): string return x .. n end"
+   assertEq(diagsOf(table.concat({
+      takesTwo,
+      "local f: function(x: string, ...: string): string = takesTwo",
+      "return f",
+   }, "\n")), "NUPP2001:2")
+   assertEq(diagsOf(table.concat({
+      takesTwo,
+      "local f: function(x: string, ...): string = takesTwo",
+      "return f",
+   }, "\n")), "NUPP2001:2")
+   assertClean(table.concat({
+      takesTwo,
+      "local f: function(x: string, ...: integer): string = takesTwo",
+      "return f",
+   }, "\n"))
+   assertEq(diagsOf(table.concat({
+      "local record R",
+      "   n: integer",
+      "end",
+      "local function consume(a: string, takes r: R): string return a end",
+      "local f: function(a: string, ...: R): string = consume",
+      "return f",
+   }, "\n")), "NUPP2001:5")
+end
+
+-- An argument nobody passes reads nil, which is what an optional parameter's
+-- type already says, so a trailing parameter that admits nil may be left
+-- unsupplied by the target; one that does not still may not.
+function M.anOmittedTrailingParameterMustAdmitNil()
+   assertClean(table.concat({
+      "local function f(x: string, y: integer?): string return x .. tostring(y) end",
+      "local g: function(x: string): string = f",
+      "return g",
+   }, "\n"))
+   assertEq(diagsOf(table.concat({
+      "local function f(x: string, y: integer): string return x .. y end",
+      "local g: function(x: string): string = f",
+      "return g",
+   }, "\n")), "NUPP2001:2")
+end
+
 function M.arrayCovarianceCannotLaunderFunctionEffects()
    assertEq(diagsOf(table.concat({
       "local safe: {nosuspend function(number): number} = {math.floor}",

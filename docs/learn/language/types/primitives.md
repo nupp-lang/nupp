@@ -412,8 +412,11 @@ local v: function(...: string)
 Parameter names are optional, and a multiple result needs parentheses in type
 position. Parameters are contravariant and results are covariant, as usual. A
 function that takes fewer parameters is usable where more are supplied, because
-ignoring arguments is ordinary Lua; taking more is an error unless the target is
-variadic.
+ignoring arguments is ordinary Lua. Taking more is an error, since an argument
+nobody passes reads nil, unless the extra parameter admits nil or the target is
+variadic: then it stands where the target's extra arguments arrive, so it is
+compared against the declared `...: T` and its ownership mode like any other
+parameter position, and an untyped `...` vouches for nothing.
 
 Function parameters and results are represented as value sequences. See
 [packs.md](packs.md) for fixed, homogeneous, generic, and correlated sequences.

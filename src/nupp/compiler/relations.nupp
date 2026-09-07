@@ -1261,12 +1261,12 @@ local function check(a: Type, b: Type): boolean, string?
         end
         -- Ignoring arguments is ordinary Lua: a callback that takes the value and not
         -- the key is usable wherever both are passed. Wanting more than will ever be
-        -- supplied is not, since the extra ones read as nil.
-        if #a.params > #b.params and not b.vararg then
-            return false, (
-                "%s is not a %s (parameter count %d vs %d)"
-            ):format(T.tostring(a), T.tostring(b), #a.params, #b.params)
-        end
+        -- supplied is not, since the extra ones read as nil: an extra parameter is
+        -- usable only when nil is what its type already admits, or when it stands
+        -- where the target's extra arguments arrive, in which case it is a parameter
+        -- position like any other and compares against the element the target
+        -- declared for them. An untyped `...` declares nothing, so it cannot vouch
+        -- for a parameter the target never mentioned.
         -- math.min would widen the count to number, and an index has to stay an integer
         local n = #a.params
         if #b.params < n then
@@ -1286,6 +1286,29 @@ local function check(a: Type, b: Type): boolean, string?
             -- contravariant parameters
             if not isA(b.params[j], a.params[j]) then
                 return false, ("%s is not a %s (parameter %d)"):format(T.tostring(a), T.tostring(b), j)
+            end
+        end
+        local bExtra = b.paramPack.tail
+        for j = #b.params + 1, #a.params do
+            local am = a.paramModes and a.paramModes[j] or "plain"
+            if b.vararg then
+                if not b.varargType then
+                    return false, (
+                        "%s is not a %s (parameter %d against an untyped ...)"
+                    ):format(T.tostring(a), T.tostring(b), j)
+                end
+                if am ~= (bExtra and bExtra.mode or "plain") then
+                    return false, (
+                        "%s is not a %s (parameter %d ownership mode)"
+                    ):format(T.tostring(a), T.tostring(b), j)
+                end
+                if not isA(b.varargType, a.params[j]) then
+                    return false, ("%s is not a %s (parameter %d)"):format(T.tostring(a), T.tostring(b), j)
+                end
+            elseif not admitsNil(a.params[j]) then
+                return false, (
+                    "%s is not a %s (parameter count %d vs %d)"
+                ):format(T.tostring(a), T.tostring(b), #a.params, #b.params)
             end
         end
         -- Never returning is a promise, so it may be kept where an ordinary function is
