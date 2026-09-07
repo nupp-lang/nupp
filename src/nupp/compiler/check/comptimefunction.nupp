@@ -58,6 +58,9 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
     end
 
     c.comptimeFunctions[helperKey] = helper
+    if helper.exported then
+        c.comptimeFunctions[markedName.text] = helper
+    end
     c.comptimeFunctionDepth = c.comptimeFunctionDepth + 1
     checkOrdinary(helper)
     c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1

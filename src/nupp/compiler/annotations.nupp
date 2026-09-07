@@ -13,8 +13,10 @@ local pathtext = require("nupp.io.path.pathtext")
 
 local function sameSource(left, right)
     if type(left) == "string" and type(right) == "string" then
-        return pathtext.normalize(left) == pathtext.normalize(right)
+        local windows = package.config:sub(1, 1) == "\\"
+        return pathtext.normalize(left, windows) == pathtext.normalize(right, windows)
     end
+
     return left == right
 end
 
