@@ -6447,7 +6447,7 @@ function M.anOwnerCannotBeConstructedIntoAnAnyField()
                 "\n"
             )
         ),
-        "NUPP2611"
+        "NUPP2611 NUPP2603"
     )
 end
 
