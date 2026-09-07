@@ -216,6 +216,13 @@ local n: number = big  -- NUPP2001: int64 is not a number
 local x: int64 = 1.5   -- NUPP2001: number is not an int64
 ```
 
+`+`, `-`, `*`, `%`, and `//` over two integers give an `integer`; `/` and `^`
+always give a `number`. The integer answer for `%` and `//` is a promise about
+the divisor rather than a proof: `7 % 0` is `nan` and `7 // 0` is `inf` at run
+time, and the checker does not follow a divisor back to a value. It types the
+common `index % count` as the integer it is, and leaves a zero divisor to the
+code that produced it.
+
 ### Value refinements
 
 `float`, `int32`, and `uint32` remain ordinary unboxed Lua numbers, but entering

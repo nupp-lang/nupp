@@ -42,6 +42,14 @@ end
 
 local M = {}
 
+-- The integer answer for `%` and `//` is documented as a promise about the
+-- divisor: `7 % 0` is nan at run time, and the checker does not follow a
+-- divisor back to a value, so `index % count` stays the integer it is.
+function M.integralRemainderAndFloorQuotientStayIntegral()
+   assertEq(diagsOf("local a: integer = 7\nlocal n: integer = 2\nlocal m: integer = a % n\nlocal q: integer = a // n"), "")
+   assertEq(run("local a: integer = 7\nlocal z: integer = 0\nlocal m: integer = a % z\nreturn m ~= m"), true)
+end
+
 function M.nilCoalescingPrefersTheLeft()
    assertEq(run("return 1 ?? 2"), 1)
    assertEq(run("local a = nil\nreturn a ?? 'fallback'"), "fallback")
