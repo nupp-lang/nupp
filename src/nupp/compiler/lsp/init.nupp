@@ -1727,7 +1727,10 @@ function lsp.run(rootDir: string?): integer
     end
     local relayOptions: process.Options = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
     local relay = new process.Process(relayOptions)
-    local reader = nupp.borrow(assert(relay.stdout))
+    -- Borrowed in place: taking the field out through `assert` would leave the
+    -- reader with nothing to close it.
+    local reader = nupp.borrow(relay.stdout)
+    assert(reader ~= nil)
     local buffered = ""
     local queued = {}
     local cancelled = {}
