@@ -96,6 +96,13 @@ end
 `type` is an ordinary function and nothing ties its result back to `s`. Write
 `s is string`.
 
+The one subject it does classify is `unknown`, which claims nothing a
+declaration could contradict: `type(u) == "table"` makes `u` a `table` in the
+branch the test holds in, `type(u) ~= "string"` makes it a `string` after the
+early return, and the other branch goes on knowing nothing. `"function"` names
+no type honestly and is left alone; write `u as function(): nil`, or the
+signature you mean.
+
 The *result* narrows even though the argument does not, because `type` answers
 from a closed set: `"nil" | "boolean" | "number" | "string" | "table" |
 "function" | "thread" | "userdata" | "cdata"`. A comparison against a name

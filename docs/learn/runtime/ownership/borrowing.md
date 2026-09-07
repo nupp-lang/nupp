@@ -633,8 +633,11 @@ capability stays freely aliased and garbage collected. See [NEP
 
 Yes. Affine fields have path-sensitive state, so a field is tracked apart from
 the record holding it and a suspension cannot strand an obligation. A terminal
-itself may not suspend, since lexical destruction also runs at non-yieldable
-boundaries. See [suspension.md](../concurrency/suspension.md) for those boundaries.
+itself may suspend too: a settling terminal waits for the resource's own work,
+and discharging one parks the coroutine as any wait does. What that costs is
+the places a suspension cannot happen, so such a terminal is refused inside a
+`nosuspend` region, and one that must also work there is declared `nosuspend`.
+See [suspension.md](../concurrency/suspension.md) for those boundaries.
 
 ### Does an owner have to name its cleanup at every call site?
 

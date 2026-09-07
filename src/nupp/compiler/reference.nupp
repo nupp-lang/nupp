@@ -1539,8 +1539,10 @@ return m
 writable views. `WriteSpan.slice(first, last)` returns one affine child writer,
 and its parent stays blocked until that child is committed or dropped. Empty
 slices use the inclusive `first, first - 1` convention.
-`WriteSpan.getMut(index)` returns a checked mutable element pointer borrowed
-from the writer, and `WriteSpan.splitAt(mid)` creates audited disjoint regions.
+An element is read and written through the indexer, `view[index]` and
+`view[index] = value`, each bounds-checked; a struct element's field is written
+in place as `view[index].field = value`. `WriteSpan.splitAt(mid)` creates
+audited disjoint regions.
 
 `indexed.range(first, last, ...)` validates one inclusive range against every
 supplied trusted `Span` or SoA view and returns ordinary `first` and `last`
