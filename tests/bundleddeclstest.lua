@@ -91,6 +91,34 @@ print(ok2, m)
 ]]), "NUPP2001:12")
 end
 
+-- An iterator function answers nil once it runs out, and `string.gmatch`'s answers
+-- a match's captures or nothing, so calling one by hand yields optionals. A
+-- `for ... in` loop runs its body only while the first value is not nil, which is
+-- why the loop variables are exactly what an iteration holds.
+function M.manualIteratorCallsAreOptionalWhereLoopsAreNot()
+    assertEq(diagsUnderPrelude([[
+local lines = io.lines("x")
+local line: string = lines()
+local matches = ("a=1"):gmatch("(%a+)=(%d+)")
+local key: string, value: string = matches()
+print(line, key, value)
+]]), "NUPP2001:2 NUPP2001:4 NUPP2001:4")
+    assertEq(diagsUnderPrelude([[
+for line in io.lines("x") do
+    local s: string = line
+    print(s)
+end
+for word in ("a b"):gmatch("%a+") do
+    local w: string = word
+    print(w)
+end
+for key, value in ("a=1"):gmatch("(%a+)=(%d+)") do
+    local k: string, v: string = key, value
+    print(k, v)
+end
+]]), "")
+end
+
 function M.everyBundledDeclarationResolvesUnderStrict()
     local env = strictEnv()
     local lost = {}

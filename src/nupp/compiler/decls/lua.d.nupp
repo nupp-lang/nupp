@@ -562,9 +562,8 @@ local comptime function __NuppGmatchResults(Pattern: type): typepack
             end
         end
     end
-    local iterator = nupp.types.function_(nupp.types.pack({}), nupp.types.pack(results))
 
-    return nupp.types.pack({iterator})
+    return nupp.types.pack(results)
 end
 
 --- @local
@@ -648,8 +647,12 @@ local string: {
     ---
     --- @param s the string to scan
     --- @param pat the pattern to repeat across `s`
-    --- @return an iterator yielding one match at a time
-    gmatch: nosuspend function<Pattern is string>(s: string, pat: Pattern): unpackof __NuppGmatchResults(Pattern),
+    --- @return an iterator yielding one match at a time, and nothing once the matches
+    --- run out
+    gmatch: nosuspend function<Pattern is string>(
+        s: string,
+        pat: Pattern
+    ): function(): ((unpackof __NuppGmatchResults(Pattern)) | (nil)),
 
     --- Replaces matches of `pat` in `s`. `repl` may be a string, in which `%1` through
     --- `%9` stand for captures and `%0` for the whole match, a table looked up by the
@@ -1261,8 +1264,8 @@ local io: {
     --- iterator runs out, or over the default input file when `path` is omitted.
     ---
     --- @param path the file to read, or nil for the default input file
-    --- @return an iterator yielding one line at a time
-    lines: function(path: string?): function(): string,
+    --- @return an iterator yielding one line at a time, and nil once the file is read
+    lines: function(path: string?): function(): string?,
 
     --- Reads the default input file according to the given formats: "*l" for a line,
     --- "*n" for a number, "*a" for the rest, or a byte count.

@@ -1373,7 +1373,39 @@ end
 --- Resolves a computed tail after its dependencies have been substituted. Tuples add
 --- fixed slots, arrays become a homogeneous tail, and an undecidable type stays
 --- gradual so a signature can retain its dynamic fallback.
+--- Whether a pack, or any arm of one that answers several, still carries a
+--- computed tail to expand.
+local function packHasComputed(pack: T.Pack): boolean
+    if pack.tail and pack.tail.kind == "computed" then
+        return true
+    end
+    for _, arm in ipairs(pack.alternatives or {}) do
+        if arm.tail and arm.tail.kind == "computed" then
+            return true
+        end
+    end
+
+    return false
+end
+
 function generics.expandComputedPack(pack: T.Pack, control: generics.ReductionControl?): T.Pack, string?
+    -- A pack answering one of several arms expands each arm: an iterator declared to
+    -- yield a pattern's captures or nothing keeps its computed captures in one arm,
+    -- and a reader asking what slot one holds needs the arm expanded before the
+    -- question means anything.
+    if pack.alternatives then
+        local arms, changed = {}, false
+        for j, arm in ipairs(pack.alternatives) do
+            local expanded, armError = generics.expandComputedPack(arm, control)
+            if armError then
+                return pack, armError
+            end
+            arms[j] = expanded
+            changed = changed or expanded ~= arm
+        end
+
+        return changed and T.packUnion(arms) or pack
+    end
     local tail = pack.tail
     if not tail or tail.kind ~= "computed" then
         return pack
@@ -1455,8 +1487,7 @@ end
 --- unchanged, and a tail that cannot reduce yet leaves the signature as it stands: the
 --- gradual fallback is the answer while a binder is still open, not a failure.
 function generics.expandFunctionPacks(t: T.Func, control: generics.ReductionControl?): T.Func, string?
-    local paramTail, retTail = t.paramPack.tail, t.retPack.tail
-    if (not paramTail or paramTail.kind ~= "computed") and (not retTail or retTail.kind ~= "computed") then
+    if not packHasComputed(t.paramPack) and not packHasComputed(t.retPack) then
         return t
     end
     local paramPack, packError = generics.expandComputedPack(t.paramPack, control)

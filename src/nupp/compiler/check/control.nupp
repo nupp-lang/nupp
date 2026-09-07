@@ -21,6 +21,7 @@ local isA = relations.isA
 local packIsA = relations.packIsA
 local rawType = T.unwrapOwnership
 local memberSet = narrowing.memberSet
+local subtract = narrowing.subtract
 
 local control = {}
 
@@ -1127,6 +1128,22 @@ function control.install(c: state.Checker): state.StatHandlers
                 iterT, resultPack = expanded, expanded.retPack
             end
         end
+        -- The body runs only while the iterator's first value is not nil, so the
+        -- nil an honest iterator declares for its end is never what the first loop
+        -- variable holds. An iterator that answers one of several packs, such as a
+        -- match's captures or nothing, is read the same way: an arm whose first slot
+        -- is nil is the loop ending, and the survivors say what the body sees.
+        if resultPack and resultPack.alternatives then
+            local live = {}
+            for _, arm in ipairs(resultPack.alternatives) do
+                if (T.packAt(arm, 1) or T.nil_) ~= T.nil_ then
+                    live[#live + 1] = arm
+                end
+            end
+            if #live > 0 and #live < #resultPack.alternatives then
+                resultPack = T.packUnion(live)
+            end
+        end
         local iterator = stat.exprs and stat.exprs[1]
         local callee = iterator and iterator.kind == "call" and iterator.obj or nil
         local calleeTok = callee and callee.kind == "name" and callee.token or nil
@@ -1190,6 +1207,9 @@ function control.install(c: state.Checker): state.StatHandlers
                 vt = T.packAt(resultPack, j)
             elseif iterT and iterT.tag == "func" and iterT.rets[j] then
                 vt = iterT.rets[j]
+            end
+            if j == 1 and vt ~= T.any and vt ~= T.unknown and isA(T.nil_, vt) then
+                vt = subtract(vt, T.nil_)
             end
             if (mode == "borrowed" or mode == "borrows" or mode == "exclusive") and ownershipKind(vt) == nil then
                 vt = T.borrowed(vt)
