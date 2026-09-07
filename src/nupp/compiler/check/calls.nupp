@@ -1745,7 +1745,13 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
             argPack = c.inferListPack(args, inferenceModes)
-            ats = argPack.head
+            -- A copy: the pack is interned and shared with every call whose
+            -- arguments read alike, and the callback pass below replaces entries
+            -- with the signature this call specialized them to.
+            ats = {}
+            for j, actual in ipairs(argPack.head) do
+                ats[j] = actual
+            end
         end
         node.argumentPack = argPack
         local selectionPack = argPack
