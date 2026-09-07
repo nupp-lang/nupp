@@ -16,6 +16,7 @@ local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
 local narrowing = require("nupp.compiler.narrowing")
 local cst = require("nupp.compiler.cst")
+local mutation = require("nupp.compiler.check.mutation")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local indexedViews = require("nupp.compiler.indexedviews")
 local state = require("nupp.compiler.check.state")
@@ -563,11 +564,11 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- discriminates. Remembering where it came from is what lets a later test
             -- on the copy narrow the original, which is how dispatch loops are actually
             -- written.
-            if boundEntry and initNode and not ann and initNode.kind == "dotIndex" then
+            if boundEntry and initNode and initNode.kind == "dotIndex" then
                 boundEntry.aliasNode = initNode
                 boundEntry.aliasPath = pathKey(initNode)
             end
-            if boundEntry and initNode and not ann and initNode.kind == "name" and initNode.token then
+            if boundEntry and initNode and initNode.kind == "name" and initNode.token then
                 local sourceEntry = c.lookupEntry(initNode.token.text)
                 local source = init and rawType(init) or nil
                 if source and (
@@ -588,12 +589,21 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     boundEntry.resourceCapability = sourceEntry.resourceCapability
                 end
                 if sourceEntry then
+                    boundEntry.mutationSummaryKnown = sourceEntry.mutationSummaryKnown or (
+                        sourceEntry.definition and sourceEntry.definition.mutationSummaryKnown
+                    ) or nil
                     boundEntry.mutatesParams = sourceEntry.mutatesParams
+                    boundEntry.mutatesParamPaths = sourceEntry.mutatesParamPaths
                     boundEntry.mutatesCapturedEntries = sourceEntry.mutatesCapturedEntries
                     boundEntry.mutatesCapturedPaths = sourceEntry.mutatesCapturedPaths
                     boundEntry.mutatesSelf = sourceEntry.mutatesSelf
+                    boundEntry.mutatesSelfPaths = sourceEntry.mutatesSelfPaths
                     if sourceEntry.definition then
                         boundEntry.mutatesParams = boundEntry.mutatesParams or sourceEntry.definition.mutatesParams
+                        boundEntry.mutatesParamPaths = boundEntry.mutatesParamPaths
+                            or sourceEntry.definition.mutatesParamPaths
+                        boundEntry.mutatesSelfPaths = boundEntry.mutatesSelfPaths
+                            or sourceEntry.definition.mutatesSelfPaths
                         boundEntry.mutatesCapturedEntries = boundEntry.mutatesCapturedEntries
                             or sourceEntry.definition.mutatesCapturedEntries
                         boundEntry.mutatesCapturedPaths = boundEntry.mutatesCapturedPaths
@@ -614,9 +624,12 @@ function bindings.install(c: state.Checker): state.StatHandlers
             if boundEntry and initNode and initNode.kind == "funcExpr" then
                 local functionNode: any = initNode
                 boundEntry.mutatesParams = functionNode.mutatesParams
+                boundEntry.mutatesParamPaths = functionNode.mutatesParamPaths
                 boundEntry.mutatesCapturedEntries = functionNode.mutatesCapturedEntries
                 boundEntry.mutatesCapturedPaths = functionNode.mutatesCapturedPaths
                 boundEntry.mutatesSelf = functionNode.mutatesSelf
+                boundEntry.mutatesSelfPaths = functionNode.mutatesSelfPaths
+                boundEntry.mutationSummaryKnown = true
             end
             if boundEntry and (ownershipKind(bound) == "affine" or ownershipKind(bound) == "pinned") and not init then
                 boundEntry.moved = true -- declared storage, no live affine value
@@ -865,6 +878,29 @@ function bindings.install(c: state.Checker): state.StatHandlers
         end
     end
 
+    --- Records on the body being checked that it writes `suffix` beneath the
+    --- receiver or a parameter, so a call site can forget that path and no more.
+    --- A suffix ending in `*` says anything beneath it may have changed. Rebinding
+    --- the receiver or a parameter whole is the body's own affair; only a write
+    --- beneath one reaches the caller.
+    local function recordWrite(functionBody: any, rootEntry: any, suffix: string): nil
+        if suffix == "" then
+            return
+        end
+        if rootEntry.mutationSelf then
+            functionBody.mutatesSelf = true
+            functionBody.mutatesSelfPaths = functionBody.mutatesSelfPaths or {}
+            functionBody.mutatesSelfPaths[suffix] = true
+        elseif rootEntry.mutationParameter then
+            functionBody.mutatesParams = functionBody.mutatesParams or {}
+            functionBody.mutatesParams[rootEntry.mutationParameter] = true
+            functionBody.mutatesParamPaths = functionBody.mutatesParamPaths or {}
+            local paths = functionBody.mutatesParamPaths[rootEntry.mutationParameter] or {}
+            functionBody.mutatesParamPaths[rootEntry.mutationParameter] = paths
+            paths[suffix] = true
+        end
+    end
+
     handlers.assignStmt = function(stat: cst.AssignStmt)
         local values = stat.exprs or {}
         local valueCount = #values
@@ -887,19 +923,53 @@ function bindings.install(c: state.Checker): state.StatHandlers
                             functionBody.mutatesCapturedPaths[rootEntry] = paths
                             paths[suffix] = true
                         end
-                    elseif rootEntry.mutationSelf then
-                        functionBody.mutatesSelf = true
-                    elseif rootEntry.mutationParameter then
-                        functionBody.mutatesParams = functionBody.mutatesParams or {}
-                        functionBody.mutatesParams[rootEntry.mutationParameter] = true
+                    else
+                        recordWrite(functionBody, rootEntry, key:sub(#root + 1))
                     end
                 end
-                local aliased = key:find(".", 1, true) and facts.aliasTarget(key) or nil
-                clearNarrowed(key)
-                if aliased then
-                    clearNarrowed(aliased)
+                if key:find(".", 1, true) then
+                    -- A write beneath a name reaches every copy that speaks for it.
+                    facts.clearWrite(key)
+                else
+                    clearNarrowed(key)
                 end
                 clearAliases(key)
+            else
+                -- A computed index writes beneath its base: a literal key names the
+                -- field, anything else may be any of them.
+                local base: any = target
+                while base and (base.kind == "paren" or base.kind == "castExpr") do
+                    base = base.expr
+                end
+                if base and (base.kind == "bracketIndex" or base.kind == "safeBracket") then
+                    local baseKey = base.obj and pathKey(base.obj) or nil
+                    local index = base.expr
+                    local shape, literal = mutation.indexShape(index)
+                    local indexT = index and index.inferredType and rawType(index.inferredType) or nil
+                    if indexT and isA(indexT, T.integer) then
+                        -- An integer key is never a field, so no fact speaks about
+                        -- what it wrote.
+                        shape = "integer"
+                    end
+                    local written: string? = nil
+                    if baseKey and shape == "field" and literal then
+                        written = baseKey .. "." .. literal
+                        facts.clearWrite(written)
+                        clearAliases(written)
+                    elseif baseKey and shape ~= "integer" then
+                        written = baseKey .. "*"
+                        facts.clearWrite(baseKey, true)
+                        facts.clearAliasesBelow(baseKey)
+                    end
+                    local root = written and written:match("^[^.*]+") or nil
+                    local rootEntry = root and c.lookupEntry(root) or nil
+                    local functionBody: any = c.functionBodies[#c.functionBodies]
+                    if written and root and rootEntry and functionBody and (
+                        rootEntry.functionDepth or 0
+                    ) >= c.functionDepth then
+                        recordWrite(functionBody, rootEntry, written:sub(#root + 1))
+                    end
+                end
             end
         end
         for j, target in ipairs(stat.targets) do

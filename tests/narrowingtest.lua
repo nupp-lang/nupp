@@ -397,4 +397,249 @@ function M.defaultingADeclaredTableKeepsItsStructure()
    }, "\n"))
 end
 
+local BOX = table.concat({
+   "local record Box",
+   "    f: string?",
+   "end",
+}, "\n")
+
+function M.aFunctionHandedToACallIsTakenToRun()
+   -- Through a parameter typed as a function, through pcall, and as an
+   -- immediately called literal inside the condition itself.
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "local function run(cb: function())",
+      "    cb()",
+      "end",
+      "if x ~= nil then",
+      "    run(function() x = nil end)",
+      "    local s: string = x",
+      "end",
+   }, "\n")), "NUPP2001:7")
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "if x ~= nil then",
+      "    pcall(function() x = nil end)",
+      "    local s: string = x",
+      "end",
+   }, "\n")), "NUPP2001:4")
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "if x ~= nil and (function() x = nil; return true end)() then",
+      "    local s: string = x",
+      "end",
+   }, "\n")), "NUPP2001:3")
+end
+
+function M.aCalleeWritesReachThroughTheFunctionsItCalls()
+   -- Transitive, recursive, and declared after the call site.
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "local function g()",
+      "    x = nil",
+      "end",
+      "local function f()",
+      "    g()",
+      "end",
+      "if x ~= nil then",
+      "    f()",
+      "    local s: string = x",
+      "end",
+   }, "\n")), "NUPP2001:10")
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "local function f(depth: integer)",
+      "    if depth >= 1 then",
+      "        x = nil",
+      "        return",
+      "    end",
+      "    if x ~= nil then",
+      "        f(depth + 1)",
+      "        local s: string = x",
+      "    end",
+      "end",
+      "f(0)",
+   }, "\n")), "NUPP2001:9")
+   assertEq(diagsOf(BOX .. table.concat({
+      "",
+      "local M = {}",
+      "local x: Box = new Box(f = 'hi')",
+      "function M.a(): nil",
+      "    if x.f ~= nil then",
+      "        M.b()",
+      "        local s: string = x.f",
+      "    end",
+      "end",
+      "function M.b(): nil",
+      "    x.f = nil",
+      "end",
+      "return M",
+   }, "\n")), "NUPP2001:9")
+end
+
+function M.aFunctionValueReachedThroughAFieldOrReassignedIsRead()
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "local ops: {clear: function()} = {clear = function() x = nil end}",
+      "if x ~= nil then",
+      "    ops.clear()",
+      "    local s: string = x",
+      "end",
+   }, "\n")), "NUPP2001:5")
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "local g: function() = function() end",
+      "g = function() x = nil end",
+      "if x ~= nil then",
+      "    g()",
+      "    local s: string = x",
+      "end",
+   }, "\n")), "NUPP2001:6")
+end
+
+function M.aMethodThroughAnInterfaceMayWriteTheReceiver()
+   assertEq(diagsOf(table.concat({
+      "local interface Clearer",
+      "    clear: function(self)",
+      "end",
+      "local record Box is Clearer",
+      "    f: string?",
+      "end",
+      "function Box:clear()",
+      "    self.f = nil",
+      "end",
+      "local box: Box = new Box(f = 'hi')",
+      "local i: Clearer = box",
+      "if box.f ~= nil then",
+      "    i:clear()",
+      "    local s: string = box.f",
+      "end",
+   }, "\n")), "NUPP2001:14")
+end
+
+function M.aNamedArgumentFindsItsParameter()
+   assertEq(diagsOf(BOX .. table.concat({
+      "",
+      "local function clear(b: Box)",
+      "    b.f = nil",
+      "end",
+      "local x: Box = new Box(f = 'hi')",
+      "if x.f ~= nil then",
+      "    clear(b = x)",
+      "    local s: string = x.f",
+      "end",
+   }, "\n")), "NUPP2001:10")
+end
+
+function M.aCalleeWriteThroughACopyOfItsParameterReachesTheCaller()
+   -- `local me = self` inside the method; a copy of the argument at the call.
+   assertEq(diagsOf(BOX .. table.concat({
+      "",
+      "function Box:clear()",
+      "    local me = self",
+      "    me.f = nil",
+      "end",
+      "local x: Box = new Box(f = 'hi')",
+      "if x.f ~= nil then",
+      "    x:clear()",
+      "    local s: string = x.f",
+      "end",
+   }, "\n")), "NUPP2001:11")
+   assertEq(diagsOf(BOX .. table.concat({
+      "",
+      "local function clear(b: Box)",
+      "    b.f = nil",
+      "end",
+      "local x: Box = new Box(f = 'hi')",
+      "local y = x",
+      "if x.f ~= nil then",
+      "    clear(y)",
+      "    local s: string = x.f",
+      "end",
+   }, "\n")), "NUPP2001:11")
+   -- A callee that writes some other field keeps the fact and the copied
+   -- discriminant that speaks for the value.
+   assertClean(table.concat({
+      "local record Circle",
+      "    kind: 'circle'",
+      "    radius: number",
+      "    seen: boolean?",
+      "end",
+      "local record Square",
+      "    kind: 'square'",
+      "    side: number",
+      "    seen: boolean?",
+      "end",
+      "local function mark(s: Circle | Square)",
+      "    s.seen = true",
+      "end",
+      "local s: Circle | Square = new Circle(kind = 'circle', radius = 1)",
+      "local kind = s.kind",
+      "mark(s)",
+      "if kind == 'circle' then",
+      "    local r: number = s.radius",
+      "end",
+   }, "\n"))
+end
+
+function M.copiesAreFollowedThroughAnnotationsAndCopiesOfCopies()
+   -- An annotated copy, a copy of a copy, and a fact recorded on the copy while
+   -- the write goes through the original.
+   assertEq(diagsOf(BOX .. table.concat({
+      "",
+      "local x: Box = new Box(f = 'hi')",
+      "local y: Box = x",
+      "if x.f ~= nil then",
+      "    y.f = nil",
+      "    local s: string = x.f",
+      "end",
+   }, "\n")), "NUPP2001:8")
+   assertEq(diagsOf(table.concat({
+      "local x: {f: string?} = {f = 'hi'}",
+      "local y = x",
+      "local z = y",
+      "if x.f ~= nil then",
+      "    z.f = nil",
+      "    local s: string = x.f",
+      "end",
+   }, "\n")), "NUPP2001:6")
+   assertEq(diagsOf(table.concat({
+      "local x: {f: string?} = {f = 'hi'}",
+      "local y = x",
+      "if y.f ~= nil then",
+      "    x.f = nil",
+      "    local s: string = y.f",
+      "end",
+   }, "\n")), "NUPP2001:5")
+end
+
+function M.aComputedIndexWriteClearsTheDottedFact()
+   -- A literal key names the field; a computed key may be any of them; an
+   -- integer key is never a field.
+   assertEq(diagsOf(table.concat({
+      "local x: {[string]: string?} = {f = 'hi'}",
+      "if x.f ~= nil then",
+      "    x['f'] = nil",
+      "    local s: string = x.f",
+      "end",
+      "local y: {[string]: string?} = {f = 'hi'}",
+      "local k = 'f'",
+      "if y.f ~= nil then",
+      "    y[k] = nil",
+      "    local s: string = y.f",
+      "end",
+   }, "\n")), "NUPP2001:4 NUPP2001:10")
+   assertClean(table.concat({
+      "local record Args",
+      "    exprs: {string}?",
+      "end",
+      "local n: Args = new Args()",
+      "n.exprs = {}",
+      "for i = 1, 3 do",
+      "    n.exprs[#n.exprs + 1] = 'x'",
+      "end",
+      "local first: {string} = n.exprs",
+   }, "\n"))
+end
+
 return M

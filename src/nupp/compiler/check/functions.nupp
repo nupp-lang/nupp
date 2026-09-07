@@ -1566,14 +1566,22 @@ function functions.install(c: state.Checker): state.StatHandlers
         if functionEntry then
             functionEntry.jitTarget = functionEntry.definition
             functionEntry.mutatesParams = checkedBody.mutatesParams
+            functionEntry.mutatesParamPaths = checkedBody.mutatesParamPaths
+            functionEntry.mutatesSelfPaths = checkedBody.mutatesSelfPaths
             functionEntry.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
             functionEntry.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
             functionEntry.mutatesSelf = checkedBody.mutatesSelf
+            functionEntry.mutationSummaryKnown = true
             if functionEntry.definition then
                 functionEntry.definition.mutatesParams = checkedBody.mutatesParams
+                functionEntry.definition.mutatesParamPaths = checkedBody.mutatesParamPaths
+                functionEntry.definition.mutatesSelfPaths = checkedBody.mutatesSelfPaths
+                functionEntry.definition.mutatesParamPaths = checkedBody.mutatesParamPaths
+                functionEntry.definition.mutatesSelfPaths = checkedBody.mutatesSelfPaths
                 functionEntry.definition.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
                 functionEntry.definition.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
                 functionEntry.definition.mutatesSelf = checkedBody.mutatesSelf
+                functionEntry.definition.mutationSummaryKnown = true
             end
             if #borrowed > 0 then
                 local roots = {}
@@ -1659,9 +1667,12 @@ function functions.install(c: state.Checker): state.StatHandlers
             memberDefinition.type = ft
             local checkedBody: any = body
             memberDefinition.mutatesParams = checkedBody.mutatesParams
+            memberDefinition.mutatesParamPaths = checkedBody.mutatesParamPaths
+            memberDefinition.mutatesSelfPaths = checkedBody.mutatesSelfPaths
             memberDefinition.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
             memberDefinition.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
             memberDefinition.mutatesSelf = checkedBody.mutatesSelf
+            memberDefinition.mutationSummaryKnown = true
             c.markToken(memberTok, memberDefinition, ft, memberDefinition.kind)
         end
         if not fname.method and ownerKey and memberTok and memberDefinition then
@@ -1796,14 +1807,22 @@ function functions.install(c: state.Checker): state.StatHandlers
             local functionEntry = c.scope.vars[fname.base.text]
             local checkedBody: any = body
             functionEntry.mutatesParams = checkedBody.mutatesParams
+            functionEntry.mutatesParamPaths = checkedBody.mutatesParamPaths
+            functionEntry.mutatesSelfPaths = checkedBody.mutatesSelfPaths
             functionEntry.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
             functionEntry.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
             functionEntry.mutatesSelf = checkedBody.mutatesSelf
+            functionEntry.mutationSummaryKnown = true
             if functionEntry.definition then
                 functionEntry.definition.mutatesParams = checkedBody.mutatesParams
+                functionEntry.definition.mutatesParamPaths = checkedBody.mutatesParamPaths
+                functionEntry.definition.mutatesSelfPaths = checkedBody.mutatesSelfPaths
+                functionEntry.definition.mutatesParamPaths = checkedBody.mutatesParamPaths
+                functionEntry.definition.mutatesSelfPaths = checkedBody.mutatesSelfPaths
                 functionEntry.definition.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
                 functionEntry.definition.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
                 functionEntry.definition.mutatesSelf = checkedBody.mutatesSelf
+                functionEntry.definition.mutationSummaryKnown = true
             end
         end
     end

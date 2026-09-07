@@ -17,6 +17,7 @@ tell two evaluations of it apart.
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
 local narrowing = require("nupp.compiler.narrowing")
+local mutation = require("nupp.compiler.check.mutation")
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local state = require("nupp.compiler.check.state")
@@ -61,6 +62,14 @@ type narrow.Facts = {
 --- What the walk and the statement families ask narrowing. Four of these are promoted
 --- onto the run, since every family applies facts; the rest are reached through
 --- `c.facts` by the ones that branch, join, or invalidate what was proved.
+--- What one call was found to write: whole references, everything beneath a
+--- reference, and captured bindings.
+type narrow.Cleared = {
+    whole: {[string]: boolean},
+    below: {[string]: boolean},
+    entries: {[any]: boolean}
+}
+
 type narrow.Ops = {
     --- One map holding everything two maps held, the second winning a collision.
     mergeFacts: function(a: {[string]: Type}, b: {[string]: Type}): {[string]: Type},
@@ -80,12 +89,27 @@ type narrow.Ops = {
     --- Forgets that a copy still speaks for what it was copied from.
     clearAliases: function(key: string),
 
+    --- Forgets the copies of what lies beneath a reference, keeping copies of the
+    --- reference itself: a write beneath it changes the one table they all name.
+    clearAliasesBelow: function(key: string),
+
     --- Resolves a field path through a copied table reference.
     aliasTarget: function(key: string): string?,
 
     --- Forgets facts an arbitrary call may have invalidated through aliases or
-    --- captured variables.
-    invalidateForCall: function(),
+    --- captured variables. Returns what it forgot, so a condition that made the
+    --- call can be kept from proving it again.
+    invalidateForCall: function(): narrow.Cleared?,
+
+    --- The facts of a map minus those a call in the same expression forgot.
+    withoutCleared: function(map: {[string]: Type}, cleared: narrow.Cleared?): {[string]: Type},
+
+    --- Forgets what was known about a reference that was written, whole or beneath,
+    --- and about every copy that spoke for it.
+    clearWrite: function(key: string, belowOnly: boolean?),
+
+    --- What the functions of this file may write, read from the source once.
+    summaries: function(): mutation.Summaries,
 
     --- What a condition proves, on each side of it.
     analyzeCond: function(cond: Node): narrow.Facts,
@@ -287,26 +311,139 @@ function narrow.install(c: state.Checker): narrow.Ops
         end
     end
 
+    -- A copy of a copy speaks for the original too, so the path is followed as
+    -- far as it goes.
+    function facts.clearAliasesBelow(key)
+        local sc = c.scope
+        while sc do
+            for _, entry in pairs(sc.vars) do
+                local from = entry.aliasPath
+                if from and from:sub(1, #key + 1) == key .. "." then
+                    entry.aliasNode, entry.aliasPath = nil, nil
+                end
+            end
+            sc = sc.parent
+        end
+    end
+
     function facts.aliasTarget(key)
-        local root, suffix = key:match("^([^.]+)(.*)$")
-        local entry = root and c.lookupEntry(root) or nil
-        if entry and entry.aliasPath then
-            return entry.aliasPath .. suffix
+        local resolved = nil
+        local seen = {}
+        local current = key
+        while true do
+            local root, suffix = current:match("^([^.]+)(.*)$")
+            local entry = root and not seen[root] and c.lookupEntry(root) or nil
+            if not (entry and entry.aliasPath) then
+                break
+            end
+            seen[root] = true
+            current = entry.aliasPath .. suffix
+            resolved = current
         end
 
-        return nil
+        return resolved
+    end
+
+    -- Every visible copy that speaks for something above the written path, with
+    -- the spelling the path has through that copy: writing `x.f` reaches `y.f`
+    -- when `y` was copied from `x`, because the two are one table. A copy of the
+    -- written path itself, or of something beneath it, is left alone: it holds
+    -- what it held, whatever the original now holds, and only stops speaking for
+    -- it.
+    local function copiesOf(key: string): {{
+        name: string,
+        path: string
+    }}
+        local out = {}
+        local canonical = facts.aliasTarget(key) or key
+        local sc = c.scope
+        local seen = {}
+        while sc do
+            for name, entry in pairs(sc.vars) do
+                if entry.aliasPath and not seen[name] then
+                    seen[name] = true
+                    local origin = facts.aliasTarget(name) or entry.aliasPath
+                    if canonical:sub(1, #origin + 1) == origin .. "." then
+                        out[#out + 1] = {name = name, path = name .. canonical:sub(#origin + 1)}
+                    end
+                end
+            end
+            sc = sc.parent
+        end
+
+        return out
+    end
+
+    -- A plain name is narrowed by a shadow entry rather than a map entry, so
+    -- forgetting it means putting every shadow back to what was declared.
+    local function clearNameNarrowing(name: string)
+        local sc = c.scope
+        while sc do
+            local entry = sc.vars[name]
+            if entry and entry.narrowing then
+                entry.t = entry.decl or entry.t
+                entry.narrowing = false
+            end
+            sc = sc.parent
+        end
+    end
+
+    function facts.clearWrite(key, belowOnly)
+        local targets = {key}
+        local aliased = facts.aliasTarget(key)
+        if aliased then
+            targets[#targets + 1] = aliased
+        end
+        for _, copy in ipairs(copiesOf(key)) do
+            targets[#targets + 1] = copy.path
+        end
+        for _, target in ipairs(targets) do
+            if belowOnly then
+                facts.clearNarrowedBelow(target)
+            else
+                facts.clearNarrowed(target)
+                if not target:find(".", 1, true) then
+                    clearNameNarrowing(target)
+                end
+            end
+        end
+    end
+
+    local summaries: mutation.Summaries? = nil
+    function facts.summaries()
+        if not summaries then
+            summaries = mutation.prescan(c.result and c.result.root or nil)
+        end
+
+        return summaries as mutation.Summaries
     end
 
     function facts.invalidateForCall()
+        local cleared: narrow.Cleared = {whole = {}, below = {}, entries = {}}
         for key in pairs(c.callMutationRoots or {}) do
-            facts.clearNarrowedBelow(key)
-            local aliased = facts.aliasTarget(key)
-            if aliased then
-                facts.clearNarrowedBelow(aliased)
+            cleared.below[key] = true
+            facts.clearWrite(key, true)
+            -- A copy of something beneath no longer speaks for it, nor does a
+            -- copy of anything beneath one of its own copies.
+            facts.clearAliasesBelow(key)
+            for _, copy in ipairs(copiesOf(key)) do
+                facts.clearAliasesBelow(copy.name)
             end
         end
         c.callMutationRoots = nil
+        for key in pairs(c.callMutatedNames or {}) do
+            if c.lookupEntry(key:match("^[^.]+") or key) then
+                cleared.whole[key] = true
+                facts.clearWrite(key)
+                facts.clearAliases(key)
+            end
+        end
+        c.callMutatedNames = nil
         for mutated in pairs(c.callMutatedEntries or {}) do
+            cleared.entries[mutated] = true
+            if mutated.definition then
+                cleared.entries[mutated.definition] = true
+            end
             local sc = c.scope
             while sc do
                 for _, entry in pairs(sc.vars) do
@@ -321,6 +458,40 @@ function narrow.install(c: state.Checker): narrow.Ops
             end
         end
         c.callMutatedEntries = nil
+
+        return cleared
+    end
+
+    -- A condition that both tests a reference and calls something that writes it
+    -- proves nothing about it: the write may come after the test.
+    function facts.withoutCleared(map, cleared)
+        if not cleared or not next(cleared.whole) and not next(cleared.below) and not next(cleared.entries) then
+            return map
+        end
+        local out = {}
+        for key, t in pairs(map) do
+            local plain = key:match("^@coroutine:(.+)$") or key
+            local keep = true
+            for whole in pairs(cleared.whole) do
+                if plain == whole or plain:sub(1, #whole + 1) == whole .. "." then
+                    keep = false
+                end
+            end
+            for below in pairs(cleared.below) do
+                if plain:sub(1, #below + 1) == below .. "." then
+                    keep = false
+                end
+            end
+            local entry = c.lookupEntry(plain:match("^[^.]+") or plain)
+            if entry and (cleared.entries[entry] or entry.definition and cleared.entries[entry.definition]) then
+                keep = false
+            end
+            if keep then
+                out[key] = t
+            end
+        end
+
+        return out
     end
 
     --- What a test of a discriminant field says about the value it belongs to:

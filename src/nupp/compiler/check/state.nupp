@@ -299,6 +299,9 @@ record state.Checker
 
     callMutatedEntries: {[any]: boolean}?
 
+    --- Names a call in the statement currently checked may assign outright.
+    callMutatedNames: {[string]: boolean}?
+
     --- Branch-local ownership state used by both statement and expression joins.
     ownershipSnapshot: function(): {any}
 

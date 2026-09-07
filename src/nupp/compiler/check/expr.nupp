@@ -17,6 +17,7 @@ local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
 local narrowing = require("nupp.compiler.narrowing")
 local cst = require("nupp.compiler.cst")
+local mutationSummaries = require("nupp.compiler.check.mutation")
 local lexer = require("nupp.compiler.lexer")
 local operators = require("nupp.compiler.check.operators")
 local index = require("nupp.compiler.check.index")
@@ -1578,6 +1579,27 @@ function expr.install(c: state.Checker): nil
     --- on the node and reports what the expression itself gets wrong.
     ---
     --- @param node the expression
+    --- Builtins that write beneath an argument, by the position written through.
+    local DECLARED_WRITES: {[string]: {integer}} = {rawset = {1}, setmetatable = {1}}
+
+    --- Builtins that let other code run before they return.
+    local SUSPENDS: {[string]: boolean} = {["coroutine.yield"] = true, ["coroutine.resume"] = true,}
+
+    --- Whether a callee nothing describes is taken to write to everything it could
+    --- reach: every argument, and every captured name some code in the file
+    --- assigns. Off: measured on the compiler's own sources it rejected a hundred
+    --- and sixty places, nearly all a value narrowed by a test and then handed to
+    --- a function-typed field or parameter. A call that lets other code run
+    --- before it returns is the one case still taken to write to everything.
+    local CONSERVATIVE_UNKNOWN = false
+
+    --- Records what a call may have written, for the statement to forget once
+    --- the expression is done: through the receiver, through an argument, or through
+    --- a name the callee captured. Three sources say what a callee writes: the
+    --- summary the checker attached to a body it already walked, the summary the
+    --- syntactic pass built for every function this file declares, and the
+    --- declaration of a builtin. A callee none of them describes may write to
+    --- anything it can reach.
     local function markCallMutation(node: Node)
         local dynamic: any = node
         local callee = dynamic.obj
@@ -1593,32 +1615,134 @@ function expr.install(c: state.Checker): nil
             and callee.name
             and callee.name.definition
             or nil
-        if not entry and not definition then
-            return
+        local summaries = c.facts.summaries()
+        local syntactic, calleeKnown = mutationSummaries.callEffects(summaries, node)
+        local mutation: any = definition or entry and (entry.definition or entry) or {}
+        local checked = entry and entry.mutationSummaryKnown or mutation.mutationSummaryKnown or false
+        local key = not isMethod and mutationSummaries.keyOf(callee) or nil
+        -- A declaration from elsewhere: a builtin, or a function another file
+        -- checked. A field holding a function value is not that; whatever was
+        -- stored there is unknown here.
+        local declared = false
+        if definition then
+            declared = definition.filename ~= c.filename and (
+                definition.kind == "function" or definition.kind == "method"
+            )
+        elseif entry and not entry.definition then
+            declared = true
         end
-        local mutation = definition or entry and (entry.definition or entry)
-        local function add(value)
+        local function add(value, paths)
             while value and (value.kind == "paren" or value.kind == "castExpr") do
                 value = value.expr
             end
             local key = value and c.pathKey(value) or nil
-            if key then
-                c.callMayMutate = true
+            if not key then
+                return
+            end
+            c.callMayMutate = true
+            if not paths then
                 c.callMutationRoots = c.callMutationRoots or {}
                 c.callMutationRoots[key] = true
+                return
+            end
+            -- The body said which paths it writes, so only those are forgotten:
+            -- a copy of some other field keeps speaking for it.
+            for path in pairs(paths) do
+                if path:sub(-1) == "*" then
+                    c.callMutationRoots = c.callMutationRoots or {}
+                    c.callMutationRoots[key .. path:sub(1, -2)] = true
+                else
+                    c.callMutatedNames = c.callMutatedNames or {}
+                    c.callMutatedNames[key .. path] = true
+                end
             end
         end
 
-        if isMethod and mutation.mutatesSelf then
+        local function forgetName(name)
+            c.callMayMutate = true
+            c.callMutatedNames = c.callMutatedNames or {}
+            c.callMutatedNames[name] = true
+        end
+
+        -- A method reached through an interface is whichever implementation the
+        -- value carries, and any of them may write to it.
+        local receiverT = isMethod and dynamic.obj and rawType(dynamic.obj.inferredType or T.any) or nil
+        local throughInterface = receiverT ~= nil and receiverT.tag == "nominal" and receiverT.declKind == "interface"
+        if isMethod and throughInterface then
             add(dynamic.obj)
+        elseif isMethod and mutation.mutatesSelf then
+            add(dynamic.obj, mutation.mutatesSelfPaths)
         end
         local args = dynamic.args
         local mutatesParams = entry and entry.mutatesParams or mutation.mutatesParams
+        local mutatesParamPaths = entry and entry.mutatesParamPaths or mutation.mutatesParamPaths
+        local signature = dynamic.signatureType
+        local paramNames = signature and signature.tag == "func" and signature.paramNames or nil
+        local declaredWrites = key and DECLARED_WRITES[key] or nil
+        local unknown = not calleeKnown and not checked and not declared and not declaredWrites
+        local suspends = key ~= nil and SUSPENDS[key] == true
         if args and args.kind == "args" then
-            for index, value in ipairs(args.exprs or {}) do
-                if mutatesParams and mutatesParams[index] then
-                    add(value)
+            local position: integer = 0
+            for _, argument in ipairs(args.exprs or {}) do
+                if not cst.isToken(argument) then
+                    position = position + 1
+                    local value = argument
+                    local index: integer = position
+                    if argument.kind == "namedArg" then
+                        value = argument.value
+                        index = 0
+                        local wanted = argument.name and argument.name.text or nil
+                        local names = paramNames or syntactic and syntactic.paramNames or {}
+                        for j, paramName in ipairs(names) do
+                            if paramName == wanted then
+                                index = j
+                                break
+                            end
+                        end
+                    elseif argument.kind == "pluckArg" then
+                        value = argument.value
+                    end
+                    local written = mutatesParams and mutatesParams[index]
+                    for _, at in ipairs(declaredWrites or {}) do
+                        if at == index then
+                            written = true
+                        end
+                    end
+                    if written or unknown and CONSERVATIVE_UNKNOWN then
+                        add(value, mutatesParamPaths and mutatesParamPaths[index] or nil)
+                    end
                 end
+            end
+        end
+        -- What the syntactic pass says the call writes, as paths from the bindings
+        -- at this call site.
+        mutationSummaries.eachWrite(summaries, node, function(writtenKey, below)
+            c.callMayMutate = true
+            if below then
+                c.callMutationRoots = c.callMutationRoots or {}
+                c.callMutationRoots[writtenKey] = true
+            else
+                c.callMutatedNames = c.callMutatedNames or {}
+                c.callMutatedNames[writtenKey] = true
+            end
+        end)
+        if suspends or (unknown or syntactic and syntactic.unknown) and CONSERVATIVE_UNKNOWN then
+            -- Whatever runs may assign any name a function literal in this file
+            -- captures, and any name from an enclosing function that the file
+            -- assigns somewhere.
+            local sc = c.scope
+            local seen = {}
+            while sc do
+                for name, visible in pairs(sc.vars) do
+                    if not seen[name] then
+                        seen[name] = true
+                        local outer = (visible.functionDepth or 0) < c.functionDepth
+                        if summaries.capturedAnywhere[name] or outer and summaries.assignedAnywhere[name] then
+                            forgetName(name)
+                        end
+                    end
+                end
+                sc = sc.parent
             end
         end
         local mutatesCapturedEntries = entry and entry.mutatesCapturedEntries or mutation.mutatesCapturedEntries

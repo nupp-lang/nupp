@@ -1005,11 +1005,14 @@ function control.install(c: state.Checker): state.StatHandlers
             end
             if cond then
                 c.infer(cond)
+                local cleared = nil
                 if c.callMayMutate then
-                    c.facts.invalidateForCall()
+                    cleared = c.facts.invalidateForCall()
                     c.callMayMutate = false
                 end
                 facts = analyzeCond(cond)
+                facts.t = c.facts.withoutCleared(facts.t, cleared)
+                facts.f = c.facts.withoutCleared(facts.f, cleared)
             end
             firstFacts = firstFacts or facts
             applyFacts(facts.t)
@@ -1147,13 +1150,19 @@ function control.install(c: state.Checker): state.StatHandlers
         if cond then
             local ownershipBefore = ownershipSnapshot()
             c.infer(cond)
+            local cleared = nil
             if c.callMayMutate then
-                c.facts.invalidateForCall()
+                cleared = c.facts.invalidateForCall()
                 c.callMayMutate = false
             end
             local facts = analyzeCond(cond)
+            facts.t = c.facts.withoutCleared(facts.t, cleared)
+            facts.f = c.facts.withoutCleared(facts.f, cleared)
             -- The body may not run at all, so what it assigned is not assigned after.
             local unassignedBefore = unassignedSnapshot()
+            -- What the body writes is written before it runs again, so nothing
+            -- proved about it before the loop holds inside.
+            c.facts.forgetWritten(stat.body)
             c.pushScope()
             applyFacts(facts.t)
             c.loops.push(stat.body)
