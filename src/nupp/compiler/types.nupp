@@ -70,6 +70,14 @@ record types.Array
     id: string
     tag: 'array'
     elem: types.Type
+
+    --- A positional table literal being contextually checked, with the type each
+    --- position was written with. Elementwise, that is a tuple the literal may still
+    --- be checked as; once bound without an annotation it settles to the plain array,
+    --- so the positions cannot vouch for a stored value that may since have changed.
+    fresh: boolean?
+
+    elems: {types.Type}?
 end
 
 --- A table from one type to another.
@@ -1235,15 +1243,25 @@ types.builtins = builtins
 
 --- A Lua array of `elem`: one-based and dense, unlike the C array a reified struct
 --- uses.
-function types.array(elem: types.Type): types.Type
+---
+--- @param elems the type at each position of a positional literal, which marks the
+--- array fresh
+function types.array(elem: types.Type, elems: {types.Type}?): types.Type
     local internKey = "{" .. elem.id .. "}"
+    if elems then
+        local ids: {string} = {}
+        for j, e in ipairs(elems) do
+            ids[j] = e.id
+        end
+        internKey = internKey .. "!fresh(" .. table.concat(ids, ",") .. ")"
+    end
 
     local existing = interned(internKey)
     if existing then
         return existing
     end
 
-    return intern(internKey, new types.Array(tag = "array", elem = elem))
+    return intern(internKey, new types.Array(tag = "array", elem = elem, fresh = elems and true or nil, elems = elems))
 end
 
 --- A table from `key` to `value`. Reading one yields an optional, since an absent key
@@ -1374,6 +1392,9 @@ end
 --- The same shape once its literal has been bound: what a fresh literal may still
 --- be checked as, a stored value may not, so the marker comes off with the binding.
 function types.settled(t: types.Type): types.Type
+    if t.tag == "array" and t.fresh then
+        return types.array(t.elem)
+    end
     if t.tag ~= "shape" or not t.fresh then
         return t
     end

@@ -447,6 +447,30 @@ local function memberIsA(have: Type, want: Type, haveOwner: Type?, wantOwner: Ty
     return (isA(have, want))
 end
 
+--- Whether positions read as `elems` may be read as `b`, a tuple or an array: the
+--- covariant reading a literal or a const view is entitled to.
+local function tupleReadsAs(elems: {Type}, b: Type): boolean, string?
+    if b.tag == "tuple" then
+        if #elems ~= #b.elems then
+            return false, ("%d positions are not a %s"):format(#elems, T.tostring(b))
+        end
+        for j, e in ipairs(elems) do
+            if not isA(e, b.elems[j]) then
+                return false, ("position %d: %s is not a %s"):format(j, T.tostring(e), T.tostring(b.elems[j]))
+            end
+        end
+        return true
+    end
+    local elem = (b as T.Array).elem
+    for j, e in ipairs(elems) do
+        if not isA(e, elem) then
+            return false, ("position %d: %s is not a %s"):format(j, T.tostring(e), T.tostring(elem))
+        end
+    end
+
+    return true
+end
+
 local function optionalIsA(a: Type?, b: Type?): boolean
     if not a or not b then
         return false
@@ -987,9 +1011,16 @@ local function check(a: Type, b: Type): boolean, string?
     end
 
     -- Const is a promise not to write, so a mutable value satisfies a const one; the
-    -- reverse discards the promise and does not.
+    -- reverse discards the promise and does not. Nothing writes through a const
+    -- view, so a tuple's positions read covariantly there, where a mutable view
+    -- holds them exactly.
     if btag == "const" then
-        return isA(atag == "const" and a.inner or a, b.inner)
+        local source = atag == "const" and a.inner or a
+        local inner = b.inner
+        if source.tag == "tuple" and (inner.tag == "tuple" or inner.tag == "array") then
+            return tupleReadsAs(source.elems, inner)
+        end
+        return isA(source, inner)
     end
     if atag == "const" then
         return false, ("%s is read-only; %s is not"):format(T.tostring(a), T.tostring(b))
@@ -1148,19 +1179,31 @@ local function check(a: Type, b: Type): boolean, string?
         return fail(a, b)
     end
 
+    -- A positional literal is a tuple of what it was written with, for as long as
+    -- it is being checked in place.
+    if atag == "array" and a.fresh and a.elems and btag == "tuple" then
+        return tupleReadsAs(a.elems, b)
+    end
+
+    -- Through a mutable view a tuple's positions are held exactly, the way a
+    -- generic application's arguments are: a wider view could write what the
+    -- narrower one's readers do not admit. The const rule above keeps reading
+    -- covariant.
     if atag == "tuple" and btag == "tuple" then
         if #a.elems ~= #b.elems then
             return fail(a, b)
         end
         for j, e in ipairs(a.elems) do
-            if not isA(e, b.elems[j]) then
+            if not isA(e, b.elems[j]) or not isA(b.elems[j], e) then
                 return fail(a, b)
             end
         end
         return true
     end
 
-    -- a homogeneous-enough tuple fits an array
+    -- A homogeneous-enough tuple fits an array, with the same deliberately gradual
+    -- covariance an array has toward a wider array: the two are one latitude, and
+    -- `unpack(pair)` or `table.concat(pair)` is the ordinary way a tuple is used.
     if atag == "tuple" and btag == "array" then
         for _, e in ipairs(a.elems) do
             if not isA(e, b.elem) then

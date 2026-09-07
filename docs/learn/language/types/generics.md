@@ -242,18 +242,22 @@ for what those six do.
 cache is populated before members are filled in, so a self-referential generic
 terminates.
 
-Generic nominals are **covariant** in every argument, so `Box<integer>` is
-accepted where `Box<number>` is wanted.
+Two applications of one generic compare member by member, with the usual
+read and write variance: `Box<integer>` is accepted where `Box<number>` is
+wanted only as far as a writable `value` field lets it, which is not at all,
+since `Box<number>` would write a float into the integer box. Readonly members
+read covariantly, so `{readonly value: T}` applications are covariant in `T`.
+An application that exposes no members of its own is opaque, and its arguments
+compare covariantly, since nothing can be written through it.
 
 ::: deepdive
-Covariance over mutable contents is unsound, and Nupp takes it anyway, for the
-same reason array covariance is taken: the sound alternatives are a variance
-annotation on every parameter or invariance everywhere, and both make ordinary
-Lua-shaped code fail to type-check. A `{Box<integer>}` passed to something
-reading `{Box<number>}` is the common case and it is safe; the write that
-breaks it is rare and visible at the line that performs it. See [Type
-system](index.md#deliberate-unsoundness) for the other places the same
-trade is made.
+Arrays keep a deliberately gradual covariance that generic applications do not
+get: an array is used far more often for reading, and the sound alternatives, a
+variance annotation on every parameter or invariance everywhere, make ordinary
+Lua-shaped code fail to type-check. A generic declaration states each member's
+capability, so the variance falls out of the members rather than needing an
+annotation. See [Type system](index.md#deliberate-unsoundness) for the places
+the gradual trade is made.
 :::
 
 ## `self`

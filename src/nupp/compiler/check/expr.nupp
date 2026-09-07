@@ -1365,6 +1365,8 @@ function expr.install(c: state.Checker): nil
             return T.string
         elseif kind == "tableExpr" then
             local positional, named = {}, {}
+            local elems: {Type} = {}
+            local expanded = false
             local aggregateMoves, aggregateRoots = {}, {}
             local ownsElements = false
             local computedKey = false
@@ -1458,6 +1460,7 @@ function expr.install(c: state.Checker): nil
                             -- The ordinary inference result is the authoritative first
                             -- value: constructors can carry a more specialized `self`
                             -- there than their published compatibility pack does.
+                            expanded = true
                             positional[#positional + 1] = widened(tableValue(value, valueT))
                             local width = #expands.head
                             if expands.alternatives then
@@ -1475,7 +1478,9 @@ function expr.install(c: state.Checker): nil
                                 positional[#positional + 1] = widened(expands.tail.type or T.any)
                             end
                         else
-                            positional[#positional + 1] = widened(tableValue(value, valueT))
+                            local elem = tableValue(value, valueT)
+                            positional[#positional + 1] = widened(elem)
+                            elems[#elems + 1] = elem
                         end
                     end
                 elseif f.kind == "fieldNamed" then
@@ -1518,7 +1523,10 @@ function expr.install(c: state.Checker): nil
             if #named > 0 and #positional == 0 then
                 return aggregateType(T.shape(named, nil, true))
             elseif #positional > 0 and #named == 0 then
-                return aggregateType(T.array(T.union(positional)))
+                -- The positions are kept while the literal is checked in place, so it
+                -- can be a tuple where one is expected. A call expanding into the
+                -- last position writes an unknown number of them, so those are not.
+                return aggregateType(T.array(T.union(positional), not expanded and elems or nil))
             elseif #positional == 0 and #named == 0 then
                 return T.table_ -- {} is compatible with any table type
             end

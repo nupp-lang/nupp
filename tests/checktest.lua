@@ -189,6 +189,71 @@ function M.anOmittedTrailingParameterMustAdmitNil()
    }, "\n")), "NUPP2001:2")
 end
 
+-- A positional literal is a tuple of what it was written with wherever it is
+-- checked in place: a return, an argument, a field, an element, an assignment.
+-- Bound to a name it is the array it always was.
+function M.aPositionalLiteralIsATupleWhereOneIsExpected()
+   assertClean(table.concat({
+      "local record R",
+      "   t: {number, string}",
+      "end",
+      "local function mk(): {number, string}",
+      "   return {2, 'b'}",
+      "end",
+      "local function take(t: {number, string}): number",
+      "   return t[1]",
+      "end",
+      "local x: {number, string} = {1, 'a'}",
+      "x = {3, 'c'}",
+      "local r = new R(t = {4, 'd'})",
+      "r.t = {5, 'e'}",
+      "local nested: {a: {number, string}} = {a = {6, 'f'}}",
+      "local arr: {{number, string}} = {{7, 'g'}, {8, 'h'}}",
+      "local function multi(): ({number, string}, integer)",
+      "   return {9, 'i'}, 1",
+      "end",
+      "return {mk(), take({1, 'a'}), x, r, nested, arr, multi()}",
+   }, "\n"))
+   assertEq(diagsOf(table.concat({
+      "local function take(t: {number, string}): number",
+      "   return t[1]",
+      "end",
+      "return take({'a', 1})",
+   }, "\n")), "NUPP2006:4")
+   assertEq(diagsOf(table.concat({
+      "local function take(t: {number, string}): number",
+      "   return t[1]",
+      "end",
+      "return take({1, 'a', 2})",
+   }, "\n")), "NUPP2006:4")
+   assertEq(diagsOf(table.concat({
+      "local xs = {1, 'a'}",
+      "local t: {number, string} = xs",
+      "return t",
+   }, "\n")), "NUPP2001:2")
+end
+
+-- Through a mutable view a tuple's positions are held exactly: a wider view could
+-- write what the narrower one's readers do not admit. A const view cannot write,
+-- so it reads covariantly. Toward an array a tuple keeps the array's own
+-- deliberately gradual covariance.
+function M.tuplesAreInvariantThroughAMutableView()
+   assertEq(diagsOf(table.concat({
+      "local t: {integer, string} = {1, 'a'}",
+      "local u: {number, string} = t",
+      "return u",
+   }, "\n")), "NUPP2001:2")
+   assertClean(table.concat({
+      "local t: {integer, string} = {1, 'a'}",
+      "local u: const {number, string} = t",
+      "local arr: {string | integer} = t",
+      "local same: {integer | string, string} = {1, 'a'}",
+      "local pair: {integer, integer} = {1, 2}",
+      "local ints: {integer} = pair",
+      "return {u, arr, same, ints}",
+   }, "\n"))
+end
+
 function M.arrayCovarianceCannotLaunderFunctionEffects()
    assertEq(diagsOf(table.concat({
       "local safe: {nosuspend function(number): number} = {math.floor}",

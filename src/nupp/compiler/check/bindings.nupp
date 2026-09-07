@@ -200,23 +200,6 @@ function bindings.install(c: state.Checker): state.StatHandlers
         for j, nameTok in ipairs(stat.names) do
             local ann = annotations[j]
             local init = inferred[j]
-            local directInitializer = initializers[j]
-            local expected = ann and rawType(ann) or nil
-            if directInitializer and expected and expected.tag == "tuple" and directInitializer.kind == "tableExpr" then
-                local elems: {Type} = {}
-                local positionalOnly = true
-                for _, field in ipairs(directInitializer.fields or {}) do
-                    if field.kind ~= "fieldItem" or not field.value then
-                        positionalOnly = false
-                        break
-                    end
-                    local value: any = field.value
-                    elems[#elems + 1] = value.inferredType or T.any
-                end
-                if positionalOnly then
-                    init = T.tuple(elems)
-                end
-            end
             if ann and init then
                 local initializer = initializers[
                     j

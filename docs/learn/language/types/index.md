@@ -170,7 +170,7 @@ type](primitives.md#unknown-the-top-type) for more information.
 
 ## Deliberate unsoundness
 
-Five rules are unsound on purpose, because the sound version rejects too much
+Four rules are unsound on purpose, because the sound version rejects too much
 ordinary Lua:
 
 ```nupp
@@ -181,11 +181,12 @@ nums[1] = 1.5
 
 That last line stores a non-integer into a `{integer}`, and nothing reports it.
 
-- **Arrays are covariant.** `{integer}` is accepted where `{number}` is wanted.
-  Arrays of functions are invariant, because covariance there could erase a
-  `nosuspend` effect guarantee.
-- **Generic nominal arguments are covariant.** `Box<integer>` is accepted where
-  `Box<number>` is wanted even when the box exposes mutable contents.
+- **Arrays are covariant.** `{integer}` is accepted where `{number}` is wanted,
+  and a tuple is accepted where an array of a wider element is. Arrays of
+  functions are invariant, because covariance there could erase a `nosuspend`
+  effect guarantee. A tuple wanted as another tuple is held exactly, position by
+  position, the way a generic application's members are; a `const` tuple, which
+  nothing writes through, reads covariantly.
 - **`table` is gradual in both directions.** Every table-shaped type is a
   `table`, and a `table` may be used where any of them is wanted. It is closer
   to "`any`, for tables" than to a top type.
