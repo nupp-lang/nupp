@@ -6320,4 +6320,26 @@ function M.aBorrowCannotCrossAnAnyParameter()
     )
 end
 
+-- Every other route into any reports NUPP2611. A record field typed any was
+-- exempted from the field check, so an owner constructed into one was held by a
+-- record that would never close it.
+function M.anOwnerCannotBeConstructedIntoAnAnyField()
+    assertEq(
+        codes(
+            CLOSURE_RESOURCE .. table.concat(
+                {
+                    "",
+                    "local record Box",
+                    "   item: any",
+                    "end",
+                    "local box = new Box(item = openClosureResource(7))",
+                    "print(box.item)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2611"
+    )
+end
+
 return M

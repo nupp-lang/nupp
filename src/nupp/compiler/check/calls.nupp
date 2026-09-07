@@ -1422,14 +1422,20 @@ function calls.install(c: state.Checker): calls.Ops
                 local expected = genericMap and substType(ft, genericMap) or ft
                 local valueOwnership = c.ownershipKind(vt)
                 local expectedOwnership = T.containedOwnershipKind(expected)
+                -- An any field is the one store through which an owner disappeared
+                -- unremarked: every other route into any reports NUPP2611, and the
+                -- record would have held a resource nothing would ever close.
                 if (
                     valueOwnership == "affine" or valueOwnership == "pinned"
-                )
-                    and expected ~= T.any
-                    and expected.tag ~= "typevar"
-                    and not expectedOwnership
-                    and not suppliesBorrowedField then
-                    c.diag("NUPP2603", value, "an ownership-bearing value needs an ownership-bearing record field")
+                ) and expected.tag ~= "typevar" and not expectedOwnership and not suppliesBorrowedField then
+                    local erased = expected == T.any or expected == T.unknown
+                    c.diag(
+                        erased and "NUPP2611" or "NUPP2603",
+                        value,
+                        erased
+                        and "a live capability cannot be erased into an any field"
+                        or "an ownership-bearing value needs an ownership-bearing record field"
+                    )
                 end
                 local checked = borrowedRoot and not storesCapability and rawType(vt) or vt
                 if storesCapability then
