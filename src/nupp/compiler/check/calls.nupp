@@ -2027,7 +2027,6 @@ function calls.install(c: state.Checker): calls.Ops
             end
         end
         local varargType = calleeT.varargType
-        local computedParamTail = paramPack.tail and paramPack.tail.kind == "computed"
         local constInferenceFailed = false
         local packProblem
         local genericMap: {[any]: any}? = nil
@@ -2282,7 +2281,7 @@ function calls.install(c: state.Checker): calls.Ops
             )
             c.checkPackDiscard(argPack, nparams + 1, node)
         end
-        if computedParamTail and not argPack.tail and actualCount < nparams then
+        if not argPack.tail and actualCount < nparams then
             for j = actualCount + 1, nparams do
                 local ok = isA(T.nil_, params[j])
                 if not ok then

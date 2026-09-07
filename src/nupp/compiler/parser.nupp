@@ -263,7 +263,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     --- Consumes the expected token, or reports and inserts a missing one.
-    local function expect(kind: string, what: string): Token
+    local function expect(kind: string, what: string?): Token
         if cur().kind == kind then
             return advance()
         end
@@ -273,7 +273,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     --- The same, for a name.
-    local function expectName(what: string): Token
+    local function expectName(what: string?): Token
         if cur().kind == "name" then
             return advance()
         end
@@ -285,7 +285,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- Closes a generic list, taking half of a `>>` when two of them close at once.
     --- The other half becomes a zero-width `>` the cursor answers next, marked
     --- missing so that it prints as nothing wherever the tree is reprinted.
-    local function expectGenericClose(what: string): Token
+    local function expectGenericClose(what: string?): Token
         if cur().kind == ">>" then
             local tok = advance()
             local at = tokens[i]

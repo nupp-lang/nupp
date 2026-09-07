@@ -1045,6 +1045,26 @@ function M.callChecking()
    assertClean("local f = function(...: number): number return 0 end\nf(1, 2, 3)")
 end
 
+function M.omittedArgumentMustAcceptNil()
+   -- An argument left off a call arrives as nil, so the parameter has to admit
+   -- it whether or not the callable has a computed tail.
+   local code, diags = diagsOf(
+      "local function f(x: string): string return x end\nlocal s: string = f()")
+   assertEq(code, "NUPP2006:2")
+   assert(diags[1].msg:find("omitted argument 1 supplies nil", 1, true), diags[1].msg)
+   assertEq((diagsOf(
+      "local function f(x: string, y: integer): string return x end\nf('a')")),
+      "NUPP2006:2")
+   assertEq((diagsOf(
+      "local m = {}\nfunction m.f(x: string): string return x end\nm.f()")),
+      "NUPP2006:3")
+   assertClean("local function f(x: string, y: integer?): string return x end\nf('a')")
+   assertClean("local function f(x: string, y: any): string return x end\nf('a')")
+   assertClean("local function f(x: string, y: integer | nil) end\nf('a')")
+   -- table.sort's comparator is optional, so leaving it off is fine.
+   assertClean("local xs = {3, 1}\ntable.sort(xs)")
+end
+
 function M.fieldChecking()
    assertEq((diagsOf(
       "local p: {x: number} = {x = 1}\nlocal y = p.nope")), "NUPP2004:2")

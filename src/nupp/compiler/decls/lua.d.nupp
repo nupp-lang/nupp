@@ -769,7 +769,7 @@ const table: {
     --- @param t the array to sort
     --- @param cmp returns true when its first argument must come first; `<`
     ---     is used when it is omitted
-    sort: function<V>(t: {V}, scoped cmp: function(V, V): boolean?),
+    sort: function<V>(t: {V}, scoped cmp: (function(V, V): boolean)?),
 
     --- Returns the largest positive numeric key of `t`, or 0 when it has none.
     --- Deprecated, and unlike `#t` it also sees keys past a hole.
