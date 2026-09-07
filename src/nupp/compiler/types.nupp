@@ -2616,7 +2616,10 @@ function types.tostringPack(pack: types.Pack): string
         elseif pack.tail.kind == "computed" then
             parts[#parts + 1] = "unpackof " .. types.tostring(pack.tail.type)
         else
-            parts[#parts + 1] = "...unknown"
+            -- A tail nothing declared: what an untyped function answers, which is
+            -- any number of `any`. Spelled as what each value is, because a written
+            -- `...unknown` is a different tail whose values fit nowhere unnarrowed.
+            parts[#parts + 1] = "..." .. types.tostring(pack.tail.type or types.any)
         end
     end
 

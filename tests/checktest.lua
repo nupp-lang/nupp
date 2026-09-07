@@ -1128,6 +1128,17 @@ function M.refinementsRejectWhatCannotBeEnforced()
    assertEq(refuses("other == 1"), "NUPP2122:3")
 end
 
+-- An untyped function's results are any number of `any`, and print as such: a
+-- written `...unknown` is a different tail whose values fit nowhere unnarrowed.
+function M.anUndeclaredResultTailRendersAsAny()
+   local tail = T.pack({}, { kind = "unknown", type = T.any })
+   assertEq(T.tostringPack(tail), "(...any)")
+   assertEq(T.tostringPack(T.pack({}, { kind = "homogeneous", type = T.unknown })),
+      "(...unknown)")
+   assertEq(T.tostring(T.func({}, { T.any }, false, nil, nil, nil, nil, nil, nil, nil,
+      nil, nil, nil)), "function(): any")
+end
+
 function M.constructionWidensAnInferredLiteral()
    -- A field is a slot the value can be replaced in, so the type argument
    -- construction infers from a literal is the literal's type: `Box<integer>`,
