@@ -639,4 +639,43 @@ function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()
    }, "\n")), "")
 end
 
+function M.physicalStoresRefuseLiteralsTheSlotCannotHold()
+   -- a real C store converts to the slot's width, so a literal outside it lands
+   -- as a different value: 300 in a byte is 44, 1.9 in an int32 is 1
+   local S = table.concat({
+      "local struct S",
+      "   a: int32",
+      "   b: uint8",
+      "   f: float",
+      "   big: int64",
+      "   ubig: uint64",
+      "end",
+      "local s = new S(1, 2, 3.0, 4, 5)",
+   }, "\n") .. "\n"
+   assertEq(errorCodes(S .. "s.a = 2147483648"), "NUPP2001")
+   assertEq(errorCodes(S .. "s.a = 1.9"), "NUPP2001")
+   assertEq(errorCodes(S .. "s.b = 300"), "NUPP2001")
+   assertEq(errorCodes(S .. "s.b = -1"), "NUPP2001")
+   assertEq(errorCodes(S .. "s.f = 1e40"), "NUPP2001")
+   assertEq(errorCodes(S .. "s.ubig = -1"), "NUPP2001")
+   assertEq(errorCodes(table.concat({
+      "local struct S",
+      "   a: int32",
+      "   b: uint8",
+      "   f: float",
+      "end",
+      "local s = new S(1.9, 300, 1e40)",
+      "return s",
+   }, "\n")), "NUPP2202,NUPP2202,NUPP2202")
+   -- in range, the store's own conversion is the point: an inexact float narrows
+   assertEq(errorCodes(S .. table.concat({
+      "s.a = -2147483648",
+      "s.b = 255",
+      "s.f = 0.1",
+      "s.big = 9007199254740993",
+      "s.ubig = 0",
+      "return s",
+   }, "\n")), "")
+end
+
 return M

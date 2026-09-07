@@ -278,7 +278,7 @@ local struct Point
    x: float
    bits: uint8
 end
-local p = new Point(16777217, 258)
+local p = new Point(16777217, 254)
 return p
 ]]
     local nativeTree = parser.parse(source, "native-struct.nupp")

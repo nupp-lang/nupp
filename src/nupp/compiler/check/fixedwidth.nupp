@@ -197,6 +197,16 @@ function fixedCheck.install(c: state.Checker): Ops
                 end
                 return true, nil, false
             end
+            -- The store converts a Lua number to the slot's width, and a literal the
+            -- slot cannot hold is a different value once stored: 300 in a byte is 44.
+            local rawSource = T.unwrapOwnership(source)
+            if rawSource.tag == "literal" and type(
+                rawSource.constant
+            ) == "number" and fixed.isPhysical(
+                target
+            ) and not fixed.physicalLiteralFits(rawSource.constant as number, target) then
+                return false, ("%s does not fit %s storage"):format(T.tostring(rawSource), T.tostring(target)), false
+            end
             local accepted = fixed.physicalStoreAccepts(source, target)
             if accepted ~= nil then
                 return accepted, accepted and nil or (

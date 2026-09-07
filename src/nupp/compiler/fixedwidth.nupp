@@ -219,6 +219,35 @@ function fixed.literalFits(value: number, target: T.Type): boolean
     end
 end
 
+local MAX_F32 = 3.4028234663852886e38
+
+local INTEGER_RANGE: {
+    [string]: {number}
+} = {
+    int8 = {-128, 127},
+    int16 = {-32768, 32767},
+    int32 = {-2147483648, 2147483647},
+    int64 = {-2 ^ 63, 2 ^ 63 - 1},
+    uint8 = {0, 255},
+    uint16 = {0, 65535},
+    uint32 = {0, 4294967295},
+    uint64 = {0, 2 ^ 64 - 1},
+}
+
+--- Whether a Lua numeric literal survives the conversion a physical store performs
+--- into `target`. The store narrows a wider source, so an inexact float is fine
+--- where it is finite in binary32; an integer slot takes only a whole number in
+--- its range, since anything else is truncated or wrapped into a different value.
+function fixed.physicalLiteralFits(value: number, target: T.Type): boolean
+    local tag = T.unwrapOwnership(target).tag
+    local range = INTEGER_RANGE[tag]
+    if range then
+        return value % 1 == 0 and value >= range[1] and value <= range[2]
+    end
+
+    return tag ~= "float" or value ~= value or math.abs(value) <= MAX_F32
+end
+
 function fixed.widenedName(t: T.Type): string?
     local tag = T.unwrapOwnership(t).tag
     if tag == "float" then

@@ -18,7 +18,7 @@ const data.WORD_BITS = 32
 const BITS_PER_WORD = 32
 const WORD_SHIFT = 5
 const BIT_MASK = 31
-const ALL_ONES = -1
+const ALL_ONES = 0xFFFFFFFF
 const DEFAULT_BITS = 64
 
 const HALF_MASK = 0xFFFF
