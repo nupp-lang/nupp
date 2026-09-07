@@ -10,6 +10,12 @@
         "settings": {
           "foreground": "#D19A66"
         }
+      },
+      {
+        "scope": "storage.modifier.export.nupp",
+        "settings": {
+          "fontStyle": "bold"
+        }
       }
     ]
   }

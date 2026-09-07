@@ -567,6 +567,14 @@
         {
           "name": "storage.modifier.local.nupp",
           "match": "\\blocal\\b"
+        },
+        {
+          "name": "storage.modifier.export.nupp",
+          "match": "\\bexport\\b"
+        },
+        {
+          "name": "storage.modifier.ownership.nupp",
+          "match": "\\baffine\\b"
         }
       ]
     },

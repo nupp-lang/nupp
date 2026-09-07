@@ -436,3 +436,41 @@ local total = switch token do
     end
     else -> 0
 end
+
+export function shared(): nil
+-- <- storage.modifier.export.nupp
+--     ^^^^^^^^ storage.type.function.nupp
+--              ^^^^^^ entity.name.function.nupp
+end
+
+export const limit = 10
+-- <- storage.modifier.export.nupp
+--     ^^^^^ storage.modifier.const.nupp
+--           ^^^^^ variable.other.constant.nupp
+
+export type Id = uint64
+-- <- storage.modifier.export.nupp
+--     ^^^^ storage.type.declaration.nupp
+--          ^^ entity.name.type.nupp
+
+export record Point
+-- <- storage.modifier.export.nupp
+--     ^^^^^^ storage.type.declaration.nupp
+--            ^^^^^ entity.name.type.nupp
+end
+
+export sealed interface Ordered
+-- <- storage.modifier.export.nupp
+--     ^^^^^^ keyword.control.nupp
+--            ^^^^^^^^^ storage.type.declaration.nupp
+--                      ^^^^^^^ entity.name.type.nupp
+end
+
+affine interface Guard
+-- <- storage.modifier.ownership.nupp
+end
+
+export affine interface Writer
+-- <- storage.modifier.export.nupp
+--     ^^^^^^ storage.modifier.ownership.nupp
+end
