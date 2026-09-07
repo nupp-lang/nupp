@@ -596,4 +596,47 @@ function M.unsignedBitCountsDefineZeroAndLaneOrderCases()
    assertEq(m.u32.leadingZeros(0x40000000), 1)
 end
 
+function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()
+   -- int64 and uint64 are cdata boxes: a Lua number is not one and one is not a
+   -- Lua number, so neither side converts silently and the signs do not mix
+   assertEq(errorCodes("local n: number = 1LL"), "NUPP2001")
+   assertEq(errorCodes("local i: integer = 1LL"), "NUPP2001")
+   assertEq(errorCodes("local x: int64 = 1.5"), "NUPP2001")
+   assertEq(errorCodes("local x: int64 = 1"), "NUPP2001")
+   assertEq(errorCodes("local x: uint64 = -1LL"), "NUPP2001")
+   assertEq(errorCodes("local x: int64 = 1ULL"), "NUPP2001")
+   assertEq(errorCodes("local w: int32 = 1\nlocal x: int64 = w"), "NUPP2001")
+   assertEq(errorCodes("local n: number = 1\nlocal x: int64 = n"), "NUPP2001")
+   assertEq(errorCodes(table.concat({
+      "local big: int64 = 1LL",
+      "local ubig: uint64 = 1ULL",
+      "local same: int64 = big",
+      "local usame: uint64 = ubig",
+      "return same, usame",
+   }, "\n")), "")
+   -- LuaJIT's operators take a box beside a Lua number or the other box, and the
+   -- result is the wider box; a numeric for does not take one
+   assertEq(errorCodes(table.concat({
+      "local a: int64 = 1LL + 1",
+      "local b: uint64 = 1LL + 1ULL",
+      "local c: int64 = -1LL",
+      "local d: boolean = 1ULL < -1LL",
+      "local e: boolean = 1LL == 1",
+      "local f: int64 = 7LL // 2",
+      "return a, b, c, d, e, f",
+   }, "\n")), "")
+   assertEq(errorCodes("local a: int64 = 1LL + 1ULL"), "NUPP2001")
+   assertEq(errorCodes("for i = 1LL, 3LL do end"), "NUPP2003,NUPP2003")
+   -- a physical slot converts on the store and loads the box back
+   assertEq(errorCodes(table.concat({
+      "local struct S",
+      "   big: int64",
+      "end",
+      "local s = new S(1)",
+      "s.big = 2",
+      "local back: int64 = s.big",
+      "return back",
+   }, "\n")), "")
+end
+
 return M

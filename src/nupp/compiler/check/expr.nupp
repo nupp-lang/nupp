@@ -226,6 +226,12 @@ function expr.install(c: state.Checker): nil
         if t == T.any or isA(t, T.number) then
             return true
         end
+        -- A boxed 64-bit integer is not a Lua number, but LuaJIT's operators take
+        -- one. A numeric `for` does not: its control variable is a Lua number.
+        local raw = T.unwrapOwnership(t)
+        if (raw.tag == "int64" or raw.tag == "uint64") and op ~= "for" then
+            return true
+        end
         c.diag("NUPP2003", node, ("cannot apply '%s' to %s"):format(op, T.tostring(t)))
 
         return false

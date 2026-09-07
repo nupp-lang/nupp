@@ -297,8 +297,17 @@ function M.cdefStructTyping()
       "   tv_usec: int64",
       "end",
       "local tv = new timeval()",
-      "local s: number = tv.tv_sec",
+      "local s: int64 = tv.tv_sec",
+      "local n: number = tonumber(tv.tv_sec) or 0",
    }, "\n"))
+   -- the field loads a boxed int64, which is not a Lua number
+   assertEq((diagsOf(table.concat({
+      "cdef struct timeval",
+      "   tv_sec: int64",
+      "end",
+      "local tv = new timeval()",
+      "local s: number = tv.tv_sec",
+   }, "\n"))), "NUPP2001:5")
    -- cstring fields are legal in C structs (unlike GC-managed structs)
    assertClean("cdef struct entry\n   name: cstring\n   next: entry*?\nend")
    assertEq((diagsOf("local struct S\n   name: cstring\nend")), "NUPP2201:2")
@@ -432,7 +441,7 @@ function M.ownIsStaticAndDropIsExplicit()
       "local function ownedMalloc(n: uint64): affine(voidptr, free)",
       "   return malloc(n)",
       "end",
-      "local p = ownedMalloc(64)",
+      "local p = ownedMalloc(64ULL)",
       "local ok = p ~= nil",
       "drop(p)",
       "return ok",

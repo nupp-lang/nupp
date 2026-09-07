@@ -114,7 +114,10 @@ end
 function M.subtypingRules()
    local isA = relations.isA
    assert(isA(T.integer, T.number))
-   assert(isA(T.int64, T.integer))
+   assert(not isA(T.int64, T.integer))
+   assert(not isA(T.int64, T.number))
+   assert(not isA(T.integer, T.int64))
+   assert(not isA(T.int64, T.uint64))
    assert(not isA(T.number, T.integer))
    assert(isA(T.string, T.optional(T.string)))
    assert(isA(T.nil_, T.optional(T.string)))
@@ -451,7 +454,7 @@ function M.cleanPrograms()
    assertClean("local m: {[string]: number} = {}")
    assertClean("local p: {x: number, y: number} = {x = 1, y = 2}")
    assertClean("local a: any = 'whatever'\nlocal n: number = a")
-   assertClean("local big: int64 = 10LL\nlocal n: number = big")
+   assertClean("local big: int64 = 10LL\nlocal same: int64 = big")
 end
 
 function M.inheritedContractsBoundsAndSelf()

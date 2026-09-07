@@ -167,7 +167,7 @@ function M.aFunctionBuiltOnceBehindAGuardIsAdvisory()
    local dir = project{["guarded.g.nupp"] = table.concat({
       "cdef function free(takes value: voidptr)",
       "cdef function malloc(size: uint64): voidptr",
-      "local function ownedMalloc(size: uint64): affine(voidptr, free)",
+      "local function ownedMalloc(size: integer): affine(voidptr, free)",
       "   return malloc(size)",
       "end",
       "",
@@ -188,7 +188,7 @@ function M.cleanupRegionsWritingFunctionAndLoopLocalsStillCompile()
    local dir = project{["captured.g.nupp"] = table.concat({
       "cdef function free(takes value: voidptr)",
       "cdef function malloc(size: uint64): voidptr",
-      "local function ownedMalloc(size: uint64): affine(voidptr, free)",
+      "local function ownedMalloc(size: integer): affine(voidptr, free)",
       "   return malloc(size)",
       "end",
       "local function count(limit: integer): integer",

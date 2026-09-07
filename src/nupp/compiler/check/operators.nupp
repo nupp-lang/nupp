@@ -331,7 +331,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
         if t == T.any then
             return "any"
         end
-        if isA(t, T.number) then
+        if isA(t, T.number) or t.tag == "int64" or t.tag == "uint64" then
+            -- LuaJIT orders a boxed 64-bit integer against a Lua number or the
+            -- other box, converting to compare.
             return "number"
         end
         if isA(t, T.string) then
@@ -519,15 +521,11 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 -- do not later treat it as proof that a colon receiver is primitive.
                 (node as any).primitiveUntrusted = true
             end
-            local wide = lt.tag == "int64"
-                and lt
-                or lt.tag == "uint64"
-                and lt
-                or rt.tag == "int64"
-                and rt
-                or rt.tag == "uint64"
-                and rt
-                or nil
+            -- LuaJIT converts the other operand to the box's width, and to unsigned
+            -- when either side is: the result is the wider box, not the left one.
+            local wide = (
+                lt.tag == "uint64" or rt.tag == "uint64"
+            ) and T.uint64 or (lt.tag == "int64" or rt.tag == "int64") and T.int64 or nil
             if wide then
                 capabilities.require(c, "int64", opTok)
                 return wide

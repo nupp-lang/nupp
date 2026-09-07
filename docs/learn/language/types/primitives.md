@@ -202,6 +202,20 @@ local x: number = 1
 local y: integer = x -- NUPP2001: number is not a integer
 ```
 
+`int64` and `uint64` are boxed cdata rather than Lua numbers, and they stand
+apart from that lattice. A Lua number does not become one without a conversion,
+one does not widen to `integer` or `number`, and the signed and unsigned boxes
+do not convert into each other: `math.sqrt(1LL)` raises, and a table indexed
+by `1LL` finds nothing. An `LL` or `ULL` literal, a load from a struct field or
+C array, or a `cdef` function's result establishes one, and storing a Lua
+number into an `int64` field converts it the way C does.
+
+```nupp
+local big: int64 = 1LL
+local n: number = big  -- NUPP2001: int64 is not a number
+local x: int64 = 1.5   -- NUPP2001: number is not an int64
+```
+
 ### Value refinements
 
 `float`, `int32`, and `uint32` remain ordinary unboxed Lua numbers, but entering

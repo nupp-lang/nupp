@@ -11,8 +11,9 @@ The names are the library's own, so they are never restyled.
 
 local record ffi
 
-    --- Copies a C string (or `len` bytes) into a Lua string.
-    string: function(ptr: any, len: integer?): string
+    --- Copies a C string (or `len` bytes) into a Lua string. A `size_t` read out
+    --- of C memory is a boxed length, and the call takes it as readily as a number.
+    string: function(ptr: any, len: (integer | int64 | uint64)?): string
 
     --- Allocates a cdata object of the given type.
     new: function(ct: any, ...: any): any
@@ -42,10 +43,10 @@ local record ffi
     offsetof: function(ct: any, field: string): integer?
 
     --- Bulk copy between cdata (or from a Lua string).
-    copy: function(dst: any, src: any, len: integer?)
+    copy: function(dst: any, src: any, len: (integer | int64 | uint64)?)
 
     --- Fills memory with a byte value (zero by default).
-    fill: function(dst: any, len: integer, c: integer?)
+    fill: function(dst: any, len: integer | int64 | uint64, c: integer?)
 
     --- Adds C declarations to the global C namespace.
     cdef: function(def: string)

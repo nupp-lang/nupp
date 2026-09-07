@@ -485,6 +485,10 @@ function index.install(c: state.Checker): state.ExprHandlers
                 -- The store copied the bytes in; the next read is a fresh reference
                 -- into this struct, not the value that was written.
                 node.postWriteType = false
+            elseif node.fixedWidthPhysicalStore and after and fixedWidth.isPhysical(after) then
+                -- The store converted the value to the slot's width, so what reads
+                -- back is the slot's loaded type: an int64 box, a wrapped byte.
+                node.postWriteType = fixedWidth.loaded(after)
             elseif after ~= ft then
                 node.postWriteType = after
             end
@@ -969,6 +973,8 @@ function index.install(c: state.Checker): state.ExprHandlers
                 node.fixedWidthPhysicalStore = true
                 if aggregateValue(ot.elem) then
                     node.postWriteType = false
+                elseif fixedWidth.isPhysical(ot.elem) then
+                    node.postWriteType = fixedWidth.loaded(ot.elem)
                 end
                 return ot.elem
             end

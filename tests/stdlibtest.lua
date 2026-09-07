@@ -2701,7 +2701,7 @@ function M.stringBufferPointersBecomeCheckedSpans()
                 "local buffer = require('string.buffer')",
                 "local spans = require('nupp.mem.span')",
                 "local b = buffer.new()",
-                "local available: uint64 = 0",
+                "local available: integer = 0",
                 "do",
                 "   local ptr, reserved = b:reserve(64)",
                 "   available = reserved",
@@ -2712,7 +2712,7 @@ function M.stringBufferPointersBecomeCheckedSpans()
                 "   end",
                 "end",
                 "b:commit(1)",
-                "local len: uint64 = 0",
+                "local len: integer = 0",
                 "do",
                 "   local base, readable = b:ref()",
                 "   len = readable",
@@ -2720,7 +2720,7 @@ function M.stringBufferPointersBecomeCheckedSpans()
                 "   local first: integer = view[1]",
                 "end",
                 "b:skip(len)",
-                "local total: uint64 = available + len",
+                "local total: integer = available + len",
             },
             "\n"
         )

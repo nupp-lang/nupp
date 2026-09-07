@@ -35,8 +35,10 @@ local function admitsNil(t: Type): boolean
     return t.tag == "union" and t.hasNil or false
 end
 
--- Numeric widening: tag -> set of tags it silently widens to. Sized integers widen to
--- `integer` and `number`; float widens to number. (Real cdata coercion rules land with
+-- Numeric widening: tag -> set of tags it silently widens to. Unboxed sized integers
+-- widen to `integer` and `number`; float widens to number. The boxed 64-bit types are
+-- cdata rather than Lua numbers and widen to nothing: `math.sqrt(1LL)` raises, and a
+-- table indexed by one finds nothing. (Real cdata coercion rules land with
 -- reification; this is the checking approximation.)
 local WIDENS: {[string]: {[string]: boolean}} = {}
 local function widen(from: string, toList: {string})
@@ -49,9 +51,15 @@ end
 
 widen("integer", {"number"})
 widen("float", {"number"})
-for _, t in ipairs({"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"}) do
+for _, t in ipairs({"int8", "int16", "int32", "uint8", "uint16", "uint32"}) do
     widen(t, {"integer", "number"})
 end
+
+-- int64 and uint64 are boxes a Lua number does not enter implicitly: `local x: int64
+-- = 1.5` would hold a double, and `uint64 = -1LL` a value that only looks unsigned. An
+-- LL or ULL literal, a load from a physical slot, or an explicit conversion makes one,
+-- and a physical store converts a Lua number the way C does.
+local BOXED: {[string]: boolean} = {int64 = true, uint64 = true}
 
 local CDATA_NUM: {
     [string]: boolean
@@ -828,10 +836,13 @@ local function check(a: Type, b: Type): boolean, string?
         return true
     end
 
-    -- Boxed 64-bit cdata and layout-only narrow slots keep their established FFI
-    -- conversion relation. The three unboxed value refinements are deliberately
-    -- excluded: they consume the checker fact handled at value boundaries.
-    if CDATA_NUM[btag] and not fixedWidth.isValue(b) and (atag == "number" or atag == "integer" or widensFrom) then
+    -- Layout-only narrow slots keep their established FFI conversion relation. The
+    -- three unboxed value refinements are deliberately excluded: they consume the
+    -- checker fact handled at value boundaries. The two boxed widths are excluded as
+    -- well: outside a physical store nothing converts a Lua number into one.
+    if CDATA_NUM[
+        btag
+    ] and not fixedWidth.isValue(b) and not BOXED[btag] and (atag == "number" or atag == "integer" or widensFrom) then
         return true
     end
 

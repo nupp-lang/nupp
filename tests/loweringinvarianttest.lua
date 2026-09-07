@@ -39,7 +39,7 @@ end
 local OWNED = table.concat({
    "cdef function free(takes value: voidptr)",
    "cdef function malloc(size: uint64): voidptr",
-   "local function ownedMalloc(size: uint64): affine(voidptr, free)",
+   "local function ownedMalloc(size: integer): affine(voidptr, free)",
    "   return malloc(size)",
    "end",
 }, "\n")
