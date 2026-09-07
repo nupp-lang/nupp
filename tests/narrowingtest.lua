@@ -742,4 +742,40 @@ function M.aComputedIndexWriteClearsTheDottedFact()
    }, "\n"))
 end
 
+function M.safeNavigationProvesThePathItWalked()
+   assertClean(table.concat({
+      "local record Inner",
+      "    f: string?",
+      "end",
+      "local record Outer",
+      "    inner: Inner?",
+      "end",
+      "local o: Outer? = new Outer(inner = new Inner(f = 'hi'))",
+      "if o?.inner?.f ~= nil then",
+      "    local s: string = o.inner.f",
+      "end",
+      "if o?.inner ~= nil then",
+      "    local i: Inner = o.inner",
+      "end",
+   }, "\n"))
+   -- A nil result says nothing about which step was nil.
+   assertEq(diagsOf(table.concat({
+      "local record Inner",
+      "    f: string?",
+      "end",
+      "local record Outer",
+      "    inner: Inner?",
+      "end",
+      "local o: Outer? = new Outer(inner = new Inner(f = 'hi'))",
+      "if o?.inner == nil then",
+      "    print('none')",
+      "else",
+      "    local i: Inner = o.inner",
+      "end",
+      "if o?.inner == nil then",
+      "    local out: Outer = o",
+      "end",
+   }, "\n")), "NUPP2001:14")
+end
+
 return M

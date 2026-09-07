@@ -186,7 +186,9 @@ function narrow.install(c: state.Checker): narrow.Ops
         if node.kind == "name" then
             return node.token and node.token.text or nil
         end
-        if node.kind == "dotIndex" then
+        if node.kind == "dotIndex" or node.kind == "safeIndex" then
+            -- `a?.b` reads the field `a.b` names when there is one, so what a test
+            -- of it proves lands on that path.
             local base = facts.pathKey(node.obj)
             if base and node.name then
                 return base .. "." .. node.name.text
@@ -299,6 +301,13 @@ function narrow.install(c: state.Checker): narrow.Ops
             local baseT = c.refType(node.obj)
             if baseT then
                 return c.fieldType(baseT, node.name.text)
+            end
+        end
+        if node.kind == "safeIndex" and node.name then
+            local baseT = c.refType(node.obj)
+            local ft = baseT and c.fieldType(subtract(baseT, T.nil_), node.name.text) or nil
+            if ft then
+                return T.optional(ft)
             end
         end
 
@@ -762,6 +771,24 @@ function narrow.install(c: state.Checker): narrow.Ops
                     if key and vt then
                         local eqNil = {[key] = T.nil_}
                         local neNil = {[key] = subtract(vt, T.nil_)}
+                        -- `a?.b ~= nil` walked through `a`, so `a` held a value; a
+                        -- nil result says nothing about which step was nil.
+                        local step: any = nameNode
+                        local safe = false
+                        while step and (step.kind == "dotIndex" or step.kind == "safeIndex") do
+                            if step.kind == "safeIndex" and step.obj then
+                                local baseKey = facts.pathKey(step.obj)
+                                local baseT = c.refType(step.obj)
+                                if baseKey and baseT then
+                                    neNil[baseKey] = subtract(baseT, T.nil_)
+                                end
+                                safe = true
+                            end
+                            step = step.obj
+                        end
+                        if safe then
+                            eqNil = {}
+                        end
                         if op == "==" then
                             return {t = eqNil, f = neNil}
                         else
