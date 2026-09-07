@@ -1021,7 +1021,9 @@ function expr.install(c: state.Checker): nil
                     })
                 end
             end
-            if entry and entry.unassigned then
+            -- A closure reading it may run after the assignment, so only a read in
+            -- the function that declared it is known to come first.
+            if entry and entry.unassigned and (entry.functionDepth or 0) >= c.functionDepth then
                 c.diag("NUPP2207", nameTok, ("%s is read before it holds a value"):format(nameText), nil, {
                     related = entry.unassignedAt and {
                         c.related(

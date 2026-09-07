@@ -100,6 +100,28 @@ function M.aGotoGuardNarrowsLikeABreak()
    }, "\n"))
 end
 
+function M.aTypedLocalHoldsNilUntilEveryPathAssignsIt()
+   local strict = {strict = true}
+   -- Declared without a value, a strict local is read as nil until it is assigned.
+   assertEq(diagsOf("local x: string\nprint(x:upper())", strict), "NUPP2207:2")
+   assertEq(diagsOf("local x: string\nif #arg > 5 then\n    x = 'set'\nend\nprint(x:upper())", strict),
+      "NUPP2207:5")
+   assertEq(diagsOf("local x: string\nwhile #arg > 5 do\n    x = 'set'\nend\nprint(#x)", strict),
+      "NUPP2207:5")
+   assertEq(diagsOf("local x: string\nfor _ = 1, #arg do\n    x = 'set'\nend\nprint(#x)", strict),
+      "NUPP2207:5")
+   -- Every path assigning it is what makes it hold a value.
+   assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    x = 'b'\nend\nprint(#x)", strict)
+   assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    return\nend\nprint(#x)", strict)
+   assertClean("local x: string\nrepeat\n    x = 'a'\nuntil true\nprint(#x)", strict)
+   -- An optional annotation admits the nil the declaration leaves there.
+   assertClean("local x: string?\nprint(x)", strict)
+   -- A closure may run after the assignment, so its read is not known to come first.
+   assertClean("local x: string\nlocal function f(): string\n    return x\nend\nx = 'a'\nprint(f())", strict)
+   -- Gradual code keeps `local x: T` as the declaration it always was.
+   assertClean("local x: string\nprint(#x)")
+end
+
 function M.nilChecksNarrowThroughFieldPaths()
    assertClean(CFG .. table.concat({
       "",

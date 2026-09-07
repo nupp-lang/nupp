@@ -337,6 +337,58 @@ function control.install(c: state.Checker): state.StatHandlers
     c.ownershipSnapshot = ownershipSnapshot
     c.ownershipRewind = ownershipRewind
 
+    ---------------------------------------------------------------------
+    -- Definite assignment across an edge
+    ---------------------------------------------------------------------
+
+    -- A binding declared without a value holds nil until something assigns it, and
+    -- an assignment on one arm of a branch is not an assignment on its sibling. Each
+    -- arm starts from the state the statement began in, and the statement leaves
+    -- unassigned whatever any path reaching its end left unassigned.
+
+    --- The visible bindings nothing has assigned yet.
+    local function unassignedSnapshot(): {any}
+        local snapshot = {}
+        local scope = c.scope
+        while scope do
+            for _, entry in pairs(scope.vars or {}) do
+                if entry.unassigned then
+                    snapshot[#snapshot + 1] = entry
+                end
+            end
+            scope = scope.parent
+        end
+
+        return snapshot
+    end
+
+    --- Puts every binding in the snapshot back to unassigned, for the next arm.
+    local function unassignedRestore(snapshot: {any}): nil
+        for _, entry in ipairs(snapshot) do
+            entry.unassigned = true
+        end
+    end
+
+    --- Records which bindings in the snapshot this arm left unassigned.
+    local function unassignedSurvivors(snapshot: {any}, into: {[any]: boolean}): nil
+        for _, entry in ipairs(snapshot) do
+            if entry.unassigned then
+                into[entry] = true
+            end
+        end
+    end
+
+    --- Settles the statement: a binding is assigned afterwards only if every path
+    --- that reaches the end assigned it.
+    local function unassignedJoin(snapshot: {any}, survivors: {[any]: boolean}): nil
+        for _, entry in ipairs(snapshot) do
+            entry.unassigned = survivors[entry] or nil
+        end
+    end
+
+    c.unassignedSnapshot = unassignedSnapshot
+    c.unassignedRestore = unassignedRestore
+
     --- Rejects a capability transition that a repeatable back edge would feed into a
     --- header checked under a different state. Lexical values created by the body are
     --- gone before this runs; the snapshot therefore contains exactly the loop-carried
@@ -938,11 +990,14 @@ function control.install(c: state.Checker): state.StatHandlers
         local ownershipBefore = ownershipSnapshot()
         local branchMoved: {[any]: boolean} = {}
         local join = ownershipJoin()
+        local unassignedBefore = unassignedSnapshot()
+        local unassignedAfter: {[any]: boolean} = {}
         for _, clause in ipairs(stat.clauses) do
             -- analyze under the accumulated else-facts so that subtraction chains
             -- compose ("elseif v is number" sees v already minus the earlier branches)
             c.pushScope()
             applyFacts(accumulatedElse)
+            unassignedRestore(unassignedBefore)
             local facts = {t = {}, f = {}}
             local cond, body = nil, nil
             if clause.kind == "ifClause" or clause.kind == "elseifClause" then
@@ -962,6 +1017,7 @@ function control.install(c: state.Checker): state.StatHandlers
             if not alwaysExits(body) then
                 paths[#paths + 1] = snapshotNarrowed()
                 noteArmEnd(join)
+                unassignedSurvivors(unassignedBefore, unassignedAfter)
             end
             c.popScope()
             ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(body), join)
@@ -1029,10 +1085,12 @@ function control.install(c: state.Checker): state.StatHandlers
         if otherwise then
             c.pushScope()
             applyFacts(accumulatedElse)
+            unassignedRestore(unassignedBefore)
             c.checkBlock(elseBody, true)
             if not alwaysExits(elseBody) then
                 paths[#paths + 1] = snapshotNarrowed()
                 noteArmEnd(join)
+                unassignedSurvivors(unassignedBefore, unassignedAfter)
             end
             c.popScope()
             ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(elseBody), join)
@@ -1043,6 +1101,8 @@ function control.install(c: state.Checker): state.StatHandlers
             applyFacts(accumulatedElse)
             paths[#paths + 1] = snapshotNarrowed()
             noteArmEnd(join)
+            unassignedRestore(unassignedBefore)
+            unassignedSurvivors(unassignedBefore, unassignedAfter)
             c.popScope()
             join.arms = join.arms + 1
             for _, item in ipairs(ownershipBefore) do
@@ -1053,6 +1113,7 @@ function control.install(c: state.Checker): state.StatHandlers
             end
         end
         auditOwnershipJoin(branchMoved, join, stat)
+        unassignedJoin(unassignedBefore, unassignedAfter)
         -- Join: a key is known afterwards only if every surviving path says something
         -- about it, and then it holds the union of what they say. A key one path is
         -- silent about could be anything there, so it stays at its declared type.
@@ -1091,12 +1152,15 @@ function control.install(c: state.Checker): state.StatHandlers
                 c.callMayMutate = false
             end
             local facts = analyzeCond(cond)
+            -- The body may not run at all, so what it assigned is not assigned after.
+            local unassignedBefore = unassignedSnapshot()
             c.pushScope()
             applyFacts(facts.t)
             c.loops.push(stat.body)
             c.checkBlock(stat.body, true)
             c.loops.pop()
             c.popScope()
+            unassignedRestore(unassignedBefore)
             checkLoopBackEdge(ownershipBefore, stat.body, stat)
         end
     end
@@ -1286,6 +1350,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.numericOperand(st, from, "for")
         c.numericOperand(et, to, "for")
         local ownershipBefore = ownershipSnapshot()
+        local unassignedBefore = unassignedSnapshot()
         c.pushScope()
         c.scope.completionScope = stat.body
         c.bindVar(var.text, (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
@@ -1349,6 +1414,7 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         c.loops.pop()
         c.popScope()
+        unassignedRestore(unassignedBefore)
         checkLoopBackEdge(ownershipBefore, stat.body, stat)
     end
 
@@ -1420,6 +1486,7 @@ function control.install(c: state.Checker): state.StatHandlers
             stat.builtinIpairs = {operand = operand, type = operandType}
         end
         local ownershipBefore = ownershipSnapshot()
+        local unassignedBefore = unassignedSnapshot()
         c.pushScope()
         c.scope.completionScope = stat.body
         local iteratorRoots, seenRoots = {}, {}
@@ -1522,6 +1589,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.checkBlock(stat.body, true)
         c.loops.pop()
         c.popScope()
+        unassignedRestore(unassignedBefore)
         checkLoopBackEdge(ownershipBefore, stat.body, stat)
     end
 

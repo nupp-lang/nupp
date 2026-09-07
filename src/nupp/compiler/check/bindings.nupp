@@ -475,12 +475,15 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
             -- `local v: Vec2` used to construct one, which was a construction the
             -- source did not say. It no longer does, so the binding holds nil until
-            -- something puts a value in it, and reading it before that is an indexing
-            -- error waiting to happen rather than a value of the declared type. A
-            -- declaration file states what exists elsewhere and assigns nothing, so it
-            -- is not making this mistake.
-            if boundEntry and ann and not initNode and not c.declarationFile and ann.tag == "nominal" and (
-                ann.declKind == "record" or ann.declKind == "struct"
+            -- something puts a value in it, and reading it before that is a nil where
+            -- the declaration promised a value. Strict code holds every annotation
+            -- that does not admit nil to this; gradual code keeps `local x: T` as
+            -- the declaration it always was. A declaration file states what exists
+            -- elsewhere and assigns nothing, so it is not making this mistake.
+            local nominal = ann and ann.tag == "nominal" and (ann.declKind == "record" or ann.declKind == "struct")
+            local strict = c.opts and c.opts.strict
+            if boundEntry and ann and not initNode and not c.declarationFile and (
+                nominal or strict and not isA(T.nil_, ann)
             ) then
                 boundEntry.unassigned = true
                 boundEntry.unassignedAt = nameTok

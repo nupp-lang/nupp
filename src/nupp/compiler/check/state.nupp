@@ -675,6 +675,11 @@ record state.Checker
     --- Whether control can run off the end of this block.
     fallsThrough: function(block: Node?): boolean
 
+    --- The visible bindings nothing has assigned yet, and putting them back.
+    unassignedSnapshot: function(): {any}
+
+    unassignedRestore: function(snapshot: {any}): nil
+
     alwaysRaises: function(block: Node?): boolean
 
     --- Whether a node returns a value anywhere inside it.
