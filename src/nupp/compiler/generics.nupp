@@ -38,6 +38,10 @@ local type Bindings = {[any]: any}
 --- choice, so no caller passes a flag and none of them can pick by accident.
 local PRESERVE = "preserve"
 
+--- The binders whose defaults are being materialized, so a default naming its own
+--- binder ends at `any` instead of recursing.
+local materializingDefault: {[Type]: boolean} = {}
+
 local MATERIALIZE = "materialize"
 
 --- Normalization state, carried through the walk when one is running. Absent means
@@ -151,8 +155,22 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
         if bound then
             return bound
         end
+        if unmapped == PRESERVE then
+            return t
+        end
+        -- Inference never reached the binder, so its declared default fills it. The
+        -- default may name an earlier binder, which the same map answers; one that
+        -- reaches back to itself is left `any` rather than followed around.
+        local default = (t as T.TypeVar).default
+        if default and not materializingDefault[t] then
+            materializingDefault[t] = true
+            local value = substWith(default, map, unmapped)
+            materializingDefault[t] = nil
 
-        return unmapped == PRESERVE and t or T.any
+            return value
+        end
+
+        return T.any
     elseif tag == "array" then
         return T.array(substWith(t.elem, map, unmapped))
     elseif tag == "map" then

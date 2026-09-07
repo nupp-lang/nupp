@@ -322,7 +322,9 @@ string|boolean|integer` binder carries a compile-time-known value through a type
 and erases from runtime code. `const Name: function` instead binds a named
 function declaration, so two applications naming different functions are
 different types. `T = Default` lets an application leave a trailing parameter
-out; one without a default cannot follow one with it.
+out, and fills the parameter when a call or construction infers nothing for it;
+one without a default cannot follow one with it, and the default has to satisfy
+the bound beside it.
 ]=],
         example = [=[
 local m = {}

@@ -181,8 +181,9 @@ Unification makes three decisions a partly-inferred call depends on:
 - **A binder appearing twice unions the two arguments** rather than failing or
   picking the more specific one.
 - **`any` and `nil` arguments do not bind a parameter.** They leave it open.
-- **An unbound parameter substitutes to `any`**, which keeps a partly-inferred
-  call gradual instead of wrong.
+- **An unbound parameter substitutes to its declared default, or to `any`
+  without one.** A `T = string` binder no argument reaches is `string`, and a
+  binder with no default keeps a partly-inferred call gradual instead of wrong.
 
 A `T?` parameter subtracts the concrete members from the argument, so the
 residue binds. That is how `assert` is typed:

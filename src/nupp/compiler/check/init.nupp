@@ -1723,6 +1723,34 @@ function checkMod.check(
                 end
             end
         end
+        -- A type default is resolved here, where every binder it may name is in
+        -- scope, and checked against the bound beside it: a default that fails the
+        -- bound would be refused at every application that relied on it.
+        local typeAt = 0
+        for j, kind in ipairs(paramKinds) do
+            if kind == "type" then
+                typeAt = typeAt + 1
+                local defaultNode = paramDefaults[j]
+                local tv = params[typeAt] as T.TypeVar
+                if defaultNode then
+                    local value = c.resolveType(defaultNode)
+                    tv.default = value
+                    if bounds[typeAt] and not relations.isA(value, bounds[typeAt]) then
+                        c.diag(
+                            "NUPP2116",
+                            defaultNode,
+                            (
+                                "default %s does not fit the bound %s declares for %s"
+                            ):format(T.tostring(value), T.tostring(bounds[typeAt]), tv.name),
+                            nil,
+                            {help = "a default has to satisfy the bound beside it"}
+                        )
+                    end
+                else
+                    tv.default = nil
+                end
+            end
+        end
         -- A parameter without a default cannot follow one with it, or leaving an
         -- argument out would say nothing about which position was left out.
         local defaulted = nil

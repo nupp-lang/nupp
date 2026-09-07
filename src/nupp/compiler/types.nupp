@@ -543,6 +543,11 @@ record types.TypeVar
 
     --- Upper bound declared with `T is Bound`, when one exists.
     bound: types.Type?
+
+    --- What `T = Default` declared, resolved where it was written. An application
+    --- that leaves the position out, or a call or construction whose inference never
+    --- reaches the binder, materializes this rather than `any`.
+    default: types.Type?
 end
 
 --- A compiler-only type handle carrying the facts an open generated result promises.

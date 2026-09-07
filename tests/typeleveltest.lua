@@ -1859,4 +1859,20 @@ function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
     }, "\n")), "NUPP2116 NUPP2116")
 end
 
+-- A default is checked against the bound beside it where it is declared, since
+-- every application relying on it would otherwise be refused instead.
+function M.aDefaultTypeArgumentIsCheckedAgainstItsBoundWhereDeclared()
+    local body = table.concat({
+        "local interface Named",
+        "   name: string",
+        "end",
+        "local record P is Named",
+        "   name: string",
+        "end",
+    }, "\n") .. "\n"
+    assertEq(codes(body .. "local record Reg<T is Named = integer>\n   item: T\nend\nreturn Reg\n"), "NUPP2116")
+    clean(body .. "local record Reg<T is Named = P>\n   item: T\nend\nreturn Reg\n")
+    assertEq(codes(body .. "local function make<T is Named = integer>(): T?\n   return nil\nend\nreturn make\n"), "NUPP2116")
+end
+
 return M

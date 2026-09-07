@@ -123,6 +123,34 @@ function M.anUninferredBinderMaterializesAsAny()
    clean(body .. "local other: integer? = pick()\nreturn other\n")
 end
 
+-- The other half of that: a binder inference never reached takes the default its
+-- declaration wrote before it falls back to `any`, at a construction and at a call
+-- alike, and a default naming an earlier binder follows what that one became.
+function M.anUninferredBinderMaterializesAsItsDefault()
+   local body = table.concat({
+      "local record Opt<T = string>",
+      "   value: T?",
+      "end",
+      "local record Pair<K, V = K>",
+      "   key: K",
+      "   value: V?",
+      "end",
+      "local function pick<T = string>(): T?",
+      "   return nil",
+      "end",
+   }, "\n") .. "\n"
+   clean(body .. "local o = new Opt()\nlocal s: string? = o.value\nreturn s\n")
+   reports(body .. "local o = new Opt()\nlocal n: integer? = o.value\nreturn n\n", "NUPP2001")
+   clean(body .. "local p = new Pair(key = 1)\nlocal n: integer? = p.value\nreturn n\n")
+   reports(body .. "local p = new Pair(key = 1)\nlocal s: string? = p.value\nreturn s\n", "NUPP2001")
+   clean(body .. "local s: string? = pick()\nreturn s\n")
+   reports(body .. "local n: integer? = pick()\nreturn n\n", "NUPP2001")
+   -- The default is what an empty construction builds; another instantiation is
+   -- written as one.
+   reports(body .. "local o: Opt<integer> = new Opt()\nreturn o\n", "NUPP2001")
+   clean(body .. "local o = new Opt() as Opt<integer>\nlocal n: integer? = o.value\nreturn n\n")
+end
+
 -- A type-level operation over an instantiated nominal -- `Box<T>.["value"]`, `keyof
 -- Box<T>` -- carries no binder mark in its id, because the nominal's id carries none.
 -- Substitution has to walk it to find `T`, or the call site keeps the blocked term.

@@ -28,7 +28,7 @@ local type CodeActionContext = {
 -- Paths and positions
 ----------------------------------------------------------------------------
 
-local function jsonArray<T>(takes items: T): T preserves items
+local function jsonArray<T is table>(takes items: T): T preserves items
     return json.asArray(items)
 end
 

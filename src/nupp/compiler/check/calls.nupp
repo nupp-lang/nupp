@@ -687,6 +687,15 @@ function calls.install(c: state.Checker): calls.Ops
     end
 
     function ops.validateTypeBounds(params, bounds, map, node)
+        -- A binder inference never reached takes the default its declaration
+        -- wrote, so what is instantiated below is that rather than `any`. The
+        -- default may name an earlier binder, which the map by now answers.
+        for _, tv in ipairs(params or {}) do
+            local default = (tv as T.TypeVar).default
+            if map[tv] == nil and default then
+                map[tv] = substType(default, map, nil, c.reductionControl)
+            end
+        end
         for j, tv in ipairs(params or {}) do
             local bound = bounds and bounds[j]
             local actual = map[tv]
