@@ -2534,9 +2534,12 @@ function calls.install(c: state.Checker): calls.Ops
                     ownershipUseReported = ownershipUseReported or ownershipNode.ownershipUseReported == true
                     ownershipNode = ownershipNode.obj
                 end
-                local liveAcrossAny = plainExpected == T.any and (
-                    actualOwnership == "affine" or actualOwnership == "pinned"
-                ) and not ownershipUseReported and (not entry or not entry.moved and (entry.activeBorrows or 0) == 0)
+                -- A borrow crosses on the same terms as an owner: what an untyped
+                -- callee does with it cannot be seen, and a borrow it keeps is read
+                -- after its root is closed.
+                local liveAcrossAny = plainExpected == T.any and not ownershipUseReported and (
+                    not entry or not entry.moved and (entry.activeBorrows or 0) == 0
+                )
                 if plainExpected ~= T.any or liveAcrossAny then
                     c.diag(
                         plainExpected == T.any and "NUPP2611" or "NUPP2603",

@@ -560,7 +560,7 @@ function M.stringPointerProvenanceFollowsBindingsAndPreservation()
                 "local text = 'a' .. 'b'",
                 "local direct = ffi.cast<cstring>(text)",
                 "local forwarded = ffi.cast<cstring>(id(text))",
-                "print(direct, forwarded)",
+                "print(direct ~= nil, forwarded ~= nil)",
             },
             "\n"
         )
@@ -1432,7 +1432,7 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
                     "local writable = spans.writeCarray(storage, 4)",
                     "local pointer, count = writable:ref()",
                     "drop writable",
-                    "print(pointer, count)",
+                    "print(pointer ~= nil, count)",
                 },
                 "\n"
             )
@@ -1602,12 +1602,12 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
                     "local values = heap.allocate(ffi.typeof<int32>(), 4)",
                     "local readable = values:read()",
                     "local writable = values:write()",
-                    "print(readable, writable)",
+                    "print(#readable, #writable)",
                 },
                 "\n"
             )
         ),
-        "NUPP2607 NUPP2611",
+        "NUPP2607",
         "a live array read blocks a writer"
     )
 
@@ -1619,12 +1619,12 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
                     "local values = heap.allocate(ffi.typeof<int32>(), 4)",
                     "local writable = values:write()",
                     "local readable = values:read()",
-                    "print(readable, writable)",
+                    "print(#readable, #writable)",
                 },
                 "\n"
             )
         ),
-        "NUPP2607 NUPP2611",
+        "NUPP2607",
         "a live array writer blocks a reader"
     )
 
@@ -4183,7 +4183,7 @@ function M.stringDerivedPointersCannotEscape()
                     "local text = 'hello'",
                     "local pointer = ffi.cast<cstring>(text)",
                     "text = 'other'",
-                    "print(pointer)",
+                    "print(pointer ~= nil)",
                 },
                 "\n"
             )
@@ -5608,7 +5608,7 @@ function M.returningTaskSpawnsRefuseBorrowedAffineCaptures()
                     "local resource = new Resource()",
                     "with scope = nupp.tasks.open() do",
                     "   local callback = function(): nil borrows (resource)",
-                    "      print(resource)",
+                    "      print(resource ~= nil)",
                     "   end",
                     "   scope:spawn(callback)",
                     "end",
@@ -6280,6 +6280,43 @@ function M.aBorrowCannotFillAnOwningRecordField()
         ),
         "NUPP2603",
         "a borrows parameter into an owning field"
+    )
+end
+
+-- A borrow crosses an untyped boundary on the same terms as an owner: what the
+-- callee does with it cannot be seen, and one that keeps it reads a closed
+-- resource. Only owners were asked about, so a borrows parameter, an any vararg,
+-- and a closure handed to coroutine.create all crossed.
+function M.aBorrowCannotCrossAnAnyParameter()
+    local function crossing(declaration, call)
+        return CLOSURE_RESOURCE .. table.concat(
+            {
+                "",
+                declaration,
+                "local function via(borrows resource: ClosureResource): nil",
+                "   " .. call,
+                "end",
+                "local resource = openClosureResource(7)",
+                "via(resource)",
+                "drop(resource)",
+            },
+            "\n"
+        )
+    end
+    assertEq(
+        codes(crossing("local function keep(value: any): nil print(value) end", "keep(resource)")),
+        "NUPP2611",
+        "an any parameter"
+    )
+    assertEq(
+        codes(crossing("local function pack(...: any): {any} return {...} end", "print(pack(resource))")),
+        "NUPP2611",
+        "an any vararg"
+    )
+    assertEq(
+        codes(crossing("", "coroutine.create(function(): nil print(resource.value) end)")),
+        "NUPP2611",
+        "a coroutine body"
     )
 end
 
