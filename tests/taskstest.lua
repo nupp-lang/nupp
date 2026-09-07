@@ -285,6 +285,47 @@ function M.aScopeWithADeadlineCancelsWhatOutlivesIt()
    assertTrue(time.now() - started < 1000, "the scope waited for work its deadline had ended")
 end
 
+function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
+   -- Expiry is structured cancellation rather than an escape from settling: each
+   -- parked child is resumed far enough to run its cleanup, and only then is the
+   -- deadline raised where the block is left. The block never waits itself, so
+   -- the children first park while the scope is already draining.
+   local closes, unwound = 0, 0
+   local function child()
+      local ok, caught = pcall(time.sleep, 2000)
+      if not ok and tasks.isCancelled(caught) then unwound = unwound + 1 end
+      -- A cleanup that parks again is still driven to its end.
+      pcall(time.sleep, 5)
+      closes = closes + 1
+      if not ok then error(caught, 0) end
+   end
+   local started = time.now()
+   local problem = raises(function()
+      scoped({deadline = 30}, function(scope)
+         scope:spawn(child)
+         scope:spawn(child)
+      end)
+   end)
+   assertTrue(tasks.isCancelled(problem), "the deadline was not raised at the block's exit: " .. tostring(problem))
+   assertEq(unwound, 2, "a parked child did not observe the cancellation")
+   assertEq(closes, 2, "a child's cleanup was skipped")
+   assertTrue(time.now() - started < 1000, "settling waited for work the deadline had ended")
+
+   -- The same when the block is parked on a child when the deadline passes: its own
+   -- wait is cancelled, and settling still drives the children through cleanup.
+   closes, unwound = 0, 0
+   problem = raises(function()
+      scoped({deadline = 30}, function(scope)
+         local task = scope:spawn(child)
+         scope:spawn(child)
+         task:await()
+      end)
+   end)
+   assertTrue(tasks.isCancelled(problem), "the deadline did not reach the block's wait: " .. tostring(problem))
+   assertEq(unwound, 2, "a child parked under an awaiting block did not observe the cancellation")
+   assertEq(closes, 2, "a child's cleanup was skipped under an awaiting block")
+end
+
 function M.aDeadlineCancelsTheBlocksOwnWait()
    -- The block is not a child, but its waits are the scope's: a deadline reaches
    -- the block where it is waiting rather than at its next task operation.

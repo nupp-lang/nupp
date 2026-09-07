@@ -597,6 +597,11 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                     -- something to do, and the loop does it. Cancelling here would
                     -- route replies and wake waiters from inside the host's own
                     -- check, before it has yielded.
+                    if owner.settling then
+                        -- Draining: what the scope owns is raised once every child
+                        -- has settled, not here.
+                        return waiting:ready() or (#owner.queue > 0 and suspensionRuntime.__turnAvailable())
+                    end
                     const deadline = owner.deadline
                     const expired = deadline ~= nil and timeRuntime().now() >= deadline
 
@@ -633,14 +638,20 @@ local function frameHandler(owner: ScopeState): suspension.Handler
             }
             while not waiting:ready() do
                 deadlinePassed(owner)
-                if owner.failed then
-                    cancel()
-                    error(owner.failure, 0)
-                end
-                const cancelled = owner.cancellation
-                if cancelled ~= nil and not owner.deliberate then
-                    cancel()
-                    error(cancelled as any, 0)
+                -- While the scope is settling, the wait parked here is the draining
+                -- pump's own. A deadline or a failure has already asked every child to
+                -- stop; raising it here would abandon them parked, so it is left for
+                -- `closeScope` to raise once the last of them has unwound.
+                if not owner.settling then
+                    if owner.failed then
+                        cancel()
+                        error(owner.failure, 0)
+                    end
+                    const cancelled = owner.cancellation
+                    if cancelled ~= nil and not owner.deliberate then
+                        cancel()
+                        error(cancelled as any, 0)
+                    end
                 end
                 const child = suspensionRuntime.__turnAvailable() and takeRunnable(owner) or nil
                 if child ~= nil then
@@ -664,6 +675,9 @@ local function frameHandler(owner: ScopeState): suspension.Handler
             -- poll. The loop then ends without another header pass, so choose the
             -- scope-owned problem here as well. Do not cancel an already-ready wait.
             deadlinePassed(owner)
+            if owner.settling then
+                return
+            end
             if owner.failed then
                 error(owner.failure, 0)
             end
