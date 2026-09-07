@@ -34,6 +34,17 @@ function M.runsThePublicComptimeForwardingRecipeEndToEnd()
     assert(mutation:find("cannot be assigned through", 1, true), mutation)
 end
 
+function M.attachesADeriveThroughAnExportWrapper()
+    -- `@derive(...) export record R` decorates R, the way it does without the
+    -- visibility; the export is a wrapper the annotation looks through.
+    local main = HERE .. "/fixtures/deriveexported_main.nupp"
+    local checked, checkOutput = process.capture({NUPP, "check", "--strict", main})
+    assert(checked == 0, checkOutput)
+    local ran, output = process.capture({NUPP, "run", main})
+    assert(ran == 0, output)
+    assert(output == "Point { x = 3 }\n", output)
+end
+
 function M.runsAProviderThatDeclaresItsOwnMember()
     local example = HERE .. "/../editors/playground/src/examples/custom-derive.nupp"
     local checked, checkOutput = process.capture({NUPP, "check", "--strict", example})

@@ -1,0 +1,2 @@
+local exported = require("tests.fixtures.deriveexported")
+print(exported.show())

@@ -252,7 +252,10 @@ function pragma.install(c: state.Checker): state.StatHandlers
         end
         local written = annotationName.text
         local target = stat.stat
-        while target and target.kind == "pragmaStmt" do
+        -- A stacked annotation and an `export` are both wrappers around the
+        -- declaration the annotation decorates: `@derive(...) export record R`
+        -- attaches to R, as it would without the visibility.
+        while target and (target.kind == "pragmaStmt" or target.kind == "exportStmt") do
             target = target.stat
         end
         -- What the annotation decorates, and the body it carries when the decorated

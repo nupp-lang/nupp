@@ -1,0 +1,11 @@
+module tests.fixtures.deriveexported
+
+--- An annotation attaches to the declaration an `export` wraps.
+@derive(nupp.derive.Debug)
+export record Point
+    x: integer
+end
+
+export function show(): string
+    return (new Point(x = 3)):debug()
+end
