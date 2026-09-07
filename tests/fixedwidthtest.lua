@@ -602,7 +602,14 @@ function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()
    assertEq(errorCodes("local n: number = 1LL"), "NUPP2001")
    assertEq(errorCodes("local i: integer = 1LL"), "NUPP2001")
    assertEq(errorCodes("local x: int64 = 1.5"), "NUPP2001")
-   assertEq(errorCodes("local x: int64 = 1"), "NUPP2001")
+   -- An integral literal a double spells exactly is the box's own value, which is
+   -- what the native path reads it as; a fraction, an out-of-range value, and a
+   -- negative into the unsigned box are not.
+   assertEq(errorCodes("local x: int64 = 1"), "")
+   assertEq(errorCodes("local x: int64 = 4294967296"), "")
+   assertEq(errorCodes("local x: uint64 = 1"), "")
+   assertEq(errorCodes("local x: uint64 = -1"), "NUPP2001")
+   assertEq(errorCodes("local x: int64 = 9007199254740994"), "NUPP2001")
    assertEq(errorCodes("local x: uint64 = -1LL"), "NUPP2001")
    assertEq(errorCodes("local x: int64 = 1ULL"), "NUPP2001")
    assertEq(errorCodes("local w: int32 = 1\nlocal x: int64 = w"), "NUPP2001")

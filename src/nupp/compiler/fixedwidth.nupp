@@ -214,6 +214,12 @@ function fixed.literalFits(value: number, target: T.Type): boolean
         return value % 1 == 0 and value >= -2147483648 and value < 2147483648
     elseif tag == "uint32" then
         return value % 1 == 0 and value >= 0 and value < 4294967296
+    elseif tag == "int64" then
+        -- A Lua number is a double, so only what a double spells exactly may stand
+        -- for the box: an integral value within 2^53 of zero.
+        return value % 1 == 0 and value >= -9007199254740992 and value <= 9007199254740992
+    elseif tag == "uint64" then
+        return value % 1 == 0 and value >= 0 and value <= 9007199254740992
     else
         return false
     end

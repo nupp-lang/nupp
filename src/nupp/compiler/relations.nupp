@@ -931,10 +931,13 @@ local function check(a: Type, b: Type): boolean, string?
 
     -- A numeric literal may enter a fixed-width value refinement only when the value
     -- already belongs to it. This is membership, not contextual conversion: 0.5 is a
-    -- float value and 0.1 is not.
+    -- float value and 0.1 is not. The 64-bit boxes take an integral literal a double
+    -- spells exactly, which is what `local wide: int64 = 4294967296` means on the
+    -- native path and the same value under LuaJIT; a fraction or an out-of-range
+    -- value is still not one.
     if atag == "literal" and type(
         a.constant
-    ) == "number" and fixedWidth.isValue(b) and fixedWidth.literalFits(a.constant, b) then
+    ) == "number" and (fixedWidth.isValue(b) or BOXED[btag]) and fixedWidth.literalFits(a.constant, b) then
         return true
     end
 
@@ -1435,7 +1438,13 @@ local function check(a: Type, b: Type): boolean, string?
                 -- An untyped `...` is read as `unknown`: only a parameter that
                 -- accepts anything can stand where anything may arrive.
                 local element = bExtra and bExtra.kind == "homogeneous" and bExtra.type or T.unknown
-                if am ~= (bExtra and bExtra.mode or "plain") then
+                -- A mode says what the callee does with an owner. Nothing owned ever
+                -- reaches a slot typed `any` or left untyped -- a capability cannot
+                -- disappear into any -- so against such a tail the mode is moot, and
+                -- `sendable function(...: any): any` admits a body that takes its
+                -- arguments the way it admits one that borrows them.
+                local moot = element == T.any or element == T.unknown
+                if not moot and am ~= (bExtra and bExtra.mode or "plain") then
                     return false, (
                         "%s is not a %s (parameter %d ownership mode)"
                     ):format(T.tostring(a), T.tostring(b), j)

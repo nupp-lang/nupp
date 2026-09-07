@@ -173,6 +173,29 @@ function M.extraParametersCompareAgainstTheTargetsVararg()
    }, "\n")), "NUPP2001:5")
 end
 
+-- A mode says what a callee does with an owner, and nothing owned ever reaches
+-- a slot typed `any` or left untyped, so against such a tail the mode is moot:
+-- `sendable function(...: any): any` stands for any callable a worker may run,
+-- taking parameters included.
+function M.anExtraParametersModeIsMootAgainstAnAnyTail()
+   local consume = table.concat({
+      "local record R",
+      "   n: integer",
+      "end",
+      "local function consume(a: string, takes r: R): string return a end",
+   }, "\n")
+   assertClean(table.concat({
+      consume,
+      "local f: function(a: string, ...: any): string = consume",
+      "return f",
+   }, "\n"))
+   assertEq(diagsOf(table.concat({
+      consume,
+      "local f: function(a: string, ...: R): string = consume",
+      "return f",
+   }, "\n")), "NUPP2001:5")
+end
+
 -- An argument nobody passes reads nil, which is what an optional parameter's
 -- type already says, so a trailing parameter that admits nil may be left
 -- unsupplied by the target; one that does not still may not.
