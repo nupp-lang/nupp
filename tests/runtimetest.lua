@@ -242,6 +242,47 @@ return M
    end)
 end
 
+-- The loader compiles a dependency under the path the searcher found, which a root
+-- of "." spelled "./src/...", while the check that loaded its types for the entry
+-- had spelled it "src/...". Taken for two files, the module's interface was
+-- declared twice into one type, and a record claiming it was then held to a self
+-- binder the interface no longer carried.
+function M.cliRunCompilesAModuleClaimingAnInterfaceItDeclares()
+   withProject({
+      ["nupp.lua"] = "return { include = { 'src' } }\n",
+      ["main.nupp"] = [[
+local claims = require("runtimeclaims")
+print(claims.make():label())
+]],
+      ["src/runtimeclaims.nupp"] = [[
+module runtimeclaims
+
+export interface Labeled
+    label: function(self): string
+end
+
+local record Impl is Labeled
+    text: string
+    function label(self): string
+        return self.text
+    end
+end
+
+export function make(): Labeled
+    return new Impl(text = "claimed")
+end
+]],
+   }, function(dir)
+      local output = dir .. "/output.txt"
+      local errors = dir .. "/errors.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run main.nupp "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
+      local status = os.execute(command)
+      assert(status == 0, "the run was refused: " .. readFile(errors))
+      assertEq(readFile(output), "claimed\n", "the claiming module did not run")
+   end)
+end
+
 function M.cliRunLoadsCrossModuleDeriveDependencies()
    withProject({
       ["nupp.lua"] = "return { include = { 'src' } }\n",
