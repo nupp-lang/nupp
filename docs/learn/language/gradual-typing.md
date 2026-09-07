@@ -100,8 +100,9 @@ end
 ```
 
 ```text [nupp check models.nupp]
+error: NUPP2106: an exported function must write its public result type
+error: NUPP2106: an exported function must write every public parameter type
 error: NUPP2105: unknown variable "factr"
-error: NUPP2106: exported "double" needs a type annotation
 ```
 
 That is the whole difference. The typed syntax, the checker, and the generated

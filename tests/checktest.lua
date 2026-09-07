@@ -1139,6 +1139,32 @@ function M.anUndeclaredResultTailRendersAsAny()
       nil, nil, nil)), "function(): any")
 end
 
+-- Untyped exports of a declared module are the strict floor's second rule, so a
+-- `.g.nupp` asking for the typed syntax without the floor reports neither, and
+-- the same file held to the floor reports both.
+function M.untypedExportsAreTheStrictFloorsRule()
+   local source = table.concat({
+      "module models",
+      "",
+      "export function double(n)",
+      "    return n * 2",
+      "end",
+   }, "\n")
+   local gradual = parser.parse(source, "models.g.nupp")
+   assertEq(#gradual.errors, 0, "syntax errors")
+   local codes = {}
+   for j, d in ipairs(check.check(gradual, "models.g.nupp")) do
+      codes[j] = d.code .. ":" .. d.line
+   end
+   assertEq(table.concat(codes, " "), "", "a gradual file holds no floor")
+   local strict = parser.parse(source, "models.nupp")
+   codes = {}
+   for j, d in ipairs(check.check(strict, "models.nupp")) do
+      codes[j] = d.code .. ":" .. d.line
+   end
+   assertEq(table.concat(codes, " "), "NUPP2106:3 NUPP2106:3", "a strict file reports both")
+end
+
 function M.constructionWidensAnInferredLiteral()
    -- A field is a slot the value can be replaced in, so the type argument
    -- construction infers from a literal is the literal's type: `Box<integer>`,

@@ -2387,13 +2387,22 @@ function checkMod.check(
                 c.diag("NUPP1002", stat.name, "an exported function name cannot be qualified")
                 return
             end
-            for _, parameter in ipairs(stat.body and stat.body.params or {}) do
-                if parameter.name and not parameter.type and not parameter.vararg then
-                    c.diag("NUPP1002", parameter.name, "an exported function must write every public parameter type")
+            -- The strict floor's second rule: nothing untyped crosses a module
+            -- boundary. A `.g.nupp` asked for the typed syntax without the floor, so
+            -- its untyped export is an `any` boundary the way a `.lua` module's is.
+            if c.opts.strict then
+                for _, parameter in ipairs(stat.body and stat.body.params or {}) do
+                    if parameter.name and not parameter.type and not parameter.vararg then
+                        c.diag(
+                            "NUPP2106",
+                            parameter.name,
+                            "an exported function must write every public parameter type"
+                        )
+                    end
                 end
-            end
-            if stat.body and not stat.body.rets and not stat.body.returnPack then
-                c.diag("NUPP1002", stat.body, "an exported function must write its public result type")
+                if stat.body and not stat.body.rets and not stat.body.returnPack then
+                    c.diag("NUPP2106", stat.body, "an exported function must write its public result type")
+                end
             end
             stat.isConst = true
             statHandlers[stat.kind](stat)
