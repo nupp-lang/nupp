@@ -26,6 +26,7 @@ The checker infers a type where an initializer settles it, and nowhere else.
 | Local from its initializer | Yes, and a mutable one widens |
 | Function parameter | No; an unannotated parameter is `any` |
 | Function result | No; the body's returns go unchecked |
+| Function literal where a callable is expected | Yes, its results, from its `return` statements |
 | Short-function body | Yes, one inferred result |
 | Unknown global | No; `any`, silently |
 
@@ -48,6 +49,25 @@ local function area(w: number, h: number): number
 end
 
 local label: string = area(2, 3) -- NUPP2001: number is not a string
+```
+
+So does writing the function where a callable is already expected. A literal
+passed as a callback argument, or initializing an annotated binding, takes its
+parameter types from that slot and its result types from what its `return`
+statements produce. A slot whose result is a generic's binder is bound by the
+body, and a slot whose result is fixed is checked against it:
+
+```nupp
+local function map<A, B>(xs: {A}, f: function(A): B): {B}
+    local out: {B} = {}
+    for i, x in ipairs(xs) do
+        out[i] = f(x)
+    end
+    return out
+end
+
+local labels = map({1, 2}, function(n) return tostring(n) end) -- {string}
+local build: function(): string = function() return 1 end -- NUPP2001
 ```
 
 ## Mutable locals widen

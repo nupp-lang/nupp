@@ -168,6 +168,10 @@ record state.Checker
 
     retPackStack: {any}
 
+    --- The packs each enclosing unannotated function has returned so far, or false
+    --- for one whose results are declared and need no inference.
+    observedReturnStack: {any}
+
     --- Raw first-return types for functions whose public result is an owner.
     --- The body may return a newly produced raw value or transfer an existing owner;
     --- the annotation establishes the public obligation.

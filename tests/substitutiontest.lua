@@ -228,4 +228,75 @@ function M.aBinderReachesOnlyWhatItsBoundAllows()
    }, "\n"))
 end
 
+-- A literal written where a callable is expected has its results inferred from
+-- what it returns. A result the slot left open -- a generic's result-only binder
+-- -- is bound by the body rather than materialized as `any`, and a result the slot
+-- fixed is checked against what the body produces.
+function M.anExpectedLiteralInfersItsResults()
+   local body = table.concat({
+      "local function map<A, B>(xs: {A}, f: function(A): B): {B}",
+      "   local out: {B} = {}",
+      "   for i, x in ipairs(xs) do out[i] = f(x) end",
+      "   return out",
+      "end",
+   }, "\n") .. "\n"
+   clean(body .. "local strings: {string} = map({1, 2}, function(x) return tostring(x) end)\nreturn strings\n")
+   reports(body .. "local wrong: {integer} = map({1, 2}, function(x) return tostring(x) end)\nreturn wrong\n", "NUPP2001")
+   reports(body .. "local wrong: {integer} = map({1, 2}, function(x): string return tostring(x) end)\nreturn wrong\n",
+      "NUPP2001")
+   -- Both branches count, and a position one return leaves out is nil there.
+   clean(body .. table.concat({
+      "local mixed: {integer | string | nil} = map({1, 2}, function(x)",
+      "   if x > 1 then return x end",
+      '   if x < 0 then return end',
+      '   return "small"',
+      "end)",
+      "return mixed",
+   }, "\n"))
+   -- Nothing written where a callable is expected keeps its documented `any`.
+   clean(table.concat({
+      "local plain = function(x: integer) return tostring(x) end",
+      "local loose: {integer} = map({1, 2}, plain)",
+      "return loose",
+   }, "\n"))
+   -- A literal whose results the slot fixed is held to them.
+   reports(table.concat({
+      "local interface Named",
+      "   name: string",
+      "end",
+      "local record P is Named",
+      "   name: string",
+      "end",
+      "local record Q is Named",
+      "   name: string",
+      "   extra: integer",
+      "end",
+      'local build: function(): Q = function() return new P(name = "p") end',
+      "return build",
+   }, "\n"), "NUPP2001")
+end
+
+-- A callback returning some other type that satisfies the bound widens the binder
+-- to the union, the way any binder met twice does, so the caller sees both.
+function M.aCallbackResultJoinsTheBinderItReturns()
+   local body = table.concat({
+      "local interface Named",
+      "   name: string",
+      "end",
+      "local record P is Named",
+      "   name: string",
+      "end",
+      "local record Q is Named",
+      "   name: string",
+      "   extra: integer",
+      "end",
+      "local function make<T is Named>(proto: T, f: function(): T): T",
+      "   return f()",
+      "end",
+      'local q = make(new Q(name = "q", extra = 1), function() return new P(name = "p") end)',
+   }, "\n") .. "\n"
+   reports(body .. "local e: integer = q.extra\nreturn e\n", "NUPP2004")
+   clean(body .. "local n: string = q.name\nreturn n\n")
+end
+
 return M

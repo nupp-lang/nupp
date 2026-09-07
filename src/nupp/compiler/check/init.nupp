@@ -944,6 +944,7 @@ function checkMod.check(
         },
         retStack = {},
         retPackStack = {},
+        observedReturnStack = {},
         ownReturnStack = {},
         borrowReturnStack = {},
         varargPackStack = {},

@@ -362,6 +362,10 @@ function control.install(c: state.Checker): state.StatHandlers
         local returnedPack = c.inferListPack(stat.exprs)
         local ts = returnedPack.head
         c.loops.setReturning(wasReturning)
+        local observed = c.observedReturnStack[#c.observedReturnStack]
+        if observed and not annotatedPack then
+            observed[#observed + 1] = returnedPack
+        end
         local function returnedExpression(result: integer)
             local exprs = stat.exprs or {}
             if result <= #exprs then

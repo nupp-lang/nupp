@@ -1321,9 +1321,11 @@ function expr.install(c: state.Checker): nil
                 else
                     c.retStack[#c.retStack + 1] = false
                     c.retPackStack[#c.retPackStack + 1] = false
+                    c.observedReturnStack[#c.observedReturnStack + 1] = false
                     c.checkBlock(node.body, true)
                     c.retStack[#c.retStack] = nil
                     c.retPackStack[#c.retPackStack] = nil
+                    c.observedReturnStack[#c.observedReturnStack] = nil
                     rets = {T.any}
                     retPack = T.pack({}, {kind = "unknown", type = T.any})
                     node.fixedWidthCallableUntrusted = true

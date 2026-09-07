@@ -624,6 +624,37 @@ function functions.install(c: state.Checker): state.StatHandlers
 
     -- Builds the function type from a funcbody, binds params, checks the body, and
     -- returns the resulting type.
+
+    --- One type per result position from every pack a body returned, or nil when
+    --- the returns cannot be summed up that way: a position some return leaves out is
+    --- nil there, an expanding tail has no fixed width, and an owned or borrowed
+    --- result carries obligations a literal never declared.
+    local function observedResultTypes(packs: {T.Pack}): {Type}?
+        local width: integer = 0
+        for _, pack in ipairs(packs) do
+            if pack.tail or pack.alternatives then
+                return nil
+            end
+            if #pack.head > width then
+                width = #pack.head
+            end
+        end
+        local inferred: {Type} = {}
+        for position = 1, width do
+            local members: {Type} = {}
+            for _, pack in ipairs(packs) do
+                local result = pack.head[position] or T.nil_
+                if c.ownershipKind(result) then
+                    return nil
+                end
+                members[#members + 1] = result
+            end
+            inferred[position] = T.union(members)
+        end
+
+        return inferred
+    end
+
     c.checkFuncbody = function(body, selfType)
         local params, rets, paramModes, paramNames = {}, {}, {}, {}
         disambiguateBorrowCapture(body)
@@ -897,6 +928,13 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         c.retStack[#c.retStack + 1] = annotated or false
         c.retPackStack[#c.retPackStack + 1] = body.returnPack and retPack or false
+        -- A literal written where a callable is expected has its results inferred
+        -- from what it returns, so a result the slot leaves open -- a generic's result
+        -- binder -- is bound by the body rather than left `any`, and a result the slot
+        -- fixes is checked against what the body produces. Any other unannotated
+        -- function keeps its documented `any` results.
+        local observedReturns = not body.returnPack and expected ~= nil and {} or false
+        c.observedReturnStack[#c.observedReturnStack + 1] = observedReturns
         c.varargPackStack[#c.varargPackStack + 1] = vararg and T.pack({}, paramPack.tail) or false
         c.yieldPackStack[#c.yieldPackStack + 1] = yieldPack or false
         c.resumePackStack[#c.resumePackStack + 1] = resumePack or false
@@ -1056,9 +1094,17 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.ownReturnStack[#c.ownReturnStack] = nil
         c.retStack[#c.retStack] = nil
         c.retPackStack[#c.retPackStack] = nil
+        c.observedReturnStack[#c.observedReturnStack] = nil
         c.popScope()
         c.functionBodies[#c.functionBodies] = nil
         c.functionDepth = c.functionDepth - 1
+        if observedReturns and #observedReturns > 0 then
+            local inferred = observedResultTypes(observedReturns)
+            if inferred then
+                rets = inferred
+                retPack = T.pack(inferred)
+            end
+        end
         if not yieldPack and #protocolContext.yieldPacks > 0 then
             yieldPack = T.packUnion(protocolContext.yieldPacks)
             resumePack = T.pack({}, {kind = "unknown", type = T.any})
