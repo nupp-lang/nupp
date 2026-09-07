@@ -1041,6 +1041,9 @@ function M.overloadedConstructorsSelectDistinctBodies()
    }, "\n")), "NUPP2208:6")
 end
 
+-- The converting arm stores a value it cast to T itself: `any` is not a T, since
+-- the binder stands for one fixed type the body does not know, so the cast has to
+-- name the binder rather than escape to `any`.
 function M.genericConstructorsRemainOverloadedAfterInstantiation()
    assertEq(run(table.concat({
       "local record Box<T>",
@@ -1049,7 +1052,7 @@ function M.genericConstructorsRemainOverloadedAfterInstantiation()
       "        self.value = value",
       "    end",
       "    constructor(self, kind: 'converted', value: T, convert: boolean)",
-      "        self.value = (convert and tostring(value) or value) as any",
+      "        self.value = (convert and tostring(value) or value) as T",
       "    end",
       "end",
       "local text = new Box('value', 'ready')",
