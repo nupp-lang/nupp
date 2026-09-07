@@ -54,6 +54,9 @@ end
 ```
 
 The terminal is a function that takes the represented value and returns `nil`.
+It is named by a binding that stays that function: assigning to `closeSession`
+anywhere in the file is refused, because the type's identity would then name a
+function the discharge no longer calls.
 It may raise, and it may suspend: a terminal that waits for what the resource
 owns to finish is a *settling* terminal, and discharging it parks the coroutine
 the way any wait does, so it is refused inside a `nosuspend` region. General affine policies name the exact function;

@@ -344,6 +344,11 @@ function resolve.install(c: state.Checker): nil
             if entry and namedToken then
                 c.markToken(namedToken, entry.definition, entry.t, "function")
             end
+            -- Whether the binding stays this function is known only once the file has
+            -- been read, so it is judged at the end of it.
+            if entry and entry.definition and entry.definition.filename == c.filename then
+                c.cleanupBindings[#c.cleanupBindings + 1] = {definition = entry.definition, at = arg, name = named}
+            end
 
             local term = T.constLiteral("function", key)
             functionConstCleanups[term.id] = T.constFunctionCleanup(term, named, bound)

@@ -956,6 +956,7 @@ function checkMod.check(
         validatedCleanupContracts = {},
         unsafeDepth = 0,
         noSuspendDepth = 0,
+        cleanupBindings = {},
         effectRegionDepths = {allocates = 0, raises = 0},
         handledDepth = 0,
         functionDepth = 0,
@@ -3041,6 +3042,21 @@ function checkMod.check(
     c.discard.sweep(effectQueries)
     c.nosuspend.sweep(effectQueries)
     c.effectRegions.sweep(effectQueries)
+    -- An affine type's identity is its cleanup function, so the binding named has to
+    -- be that function wherever the owner is discharged. One assigned anywhere else
+    -- in the file is not, however it read where the type was written.
+    for _, named in ipairs(c.cleanupBindings) do
+        local definition = named.definition
+        if definition and definition.reassigned then
+            c.diag(
+                "NUPP2131",
+                named.at,
+                ("cleanup %q is reassigned, so it is not the const function affine needs"):format(named.name),
+                nil,
+                {help = "declare the terminal once and never assign to its name, or name a const function"}
+            )
+        end
+    end
     for _, literal in ipairs(result.sendableLiterals or {}) do
         for _, capture in ipairs(literal.sendableCaptures or {}) do
             local definition = capture.definition

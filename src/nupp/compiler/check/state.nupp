@@ -215,6 +215,11 @@ record state.Checker
     --- callee may suspend is refused while this is above zero.
     noSuspendDepth: integer
 
+    --- Every `affine(T, cleanup)` that named a function binding of this file, with the
+    --- binding's definition: judged at the end of the file, once every assignment
+    --- to the binding has been seen.
+    cleanupBindings: {any}
+
     --- Active `noalloc` and `noraise` nesting, keyed by summary flag name.
     effectRegionDepths: {[string]: integer}
 
