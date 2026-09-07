@@ -776,6 +776,31 @@ function calls.install(c: state.Checker): calls.Ops
         return names
     end
 
+    --- A metamethod of `bound` as a receiver standing for `receiver` sees it: read
+    --- off the declaration unspecialized, because asking `ops.metamethodOf` for it
+    --- would already have replaced `self` with the bound and left nothing to
+    --- rebind. The receiver is what a bounded binder's `self` stands for, so a
+    --- `__call` declared as returning `self` on the bound yields the binder when a
+    --- `Type<C>` is called, not the bound the binder merely satisfies.
+    local function metamethodAs(bound: Type, name: string, receiver: Type): Type?
+        if bound.tag == "nominal" then
+            local ft = bound.metamethods and bound.metamethods[name]
+            return ft and specializeSelf(bound, ft, receiver) or nil
+        end
+        if bound.tag == "intersection" then
+            local contracts = {}
+            for _, member in ipairs(bound.members) do
+                local ft = metamethodAs(member, name, receiver)
+                if ft then
+                    contracts[#contracts + 1] = ft
+                end
+            end
+            return #contracts > 0 and T.intersection(contracts) or nil
+        end
+
+        return ops.metamethodOf(bound, name)
+    end
+
     function ops.metamethodOf(t, name)
         t = rawType(t)
         -- The contracts a metatable carries are the ones its receiver declared; that is
@@ -784,12 +809,7 @@ function calls.install(c: state.Checker): calls.Ops
             return ops.metamethodOf(t.of, name)
         end
         if t.tag == "typevar" and t.bound then
-            local bound = t.bound as Type
-            local ft = ops.metamethodOf(bound, name)
-            if ft and bound.tag == "nominal" then
-                return specializeSelf(bound, ft, t)
-            end
-            return ft
+            return metamethodAs(t.bound as Type, name, t)
         end
         if t.tag == "intersection" then
             local contracts = {}
