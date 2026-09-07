@@ -1164,6 +1164,21 @@ function bindings.install(c: state.Checker): state.StatHandlers
                             moveExpression(written, et, "constructor field initialization", ownershipKind(et))
                             partialReinit = true
                         end
+                    elseif et == T.nil_ and tt and ownershipKind(
+                        tt
+                    ) == "affine" and container and (
+                        container.movedFields and container.movedFields[field]
+                    ) and not (container.conditionalMovedFields and container.conditionalMovedFields[field]) then
+                        -- An optional owned field whose owner was moved out holds
+                        -- nothing until it is refilled, and nil is a refill: the field
+                        -- is empty on purpose, so the record may be lent whole again
+                        -- and its cleanup finds nothing there. This is the refill the
+                        -- partial-move diagnostic asks for.
+                        container.movedFields[field] = nil
+                        if container.movedFieldTypes then
+                            container.movedFieldTypes[field] = nil
+                        end
+                        partialReinit = true
                     elseif et and ownershipKind(
                         et
                     ) == "affine" and tt and ownershipKind(tt) == "affine" and container then

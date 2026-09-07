@@ -23,6 +23,9 @@ local function tecsCallSites(options: process.Options, buffer: nupp.io.Buffer): 
         local fromBuffer, bufferReason = child.stdin:writeSpan(bytes)
         assert(fromBuffer, bufferReason)
         child.stdin:close()
+        -- Closing consumes the writer, so the field is refilled before the
+        -- whole child is lent again.
+        child.stdin = nil
     end
 
     if child.stdout ~= nil then
