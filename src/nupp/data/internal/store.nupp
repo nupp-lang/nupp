@@ -141,18 +141,16 @@ end
 --- @export
 export type StoreStep = function(Store, integer): (integer, string?, string)
 
---- Reports the first occupied key after an id, or nil when there is none.
----
---- This is the step [](entries) hands the generic for. A caller holding the
---- store as a borrow cannot return it from `entries`, so it names the step and
---- the state itself: `for id, name in nextEntry as StoreStep, store, 0 do`.
+--- The step the walk hands the generic for: the first occupied key after an
+--- id, or nil once there is none. Exported for the public walk, which returns
+--- its own borrowed parameter as the loop state beside it.
 --- @param store the store to read
 --- @param after the id to resume after, 0 to start
 --- @return the id, or nil once the walk is done
 --- @return the key's name, nil for an anonymous key
 --- @return the Lua type name of the value
 --- @export
-export function nextEntry(borrows store: Store, after: integer): (integer?, string?, string?)
+export function step(store: Store, after: integer): (integer?, string?, string?)
     local id: integer = after + 1
     local last: integer = nextId - 1
     while id <= last do
@@ -178,6 +176,6 @@ end
 --- @return the store it walks
 --- @return the id to resume after, 0 to start
 --- @export
-export function entries(store: Store): (StoreStep, Store, integer)
-    return nextEntry as StoreStep, store, 0
+export function entries(borrows store: Store): (StoreStep, Store borrows (store), integer)
+    return step as StoreStep, store, 0
 end

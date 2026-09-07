@@ -106,8 +106,7 @@ function nupp.data.clearStore(store: Store): nil
 --- The step the generic for is handed; nil-terminating is the loop's business.
 type nupp.data.StoreStep = function(Store, integer): (integer, string?, string)
 
-function nupp.data.storeEntries(store: Store): (StoreStep, Store, integer)
-function nupp.data.nextStoreEntry(borrows store: Store, after: integer): (integer?, string?, string?)
+function nupp.data.storeEntries(borrows store: Store): (StoreStep, Store borrows (store), integer)
 
 --- Serde's side of the design. The store module does not depend on serde.
 function nupp.data.serde.key<T>(name: string, binding: Binding<T>): Key<T>
@@ -198,11 +197,6 @@ one shared function, the loop state is the store, and the control variable is
 the id it last reported. Ids are dense and ascending, so that order is the
 sorted order without a sort. It never reports the values, so a tool can list a
 store without holding what is in it.
-
-`storeEntries` hands the store to the loop by returning it, which a caller
-holding it as a borrow cannot do, so `nextStoreEntry` exposes the same step for
-that caller to name alongside its own state:
-`for id, name in nextStoreEntry as StoreStep, store, 0 do`.
 
 ### Persistence
 

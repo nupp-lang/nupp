@@ -133,7 +133,11 @@ function M.nilRemovesAndEveryOtherValueSurvives()
     check.equal(store[key], "")
     store[key] = nil
     check.equal(store[key], nil)
-    check.equal(data.nextStoreEntry(store, 0), nil)
+    local remaining = 0
+    for _ in data.storeEntries(store) do
+        remaining = remaining + 1
+    end
+    check.equal(remaining, 0)
 end
 
 function M.clearStoreDropsValuesAndKeepsRegistrations()
@@ -166,15 +170,20 @@ function M.storeEntriesAscendByIdAndCarryNoValue()
     check.equal(seen[2].valueType, "number")
 end
 
-function M.nextStoreEntryStepsTheSameWalk()
+function M.storeEntriesWalksABorrowedStore()
+    -- The walk returns the store it was handed as its loop state, so a caller
+    -- holding the store as a borrow can drive it without naming the step.
     local key = data.newKey("store.test.step")
     local store = data.newStore()
     store[key] = "text"
-    local id, name, valueType = data.nextStoreEntry(store, 0)
-    check.equal(id, key.id)
-    check.equal(name, "store.test.step")
-    check.equal(valueType, "string")
-    check.equal(data.nextStoreEntry(store, id), nil)
+    local seen = {}
+    for id, name, valueType in data.storeEntries(store) do
+        seen[#seen + 1] = {id = id, name = name, valueType = valueType}
+    end
+    check.equal(#seen, 1)
+    check.equal(seen[1].id, key.id)
+    check.equal(seen[1].name, "store.test.step")
+    check.equal(seen[1].valueType, "string")
 end
 
 -- Checker -------------------------------------------------------------------
