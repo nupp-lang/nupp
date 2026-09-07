@@ -1164,10 +1164,13 @@ local ENTRIES: {any} = {
         .. "which was a construction the source did not say. It no longer "
         .. "does, so the binding holds nil until something assigns to it, "
         .. "and reading it before that indexes nil at run time rather than "
-        .. "yielding a value of the declared type. Assign it first, or "
-        .. "declare it optional if it is meant to start empty. A "
-        .. "declaration file states what exists elsewhere and assigns "
-        .. "nothing, so it is exempt.",
+        .. "yielding a value of the declared type. Strict code holds every "
+        .. "annotation that does not admit nil to this, and a binding is "
+        .. "assigned only once every path reaching the read assigned it: an "
+        .. "assignment on one arm of an `if`, or inside a loop that may not "
+        .. "run, is not one. Assign it first, or declare it optional if it "
+        .. "is meant to start empty. A declaration file states what exists "
+        .. "elsewhere and assigns nothing, so it is exempt.",
         wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n",
         right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n",
         related = {"NUPP2202", "NUPP2206"},
