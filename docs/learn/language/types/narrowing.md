@@ -133,9 +133,20 @@ one would mean proving that neither the index nor the table changed across
 every statement between the test and the use, which is the analysis narrowing
 exists to do without.
 
-Assignment is the only thing that clears a fact, and it clears the path
-assigned to along with everything under it. A call in between keeps the facts,
-including a call that could reach a captured local and reassign it.
+A write clears a fact: an assignment to the path or to anything above it, and a
+call the checker can see writing there. What a called function writes is read
+from its source, whether it is checked before or after the call: a field
+assigned through a parameter or `self`, including through a copy of one, a
+captured local it assigns, and whatever the functions it calls do in turn, a
+callback it is handed among them. A call that could write the path forgets the
+fact and everything under it; a call that writes some other field keeps it. A
+call the checker cannot see into -- a function value read from another
+module's field, a parameter typed as a function -- is trusted to write nothing.
+
+A loop body's writes are forgotten at the loop's entry, and at a label a later
+`goto` jumps back to, because the body runs again after them. A function
+literal does not carry a narrowing of a captured local that is assigned after
+the literal is made, since the literal may run after that assignment.
 :::
 
 ### `any`
@@ -160,8 +171,11 @@ end
 
 ### Exhausted subtraction
 
-Subtracting every member of a union leaves
-[`never`](primitives.md#never-the-bottom-type) on that path:
+Subtraction takes members away from a union one test at a time, and a type
+that is not a union survives it: subtracting `string` from `string` leaves
+`string`, so the false arm of a test that could not have failed says what the
+declaration said. A chain that tests every member therefore ends holding the
+last one, not [`never`](primitives.md#never-the-bottom-type):
 
 ```nupp
 local function f(v: string | number)
@@ -170,14 +184,11 @@ local function f(v: string | number)
     elseif v is number then
         print(v)
     else
-        -- v is never here: both members were subtracted
+        -- v is number here: string was subtracted, and number, the last
+        -- member standing, is not a union to subtract from
     end
 end
 ```
-
-A type that is not a union survives the same treatment. Subtracting `string`
-from `string` leaves `string`, so the false arm of a test that could not have
-failed says what the declaration said.
 
 ## Facts live in a scope
 
@@ -302,9 +313,11 @@ suppression.
 
 ### Does a call between the test and the use lose the narrowing?
 
-No. Assignment is the only thing that clears a fact, so the fact survives any
-call in between, including one that could reach a captured local and reassign
-it. Reassigning the name yourself clears it, as
+Only when the callee can be seen to write what was tested: through a
+parameter the tested value was passed as, through `self`, or to a captured
+local, directly or through the functions it calls. Any other call keeps the
+fact. [Computed expressions](#computed-expressions) says what a call is taken
+to write, and reassigning the name yourself always clears it, as
 [Facts live in a scope](#facts-live-in-a-scope) shows.
 
 ### Should I write `is` or a predicate function?

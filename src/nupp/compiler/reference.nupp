@@ -1237,6 +1237,13 @@ T` is an explicit cast where you know better than the checker.
 A function may return a predicate, `p is T`, meaning it answers whether that
 parameter holds the type. The value returned is a boolean, and the caller
 narrows on it.
+
+A fact holds until the path it names, or something above it, is written: by
+an assignment, or by a call whose body can be seen to write there -- through a
+parameter, through `self`, to a captured local, or through the functions it
+calls. A loop body's writes are forgotten at the loop's entry, and a function
+literal does not carry a fact about a captured local that is assigned after
+the literal is made.
 ]=],
         example = [=[
 local m = {}
