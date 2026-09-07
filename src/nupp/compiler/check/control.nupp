@@ -454,11 +454,63 @@ function control.install(c: state.Checker): state.StatHandlers
     local handlers = {}
     local labelOwnership = {}
 
+    --- The statements a backward `goto` to this label runs again: everything after
+    --- the label in its block, when some `goto` in there names it.
+    local function repeatedAfter(stat: cst.LabelStmt): cst.Node?
+        local name: any = stat.name
+        local block = c.scope.block
+        local stats = block and block.kind == "block" and block.stats or {}
+        local start = nil
+        for index, candidate in ipairs(stats) do
+            if candidate == stat then
+                start = index
+                break
+            end
+        end
+        if not name or not start then
+            return nil
+        end
+        local function jumpsBack(node: any): boolean
+            if not node or cst.isToken(node) then
+                return false
+            end
+            if node.kind == "gotoStmt" then
+                return node.name ~= nil and node.name.text == name.text
+            end
+            if node.kind == "funcbody" or node.kind == "shortfn" then
+                return false
+            end
+            for _, child in ipairs(node) do
+                if not cst.isToken(child) and jumpsBack(child) then
+                    return true
+                end
+            end
+
+            return false
+        end
+
+        local region = {kind = "block", stats = {}}
+        for index = start + 1, #stats do
+            region.stats[#region.stats + 1] = stats[index]
+            region[#region + 1] = stats[index]
+        end
+        for _, candidate in ipairs(region.stats) do
+            if jumpsBack(candidate) then
+                return region as cst.Node
+            end
+        end
+
+        return nil
+    end
+
     handlers.labelStmt = function(stat: cst.LabelStmt)
         local name: any = stat.name
         if name then
             labelOwnership[name.definition or name.text] = ownershipSnapshot()
         end
+        -- A jump back here repeats what follows, so what that writes is not known
+        -- on the way in.
+        c.facts.forgetWritten(repeatedAfter(stat))
     end
 
     handlers.gotoStmt = function(stat: cst.GotoStmt)
@@ -1177,6 +1229,7 @@ function control.install(c: state.Checker): state.StatHandlers
     handlers.repeatStmt = function(stat: cst.RepeatStmt)
         -- repeat scope extends over the until condition
         local ownershipBefore = ownershipSnapshot()
+        c.facts.forgetWritten(stat.body)
         c.pushScope()
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
@@ -1360,6 +1413,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.numericOperand(et, to, "for")
         local ownershipBefore = ownershipSnapshot()
         local unassignedBefore = unassignedSnapshot()
+        c.facts.forgetWritten(stat.body)
         c.pushScope()
         c.scope.completionScope = stat.body
         c.bindVar(var.text, (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
@@ -1496,6 +1550,7 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         local ownershipBefore = ownershipSnapshot()
         local unassignedBefore = unassignedSnapshot()
+        c.facts.forgetWritten(stat.body)
         c.pushScope()
         c.scope.completionScope = stat.body
         local iteratorRoots, seenRoots = {}, {}

@@ -403,6 +403,73 @@ local BOX = table.concat({
    "end",
 }, "\n")
 
+function M.aLoopBodyWriteIsForgottenAtTheLoopEntry()
+   -- The body runs again after its own write, so the narrowing from before the
+   -- loop does not reach its first statement. while, numeric for, and repeat.
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "local n = 0",
+      "if x ~= nil then",
+      "    while n < 2 do",
+      "        local s: string = x",
+      "        x = nil",
+      "        n = n + 1",
+      "    end",
+      "end",
+   }, "\n")), "NUPP2001:5")
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "if x ~= nil then",
+      "    for i = 1, 2 do",
+      "        local s: string = x",
+      "        x = nil",
+      "    end",
+      "end",
+   }, "\n")), "NUPP2001:4")
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "local n = 0",
+      "if x ~= nil then",
+      "    repeat",
+      "        local s: string = x",
+      "        x = nil",
+      "        n = n + 1",
+      "    until n >= 2",
+      "end",
+   }, "\n")), "NUPP2001:5")
+   -- A body that writes some other field keeps the fact.
+   assertClean(BOX .. table.concat({
+      "",
+      "local record Pair",
+      "    a: string?",
+      "    b: string?",
+      "end",
+      "local p: Pair = new Pair(a = 'x')",
+      "if p.a ~= nil then",
+      "    for i = 1, 2 do",
+      "        local s: string = p.a",
+      "        p.b = s",
+      "    end",
+      "end",
+   }, "\n"))
+end
+
+function M.aBackwardGotoRepeatsTheWritesAfterItsLabel()
+   assertEq(diagsOf(table.concat({
+      "local x: string? = 'hi'",
+      "local n = 0",
+      "if x ~= nil then",
+      "    ::again::",
+      "    local s: string = x",
+      "    x = nil",
+      "    n = n + 1",
+      "    if n < 2 then",
+      "        goto again",
+      "    end",
+      "end",
+   }, "\n")), "NUPP2001:5")
+end
+
 function M.aFunctionHandedToACallIsTakenToRun()
    -- Through a parameter typed as a function, through pcall, and as an
    -- immediately called literal inside the condition itself.

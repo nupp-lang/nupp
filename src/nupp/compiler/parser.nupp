@@ -2457,13 +2457,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- everything downstream still reads `n.name`; the segments before it land in
     --- `n.qualifiers`, outermost first.
     local function parseDeclName(n: cst.Declaration, what: string)
-        n.name = add(n, expectName(what))
+        local segment = add(n, expectName(what))
         while cur().kind == "." do
             add(n, advance())
             n.qualifiers = n.qualifiers or {}
-            n.qualifiers[#n.qualifiers + 1] = n.name
-            n.name = add(n, expectName("after '.' in declaration name"))
+            n.qualifiers[#n.qualifiers + 1] = segment
+            segment = add(n, expectName("after '.' in declaration name"))
         end
+        n.name = segment
     end
 
     --- A `type`, `record`, `interface` or `struct` declaration.

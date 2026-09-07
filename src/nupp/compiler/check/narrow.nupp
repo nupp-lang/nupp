@@ -108,6 +108,10 @@ type narrow.Ops = {
     --- and about every copy that spoke for it.
     clearWrite: function(key: string, belowOnly: boolean?),
 
+    --- Forgets what a block would write before it runs again: at a loop entry, or at
+    --- a label a later `goto` jumps back to.
+    forgetWritten: function(block: Node?),
+
     --- What the functions of this file may write, read from the source once.
     summaries: function(): mutation.Summaries,
 
@@ -416,6 +420,25 @@ function narrow.install(c: state.Checker): narrow.Ops
         end
 
         return summaries as mutation.Summaries
+    end
+
+    function facts.forgetWritten(block)
+        if not block then
+            return
+        end
+        local whole, below = mutation.writtenRoots(facts.summaries(), block)
+        for key in pairs(whole) do
+            if c.lookupEntry(key:match("^[^.]+") or key) then
+                facts.clearWrite(key)
+                facts.clearAliases(key)
+            end
+        end
+        for key in pairs(below) do
+            if not whole[key] and c.lookupEntry(key:match("^[^.]+") or key) then
+                facts.clearWrite(key, true)
+                facts.clearAliasesBelow(key)
+            end
+        end
     end
 
     function facts.invalidateForCall()

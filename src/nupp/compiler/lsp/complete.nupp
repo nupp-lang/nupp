@@ -104,12 +104,15 @@ function complete.completionContext(result: tree.Parse?, offset: integer): compl
     if not index then
         return nil
     end
+    -- Its own binding, so the walk back below can step it without the loop
+    -- forgetting that it holds a value.
+    local at: integer = index
     local context = {prefix = "", typePosition = false}
-    local tok = tokens[index]
+    local tok = tokens[at]
     if tok.kind == "name" and offset <= tok.offset + #tok.text then
         context.prefix = tok.text:sub(1, offset - tok.offset)
-        index = index - 1
-        tok = tokens[index]
+        at = at - 1
+        tok = tokens[at]
     end
     if not tok then
         return context
@@ -127,12 +130,12 @@ function complete.completionContext(result: tree.Parse?, offset: integer): compl
     end
     context.method = tok.kind == ":"
     context.path = {}
-    index = index - 1
-    while tokens[index] and tokens[index].kind == "name" do
-        table.insert(context.path, 1, tokens[index].text)
-        index = index - 1
-        if tokens[index] and tokens[index].kind == "." then
-            index = index - 1
+    at = at - 1
+    while tokens[at] and tokens[at].kind == "name" do
+        table.insert(context.path, 1, tokens[at].text)
+        at = at - 1
+        if tokens[at] and tokens[at].kind == "." then
+            at = at - 1
         else
             break
         end
