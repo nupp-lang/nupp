@@ -560,6 +560,15 @@ interface cst.Hints
     --- Ownership mode of an inline method's implicit receiver.
     receiverMode: string?
 
+    --- The member a `function R.m()` statement defines, so the body audit can tell
+    --- a terminal definition, whose consuming parameter is the obligation's
+    --- endpoint, from an owner the body has to discharge.
+    definedMember: string?
+
+    --- The consuming parameter's entry when its type names a terminal the body has
+    --- to discharge on every path.
+    consumingEntry: any
+
     --- Capability state transported by a `preserves` result, per result slot.
     --- This call is a statement, so a named capability preserved through an ignored
     --- result stays at its source rather than transferring into temporary storage.

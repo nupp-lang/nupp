@@ -1181,12 +1181,15 @@ end
 --- @raises when the connection was already closed or transferred
 --- @internal
 local function takeStreamHandle(takes source: net.Stream): any
-    if source._closed then
+    -- The handle leaves with the caller, so the stream's obligation ends here
+    -- without its terminal running.
+    local stream = unsafe release source
+    if stream._closed then
         error("nupp: the connection is closed", 2)
     end
-    source._closed = true
+    stream._closed = true
 
-    return source._handle
+    return stream._handle
 end
 
 layering.takeStreamHandle = takeStreamHandle

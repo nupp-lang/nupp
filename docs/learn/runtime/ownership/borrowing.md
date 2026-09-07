@@ -391,10 +391,16 @@ return m
 ```
 
 `takes` transfers responsibility at the call boundary; it does not insert an
-automatic cleanup into the callee. The body must consume, preserve, return, or
-otherwise implement the terminal action itself. In particular, a cleanup
-function's consuming parameter is the endpoint of the obligation—the compiler
-must not invoke that same cleanup recursively when its body returns.
+automatic cleanup into the callee. A consuming parameter whose type names a
+terminal is an owner inside the body like any other: every path out of the
+body — each `return`, and the fall-through end — must have dropped it, moved it
+on, returned it, or released it with `unsafe release`, and a branch that
+discharges it on only some of its arms is reported (NUPP2603). A consuming
+parameter whose type names no terminal is the endpoint of the obligation: the
+body of a cleanup function written over the plain payload, a record's own
+terminal method, and a generic `takes value: T` all implement the terminal
+action themselves, and the compiler never invokes a cleanup recursively when
+such a body returns.
 
 A public forwarder also writes `preserves source`. Visible-body inference
 remains a private implementation convenience rather than part of an implicit API

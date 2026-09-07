@@ -655,6 +655,45 @@ function functions.install(c: state.Checker): state.StatHandlers
         return inferred
     end
 
+
+    --- Whether control can reach the end of a function body: it does not end in a
+    --- return, a call that never comes back, or a complete branch of those.
+    local function fallsThrough(block): boolean
+        local stats = block and block.kind == "block" and block.stats or {}
+        local last = stats[#stats]
+        if not last then
+            return true
+        end
+        local kind = last.kind
+        if kind == "returnStmt" then
+            return false
+        elseif kind == "callStmt" then
+            return not c.alwaysExits(block)
+        elseif kind == "ifStmt" then
+            if not last.elseClause then
+                return true
+            end
+            for _, clause in ipairs(last.clauses or {}) do
+                if fallsThrough(clause.body) then
+                    return true
+                end
+            end
+            return fallsThrough(last.elseClause.body)
+        elseif kind == "doStmt"
+            or kind == "withStmt"
+            or kind == "handleStmt"
+            or kind == "unsafeStmt"
+            or kind == "noSuspendStmt"
+            or kind == "effectRegionStmt"
+        then
+            return fallsThrough(last.body)
+        elseif kind == "pragmaStmt" and last.stat then
+            return fallsThrough({kind = "block", stats = {last.stat}})
+        end
+
+        return true
+    end
+
     c.checkFuncbody = function(body, selfType)
         local params, rets, paramModes, paramNames = {}, {}, {}, {}
         disambiguateBorrowCapture(body)
@@ -973,6 +1012,26 @@ function functions.install(c: state.Checker): state.StatHandlers
             consumingContext = {root = root, allowed = owned, done = {}}
         end
         c.consumingFieldStack[#c.consumingFieldStack + 1] = consumingContext or false
+        -- A consuming parameter whose type names a terminal is an owner the body has
+        -- to discharge on every path: drop it, move it on, or return it. One whose
+        -- type names none is the endpoint itself, which is what the body of a
+        -- cleanup function or of a terminal method is, and a generic `takes value: T`
+        -- has nothing to call. An aggregate is audited field by field above.
+        local consumingEntry = root and c.scope.vars[root] or nil
+        local consumingState = consumingEntry and ownershipState(consumingEntry) or nil
+        local consumingTerminal = consumingState and consumingState.t and consumingState.t.tag == "affine" and (
+            consumingState.t.cleanups or {}
+        )[1] or nil
+        local definesTerminal = consumingTerminal
+            and consumingTerminal.kind == "method"
+            and body.definedMember ~= nil
+            and consumingTerminal.name == body.definedMember
+        if consumingTerminal and not consumingContext and not definesTerminal then
+            consumingState.auditedConsumer = true
+            body.consumingEntry = consumingEntry
+        else
+            body.consumingEntry = nil
+        end
         c.constructorFieldStack[
             #c.constructorFieldStack + 1
         ] = body.constructorOwner and {owner = body.constructorOwner, assigned = {}} or false
@@ -1074,6 +1133,21 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         if consumingRoot then
             local terminal = ownershipState(c.lookupEntry(consumingRoot))
+            -- Every return has already been asked; what is left is the body falling
+            -- off its end with the parameter still live. Reported here rather than by
+            -- the scope audit because an assignment to the parameter narrows it into
+            -- a fresh entry, and the audit only walks the entries a scope holds.
+            if terminal and body.consumingEntry and not terminal.moved and fallsThrough(body.body) then
+                local declared = body.consumingEntry.definition and body.consumingEntry.definition.token or body
+                c.diag(
+                    "NUPP2603",
+                    declared,
+                    (
+                        "consuming parameter %q leaves its body without being consumed, "
+                        .. "dropped, returned, or released with unsafe release"
+                    ):format(consumingRoot)
+                )
+            end
             if terminal then
                 terminal.moved = true
             end
@@ -1515,6 +1589,9 @@ function functions.install(c: state.Checker): state.StatHandlers
         if fname.method then
             selfType = owner or T.any
         end
+        -- `function R.drop(takes self: R)` may define the terminal its parameter's
+        -- type selects; the body audit reads the member name to tell.
+        body.definedMember = owner and member and not fname.method and member or nil
         if not fname.method and #fname == 1 and fname.base then
             c.bindVar(fname.base.text, T.any, false, fname.base, "function")
         end

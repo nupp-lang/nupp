@@ -580,10 +580,14 @@ function http.Body.release(self: http.Body): nil
 end
 
 function http.Body.drop(takes self: http.Body): nil
+    -- The transfer holds the resource, and closing it is what `close` does too;
+    -- done directly so this stays non-suspending, which the terminal is not
+    -- declared to be.
+    local body = unsafe release self
     nosuspend do
-        if not self._closed then
-            self._closed = true
-            self._transfer:close()
+        if not body._closed then
+            body._closed = true
+            body._transfer:close()
         end
     end
 end

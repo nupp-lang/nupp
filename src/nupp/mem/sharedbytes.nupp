@@ -248,7 +248,10 @@ end
 --- @raises when the builder was already frozen or a reservation is open,
 ---     because sealing would silently drop bytes a producer may have written
 function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbytes.Region
-    local handle, length = native.builderFreeze(self._handle)
+    -- Sealing spends the builder: the engine hands its bytes to the region, and
+    -- the builder's own terminal has nothing left to release.
+    local builder = unsafe release self
+    local handle, length = native.builderFreeze(builder._handle)
     if handle == nil then
         if length == "open" then
             error("nupp: a region builder has an open reservation", 2)

@@ -196,14 +196,41 @@ function control.install(c: state.Checker): state.StatHandlers
 
     -- Rewinds every owner to the state the branch began in, and records the ones this
     -- arm moved so the statement can apply them once the last arm has run.
-    local function ownershipRewind(snapshot: {any}, moved: {[any]: boolean}, recordMoves: boolean): nil
+    local function ownershipRewind(
+        snapshot: {any},
+        moved: {[any]: boolean},
+        recordMoves: boolean,
+        kept: {[any]: boolean}?
+    ): nil
         for _, item in ipairs(snapshot) do
             if recordMoves and item.state.moved and not item.moved then
                 moved[item.state] = true
+            elseif recordMoves and kept and not item.state.moved then
+                kept[item.state] = true
             end
             item.state.moved, item.state.movedAt = item.moved, item.movedAt
         end
     end
+
+    --- A consuming parameter has no run-time record of whether it was discharged, so
+    --- a statement whose surviving arms disagree about it leaves a path that never
+    --- did. Reported here rather than at the scope end so the branch is named.
+    local function auditConsumedOnEveryPath(moved: {[any]: boolean}, kept: {[any]: boolean}, at): nil
+        for state in pairs(moved) do
+            if state.auditedConsumer and kept[state] then
+                local name = state.definition and state.definition.token and state.definition.token.text or "?"
+                c.diag(
+                    "NUPP2603",
+                    at,
+                    ("consuming parameter %q is discharged on only some paths through this statement"):format(name),
+                    nil,
+                    {help = "drop it, move it, or return it on every path, or on none of them"}
+                )
+            end
+        end
+    end
+
+    c.auditConsumedOnEveryPath = auditConsumedOnEveryPath
 
     c.ownershipSnapshot = ownershipSnapshot
     c.ownershipRewind = ownershipRewind
@@ -509,6 +536,23 @@ function control.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
+        -- A consuming parameter the body still holds at a return is an obligation
+        -- this path never discharged; the scope audit only sees the fall-through end.
+        local consumingEntry = functionBody and functionBody.consumingEntry or nil
+        local consumingState = consumingEntry and ownershipState(consumingEntry) or nil
+        if consumingState and not consumingState.moved then
+            local name = consumingEntry.definition and consumingEntry.definition.token
+            c.diag(
+                "NUPP2603",
+                stat,
+                ("consuming parameter %q is still live at this return"):format(name and name.text or "?"),
+                nil,
+                {
+                    help = "drop it, move it, or return it before leaving",
+                    related = name and {c.related(name, "the parameter is declared here")} or nil,
+                }
+            )
+        end
         if #c.retStack == 0 and not c.moduleType then
             c.moduleType = ts[1] -- top-level return: the module's type
             -- The expression itself, so boundary finalization can qualify a module
@@ -709,6 +753,7 @@ function control.install(c: state.Checker): state.StatHandlers
         local paths = {}
         local ownershipBefore = ownershipSnapshot()
         local branchMoved: {[any]: boolean} = {}
+        local branchKept: {[any]: boolean} = {}
         for _, clause in ipairs(stat.clauses) do
             -- analyze under the accumulated else-facts so that subtraction chains
             -- compose ("elseif v is number" sees v already minus the earlier branches)
@@ -734,7 +779,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 paths[#paths + 1] = snapshotNarrowed()
             end
             c.popScope()
-            ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(body))
+            ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(body), branchKept)
             accumulatedElse = mergeFacts(accumulatedElse, facts.f)
             if cond then
                 local key, seen = nil, 0
@@ -796,17 +841,23 @@ function control.install(c: state.Checker): state.StatHandlers
                 paths[#paths + 1] = snapshotNarrowed()
             end
             c.popScope()
-            ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(elseBody))
+            ownershipRewind(ownershipBefore, branchMoved, not alwaysExits(elseBody), branchKept)
         else
             -- the implicit else: everything the conditions ruled out
             c.pushScope()
             applyFacts(accumulatedElse)
             paths[#paths + 1] = snapshotNarrowed()
             c.popScope()
+            for _, item in ipairs(ownershipBefore) do
+                if not item.moved then
+                    branchKept[item.state] = true
+                end
+            end
         end
         -- Every arm has run, so a move any of them made is what the statement leaves
         -- behind. Applying it here rather than in the arm is what kept the arms
         -- independent of each other.
+        auditConsumedOnEveryPath(branchMoved, branchKept, stat)
         for state in pairs(branchMoved) do
             state.moved = true
         end

@@ -5648,4 +5648,178 @@ function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
     assertEq(chunk(), 1, "the cancelled child's uncalled capture was not dropped")
 end
 
+
+-- A consuming parameter whose type names a terminal is an owner the body has to
+-- discharge. The first `takes` parameter used to be marked consumed at the end of
+-- every body, the exemption a terminal's own definition needs applied to every
+-- function, so a body that returned early or fell through leaked it silently.
+local CONSUMABLE = table.concat(
+    {
+        "local record Res is nupp.Closeable",
+        "   id: integer",
+        "   function flush(exclusive self): nil end",
+        "   function close(takes self): nil end",
+        "end",
+        "local function open(id: integer): Res return new Res(id = id) end",
+    },
+    "\n"
+)
+
+function M.takesParameterLeftLiveAtAReturnIsReported()
+    assertEq(
+        codes(
+            CONSUMABLE
+            .. "\n"
+            .. table.concat(
+                {
+                    "local function sink(takes r: Res, flag: boolean): nil",
+                    "   if flag then return end",
+                    "   drop r",
+                    "end",
+                    "sink(open(1), true)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603"
+    )
+end
+
+function M.takesParameterLeftLiveAtTheBodyEndIsReported()
+    assertEq(
+        codes(CONSUMABLE .. "\nlocal function sink(takes r: Res): nil print(r.id) end\nsink(open(1))"),
+        "NUPP2603"
+    )
+    assertEq(
+        codes(
+            CONSUMABLE
+            .. "\n"
+            .. table.concat(
+                {
+                    "local function sink(takes r: Res, takes s: Res): nil",
+                    "   drop s",
+                    "end",
+                    "sink(open(1), open(2))",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603"
+    )
+    assertEq(
+        codes(
+            CONSUMABLE
+            .. "\n"
+            .. table.concat(
+                {
+                    "local record Sink",
+                    "   function keep(self, takes r: Res): nil print(r.id) end",
+                    "end",
+                    "local sink = new Sink()",
+                    "sink:keep(open(1))",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603"
+    )
+end
+
+function M.takesParameterDischargedOnOnlySomePathsIsReported()
+    assertEq(
+        codes(
+            CONSUMABLE
+            .. "\n"
+            .. table.concat(
+                {
+                    "local function sink(takes r: Res, flag: boolean): nil",
+                    "   if flag then drop r end",
+                    "end",
+                    "sink(open(1), true)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603"
+    )
+    assertEq(
+        codes(
+            CONSUMABLE
+            .. "\n"
+            .. table.concat(
+                {
+                    "local function sink(takes r: Res, flag: boolean): integer",
+                    "   return switch flag do",
+                    "      case true -> 1",
+                    "      else -> do drop r yield 2 end",
+                    "   end",
+                    "end",
+                    "sink(open(1), true)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603"
+    )
+end
+
+function M.takesParameterDischargedOnEveryPathIsAccepted()
+    assertClean(
+        CONSUMABLE
+        .. "\n"
+        .. table.concat(
+            {
+                "local function pass(takes r: Res): Res return r end",
+                "local function sink(takes r: Res, flag: boolean): nil",
+                "   if flag then",
+                "      drop r",
+                "      return",
+                "   end",
+                "   local kept = pass(r)",
+                "   drop kept",
+                "end",
+                "local function either(takes r: Res, flag: boolean): nil",
+                "   if flag then drop r else r:close() end",
+                "end",
+                "local function released(takes r: Res): integer",
+                "   local raw = unsafe release r",
+                "   return raw.id",
+                "end",
+                "sink(open(1), true)",
+                "either(open(2), false)",
+                "print(released(open(3)))",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.terminalDefinitionsAreTheEndpointOfTheirParameter()
+    -- A cleanup function's payload names no terminal, and a record's own terminal
+    -- method is what the obligation runs: neither body has anything left to
+    -- discharge.
+    assertClean(
+        table.concat(
+            {
+                "local record File",
+                "   closed: boolean",
+                "end",
+                "local function closeFile(takes file: File): nil file.closed = true end",
+                "local function openFile(): affine(File, closeFile) return new File(closed = false) end",
+                "local record Sock is nupp.Closeable",
+                "   closed: boolean",
+                "   function flush(exclusive self): nil end",
+                "   close: function(takes self: Sock): nil",
+                "end",
+                "function Sock.close(takes self: Sock): nil self.closed = true end",
+                "local file = openFile()",
+                "drop file",
+                "local sock = new Sock(closed = false)",
+                "drop sock",
+            },
+            "\n"
+        )
+    )
+end
+
 return M

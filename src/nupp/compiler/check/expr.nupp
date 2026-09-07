@@ -596,6 +596,7 @@ function expr.install(c: state.Checker): nil
         local expressionResultsOnly = true
         local ownershipBefore = c.ownershipSnapshot()
         local branchMoved: {[any]: boolean} = {}
+        local branchKept: {[any]: boolean} = {}
 
         local function checkResult(arm: cst.SwitchCase | cst.SwitchElse)
             if arm.expr then
@@ -710,7 +711,7 @@ function expr.install(c: state.Checker): nil
             end
             checkResult(arm)
             c.popScope()
-            c.ownershipRewind(ownershipBefore, branchMoved, not (arm.body and c.alwaysExits(arm.body)))
+            c.ownershipRewind(ownershipBefore, branchMoved, not (arm.body and c.alwaysExits(arm.body)), branchKept)
         end
         if node.elseCase then
             c.pushScope()
@@ -725,7 +726,8 @@ function expr.install(c: state.Checker): nil
             c.ownershipRewind(
                 ownershipBefore,
                 branchMoved,
-                not (node.elseCase.body and c.alwaysExits(node.elseCase.body))
+                not (node.elseCase.body and c.alwaysExits(node.elseCase.body)),
+                branchKept
             )
         elseif openMember(residue) then
             c.diag("NUPP2140", node, "switch is not exhaustive: the selector type is open", nil, {
@@ -750,6 +752,7 @@ function expr.install(c: state.Checker): nil
                 help = "add the missing cases or add an `else` arm"
             })
         end
+        c.auditConsumedOnEveryPath(branchMoved, branchKept, node)
         for state in pairs(branchMoved) do
             state.moved = true
         end
