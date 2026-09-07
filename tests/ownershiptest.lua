@@ -6118,4 +6118,88 @@ function M.aLeakThroughAnImplicitGlobalIsReportedAtTheAssignment()
     assertEq(diags[1].line, 9, "reported at the assignment")
 end
 
+-- A local function that reads a captured owner borrows it, as a function
+-- expression doing the same would, so it cannot leave the scope that owns the
+-- capture: not through a return, a table, or an assignment to an outer binding.
+-- It used to bind its type unwrapped, so every escape check keyed on the borrowed
+-- tag let it through and the caller ran it over a closed resource.
+function M.aLocalFunctionCapturingAnOwnerCannotEscapeItsScope()
+    local function escaping(resultType, escape)
+        return CLOSURE_RESOURCE .. table.concat(
+            {
+                "",
+                "local function make(): " .. resultType,
+                "   local resource = openClosureResource(7)",
+                "   local function peek(): integer",
+                "      return resource.value",
+                "   end",
+                "   return " .. escape,
+                "end",
+                "print(make())",
+            },
+            "\n"
+        )
+    end
+    assertEq(codes(escaping("function(): integer", "peek")), "NUPP2608", "returned")
+    assertEq(codes(escaping("{function(): integer}", "{peek}")), "NUPP2603", "stored in a table")
+    assertEq(
+        codes(
+            CLOSURE_RESOURCE .. table.concat(
+                {
+                    "",
+                    "local kept: function(): integer",
+                    "do",
+                    "   local resource = openClosureResource(7)",
+                    "   local function peek(): integer",
+                    "      return resource.value",
+                    "   end",
+                    "   kept = peek",
+                    "end",
+                    "print(kept())",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2608",
+        "assigned outward"
+    )
+end
+
+-- The borrow a local function holds is still checked at each call rather than held
+-- as a lexical loan, so dropping the owner first and calling afterwards is what is
+-- refused, and a call before the drop is fine.
+function M.aLocalFunctionStillBorrowsItsCaptureAtEachCall()
+    assertClean(
+        CLOSURE_RESOURCE .. table.concat(
+            {
+                "",
+                "local resource = openClosureResource(7)",
+                "local function peek(): integer",
+                "   return resource.value",
+                "end",
+                "print(peek())",
+                "drop(resource)",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            CLOSURE_RESOURCE .. table.concat(
+                {
+                    "",
+                    "local resource = openClosureResource(7)",
+                    "local function peek(): integer",
+                    "   return resource.value",
+                    "end",
+                    "drop(resource)",
+                    "print(peek())",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602"
+    )
+end
+
 return M

@@ -78,7 +78,10 @@ local function spanString(borrows source: span.ByteSpan): string
     return ffiString(pointer, #source)
 end
 
-local progressed, releasePump, await, awaitTick, pumpOnce, readForCompletion
+local progressed, releasePump, await, pumpOnce, readForCompletion
+-- Typed where it is declared, because `communicate` hands it a local function that
+-- borrows the child's streams, and a borrow may not cross an untyped call.
+local awaitTick: function(self: any, operation: string, scoped interest: function(): backendapi.Interest): nil
 local validateOptions: function(options: process.Options): nil
 local nativeBackend: function(): backendapi.Backend
 
@@ -1136,7 +1139,7 @@ local function blockOnce(self: any, interest: backendapi.Interest, stopAt: numbe
     pumpOnce(self)
 end
 
-awaitTick = function(self: any, operation: string, interest: function(): backendapi.Interest): nil
+awaitTick = function(self: any, operation: string, scoped interest: function(): backendapi.Interest): nil
     if not suspension.handled() then
         blockOnce(self, interest())
 

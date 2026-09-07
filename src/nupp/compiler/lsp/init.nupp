@@ -1726,11 +1726,13 @@ function lsp.run(rootDir: string?): integer
         relayArgs = {"luajit", "-e", path, compilerRoot .. "/build/nupp/compiler/main.lua", "__lsp-reader",}
     end
     local relayOptions: process.Options = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
-    local relay = new process.Process(relayOptions)
-    -- Borrowed in place: taking the field out through `assert` would leave the
-    -- reader with nothing to close it.
-    local reader = nupp.borrow(relay.stdout)
-    assert(reader ~= nil)
+    -- The relay lives in a managed cell rather than in this frame, because it is
+    -- read from two places: the loop below, and `pump`, which the session keeps in
+    -- `host` and calls from inside long work. A closure over a borrow of an owner
+    -- held here could not be stored there; an alias is copyable and checks the cell
+    -- at each use instead.
+    local relayOwner = nupp.manage(new process.Process(relayOptions))
+    local relay = relayOwner:alias()
     local buffered = ""
     local queued = {}
     local cancelled = {}
@@ -1792,9 +1794,31 @@ function lsp.run(rootDir: string?): integer
         end
     end
 
+    --- Reads from the relay through the cell. This frame owns the cell and closes it
+    --- after the loop below, so the cell being gone cannot happen here.
+    --- @raises when the cell is gone after all, which is a fault in this file
+    local function read(waiting: boolean): string?
+        local chunk, problem = relay:with(function(borrows child: process.Process): string?
+            local reader = nupp.borrow(child.stdout)
+            if reader == nil then
+                return nil
+            end
+            if waiting then
+                return reader:next()
+            end
+
+            return reader:poll()
+        end)
+        if problem ~= nil then
+            error("nupp-lsp: " .. problem.message, 0)
+        end
+
+        return chunk
+    end
+
     local function pump(): nil
         while true do
-            local chunk = reader:poll()
+            local chunk = read(false)
             if chunk == nil or #chunk == 0 then
                 break
             end
@@ -1833,7 +1857,7 @@ function lsp.run(rootDir: string?): integer
     while session.running() and not ended do
         pump()
         while #queued == 0 do
-            local chunk = reader:next()
+            local chunk = read(true)
             if chunk == nil then
                 ended = true
                 break
@@ -1848,7 +1872,7 @@ function lsp.run(rootDir: string?): integer
             host.currentId = nil
         end
     end
-    relay:close()
+    drop relayOwner
 
     return 0
 end

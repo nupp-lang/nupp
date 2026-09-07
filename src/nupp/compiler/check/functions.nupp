@@ -1520,7 +1520,16 @@ function functions.install(c: state.Checker): state.StatHandlers
         if #c.diags == diagnosticsBefore then
             preferComptime.check(c, stat, body, false)
         end
-        c.bindVar(nameTok.text, ft)
+        -- A body that reads a captured owner is a borrow of it, and the binding says
+        -- so in its type the way a function expression's does: every check that
+        -- keeps a borrow from escaping keys on that tag, and a local function has to
+        -- meet the same ones. The roots recorded below are still checked at each
+        -- call rather than held as a lexical loan.
+        local boundType = ft
+        if #borrowed > 0 and not c.ownershipKind(ft) then
+            boundType = T.borrowed(ft)
+        end
+        c.bindVar(nameTok.text, boundType)
         local functionEntry = c.scope.vars[nameTok.text]
         if functionEntry then
             functionEntry.jitTarget = functionEntry.definition

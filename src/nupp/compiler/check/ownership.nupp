@@ -872,13 +872,17 @@ function ownership.install(c: state.Checker): ownership.Ops
                 end
             end
         end
-        for _, owner in ipairs(facts.roots or {}) do
-            if owner.activeBorrowSites then
-                owner.activeBorrowSites[entry] = nil
-            end
-            owner.activeBorrows = math.max(0, (owner.activeBorrows or 1) - 1)
-            if facts.exclusive then
-                owner.activeExclusiveBorrows = math.max(0, (owner.activeExclusiveBorrows or 1) - 1)
+        -- Roots a local function reads were never counted as a loan, so there is
+        -- nothing to give back; decrementing would release a loan somebody else holds.
+        if not facts.capturedBorrowRoots then
+            for _, owner in ipairs(facts.roots or {}) do
+                if owner.activeBorrowSites then
+                    owner.activeBorrowSites[entry] = nil
+                end
+                owner.activeBorrows = math.max(0, (owner.activeBorrows or 1) - 1)
+                if facts.exclusive then
+                    owner.activeExclusiveBorrows = math.max(0, (owner.activeExclusiveBorrows or 1) - 1)
+                end
             end
         end
         facts.roots = nil
