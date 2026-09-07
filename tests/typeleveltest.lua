@@ -1545,11 +1545,16 @@ function M.aComputedTailCarriesFieldsIntoTheCallbackBody()
     )
 end
 
+-- The count is compared once the tail has reduced, under the same rule a written
+-- parameter list is held to: an extra parameter is refused unless nil is what its
+-- type already admits, so one left untyped passes where one written as a string
+-- does not.
 function M.aComputedTailCountsTheCallbackParameters()
     assertEq(
-        codes(TUPLE_QUERY .. table.concat({"", "each(function(entity, a, b, c, d): nil", "end)",}, "\n")),
+        codes(TUPLE_QUERY .. table.concat({"", "each(function(entity, a, b, c: string, d): nil", "end)",}, "\n")),
         "NUPP2006"
     )
+    clean(TUPLE_QUERY .. table.concat({"", "each(function(entity, a, b, c, d): nil", "end)",}, "\n"))
 end
 
 function M.aComputedTailComparesAWrittenCallbackParameter()
