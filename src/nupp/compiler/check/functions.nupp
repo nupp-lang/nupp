@@ -751,6 +751,10 @@ function functions.install(c: state.Checker): state.StatHandlers
             captureContext.allowed[capture.name] = capture
         end
         c.closureCaptureStack[#c.closureCaptureStack + 1] = captureContext
+        -- This body may run after the code around it has moved on, so a captured
+        -- local that is assigned somewhere is seen as declared, not as the test
+        -- outside proved it. One nothing assigns keeps its narrowing.
+        local restoreCapturedNarrowing = c.facts.hideCapturedNarrowing(body)
         if body.generics then
             typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(body.generics, "function")
         end
@@ -1056,6 +1060,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         body.partitionResults = nil
         body.partitionReturnSeen = {}
         c.checkBlock(body.body, true) -- scope already pushed
+        restoreCapturedNarrowing()
         -- Running off the end returns nothing, which a declared result has to admit
         -- the way it would admit `return` with no values. A constructor's result is
         -- what `new` yields, not what its body returns.

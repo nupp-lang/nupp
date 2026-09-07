@@ -470,6 +470,39 @@ function M.aBackwardGotoRepeatsTheWritesAfterItsLabel()
    }, "\n")), "NUPP2001:5")
 end
 
+function M.aClosureDoesNotKeepANarrowingOfALocalAssignedLater()
+   -- The literal may run after the assignment, so inside it the local is what
+   -- it was declared as.
+   assertEq(diagsOf(table.concat({
+      "local function outer()",
+      "    local cbs: {function()} = {}",
+      "    local x: string? = 'hi'",
+      "    if x ~= nil then",
+      "        cbs[#cbs + 1] = function()",
+      "            local s: string = x",
+      "        end",
+      "    end",
+      "    x = nil",
+      "    cbs[1]()",
+      "end",
+      "return outer",
+   }, "\n")), "NUPP2001:6")
+   -- One nothing assigns keeps its narrowing.
+   assertClean(table.concat({
+      "local function outer()",
+      "    local cbs: {function()} = {}",
+      "    local x: string? = 'hi'",
+      "    if x ~= nil then",
+      "        cbs[#cbs + 1] = function()",
+      "            local s: string = x",
+      "        end",
+      "    end",
+      "    cbs[1]()",
+      "end",
+      "return outer",
+   }, "\n"))
+end
+
 function M.aFunctionHandedToACallIsTakenToRun()
    -- Through a parameter typed as a function, through pcall, and as an
    -- immediately called literal inside the condition itself.

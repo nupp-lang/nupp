@@ -35,12 +35,15 @@ local known: nupp.compiler.doc.urls.Links? = nil
 -- index call rather than a link.
 local function prose(text: string?): string
     local text = tostring(text or "")
-    if not anchors then
+    -- Its own binding: `anchors` is reassigned by a later run, and the callback
+    -- would otherwise see it as whatever it may hold by then.
+    local links = anchors
+    if not links then
         return text
     end
 
     return rewriteSymbolLinks(text, function(name: string): string?
-        return anchors[name] or known and known[name]
+        return links[name] or known and known[name]
     end)
 end
 

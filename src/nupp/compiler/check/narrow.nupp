@@ -115,6 +115,11 @@ type narrow.Ops = {
     --- What the functions of this file may write, read from the source once.
     summaries: function(): mutation.Summaries,
 
+    --- Hides what was proved outside a function literal about a captured local that
+    --- is assigned somewhere in its scope: the literal may run after that
+    --- assignment. Returns what puts the facts back once the literal is checked.
+    hideCapturedNarrowing: function(body: Node): function(),
+
     --- What a condition proves, on each side of it.
     analyzeCond: function(cond: Node): narrow.Facts,
 
@@ -437,6 +442,64 @@ function narrow.install(c: state.Checker): narrow.Ops
             if not whole[key] and c.lookupEntry(key:match("^[^.]+") or key) then
                 facts.clearWrite(key, true)
                 facts.clearAliasesBelow(key)
+            end
+        end
+    end
+
+    -- The entry a name resolves to, without recording a read of it: this is asked
+    -- on the way into a function literal, and a read here would count as one the
+    -- literal made.
+    local function visibleEntry(name: string): any
+        local sc = c.scope
+        while sc do
+            local entry = sc.vars[name]
+            if entry then
+                return entry
+            end
+            sc = sc.parent
+        end
+
+        return nil
+    end
+
+    function facts.hideCapturedNarrowing(body)
+        local restore = {}
+        -- The writes are recorded on the declaring tokens by the pass that reads
+        -- the file, which nothing before this literal need have asked for yet.
+        facts.summaries()
+        local first = cst.firstToken(body)
+        local offset = first and first.offset or 0
+        local function writtenLater(entry, path): boolean
+            local token = entry and entry.definition and entry.definition.token or nil
+            return token ~= nil and mutation.writtenAfter(token, offset, path)
+        end
+
+        local sc = c.scope
+        while sc do
+            for name, entry in pairs(sc.vars) do
+                if entry.narrowing and (entry.functionDepth or 0) < c.functionDepth and writtenLater(entry, name) then
+                    restore[#restore + 1] = {entry = entry, t = entry.t}
+                    entry.t = entry.decl or entry.t
+                end
+            end
+            for key, t in pairs(sc.narrowed or {}) do
+                local root = key:match("^[^.]+") or key
+                local outer = visibleEntry(root)
+                if outer and (outer.functionDepth or 0) < c.functionDepth and writtenLater(outer, key) then
+                    restore[#restore + 1] = {map = sc.narrowed, key = key, t = t}
+                    sc.narrowed[key] = nil
+                end
+            end
+            sc = sc.parent
+        end
+
+        return function()
+            for _, item in ipairs(restore) do
+                if item.entry then
+                    item.entry.t = item.t
+                else
+                    item.map[item.key] = item.t
+                end
             end
         end
     end
