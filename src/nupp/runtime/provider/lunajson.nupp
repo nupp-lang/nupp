@@ -299,7 +299,7 @@ function json.verifiedString(text: string): any
     return verified
 end
 
-function json.writer(out: any, nullValue: any?): any
+function json.writer(exclusive out: string.buffer.Buffer, nullValue: any?): any
     local parts, stack, root, closed = {}, {}, false, false
     local pending = 0
     local writer = {}

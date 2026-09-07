@@ -1438,6 +1438,66 @@ function M.anIndexTableIsHeldToTheMembersItStandsIn()
    }, "\n"))
 end
 
+-- A member declared with a receiver is called with one; a plain callable field is
+-- called without. Conformance therefore drops the receiver only from a method,
+-- and refuses to pair a method with a plain field, whose first parameter would
+-- otherwise receive the table.
+function M.aPlainCallableFieldDoesNotSatisfyAMethodMember()
+   local impl = table.concat({
+      "local record Impl",
+      "   greet: function(n: integer): string",
+      "end",
+      "local impl = new Impl(greet = function(n: integer): string return tostring(n + 1) end)",
+   }, "\n")
+   assertEq(diagsOf(table.concat({
+      "local interface Greeter",
+      "   greet: function(self, n: integer): string",
+      "end",
+      impl,
+      "local g: Greeter = impl",
+      "return g:greet(5)",
+   }, "\n")), "NUPP2001:8")
+   assertEq(diagsOf(table.concat({
+      "local interface Greeter",
+      "   readonly greet: function(self, n: integer): string",
+      "end",
+      impl,
+      "local g: Greeter = impl",
+      "return g:greet(5)",
+   }, "\n")), "NUPP2001:8")
+   -- plain against plain compares every parameter, the first included
+   assertEq(diagsOf(table.concat({
+      "local interface Greeter",
+      "   readonly greet: function(n: string): string",
+      "end",
+      impl,
+      "local g: Greeter = impl",
+      "return g",
+   }, "\n")), "NUPP2001:8")
+   assertClean(table.concat({
+      "local interface Greeter",
+      "   readonly greet: function(n: integer): string",
+      "end",
+      impl,
+      "local g: Greeter = impl",
+      "return g.greet(5)",
+   }, "\n"))
+   -- a method against a method still ignores each declaration's receiver
+   assertClean(table.concat({
+      "local interface Greeter",
+      "   greet: function(self, n: integer): string",
+      "end",
+      "local record Named",
+      "   name: string",
+      "   function greet(self, n: integer): string",
+      "      return self.name .. tostring(n)",
+      "   end",
+      "end",
+      "local g: Greeter = new Named(name = 'x')",
+      "return g:greet(5)",
+   }, "\n"))
+end
+
 -- Nothing here can see what a function returns, so a computed metatable stays
 -- gradual, which is what the documentation has always promised.
 function M.aComputedMetatableStaysGradual()

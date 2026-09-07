@@ -57,8 +57,12 @@ mere field shape cannot prove, such as a pointer agreeing with a count. An `any`
 value remains gradual and can cross the boundary with the usual loss of static
 guarantees.
 
-When comparing member functions, the receiver parameter is skipped on both
-sides, since each implementation names it for itself.
+When comparing member functions that both declare a receiver -- a leading
+`self`, or a first parameter typed as the declaring type -- the receiver is
+skipped on both sides, since each implementation names it for itself. A member
+without one is a plain callable field, and its first parameter is compared like
+any other: a plain field does not satisfy a method member, whose receiver would
+land in that parameter.
 
 ## `is` is a claim, not a proof
 

@@ -315,10 +315,58 @@ local function fail(a: Type, b: Type): boolean, string?
     return false, ("%s is not a %s"):format(T.tostring(a), T.tostring(b))
 end
 
---- Member function conformance ignores each declaration's receiver. The remaining
+--- The intersection whose composed surface a shape is, so the surface's members
+--- can still recognise their own receivers.
+local surfaceOwner: {[Type]: Type} = setmetatable({}, {__mode = "k"}) as {[Type]: Type}
+
+--- Whether a callable member's first parameter is its receiver: labeled `self`, or
+--- typed as the declaration that owns the member (which is what a bare `self` in a
+--- field type resolves to), as an application of the same generic, or, for the
+--- composed surface of an intersection, as one of its members.
+local function hasReceiver(ft: T.Func, owner: Type?): boolean
+    if #ft.params < 1 then
+        return false
+    end
+    if ft.paramNames and ft.paramNames[1] == "self" then
+        return true
+    end
+    if not owner then
+        return false
+    end
+    local first = T.unwrapOwnership(ft.params[1])
+    if first.tag == "const" then
+        first = first.inner
+    end
+    if first == owner or first.id == owner.id then
+        return true
+    end
+    if owner.tag == "nominal" then
+        local selfType = owner.selfType
+        if selfType and (first == selfType or first.id == selfType.id) then
+            return true
+        end
+        return owner.origin ~= nil and first.tag == "nominal" and first.origin == owner.origin
+    elseif owner.tag == "intersection" then
+        for _, member in ipairs(owner.members) do
+            if first == member or first.id == member.id then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+--- Member function conformance ignores each declaration's receiver when both
+--- declare one, since each implementation names itself there. The remaining
 --- function still observes ordinary parameter/return variance.
-local function memberIsA(have: Type, want: Type): boolean
-    if have.tag == "func" and want.tag == "func" and #have.params >= 1 and #want.params >= 1 then
+---
+--- A first parameter that is not a receiver is an ordinary parameter and is
+--- compared as one, receiver or not on the other side: a plain function behind a
+--- method slot receives the table as its first argument, and a method behind a
+--- plain slot is called with whatever that slot's first parameter admits.
+local function memberIsA(have: Type, want: Type, haveOwner: Type?, wantOwner: Type?): boolean
+    if have.tag == "func" and want.tag == "func" and hasReceiver(have, haveOwner) and hasReceiver(want, wantOwner) then
         local haveReceiverMode = have.paramModes and have.paramModes[1] or "plain"
         local wantReceiverMode = want.paramModes and want.paramModes[1] or "plain"
         if (haveReceiverMode == "takes") ~= (wantReceiverMode == "takes") then
@@ -522,12 +570,15 @@ local function intersectionSurface(t: T.Intersection): T.Shape
         fields[#fields + 1] = {name = entry.name, read = entry.readType, write = entry.writeType}
     end
 
-    return T.shape(fields, {
+    local shape = T.shape(fields, {
         readKey = surface.readIndexer and surface.readIndexer.keyType or nil,
         readValue = surface.readIndexer and surface.readIndexer.valueType or nil,
         writeKey = surface.writeIndexer and surface.writeIndexer.keyType or nil,
         writeValue = surface.writeIndexer and surface.writeIndexer.valueType or nil,
     }) as T.Shape
+    surfaceOwner[shape] = t
+
+    return shape
 end
 
 --- Read capabilities compare covariantly; write capabilities compare contravariantly.
@@ -536,13 +587,15 @@ local function propertiesFit(a: PropertyType, b: PropertyType): boolean, string?
     local aReads = a.byname or {}
     local aWrites = a.writeByname or {}
     local fresh = a.tag == "shape" and a.fresh == true
+    local aOwner: Type = surfaceOwner[a] or a
+    local bOwner: Type = surfaceOwner[b] or b
     for name, want in pairs(b.byname or {}) do
         local have = aReads[name]
         if not have then
             if not admitsNil(want) then
                 return false, ("%s is not a %s (no readable member %q)"):format(T.tostring(a), T.tostring(b), name)
             end
-        elseif not memberIsA(have, want) then
+        elseif not memberIsA(have, want, aOwner, bOwner) then
             return false, ("%s is not a %s (read member %q does not match)"):format(T.tostring(a), T.tostring(b), name)
         end
     end
@@ -552,7 +605,7 @@ local function propertiesFit(a: PropertyType, b: PropertyType): boolean, string?
             if not have then
                 return false, ("%s is not a %s (no writable member %q)"):format(T.tostring(a), T.tostring(b), name)
             end
-            if not memberIsA(want, have) then
+            if not memberIsA(want, have, bOwner, aOwner) then
                 return false, (
                     "%s is not a %s (write member %q does not match)"
                 ):format(T.tostring(a), T.tostring(b), name)
@@ -1292,17 +1345,15 @@ local function check(a: Type, b: Type): boolean, string?
         for j = #b.params + 1, #a.params do
             local am = a.paramModes and a.paramModes[j] or "plain"
             if b.vararg then
-                if not b.varargType then
-                    return false, (
-                        "%s is not a %s (parameter %d against an untyped ...)"
-                    ):format(T.tostring(a), T.tostring(b), j)
-                end
+                -- An untyped `...` is read as `unknown`: only a parameter that
+                -- accepts anything can stand where anything may arrive.
+                local element = bExtra and bExtra.kind == "homogeneous" and bExtra.type or T.unknown
                 if am ~= (bExtra and bExtra.mode or "plain") then
                     return false, (
                         "%s is not a %s (parameter %d ownership mode)"
                     ):format(T.tostring(a), T.tostring(b), j)
                 end
-                if not isA(b.varargType, a.params[j]) then
+                if not isA(element, a.params[j]) then
                     return false, ("%s is not a %s (parameter %d)"):format(T.tostring(a), T.tostring(b), j)
                 end
             elseif not admitsNil(a.params[j]) then
