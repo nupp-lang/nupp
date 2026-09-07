@@ -2681,6 +2681,91 @@ function M.affineRejectsMissingAndInexactCleanupFunctions()
     )
 end
 
+function M.anAffineCleanupBindingMayNotBeReassigned()
+    -- The terminal is part of the type's identity, so the name has to be that
+    -- function wherever an owner is discharged. Reassigning it anywhere in the file
+    -- would hijack every later cleanup, however the name read where the type was
+    -- written.
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "local record File end",
+                    "local function closeFile(takes file: File): nil end",
+                    "local function openFile(): affine(File, closeFile) return new File() end",
+                    "closeFile = function(takes file: File): nil end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2131"
+    )
+    assertClean(
+        table.concat(
+            {
+                "local record File end",
+                "local function closeFile(takes file: File): nil end",
+                "local function openFile(): affine(File, closeFile) return new File() end",
+                "local other = closeFile",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.aCallbackOnlyInvokedIsInferredScoped()
+    -- A visible body that only ever calls its callback promises what `scoped` spells,
+    -- and the promise reaches the call: a closure borrowing an owner may be handed
+    -- to it, because the callback cannot outlive the call.
+    local resource = table.concat(
+        {
+            "local record Res name: string end",
+            "local function close(takes r: Res): nil end",
+            "local function open(name: string): affine(Res, close) return new Res(name = name) end",
+        },
+        "\n"
+    )
+    assertClean(
+        resource .. table.concat(
+            {
+                "",
+                "local function run(cb: function(): nil): nil",
+                "   cb()",
+                "end",
+                "local function body(): nil",
+                "   local r = open('a')",
+                "   run(function(): nil borrows (r) print(r.name) end)",
+                "   drop(r)",
+                "end",
+            },
+            "\n"
+        )
+    )
+    -- One that lets the callback out keeps the plain reading, and the borrow is
+    -- refused as it always was.
+    assertEq(
+        codes(
+            resource .. table.concat(
+                {
+                    "",
+                    "local kept: (function(): nil)? = nil",
+                    "local function keep(cb: function(): nil): nil",
+                    "   kept = cb",
+                    "   cb()",
+                    "end",
+                    "local function body(): nil",
+                    "   local r = open('a')",
+                    "   keep(function(): nil borrows (r) print(r.name) end)",
+                    "   drop(r)",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603"
+    )
+end
+
 function M.affineTerminalsMustTakeTheirResource()
     assertEq(
         codes(

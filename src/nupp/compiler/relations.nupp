@@ -1256,7 +1256,12 @@ local function check(a: Type, b: Type): boolean, string?
         for j = 1, n do
             local am = a.paramModes and a.paramModes[j] or "plain"
             local bm = b.paramModes and b.paramModes[j] or "plain"
-            if am ~= bm then
+            -- `scoped` is a promise the callee makes about a callback -- invoked
+            -- during the call and never kept -- so a function that makes it fits a
+            -- slot that did not ask, where a caller is held to the plain rules. The
+            -- other way round would let a borrowing closure reach a body free to
+            -- keep it.
+            if am ~= bm and not (am == "scoped" and bm == "plain") then
                 return false, ("%s is not a %s (parameter %d ownership mode)"):format(T.tostring(a), T.tostring(b), j)
             end
             -- contravariant parameters

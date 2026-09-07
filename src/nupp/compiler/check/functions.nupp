@@ -457,6 +457,40 @@ function functions.install(c: state.Checker): state.StatHandlers
         return candidates
     end
 
+    --- Whether a nested function in `body` mentions `name` at all.
+    ---
+    --- An invocation from inside a nested closure is not an invocation during the
+    --- call: the closure may be stored, returned, or handed on, and run after the
+    --- call has returned. Inference of `scoped` stops at any such mention, whatever
+    --- the nested body does with the name.
+    local function mentionedInNestedFunction(body, name)
+        local found = false
+        local function walk(node, nested)
+            if found or not node then
+                return
+            end
+            if cst.isToken(node) then
+                if nested and node.kind == "name" and node.text == name then
+                    found = true
+                end
+                return
+            end
+            local kind = node.kind
+            local inner = nested
+                or kind == "funcExpr"
+                or kind == "shortfn"
+                or kind == "localFuncStmt"
+                or kind == "funcStmt"
+            for _, child in ipairs(node) do
+                walk(child, inner)
+            end
+        end
+
+        walk(body and body.body, false)
+
+        return found
+    end
+
     ---------------------------------------------------------------------
     -- Captures
     ---------------------------------------------------------------------
@@ -725,10 +759,16 @@ function functions.install(c: state.Checker): state.StatHandlers
                 else
                     if not declaredModes[
                         sourceIndex
-                    ] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
+                    ] and scopedCandidates[
+                        p.name.text
+                    ] and rawType(pt).tag == "func" and not mentionedInNestedFunction(body, p.name.text) then
                         mode = "scoped"
                     end
-                    if not declaredModes[sourceIndex] and mode ~= "takes" and not pointerShaped(pt) then
+                    -- A callable is not pointer-shaped, and `scoped` is the one
+                    -- inferred mode a callable can carry: it stays.
+                    if not declaredModes[
+                        sourceIndex
+                    ] and mode ~= "takes" and mode ~= "scoped" and not pointerShaped(pt) then
                         mode = "plain"
                     end
                 end
@@ -1209,10 +1249,16 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
                 local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(p.type) or T.any
                 c.suppressInherentOwner = priorSuppression
-                if not declaredModes[sourceIndex] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
+                if not declaredModes[
+                    sourceIndex
+                ] and scopedCandidates[
+                    p.name.text
+                ] and rawType(pt).tag == "func" and not mentionedInNestedFunction(body, p.name.text) then
                     mode = "scoped"
                 end
-                if not declaredModes[sourceIndex] and mode ~= "takes" and not pointerShaped(pt) then
+                if not declaredModes[
+                    sourceIndex
+                ] and mode ~= "takes" and mode ~= "scoped" and not pointerShaped(pt) then
                     mode = "plain"
                 end
                 params[#params + 1] = pt
