@@ -177,6 +177,72 @@ function M.namedCacheDirectoryHoldsTheStoresThatAnswerAboutContent()
 end
 
 
+-- Which compiler wrote a stored check result is asked once, of the state as a whole,
+-- and a run asked about named files hands on the records it never visited. Those two
+-- facts used to disagree: the carried records were the last compiler's while the state
+-- they were written into was stamped with this one, so a narrow check run after the
+-- checker changed left every module it had not visited marked as current. The next
+-- whole-project check believed all of them and reported the previous checker's
+-- messages, and deleting `checks.buf` by hand was the only way out.
+--
+-- `checks/1` is `CHECK_STATE_STAMP` in nupp.compiler.build.project, where the store
+-- is opened.
+function M.aNarrowCheckDoesNotHandOnAnotherCompilersRecordsAsItsOwn()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return { include = { "src" } }\n',
+      ["src/one.nupp"] = "local one = {}\nreturn one\n",
+      ["src/two.nupp"] = "local two = {}\nreturn two\n",
+   })
+   local function check(what)
+      local pipe = assert(io.popen(
+         ("cd '%s' && '%s' check %s 2>&1"):format(dir, NUPP, what or "")))
+      local output = pipe:read("*a")
+      local passed = pipe:close() and true or false
+      return passed, output
+   end
+   local store = require("nupp.compiler.build.store")
+   local path = dir .. "/build/cache/checks.buf"
+   local function stored()
+      return store.openValue(path, "checks/1").value
+   end
+
+   local passed, output = check()
+   assert(passed, "the project itself has to check clean: " .. output)
+   local state = assert(stored(), "the check wrote no state under the stamp this reads")
+   assert(state.modules.one and state.modules.two, "both modules were recorded")
+
+   -- The state another compiler would have left behind: its own records, under a stamp
+   -- that is not this compiler's. `two` is given something to say that this compiler,
+   -- checking the same source, never would.
+   state.moduleCompilerHash = "written by a compiler that is not this one"
+   state.modules.two.diags = {{
+      code = "NUPP2129",
+      severity = "error",
+      msg = "a record the running compiler did not write",
+      filename = "src/two.nupp",
+      line = 1,
+      col = 1,
+      offset = 0,
+      length = 5,
+   }}
+   local doctored = store.openValue(path, "checks/1")
+   doctored.set(state)
+   doctored.save()
+
+   passed, output = check("src/one.nupp")
+   assert(passed, "a narrow check of a clean file passes: " .. output)
+   local narrowed = assert(stored(), "the narrow check wrote no state")
+   assert(narrowed.modules.one, "the file it was asked about is recorded")
+   assert(not narrowed.modules.two,
+      "a record this compiler could not reuse was handed on as one it had written")
+
+   passed, output = check()
+   assert(not output:find("did not write", 1, true),
+      "the whole-project check replayed the other compiler's record: " .. output)
+   assert(passed, "and so a project that checks clean was reported failing: " .. output)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- The bytecode cache. Its whole contract is that it changes nothing: a module
 -- served out of it has to be the module that was on disk, named the way the file
 -- searcher would have named it, because the compiler locates its declarations and

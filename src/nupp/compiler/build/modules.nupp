@@ -1761,10 +1761,19 @@ local function buildModules(root: string, outDir: string, config: Config, target
         -- named files looked at a corner of the project on purpose, so it carries the
         -- rest of the last run's record forward untouched -- dropping it would make one
         -- narrow check throw away the work of every earlier one, and the next
-        -- whole-project check would start cold. Nothing stale survives either way: a
-        -- carried record is re-validated against its source and its dependencies before
-        -- anything is reused from it.
-        if asked then
+        -- whole-project check would start cold. A carried record is re-validated
+        -- against its source and its dependencies before anything is reused from it.
+        --
+        -- What that revalidation cannot see is which compiler wrote the record, because
+        -- that is asked once of the state as a whole. Carrying records into a state
+        -- stamped with this compiler said they were this compiler's, and they were the
+        -- last one's: a narrow check run after the checker changed left every module it
+        -- did not visit stamped as current, and the next whole-project check reused all
+        -- of them -- reporting the messages the previous checker had written until the
+        -- store was deleted by hand. Records the running compiler could not reuse
+        -- itself are not records to hand on, so a run whose reuse gate is shut carries
+        -- nothing forward.
+        if asked and cacheCompatible then
             for name, record in pairs(oldState.modules or {}) do
                 checked[name] = record
             end
