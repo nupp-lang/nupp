@@ -447,6 +447,14 @@ No. Both are LuaJIT doubles, and `integer` records that the checker has proof
 the value is integral. `x is integer` compiles to `type(x) == "number"`, so
 integrality is not re-tested at run time.
 
+That proof is about the operation, not about finiteness. `math.floor` and
+`math.ceil` are typed to return `integer` because they round every finite
+number to a whole one, but they pass NaN and the infinities through unchanged,
+so `math.floor(0/0)` is an `integer` holding NaN and `math.ceil(1/0)` one
+holding `inf`. Neither is a valid table key or loop bound. Where an input may
+be non-finite, test it first: `x ~= x` finds NaN and `math.abs(x) ==
+math.huge` an infinity.
+
 ### When does `int32` earn its place over `integer`?
 
 When the wrapping matters. `integer` says the value is whole, while `int32`,

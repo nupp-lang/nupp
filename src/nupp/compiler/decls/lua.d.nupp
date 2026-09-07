@@ -820,13 +820,17 @@ local math: {
     --- @return the absolute value
     abs: nosuspend function(x: number): number,
 
-    --- Returns the smallest integer that is not less than `x`.
+    --- Returns the smallest integer that is not less than `x`. NaN and the
+    --- infinities pass through unchanged, so the result is a whole number only
+    --- when `x` is finite.
     ---
     --- @param x the number to round up
     --- @return the rounded value
     ceil: nosuspend function(x: number): integer,
 
-    --- Returns the largest integer that is not greater than `x`.
+    --- Returns the largest integer that is not greater than `x`. NaN and the
+    --- infinities pass through unchanged, so the result is a whole number only
+    --- when `x` is finite.
     ---
     --- @param x the number to round down
     --- @return the rounded value
