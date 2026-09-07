@@ -692,7 +692,24 @@ function calls.install(c: state.Checker): calls.Ops
             local actual = map[tv]
             if bound and actual and actual ~= T.any then
                 local wanted = substType(bound, map, nil, c.reductionControl)
-                local ok, why = isA(actual, wanted)
+                local ok, why
+                local binder = T.unwrapOwnership(actual)
+                if binder.tag == "typevar" then
+                    -- A type parameter stands for every type its own bound admits, so
+                    -- it satisfies this bound only when that bound implies it. One
+                    -- without a bound stands for anything, which is what the gradual
+                    -- typevar relation would otherwise have said fits.
+                    local declared = (binder as T.TypeVar).bound
+                    if declared then
+                        ok, why = isA(declared, wanted)
+                    else
+                        ok, why = false, (
+                            "%s declares no bound, so it is not known to be a %s"
+                        ):format(T.tostring(binder), T.tostring(wanted))
+                    end
+                else
+                    ok, why = isA(actual, wanted)
+                end
                 if not ok then
                     c.diag(
                         "NUPP2116",

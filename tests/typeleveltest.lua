@@ -1807,4 +1807,56 @@ function M.comptimeCountsThePackItWasPassed()
     )
 end
 
+-- A type argument that is itself a type parameter satisfies a bound only when its
+-- own bound implies it. An unbounded one stands for anything, and the gradual
+-- typevar relation used to let it through, so `wrap(3)` built a `Reg<integer>`
+-- whose method then read a field no integer has.
+function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
+    local body = table.concat({
+        "local interface Named",
+        "   name: string",
+        "end",
+        "local interface Titled",
+        "   name: string",
+        "   title: string",
+        "end",
+        "local record Reg<T is Named>",
+        "   item: T",
+        "end",
+    }, "\n") .. "\n"
+    assertEq(codes(body .. table.concat({
+        "local function wrap<U>(x: U): Reg<U>",
+        "   return new Reg(item = x)",
+        "end",
+        "return wrap",
+    }, "\n")), "NUPP2116 NUPP2116")
+    assertEq(codes(body .. "local type Also<U> = Reg<U>\nreturn Also\n"), "NUPP2116")
+    clean(body .. table.concat({
+        "local function wrap<U is Named>(x: U): Reg<U>",
+        "   return new Reg(item = x)",
+        "end",
+        "local function narrow<U is Titled>(x: U): Reg<U>",
+        "   return new Reg(item = x)",
+        "end",
+        "local type Also<U is Named> = Reg<U>",
+        "return wrap, narrow, Also",
+    }, "\n"))
+    assertEq(codes(table.concat({
+        "local interface Named",
+        "   name: string",
+        "end",
+        "local interface Titled",
+        "   name: string",
+        "   title: string",
+        "end",
+        "local record Reg<T is Titled>",
+        "   item: T",
+        "end",
+        "local function wrap<U is Named>(x: U): Reg<U>",
+        "   return new Reg(item = x)",
+        "end",
+        "return wrap",
+    }, "\n")), "NUPP2116 NUPP2116")
+end
+
 return M
