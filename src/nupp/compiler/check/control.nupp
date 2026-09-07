@@ -324,6 +324,10 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         collector[#collector + 1] = valueT
         stat.switchResultType = valueT
+        -- The value leaves with the switch, whose own statement accounts for it.
+        if ownershipKind(valueT) == "affine" then
+            c.markTemporaryConsumed(stat.value)
+        end
     end
 
     handlers.withStmt = function(stat: cst.WithStmt)
@@ -463,6 +467,10 @@ function control.install(c: state.Checker): state.StatHandlers
             end
         end
         for j, valueT in ipairs(ts) do
+            -- Returned, so the return contract is what judges a temporary here.
+            if ownershipKind(valueT) == "affine" and stat.exprs[j] then
+                c.markTemporaryConsumed(stat.exprs[j])
+            end
             local declaredBorrow = c.borrowReturnStack[#c.borrowReturnStack]
             local borrowContract = declaredBorrow and declaredBorrow.result == j and declaredBorrow.contract or nil
             if borrowContract then

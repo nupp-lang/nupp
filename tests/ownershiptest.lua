@@ -5822,4 +5822,63 @@ function M.terminalDefinitionsAreTheEndpointOfTheirParameter()
     )
 end
 
+
+-- An owned temporary lives until the end of the full expression that made it, and
+-- nothing runs its terminal then. Only a bare call statement and a discarded pack
+-- were caught; a temporary handed to a borrowing parameter, indexed, or tested
+-- was silently leaked.
+function M.anOwnedTemporaryUsedWithoutBeingBoundIsReported()
+    local header = CONSUMABLE .. "\nlocal function use(borrows r: Res): nil print(r.id) end\n"
+    assertEq(codes(header .. "use(open(1))"), "NUPP2603")
+    assertEq(codes(header .. "print(open(2).id)"), "NUPP2603")
+    assertEq(codes(header .. "if open(3) then print('made') end"), "NUPP2603")
+    assertEq(codes(header .. "use(new Res(id = 4))"), "NUPP2603")
+    assertEq(codes(header .. "local function pass(takes r: Res): Res return r end\nuse(pass(open(5)))"), "NUPP2603")
+    assertEq(
+        codes(header .. "local flag = true\nuse(switch flag do case true -> open(6) else -> open(7) end)"),
+        "NUPP2603"
+    )
+end
+
+function M.anOwnedTemporaryThatIsBoundMovedOrReturnedIsAccepted()
+    assertClean(
+        CONSUMABLE
+        .. "\n"
+        .. table.concat(
+            {
+                "local record Holder",
+                "   kept: Res",
+                "end",
+                "local function sink(takes r: Res): nil drop r end",
+                "local function pass(takes r: Res): Res return r end",
+                "local function make(id: integer): Res return new Res(id = id) end",
+                "local function pick(flag: boolean): Res",
+                "   return switch flag do",
+                "      case true -> open(1)",
+                "      else -> do yield open(2) end",
+                "   end",
+                "end",
+                "local a = open(3)",
+                "local b = (open(4))",
+                "local c = pass(open(5))",
+                "local d = open(6)",
+                "local h = new Holder(kept = open(7))",
+                "sink(open(8))",
+                "drop open(9)",
+                "sink(make(10))",
+                "sink(pick(true))",
+                "local raw = unsafe release open(11)",
+                "print(raw.id)",
+                "with w = open(12) do print(w.id) end",
+                "drop a",
+                "drop b",
+                "drop c",
+                "drop d",
+                "drop h",
+            },
+            "\n"
+        )
+    )
+end
+
 return M

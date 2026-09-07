@@ -235,6 +235,15 @@ record state.Checker
     --- happens to pass.
     functionBodies: {any}
 
+    --- One list per statement being checked, innermost last: the owned temporaries
+    --- its expressions produced. Whatever is still on the list when the statement
+    --- ends was neither bound nor consumed, so nothing will ever run its terminal.
+    temporaryOwners: {{any}}
+
+    --- Records that an owned temporary's fate has been decided: it was moved,
+    --- bound, returned, or reported by the construct that took it.
+    markTemporaryConsumed: function(node: any): nil
+
     --- FFI trace hazards reported after the file has seen its `jit.off` calls.
     jitHazards: {any}
 

@@ -758,6 +758,14 @@ function expr.install(c: state.Checker): nil
         end
         local result = #results > 0 and T.union(results) or T.any
         node.switchResultType = result
+        -- An owner an arm produced is carried by the switch, so the switch is the
+        -- temporary to account for and the arm's own value is spoken for.
+        if c.ownershipKind(result) == "affine" then
+            for _, value in ipairs(resultExpressions) do
+                c.markTemporaryConsumed(value)
+            end
+            c.own.temporaryProduced(node)
+        end
         if expressionResultsOnly then
             local copied = false
             for index, value in ipairs(resultExpressions) do
@@ -1417,6 +1425,7 @@ function expr.install(c: state.Checker): nil
                 -- the table is refused just like returning one handle. Other borrowed
                 -- values retain the explicit affine-aggregate requirement.
                 if not node.affineAggregateContext and not taskScoped then
+                    c.markTemporaryConsumed(value)
                     c.diag(
                         "NUPP2603",
                         value,
@@ -1640,6 +1649,13 @@ function expr.install(c: state.Checker): nil
             end
             local dynamic: any = node
             dynamic.inferredType = inferred
+            if c.ownershipKind(
+                inferred
+            ) == "affine" and (
+                node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" or node.kind == "newExpr"
+            ) then
+                c.own.temporaryProduced(node)
+            end
             return inferred
         end
         -- A tree survives the check that read it, so what the last one concluded about
@@ -1657,6 +1673,13 @@ function expr.install(c: state.Checker): nil
         end
         local dynamic: any = node
         dynamic.inferredType = first
+        if c.ownershipKind(
+            first
+        ) == "affine" and (
+            node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" or node.kind == "newExpr"
+        ) then
+            c.own.temporaryProduced(node)
+        end
         if fixedWidth.isValue(first) and not node.fixedWidthUntrustedResult then
             c.fixedWidth.mark(node, first)
         end

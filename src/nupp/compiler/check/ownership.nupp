@@ -68,6 +68,12 @@ type ownership.Ops = {
     --- The resource an owner carries, behind its qualifier and behind an optional.
     resourceBehind: function(t: any): any,
 
+    --- Registers an expression that produced an owner nothing has yet claimed.
+    temporaryProduced: function(node: any): nil,
+
+    --- Records that an owned temporary was moved, bound, returned, or reported.
+    markTemporaryConsumed: function(node: any): nil,
+
     --- Finishes generic terminal validation after all structural members are known.
     finalizeCleanupBounds: function(),
 
@@ -885,8 +891,45 @@ function ownership.install(c: state.Checker): ownership.Ops
     -- Moving a value
     ---------------------------------------------------------------------
 
+    --- The node a temporary is tracked under: parentheses and casts add nothing,
+    --- and `new` is the construction call underneath it.
+    local function temporaryNode(node)
+        while node and (node.kind == "paren" or node.kind == "castExpr" or node.kind == "newExpr") do
+            node = node.kind == "newExpr" and node.call or node.expr
+        end
+
+        return node
+    end
+
+    function own.temporaryProduced(node)
+        local open = c.temporaryOwners[#c.temporaryOwners]
+        node = temporaryNode(node)
+        if not open or not node or node.discardingResults then
+            return
+        end
+        for _, seen in ipairs(open) do
+            if seen == node then
+                return
+            end
+        end
+        -- The tree outlives the check that read it, so a verdict from an earlier
+        -- run is cleared before this run's consumer records its own.
+        node.temporaryConsumed = nil
+        node.temporaryReported = nil
+        open[#open + 1] = node
+    end
+
+    function own.markTemporaryConsumed(node)
+        node = temporaryNode(node)
+        if node then
+            node.temporaryConsumed = true
+        end
+    end
+
     function own.moveExpression(expr, t, reason, expectedKind, allowPartial)
         expectedKind = expectedKind or "affine"
+        -- Whatever the transfer decides, the temporary's fate is being judged here.
+        own.markTemporaryConsumed(expr)
         local dropOperation = c.consumingFieldStack[#c.consumingFieldStack]
         if dropOperation
             and expectedKind == "affine"
@@ -1017,6 +1060,7 @@ function ownership.install(c: state.Checker): ownership.Ops
     c.ownershipState = own.ownershipState
     c.pointerShaped = own.pointerShaped
     c.moveExpression = own.moveExpression
+    c.markTemporaryConsumed = own.markTemporaryConsumed
     c.borrowRoot = own.borrowRoot
     c.ownershipEntry = own.ownershipEntry
     c.liveSuspensionObligation = own.liveSuspensionObligation

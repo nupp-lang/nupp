@@ -781,6 +781,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local args = argExprs
             if intrinsic == "manage" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
+                -- Judged here whether or not the cell accepts it.
+                c.markTemporaryConsumed(args[1])
                 local entry = args[1] and c.ownershipEntry(args[1]) or nil
                 local capability = c.capabilityOf(valueT, entry)
                 local selfContained = #args == 1 and capability and T.capabilityHasMovable(

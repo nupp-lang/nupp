@@ -787,6 +787,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
             if wasConstModuleField then
                 c.diag("NUPP2008", target, "cannot assign to const module field")
             end
+            -- Assigned, so the destination's contract is what judges a temporary.
+            if written and ownershipKind(et) == "affine" then
+                c.markTemporaryConsumed(written)
+            end
             recordModuleField(target, et, stat.isConst, written)
             local targetTok = target.kind == "name" and target.token or nil
             if targetTok then
