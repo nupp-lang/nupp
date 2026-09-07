@@ -27,17 +27,33 @@ local function allocated(body: function(): nil): number
     -- A full collection shrinks the Lua stack, and the first call afterwards
     -- regrows it by a few kilobytes that the count reports as allocation. One
     -- unmeasured run of the body inside the stopped region pays that first.
-    pcall(body)
-    local before = collectgarbage("count")
-    local ok, problem = pcall(body)
-    local after = collectgarbage("count")
+    local primed, priming = pcall(body)
+    if not primed then
+        collectgarbage("restart")
+        error(priming, 0)
+    end
+    -- The smallest of several runs is the answer, because LuaJIT may record
+    -- or re-record a trace during any one of them, and the trace it keeps is
+    -- an allocation the path itself never makes. A path that allocates does
+    -- so on every run, so the minimum still reports it.
+    local least = math.huge
+    for _ = 1, 3 do
+        local before = collectgarbage("count")
+        local ok, problem = pcall(body)
+        local after = collectgarbage("count")
+        if not ok then
+            collectgarbage("restart")
+            error(problem, 0)
+        end
+        local bytes = (after - before) * 1024
+        if bytes < least then
+            least = bytes
+        end
+    end
     collectgarbage("restart")
     collectgarbage("collect")
-    if not ok then
-        error(problem, 0)
-    end
 
-    return (after - before) * 1024
+    return least
 end
 
 function M.newHoldsOnePageAndHonoursThePageSize(): nil
