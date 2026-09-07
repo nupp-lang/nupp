@@ -5095,6 +5095,46 @@ function M.pcallConsumesATakingClosure()
     assertEq(calls, 1, "pcall's invoked closure releases its capture")
 end
 
+-- A closure captured from an enclosing function is seen through a borrow, and the
+-- call path let a borrowed function through, so a nested closure invoked a taking
+-- closure as often as it was itself invoked while the owner still held it.
+function M.aCapturedTakingClosureCannotBeInvokedThroughABorrow()
+    local taking = CLOSURE_RESOURCE .. table.concat(
+        {
+            "",
+            "local function body(): nil",
+            "   local resource = openClosureResource(7)",
+            "   local finish = function(): nil takes (resource)",
+            "      drop(resource)",
+            "   end",
+        },
+        "\n"
+    )
+    assertEq(
+        codes(taking .. table.concat({"", "   local wrapper = function(): nil", "      finish()", "   end", "   wrapper()", "   wrapper()", "end",}, "\n")),
+        "NUPP2602",
+        "an inferred capture"
+    )
+    assertEq(
+        codes(
+            taking .. table.concat(
+                {"", "   local wrapper = function(): nil borrows (finish)", "      finish()", "   end", "   wrapper()", "   finish()", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2602 NUPP2602",
+        "a declared borrow capture"
+    )
+    assertEq(
+        codes(taking .. table.concat({"", "   local function wrapper(): nil", "      finish()", "   end", "   wrapper()", "end",}, "\n")),
+        "NUPP2602",
+        "a local function"
+    )
+    assertClean(
+        taking .. table.concat({"", "   local wrapper = function(): nil takes (finish)", "      finish()", "   end", "   wrapper()", "end",}, "\n")
+    )
+end
+
 function M.raceDropsATakingLoserThatWasNeverEntered()
     local source = CLOSURE_RESOURCE .. table.concat(
         {

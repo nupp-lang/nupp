@@ -1204,6 +1204,19 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             node.affineClosureCall = true
             calleeT = rawType(calleeT)
         elseif c.ownershipKind(calleeT) == "borrowed" and rawType(calleeT).tag == "func" then
+            -- A closure captured from an enclosing function is seen through a borrow,
+            -- and invoking an affine closure consumes the captures its owner still
+            -- holds, so the owner would drop them again or invoke it a second time.
+            -- Only a takes capture, which binds the closure as the body's own, may.
+            local captured = callee and c.ownershipEntry(callee) or nil
+            captured = c.ownershipState(captured)
+            if captured and c.ownershipKind(
+                captured.t
+            ) == "affine" and rawType(captured.t).tag == "func" and (captured.functionDepth or 0) < c.functionDepth then
+                c.diag("NUPP2602", callee, "a captured affine closure cannot be invoked through a borrow", nil, {
+                    help = "name it in takes (...) so the invocation moves it into this closure",
+                })
+            end
             calleeT = rawType(calleeT)
         end
         if calleeT.tag == "func" and calleeT.foreign then
