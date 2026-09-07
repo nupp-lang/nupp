@@ -254,6 +254,30 @@ function M.tuplesAreInvariantThroughAMutableView()
    }, "\n"))
 end
 
+-- Through a writable map every field is a key somebody may write, so a field the
+-- shape does not let anyone write, or lets them write only a narrower type, keeps
+-- the shape out of the map. A read-only map asks nothing of the writes.
+function M.aShapeFitsAWritableMapOnlyThroughWritableFields()
+   assertEq(diagsOf(table.concat({
+      "local h: {readonly name: string} = {name = 'x'}",
+      "local m: {[string]: string?} = h",
+      "return m",
+   }, "\n")), "NUPP2001:2")
+   assertEq(diagsOf(table.concat({
+      "local h: {name: string} = {name = 'x'}",
+      "local m: {[string]: string?} = h",
+      "return m",
+   }, "\n")), "NUPP2001:2")
+   assertClean(table.concat({
+      "local h: {name: string?} = {name = 'x'}",
+      "local m: {[string]: string?} = h",
+      "local r: {readonly name: string} = {name = 'x'}",
+      "local view: {readonly [string]: string?} = r",
+      "local literal: {[string]: string?} = {name = 'x'}",
+      "return {m, view, literal}",
+   }, "\n"))
+end
+
 function M.arrayCovarianceCannotLaunderFunctionEffects()
    assertEq(diagsOf(table.concat({
       "local safe: {nosuspend function(number): number} = {math.floor}",

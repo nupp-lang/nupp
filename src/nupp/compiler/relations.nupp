@@ -1214,7 +1214,9 @@ local function check(a: Type, b: Type): boolean, string?
     end
 
     -- A table written with string keys and one value type is a map of it: {float =
-    -- true, int8 = true} fits {[string]: boolean}.
+    -- true, int8 = true} fits {[string]: boolean}. Through a writable map every
+    -- field is a key somebody may write, so each must be writable and accept what
+    -- the map writes; a literal being checked in place takes the map's type instead.
     if b.tag == "map" and a.tag == "shape" then
         if b.readable then
             if not isA(T.string, b.key) then
@@ -1238,8 +1240,19 @@ local function check(a: Type, b: Type): boolean, string?
             not optionalIsA(b.writeKey, a.indexWriteKey) or not optionalIsA(b.writeValue, a.indexWriteValue)
         ) then
             return fail(a, b)
-        elseif b.writeValue and not a.indexWriteValue and not optionalIsA(T.string, b.writeKey) then
-            return fail(a, b)
+        elseif b.writeValue and not a.indexWriteValue then
+            if not optionalIsA(T.string, b.writeKey) then
+                return fail(a, b)
+            end
+            if not a.fresh then
+                for _, f in ipairs(a.fields) do
+                    if not f.write or not isA(b.writeValue, f.write) then
+                        return false, (
+                            "%s is not a %s (field %q is not writable as %s)"
+                        ):format(T.tostring(a), T.tostring(b), f.name, T.tostring(b.writeValue))
+                    end
+                end
+            end
         end
         return true
     end

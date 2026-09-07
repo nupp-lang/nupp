@@ -76,7 +76,7 @@ local tonumber: nosuspend function(v: any, base: number?): number?
 --- @typearg V the value type
 --- @param t the table to traverse
 --- @return an iterator yielding each key and its value, and nil when done
-local pairs: nosuspend function<K, V>(t: {[K]: V}): nosuspend function(): (K, V)
+local pairs: nosuspend function<K, V>(t: {readonly [K]: V}): nosuspend function(): (K, V)
 
 --- Returns an iterator over the array part of `t`, from index 1 up to the first missing
 --- element.
