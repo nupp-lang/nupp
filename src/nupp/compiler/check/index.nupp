@@ -22,9 +22,11 @@ local native = require("nupp.compiler.native")
 local indexedViews = require("nupp.compiler.indexedviews")
 local runtimeSurface = require("nupp.compiler.runtimesurface")
 local standardSurface = require("nupp.compiler.standardsurface")
+local narrowing = require("nupp.compiler.narrowing")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
+local subtract = narrowing.subtract
 
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
@@ -485,6 +487,14 @@ function index.install(c: state.Checker): state.ExprHandlers
                 node.postWriteType = false
             elseif after ~= ft then
                 node.postWriteType = after
+            end
+            if after and physicalOwner.tag == "nominal" and physicalOwner.declKind == "struct" then
+                -- A struct written to a pointer field is stored as its address, so
+                -- the field holds a pointer afterwards whatever the value's type was.
+                local pointer = subtract(rawType(after), T.nil_)
+                if pointer.tag == "ptr" then
+                    node.pointerStoreType = pointer
+                end
             end
         else
             ft, fieldDef, fieldDefs = c.fieldType(base, memberName)

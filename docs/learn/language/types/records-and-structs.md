@@ -377,11 +377,21 @@ end
 local head = new Node(nil, 1)
 local tail = new Node(nil, 2)
 head.next = tail
-print(head.next.value)
+unsafe do
+    print(head.next.value)
+end
 ```
 
 By value it cannot, since `next: Node` would have to contain a copy of itself
 and so has no size. That is refused, and the repair it names is the pointer.
+
+Storing `tail` takes its address and nothing else: the pointer does not keep
+`tail` alive, so once every Lua reference to `tail` is gone the memory it
+points at may be reused. That is why the field reads back as a raw `Node*`
+rather than the struct that was written, and following it is confined to
+`unsafe do` (`NUPP2604`), where the author vouches that the target is still
+live. Keep a Lua reference to every node the structure links, or allocate the
+nodes from an arena that outlives it.
 
 ### Value or reference
 

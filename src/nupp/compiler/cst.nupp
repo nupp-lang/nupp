@@ -427,6 +427,10 @@ interface cst.Hints
     --- Read type after a write through a distinct setter, or false for write-only.
     postWriteType: any
 
+    --- The raw pointer a physical store leaves in a pointer field it took the
+    --- address of a struct for.
+    pointerStoreType: any
+
     --- Which ffi operation a call is.
     ffiIntrinsic: string?
 

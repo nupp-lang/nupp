@@ -14,6 +14,7 @@ the module's own table, what publishes a member of it.
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
+local narrowing = require("nupp.compiler.narrowing")
 local cst = require("nupp.compiler.cst")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local indexedViews = require("nupp.compiler.indexedviews")
@@ -1015,6 +1016,12 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 et = nil
             elseif target.postWriteType then
                 et = target.postWriteType
+            end
+            local rawWritten = et and target.pointerStoreType and narrowing.subtract(rawType(et), T.nil_) or nil
+            if rawWritten and rawWritten.tag == "nominal" and rawWritten.declKind == "struct" then
+                -- The field took the struct's address: it now holds a raw pointer
+                -- to memory nothing anchors, not the value that was written.
+                et = rawWritten == rawType(et) and target.pointerStoreType or T.optional(target.pointerStoreType)
             end
             if key and et and et ~= T.any then
                 applyFacts({[key] = et})

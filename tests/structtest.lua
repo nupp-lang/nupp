@@ -425,6 +425,39 @@ function M.nestedStructReadBorrowsItsParent()
    }, "\n")), 6)
 end
 
+function M.structStoredIntoAPointerFieldIsReadBackAsAPointer()
+   -- the store takes the struct's address and anchors nothing, so what the
+   -- field holds afterwards is a raw pointer and dereferencing it is unsafe
+   local NODE = "local struct Node\n   next: Node*?\n   value: int32\nend\n"
+   local LINK = NODE .. table.concat({
+      "local head = new Node(nil, 1)",
+      "local tail = new Node(nil, 2)",
+      "head.next = tail",
+   }, "\n") .. "\n"
+   assertEq(diagsOf(LINK .. "print(head.next.value)"), "NUPP2604:8")
+   assertEq(diagsOf(LINK .. "local nx = head.next\nprint(nx.value)"), "NUPP2604:9")
+   assertClean(LINK .. "unsafe do\n   print(head.next.value)\nend")
+   assertClean(LINK .. table.concat({
+      "local nx = head.next",
+      "if nx then",
+      "   unsafe do",
+      "      print(nx.value)",
+      "   end",
+      "end",
+   }, "\n"))
+   -- an optional struct source leaves an optional pointer behind
+   assertEq(diagsOf(NODE .. table.concat({
+      "local head = new Node(nil, 1)",
+      "local tail: Node? = new Node(nil, 2)",
+      "head.next = tail",
+      "if head.next then",
+      "   print(head.next.value)",
+      "end",
+   }, "\n")), "NUPP2604:9")
+   -- writing nil still narrows the path to nil
+   assertEq(diagsOf(LINK .. "head.next = nil\nprint(head.next.value)"), "NUPP2004:9")
+end
+
 function M.fixedArrayFieldReadBorrowsItsParent()
    local ARRAYED = "local struct V\n   pos: float[3]\nend\n"
    assertEq(diagsOf(ARRAYED .. table.concat({
