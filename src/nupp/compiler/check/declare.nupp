@@ -1479,7 +1479,7 @@ function declare.install(
             c.moduleExports.types[name] = t
             c.moduleExports.typeDefs[name] = def
             if t.tag == "nominal" and t.declKind == "struct" and not stat.isAnnotationDefinition then
-                c.moduleExports.values[name] = t
+                c.moduleExports.values[name] = T.typeObject(t)
             elseif t.tag == "nominal" and t.declKind == "record" and not stat.isAnnotationDefinition then
                 -- The value an exported record is, reached through its module, is its
                 -- witness: the same `Type<R>` its own module sees, so a `Type<T>`
@@ -1569,7 +1569,7 @@ function declare.install(
             -- installed. Bind that value at the same point as its type so an inline
             -- method can construct another instance, including through a qualified
             -- declaration name such as `module.Record`.
-            if stat.declKind == "record" and not stat.isAnnotationDefinition then
+            if (stat.declKind == "record" or stat.declKind == "struct") and not stat.isAnnotationDefinition then
                 c.bindDeclaredVar(stat, T.typeObject(n))
             end
             -- Every declaration has a private type scope: `self`, generic binders, and
@@ -1643,7 +1643,7 @@ function declare.install(
                         -- Reaching it through the owner reaches the same value the
                         -- owner's own name would, so a nested record is its table here
                         -- too rather than an instance of itself.
-                        local held = nestedKind == "record" and T.typeObject(nested) or nested
+                        local held = T.typeObject(nested)
                         n.byname[e.name.text] = held
                         n.writeByname[e.name.text] = held
                     end
@@ -2370,7 +2370,7 @@ function declare.install(
                             if nested.tag == "nominal" and (
                                 nested.declKind == "record" or nested.declKind == "struct"
                             ) then
-                                local held = nested.declKind == "record" and T.typeObject(nested) or nested
+                                local held = T.typeObject(nested)
                                 n.byname[e.name.text] = held
                                 n.writeByname[e.name.text] = held
                                 n.fieldDefs[e.name.text] = c.definition(e.name, "property")
@@ -2590,8 +2590,8 @@ function declare.install(
                 -- The declaration is a metadata schema, not a runtime constructor. Its
                 -- type remains available to the checker.
             elseif stat.declKind == "struct" then
-                -- the name is a value too: the ctype constructor
-                c.bindDeclaredVar(stat, n)
+                -- A ctype declaration is a witness, not a value constructed from it.
+                c.bindDeclaredVar(stat, T.typeObject(n))
             elseif stat.declKind == "record" then
                 -- A record's name also holds a value: the runtime table that carries
                 -- its members and is stamped on the instances it builds. That table is

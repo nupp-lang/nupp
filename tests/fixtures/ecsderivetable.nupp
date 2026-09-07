@@ -1,0 +1,9 @@
+local provider = require("tests.fixtures.ecsderiveprovider")
+local M = {}
+
+@derive(provider.Component)
+record M.Position
+    x: number = 0
+end
+
+return M

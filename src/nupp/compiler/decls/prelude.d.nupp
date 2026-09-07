@@ -291,6 +291,9 @@ local nupp: {
         readonly describe: comptime function(value: type | typepack): {
             readonly kind: string,
             readonly sourceKind: string?,
+
+            --- Reports the nominal declaration category without expanding a reference.
+            readonly declarationKind: string?,
             readonly name: string?,
             readonly value: (string | boolean | integer)?,
             readonly element: type?,
@@ -811,6 +814,9 @@ record nupp.derive
 
         --- The owner's declared name.
         readonly name: string
+
+        --- The declaration's module-qualified name, independent of filesystem paths.
+        readonly qualifiedName: string
 
         --- How the declaration is bound: `local`, `module`, `global`, or `nested`.
         readonly visibility: string

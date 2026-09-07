@@ -1171,11 +1171,11 @@ local function check(a: Type, b: Type): boolean, string?
         end
         return fail(a, b)
     elseif btag == "typeobject" then
-        -- Record declarations carry an explicit Type<T> wrapper. A struct's runtime
-        -- declaration value is already its ctype, represented by the nominal here;
-        -- both are declaration witnesses and therefore fit Type<T> for the same T.
-        if atag == "nominal" and a.declKind == "struct" and a == b.of then
-            return true
+        -- Interface witnesses expose an abstract capability, not construction.
+        if b.of.tag == "nominal" and b.of.declKind == "interface" then
+            if atag == "typeobject" then
+                return isA(a.of, b.of)
+            end
         end
         return fail(a, b)
     end

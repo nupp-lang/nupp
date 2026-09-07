@@ -32,6 +32,12 @@ reflection](../runtime/data/structure-of-arrays.md#layout-reflection) for what t
 
 ## Runtime reflection
 
+Record and struct declarations have type `Type<T>`, distinct from their instances.
+A `Type<Interface>` accepts declarations whose instances implement that interface,
+so registries can retain heterogeneous declaration witnesses without accepting
+ordinary values. A concrete `Type<Record>` or `Type<Struct>` still identifies
+only that declaration.
+
 Call `Record.reflect()` when runtime code needs the declaration. It returns the
 same descriptor on every call. The descriptor is read-only and exposes the
 record's `kind`, `name`, `fields`, `annotations`, and `fingerprint`, plus

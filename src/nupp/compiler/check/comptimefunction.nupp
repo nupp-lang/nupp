@@ -38,6 +38,10 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
     if helper.kind == "funcStmt" then
         owner, member = c.funcOwner(helper.name)
     end
+    if helper.exported and not member then
+        owner = c.moduleLocal
+        member = helper.name.base or helper.name
+    end
     local helperName = helper.kind == "localFuncStmt" and helper.name or member
     if not helperName then
         c.diag("NUPP2411", helper.name, "comptime functions must be local or direct module members")
@@ -58,7 +62,9 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
     checkOrdinary(helper)
     c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1
 
-    if helper.kind ~= "funcStmt" or owner ~= c.moduleLocal or not helper.comptimeSignature then
+    if (
+        helper.kind ~= "funcStmt" and not helper.exported
+    ) or owner ~= c.moduleLocal or not helper.comptimeSignature then
         return
     end
 

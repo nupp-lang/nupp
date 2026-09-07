@@ -49,6 +49,11 @@ For a nominal it preserves the declaration as the handle's identity while return
 its public fields in declaration order. `describe(T).fields` exposes the same field
 descriptors. Each descriptor has a `name` and optional `read` and `write` handles.
 
+`describe(T).declarationKind` preserves a nominal declaration's category, such as
+`"record"` or `"struct"`, even when a sealed provider sees its handle as a
+reference. A type function can select `array(T)` or `carray(T)` from this category
+without losing the declaration's nominal identity.
+
 A reusable type that contains those compiler-only handles is declared with
 `comptime type`. The alias is erased like an ordinary type alias, but both its body
 and every use are restricted to comptime code:

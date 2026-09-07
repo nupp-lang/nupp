@@ -591,6 +591,16 @@ function derive.entry(typeObject: any): derive.Entry?
     return derivedByType[typeObject]
 end
 
+--- Visits loaded declaration recipes without allocating a registry snapshot.
+--- @param callback Receives each declaration's runtime witness and recipe.
+--- @return Returns no value.
+--- @internal
+function derive.forEach(callback: function(entry: derive.Entry): nil): nil
+    for _, entry in pairs(derivedByType) do
+        callback(entry)
+    end
+end
+
 --- Reads the initializer a derive asked the compiler to mint for a type.
 ---
 --- It is the declaration's constructor body, or its field list, as a function

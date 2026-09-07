@@ -1112,7 +1112,7 @@ function calls.install(c: state.Checker): calls.Ops
         -- annotation -- is not a declaration and is left alone.
         if (
             calleeT.tag == "metatable" or calleeT.tag == "typeobject"
-        ) and calleeT.of.tag == "nominal" and calleeT.of.declKind == "record" then
+        ) and calleeT.of.tag == "nominal" and (calleeT.of.declKind == "record" or calleeT.of.declKind == "struct") then
             calleeT = calleeT.of
             node.signatureType = calleeT
         end

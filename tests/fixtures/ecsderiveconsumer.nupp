@@ -1,0 +1,53 @@
+module tests.fixtures.ecsderiveconsumer
+
+local provider = require("tests.fixtures.ecsderiveprovider")
+local derive = require("nupp.derive")
+local tablemodule = require("tests.fixtures.ecsderivetable")
+
+@derive(provider.Component)
+@ecsname(name = "declared")
+local struct Position
+    x: number = 7
+end
+
+@derive(provider.Component)
+local record Label
+    text: string = "label"
+end
+
+local names: {Type<provider.Value>} = {Position, Label}
+local native: provider.Column(Position) = nil as any
+local managed: provider.Column(Label) = {}
+local function nativeType(value: Position[?]?): nil
+    assert(value == nil)
+end
+
+local function managedType(value: {Label}): nil
+    assert(#value == 0)
+end
+
+nativeType(native)
+managedType(managed)
+assert(#names == 2)
+assert(provider.accepts(Position) == Position)
+assert(provider.accepts(Label) == Label)
+local rows = carray(Position, 2)
+assert(layoutof(Position).size > 0)
+unsafe do
+    rows[0].x = 1
+end
+local entry = assert(derive.entry(Position))
+assert(entry.schema.data.ecs.name == "tests.fixtures.ecsderiveconsumer.Position")
+assert(assert(derive.entry(tablemodule.Position)).schema.data.ecs.name == "tests.fixtures.ecsderivetable.Position")
+local value = new Position()
+value.x = 0
+derive.initializer(Position)(value)
+assert(value.x == 7)
+local found = false
+derive.forEach(function(candidate: derive.Entry): nil
+    if candidate == entry then
+        found = true
+    end
+end)
+assert(found)
+print("derived declarations")

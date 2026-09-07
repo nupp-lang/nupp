@@ -1,0 +1,24 @@
+module tests.fixtures.ecsderiveprovider
+
+export sealed interface Value
+end
+
+@annotation(targets = {"record", "struct"})
+export record ecsname
+    name: string?
+end
+
+export comptime function Component(info: nupp.derive.Info): nupp.derive.Result<Value>
+    return nupp.derive.implement{data = {ecs = {name = info.qualifiedName}}, initializer = true}
+end
+
+export comptime function Column(T: type): type
+    if nupp.types.describe(T).declarationKind == "struct" then
+        return nupp.types.carray(T)
+    end
+    return nupp.types.array(T)
+end
+
+export function accepts<T is Value>(witness: Type<T>): Type<Value>
+    return witness
+end

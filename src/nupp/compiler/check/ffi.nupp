@@ -247,6 +247,9 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             capabilities.require(c, "cstorage", node)
             local args = argExprs
             local elemT = args[1] and c.infer(args[1]) or nil
+            if elemT and elemT.tag == "typeobject" then
+                elemT = elemT.of
+            end
             local countT = args[2] and c.infer(args[2]) or nil
             if not elemT or elemT.tag ~= "nominal" or elemT.declKind ~= "struct" then
                 c.diag("NUPP2401", node, "carray needs a struct type as its first argument")
@@ -280,6 +283,9 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             capabilities.require(c, "structvalue", node)
             local args = argExprs
             local subject = args[1] and c.infer(args[1]) or nil
+            if subject and subject.tag == "typeobject" then
+                subject = subject.of
+            end
             if not subject or subject.tag ~= "nominal" or subject.declKind ~= "struct" then
                 c.diag("NUPP2402", node, "layoutof needs a struct type as its argument", nil, {
                     help = "a record is a table and has no C layout; only a " .. "struct is laid out in memory"

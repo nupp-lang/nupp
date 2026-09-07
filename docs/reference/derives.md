@@ -372,6 +372,10 @@ comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect
 end
 ```
 
+In a declared module, write `export comptime function derive(...)` instead of
+qualifying the function through a module table. Exported annotation declarations
+may accompany the provider and remain compile-time metadata, not runtime values.
+
 A consumer applies the resolved exported symbol, not a runtime function value:
 
 ```nupp
@@ -415,6 +419,11 @@ contains no tokens, locations, comments, AST, CST, mutable compiler objects, or
 previous provider output. `nupp.derive.claims(T, I)` asks whether a nominal type
 writes or requests contract `I`, which lets mutually recursive derives plan
 without depending on provider execution order.
+
+`Info.name` names the declaration. `Info.qualifiedName` combines its module and
+declaration path, giving providers a default identity without a source filename.
+Packages that persist this identity should offer an explicit override: renaming
+a declaration or moving it to another module changes its qualified name.
 
 A generic owner is planned once, not per instantiation. A type parameter exposes
 its bound, or `unknown`, so providers cannot specialize for future concrete

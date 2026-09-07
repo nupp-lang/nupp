@@ -365,6 +365,7 @@ function deriveProvider.materializeInfo(state: any, input: any, opaque: any, pro
             schema = input.schema,
             kind = input.kind,
             name = input.name,
+            qualifiedName = input.qualifiedName,
             visibility = input.visibility,
             providerIdentity = input.providerIdentity,
             ownerIdentity = input.ownerIdentity,
@@ -398,6 +399,7 @@ function deriveProvider.index(state: any, entry: any, key: any): any, any
             or key == "visibility"
             or key == "providerIdentity"
             or key == "ownerIdentity"
+            or key == "qualifiedName"
             or key == "hasConstructor"
             or key == "fingerprint"
         then

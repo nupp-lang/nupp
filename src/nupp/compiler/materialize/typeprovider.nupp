@@ -666,6 +666,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         return {
             kind = payload.kind,
             sourceKind = payload.sourceKind,
+            declarationKind = payload.nominal and payload.nominal.kind,
             name = payload.name,
             value = payload.value,
             element = payload.element,

@@ -7466,7 +7466,7 @@ function gen.generate(
             while stat and stat.kind == "pragmaStmt" do
                 stat = stat.stat
             end
-            if not stat or stat.comptimeFunction or stat.comptimeTok then
+            if not stat or stat.comptimeFunction or stat.comptimeTok or stat.isAnnotationDefinition then
                 return
             end
             local names = {}
@@ -7963,6 +7963,9 @@ function gen.generate(
         table.sort(exportedFunctions)
         local exportedRecords = {}
         local function collectExportedRecords(record, path)
+            if record.isAnnotationDefinition then
+                return
+            end
             local nameToken = record.name as any
             exportedRecords[
                 #exportedRecords + 1

@@ -9,6 +9,14 @@ than CST kind strings, so the registry stays stable when the parser changes.
 ]]
 
 local annotations = {}
+local pathtext = require("nupp.io.path.pathtext")
+
+local function sameSource(left, right)
+    if type(left) == "string" and type(right) == "string" then
+        return pathtext.normalize(left) == pathtext.normalize(right)
+    end
+    return left == right
+end
 
 --- Tooling-only migration detail carried by a deprecated API definition.
 record annotations.Deprecation
@@ -98,7 +106,7 @@ function Registry:define(spec)
         return nil, "annotation name must be an identifier"
     end
     local previous = self.byname[spec.name]
-    if previous and (not spec.source or previous.source ~= spec.source) then
+    if previous and (not spec.source or not sameSource(previous.source, spec.source)) then
         return nil, ("annotation @%s is already defined"):format(spec.name)
     end
     if spec.arguments ~= "none"
@@ -151,7 +159,7 @@ end
 
 function Registry:removeSource(source)
     for name, definition in pairs(self.byname) do
-        if definition.source == source then
+        if sameSource(definition.source, source) then
             self.byname[name] = nil
         end
     end

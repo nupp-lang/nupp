@@ -180,7 +180,9 @@ function derive.install(c: state.Checker): derive.Ops
         local moduleName = table.concat(parts, ".")
         local first = parts[1]
         local exports
-        if first == c.moduleLocal and #parts == 1 then
+        if (
+            first == c.moduleLocal and #parts == 1
+        ) or moduleName == c.result.moduleName or moduleName == c.result.declaredModuleName then
             exports = c.moduleExports
             moduleName = c.result.moduleName or moduleName
         elseif c.env and c.env.resolveModuleExports then
@@ -374,10 +376,16 @@ function derive.install(c: state.Checker): derive.Ops
 
     local function evaluateProvider(item, provider, plan, nodes)
         local n, contract = item.nominal, provider.contract
+        local declarationPath = n.runtimePath or n.name
+        local modulePrefix = c.moduleLocal and (c.moduleLocal .. ".") or nil
+        if modulePrefix and declarationPath:sub(1, #modulePrefix) == modulePrefix then
+            declarationPath = declarationPath:sub(#modulePrefix + 1)
+        end
         local input = {
             schema = 1,
             kind = n.declKind,
             name = n.name,
+            qualifiedName = (c.result.moduleName or c.result.declaredModuleName or "<chunk>") .. "." .. declarationPath,
             visibility = c.visibilityOf(item.stat),
             providerIdentity = provider.identity,
             ownerIdentity = n.deriveKey,

@@ -6,6 +6,15 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local NUPP = HERE .. "/../bin/nupp"
 
 local M = {}
+function M.declaredProvidersPreserveNamesColumnsAndWitnessCapabilities()
+    local consumer = HERE .. "/fixtures/ecsderiveconsumer.nupp"
+    local checked, checkOutput = process.capture({NUPP, "check", "--strict", consumer})
+    assert(checked == 0, checkOutput)
+    local ran, output = process.capture({NUPP, "run", consumer})
+    assert(ran == 0, output)
+    assert(output == "derived declarations\n", output)
+end
+
 function M.runsThePublicComptimeForwardingRecipeEndToEnd()
     local consumer = HERE .. "/fixtures/deriveinspect_consumer.nupp"
     local checked, checkOutput = process.capture({NUPP, "check", "--strict", consumer})
