@@ -3832,6 +3832,79 @@ end
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A projected declaration is published under the alias's name, so its signature has
+-- to spell that name too, whichever way the declaring module wrote it. A declaration
+-- file writes it qualified, and every mention of it inside the signature follows the
+-- rename; an ordinary module writes it bare, and then only the declared name belongs
+-- to the alias. The component here is the case that separates them: its type names a
+-- second declaration spelled exactly the way the alias is, and that one keeps its own
+-- name.
+function M.publicAliasesRenameTheDeclarationHoweverItWasSpelled()
+    local dir = tempProject({
+        [
+            "src/package/init.nupp"
+        ] = [[
+module package
+const model = require("package.internal.model")
+const declared = require("package.internal.declared")
+--- The transform recorded last frame.
+export const PreviousTransform2D = model.PreviousTransform2DComponent
+--- One typed range.
+export type Buffer = declared.Range
+]],
+        [
+            "src/package/internal/model.nupp"
+        ] = [[
+module package.internal.model
+const components = require("package.components")
+--- A transform.
+export record PreviousTransform2D
+    --- Horizontal offset.
+    x: number
+end
+--- The component describing it.
+export const PreviousTransform2DComponent: components.FFIComponent<PreviousTransform2D> = components.make()
+]],
+        [
+            "src/package/internal/declared.nupp"
+        ] = [[
+module package.internal.declared
+local declared = {}
+
+--- One typed range.
+record declared.Range
+    --- How many elements it holds.
+    readonly count: integer
+    --- Narrows it to a shorter one.
+    slice: function(borrows self: declared.Range, count: integer): declared.Range
+end
+
+return declared
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
+    local text = readFile(dir .. "/api.md")
+    -- bare: the binding takes the alias's name, while the type argument keeps the
+    -- record's own
+    assert(
+        text:find("const PreviousTransform2D: components.FFIComponent<PreviousTransform2D>", 1, true),
+        "a bare origin declaration kept a name the alias does not publish"
+    )
+    assert(
+        not text:find("PreviousTransform2DComponent", 1, true),
+        "the page names a declaration the aliasing module does not export"
+    )
+    -- qualified: the declaration and every mention of it lose the implementation
+    -- qualifier together
+    assert(text:find("record Buffer", 1, true), "a qualified origin declaration was not renamed")
+    assert(
+        text:find("slice: function(borrows self: Buffer, count: integer): Buffer", 1, true),
+        "a qualified mention of the projected declaration kept the implementation name"
+    )
+    assert(not text:find("record declared.Range", 1, true), "the projected declaration exposes the implementation name")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
     local source = readFile(HERE .. "/../src/nupp/gpu/init.nupp")
     local module = assert(doc.extract(source, "src/nupp/gpu/init.nupp", "nupp.gpu"))

@@ -398,6 +398,55 @@ local function loadModules(root, config, settings, requested)
         return out
     end
 
+    -- Every word a documentation signature may write before the name it declares:
+    -- visibility, the compile-time and interface modifiers, and the introducer
+    -- itself. A declared name is the first word after them, which is what makes it
+    -- findable without reparsing the signature.
+    local declarationWords: {[string]: boolean} = {}
+    for _, word in ipairs({
+        "affine",
+        "cdef",
+        "comptime",
+        "const",
+        "function",
+        "global",
+        "interface",
+        "local",
+        "record",
+        "sealed",
+        "struct",
+        "type",
+    }) do
+        declarationWords[word] = true
+    end
+
+    -- Rename the declaration a signature opens with, and nothing else in it. A
+    -- declaring module may spell that name qualified, as a declaration file's
+    -- `record gpu.Buffer` does, or bare, as `const PreviousTransform2DComponent:
+    -- components.FFIComponent<PreviousTransform2D>` does. The qualified spelling is
+    -- rewritten wherever it appears, because every mention of it names this same
+    -- declaration; the bare spelling is rewritten only where it is declared, because
+    -- everything else a signature mentions bare is some other declaration -- here a
+    -- record the alias does not publish and whose own name must survive.
+    local function renamed(signature: string, member: string, name: string): string
+        local rewritten = signature:gsub("([%w_]+)%." .. member .. "%f[^%w_]", name)
+        local at = 1
+        while true do
+            local space, word = rewritten:match("^(%s*)([%w_]+)", at)
+            if not space or not word then
+                return rewritten
+            end
+            local start = at + #space
+            if word == member then
+                return rewritten:sub(1, start - 1) .. name .. rewritten:sub(start + #word)
+            end
+            if not declarationWords[word] then
+                return rewritten
+            end
+            at = start + #word
+        end
+    end
+
     local function projected(item: any, module: any, seen: any): any
         local aliasText = item.aliasSource and "= " .. item.aliasSource or item.signature
         local alias, member = aliasText:match("=%s*([%w_]+)%.([%w_]+)%s*$")
@@ -415,7 +464,7 @@ local function loadModules(root, config, settings, requested)
             ) then
                 local expanded = copy(projected(candidate, origin, seen))
                 expanded.name, expanded.path, expanded.module, expanded.line = item.name, item.path, item.module, item.line
-                expanded.signature = expanded.signature:gsub("([%w_]+)%." .. member .. "%f[^%w_]", item.name)
+                expanded.signature = renamed(expanded.signature, member, item.name)
                 if item.doc.text ~= "" then
                     expanded.doc = item.doc
                 end
