@@ -297,7 +297,10 @@ Visible functions are inferred to a pessimistic fixed point, including their
 automatic cleanup. An exact direct export transports only the positive
 `noAllocate` and `noRaise` facts a dependent module observes, while complete
 path, escape, and return summaries stay file-local. An unknown callback, method,
-gradual call, or uncontracted C function proves neither fact.
+gradual call, or uncontracted C function proves neither fact. Indexing a gradual
+value may raise, since nothing says whether it can be indexed or what its
+`__index` does, and `int64` or `uint64` arithmetic allocates, since LuaJIT boxes
+each result.
 
 A bodyless or foreign declaration may establish a fact with a trusted `@effects`
 contract. That is a promise about the unseen implementation, not a proof about
