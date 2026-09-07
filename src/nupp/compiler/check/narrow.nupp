@@ -90,6 +90,9 @@ type narrow.Ops = {
     --- What a condition proves, on each side of it.
     analyzeCond: function(cond: Node): narrow.Facts,
 
+    --- What a discriminant test says about the value the field belongs to.
+    discriminantBase: function(refNode: Node, literals: {Type}): (string?, Type?, Type?),
+
     --- Everything narrowing knows here, flattened innermost-first, which is what a
     --- branch leaves behind for the join.
     snapshotNarrowed: function(): {[string]: Type},
@@ -318,6 +321,52 @@ function narrow.install(c: state.Checker): narrow.Ops
             end
         end
         c.callMutatedEntries = nil
+    end
+
+    --- What a test of a discriminant field says about the value it belongs to:
+    --- `s.kind == "circle"` keeps the members of `s` whose `kind` admits the literal
+    --- and drops the rest. A copied discriminant (`local kind = s.kind`) tests the
+    --- field it was copied from. Nothing is said unless both sides are inhabited.
+    ---
+    --- @param refNode the tested reference: a field path, or a name copied from one
+    --- @param literals the values the test admits
+    --- @return the key of the base, what it holds where the test passed, and where it
+    ---     failed
+    function facts.discriminantBase(refNode: Node, literals: {Type}): string?, Type?, Type?
+        local discNode: any = refNode.kind == "dotIndex" and refNode or nil
+        if refNode.kind == "name" and refNode.token then
+            local entry = c.lookupEntry(refNode.token.text)
+            discNode = entry and entry.aliasNode or nil
+        end
+        if not discNode or discNode.kind ~= "dotIndex" or not discNode.obj or not discNode.name then
+            return nil, nil, nil
+        end
+        local baseKey = facts.pathKey(discNode.obj)
+        local baseT = c.refType(discNode.obj)
+        if not baseKey or not baseT or baseT.tag ~= "union" then
+            return nil, nil, nil
+        end
+        local kept, dropped = {}, {}
+        for _, m in ipairs(baseT.members) do
+            local ft = c.fieldType(m, discNode.name.text)
+            local admits = false
+            for _, litT in ipairs(literals) do
+                if ft and isA(litT, ft) then
+                    admits = true
+                    break
+                end
+            end
+            if admits then
+                kept[#kept + 1] = m
+            else
+                dropped[#dropped + 1] = m
+            end
+        end
+        if #kept == 0 or #dropped == 0 then
+            return nil, nil, nil
+        end
+
+        return baseKey, T.union(kept), T.union(dropped)
     end
 
     --- What testing `cond` proves, on each side of the test.
@@ -570,25 +619,10 @@ function narrow.install(c: state.Checker): narrow.Ops
                     elseif emptied then
                         out.exhausted = key
                     end
-                    local discNode = refNode.kind == "dotIndex" and refNode or aliasNode
-                    if discNode and discNode.obj then
-                        local baseKey = facts.pathKey(discNode.obj)
-                        local baseT = c.refType(discNode.obj)
-                        if baseKey and baseT and baseT.tag == "union" then
-                            local kept, dropped = {}, {}
-                            for _, m in ipairs(baseT.members) do
-                                local ft = c.fieldType(m, discNode.name.text)
-                                if ft and isA(litT, ft) then
-                                    kept[#kept + 1] = m
-                                else
-                                    dropped[#dropped + 1] = m
-                                end
-                            end
-                            if #kept > 0 and #dropped > 0 then
-                                out.t[baseKey] = T.union(kept)
-                                out.f[baseKey] = T.union(dropped)
-                            end
-                        end
+                    local baseKey, kept, dropped = facts.discriminantBase(refNode, {litT})
+                    if baseKey and kept and dropped then
+                        out.t[baseKey] = kept
+                        out.f[baseKey] = dropped
                     end
                     if op == "~=" then
                         return {t = out.f, f = out.t}

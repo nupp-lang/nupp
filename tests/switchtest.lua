@@ -81,6 +81,53 @@ function M.staticCasesAreExhaustiveAndRun()
    assertEq(third, "redirect")
 end
 
+function M.aDiscriminantCaseNarrowsTheValueItBelongsTo()
+   -- `case "circle"` on `s.kind` selects the members of `s` whose `kind` admits
+   -- it, the way `if s.kind == "circle"` does, through a copy of the field too.
+   local SHAPES = table.concat({
+      "local record Circle",
+      "   kind: 'circle'",
+      "   radius: number",
+      "end",
+      "local record Square",
+      "   kind: 'square'",
+      "   side: number",
+      "end",
+      "local type Shape = Circle | Square",
+   }, "\n")
+   local direct, copied = run(SHAPES .. table.concat({
+      "",
+      "local function direct(s: Shape): number",
+      "   return switch s.kind do",
+      "      case 'circle' -> s.radius",
+      "      case 'square' -> s.side",
+      "   end",
+      "end",
+      "local function copied(s: Shape): number",
+      "   local kind = s.kind",
+      "   return switch kind do",
+      "      case 'circle' -> s.radius",
+      "      case 'square' -> s.side",
+      "   end",
+      "end",
+      "local square = new Square(kind = 'square', side = 4)",
+      "return direct(square), copied(square)",
+   }, "\n"))
+   assertEq(direct, 4)
+   assertEq(copied, 4)
+   -- A member the case does not select is still out of reach.
+   local codes = diagnosticCodes(SHAPES .. table.concat({
+      "",
+      "local function wrong(s: Shape): number",
+      "   return switch s.kind do",
+      "      case 'circle' -> s.side",
+      "      case 'square' -> s.radius",
+      "   end",
+      "end",
+   }, "\n"))
+   assert(codes:match("^NUPP2004[ NUPP2004]*$"), "only missing fields: " .. codes)
+end
+
 function M.typeBindingsAndDestructuringRun()
    local circle, text = run(table.concat({
       "local record Circle",

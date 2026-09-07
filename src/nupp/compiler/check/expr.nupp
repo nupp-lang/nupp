@@ -666,6 +666,12 @@ function expr.install(c: state.Checker): nil
                 end
                 if selectorKey and #narrowed > 0 then
                     c.applyFacts({[selectorKey] = T.union(narrowed)})
+                    -- A case on a discriminant field selects the members of the value
+                    -- it belongs to, the way the same test in an `if` does.
+                    local baseKey, kept = c.facts.discriminantBase(selector as cst.Node, narrowed)
+                    if baseKey and kept then
+                        c.applyFacts({[baseKey] = kept})
+                    end
                 end
             else
                 arm.switchRecordIdentitySafe = recordOnly(residue)
