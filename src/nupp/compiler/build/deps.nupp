@@ -13,7 +13,7 @@ any of it changed.
 
 local hash = require("nupp.compiler.build.hash")
 local importc = require("nupp.compiler.importc")
-local json = nupp.data.json
+local json = nupp.codec.json
 local process = require("nupp.compiler.build.process")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")

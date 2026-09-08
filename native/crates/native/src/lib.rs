@@ -212,6 +212,32 @@ pub extern "C" fn nuppNativeV2MonotonicNs() -> u64 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn nuppNativeV2AvailableParallelism() -> usize {
+    std::thread::available_parallelism().map_or(1, usize::from)
+}
+
+/// Fills a caller-owned buffer with cryptographically secure random bytes.
+///
+/// # Safety
+///
+/// When length is nonzero, output must be writable for length bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nuppNativeV2RandomBytes(output: *mut u8, length: usize) -> i32 {
+    if length == 0 {
+        return Status::Ok.code();
+    }
+    if output.is_null() {
+        return failed(Status::InvalidArgument, "random byte output is null");
+    }
+    // SAFETY: the caller guarantees the checked non-null range is writable.
+    let destination = unsafe { std::slice::from_raw_parts_mut(output, length) };
+    match nupp_native_platform::random_bytes(destination) {
+        Ok(()) => Status::Ok.code(),
+        Err(message) => failed(Status::Internal, &message),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeV2WallMs() -> u64 {
     nupp_native_platform::wall_ms()
 }

@@ -1,0 +1,23 @@
+module nupp.digest.provider
+
+--[[Service contract for incremental fixed-output message digests.
+Register an Algorithm under service `nupp.digest` and its canonical algorithm
+name. Every create call returns independent state. Updates must process chunks
+incrementally rather than retaining the complete message.]]
+
+const span = require("nupp.mem.span")
+
+export affine interface State is nupp.Closeable
+    terminal close: nosuspend function(takes self: State): nil
+    update: function(exclusive self: State, borrows bytes: span.ByteSpan): nil
+
+    --- Writes exactly the descriptor's digestSize bytes. Does not close state;
+    --- the owning facade closes it on success and on failure.
+    finish: function(exclusive self: State, exclusive destination: span.ByteWriteSpan): nil
+end
+
+export interface Algorithm
+    readonly name: string
+    readonly digestSize: integer
+    create: function(self: Algorithm): State
+end

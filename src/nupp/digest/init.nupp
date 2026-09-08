@@ -1,0 +1,129 @@
+module nupp.digest
+
+--[[Provider-selected fixed-output message digests.
+
+`create("sha256")` selects an installed `nupp.digest/sha256` service or the
+portable built-in. Descriptor names and sizes must agree with the algorithm.
+`digest()` returns raw bytes, `digest(destination)` writes into an existing
+writable byte span, and `hexDigest()` returns lowercase hexadecimal. Each
+final operation consumes the digest. Dropping an unfinished digest closes its
+provider context. MD5 and SHA-1 are for legacy interoperability only.
+]]
+
+const services = require("nupp.services")
+const provider = require("nupp.digest.provider")
+const builtin = require("nupp.digest.internal.builtin")
+
+const contexts = require("nupp.digest.internal.context")
+
+--- An owned incremental digest, consumed by either finalization overload.
+export type Digest = contexts.Digest
+
+--- Immutable algorithm metadata and a factory for independent digest contexts.
+export record Algorithm
+    --- Canonical service and algorithm name.
+    readonly name: string
+
+    --- Number of output bytes, available before creating mutable state.
+    readonly digestSize: integer
+
+    private implementation: provider.Algorithm
+
+    --- Creates independent owned state for this algorithm.
+    --- @return the unfinished digest context
+    function create(self): Digest
+        local state = self.implementation:create()
+        return contexts.wrap(state, self.name, self.digestSize)
+    end
+end
+
+--- Looks up an algorithm without constructing mutable provider state.
+--- @param name the canonical algorithm name
+--- @return the descriptor, or nil when unavailable
+--- @raises when an installed provider has an invalid descriptor
+export function lookup(name: string): Algorithm?
+    local selected = services.lookup("nupp.digest", name)
+    local implementation: provider.Algorithm? = nil
+    if selected ~= nil then
+        if type(
+            selected
+        ) ~= "table" or selected.name ~= name or type(
+            selected.digestSize
+        ) ~= "number" or selected.digestSize <= 0 or selected.digestSize % 1 ~= 0 or type(
+            selected.create
+        ) ~= "function" then
+            error("invalid digest provider " .. name, 2)
+        end
+        implementation = selected as provider.Algorithm
+    else
+        implementation = builtin.lookup(name)
+    end
+    if implementation == nil then
+        return nil
+    end
+    local standard = builtin.lookup(name)
+    if standard ~= nil and implementation.digestSize ~= standard.digestSize then
+        error("digest provider has the wrong output size for " .. name, 2)
+    end
+
+    return new Algorithm(name = name, digestSize = implementation.digestSize, implementation = implementation)
+end
+
+--- Requires an available algorithm descriptor.
+--- @param name the canonical algorithm name
+--- @return the selected descriptor
+--- @raises when the algorithm is unavailable or its provider is invalid
+export function algorithm(name: string): Algorithm
+    local found = lookup(name)
+    if found == nil then
+        error("unknown digest algorithm " .. name, 2)
+    end
+
+    return found
+end
+
+--- Creates fresh incremental digest state.
+--- @param name the canonical algorithm name
+--- @return an owned unfinished digest
+--- @raises when the algorithm is unavailable or cannot be initialized
+export function create(name: string): Digest
+    return algorithm(name):create()
+end
+
+--- Lists canonical available names in ascending order.
+--- @return the available canonical names
+export function algorithms(): {string}
+    local names = builtin.names()
+    local seen: {[string]: boolean} = {}
+    for _, name in ipairs(names) do
+        seen[name] = true
+    end
+    for _, name in ipairs(services.list("nupp.digest")) do
+        if not seen[name] then
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+
+    return names
+end
+
+--- Computes one raw digest.
+--- @param name the canonical algorithm name
+--- @param bytes the message bytes
+--- @return the raw fixed-size digest bytes
+export function digest(name: string, bytes: string): string
+    local context = create(name)
+    context:update(bytes)
+    return context:digest()
+end
+
+--- Computes one lowercase hexadecimal digest.
+--- @param name the canonical algorithm name
+--- @param bytes the message bytes
+--- @return the lowercase hexadecimal digest
+export function hexDigest(name: string, bytes: string): string
+    local context = create(name)
+    context:update(bytes)
+    return context:hexDigest()
+end

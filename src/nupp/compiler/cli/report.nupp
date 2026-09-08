@@ -100,7 +100,7 @@ local function withArrayEmpties(value: unknown, seen: {[unknown]: any}?): unknow
         copied[key] = withArrayEmpties(item, seen)
     end
     if next(copied) == nil then
-        return nupp.data.json.asArray(copied)
+        return nupp.codec.json.asArray(copied)
     end
 
     return copied
@@ -110,7 +110,7 @@ end
 --- this reporting model is a list, so the copy marks those lists explicitly without
 --- mutating the compiler data it was handed.
 function report.encode(value: unknown): string
-    local encoder = nupp.data.json
+    local encoder = nupp.codec.json
     return encoder.encode(withArrayEmpties(value))
 end
 

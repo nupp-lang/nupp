@@ -2,7 +2,7 @@ local files = require("nupp.io.files")
 local harness = require("harness")
 local batch = require("batcheval")
 local time = require("nupp.time")
-local json = nupp.data.json
+local json = nupp.codec.json
 
 local arguments = {...} as {string}
 

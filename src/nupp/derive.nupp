@@ -15,7 +15,7 @@ local derive = {}
 -- What a derived type carries
 ----------------------------------------------------------------------------
 
-interface derive.JSONContract is nupp.data.json.JSONEncodable
+interface derive.JSONContract is nupp.codec.json.JSONEncodable
 end
 
 --- One derived type, as the registry holds it.
@@ -126,7 +126,7 @@ end
 local writeValue: function(
     value: any,
     spec: any,
-    exclusive out: nupp.data.json.Writer,
+    exclusive out: nupp.codec.json.Writer,
     json: any,
     state: any,
     path: string
@@ -138,7 +138,7 @@ local function writeObject(
     value: any,
     fields: any,
     unknown: any,
-    exclusive out: nupp.data.json.Writer,
+    exclusive out: nupp.codec.json.Writer,
     json: any,
     state: any,
     path: string
@@ -159,7 +159,7 @@ local function writeObject(
                     encodedName = json.encodedString(name)
                     field.encodedName = encodedName
                 end
-                out:key(encodedName as nupp.data.json.EncodedString)
+                out:key(encodedName as nupp.codec.json.EncodedString)
                 writeValue(item, field.jsonType, out, json, state, path .. "." .. name)
             end
         end
@@ -174,7 +174,7 @@ end
 writeValue = function(
     value: any,
     spec: any,
-    exclusive out: nupp.data.json.Writer,
+    exclusive out: nupp.codec.json.Writer,
     json: any,
     state: any,
     path: string
@@ -228,7 +228,7 @@ writeValue = function(
             encoded = json.encoded(spec.value)
             spec.encoded = encoded
         end
-        out:write(encoded as nupp.data.json.EncodedValue)
+        out:write(encoded as nupp.codec.json.EncodedValue)
 
         return
     end
@@ -637,10 +637,10 @@ jsonCodecFor = function(entry: any): any
     end
     schema.fields = json.fields
     schema.unknown = json.unknown
-    local decoder = require("nupp.data.json")
+    local decoder = require("nupp.codec.json")
     entry.decoder = decoder
     local codec: any = {fingerprint = "derive-json-v1|emit=1|decode=nupp-simd|schema=" .. schema.fingerprint,}
-    local nativeProvider: any = require("nupp.data.json.provider")
+    local nativeProvider: any = require("nupp.codec.json.provider")
     if nativeProvider.compileSerde ~= nil then
         codec.nativeProvider = nativeProvider
         codec.nativeDecode = nativeProvider.compileSerde(nativeJsonPlanForEntry(entry), schema.unknown)
@@ -783,8 +783,8 @@ end
 ----------------------------------------------------------------------------
 
 -- Reached through reflection rather than called directly, so that one memoized codec
--- answers every route to it: the derived members here, `nupp.data.json`'s type-directed
--- entry points, and a program asking the reflection extension itself.
+-- answers every route to it: the derived members here, `nupp.codec.json`'s
+-- type-directed entry points, and a program asking the reflection extension itself.
 local function derivedJSON(entry: any): any
     return entry.mt:reflect():extension(reflect.json)
 end
@@ -799,7 +799,7 @@ end
 --- @return the rendered text
 function derive.debug(value: any, entry: derive.Entry): string
     if serdeRuntime == nil then
-        serdeRuntime = require("nupp.data.serde")
+        serdeRuntime = require("nupp.serde")
     end
     return serdeRuntime.debugEntry(value, entry) as string
 end
@@ -813,7 +813,7 @@ end
 --- @param value the record to encode
 --- @param entry the type's registry entry
 --- @param out the checked destination
-function derive.writeJSON<T is table>(value: T, entry: derive.Entry, exclusive out: nupp.data.json.Writer): nil
+function derive.writeJSON<T is table>(value: T, entry: derive.Entry, exclusive out: nupp.codec.json.Writer): nil
     derivedJSON(entry)
     writeObject(value, entry.schema.fields, entry.schema.unknown, out, entry.decoder, {active = {}, depth = 0}, "$")
 end
@@ -824,7 +824,7 @@ end
 --- writes into caller-owned storage and does not expose this allocating route.
 local function encodeJSON<T is table>(value: T, entry: derive.Entry): string
     local out = newBuffer()
-    local json = require("nupp.data.json")
+    local json = require("nupp.codec.json")
     local writer = json.writer(out)
     derive.writeJSON(value, entry, writer)
     writer:close()
@@ -925,9 +925,9 @@ function derive.install(namespace: any): nil
 
         return jsonCodecFor(entry)
     end
-    -- `nupp.data.json`'s type-directed entry points are the derived codec seen from
+    -- `nupp.codec.json`'s type-directed entry points are the derived codec seen from
     -- the other side: the caller names a type rather than holding a derived value.
-    local api = require("nupp.data.json")
+    local api = require("nupp.codec.json")
     local mutable = api as {[string]: any}
     mutable.decodeAs = function(typeObject: any, text: string): (any, string?)
         return derive.fromJSON(text, jsonEntry(typeObject))
@@ -1298,7 +1298,7 @@ comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.
     }
 end
 
-comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.JSONEncodable>
+comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.codec.json.JSONEncodable>
     if info.kind ~= "record" then
         return nupp.derive.error("JSON can be derived only for records", info.reference, "NUPP2806")
     end
@@ -1383,7 +1383,7 @@ end
 ---
 --- Unlike `JSON`, this provider admits both records and fixed-layout structs and
 --- generates no per-format traversal methods.
-comptime function derive.Serde(info: nupp.derive.Info): nupp.derive.Result<nupp.data.serde.Serializable>
+comptime function derive.Serde(info: nupp.derive.Info): nupp.derive.Result<nupp.serde.Serializable>
     if info.kind ~= "record" and info.kind ~= "struct" then
         return nupp.derive.error("Serde can be derived only for records or structs", info.reference, "NUPP2803")
     end

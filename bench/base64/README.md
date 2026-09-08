@@ -32,7 +32,7 @@ vectorized ceiling was vectorization.
 
 Three quarters of it closed before a single vector operation existed. Reading
 whole words instead of single bytes was worth 1.42x and needed no compiler
-change at all -- `valuebuilder.word` already existed and `nupp.data.digest`
+change at all -- `valuebuilder.word` already existed and `nupp.digest.internal.sha256`
 already used it. A word-wide store, a fixed `const`-string defect, and
 reusing the output buffer instead of allocating it per call took most of the
 rest. Only the last factor, about 5.7x, was ever about instructions.

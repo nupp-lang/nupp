@@ -1670,7 +1670,7 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
         ] = table.concat(
             {
                 "module counter",
-                "local valuebuilder = require(\"nupp.data.valuebuilder\")",
+                "local valuebuilder = require(\"nupp.codec.valuebuilder\")",
                 "@aot(vectorize = false)",
                 "local function count(bytes: string): uint32",
                 "    local limit: uint32 = valuebuilder.length(bytes)",
@@ -1842,7 +1842,7 @@ end
 local ONE_PUBLISH = [[
 module publishing
 
-local valuebuilder = require("nupp.data.valuebuilder")
+local valuebuilder = require("nupp.codec.valuebuilder")
 
 local publishing = {}
 
@@ -2503,7 +2503,7 @@ end
 function M.valueStreamsFuseRootedByteReadsAndLuaConstruction()
     local dir = project{
         [
-            "nupp/data/valuebuilder.nupp"
+            "nupp/codec/valuebuilder.nupp"
         ] = [[
 local builder = {}
 function builder.new(nullValue: any): any return {} end
@@ -2545,7 +2545,7 @@ return builder
         [
             "stream.g.nupp"
         ] = [[
-local builder = require("nupp.data.valuebuilder")
+local builder = require("nupp.codec.valuebuilder")
 local simd = require("nupp.simd")
 local function drain(bits: simd.MaskBits64): (uint32, uint32)
     return bits:firstSet(), bits:clearFirst():count()
@@ -2664,7 +2664,7 @@ end
 function M.valueStreamBuilderModesAreAotConstants()
     local dir = project{
         [
-            "nupp/data/valuebuilder.nupp"
+            "nupp/codec/valuebuilder.nupp"
         ] = [[
 local builder = {}
 function builder.newSized(nullValue: any, depth: uint32, bytes: uint32): any return {} end
@@ -2677,7 +2677,7 @@ return builder
         [
             "modes.nupp"
         ] = [[
-local builder = require("nupp.data.valuebuilder")
+local builder = require("nupp.codec.valuebuilder")
 
 @aot
 local function eager(nullValue: any): any
@@ -2727,7 +2727,7 @@ end
 function M.uncheckedRootedByteReadsAreRejected()
     local dir = project{
         [
-            "nupp/data/valuebuilder.nupp"
+            "nupp/codec/valuebuilder.nupp"
         ] = [[
 local builder = {}
 function builder.byteAt(bytes: string, offset: uint32): uint32 return offset end
@@ -2736,7 +2736,7 @@ return builder
         [
             "read.g.nupp"
         ] = [[
-local builder = require("nupp.data.valuebuilder")
+local builder = require("nupp.codec.valuebuilder")
 @aot(vectorize = false)
 local function read(source: string, offset: uint32): uint32
     return builder.byteAt(source, offset)
@@ -2762,7 +2762,7 @@ function M.aConstantStringIsPlacedAsTheBytesItDenotes()
         [
             "classes.g.nupp"
         ] = [[
-local valueBuilder = require("nupp.data.valuebuilder")
+local valueBuilder = require("nupp.codec.valuebuilder")
 
 const CLASSES = "\1\2\34\92"
 const QUOTED = 'a"b'
@@ -2837,7 +2837,7 @@ function M.aLengthAliasDoesNotOutliveItsScope()
         [
             "stale.g.nupp"
         ] = [[
-local builder = require("nupp.data.valuebuilder")
+local builder = require("nupp.codec.valuebuilder")
 @aot(vectorize = false)
 local function decode(source: string): uint32
     do

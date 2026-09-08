@@ -1322,7 +1322,7 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
         ] = {
             source = one.output:gsub("^" .. prefix:gsub("%p", "%%%0"), ""),
             tier = one.tier,
-            cflags = nupp.data.json.asArray(flags),
+            cflags = nupp.codec.json.asArray(flags),
             detector = one.role == "feature-detector",
             role = one.role,
             wasm = one.wasm and (one.wasm as string):gsub("^" .. prefix:gsub("%p", "%%%0"), "") or nil,
@@ -1330,10 +1330,10 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
             unit = one.unit,
         }
     end
-    local document = nupp.data.json.encode({
+    local document = nupp.codec.json.encode({
         schemaVersion = 3,
         target = triple,
-        units = nupp.data.json.asArray(units),
+        units = nupp.codec.json.asArray(units),
     }) .. "\n"
     local output = outDir .. "/aot/units.json"
     if fs.readFile(output) ~= document then
@@ -1406,9 +1406,13 @@ function aot.writeLinkManifest(
     for _, key in ipairs(builderOrder) do
         builders[
             #builders + 1
-        ] = {key = key, entry = builderEntries[key], symbols = nupp.data.json.asArray(builderSymbols[key] as {string}),}
+        ] = {
+            key = key,
+            entry = builderEntries[key],
+            symbols = nupp.codec.json.asArray(builderSymbols[key] as {string}),
+        }
     end
-    local document = nupp.data.json.encode({
+    local document = nupp.codec.json.encode({
         schemaVersion = 1,
         component = name,
         target = profile.target,
@@ -1417,15 +1421,15 @@ function aot.writeLinkManifest(
         fingerprint = {symbol = archive.symbol, value = archive.fingerprint,},
         symbols = {
             probe = archive.symbol,
-            kernels = nupp.data.json.asArray(kernels),
-            registrars = nupp.data.json.asArray(registrars),
+            kernels = nupp.codec.json.asArray(kernels),
+            registrars = nupp.codec.json.asArray(registrars),
         },
-        builders = nupp.data.json.asArray(builders),
+        builders = nupp.codec.json.asArray(builders),
         retain = {
-            forceLoad = nupp.data.json.asArray(profile.forceLoad),
-            export = nupp.data.json.asArray(profile.export),
+            forceLoad = nupp.codec.json.asArray(profile.forceLoad),
+            export = nupp.codec.json.asArray(profile.export),
         },
-        tiers = nupp.data.json.asArray(tiers),
+        tiers = nupp.codec.json.asArray(tiers),
     }) .. "\n"
     local output = outDir .. "/aot/link.json"
     if fs.readFile(output) ~= document then

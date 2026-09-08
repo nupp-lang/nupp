@@ -1,7 +1,7 @@
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local base64 = require("nupp.data.base64")
-local valuebuilder = require("nupp.data.valuebuilder")
+local base64 = require("nupp.codec.base64")
+local valuebuilder = require("nupp.codec.valuebuilder")
 local conformance = require("nupp.tests.wasmconformance")
 
 local seamOk, seamWhy = conformance.run()

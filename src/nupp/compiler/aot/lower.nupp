@@ -1476,13 +1476,13 @@ local function call(
             type = "simd_padded_string_u8",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.new"
-        or identity == "nupp.data.valuebuilder.newSized"
-        or identity == "nupp.data.valuebuilder.newPull"
-        or identity == "nupp.data.valuebuilder.newSerde"
+    elseif identity == "nupp.codec.valuebuilder.new"
+        or identity == "nupp.codec.valuebuilder.newSized"
+        or identity == "nupp.codec.valuebuilder.newPull"
+        or identity == "nupp.codec.valuebuilder.newSerde"
     then
-        local sized = identity == "nupp.data.valuebuilder.newSized"
-        local pulling = identity == "nupp.data.valuebuilder.newPull" or identity == "nupp.data.valuebuilder.newSerde"
+        local sized = identity == "nupp.codec.valuebuilder.newSized"
+        local pulling = identity == "nupp.codec.valuebuilder.newPull" or identity == "nupp.codec.valuebuilder.newSerde"
         if (
             not sized and not pulling and #args ~= 1 or sized and #args ~= 3 and #args ~= 5 or pulling and #args ~= 8
         ) or args[
@@ -1520,7 +1520,7 @@ local function call(
             )
         end
         markLua(kernel, lower.site(node))
-        local builderMode = identity == "nupp.data.valuebuilder.newSerde" and "serde" or pulling and "pull" or "eager"
+        local builderMode = identity == "nupp.codec.valuebuilder.newSerde" and "serde" or pulling and "pull" or "eager"
         if kernel.builderMode ~= nil and kernel.builderMode ~= builderMode then
             context.reject(lower.site(node), "one AOT entry cannot mix value stream modes")
         end
@@ -1539,7 +1539,7 @@ local function call(
             type = "lua_builder",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.newWordScratch" then
+    elseif identity == "nupp.codec.valuebuilder.newWordScratch" then
         if #args ~= 1 or args[1].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder.newWordScratch takes one uint32 capacity")
         end
@@ -1550,7 +1550,7 @@ local function call(
             type = "lua_scratch_u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.newFixedWordScratch" then
+    elseif identity == "nupp.codec.valuebuilder.newFixedWordScratch" then
         -- The capacity has to be a literal here where the appending buffer takes
         -- any expression, because a bound nothing knows is a bound nothing can
         -- reason about, and reasoning about it is the whole difference.
@@ -1581,8 +1581,8 @@ local function call(
             type = "lua_scratch_u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.scratchWord"
-        or identity == "nupp.data.valuebuilder.scratchEscapeWord"
+    elseif identity == "nupp.codec.valuebuilder.scratchWord"
+        or identity == "nupp.codec.valuebuilder.scratchEscapeWord"
     then
         if #args ~= 2 or args[1].type ~= "lua_scratch_u32" or args[1].op ~= "local" or args[2].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder.scratchWord takes a local scratch buffer and uint32 index")
@@ -1592,10 +1592,10 @@ local function call(
         local cursor = args[2].op == "local" and (args[2] as scalarIR.Name).name or nil
         local proved = cursor ~= nil and kernel.cursorBounds[cursor as string] == scratchName
         return new scalarIR.LuaScratchU32Get(
-            fixedBound = identity == "nupp.data.valuebuilder.scratchWord" and kernel.scratchBounds[
+            fixedBound = identity == "nupp.codec.valuebuilder.scratchWord" and kernel.scratchBounds[
                 (args[1] as scalarIR.Name).name
             ] or nil,
-            op = identity == "nupp.data.valuebuilder.scratchEscapeWord"
+            op = identity == "nupp.codec.valuebuilder.scratchEscapeWord"
             and "lua_scratch_u32_escape_get"
             or "lua_scratch_u32_get",
             scratch = args[1],
@@ -1605,22 +1605,22 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.scratchLength"
-        or identity == "nupp.data.valuebuilder.scratchEscapeLength"
+    elseif identity == "nupp.codec.valuebuilder.scratchLength"
+        or identity == "nupp.codec.valuebuilder.scratchEscapeLength"
     then
         if #args ~= 1 or args[1].type ~= "lua_scratch_u32" or args[1].op ~= "local" then
             context.reject(lower.site(node), "valuebuilder.scratchLength takes one local word scratch")
         end
         markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU32Length(
-            op = identity == "nupp.data.valuebuilder.scratchEscapeLength"
+            op = identity == "nupp.codec.valuebuilder.scratchEscapeLength"
             and "lua_scratch_u32_escape_length"
             or "lua_scratch_u32_length",
             scratch = args[1],
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.setScratchWord" then
+    elseif identity == "nupp.codec.valuebuilder.setScratchWord" then
         if #args ~= 3 or args[
             1
         ].type ~= "lua_scratch_u32" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
@@ -1639,8 +1639,8 @@ local function call(
             type = "lua_effect",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.appendSetBits"
-        or identity == "nupp.data.valuebuilder.appendSetBitsEager"
+    elseif identity == "nupp.codec.valuebuilder.appendSetBits"
+        or identity == "nupp.codec.valuebuilder.appendSetBitsEager"
     then
         if #args ~= 4 or args[
             1
@@ -1654,7 +1654,7 @@ local function call(
         end
         markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU32AppendBits(
-            op = identity == "nupp.data.valuebuilder.appendSetBitsEager"
+            op = identity == "nupp.codec.valuebuilder.appendSetBitsEager"
             and "lua_scratch_u32_append_bits_eager"
             or "lua_scratch_u32_append_bits",
             scratch = args[1],
@@ -1664,11 +1664,11 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.appendStringBits"
-        or identity == "nupp.data.valuebuilder.appendStringBitsShared"
-        or identity == "nupp.data.valuebuilder.appendStringEscapeBits"
+    elseif identity == "nupp.codec.valuebuilder.appendStringBits"
+        or identity == "nupp.codec.valuebuilder.appendStringBitsShared"
+        or identity == "nupp.codec.valuebuilder.appendStringEscapeBits"
     then
-        local indexed = identity == "nupp.data.valuebuilder.appendStringEscapeBits"
+        local indexed = identity == "nupp.codec.valuebuilder.appendStringEscapeBits"
         local offset = indexed and 1 or 0
         if #args ~= (
             indexed and 11 or 8
@@ -1710,13 +1710,13 @@ local function call(
             slashes = args[6 + offset],
             slashCarry = indexed and args[8] or nil,
             slashOdd = indexed and args[9] or nil,
-            sharedEscapes = identity == "nupp.data.valuebuilder.appendStringBitsShared" or nil,
+            sharedEscapes = identity == "nupp.codec.valuebuilder.appendStringBitsShared" or nil,
             inString = args[7 + offset * 3],
             stringEscaped = args[8 + offset * 3],
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.newByteScratch" then
+    elseif identity == "nupp.codec.valuebuilder.newByteScratch" then
         if #args ~= 1 or args[1].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder.newByteScratch takes one uint32 capacity")
         end
@@ -1727,7 +1727,7 @@ local function call(
             type = "lua_scratch_u8",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.newFixedByteScratch" then
+    elseif identity == "nupp.codec.valuebuilder.newFixedByteScratch" then
         -- A literal, for the reason the word buffer wants one: a bound nothing
         -- knows is a bound nothing can reason about, and here it also decides
         -- how much stack the storage takes.
@@ -1752,7 +1752,7 @@ local function call(
             type = "lua_scratch_u8",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.scratchByte" then
+    elseif identity == "nupp.codec.valuebuilder.scratchByte" then
         if #args ~= 2 or args[1].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder.scratchByte takes a local byte scratch and uint32 index")
         end
@@ -1765,7 +1765,7 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.setScratchByte" then
+    elseif identity == "nupp.codec.valuebuilder.setScratchByte" then
         if #args ~= 3 or args[
             1
         ].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
@@ -1781,7 +1781,7 @@ local function call(
             type = "lua_effect",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.setScratchBytes4" then
+    elseif identity == "nupp.codec.valuebuilder.setScratchBytes4" then
         if #args ~= 3 or args[
             1
         ].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
@@ -1800,7 +1800,7 @@ local function call(
             type = "lua_effect",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.resetByteScratch" then
+    elseif identity == "nupp.codec.valuebuilder.resetByteScratch" then
         if #args ~= 1 or args[1].type ~= "lua_scratch_u8" or args[1].op ~= "local" then
             context.reject(lower.site(node), "valuebuilder.resetByteScratch takes one local byte scratch")
         end
@@ -1817,12 +1817,12 @@ local function call(
             type = "lua_effect",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.byte"
-        or identity == "nupp.data.valuebuilder.byteAt"
-        or identity == "nupp.data.valuebuilder.word"
-        or identity == "nupp.data.valuebuilder.length"
+    elseif identity == "nupp.codec.valuebuilder.byte"
+        or identity == "nupp.codec.valuebuilder.byteAt"
+        or identity == "nupp.codec.valuebuilder.word"
+        or identity == "nupp.codec.valuebuilder.length"
     then
-        local takesIndex = identity ~= "nupp.data.valuebuilder.length"
+        local takesIndex = identity ~= "nupp.codec.valuebuilder.length"
         if #args ~= (
             takesIndex and 2 or 1
         ) or args[
@@ -1833,7 +1833,7 @@ local function call(
             context.reject(lower.site(node), "valuebuilder rooted byte access has an invalid argument")
         end
         markLua(kernel, lower.site(node))
-        local byteAt = identity == "nupp.data.valuebuilder.byteAt"
+        local byteAt = identity == "nupp.codec.valuebuilder.byteAt"
         local cursor = byteAt and args[2].op == "local" and (args[2] as scalarIR.Name).name or nil
         local bytesName = (args[1] as scalarIR.Name).name
         if byteAt and (cursor == nil or kernel.cursorBounds[cursor as string] ~= bytesName) then
@@ -1842,9 +1842,9 @@ local function call(
         return new scalarIR.LuaBytes(
             op = byteAt
             and "lua_string_byte_at"
-            or identity == "nupp.data.valuebuilder.byte"
+            or identity == "nupp.codec.valuebuilder.byte"
             and "lua_string_byte"
-            or identity == "nupp.data.valuebuilder.word"
+            or identity == "nupp.codec.valuebuilder.word"
             and "lua_string_u32"
             or "lua_string_length",
             bytes = args[1],
@@ -1854,7 +1854,7 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.finish" then
+    elseif identity == "nupp.codec.valuebuilder.finish" then
         if #args ~= 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
             context.reject(lower.site(node), "valuebuilder.finish takes one local builder")
         end
@@ -1866,21 +1866,21 @@ local function call(
             type = "lua_value",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.depth"
-        or identity == "nupp.data.valuebuilder.kind"
-        or identity == "nupp.data.valuebuilder.count"
-        or identity == "nupp.data.valuebuilder.state"
+    elseif identity == "nupp.codec.valuebuilder.depth"
+        or identity == "nupp.codec.valuebuilder.kind"
+        or identity == "nupp.codec.valuebuilder.count"
+        or identity == "nupp.codec.valuebuilder.state"
     then
         if #args ~= 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
             context.reject(lower.site(node), "valuebuilder stream query takes one local builder")
         end
         markLua(kernel, lower.site(node))
         return new scalarIR.LuaBuilderQuery(
-            op = identity == "nupp.data.valuebuilder.depth"
+            op = identity == "nupp.codec.valuebuilder.depth"
             and "lua_builder_depth"
-            or identity == "nupp.data.valuebuilder.kind"
+            or identity == "nupp.codec.valuebuilder.kind"
             and "lua_builder_kind"
-            or identity == "nupp.data.valuebuilder.count"
+            or identity == "nupp.codec.valuebuilder.count"
             and "lua_builder_count"
             or "lua_builder_state",
             builder = args[1],
@@ -1888,7 +1888,7 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.data.valuebuilder.numberToken" then
+    elseif identity == "nupp.codec.valuebuilder.numberToken" then
         if #args ~= 4 or args[
             1
         ].type ~= "lua_builder" or args[
@@ -1915,8 +1915,8 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity ~= nil and identity:match("^nupp%.data%.valuebuilder%.") ~= nil then
-        local action = tostring(identity):match("^nupp%.data%.valuebuilder%.(.+)$")
+    elseif identity ~= nil and identity:match("^nupp%.codec%.valuebuilder%.") ~= nil then
+        local action = tostring(identity):match("^nupp%.codec%.valuebuilder%.(.+)$")
         local operations: {
             [string]: string
         } = {

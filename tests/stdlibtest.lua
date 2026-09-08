@@ -14,7 +14,7 @@ local optimize = require("nupp.compiler.optimize")
 local gen = require("nupp.compiler.gen")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-local JSON_PROVIDER = "nupp.data.json.provider"
+local JSON_PROVIDER = "nupp.codec.json.provider"
 
 local function assertEq(got, want, label)
     if got ~= want then
@@ -45,6 +45,39 @@ local function assertClean(src, opts)
 end
 
 local M = {}
+
+function M.digestFinalizationConsumesButChecksumReadsDoNot()
+    for _, finalizer in ipairs({"digest()", "hexDigest()"}) do
+        local _, diagnostics = diagsOf(
+            table.concat(
+                {
+                    "local rolling = nupp.digest.create('sha256')",
+                    "local result = rolling:" .. finalizer,
+                    "rolling:update('too late')",
+                },
+                "\n"
+            )
+        )
+        local ownership = false
+        for _, diagnostic in ipairs(diagnostics) do
+            if diagnostic.line == 3 and diagnostic.code:match("^NUPP26") then
+                ownership = true
+            end
+        end
+        assert(ownership, "finalization must prevent subsequent updates: " .. finalizer)
+    end
+    assertClean(
+        table.concat(
+            {
+                "local sum = nupp.checksum.create('crc32c')",
+                "local before = sum:value()",
+                "sum:update('still open')",
+                "local after = sum:value()",
+            },
+            "\n"
+        )
+    )
+end
 
 function M.closedBufferReleasesItsAllocationWhileMetadataSurvives()
     local buffer = require("nupp.io").newBuffer(string.rep("x", 1048576))
@@ -415,7 +448,7 @@ function M.aComputedRequireArgumentIsChecked()
         (
             diagsOf(
                 table.concat(
-                    {"local registry = require('nupp.data.json')", "return require(registry.encode('module.name'))",},
+                    {"local registry = require('nupp.codec.json')", "return require(registry.encode('module.name'))",},
                     "\n"
                 )
             )
@@ -427,7 +460,7 @@ function M.aComputedRequireArgumentIsChecked()
         (
             diagsOf(
                 table.concat(
-                    {"local registry = require('nupp.data.json')", "return require(registry.absent('data.json'))",},
+                    {"local registry = require('nupp.codec.json')", "return require(registry.absent('data.json'))",},
                     "\n"
                 )
             )
@@ -436,40 +469,33 @@ function M.aComputedRequireArgumentIsChecked()
         "a field no value has is reported inside the call"
     )
     assertEq((diagsOf("local n: integer = 5\nreturn require(n)")), "NUPP2006:2", "require takes a string")
-    assertEq((diagsOf("return require('nupp.data', 'extra')")), "NUPP2007:1", "and takes one of them")
+    assertEq((diagsOf("return require('nupp.uuid', 'extra')")), "NUPP2007:1", "and takes one of them")
 end
 
 function M.standardSurfaceRequiresExactPortableSeams()
-    local missing = diagsOf("local json = require('nupp.data.json')", {dialect = "lua51"})
+    local missing = diagsOf("local json = require('nupp.codec.json')", {dialect = "lua51"})
     assertEq(missing, "NUPP3012:1", "a reached standard facility needs its exact seam")
-    local missingMember = diagsOf("return nupp.data.sha256('abc')", {dialect = "lua51"})
-    assertEq(missingMember, "NUPP3012:1", "a mixed module member needs only its owning seam")
+    local missingMember = diagsOf("return nupp.uuid.v4()", {dialect = "lua51"})
+    assertEq(missingMember, "NUPP3012:1", "a module member needs its owning seam")
     local selected = dataResolution("fixtures.data_backend")
-    assertClean(
-        table.concat(
-            {
-                "local data = require('nupp.data')",
-                "return data.fnv1a64('hello'), data.crc32('123456789'),",
-                "   data.sha256('abc'), data.uuid4(), data.uuid7()",
-            },
-            "\n"
-        ),
-        {dialect = "lua51", backendResolution = selected}
-    )
+    assertClean(table.concat({"local uuid = require('nupp.uuid')", "return uuid.v4(), uuid.v7()",}, "\n"), {
+        dialect = "lua51",
+        backendResolution = selected
+    })
     local classified = standardsurface.all()
     for _, name in ipairs({
-        "nupp.data.crypto",
+        "nupp.crypto",
         "nupp.io.storage",
-        "nupp.data.hash",
-        "nupp.data.json",
-        "nupp.data.serde",
-        "nupp.data.utf8",
+        "nupp.digest.internal.streaming",
+        "nupp.codec.json",
+        "nupp.serde",
+        "nupp.text.utf8",
         "nupp.io.files",
         "nupp.io.http",
         "nupp.io.process",
         "nupp.io.path",
         "nupp.io.uri",
-        "nupp.data.random",
+        "nupp.random",
         "nupp.mem",
         "nupp.runtime.native",
         "nupp.simd",
@@ -487,7 +513,7 @@ function M.standardSurfaceRequiresExactPortableSeams()
     -- Serde builds its output by appending into a buffer, which is the one thing in
     -- it a portable target cannot answer for itself. It asks for the seam that
     -- supplies one rather than for a capability it does not otherwise need.
-    local serde = diagsOf("local serde = require('nupp.data.serde')", {dialect = "lua51"})
+    local serde = diagsOf("local serde = require('nupp.serde')", {dialect = "lua51"})
     assertEq(serde, "NUPP3012:1", "serde asks for the buffer seam it renders through")
 end
 
@@ -495,7 +521,7 @@ function M.randomUsesOnlyThePortableBitopsSeam()
     assertClean(
         table.concat(
             {
-                "local random = require('nupp.data.random')",
+                "local random = require('nupp.random')",
                 "local generator = random.newRandom(12345)",
                 "return generator:next(), generator:integer(1, 100)",
             },
@@ -505,10 +531,15 @@ function M.randomUsesOnlyThePortableBitopsSeam()
     )
 end
 
-function M.streamingHashUsesOnlyThePortableBitopsSeam()
+function M.digestUsesThePortableBitopsSeam()
     assertClean(
         table.concat(
-            {"local hash = require('nupp.data.hash')", "return hash.hmac('key'):update('message'):hex()",},
+            {
+                "local digest = require('nupp.digest')",
+                "local rolling = digest.create('sha256')",
+                "rolling:update('message')",
+                "return rolling:hexDigest()",
+            },
             "\n"
         ),
         {dialect = "lua51", backendResolution = bitopsResolution("fixtures.bitops_backend"),}
@@ -519,8 +550,8 @@ function M.oneShotHmacNeedsNoCryptoSeam()
     assertClean(
         table.concat(
             {
-                "local hash = require('nupp.data.hash')",
-                "return hash.hmacHex('key', 'message'), #hash.hmacDigest('key', 'message')",
+                "local mac = require('nupp.mac')",
+                "return mac.hexDigest('hmac-sha256', 'key', 'message'), #mac.digest('hmac-sha256', 'key', 'message')",
             },
             "\n"
         ),
@@ -528,12 +559,11 @@ function M.oneShotHmacNeedsNoCryptoSeam()
     )
 end
 
--- Two contracts, one public module. `data.sha256` and `data.uuid` both project
--- members onto `nupp.data`, and neither knows the other is doing it, so the
--- module has to be assembled from whichever selections an install made.
+-- SHA-256 and UUID contracts install into distinct modules independently.
 function M.mixedDataSeamsComposeOneLazyPublicModule()
     local providerNames = {sha = "fixtures.portable_sha", uuid = "fixtures.portable_uuid",}
-    local publicName = "nupp.data"
+    local publicName = "nupp.uuid"
+    local shaName = "nupp.digest.internal.sha256"
     local oldLoaded, oldPreload = {}, {}
     for _, name in pairs(providerNames) do
         oldLoaded[name], oldPreload[name] = package.loaded[name], package.preload[name]
@@ -541,6 +571,8 @@ function M.mixedDataSeamsComposeOneLazyPublicModule()
     end
     oldLoaded[publicName], oldPreload[publicName] = package.loaded[publicName], package.preload[publicName]
     package.loaded[publicName] = nil
+    oldLoaded[shaName], oldPreload[shaName] = package.loaded[shaName], package.preload[shaName]
+    package.loaded[shaName] = nil
     local oldProviders = rawget(_G, "__nuppRuntimeProviders")
     local oldModules = rawget(_G, "__nuppRuntimeModules")
     local oldBindings = {rawget(_G, "__nuppSha256"), rawget(_G, "__nuppUuid")}
@@ -578,15 +610,21 @@ function M.mixedDataSeamsComposeOneLazyPublicModule()
             assertEq(package.loaded[name], nil, "installing the mixed module remains lazy")
         end
         local data = require(publicName)
-        assertEq(data.sha256, values.sha.sha256, "SHA is a direct provider function")
-        assertEq(data.uuid4, values.uuid.uuid4, "UUID is a direct provider function")
-        assertEq(data.uuid7, values.uuid.uuid7, "one provider may supply several members")
+        assertEq(
+            require(shaName).sha256,
+            values.sha.sha256,
+            "the internal one-shot accelerator is independently projected"
+        )
+        assertEq(data.v4, values.uuid.uuid4, "UUID is a direct provider function")
+        assertEq(data.v7, values.uuid.uuid7, "one provider may supply several members")
+        assertEq(data.sha256, nil, "the UUID module exposes no digests")
     end)
 
     for _, name in pairs(providerNames) do
         package.loaded[name], package.preload[name] = oldLoaded[name], oldPreload[name]
     end
     package.loaded[publicName], package.preload[publicName] = oldLoaded[publicName], oldPreload[publicName]
+    package.loaded[shaName], package.preload[shaName] = oldLoaded[shaName], oldPreload[shaName]
     _G.__nuppRuntimeProviders, _G.__nuppRuntimeModules = oldProviders, oldModules
     _G.__nuppSha256, _G.__nuppUuid = unpack(oldBindings)
     assert(ok, problem)
@@ -889,7 +927,7 @@ function M.seamRegistryOwnsEveryRuntimeModuleSubstitution()
         )
     end
 
-    local implementations = {["data.json"] = "nupp.data.json.provider", ["text.buffer"] = "string.buffer",}
+    local implementations = {["data.json"] = "nupp.codec.json.provider", ["text.buffer"] = "string.buffer",}
     for seamName, moduleName in pairs(implementations) do
         local contract = seamRegistry.get(seamName)
         assertEq(
@@ -900,9 +938,10 @@ function M.seamRegistryOwnsEveryRuntimeModuleSubstitution()
         assertEq(contract.modules, nil, seamName .. " does not substitute the interface used for checking")
     end
 
-    -- The accelerator. It replaces a working implementation rather than supplying
-    -- a missing one, so it claims no module: a program reaching `nupp.data.hash`
-    -- without selecting a backend is answered, not refused.
+    -- The accelerator. It replaces a working implementation rather than supplying a
+    -- missing one, so it claims no module: a program reaching
+    -- `nupp.digest.internal.streaming` without selecting a backend is answered, not
+    -- refused.
     local accelerator = seamRegistry.get("crypto.hmac_sha256")
     assertEq(accelerator.modules, nil, "crypto.hmac_sha256 substitutes no module")
     assertEq(
@@ -1091,8 +1130,8 @@ function M.runtimeJsonSeamExposesItsOwnConformanceSuite()
     assert(ok, problem)
 end
 
--- The `data.json` shape is written twice: once in `nupp.data.json.provider`,
--- which is the surface a consumer resolves `nupp.data.json` through, and once
+-- The `data.json` shape is written twice: once in `nupp.codec.json.provider`,
+-- which is the surface a consumer resolves `nupp.codec.json` through, and once
 -- in `nupp.runtime.backend.contracts`, which is what a provider is checked
 -- against. The second cannot name the first without the bundled declaration
 -- for the first resolving to `unknown`, so they are held together here
@@ -1268,7 +1307,8 @@ function M.browserProvidersPassTheirPublicContracts()
         {"suspension", "nupp.runtime.browser.suspension"},
         {"host.uri", "nupp.runtime.browser.uri"},
         {"host.http", "nupp.runtime.browser.http"},
-        {"host.crypto", "nupp.runtime.browser.crypto"},
+        {"host.crypto", "nupp.runtime.browser.random"},
+        {"host.system", "nupp.runtime.browser.system"},
         {"host.storage", "nupp.runtime.browser.storage"},
         {"host.time", "nupp.runtime.browser.time"},
         {"host.workers", "nupp.runtime.browser.workers"},
@@ -1435,7 +1475,7 @@ function M.selectedRuntimeProviderSuppressesOnlyItsNativeFeature()
 end
 
 function M.generatedBackendSelectionDoesNotTouchDefaultOutput()
-    local source = "return nupp.data.json.encode({answer = 42})"
+    local source = "return nupp.codec.json.encode({answer = 42})"
     local result = parser.parse(source, "runtime-provider.g.nupp")
     assertEq(#result.errors, 0, "provider source parses")
     check.check(result, "runtime-provider.g.nupp", sharedEnv)
@@ -1457,7 +1497,7 @@ function M.generatedBackendSelectionDoesNotTouchDefaultOutput()
     local installAt = assert(
         portable:find('require("nupp.runtime.backend").install(require("fixtures.portable_backend"))', 1, true)
     )
-    local jsonAt = assert(portable:find('require("nupp.data.json")', 1, true))
+    local jsonAt = assert(portable:find('require("nupp.codec.json")', 1, true))
     assert(installAt < jsonAt, "the selected backend is installed before a projected standard module loads")
 end
 
@@ -1617,8 +1657,8 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(re["stdlib.lpeg.re"], "require('re') records its reference-module effect")
     assert(native.expand(re)["native.lpeg"], "the re module brings native LPeg")
 
-    local json = effectsOf("local json = require('nupp.data.json')")
-    assert(json["native.json"], "require('nupp.data.json') records its JSON effect")
+    local json = effectsOf("local json = require('nupp.codec.json')")
+    assert(json["native.json"], "require('nupp.codec.json') records its JSON effect")
 
     local test = effectsOf("local test = require('nupp.test')")
     assert(test["runtime.test"], "require('nupp.test') carries the assertion module")
@@ -1658,16 +1698,16 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(not shadowedRequire["native.lpeg"], "a local require is not the native module loader")
 
     local expected = {
-        ["nupp.data.json.encode({answer = 42})"] = "native.json",
-        ["nupp.data.json.pull('{}', {answer = true})"] = "native.json",
-        ["nupp.data.utf8.length('hello')"] = "runtime.data_utf8",
+        ["nupp.codec.json.encode({answer = 42})"] = "native.json",
+        ["nupp.codec.json.pull('{}', {answer = true})"] = "native.json",
+        ["nupp.text.utf8.length('hello')"] = "runtime.data_utf8",
         ["nupp.io.newBuffer('hello')"] = "stdlib.io",
         ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
         ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
         ["nupp.io.path.separator()"] = "native.path",
         ["nupp.io.uri.newURI('https://example.com')"] = "native.uri",
-        ["nupp.data.uuid7()"] = "native.uuid",
-        ["nupp.data.sha256('hello')"] = "native.sha256",
+        ["nupp.uuid.v7()"] = "native.uuid",
+        ["nupp.system.availableParallelism()"] = "native.system",
     }
     for source, effect in pairs(expected) do
         local found = effectsOf(source)
@@ -1695,13 +1735,13 @@ function M.nativeFeaturesAreResolvedEffects()
         )
     )
 
-    -- A native provider is selected only when the relevant member is reached through
-    -- the data module.
-    local aliased = effectsOf(table.concat({"const data = require('nupp.data')", "data.sha256('hello')",}, "\n"))
-    assert(aliased["native.sha256"], "requiring a facility records its feature")
-    assert(not aliased["native.uuid"], "equal function signatures do not share effects")
+    local aliased = effectsOf(
+        table.concat({"const system = require('nupp.system')", "system.availableParallelism()",}, "\n")
+    )
+    assert(aliased["native.system"], "requiring a facility records its feature")
+    assert(not aliased["native.uuid"], "separate facilities do not share effects")
 
-    local namespaceOnly = effectsOf("local data = nupp.data")
+    local namespaceOnly = effectsOf("local store = nupp.store")
     assert(next(namespaceOnly) == nil, "reaching a namespace alone has no effect")
 end
 
@@ -1789,7 +1829,7 @@ function M.randomSurfaceIsBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-random-surface")
     local source = table.concat(
         {
-            "local random = require('nupp.data.random')",
+            "local random = require('nupp.random')",
             "local generator = random.newRandom(12345)",
             "assert(generator:next() >= 0)",
         },
@@ -1801,13 +1841,16 @@ function M.randomSurfaceIsBundledOutsideThisCheckout()
     assertEq(#diags, 0, "the shipped random source supplies its typed surface")
 end
 
-function M.streamingHashSurfaceIsBundledOutsideThisCheckout()
+function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
     local source = table.concat(
         {
-            "local hash = require('nupp.data.hash')",
-            "assert(#hash.hmac('key'):update('message'):digest() == 32)",
-            "assert(#hash.hmacHex('key', 'message') == 64)",
+            "local digest = require('nupp.digest')",
+            "local mac = require('nupp.mac')",
+            "local rolling = digest.create('sha256')",
+            "rolling:update('message')",
+            "assert(#rolling:digest() == 32)",
+            "assert(#mac.hexDigest('hmac-sha256', 'key', 'message') == 64)",
         },
         "\n"
     )
@@ -1819,28 +1862,28 @@ end
 
 function M.optimizedDeadCodeDropsItsNativeFeatures()
     local source = table.concat(
-        {"if false then", "    print(nupp.data.sha256('unreachable'))", "else", "    print(nupp.data.uuid4())", "end",},
+        {"if false then", "    print(nupp.system.availableParallelism())", "else", "    print(nupp.uuid.v4())", "end",},
         "\n"
     )
     local result = parser.parse(source, "dead-native-feature")
     check.check(result, "dead-native-feature", sharedEnv)
-    assert(result.effects["native.sha256"] and result.effects["native.uuid"], "checking sees both source-level uses")
+    assert(result.effects["native.system"] and result.effects["native.uuid"], "checking sees both source-level uses")
     optimize.run(result, {level = 1})
     local live = optimize.liveEffects(result)
-    assert(not live["native.sha256"], "a folded-away branch loses its provider")
+    assert(not live["native.system"], "a folded-away branch loses its provider")
     assert(live["native.uuid"], "the selected branch retains its provider")
 end
 
 function M.generatedBootstrapFollowsWhatCodegenEmits()
     local source = table.concat(
-        {"if false then", "    print(nupp.data.sha256('unreachable'))", "else", "    print(nupp.data.uuid4())", "end",},
+        {"if false then", "    print(nupp.system.availableParallelism())", "else", "    print(nupp.uuid.v4())", "end",},
         "\n"
     )
     local result = parser.parse(source, "generated-runtime-features")
     assertEq(#result.errors, 0, "generated-runtime-features source parses")
     check.check(result, "generated-runtime-features", sharedEnv)
     assert(
-        result.effects["native.sha256"] and result.effects["native.uuid"],
+        result.effects["native.system"] and result.effects["native.uuid"],
         "checking retains the complete source-level feature inventory"
     )
     optimize.run(result, {level = 1})
@@ -1848,13 +1891,11 @@ function M.generatedBootstrapFollowsWhatCodegenEmits()
     local code, diagnostics, _, emitted = gen.generate(result, "generated-runtime-features")
     assertEq(#diagnostics, 0, "the optimized feature fragment generates")
     assert(
-        not emitted["native.sha256"] and emitted["native.uuid"],
+        not emitted["native.system"] and emitted["native.uuid"],
         "generation reports only features whose consumers it wrote"
     )
-    -- Both facilities are members of one module. The live UUID keeps that module,
-    -- while the folded branch no longer reaches the SHA member.
-    assert(not code:find("sha256", 1, true), "the dead SHA-256 branch loses its member access")
-    assert(code:find("uuid4", 1, true), "the live UUID branch keeps its member access")
+    assert(not code:find("availableParallelism", 1, true), "the dead system branch loses its member access")
+    assert(code:find("v4", 1, true), "the live UUID branch keeps its member access")
 end
 
 -- What the bootstrap still installs, which is the maths and nothing else: buffers,
@@ -1886,15 +1927,16 @@ function M.compilerProvidedPureLibraries()
       assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
       assert(nupp.math.lerp(10, 20, 1) == 20)
       assert(nupp.math.lerp(10, 20, 1.5) == 25)
-      -- Hashing lives directly on the data module.
-      local data = require("nupp.data")
-      assert(data.fnv1a64("hello") == "a430d84680aabd0b")
-      assert(data.crc32("123456789") == 3421780262)
-      assert(not pcall(data.crc32, "bytes", 4294967296))
-      assert(data.sha256("abc") ==
+      local hash = require("nupp.hash")
+      local checksum = require("nupp.checksum")
+      local digest = require("nupp.digest")
+      local uuid = require("nupp.uuid")
+      assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
+      assert(checksum.value("crc32-ieee", "123456789") == 3421780262ULL)
+      assert(digest.hexDigest("sha256", "abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-      local uuid4 = data.uuid4()
-      local uuid7 = data.uuid7()
+      local uuid4 = uuid.v4()
+      local uuid7 = uuid.v7()
       assert(uuid4:match("^[0-9a-f]+%-[0-9a-f]+%-4[0-9a-f]+%-[89ab][0-9a-f]+%-[0-9a-f]+$")
          and #uuid4 == 36)
       assert(uuid7:match("^[0-9a-f]+%-[0-9a-f]+%-7[0-9a-f]+%-[89ab][0-9a-f]+%-[0-9a-f]+$")
@@ -1913,7 +1955,7 @@ function M.bitsetsReachTheCheckedModule()
     local chunk = assert(
         loadstring(
             [[
-      local data = require("nupp.data")
+      local data = require("nupp.bitset")
       local function bitset(bits) return data.Bitset.__nuppCtor1(bits) end
       local set = bitset(64)
       assert(set:count() == 0)
@@ -2150,11 +2192,11 @@ end
 -- and the answers are the same ones the rock gave.
 function M.theUtf8ModuleNeedsNoNativeModule()
     local loadedRock = package.loaded["lua-utf8"]
-    local loadedModule = package.loaded["nupp.data.utf8"]
+    local loadedModule = package.loaded["nupp.text.utf8"]
     package.loaded["lua-utf8"] = nil
-    package.loaded["nupp.data.utf8"] = nil
+    package.loaded["nupp.text.utf8"] = nil
     local ok, problem = pcall(function()
-        local utf8 = require("nupp.data.utf8")
+        local utf8 = require("nupp.text.utf8")
         assert(package.loaded["lua-utf8"] == nil, "requiring the module opened no rock")
         assert(utf8.length("A\226\130\172") == 2)
         assert(utf8.isValid("A\226\130\172"))
@@ -2165,7 +2207,7 @@ function M.theUtf8ModuleNeedsNoNativeModule()
         assert(utf8.truncate("A\226\130\172", 3) == "A", "never cuts through a codepoint")
     end)
     package.loaded["lua-utf8"] = package.loaded["lua-utf8"] or loadedRock
-    package.loaded["nupp.data.utf8"] = package.loaded["nupp.data.utf8"] or loadedModule
+    package.loaded["nupp.text.utf8"] = package.loaded["nupp.text.utf8"] or loadedModule
     assert(ok, problem)
 end
 
@@ -2173,11 +2215,11 @@ end
 -- module also loads its package-private provider binding.
 function M.theJsonModuleLoadsItsNuppProviderOnRequire()
     local loadedProvider = package.loaded[JSON_PROVIDER]
-    local loadedModule = package.loaded["nupp.data.json"]
+    local loadedModule = package.loaded["nupp.codec.json"]
     package.loaded[JSON_PROVIDER] = nil
-    package.loaded["nupp.data.json"] = nil
+    package.loaded["nupp.codec.json"] = nil
     local ok, problem = pcall(function()
-        local json = require("nupp.data.json")
+        local json = require("nupp.codec.json")
         assert(package.loaded[JSON_PROVIDER] ~= nil, "requiring the module loaded the provider seam")
         assert(json.encode({answer = 42}):find('"answer":42', 1, true))
         assert(json.encode(json.EMPTY_ARRAY) == "[]")
@@ -2227,14 +2269,14 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
         )
     end)
     package.loaded[JSON_PROVIDER] = package.loaded[JSON_PROVIDER] or loadedProvider
-    package.loaded["nupp.data.json"] = package.loaded["nupp.data.json"] or loadedModule
+    package.loaded["nupp.codec.json"] = package.loaded["nupp.codec.json"] or loadedModule
     assert(ok, problem)
 end
 
 -- Encoding is Nupp throughout. Pin every boundary between sequence lengths,
 -- both ends of the surrogate block, and the first value that is not a codepoint.
 function M.utf8EncodingCoversEveryBoundary()
-    local utf8 = require("nupp.data.utf8")
+    local utf8 = require("nupp.text.utf8")
     local boundaries = {
         {0, "\0"},
         {1, "\1"},
@@ -2296,12 +2338,12 @@ local UTF8_SHAPES = {
 -- The encoder checks UTF-8 as it escapes rather than in a pass of its own, so the
 -- check is the encoder's own code instead of a call into a rock.
 --
--- The AOT codec by name rather than through `nupp.data.json`, because refusing
+-- The AOT codec by name rather than through `nupp.codec.json`, because refusing
 -- these bytes is this provider's behaviour: a selected runtime backend brings its
 -- own encoder and answers to the seam's contract instead. Encoding is all that is
 -- asked of it here; decoding is the SIMD parser, which needs a compiled entry.
 function M.jsonEncodingRefusesEveryMalformedUtf8Shape()
-    local json = require("nupp.data.json.aot")
+    local json = require("nupp.codec.json.aot")
     for _, case in ipairs(UTF8_SHAPES) do
         local value, valid = case[1], case[2]
         local what = case[3] or ("%q"):format(value)
@@ -2321,7 +2363,7 @@ end
 -- the property that keeps a fixed-width field from splitting a scalar without
 -- also throwing away a whole one.
 function M.utf8ValidationCoversEveryShape()
-    local utf8 = require("nupp.data.utf8")
+    local utf8 = require("nupp.text.utf8")
     for _, case in ipairs(UTF8_SHAPES) do
         local value, valid = case[1], case[2]
         local what = case[3] or ("%q"):format(value)

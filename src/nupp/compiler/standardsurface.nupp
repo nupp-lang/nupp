@@ -22,30 +22,45 @@ end
 local MODULES = {
     ["bit"] = selected("runtime", "numeric.bitops"),
     ["string.buffer"] = selected("runtime", "text.buffer"),
-    ["nupp.data.json.provider"] = selected("runtime", "data.json"),
+    ["nupp.codec.json.provider"] = selected("runtime", "data.json"),
     ["nupp"] = {kind = "common"},
     ["nupp.test"] = {kind = "common"},
-    ["nupp.data.crypto"] = selected("host", "host.crypto", true),
+    ["nupp.crypto"] = selected("host", "host.crypto"),
+    ["nupp.system"] = selected("host", "host.system"),
+    ["nupp.services"] = {kind = "common"},
+    ["nupp.service.registry"] = {kind = "common"},
+    ["nupp.codec.hex"] = {kind = "common"},
+    ["nupp.digest"] = selected("runtime", "numeric.bitops"),
+    ["nupp.digest.provider"] = {kind = "common"},
+    ["nupp.digest.internal.context"] = {kind = "common"},
+    ["nupp.digest.internal.builtin"] = selected("runtime", "numeric.bitops"),
+    ["nupp.digest.internal.words"] = selected("runtime", "numeric.bitops"),
+    ["nupp.digest.internal.constants"] = {kind = "common"},
+    ["nupp.checksum"] = selected("runtime", "numeric.bitops"),
+    ["nupp.checksum.provider"] = {kind = "common"},
+    ["nupp.checksum.internal.builtin"] = selected("runtime", "numeric.bitops"),
+    ["nupp.mac"] = selected("runtime", "numeric.bitops"),
+    ["nupp.hash"] = selected("runtime", "numeric.bitops"),
+    ["nupp.uuid"] = selected("runtime", "data.uuid"),
     ["nupp.io.storage"] = selected("host", "host.storage", true),
-    ["nupp.data"] = {kind = "members"},
-    ["nupp.data.internal.bitset"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.bitset"] = {kind = "unavailable", capability = "cstorage"},
     -- Tables, integers, and one metatable: nothing a dialect could lack.
-    ["nupp.data.internal.store"] = {kind = "common"},
-    ["nupp.data.json"] = selected("runtime", "data.json"),
+    ["nupp.store"] = {kind = "common"},
+    ["nupp.codec.json"] = selected("runtime", "data.json"),
     -- Two seams, and only the first stands between a target and this module.
     -- `numeric.bitops` is what the digests are written against and a `lua51`
     -- target has to select. `crypto.hmac_sha256` is an accelerator the one-shot
     -- HMAC prefers where a backend installs one, so it is recorded as reached
     -- -- a target that names such a backend gets it installed -- and never
     -- gated on, because the module answers without it.
-    ["nupp.data.hash"] = selected("runtime", "numeric.bitops", nil, {
+    ["nupp.digest.internal.streaming"] = selected("runtime", "numeric.bitops", nil, {
         "runtime.hmac_sha256"
     }),
-    ["nupp.data.serde"] = selected("runtime", "text.buffer"),
+    ["nupp.serde"] = selected("runtime", "text.buffer"),
     -- Scalars out of ordinary strings, in ordinary Lua. This was gated on a
     -- `data.utf8` seam nothing ever implemented, which made a portable module
     -- refusable on a target that could have run it as written.
-    ["nupp.data.utf8"] = {kind = "common"},
+    ["nupp.text.utf8"] = {kind = "common"},
     -- Portable given a buffer, which is the only thing in either of these that a
     -- `lua51` target could not answer: both build their output by appending into
     -- one. Classified through the seam that supplies it rather than as portable
@@ -72,8 +87,8 @@ local MODULES = {
     ["nupp.io.files"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.io.http"] = selected("host", "host.http"),
     ["nupp.io.path"] = {kind = "common"},
-    ["nupp.data.base64"] = {kind = "common"},
-    ["nupp.data.valuebuilder"] = {kind = "common"},
+    ["nupp.codec.base64"] = {kind = "common"},
+    ["nupp.codec.valuebuilder"] = {kind = "common"},
     ["nupp.io.net"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.io.process"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.io.tls"] = {kind = "unavailable", capability = "cinterop"},
@@ -97,7 +112,7 @@ local MODULES = {
     ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.data.random"] = {kind = "common"},
+    ["nupp.random"] = {kind = "common"},
     ["nupp.simd"] = selected("compile", "numeric.simd"),
     ["nupp.suspension"] = {kind = "common"},
     ["nupp.tasks"] = {kind = "common"},
@@ -111,32 +126,9 @@ local MODULES = {
     ["nupp.events"] = {kind = "unavailable", capability = "cstorage"},
 }
 
-local FACILITIES = {
-    ["task.deadline"] = selected("host", "host.time"),
-    -- The digests `nupp.data.hash` computes, projected onto `nupp.data`. They
-    -- are written against bit operations and nothing else, so that is what a
-    -- portable target has to select for them.
-    ["data.hash"] = selected("runtime", "numeric.bitops"),
-    ["data.sha256"] = selected("runtime", "data.sha256"),
-    ["data.uuid"] = selected("runtime", "data.uuid"),
-    -- A bitset is a `uint32[?]`, so it needs C storage rather than a provider.
-    ["data.bitset"] = {kind = "unavailable", capability = "cstorage", effect = "runtime.bitset"},
-}
+local FACILITIES = {["task.deadline"] = selected("host", "host.time"),}
 
-local MODULE_MEMBERS = {
-    ["nupp.tasks"] = {runFor = "task.deadline",},
-    [
-        "nupp.data"
-    ] = {
-        Bitset = "data.bitset",
-        WORD_BITS = "data.bitset",
-        crc32 = "data.hash",
-        fnv1a64 = "data.hash",
-        sha256 = "data.sha256",
-        uuid4 = "data.uuid",
-        uuid7 = "data.uuid",
-    },
-}
+local MODULE_MEMBERS = {["nupp.tasks"] = {runFor = "task.deadline",},}
 
 function surface.classify(moduleName: string): any?
     return MODULES[moduleName]

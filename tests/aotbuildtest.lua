@@ -238,7 +238,7 @@ return m
 ]]
 
 local BUILDER = [[
-local valueBuilder = require("nupp.data.valuebuilder")
+local valueBuilder = require("nupp.codec.valuebuilder")
 local simd = require("nupp.simd")
 
 @aot
@@ -548,7 +548,7 @@ end
 -- build checks the file, so the first of these has no reader left in the text
 -- that gets checked and the second never had one.
 local UNUSED_SOURCE = [[
-local valueBuilder = require("nupp.data.valuebuilder")
+local valueBuilder = require("nupp.codec.valuebuilder")
 
 const READ_ONLY_IN_THE_BODY = "\001\002\003\004"
 
@@ -1109,7 +1109,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
         table.concat(
             {
                 "module constkernel",
-                'local _valueBuilder = require("nupp.data.valuebuilder")',
+                'local _valueBuilder = require("nupp.codec.valuebuilder")',
                 "@aot(vectorize = false)",
                 "local function build<const Variant: integer>(",
                 "    source: string,",

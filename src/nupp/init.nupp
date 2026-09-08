@@ -4,7 +4,7 @@ standard library. It's available without a `require`.
 
 ```nupp
 -- You can use nupp and nested modules without any `require` statements.
-local text = nupp.data.json.encode({ok = true})
+local text = nupp.codec.json.encode({ok = true})
 
 nupp.log.info("wrote %d bytes", #text)
 ```

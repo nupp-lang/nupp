@@ -1,7 +1,7 @@
 # SIMD JSON benchmark
 
 This benchmark retains the Nupp AOT experiment, differential decoders, and
-performance history behind `nupp.data.json.internal.decode`. Its C++ code is
+performance history behind `nupp.codec.json.internal.decode`. Its C++ code is
 an external simdjson control only; none of it is part of the production runtime.
 
 The benchmark uses Nupp's deliberately narrow C++ binding to the system
@@ -88,7 +88,7 @@ The production route has three stages inside one native entry:
    or otherwise ambiguous mantissas retain the correctly rounded `strtod`
    fallback.
 
-The production `nupp.data.json.pull` route drives the same entry with a selection
+The production `nupp.codec.json.pull` route drives the same entry with a selection
 shape. It retains grammar state for every container but creates Lua tables and
 values only for selected branches. Skipped escaped strings validate their escape
 and surrogate structure without allocating transformed storage or an interned Lua

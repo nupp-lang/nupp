@@ -1,0 +1,117 @@
+module nupp.mac
+
+--[[Keyed message authentication. Keys are raw bytes. HMAC-SHA256 is built in;
+target services register additional algorithms under `nupp.mac`.]]
+
+const context = require("nupp.digest.internal.context")
+const builtin = require("nupp.digest.internal.builtin")
+const provider = require("nupp.digest.provider")
+const services = require("nupp.services")
+
+--- An owned keyed context with consuming digest finalization.
+export type Mac = context.Digest
+
+--- Service descriptor whose factory accepts a raw-byte key.
+export interface Provider
+    readonly name: string
+    readonly digestSize: integer
+    create: function(self: Provider, key: string): provider.State
+end
+
+--- Immutable MAC metadata and a keyed context factory.
+export record Algorithm
+    readonly name: string
+    readonly digestSize: integer
+    private implementation: Provider?
+
+    function create(self, key: string): Mac
+        local implementation = self.implementation
+        if implementation ~= nil then
+            return context.wrap(implementation:create(key), self.name, self.digestSize)
+        end
+
+        return context.wrap(builtin.hmacSha256(key), self.name, self.digestSize)
+    end
+end
+
+--- Looks up MAC metadata before initializing a keyed context.
+--- @param name the canonical MAC algorithm name
+--- @return the descriptor, or nil when unavailable
+--- @raises when an installed descriptor is invalid
+export function lookup(name: string): Algorithm?
+    local selected = services.lookup("nupp.mac", name)
+    if selected ~= nil then
+        if type(
+            selected
+        ) ~= "table" or selected.name ~= name or type(
+            selected.digestSize
+        ) ~= "number" or selected.digestSize <= 0 or selected.digestSize % 1 ~= 0 or type(
+            selected.create
+        ) ~= "function" or (name == "hmac-sha256" and selected.digestSize ~= 32) then
+            error("invalid MAC provider " .. name, 2)
+        end
+        return new Algorithm(name = name, digestSize = selected.digestSize, implementation = selected as Provider)
+    end
+    if name == "hmac-sha256" then
+        return new Algorithm(name = name, digestSize = 32, implementation = nil)
+    end
+
+    return nil
+end
+
+--- Requires an available MAC descriptor.
+--- @param name the canonical MAC algorithm name
+--- @return the selected descriptor
+--- @raises when the algorithm is unavailable
+export function algorithm(name: string): Algorithm
+    local found = lookup(name)
+    if found == nil then
+        error("unknown MAC algorithm " .. name, 2)
+    end
+
+    return found
+end
+
+--- Creates independent owned state initialized with a key.
+--- @param name the canonical MAC algorithm name
+--- @param key the raw-byte secret key
+--- @return an unfinished keyed context
+export function create(name: string, key: string): Mac
+    return algorithm(name):create(key)
+end
+
+--- Lists available canonical MAC names in ascending order.
+--- @return the available names
+export function algorithms(): {string}
+    local names = {"hmac-sha256"}
+    for _, name in ipairs(services.list("nupp.mac")) do
+        if name ~= "hmac-sha256" then
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+
+    return names
+end
+
+--- Computes a raw message authentication code.
+--- @param name the canonical MAC algorithm name
+--- @param key the raw-byte secret key
+--- @param bytes the message bytes
+--- @return the raw fixed-size authentication code
+export function digest(name: string, key: string, bytes: string): string
+    local mac = create(name, key)
+    mac:update(bytes)
+    return mac:digest()
+end
+
+--- Computes a lowercase hexadecimal message authentication code.
+--- @param name the canonical MAC algorithm name
+--- @param key the raw-byte secret key
+--- @param bytes the message bytes
+--- @return the lowercase hexadecimal authentication code
+export function hexDigest(name: string, key: string, bytes: string): string
+    local mac = create(name, key)
+    mac:update(bytes)
+    return mac:hexDigest()
+end

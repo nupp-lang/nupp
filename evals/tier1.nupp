@@ -1,6 +1,6 @@
 local harness = require("harness")
 local tier1 = require("tier1eval")
-local json = nupp.data.json
+local json = nupp.codec.json
 
 local arguments = {...} as {string}
 

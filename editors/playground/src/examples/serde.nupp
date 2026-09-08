@@ -10,7 +10,7 @@ local record User
     tags: {string}?
 end
 
-local users = nupp.data.serde.json():prepare(nupp.data.serde.of(User))
+local users = nupp.serde.json():prepare(nupp.serde.of(User))
 
 -- The schema already says what each member is, so encoding walks the record
 -- rather than discovering its shape at run time.
@@ -27,8 +27,8 @@ print(problem or "no problem")
 
 -- Data whose shape is not known until it arrives still has plain JSON, with no
 -- schema and no binding in the way.
-local loose = nupp.data.json.decode([[{"ok":true,"count":3}]])
-print(nupp.data.json.encode(loose))
+local loose = nupp.codec.json.decode([[{"ok":true,"count":3}]])
+print(nupp.codec.json.encode(loose))
 
 -- try breaking it: decode `[[{"id":"41"}]]`, or give `tags` a number, and read
 -- what the codec reports rather than what it silently accepts

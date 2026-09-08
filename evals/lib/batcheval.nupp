@@ -6,7 +6,7 @@ local harness = require("harness")
 local tier1 = require("tier1eval")
 local tasks = require("nupp.tasks")
 local time = require("nupp.time")
-local json = nupp.data.json
+local json = nupp.codec.json
 
 local batch = {}
 

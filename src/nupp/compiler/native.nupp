@@ -51,8 +51,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.bitset"
     ] = {
         name = "bitset",
-        exports = {"nupp.data.Bitset", "nupp.data.WORD_BITS"},
-        runtimeModule = "nupp.data.internal.bitset",
+        module = "nupp.bitset",
+        runtimeModule = "nupp.bitset",
         portableRuntime = true,
         requires = {"runtime.cstorage", "runtime.bitops"},
     },
@@ -157,9 +157,9 @@ local FEATURES: {[string]: native.Feature} = {
         "native.json"
     ] = {
         name = "json",
-        module = "nupp.data.json.provider",
-        modules = {"nupp.data.json"},
-        exports = {"nupp.data.json"},
+        module = "nupp.codec.json.provider",
+        modules = {"nupp.codec.json"},
+        exports = {"nupp.codec.json"},
     },
     [
         "runtime.gpu_layout"
@@ -190,7 +190,7 @@ local FEATURES: {[string]: native.Feature} = {
     },
     -- UTF-8 itself, which is Nupp and so asks the host for nothing. The record
     -- exists to attribute the module rather than to select anything.
-    ["runtime.data_utf8"] = {name = "data_utf8", modules = {"nupp.data.utf8"},},
+    ["runtime.data_utf8"] = {name = "data_utf8", modules = {"nupp.text.utf8"},},
     ["stdlib.peg"] = {name = "peg", runtimeModule = "nupp.compiler.runtime.peg", requires = {"native.lpeg"},},
     [
         "stdlib.peg.compile"
@@ -287,7 +287,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.uuid"
     ] = {
         name = "uuid",
-        exports = {"nupp.data.uuid4", "nupp.data.uuid7"},
+        exports = {"nupp.uuid.v4", "nupp.uuid.v7"},
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "uuid",
@@ -452,14 +452,21 @@ local FEATURES: {[string]: native.Feature} = {
             "stdlib.io",
         },
     },
-    -- SHA-256 stopped being native when `nupp.data.digest` replaced the C one,
-    -- so this selects a runtime module rather than a provider. The effect keeps
-    -- its `native.` spelling: an effect identifier is what recorded effects and
-    -- stamped binaries carry, and renaming one to describe an implementation
-    -- change would invalidate every artifact that already names it.
+    -- SHA-256 stopped being native when `nupp.digest.internal.sha256` replaced the C
+    -- one, so this selects a runtime module rather than a provider. The effect keeps
+    -- its `native.` spelling: an effect identifier is what recorded effects and stamped
+    -- binaries carry, and renaming one to describe an implementation change would
+    -- invalidate every artifact that already names it.
     [
         "native.sha256"
-    ] = {name = "sha256", exports = {"nupp.data.sha256"}, runtimeModule = "nupp.data.digest", portableRuntime = true,},
+    ] = {
+        name = "sha256",
+        exports = {"nupp.digest.internal.sha256.sha256"},
+        runtimeModule = "nupp.digest.internal.sha256",
+        portableRuntime = true,
+    },
+    ["native.system"] = {name = "system", module = "nupp.system", requires = {"runtime.native_v2"},},
+    ["runtime.crypto"] = {name = "crypto", module = "nupp.crypto", requires = {"runtime.native_v2"},},
 }
 
 local byGlobal, byModule, byModuleMember, byName = {}, {}, {}, {}

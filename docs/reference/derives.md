@@ -26,7 +26,7 @@ end
 
 local user = new User()
 local out = string.buffer.new()
-local writer = nupp.data.json.writer(out)
+local writer = nupp.codec.json.writer(out)
 user:writeJSON(writer)
 writer:close()
 print(user:debug(), out:tostring())
@@ -40,7 +40,7 @@ independently nameable types. The bundled providers are:
   conformance.
 - [`nupp.derive.JSON`](#json): `writeJSON(writer)`, a static `fromJSON`,
   `fieldCodec`, and
-  `nupp.data.json.JSONEncodable` conformance.
+  `nupp.codec.json.JSONEncodable` conformance.
 - [`nupp.derive.Serde`](#serde): one format-neutral schema and physical binding
   for a record or struct, with no generated format methods.
 
@@ -133,7 +133,7 @@ Credentials { user = "ada", password = <redacted> }
 
 `Debug` and `Serde` on the same declaration share one schema recipe. `Debug`
 alone keeps that binding internal and does not make the declaration
-`nupp.data.serde.Serializable`. Code that already retains a public binding can
+`nupp.serde.Serializable`. Code that already retains a public binding can
 prepare the same formatter explicitly and append without constructing the final
 string:
 
@@ -144,7 +144,7 @@ local struct Vec2
     y: float
 end
 
-local prepared = nupp.data.serde.prepareDebug(nupp.data.serde.of(Vec2))
+local prepared = nupp.serde.prepareDebug(nupp.serde.of(Vec2))
 local output = string.buffer.new()
 prepared:write(new Vec2(1.25, 2.5), output)
 assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
@@ -152,8 +152,8 @@ assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 
 ## Serde
 
-`Serde` derives one logical `nupp.data.serde.Schema` and one
-`nupp.data.serde.Binding<T>`. It applies to records and fixed-layout structs,
+`Serde` derives one logical `nupp.serde.Schema` and one
+`nupp.serde.Binding<T>`. It applies to records and fixed-layout structs,
 and generates no `writeJSON`, `fromJSON`, XML, or CBOR methods. A codec prepares
 the binding separately and caches its format-specific data.
 
@@ -164,8 +164,8 @@ local record User
     name: string?
 end
 
-local binding = nupp.data.serde.of(User)
-local prepared = nupp.data.serde.json():prepare(binding)
+local binding = nupp.serde.of(User)
+local prepared = nupp.serde.json():prepare(binding)
 local text = prepared:encode(new User(id = 7, name = "ada"))
 local restored, problem = prepared:decode(text)
 
@@ -183,7 +183,7 @@ local struct Vec3
     z: float
 end
 
-local binding: nupp.data.serde.Binding<Vec3> = nupp.data.serde.of(Vec3)
+local binding: nupp.serde.Binding<Vec3> = nupp.serde.of(Vec3)
 ```
 
 Derived fields currently admit booleans, strings, finite numbers, integers
@@ -232,7 +232,7 @@ obligation, or the shared identity already there.
 ## JSON
 
 `JSON` generates `writeJSON(writer)`, a static `fromJSON`, a `fieldCodec`, and
-`nupp.data.json.JSONEncodable` conformance. Encoding writes through the checked
+`nupp.codec.json.JSONEncodable` conformance. Encoding writes through the checked
 buffer-backed writer; it does not allocate a complete result string. Record and
 shape fields follow declaration order and string map keys sort by byte order, so
 the same value always produces the same bytes. Encoded field names and literal
@@ -250,7 +250,7 @@ end
 
 local user = new User(id = 7, name = "ada")
 local out = string.buffer.new()
-local writer = nupp.data.json.writer(out)
+local writer = nupp.codec.json.writer(out)
 user:writeJSON(writer)
 writer:close()
 print(out:tostring())
@@ -320,7 +320,7 @@ end
 
 local user = new User(id = 7, tags = {})
 local out = string.buffer.new()
-local writer = nupp.data.json.writer(out)
+local writer = nupp.codec.json.writer(out)
 user:writeJSON(writer)
 writer:close()
 local text = out:tostring()
@@ -351,15 +351,15 @@ checked against the safe interval at run time.
 
 Strings must be valid UTF-8, and a cycle or excessive nesting fails with the
 JSON path that reached it. Decoding uses Nupp's strict SIMD-accelerated codec and
-preserves null with `nupp.data.json.NULL` while it validates the raw value.
+preserves null with `nupp.codec.json.NULL` while it validates the raw value.
 
 The JSON field codec is allocated lazily as a runtime reflection extension. Use
-`nupp.data.json.writeRecord`, `writeAs(User, value, writer)`, and
+`nupp.codec.json.writeRecord`, `writeAs(User, value, writer)`, and
 `decodeAs(User, text)` when a type-witness API fits better than generated
 members. The allocating `encodeRecord` and `encodeAs` wrappers remain available
 when a complete string is specifically required. See
 [reflection.md](../learn/language/reflection.md#runtime-reflection) for the witness
-and allocation model, and [](nupp.data.json) for the rest of the codec.
+and allocation model, and [](nupp.codec.json) for the rest of the codec.
 
 ## Package providers
 

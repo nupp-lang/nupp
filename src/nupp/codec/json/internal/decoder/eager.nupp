@@ -1,0 +1,31 @@
+module nupp.codec.json.internal.decoder.eager
+
+local _fused = require("nupp.codec.json.internal.decoder.fused")
+
+local fused = {}
+
+const fused.OK = 0
+const fused.SYNTAX = 1
+const fused.INVALID_UTF8 = 2
+const fused.INVALID_CONTROL = 3
+const fused.INVALID_BACKSLASH = 4
+const fused.TAPE = 5
+
+--- Parses a structurally indexed document directly into ordinary Lua values.
+---
+--- The body lives in `nupp.codec.json.internal.decoder.fused`, monomorphized over the
+--- eager builder, which materializes the whole document and validates
+--- escapes as it does.
+--- @raises when the native builder cannot be loaded, value allocation fails,
+--- or the builder rejects a malformed escaped string
+fused.decode = _fused.decodeEager as function(
+    string,
+    unknown,
+    unknown?,
+    unknown?,
+    unknown?,
+    unknown?,
+    unknown?
+): (unknown, uint32, uint32)
+
+export = fused

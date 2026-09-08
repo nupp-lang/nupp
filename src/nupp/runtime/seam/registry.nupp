@@ -27,7 +27,7 @@ local CONTRACTS: {any} = {
     -- The provider module is what a selection replaces, which install has always
     -- done by preloading it. An implementation rather than a module: the declared
     -- interface at that name is the contract every provider answers, and it is what
-    -- `nupp.data.json` is written against, so only the build's idea of what to
+    -- `nupp.codec.json` is written against, so only the build's idea of what to
     -- compile changes. Without it the default implementation was linked, and it
     -- reaches an AOT decoder no `lua51` target can carry.
     {
@@ -37,7 +37,7 @@ local CONTRACTS: {any} = {
         effect = "native.json",
         binding = "runtime",
         globalName = "__nuppJson",
-        implementationModules = {["nupp.data.json.provider"] = true}
+        implementationModules = {["nupp.codec.json.provider"] = true}
     },
     {
         name = "numeric.bitops",
@@ -110,7 +110,7 @@ local CONTRACTS: {any} = {
         effect = "native.sha256",
         binding = "runtime",
         globalName = "__nuppSha256",
-        exports = {["nupp.data.sha256"] = "sha256",}
+        exports = {["nupp.digest.internal.sha256.sha256"] = "sha256",}
     },
     {
         name = "data.uuid",
@@ -118,7 +118,7 @@ local CONTRACTS: {any} = {
         effect = "native.uuid",
         binding = "runtime",
         globalName = "__nuppUuid",
-        exports = {["nupp.data.uuid4"] = "uuid4", ["nupp.data.uuid7"] = "uuid7",}
+        exports = {["nupp.uuid.v4"] = "uuid4", ["nupp.uuid.v7"] = "uuid7",}
     },
     {
         name = "compute.gpu",
@@ -179,12 +179,20 @@ local CONTRACTS: {any} = {
         modules = {["nupp.io.http"] = ""}
     },
     {
+        name = "host.system",
+        slug = "system",
+        effect = "native.system",
+        binding = "runtime",
+        globalName = "__nuppSystem",
+        modules = {["nupp.system"] = ""}
+    },
+    {
         name = "host.crypto",
         slug = "crypto",
         effect = "runtime.crypto",
         binding = "runtime",
         globalName = "__nuppCrypto",
-        modules = {["nupp.data.crypto"] = ""}
+        modules = {["nupp.crypto"] = ""}
     },
     {
         name = "host.storage",
@@ -214,10 +222,10 @@ local CONTRACTS: {any} = {
         -- here rather than at the first `fork`. Version 2 is the one that names them.
         members = {functions = {"scope", "__scope", "__settle", "__parallelism"}, values = {"Scope"},}
     },
-    -- A faster HMAC-SHA256 than the one `nupp.data.hash` compiles to, where a
-    -- backend has one -- WebCrypto in a browser, a host's own kernel natively.
-    -- `nupp.data.hash` is what answers when neither is installed, which is why
-    -- this seam is optional rather than required.
+    -- A faster HMAC-SHA256 than the one `nupp.digest.internal.streaming` compiles to,
+    -- where a backend has one -- WebCrypto in a browser, a host's own kernel natively.
+    -- `nupp.digest.internal.streaming` is what answers when neither is installed, which
+    -- is why this seam is optional rather than required.
     {
         name = "crypto.hmac_sha256",
         slug = "hmacsha256",

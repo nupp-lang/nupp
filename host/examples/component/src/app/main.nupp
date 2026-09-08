@@ -1,5 +1,5 @@
 local game = require("game")
-local json = require("nupp.data.json")
+local json = require("nupp.codec.json")
 local log = require("nupp.log")
 
 log.info("answering")

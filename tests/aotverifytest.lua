@@ -68,7 +68,7 @@ local function find(body, predicate)
 end
 
 local CURSOR_READ = [[
-local builder = require("nupp.data.valuebuilder")
+local builder = require("nupp.codec.valuebuilder")
 @aot(vectorize = false)
 local function decode(source: string): uint32
     local n = builder.length(source)

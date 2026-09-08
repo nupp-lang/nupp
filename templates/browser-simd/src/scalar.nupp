@@ -1,6 +1,6 @@
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local json = require("nupp.data.json")
+local json = require("nupp.codec.json")
 
 local struct Sample
     value: float

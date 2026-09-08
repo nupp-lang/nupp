@@ -1,0 +1,9 @@
+@!internal
+module nupp.runtime.browser.random
+
+-- Keep the public randomness facade separate from the host's private UUID,
+-- one-shot digest and MAC adapters.
+local crypto = require("nupp.runtime.browser.crypto")
+local contracts = require("nupp.runtime.backend.contracts")
+
+export = {randomBytes = crypto.randomBytes} as contracts.CryptoProvider

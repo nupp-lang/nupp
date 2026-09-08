@@ -1,0 +1,93 @@
+@!internal
+module nupp.digest.internal.context
+
+const span = require("nupp.mem.span")
+const storage = require("nupp.runtime.storage")
+const hex = require("nupp.codec.hex")
+const provider = require("nupp.digest.provider")
+
+export affine interface Digest is nupp.Closeable
+    terminal close: nosuspend function(takes self: Digest): nil
+    algorithm: function(self: Digest): string
+    digestSize: function(self: Digest): integer
+    update: function(exclusive self: Digest, bytes: string): nil
+    updateSpan: function(exclusive self: Digest, borrows bytes: span.ByteSpan): nil
+    digest: function(takes self: Digest): string
+        & function(takes self: Digest, exclusive destination: span.ByteWriteSpan): integer
+    hexDigest: function(takes self: Digest): string
+end
+
+local record StateOwner is nupp.Closeable
+    state: provider.State
+    function close(takes self): nil
+        self.state:close()
+    end
+end
+
+local record Context is Digest
+    private state: affine(provider.State)
+    private name: string
+    private size: integer
+
+    function close(takes self): nil
+        self.state:close()
+    end
+
+    function algorithm(self): string
+        return self.name
+    end
+
+    function digestSize(self): integer
+        return self.size
+    end
+
+    function update(exclusive self, bytes: string): nil
+        local view = span.fromString(bytes)
+        self.state:update(view)
+    end
+
+    function updateSpan(exclusive self, borrows bytes: span.ByteSpan): nil
+        self.state:update(bytes)
+    end
+
+    function digest(takes self, exclusive destination: span.ByteWriteSpan): integer
+        -- Take custody before any operation that can raise, including allocation
+        -- and destination validation. The context closes on every exit.
+        local size = self.size
+        with owner = new StateOwner(state = self.state) do
+            if #destination < size then
+                error("digest destination needs " .. size .. " bytes", 2)
+            end
+            local exact = destination:slice(1, size)
+            owner.state:finish(exact)
+            return size
+        end
+    end
+
+    function digest(takes self): string
+        local size = self.size
+        with owner = new StateOwner(state = self.state) do
+            local bytes = storage.allocateBytes(size)
+            local output = span.writeCarray(bytes, size)
+            owner.state:finish(output)
+            drop output
+            return storage.string(bytes, size)
+        end
+    end
+
+    function hexDigest(takes self): string
+        local size = self.size
+        with owner = new StateOwner(state = self.state) do
+            local bytes = storage.allocateBytes(size)
+            local output = span.writeCarray(bytes, size)
+            owner.state:finish(output)
+            drop output
+            return hex.encode(storage.string(bytes, size))
+        end
+    end
+
+end
+
+export function wrap(takes state: provider.State, name: string, size: integer): Digest
+    return new Context(state = state, name = name, size = size)
+end

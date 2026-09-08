@@ -11,7 +11,7 @@ The check used to be here, in C, over a SHA-256 this host carried for that one
 call; the caller is what decides which bytes arrive, so the check is no weaker
 for being written where the bytes already are.
 
-Nothing here could have used `nupp.data.sha256` instead. This is Lua 5.1, which
+Nothing here could have used the compiler's native SHA-256 instead. This is Lua 5.1, which
 has no bitwise operators, so the portable substitute computes each one with a
 loop: measured at 382 ns an operation, which is 0.17 MB/s for SHA-256, which is
 a minute of boot for a ten megabyte bundle.

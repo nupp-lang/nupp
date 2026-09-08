@@ -77,7 +77,7 @@ chooses the entry mode; the application still selects only `require-wasm`.
 Fresh numeric tables, rooted `string.byte` and `string.sub` calls, and ordinary
 append-only concatenation lower through the same entry. Specialized streaming
 parsers may still use
-[`nupp.data.valuebuilder`](https://github.com/nupp-lang/nupp/blob/main/src/nupp/data/valuebuilder.nupp) inside that
+[`nupp.codec.valuebuilder`](https://github.com/nupp-lang/nupp/blob/main/src/nupp/codec/valuebuilder.nupp) inside that
 boundary.
 
 ## Struct arrays
@@ -190,7 +190,7 @@ URI, suspension, time, random bytes, SHA-256, HMAC-SHA256, UUIDs, and persistent
 string storage:
 
 ```nupp
-local crypto = nupp.data.crypto
+local crypto = nupp.crypto
 local storage = nupp.io.storage
 local time = nupp.time
 
@@ -228,12 +228,12 @@ these assets needs no cross-origin isolation headers.
 SHA-256, HMAC-SHA256, and UUIDs retain the standard Nupp APIs:
 
 ```nupp
-local data = nupp.data
-local hash = require("nupp.data.hash")
+local digest = nupp.digest
+local mac = nupp.mac
 
-print(data.sha256("payload"))
-print(hash.hmacHex("key", "payload"))
-print(data.uuid4(), data.uuid7())
+print(digest.hexDigest("sha256", "payload"))
+print(mac.hexDigest("hmac-sha256", "key", "payload"))
+print(nupp.uuid.v4(), nupp.uuid.v7())
 ```
 
 Persistent storage maps string keys to string values. Each application package

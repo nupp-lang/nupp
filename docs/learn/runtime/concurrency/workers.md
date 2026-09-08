@@ -14,7 +14,7 @@ captures cross only as independent copies.
 module jobs
 
 export function hash(bytes: string): string
-    return nupp.data.fnv1a64(bytes)
+    return nupp.hash.fnv1a64(bytes)
 end
 ```
 

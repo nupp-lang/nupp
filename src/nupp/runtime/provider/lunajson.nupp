@@ -438,13 +438,13 @@ function json.writer(exclusive out: string.buffer.Buffer, nullValue: any?): any
 end
 
 -- Stated rather than assumed. The projection is what reports a member whose
--- signature drifted from the contract `nupp.data.json` is written against;
+-- signature drifted from the contract `nupp.codec.json` is written against;
 -- without it a provider satisfying the seam's name check installed cleanly and
 -- answered a different signature than the declaration promised.
 local checked: contracts.JsonProvider = {
     arrayOf = json.arrayOf,
     -- `asArray` and `asObject` are asserted where every other member is checked.
-    -- The contract owns what it marks, because `nupp.data.json.asArray` promises
+    -- The contract owns what it marks, because `nupp.codec.json.asArray` promises
     -- its caller the same table back. No provider can state that and still read
     -- the table: `pairs` takes neither an owner nor a borrow, so a body that
     -- validates keys cannot also carry the owning signature. Both providers

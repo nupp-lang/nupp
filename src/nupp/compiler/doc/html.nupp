@@ -35,7 +35,7 @@ local stringsMod = require("nupp.compiler.doc.strings")
 local highlightMod = require("nupp.compiler.doc.highlight")
 local urlsMod = require("nupp.compiler.doc.urls")
 local syntax = require("nupp.compiler.doc.syntax")
-local utf8 = require("nupp.data.utf8")
+local utf8 = require("nupp.text.utf8")
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local headingId = stringsMod.headingId

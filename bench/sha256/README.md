@@ -2,7 +2,7 @@
 
 Four implementations of one digest, measured against each other in one process.
 
-- **Nupp `@aot`** — [`nupp.data.digest`](../../src/nupp/data/digest.nupp) built by
+- **Nupp `@aot`** — [`nupp.digest.internal.sha256`](../../src/nupp/digest/internal/sha256.nupp) built by
   the `sha256` target, which compiles the `@aot` entry and enters it as a
   registered Lua C closure.
 - **Nupp on LuaJIT** — the same source built by the `sha256-scalar` target,

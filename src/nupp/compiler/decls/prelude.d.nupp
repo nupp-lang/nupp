@@ -675,7 +675,7 @@ record nupp.derive
     Debug: Provider
 
     --- Generates `writeJSON(writer)`, a static `fromJSON(text): T?, string?`, a
-    --- `fieldCodec`, and `nupp.data.json.JSONEncodable` conformance.
+    --- `fieldCodec`, and `nupp.codec.json.JSONEncodable` conformance.
     ---
     --- Encoding is deterministic: fields follow declaration order and string map keys
     --- sort by byte order, so one value always produces the same bytes. A decode error
@@ -691,7 +691,7 @@ record nupp.derive
     ---
     --- local user = new User(id = 7, name = "ada")
     --- local out = string.buffer.new()
-    --- local writer = nupp.data.json.writer(out)
+    --- local writer = nupp.codec.json.writer(out)
     --- user:writeJSON(writer)
     --- writer:close()
     --- assert(out:tostring() == '{"user_id":7,"name":"ada"}')
@@ -711,7 +711,7 @@ record nupp.derive
     ---     name: string?
     --- end
     ---
-    --- local prepared = nupp.data.serde.json():prepare(nupp.data.serde.of(User))
+    --- local prepared = nupp.serde.json():prepare(nupp.serde.of(User))
     --- local text = prepared:encode(new User(id = 7, name = "ada"))
     --- ```
     Serde: Provider
@@ -1893,7 +1893,7 @@ record nupp.reflect
     --- A typed identity for data derived lazily from a reflection descriptor,
     --- schema, or binding.
     ---
-    --- It has the shape of `nupp.data.Key<T>`, declared here because the prelude
+    --- It has the shape of `nupp.store.Key<T>`, declared here because the prelude
     --- is read before any module is. `_valueType` is never present; it mentions
     --- `T` in both positions so that keys are invariant.
     interface ExtensionKey<T>

@@ -909,9 +909,9 @@ end
 -- The public JSON module documents its own complete surface; the host declaration is
 -- only an implementation boundary.
 function M.standardJsonApiHasCompleteDocumentation()
-    local path = "src/nupp/data/json/init.nupp"
+    local path = "src/nupp/codec/json/init.nupp"
     local source = readFile(HERE .. "/../" .. path)
-    local module, errors = doc.extract(source, path, "nupp.data.json")
+    local module, errors = doc.extract(source, path, "nupp.codec.json")
     assert(module, errors and errors[1] and errors[1].msg)
 
     local expected = {
@@ -965,7 +965,7 @@ function M.standardJsonApiHasCompleteDocumentation()
     }
     local writer
     for _, item in ipairs(module.items) do
-        local prefix = "nupp.data.json." .. item.name
+        local prefix = "nupp.codec.json." .. item.name
         assert(expected[item.name], prefix .. " is not part of the expected surface")
         expected[item.name] = nil
         assert(item.doc.text ~= "", prefix .. " has no documentation")
@@ -980,9 +980,9 @@ function M.standardJsonApiHasCompleteDocumentation()
         end
     end
     assert(next(expected) == nil, "the JSON module is missing a documented API item")
-    assert(writer, "the JSON module did not document nupp.data.json.Writer")
+    assert(writer, "the JSON module did not document nupp.codec.json.Writer")
     for _, member in ipairs(writer.members or {}) do
-        local prefix = "nupp.data.json.Writer." .. member.name
+        local prefix = "nupp.codec.json.Writer." .. member.name
         assert(member.text ~= "", prefix .. " has no documentation")
         assert(member.text:find("```nupp", 1, true), prefix .. " has no source example")
         for _, param in ipairs(member.params or {}) do
@@ -1004,7 +1004,7 @@ end
 -- The data module owns hashes, UUIDs, and Bitset directly; only substantial sibling
 -- facilities remain separate modules.
 function M.standardDataApiHasCompleteDocumentation()
-    local modules = {"src/nupp/data/utf8.nupp", "src/nupp/data/init.nupp",}
+    local modules = {"src/nupp/text/utf8.nupp", "src/nupp/digest/init.nupp",}
     for _, relative in ipairs(modules) do
         local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
         local name = relative:match("src/nupp/(.+)%.nupp"):gsub("/", "."):gsub("%.init$", "")

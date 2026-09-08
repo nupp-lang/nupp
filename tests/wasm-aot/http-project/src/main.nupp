@@ -1,5 +1,5 @@
 local http = require("nupp.io.http")
-local json = require("nupp.data.json")
+local json = require("nupp.codec.json")
 local uri = require("nupp.io.uri")
 local io = require("nupp.io")
 

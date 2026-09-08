@@ -58,7 +58,7 @@ in every column and settles nothing.
 **Word reads were worth 1.42x and cost no compiler change.** 0.946 to 0.668 at
 1 MiB. Twelve input bytes are three aligned words and four twenty-four bit
 groups, so an iteration pays three checked reads where the byte-at-a-time entry
-paid twelve. `valuebuilder.word` already existed and `nupp.data.digest` already
+paid twelve. `valuebuilder.word` already existed and `nupp.digest.internal.sha256` already
 used it.
 
 **The read side is now nearly closed.** words-nostore is 0.317 against scalar
@@ -116,7 +116,7 @@ the store still carries its bounds checks; only their number fell.
 arithmetic, four stores -- and *sixteen* `ks_lua_string_byte` calls, each
 bounds-compared against a runtime length, because the alphabet has to arrive
 as an argument. A `const` string would be a `static const unsigned char[]` with
-a bound the C compiler holds, which is what `nupp.data.digest` gets for its
+a bound the C compiler holds, which is what `nupp.digest.internal.sha256` gets for its
 round constants. That route is the one that crashes the lowerer.
 
 So the next factor is not a new operation. It is the `const`-string defect this

@@ -2,7 +2,7 @@
 -- is LuaJIT's module and not this target's, so what this exercises is the
 -- `text.buffer` provider the browser backend selects underneath them.
 
-local json = require("nupp.data.json")
+local json = require("nupp.codec.json")
 
 @derive(nupp.derive.Debug, nupp.derive.JSON)
 local record Reading

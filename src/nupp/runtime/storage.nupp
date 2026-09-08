@@ -4,6 +4,8 @@ module nupp.runtime.storage
 -- Physical memory mechanisms selected below shared I/O policy. The native
 -- implementation keeps the same FFI operations and pointer representations.
 local ffi = require("ffi")
+-- ffi.string copies its input synchronously and retains no pointer.
+local stringBytes: function(borrows source: any, count: integer): string = ffi.string as any
 
 export function allocateBytes(count: integer): uint8[?]
     return ffi.new<uint8[?]>(count)
@@ -27,8 +29,8 @@ export function sizeOf(element: any): integer
     return ffi.sizeof(element) as integer
 end
 
-export function string(source: any, count: integer): string
-    return ffi.string(source, count)
+export function string(borrows source: any, count: integer): string
+    return stringBytes(source, count)
 end
 
 export function decodeUint8(bytes: string): uint32

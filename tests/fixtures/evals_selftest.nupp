@@ -2,7 +2,7 @@ local harness = require("harness")
 local tier1 = require("tier1eval")
 local batch = require("batcheval")
 local tier2 = require("tier2eval")
-local json = nupp.data.json
+local json = nupp.codec.json
 
 local function equal(got: any, expected: any, label: string): nil
     if got ~= expected then

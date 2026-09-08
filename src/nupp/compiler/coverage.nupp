@@ -9,7 +9,7 @@ runner wrote, turns them into one aggregate model, then writes JSON, LCOV, and
 HTML from that model.
 ]]
 
-local json = nupp.data.json
+local json = nupp.codec.json
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
 local highlight = require("nupp.compiler.doc.highlight")

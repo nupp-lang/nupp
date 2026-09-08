@@ -1,0 +1,28 @@
+module nupp.hash
+
+--[[General-purpose noncryptographic hashing. For message digests use nupp.digest;
+for error-detection checksums use nupp.checksum.]]
+
+--- Hashes bytes with FNV-1a over 64 bits.
+---
+--- @param value the bytes to hash
+--- @return the hash, as sixteen lowercase hexadecimal digits
+--- @export
+export function fnv1a64(value: string | nupp.io.ByteView): string
+    local bytes = type(value) == "string" and value as string or (value as nupp.io.ByteView):getString()
+    local hi = 0xcbf29ce4
+    local lo = 0x84222325
+    for index = 1, #bytes do
+        lo = bit.bxor(lo, bytes:byte(index))
+        local low = lo < 0 and lo + 4294967296 or lo
+        local high = hi < 0 and hi + 4294967296 or hi
+        local product = low * 435
+        local carry = math.floor(product / 4294967296)
+        lo = bit.tobit(product)
+        hi = bit.tobit(high * 435 + low * 256 + carry)
+    end
+    local high = hi < 0 and hi + 4294967296 or hi
+    local low = lo < 0 and lo + 4294967296 or lo
+
+    return string.format("%08x%08x", high, low)
+end

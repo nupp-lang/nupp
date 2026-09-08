@@ -41,9 +41,9 @@ local record User
     name: string?
 end
 
-local first = nupp.data.serde.of(User)
-local second = nupp.data.serde.of(User)
-local codec = nupp.data.serde.json()
+local first = nupp.serde.of(User)
+local second = nupp.serde.of(User)
+local codec = nupp.serde.json()
 local prepared = codec:prepare(first)
 local again = codec:prepare(first)
 local text = prepared:encode(new User(id = 41, active = true, name = "Ada"))
@@ -54,11 +54,11 @@ local largeOutput = string.buffer.new()
 largeOutput:put("prefix:")
 prepared:write(new User(id = 43, active = true, name = large), largeOutput)
 local streamed = string.buffer.new()
-local writer = nupp.data.json.writer(streamed)
+local writer = nupp.codec.json.writer(streamed)
 prepared:write(new User(id = 44, active = true, name = "streamed"), writer)
 writer:close()
 local largeStreamed = string.buffer.new()
-local largeWriter = nupp.data.json.writer(largeStreamed)
+local largeWriter = nupp.codec.json.writer(largeStreamed)
 prepared:write(new User(id = 45, active = true, name = string.rep("y", 128 * 1024)), largeWriter)
 local stagedLength = #largeStreamed
 largeWriter:close()
@@ -167,13 +167,13 @@ function M.profilesRenameKeysAndIgnoreUnknownValues()
 local record Item
     value: integer
 end
-local codec = nupp.data.json.newCodec{
+local codec = nupp.codec.json.newCodec{
     unknownMembers = "ignore",
-    fieldNames = function(member: nupp.data.serde.Member): string
+    fieldNames = function(member: nupp.serde.Member): string
         return member.name == "value" and "a\"b" or member.name
     end,
 }
-local prepared = codec:prepare(nupp.data.serde.of(Item))
+local prepared = codec:prepare(nupp.serde.of(Item))
 local text = prepared:encode(new Item(value = 7))
 local restored, problem = prepared:decode([[{"ignored":{"deep":[1,2]},"a\"b":9}]])
 return {text = text, value = restored and restored.value, problem = problem}
@@ -186,7 +186,7 @@ end
 function M.dynamicValuesUseDenseResolvedSlots()
     local result = run(
         [=[
-const serde = nupp.data.serde
+const serde = nupp.serde
 local builder = new serde.SchemaBuilder()
 builder:structure("example.Request")
 builder:required("id", serde.uint32)
@@ -227,7 +227,7 @@ end
 function M.dynamicValuesValidateSchemaKindsAndIntegerRanges()
     local result = run(
         [=[
-const serde = nupp.data.serde
+const serde = nupp.serde
 local builder = new serde.SchemaBuilder()
 builder:structure("example.Range")
 builder:required("small", serde.uint8)
@@ -262,7 +262,7 @@ end
 function M.documentMembersStayInsideThePreparedTraversal()
     local result = run(
         [=[
-const serde = nupp.data.serde
+const serde = nupp.serde
 local builder = new serde.SchemaBuilder()
 builder:structure("example.Envelope")
 builder:required("id", serde.uint32)
@@ -300,8 +300,8 @@ local struct Vec3
     z: float
 end
 local witness: Type<Vec3> = Vec3
-local binding: nupp.data.serde.Binding<Vec3> = nupp.data.serde.of(witness)
-local prepared = nupp.data.serde.json():prepare(binding)
+local binding: nupp.serde.Binding<Vec3> = nupp.serde.of(witness)
+local prepared = nupp.serde.json():prepare(binding)
 local text = prepared:encode(new Vec3(1.25, 2.5, 5.0))
 local value, problem = prepared:decode(text)
 return {text = text, y = value and value.y, problem = problem}
@@ -330,7 +330,7 @@ local struct Vec2
     y: float
 end
 
-const serde = nupp.data.serde
+const serde = nupp.serde
 local binding = serde.of(Credentials)
 local prepared = serde.prepareDebug(binding)
 local again = serde.prepareDebug(binding)
@@ -366,8 +366,8 @@ end
 function M.dynamicSchemasUseIndexedDebugMetadata()
     local result = run(
         [=[
-const serde = nupp.data.serde
-local label: nupp.data.serde.MetadataKey<string> = serde.metadataKey()
+const serde = nupp.serde
+local label: nupp.serde.MetadataKey<string> = serde.metadataKey()
 local childBuilder = new serde.SchemaBuilder()
 childBuilder:structure("example.Profile")
 childBuilder:required("region", serde.string)
@@ -418,7 +418,7 @@ local record DebugOnly
     value: integer
 end
 local ok, problem = pcall(function(): any
-    return nupp.data.serde.of(DebugOnly)
+    return nupp.serde.of(DebugOnly)
 end)
 return {debugged = (new DebugOnly(value = 7)):debug(), ok = ok, problem = tostring(problem)}
 ]=]
@@ -476,9 +476,9 @@ local record Parent
     children: {Child}
     values: {integer}
 end
-local binding = nupp.data.serde.of(Parent)
-local childSchema = binding:schema():expectMember("child").target as nupp.data.serde.Schema
-local prepared = nupp.data.serde.json():prepare(binding)
+local binding = nupp.serde.of(Parent)
+local childSchema = binding:schema():expectMember("child").target as nupp.serde.Schema
+local prepared = nupp.serde.json():prepare(binding)
 local text = prepared:encode(
     new Parent(
         child = new Child(label = "nested"),
@@ -516,8 +516,8 @@ local record Node
     children: {Node}
 end
 
-local binding = nupp.data.serde.of(Node)
-local prepared = nupp.data.serde.json():prepare(binding)
+local binding = nupp.serde.of(Node)
+local prepared = nupp.serde.json():prepare(binding)
 local text = prepared:encode(new Node(
     name = "root",
     children = {new Node(name = "leaf", children = {})}
@@ -551,9 +551,9 @@ local record Parent
     children: {Child}
     values: {integer}
 end
-const serde = nupp.data.serde
+const serde = nupp.serde
 local nominal = serde.of(Parent)
-local childSchema = nominal:schema():expectMember("child").target as nupp.data.serde.Schema
+local childSchema = nominal:schema():expectMember("child").target as nupp.serde.Schema
 local dynamicChild = serde.dynamic(childSchema)
 local dynamicParent = serde.dynamic(nominal:schema())
 local codec = serde.json()
@@ -573,11 +573,11 @@ local dynamicText = dynamicPrepared:encode(dynamicParent:bind{
 })
 local nominalValue = assert(nominalPrepared:decode(nominalText))
 local dynamicValue = assert(dynamicPrepared:decode(dynamicText))
-local child = dynamicValue:get("child") as nupp.data.serde.DynamicValue
+local child = dynamicValue:get("child") as nupp.serde.DynamicValue
 return {
     nominal = nominalValue.child.label,
     dynamic = child:get("label"),
-    dynamicList = (dynamicValue:get("children")[1] as nupp.data.serde.DynamicValue):get("label"),
+    dynamicList = (dynamicValue:get("children")[1] as nupp.serde.DynamicValue):get("label"),
     second = dynamicValue:get("values")[2],
 }
 ]=]
@@ -599,7 +599,7 @@ local key = nupp.reflect.extensionKey(function(schema: any): string
     calls = calls + 1
     return schema.name
 end)
-const serde = nupp.data.serde
+const serde = nupp.serde
 local builder = new serde.SchemaBuilder()
 builder:structure("example.Extension")
 local schema = builder:freeze()
@@ -626,7 +626,7 @@ local right = nupp.reflect.extensionKey(function(schema: any): string
     rightCalls = rightCalls + 1
     return "right:" .. schema.name
 end)
-const serde = nupp.data.serde
+const serde = nupp.serde
 local firstBuilder = new serde.SchemaBuilder()
 firstBuilder:structure("First")
 local first = firstBuilder:freeze()
@@ -682,8 +682,8 @@ end
 function M.metadataKeysKeepTheirValueType()
     local problems = diagnostics(
         [=[
-local label: nupp.data.serde.MetadataKey<string> = nupp.data.serde.metadataKey()
-local narrowed: nupp.data.serde.MetadataKey<integer> = label
+local label: nupp.serde.MetadataKey<string> = nupp.serde.metadataKey()
+local narrowed: nupp.serde.MetadataKey<integer> = label
 print(narrowed)
 ]=]
     )
@@ -704,12 +704,12 @@ function M.persistedKeysTakeTheirTypeFromTheBinding()
 local record Settings
     volume: number
 end
-const serde = nupp.data.serde
+const serde = nupp.serde
 local settings = serde.key("fixture.persisted.settings", serde.of(Settings))
-local store = nupp.data.newStore()
+local store = nupp.store.newStore()
 store:set(settings, new Settings(volume = 0.5))
 store:set(settings, "loud")
-local widened: nupp.data.Key<string> = settings
+local widened: nupp.store.Key<string> = settings
 print(widened)
 ]=]
     )
@@ -733,16 +733,16 @@ local record Settings
     volume: number
     fullscreen: boolean
 end
-const serde = nupp.data.serde
+const serde = nupp.serde
 local settings = serde.key("test.persisted.settings", serde.of(Settings))
-local sourceStore = nupp.data.newStore()
+local sourceStore = nupp.store.newStore()
 sourceStore:set(settings, new Settings(volume = 0.5, fullscreen = false))
 local saved = serde.saveStore(sourceStore)
-local text = nupp.data.json.encode(saved)
-local restored = nupp.data.newStore()
-serde.loadStore(restored, nupp.data.json.decode(text) as {[string]: any})
+local text = nupp.codec.json.encode(saved)
+local restored = nupp.store.newStore()
+serde.loadStore(restored, nupp.codec.json.decode(text) as {[string]: any})
 local back = restored:get(settings)
-local decoded = nupp.data.json.decode(text) as {[string]: any}
+local decoded = nupp.codec.json.decode(text) as {[string]: any}
 return {
     plainVolume = saved["test.persisted.settings"].volume,
     textVolume = decoded["test.persisted.settings"].volume,
@@ -769,16 +769,16 @@ function M.savingRejectsKeysWithoutABinding()
 local record Settings
     volume: number
 end
-const serde = nupp.data.serde
+const serde = nupp.serde
 local settings = serde.key("test.persisted.unbound.settings", serde.of(Settings))
-local plain: nupp.data.Key<integer> = nupp.data.newKey("test.persisted.unbound.plain")
-local anonymous: nupp.data.Key<integer> = nupp.data.newKey(nil)
-local function saving(store: nupp.data.Store): (boolean, any)
+local plain: nupp.store.Key<integer> = nupp.store.newKey("test.persisted.unbound.plain")
+local anonymous: nupp.store.Key<integer> = nupp.store.newKey(nil)
+local function saving(store: nupp.store.Store): (boolean, any)
     return pcall(function(): {[string]: any}
         return serde.saveStore(store)
     end)
 end
-local store = nupp.data.newStore()
+local store = nupp.store.newStore()
 store:set(settings, new Settings(volume = 1))
 local okBound = saving(store)
 store:set(plain, 1)
@@ -804,9 +804,9 @@ end
 function M.loadingRejectsUnregisteredNames()
     local result = run(
         [=[
-const serde = nupp.data.serde
-local store = nupp.data.newStore()
-local plain: nupp.data.Key<integer> = nupp.data.newKey("test.persisted.load.plain")
+const serde = nupp.serde
+local store = nupp.store.newStore()
+local plain: nupp.store.Key<integer> = nupp.store.newKey("test.persisted.load.plain")
 local function loading(saved: {[string]: any}): (boolean, any)
     return pcall(function(): nil
         serde.loadStore(store, saved)

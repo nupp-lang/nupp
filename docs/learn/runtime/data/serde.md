@@ -30,8 +30,8 @@ local record User
     name: string?
 end
 
-local binding = nupp.data.serde.of(User)
-local prepared = nupp.data.serde.json():prepare(binding)
+local binding = nupp.serde.of(User)
+local prepared = nupp.serde.json():prepare(binding)
 local text = prepared:encode(new User(id = 41, name = "Ada"))
 local restored, problem = prepared:decode(text)
 local output = string.buffer.new()
@@ -53,7 +53,7 @@ local struct Vec3
     z: float
 end
 
-local binding: nupp.data.serde.Binding<Vec3> = nupp.data.serde.of(Vec3)
+local binding: nupp.serde.Binding<Vec3> = nupp.serde.of(Vec3)
 ```
 
 Struct derivation reads fields individually. It does not serialize padding,
@@ -66,7 +66,7 @@ A dynamic client builds and freezes the same logical schema, then binds names
 once into dense indexed storage:
 
 ```nupp
-const serde = nupp.data.serde
+const serde = nupp.serde
 local builder = new serde.SchemaBuilder()
 builder:structure("example.User")
 builder:required("id", serde.uint32)
@@ -100,8 +100,8 @@ physical access plans.
 client can attach root or member metadata while constructing its model:
 
 ```nupp
-const serde = nupp.data.serde
-local serviceName: nupp.data.serde.MetadataKey<string> = serde.metadataKey()
+const serde = nupp.serde
+local serviceName: nupp.serde.MetadataKey<string> = serde.metadataKey()
 local builder = new serde.SchemaBuilder()
 builder:structure("example.Credentials")
 builder:required("user", serde.string)
@@ -145,9 +145,9 @@ it does not resolve schema extensions for each field or each call.
 schema and physical plan on that codec:
 
 ```nupp
-local codec = nupp.data.serde.json{
+local codec = nupp.serde.json{
     unknownMembers = "ignore",
-    fieldNames = function(member: nupp.data.serde.Member): string
+    fieldNames = function(member: nupp.serde.Member): string
         return member.name == "id" and "userId" or member.name
     end,
 }
@@ -167,8 +167,8 @@ binding semantics and are traversed by the recursive prepared implementation.
 Preparation remains the API boundary for adding more format-specific
 optimizations without changing callers.
 
-`nupp.data.json.newCodec` is a compatibility entry point for the same codec.
-`nupp.data.serde.json` is the typed primary API.
+`nupp.codec.json.newCodec` is a compatibility entry point for the same codec.
+`nupp.serde.json` is the typed primary API.
 
 ## Typed extensions
 
@@ -191,7 +191,7 @@ assert(first == second and calls == 1)
 Metadata is supplied by a model builder or derive. Extensions differ by
 computing a derived value lazily from their host. Successful extension values
 and failures are cached, and recursive initialization reports an error. An
-extension key is an anonymous [`nupp.data.Key`](standard-library.md), and hosts
+extension key is an anonymous [`nupp.store.Key`](standard-library.md), and hosts
 cache extension state by its id rather than by key-object identity. Ids are
 acceleration values: their numbers may change with module initialization order
 and are never persistent metadata identifiers. JSON uses schema extensions for
@@ -200,13 +200,13 @@ not leak into the logical schema.
 
 ## Persisting a store
 
-A [`nupp.data.Store`](standard-library.md) holds live values under typed keys,
+A [`nupp.store.Store`](standard-library.md) holds live values under typed keys,
 and its keys persist by name. `serde.key` declares a named key whose value
 type comes from the binding that will carry it, so no annotation is needed,
 and `saveStore` and `loadStore` move the store through plain values:
 
 ```nupp
-const serde = nupp.data.serde
+const serde = nupp.serde
 
 @derive(nupp.derive.Serde)
 local record Settings
@@ -216,14 +216,14 @@ end
 
 local settings = serde.key("game.settings", serde.of(Settings)) -- Key<Settings>
 
-local store = nupp.data.newStore()
+local store = nupp.store.newStore()
 store:set(settings, new Settings(volume = 0.5, fullscreen = false))
 local saved = serde.saveStore(store)
 assert(saved["game.settings"].volume == 0.5)
-local text = nupp.data.json.encode(saved)
+local text = nupp.codec.json.encode(saved)
 
-local restored = nupp.data.newStore()
-serde.loadStore(restored, nupp.data.json.decode(text) as {[string]: any})
+local restored = nupp.store.newStore()
+serde.loadStore(restored, nupp.codec.json.decode(text) as {[string]: any})
 local back = restored:get(settings)
 assert(back ~= nil and back.volume == 0.5)
 ```
@@ -231,7 +231,7 @@ assert(back ~= nil and back.volume == 0.5)
 `saveStore` walks the occupied keys and encodes each value through its
 binding, under the key's name, into the document a JSON codec with default
 field names would write. An occupied key that is anonymous or was declared
-with `nupp.data.newKey` rather than `serde.key` raises, naming the key: a save
+with `nupp.store.newKey` rather than `serde.key` raises, naming the key: a save
 that silently drops state is worse than one that fails. `loadStore` looks each
 name up in this runtime state's registry, raises for one that is not
 registered or has no binding, decodes the value through that key's binding,

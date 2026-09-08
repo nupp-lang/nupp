@@ -15,7 +15,7 @@ unknown to the operations that do not take it, rather than known everywhere and
 rejected afterwards.
 ]]
 
-local json = nupp.data.json
+local json = nupp.codec.json
 local spec = require("nupp.compiler.cli.spec")
 local fs = require("nupp.compiler.fs")
 

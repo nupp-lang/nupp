@@ -1,7 +1,7 @@
 local files = require("nupp.io.files")
 local harness = require("harness")
 local tier2 = require("tier2eval")
-local json = nupp.data.json
+local json = nupp.codec.json
 
 local arguments = {...} as {string}
 

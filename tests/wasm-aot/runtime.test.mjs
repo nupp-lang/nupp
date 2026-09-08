@@ -14,6 +14,23 @@ import { createWorkerPool } from "../../runtime/wasm/worker-pool.mjs";
 
 globalThis.crypto ||= webcrypto;
 
+test("browser system effects report usable parallelism", async () => {
+  const result = await handleBrowserEffects({
+    kind: "effects", requests: [{id: 1, kind: "system"}],
+  });
+  const response = result.responses[0];
+  assert.equal(response.ok, true);
+  assert.ok(Number.isInteger(response.value.availableParallelism));
+  assert.ok(response.value.availableParallelism >= 1);
+});
+
+test("browser system effects respect host overrides", async () => {
+  const result = await handleBrowserEffects({
+    kind: "effects", requests: [{id: 1, kind: "system"}],
+  }, {effectHandlers: {system: async () => ({availableParallelism: 3})}});
+  assert.equal(result.responses[0].value.availableParallelism, 3);
+});
+
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const bytes = new TextEncoder().encode("fixture");
 const checksum = createHash("sha256").update(bytes).digest("hex");

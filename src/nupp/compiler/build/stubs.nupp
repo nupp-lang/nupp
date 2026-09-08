@@ -68,7 +68,7 @@ local function validateExecutable(platform: string, text: string, path: string):
 end
 
 local function decodeCatalogText(text: string, where: string): any?, string?
-    local json = nupp.data.json
+    local json = nupp.codec.json
     local ok, value = pcall(json.decode, text, json.NULL)
     if not ok then
         return nil, "cannot decode stub catalog " .. where .. ": " .. tostring(value)

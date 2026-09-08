@@ -16,7 +16,7 @@ the only base64 Nupp ships, it is browser-only, and its cost is the Lua layer
 rather than the codec.
 ]]
 
-local valuebuilder = require("nupp.data.valuebuilder")
+local valuebuilder = require("nupp.codec.valuebuilder")
 
 local base64bench = {}
 
@@ -122,7 +122,7 @@ local function encodeAot(source: string, alphabet: string, nullValue: any): any
 end
 
 -- One native-endian word reversed to the big-endian view base64 wants, which
--- is `nupp.data.digest`'s `bigEndianWord` spelled in `uint32` rather than
+-- is `nupp.digest.internal.sha256`'s `bigEndianWord` spelled in `uint32` rather than
 -- `int32`. Unconditional, as digest's is: every target in `targetlayout` is
 -- little-endian.
 local function reversed(word: uint32): uint32

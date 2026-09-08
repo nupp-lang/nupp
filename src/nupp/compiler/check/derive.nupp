@@ -193,7 +193,7 @@ function derive.install(c: state.Checker): derive.Ops
             -- Asked before the module is resolved, because resolving it checks it,
             -- and a module this target cannot reach reports where it is written
             -- rather than where the annotation asked for it. The bundled recipes
-            -- are the case that matters: they render through `nupp.data.serde`,
+            -- are the case that matters: they render through `nupp.serde`,
             -- so on a portable target the answer is that the capability is absent,
             -- and the place to say so is the `@derive` naming them.
             if not standardSurface.reachable(c, moduleName) then

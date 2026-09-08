@@ -1,0 +1,30 @@
+module nupp.codec.hex
+
+--[[Hexadecimal byte encoding. Encoders emit lowercase; decoders accept either case.]]
+
+--- Encodes raw bytes as lowercase hexadecimal.
+export function encode(bytes: string): string
+    local parts: {string} = {}
+    for index = 1, #bytes do
+        parts[index] = string.format("%02x", bytes:byte(index))
+    end
+
+    return table.concat(parts)
+end
+
+--- Decodes hexadecimal without whitespace or a prefix.
+--- @return raw bytes, or nil and a reason
+export function decode(text: string): (string?, string?)
+    if #text % 2 ~= 0 then
+        return nil, "hex input must contain an even number of digits"
+    end
+    if text:find("[^0-9a-fA-F]") then
+        return nil, "hex input contains a non-hexadecimal digit"
+    end
+    local parts: {string} = {}
+    for index = 1, #text, 2 do
+        parts[#parts + 1] = string.char(assert(tonumber(text:sub(index, index + 1), 16)))
+    end
+
+    return table.concat(parts)
+end

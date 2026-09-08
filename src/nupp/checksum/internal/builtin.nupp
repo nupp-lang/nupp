@@ -1,0 +1,108 @@
+@!internal
+module nupp.checksum.internal.builtin
+
+const provider = require("nupp.checksum.provider")
+const span = require("nupp.mem.span")
+const bit = require("bit")
+
+local function unsigned(word: integer): integer
+    return word < 0 and word + 4294967296 or word
+end
+
+local function crcTable(polynomial: integer): {integer}
+    local values: {integer} = {}
+    for byte = 0, 255 do
+        local current = byte
+        for _ = 1, 8 do
+            current = bit.bxor(bit.rshift(current, 1), bit.band(current, 1) ~= 0 and polynomial or 0)
+        end
+        values[byte + 1] = current
+    end
+
+    return values
+end
+
+const IEEE = crcTable(0xedb88320)
+const CASTAGNOLI = crcTable(0x82f63b78)
+
+local record State is provider.State
+    private name: string
+    private high: integer
+    private low: integer
+
+    function update(exclusive self, borrows bytes: span.ByteSpan): nil
+        if self.name == "adler32" then
+            for index = 1, #bytes do
+                self.low = (self.low + bytes[index]) % 65521
+                self.high = (self.high + self.low) % 65521
+            end
+        elseif self.name == "crc64-ecma" then
+            for index = 1, #bytes do
+                self.high = bit.bxor(self.high, bit.lshift(bytes[index], 24))
+                for _ = 1, 8 do
+                    local carry = bit.band(self.high, 0x80000000) ~= 0
+                    self.high = bit.bor(bit.lshift(self.high, 1), bit.rshift(self.low, 31))
+                    self.low = bit.lshift(self.low, 1)
+                    if carry then
+                        self.high = bit.bxor(self.high, 0x42f0e1eb)
+                        self.low = bit.bxor(self.low, 0xa9ea3693)
+                    end
+                end
+            end
+        else
+            local values = self.name == "crc32c" and CASTAGNOLI or IEEE
+            for index = 1, #bytes do
+                self.low = bit.bxor(
+                    bit.rshift(self.low, 8),
+                    values[bit.band(bit.bxor(self.low, bytes[index]), 255) + 1]
+                )
+            end
+        end
+    end
+
+    function value(self): uint64
+        if self.name == "adler32" then
+            return 0ULL + self.high * 65536 + self.low
+        elseif self.name == "crc64-ecma" then
+            return 4294967296ULL * unsigned(self.high) + unsigned(self.low)
+        end
+
+        return 0ULL + unsigned(bit.bnot(self.low))
+    end
+
+    function close(takes self): nil
+    end
+end
+
+local record Algorithm is provider.Algorithm
+    readonly name: string
+    readonly width: integer
+    function create(self): provider.State
+        local initial: integer = 0
+        if self.name == "adler32" then
+            initial = 1
+        end
+        if self.name == "crc32-ieee" or self.name == "crc32c" then
+            initial = -1
+        end
+
+        return new State(name = self.name, high = 0, low = initial)
+    end
+end
+
+const ALGORITHMS: {
+    [string]: provider.Algorithm
+} = {
+    adler32 = new Algorithm(name = "adler32", width = 32),
+    ["crc32-ieee"] = new Algorithm(name = "crc32-ieee", width = 32),
+    crc32c = new Algorithm(name = "crc32c", width = 32),
+    ["crc64-ecma"] = new Algorithm(name = "crc64-ecma", width = 64),
+}
+
+export function lookup(name: string): provider.Algorithm?
+    return ALGORITHMS[name]
+end
+
+export function names(): {string}
+    return {"adler32", "crc32-ieee", "crc32c", "crc64-ecma"}
+end

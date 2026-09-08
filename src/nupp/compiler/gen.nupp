@@ -8345,10 +8345,6 @@ function gen.generate(
         backends.bootstrap(runtimeEffects, backendResolution),
         installingManaged
     )
-    if pluck.storage.enabled and runtimeEffects["runtime.bitset"] then
-        runtimeBootstrap = runtimeBootstrap
-            .. 'local __nuppData=package.loaded["nupp.data"];if not __nuppData then local loader=package.preload["nupp.data"];__nuppData=loader and loader() or {};package.loaded["nupp.data"]=__nuppData end;local __nuppBits=require("nupp.data.internal.bitset");__nuppData.Bitset=__nuppBits.Bitset;__nuppData.WORD_BITS=__nuppBits.WORD_BITS;'
-    end
     if runtimeEffects[pluck.bitops.effect] then
         runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppBitops;"):format(pluck.bitops.name)
     end

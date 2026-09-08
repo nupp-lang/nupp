@@ -6,7 +6,7 @@ local deps = require("nupp.compiler.build.deps")
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.build.hash")
 local process = require("nupp.compiler.build.process")
-local json = nupp.data.json
+local json = nupp.codec.json
 
 local generators = {}
 

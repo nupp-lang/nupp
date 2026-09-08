@@ -2,7 +2,7 @@
 -- production Nupp JSON runtime.
 -- Run with: ./bin/nupp run -O2 bench/json-lpeg.nupp
 
-local runtime = nupp.data.json
+local runtime = nupp.codec.json
 local jit: any = require("jit")
 
 local lpeg: any = require("lpeg")
@@ -198,7 +198,13 @@ started = os.clock()
 local LPegRecognizer = re.compile(RECOGNIZER_GRAMMAR)
 local lpegRecognizerCompile = os.clock() - started
 
-local tiny = runtime.encode({ok = true, count = 42, name = "Nupp \"PEG\"", missing = runtime.NULL, values = {1, 2, 3, 4},})
+local tiny = runtime.encode({
+    ok = true,
+    count = 42,
+    name = "Nupp \"PEG\"",
+    missing = runtime.NULL,
+    values = {1, 2, 3, 4},
+})
 
 local function records(count: integer): string
     local values = {}

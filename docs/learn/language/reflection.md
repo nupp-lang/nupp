@@ -131,7 +131,7 @@ signature between here and there.
 ## JSON through a type witness
 
 `@derive(nupp.derive.JSON)` makes JSON available both as generated record
-members and through `nupp.data.json`. The namespace form accepts the record name
+members and through `nupp.codec.json`. The namespace form accepts the record name
 directly, so callers never construct or pass a separate schema object.
 
 ```nupp
@@ -143,15 +143,15 @@ end
 
 local user = new User(id = 7, name = "ada")
 local out = string.buffer.new()
-local writer = nupp.data.json.writer(out)
+local writer = nupp.codec.json.writer(out)
 user:writeJSON(writer)
 writer:close()
 local text = out:get()
-writer = nupp.data.json.writer(out)
-nupp.data.json.writeAs(User, user, writer)
+writer = nupp.codec.json.writer(out)
+nupp.codec.json.writeAs(User, user, writer)
 writer:close()
 local sameText = out:get()
-local restored, problem = nupp.data.json.decodeAs(User, text)
+local restored, problem = nupp.codec.json.decodeAs(User, text)
 
 assert(text == sameText)
 assert(problem == nil)
@@ -162,7 +162,7 @@ assert(restored and restored.id == 7)
 own metatable. `writeAs` and `decodeAs` take the `Type<T>` witness explicitly,
 which is what an API boundary wants, or code that runs before a value exists.
 See [Declaration derives](../../reference/derives.md#json) for the options, wire
-format, and validation rules, and [JSON](nupp.data.json) for the generic encoder
+format, and validation rules, and [JSON](nupp.codec.json) for the generic encoder
 underneath them.
 
 ## Comptime reflection

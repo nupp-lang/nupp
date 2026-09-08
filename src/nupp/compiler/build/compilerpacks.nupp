@@ -150,7 +150,7 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
     end
     local selectedRoot = root as string
     local selectedManifest = manifestPath as string
-    local ok, value = pcall(nupp.data.json.decode, text, nupp.data.json.NULL)
+    local ok, value = pcall(nupp.codec.json.decode, text, nupp.codec.json.NULL)
     if not ok or type(value) ~= "table" then
         return nil, "cannot decode compiler pack " .. selectedManifest .. ": " .. tostring(value)
     end

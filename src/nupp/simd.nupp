@@ -275,7 +275,7 @@ end
 --- emitting four-byte groups produces. aarch64 spends one `st4` on it.
 ---
 --- Appends when `offset` is the scratch's current length and overwrites below
---- it, on the same terms as `nupp.data.valuebuilder.setScratchBytes4`.
+--- it, on the same terms as `nupp.codec.valuebuilder.setScratchBytes4`.
 --- @raises when called without AOT intrinsic lowering
 --- @export
 function simd.storeInterleaved4(

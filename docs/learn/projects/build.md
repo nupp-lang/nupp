@@ -261,16 +261,15 @@ or retain the library at all. The global [`nupp`
 standard-library namespace](../runtime/data/standard-library.md) itself is always
 created by generated code.
 
-Nested members use the same exact resolution. `nupp.data.sha256(...)` selects
-SHA-256, while an alias such as `local data = nupp.data` followed by
-`data.sha256(...)` selects the same feature without also selecting UUID, JSON,
-or UTF-8. Files and filesystem-backed path operations use the Rust-native
+Nested members use the same exact resolution. `nupp.uuid.v4()` selects
+UUID support, while an alias such as `local uuid = nupp.uuid` followed by
+`uuid.v4()` selects the same feature without also selecting JSON or UTF-8.
+Files and filesystem-backed path operations use the Rust-native
 provider; whole-file transfers and processes share its Tokio executor and use
 bounded queues. HTTP uses Reqwest over Tokio and Rustls, URI uses Rust's `url`
-parser, and UUID uses the Rust-native provider. SHA-256 stages no native
-artifact at all: it is [`nupp.data.digest`](https://github.com/nupp-lang/nupp/blob/main/src/nupp/data/digest.nupp),
-written in Nupp and compiled ahead of time where the target's [`aot`
-policy](../performance/ahead-of-time/build-and-artifacts.md) asks for that.
+parser, and UUID uses the Rust-native provider. Built-in message digests are
+written in Nupp and stage no native artifact. Installed digest services may
+bring their own declared native dependencies.
 The Rust facilities share the versioned `build/lib/nupp_native_v2` sidecar.
 Generated or external C interop builds its own declared native dependencies;
 there is no unversioned compatibility provider beside the Rust provider.
@@ -305,7 +304,7 @@ nativeFeatures = {
 
 The forceable binary feature names are `json`, `lpeg`, `path`,
 `uri`, `uuid`, `files`, `process`, `workers`, and `http`. The registered module
-effects include `nupp.data.json`, native `lpeg`, and the Lua `re`
+effects include `nupp.codec.json`, native `lpeg`, and the Lua `re`
 module that requires it. Bundled LuaRock modules are checked too, so Lunamark
 contributes LPeg even when application source does not require it directly.
 Forced removal is an expert escape hatch:

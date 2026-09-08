@@ -1,90 +1,155 @@
-local data = require("nupp.data")
-local hash = require("nupp.data.hash")
-
+local digest = require("nupp.digest")
+local mac = require("nupp.mac")
+local checksum = require("nupp.checksum")
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local hex = require("nupp.codec.hex")
+local test = require("nupp.test")
 local M = {}
 
-function M.sha256MatchesPublishedVectorsAcrossChunkBoundaries(): nil
-    assert(hash.sha256():hex() == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-    assert(hash.sha256():update("abc"):hex() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+function M.publishedDigestVectors(): nil
+    assert(digest.hexDigest("md5", "") == "d41d8cd98f00b204e9800998ecf8427e")
+    assert(digest.hexDigest("md5", "abc") == "900150983cd24fb0d6963f7d28e17f72")
+    assert(digest.hexDigest("sha1", "") == "da39a3ee5e6b4b0d3255bfef95601890afd80709")
+    assert(digest.hexDigest("sha1", "abc") == "a9993e364706816aba3e25717850c26c9cd0d89d")
+    assert(digest.hexDigest("sha256", "") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    assert(digest.hexDigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    assert(
+        digest.hexDigest(
+            "sha512",
+            ""
+        ) == "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+    )
+    assert(
+        digest.hexDigest(
+            "sha512",
+            "abc"
+        ) == "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+    )
+end
 
-    for length = 0, 130 do
-        local input = string.rep("abcdefghij", 14):sub(1, length)
-        local streaming = hash.sha256()
-        for index = 1, #input do
-            streaming:update(input:sub(index, index))
+function M.metadataAndIndependentContexts(): nil
+    assert(table.concat(digest.algorithms(), ",") == "md5,sha1,sha256,sha512")
+    assert(digest.lookup("unknown") == nil)
+    local algorithm = digest.algorithm("sha256")
+    assert(algorithm.name == "sha256" and algorithm.digestSize == 32)
+    local first = algorithm:create()
+    local second = algorithm:create()
+    assert(first:algorithm() == "sha256" and first:digestSize() == 32)
+    first:update("a")
+    second:update("abc")
+    first:update("bc")
+    assert(first:digest() == second:digest())
+end
+
+function M.overloadedFinalizationWritesOnlyTheSuppliedSlice(): nil
+    for _, name in ipairs(digest.algorithms()) do
+        local algorithm = digest.algorithm(name)
+        local bytes = array.bytes(algorithm.digestSize + 2)
+        local output = bytes:write()
+        output[1] = 0xa5
+        output[#output] = 0x5a
+        local region = output:slice(2, algorithm.digestSize + 1)
+        local rolling = algorithm:create()
+        local source = "abc"
+        local input = span.fromString(source)
+        rolling:updateSpan(input)
+        local written: integer = rolling:digest(region)
+        assert(written == algorithm.digestSize)
+        drop region
+        assert(output[1] == 0xa5 and output[#output] == 0x5a)
+        local expected = digest.digest(name, "abc")
+        for index = 1, #expected do
+            assert(output[index + 1] == expected:byte(index))
         end
-        assert(streaming:hex() == data.sha256(input), "SHA-256 differs at length " .. tostring(length))
     end
 end
 
-function M.digestSnapshotsWithoutFinishingTheHasher(): nil
-    local streaming = hash.sha256()
-    assert(streaming:update("a") == streaming)
-    local first = streaming:hex()
-    streaming:update("bc")
-    assert(first == data.sha256("a"))
-    assert(streaming:hex() == data.sha256("abc"))
-    assert(#streaming:digest() == 32)
+function M.shortDestinationIsRejected(): nil
+    test.raises(
+        function(): nil
+            local bytes = array.bytes(31)
+            local output = bytes:write()
+            local rolling = digest.create("sha256")
+            rolling:update("abc")
+            rolling:digest(output)
+        end,
+        "digest destination needs 32 bytes"
+    )
 end
 
-function M.hmacMatchesRfc4231Vectors(): nil
-    local first = hash.hmac(string.rep("\11", 20))
-    first:update("Hi "):update("There")
-    assert(first:hex() == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
-
-    local second = hash.hmac("Jefe")
-    second:update("what do ya want "):update("for nothing?")
-    assert(second:hex() == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
-
-    local longKey = hash.hmac(string.rep("\170", 131))
-    longKey:update("Test Using Larger Than Block-Size Key - Hash Key First")
-    assert(longKey:hex() == "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54")
+function M.chunkingAndBinaryInput(): nil
+    for _, name in ipairs(digest.algorithms()) do
+        for length = 0, 260 do
+            local input = string.rep("a\0b\255c", 53):sub(1, length)
+            local rolling = digest.create(name)
+            for index = 1, #input, 7 do
+                rolling:update(input:sub(index, index + 6))
+            end
+            assert(rolling:hexDigest() == digest.hexDigest(name, input), name .. " length " .. length)
+        end
+    end
 end
 
-function M.hmacSnapshotsAndAcceptsBinaryChunks(): nil
-    local mac = hash.hmac("k\0ey")
-    assert(mac:update("one\0") == mac)
-    local first = mac:hex()
-    mac:update("two\255")
-
-    local one = hash.hmac("k\0ey"):update("one\0")
-    local two = hash.hmac("k\0ey"):update("one\0two\255")
-    assert(first == one:hex())
-    assert(mac:hex() == two:hex())
-    assert(#mac:digest() == 32)
-end
-
-function M.oneShotHmacMatchesTheStreamingPathAndRfc4231(): nil
+function M.hmacRfc4231AndBinaryInput(): nil
     assert(
-        hash.hmacHex(
+        mac.hexDigest(
+            "hmac-sha256",
             string.rep("\11", 20),
             "Hi There"
         ) == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
     )
     assert(
-        hash.hmacHex(
+        mac.hexDigest(
+            "hmac-sha256",
             "Jefe",
             "what do ya want for nothing?"
         ) == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
     )
     assert(
-        hash.hmacHex(
+        mac.hexDigest(
+            "hmac-sha256",
             string.rep("\170", 131),
             "Test Using Larger Than Block-Size Key - Hash Key First"
         ) == "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
     )
+    local rolling = mac.create("hmac-sha256", "k\0ey")
+    rolling:update("one\0")
+    rolling:update("two\255")
+    assert(rolling:digest() == mac.digest("hmac-sha256", "k\0ey", "one\0two\255"))
+end
 
-    -- No provider is installed here, so this is the portable path answering
-    -- rather than refusing, and it answers what the chunked calls beside it do.
-    local key = "k\0ey"
-    for length = 0, 130 do
-        local message = string.rep("abcdefghij", 14):sub(1, length)
-        local streaming = hash.hmac(key)
-        streaming:update(message)
-        assert(hash.hmacHex(key, message) == streaming:hex(), "HMAC differs at length " .. tostring(length))
+function M.checksumVectorsAndNonConsumingReads(): nil
+    assert(checksum.value("adler32", "") == 1ULL)
+    assert(checksum.value("crc32-ieee", "") == 0ULL)
+    assert(checksum.value("crc32c", "") == 0ULL)
+    assert(checksum.value("crc64-ecma", "") == 0ULL)
+    assert(checksum.value("adler32", "123456789") == 0x091e01deULL)
+    assert(checksum.value("crc32-ieee", "123456789") == 0xcbf43926ULL)
+    assert(checksum.value("crc32c", "123456789") == 0xe3069283ULL)
+    assert(checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL)
+    assert(checksum.algorithm("crc64-ecma").width == 64)
+    for _, name in ipairs(checksum.algorithms()) do
+        local rolling = checksum.create(name)
+        assert(rolling:algorithm() == name)
+        assert(rolling:width() == checksum.algorithm(name).width)
+        rolling:update("1234")
+        assert(rolling:value() == checksum.value(name, "1234"))
+        local source = "56789"
+        local tail = span.fromString(source)
+        rolling:updateSpan(tail)
+        assert(rolling:value() == checksum.value(name, "123456789"))
     end
-    assert(#hash.hmacDigest(key, "message") == 32)
-    assert(hash.hmacDigest(key, "message") == hash.hmac(key):update("message"):digest())
+end
+
+function M.hexCodecIsStrictAndRoundTripsBytes(): nil
+    local input = "\0\1\127\128\255"
+    assert(hex.encode(input) == "00017f80ff")
+    assert(hex.decode("00017F80FF") == input)
+    assert(hex.decode("") == "")
+    assert(hex.decode("0") == nil)
+    assert(hex.decode("0x01") == nil)
+    assert(hex.decode("00 1") == nil)
 end
 
 return M

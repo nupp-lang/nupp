@@ -46,4 +46,27 @@ function array.scalar<T>(borrows witness: array.Scalar<T>, count: integer): arra
     ) as array.Array<T>
 end
 
+--- Owned bytes, with the same checked view vocabulary as scalar arrays.
+record array.Bytes
+    private readonly pointer: uint8[?]
+    readonly count: integer
+
+    function read(borrows self): span.ByteSpan borrows (self)
+        return span.fromCarray(self.pointer, self.count)
+    end
+
+    function write(exclusive self): span.Writable<uint8> borrows (self)
+        return span.writeCarray(self.pointer, self.count)
+    end
+end
+
+--- Allocates zeroed bytes without treating the storage-only uint8 as a value type.
+--- @raises when count is not a non-negative integer
+function array.bytes(count: integer): array.Bytes
+    if count < 0 or count ~= math.floor(count) then
+        error("byte array count must be a non-negative integer", 2)
+    end
+    return new array.Bytes(pointer = storage.allocateBytes(count), count = count)
+end
+
 export = array

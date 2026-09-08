@@ -1,5 +1,5 @@
-local json = require("nupp.data.json")
-local serde = require("nupp.data.serde")
+local json = require("nupp.codec.json")
+local serde = require("nupp.serde")
 
 @derive(nupp.derive.JSON, nupp.derive.Serde)
 local record FastChild
@@ -65,7 +65,7 @@ function test.run(): nil
         [[{"id":1.5,"child":{"label":"x"},"children":[],"labels":{}}]]
     )
     assert(derivedWrong == nil and derivedWrongProblem ~= nil)
-    local nativeProvider = require("nupp.data.json.provider")
+    local nativeProvider = require("nupp.codec.json.provider")
     local optionalDefaultPlan = nativeProvider.compileSerde(
         {
             kind = "structure",
@@ -120,21 +120,13 @@ function test.run(): nil
     assert(literalTuplePlan.complete == true)
     local literalTuple = nativeProvider.decodeSerde(literalTuplePlan, [[{"kind":"pair","items":["x",2]}]])
     assert(literalTuple.kind == "pair" and literalTuple.items[2] == 2 and literalTuple.options.mode == "safe")
-    local wrongLiteralOk = pcall(
-        nativeProvider.decodeSerde,
-        literalTuplePlan,
-        [[{"kind":"other","items":["x",2]}]]
-    )
+    local wrongLiteralOk = pcall(nativeProvider.decodeSerde, literalTuplePlan, [[{"kind":"other","items":["x",2]}]])
     assert(not wrongLiteralOk)
-    local wrongTupleOk = pcall(
-        nativeProvider.decodeSerde,
-        literalTuplePlan,
-        [[{"kind":"pair","items":["x"]}]]
-    )
+    local wrongTupleOk = pcall(nativeProvider.decodeSerde, literalTuplePlan, [[{"kind":"pair","items":["x"]}]])
     assert(not wrongTupleOk)
     local renamed = serde.json{
         unknownMembers = "ignore",
-        fieldNames = function(member: nupp.data.serde.Member): string
+        fieldNames = function(member: nupp.serde.Member): string
             return member.name == "id" and "i\"d" or member.name
         end,
     }:prepare(serde.of(FastEnvelope))
@@ -276,7 +268,7 @@ end
 local rawPlan: any
 
 function test.rawDecode(): {[string]: any}
-    local provider: any = require("nupp.data.json.provider")
+    local provider: any = require("nupp.codec.json.provider")
     if rawPlan == nil then
         rawPlan = provider.compileSerde(test.controlPlan(), "reject")
     end

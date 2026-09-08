@@ -47,10 +47,10 @@ return function(Browser)
     end
 
     local browserSource = [[
-local crypto = require("nupp.data.crypto")
+local crypto = require("nupp.crypto")
 local storage = require("nupp.io.storage")
 local time = require("nupp.time")
-local hash = require("nupp.data.hash")
+local hash = require("nupp.digest.internal.streaming")
 time.sleep(1)
 storage.set("key", crypto.sha256(crypto.randomBytes(16)))
 print(storage.get("key"), hash.hmacHex("key", "message"), crypto.uuid4())

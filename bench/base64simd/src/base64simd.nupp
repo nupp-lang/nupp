@@ -18,7 +18,7 @@ x86; and an interleaving store writes the quantum back.
 ]]
 
 local simd = require("nupp.simd")
-local valuebuilder = require("nupp.data.valuebuilder")
+local valuebuilder = require("nupp.codec.valuebuilder")
 
 local base64simd = {}
 

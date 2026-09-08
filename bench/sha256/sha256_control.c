@@ -1,7 +1,7 @@
 /* The C that was `nupp.data.sha256`, kept as this benchmark's control.
  *
  * Nothing in Nupp builds this any more. It lived in the native provider until
- * `nupp.data.digest` replaced it, and it is here for the same reason
+ * `nupp.digest.internal.sha256` replaced it, and it is here for the same reason
  * `legacy.lua` is: a port is only worth what it can be measured against, and
  * the thing to measure against is the implementation that was actually there.
  *

@@ -643,6 +643,10 @@ export async function handleBrowserEffects(message, options = {}) {
       else if (effect.kind === "http") value = await performHttpEffect(effect, options);
       else if (effect.kind === "time") value = await performTimeEffect(effect, options);
       else if (effect.kind === "random") value = await performRandomEffect(effect, options);
+      else if (effect.kind === "system") {
+        const count = globalThis.navigator?.hardwareConcurrency;
+        value = {availableParallelism: Number.isInteger(count) && count > 0 ? count : 1};
+      }
       else if (effect.kind === "sha256") value = await performSha256Effect(effect, options);
       else if (effect.kind === "hmac-sha256") value = await performHmacEffect(effect, options);
       else if (effect.kind === "storage") value = await performStorageEffect(effect, options);

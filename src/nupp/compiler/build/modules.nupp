@@ -951,7 +951,13 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- the same artifact it would compile; for `lua51` it is not, so those modules are
     -- compiled here instead.
     local portableTarget = target.dialect == "lua51"
-    local selfContainedTarget = target.kind == "bundle" or target.kind == "binary" or target.kind == "component"
+    -- A directory of modules must carry its emitted stdlib dependencies too:
+    -- moving the directory away from the compiler must not lose its runtime.
+    local selfContainedTarget = target.kind == nil
+        or target.kind == "modules"
+        or target.kind == "bundle"
+        or target.kind == "binary"
+        or target.kind == "component"
 
     local linkRuntimeSource: function(name: string): nil
     linkRuntimeSource = function(name: string): nil
@@ -1343,6 +1349,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- that would mix two copies of nominal standard-library types in one checker
     -- session. Portable targets still compile the carried source below.
     local addingCarriedRuntime: {[string]: boolean} = {}
+    local copiedRuntime: {[string]: boolean} = {}
     local function addCarriedRuntime(name: string): boolean
         if portableTarget or not selfContainedTarget then
             return false
@@ -1391,6 +1398,16 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
         local output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
         local artifactHash = hash.digest(text)
+        local previous = oldState.modules[name]
+        if cacheCompatible
+            and previous
+            and previous.compilerRuntime
+            and previous.artifactHash == artifactHash
+            and hashFile(
+            output
+        ) == artifactHash then
+            reused[name] = true
+        end
         records[
             name
         ] = {
@@ -1410,11 +1427,15 @@ local function buildModules(root: string, outDir: string, config: Config, target
             specializationHash = emptySpecializationHash,
         }
         codeFor[name] = text
+        copiedRuntime[name] = true
         paths[name] = output
         order[#order + 1] = name
         for _, dependency in ipairs(required) do
             if not addCarriedRuntime(dependency) then
                 linkPackagedRuntime(dependency)
+                if enqueueLinked ~= nil then
+                    enqueueLinked(dependency)
+                end
             end
         end
         addingCarriedRuntime[name] = nil
@@ -1700,7 +1721,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         invalidated = false
         for _, name in ipairs(order) do
             local record = records[name]
-            if reused[name] and record then
+            if reused[name] and record and not copiedRuntime[name] then
                 local dependencyChanged = false
                 for _, depName in ipairs(record.dependencies or {}) do
                     local depPath = inc.modulePath(depName)
@@ -1731,14 +1752,18 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- can be invalidated by a dependency later and recompiled; only once the loop above
     -- settles is `reused` the answer. A check counts the same way a build does, which
     -- is what lets a test say "this edit rechecked one module" instead of timing it.
+    local reusedArtifacts = 0
     for _, name in ipairs(order) do
         if reused[name] then
-            stats.reusedModules = stats.reusedModules + 1
+            reusedArtifacts = reusedArtifacts + 1
+            if not copiedRuntime[name] then
+                stats.reusedModules = stats.reusedModules + 1
+            end
         end
     end
     -- The same answer, and the two halves of each module's cost added up under the one
     -- name a reader would look for it by.
-    report:counted(#order - stats.reusedModules, stats.reusedModules)
+    report:counted(#order - reusedArtifacts, reusedArtifacts)
     for _, name in ipairs(order) do
         local spent = (checkMs[paths[name] or ""] or 0) + (generateMs[name] or 0)
         if spent > 0 then

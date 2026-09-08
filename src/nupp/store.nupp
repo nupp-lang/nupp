@@ -1,0 +1,196 @@
+module nupp.store
+
+--[[
+Typed keys and the stores they index.
+
+A key is a phantom-typed identity: Nupp remembers `T`, the runtime holds an id
+and an optional name. A store is one table indexed by id behind generic methods,
+so `store:get(key)` reads `T?` and `store:set(key, value)` accepts `T`.
+
+Names are opaque strings registered once per runtime state. Ids are allocated
+in declaration order and identify a key inside this state only; the name is the
+identity that persists.
+]]
+
+--- A typed identity for one value in a [](nupp.store.Store).
+---
+--- `id` and `name` are all a key holds at runtime. `_valueType` is never
+--- present: it mentions `T` in both positions so that keys are invariant, which
+--- is what makes a wrong write through one a checker error rather than a
+--- silent widening.
+--- @export
+export interface Key<T>
+    readonly id: integer
+    readonly name: string?
+    readonly _valueType: (function(value: T?): T?)?
+end
+
+--- An independent typed bag indexed by keys.
+--- @export
+export record Store
+    private values: {[integer]: any}
+
+    --- Answers the value held under a key.
+    get: function<T>(self: Store, key: Key<T>): T?
+
+    --- Stores a non-nil value under a key.
+    --- @raises when value is nil; use [](remove) to delete an entry
+    set: function<T>(self: Store, key: Key<T>, value: T): nil
+
+    --- Removes the value held under a key.
+    remove: function<T>(self: Store, key: Key<T>): nil
+
+    --- Removes every value without touching key registration.
+    clear: function(self: Store): nil
+
+    --- Walks every occupied key ascending by id, without its value.
+    entries: function(
+        borrows self: Store
+    ): (function(Store, integer): (integer, string?, string), Store borrows (self), integer)
+end
+
+local nextId: integer = 1
+local named: {[string]: Key<any>} = {}
+local names: {[integer]: string} = {}
+
+--- Creates a key.
+---
+--- The type argument comes from the annotation at the declaration. A named key
+--- is registered for the runtime state's lifetime; an anonymous key is
+--- retained by nothing but its holders.
+--- @param name the opaque name to register, or nil for an anonymous key
+--- @return the key
+--- @raises when the name is empty or already registered, before an id is used
+--- @export
+export function newKey<T>(name: string?): Key<T>
+    if name ~= nil then
+        if name == "" then
+            error("nupp: a key name must not be empty", 2)
+        elseif named[name] ~= nil then
+            error("nupp: key " .. name .. " is already registered", 2)
+        end
+    end
+    local key: Key<T> = {id = nextId, name = name}
+    nextId = nextId + 1
+    if name ~= nil then
+        named[name] = key as Key<any>
+        names[key.id] = name
+    end
+
+    return key
+end
+
+--- Finds a registered key by name.
+---
+--- The registry knows the name's id and nothing about its type, so the result
+--- is `unknown` and the caller casts to the `Key<T>` it claims.
+--- @param name the registered name
+--- @return the key, or nil when the name is not registered
+--- @export
+export function findKey(name: string): unknown
+    return named[name]
+end
+
+--- The step of [](nupp.store.registeredKeys).
+---
+--- Terminating on nil is the generic for's business, so the surface type
+--- promises what the loop delivers rather than what the last call returns.
+--- @export
+export type KeyStep = function(any, integer): (integer, string)
+
+local function nextKey(_: any, after: integer): (integer?, string?)
+    local id: integer = after + 1
+    local last: integer = nextId - 1
+    while id <= last do
+        local name: string? = names[id]
+        if name ~= nil then
+            return id, name
+        end
+        id = id + 1
+    end
+
+    return nil, nil
+end
+
+--- Walks every registered name, ascending by id.
+---
+--- The walk allocates nothing: the step is one shared function and the control
+--- variable is the id it last reported. The registry itself is never handed
+--- out, so nothing the loop is given can be used to reach or change it. An
+--- anonymous key registers no name and is not walked.
+--- @return the step the loop calls
+--- @return nothing to carry, since the ids are the whole state
+--- @return the id to resume after, 0 to start
+--- @export
+export function registeredKeys(): (KeyStep, any, integer)
+    return nextKey as KeyStep, nil, 0
+end
+
+--- Creates an empty store.
+--- @return the store
+--- @export
+export function newStore(): Store
+    return new Store(values = {})
+end
+
+function Store.get<T>(self: Store, key: Key<T>): T?
+    return self.values[key.id] as T?
+end
+
+function Store.set<T>(self: Store, key: Key<T>, value: T): nil
+    if value == nil then
+        error("nupp: Store:set value must not be nil; use Store:remove", 2)
+    end
+    self.values[key.id] = value
+end
+
+function Store.remove<T>(self: Store, key: Key<T>): nil
+    self.values[key.id] = nil
+end
+
+function Store.clear(self: Store): nil
+    self.values = {}
+end
+
+--- The step of [](Store.entries).
+---
+--- Terminating on nil is the generic for's business, so the surface type
+--- promises what the loop delivers rather than what the last call returns.
+--- @export
+export type StoreStep = function(Store, integer): (integer, string?, string)
+
+--- The step the walk hands the generic for: the first occupied key after an id,
+--- or nil once there is none.
+--- @param store the store to read
+--- @param after the id to resume after, 0 to start
+--- @return the id, or nil once the walk is done
+--- @return the key's name, nil for an anonymous key
+--- @return the Lua type name of the value
+local function step(store: Store, after: integer): (integer?, string?, string?)
+    local id: integer = after + 1
+    local last: integer = nextId - 1
+    while id <= last do
+        local value: any = store.values[id]
+        if value ~= nil then
+            return id, names[id], type(value)
+        end
+        id = id + 1
+    end
+
+    return nil, nil, nil
+end
+
+--- Walks every occupied key of a store, ascending by id, without its values.
+---
+--- The walk allocates nothing: the step is one shared function, the state is
+--- the store, and the control variable is the id it last reported. Ids are
+--- dense and ascending, so the order is the sorted order without a sort. It
+--- never yields a value, so a caller can list a store without holding what is
+--- in it.
+--- @param self the store to walk
+--- @return the step the loop calls
+--- @return the store it walks
+--- @return the id to resume after, 0 to start
+function Store.entries(borrows self: Store): (StoreStep, Store borrows (self), integer)
+    return step as StoreStep, self, 0
+end

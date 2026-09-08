@@ -153,7 +153,7 @@ function tier2.digests(at: string, paths: {string}): {[string]: string}
     for _, path in ipairs(paths) do
         local target = harness.join(at, path)
         if files.exists(target) then
-            digests[path] = nupp.data.sha256(harness.read(target))
+            digests[path] = nupp.digest.hexDigest("sha256", harness.read(target))
         end
     end
 

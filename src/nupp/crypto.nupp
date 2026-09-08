@@ -1,0 +1,26 @@
+module nupp.crypto
+
+--[[Cryptographic randomness. For repeatable seeded sequences use nupp.random.
+Message digests, MACs and identifiers live in nupp.digest, nupp.mac and nupp.uuid.]]
+
+const native = require("nupp.runtime.native")
+native.ffi.cdef[[
+int32_t nuppNativeV2RandomBytes(uint8_t *, size_t);
+]]
+
+--- Returns cryptographically secure random bytes from the selected host.
+--- @param count the requested byte count, from zero through 1048576
+--- @return the generated raw bytes
+--- @raises when the count is invalid or the host cannot supply randomness
+export function randomBytes(count: integer): string
+    if count < 0 or count ~= math.floor(count) or count > 1048576 then
+        error("random byte count must be an integer between 0 and 1048576", 2)
+    end
+    if count == 0 then
+        return ""
+    end
+    local output = native.ffi.new("uint8_t[?]", count)
+    native.succeeded(native.C.nuppNativeV2RandomBytes(output, count), 2)
+
+    return native.ffi.string(output, count)
+end

@@ -14,8 +14,8 @@ local browserGpu = require("nupp.gpu")
 -- and a module the bundle does not carry is a program that checks, compiles, and
 -- then cannot run.
 local derive = require("nupp.derive")
-local serde = require("nupp.data.serde")
-local dataJson = require("nupp.data.json")
+local serde = require("nupp.serde")
+local dataJson = require("nupp.codec.json")
 -- And the PEG runtime, which a materialized matcher requires by name. Its
 -- general backend is LPeg, which the application host links in.
 local pegRuntime = require("nupp.compiler.runtime.peg")

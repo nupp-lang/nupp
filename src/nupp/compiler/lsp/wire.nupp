@@ -7,7 +7,7 @@ An empty Lua table defaults to an object, while the protocol cares which contain
 are lists. Everything the server sends back as a list is marked here.
 ]]
 
-local json = nupp.data.json
+local json = nupp.codec.json
 
 local wire = {}
 

@@ -27,7 +27,7 @@ local homeMod = require("nupp.compiler.doc.home")
 local frontmatterMod = require("nupp.compiler.doc.frontmatter")
 local diagnosticsMod = require("nupp.compiler.doc.diagnostics")
 local stdlibMod = require("nupp.compiler.doc.stdlib")
-local json = nupp.data.json
+local json = nupp.codec.json
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local escapeJs = stringsMod.escapeJs

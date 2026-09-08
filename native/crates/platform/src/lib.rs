@@ -130,6 +130,12 @@ pub fn sleep_ms(milliseconds: f64) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Fills the destination from the operating system's cryptographic random source.
+pub fn random_bytes(destination: &mut [u8]) -> Result<(), String> {
+    getrandom::fill(destination)
+        .map_err(|error| format!("the system has no randomness to draw on: {error}"))
+}
+
 #[cfg(feature = "uuid")]
 fn uuid(version: u8, timestamp: Option<u64>) -> Result<String, String> {
     let mut bytes = [0u8; 16];

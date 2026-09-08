@@ -95,6 +95,9 @@ local members = {
     ["host.time"] = comptime do
         return memberNames(nupp.reflect(contracts.TimeProvider))
     end,
+    ["host.system"] = comptime do
+        return memberNames(nupp.reflect(contracts.SystemProvider))
+    end,
     ["host.path"] = comptime do
         return memberNames(nupp.reflect(contracts.PathProvider))
     end,

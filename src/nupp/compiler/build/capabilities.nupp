@@ -5,7 +5,7 @@ module nupp.compiler.build.capabilities
 -- after the build has selected and validated one descriptor entry.
 
 local fs = require("nupp.compiler.fs")
-local json = nupp.data.json
+local json = nupp.codec.json
 
 local capabilities = {}
 

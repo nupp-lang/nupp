@@ -1231,7 +1231,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"},
    backends = {"portablebackend"}}}
 ]],
         ["src/main.nupp"] = [[
-local json = require("nupp.data.json")
+local json = require("nupp.codec.json")
 return json.encode({answer = 42})
 ]],
         [
@@ -1298,10 +1298,10 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"},
    dialect = "lua51", backends = {"nupp.runtime.backend.browser"}}}
 ]],
         ["src/main.nupp"] = [[
-local data = require("nupp.data")
+local uuid = require("nupp.uuid")
 
 return function(): string
-   return data.uuid4()
+   return uuid.v4()
 end
 ]],
     })
@@ -1327,19 +1327,20 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"},
         [
             "src/main.nupp"
         ] = [[
-local crypto = require("nupp.data.crypto")
+local crypto = require("nupp.crypto")
 local storage = require("nupp.io.storage")
 local time = require("nupp.time")
-local data = require("nupp.data")
-local hash = require("nupp.data.hash")
+local digest = require("nupp.digest")
+local mac = require("nupp.mac")
+local uuid = require("nupp.uuid")
 local path = require("nupp.io.path")
 
 local function platform(): string
    assert(path.newPath("src", "app", "..", "main.nupp"):normalize():toString() == "src/main.nupp")
    assert(path.currentDirectory() == nil)
    time.sleep(1)
-   storage.set("digest", data.sha256(crypto.randomBytes(16)))
-   return hash.hmacHex("key", assert(storage.get("digest"))) .. data.uuid4()
+   storage.set("digest", digest.hexDigest("sha256", crypto.randomBytes(16)))
+   return mac.hexDigest("hmac-sha256", "key", assert(storage.get("digest"))) .. uuid.v4()
 end
 
 return platform
@@ -1356,7 +1357,7 @@ return platform
             diagnostics[1] and diagnostics[1].msg
         )
     )
-    assertEq(#diagnostics, 0, "exact browser modules and the projected data facade type through providers")
+    assertEq(#diagnostics, 0, "browser modules and the projected UUID facade type through providers")
     assertEq(
         produced.backends[1].module,
         "nupp.runtime.backend.browser",
@@ -1375,17 +1376,14 @@ return platform
         not exists(dir .. "/out/nupp/runtime/native.lua"),
         "portable path arithmetic does not carry the native binding"
     )
-    assert(
-        not exists(dir .. "/out/nupp/data.lua"),
-        "the native data implementation is not compiled behind a projected facade"
-    )
+    assert(not exists(dir .. "/out/nupp/data.lua"), "the removed data module is not emitted")
     local generated = read(dir .. "/out/main.lua")
     assert(
         generated:find("nupp.runtime.backend.browser", 1, true),
         "the application installs its selected browser backend"
     )
     assert(
-        generated:find('require ( "nupp.data" )', 1, true),
+        generated:find('require ( "nupp.uuid" )', 1, true),
         "the standard facade remains the source-level runtime module"
     )
     remove(dir)
@@ -1525,7 +1523,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"},
    backends = {"portablebackend"}}}
 ]],
         ["src/main.nupp"] = [[
-local json = require("nupp.data.json")
+local json = require("nupp.codec.json")
 return json.encode({answer = 42})
 ]],
         ["src/portablebackend.nupp"] = backendSource("first_json"),
@@ -3442,6 +3440,7 @@ build = {
    modules = {
       ["provider.codegen"] = "codegen.lua",
       ["provider.codec"] = "codec.lua",
+      ["provider.digest"] = "digest.lua",
    },
    copy_directories = { "nupp" },
 }
@@ -3469,6 +3468,9 @@ return {
 local generated = require("fixture.generated")
 local services = require("nupp.services")
 local codec = services.require("nupp.codec", "fixture")
+local digest = require("nupp.digest")
+assert(digest.algorithm("sha256").digestSize == 32)
+assert(digest.hexDigest("sha256", "provider input") == string.rep("00", 32))
 return generated.value .. ":" .. codec.name
 ]],
         ["model/value.txt"] = "answer\n",
@@ -3484,17 +3486,33 @@ end
 ]],
         ["vendor/provider/codec.lua"] = "return {codec = {name = 'codec'}}\n",
         [
+            "vendor/provider/digest.lua"
+        ] = [[
+return {name = "sha256", digestSize = 32, create = function()
+   return {update = function() end, finish = function() end, close = function() end}
+end}
+]],
+        [
             "vendor/provider/nupp/capabilities.json"
         ] = [[
 {"schema":1,"capabilities":[
  {"kind":"generator","name":"codegen","api":1,"entry":"provider.codegen"},
  {"kind":"service","service":"nupp.codec","name":"fixture","api":1,
-  "entry":"provider.codec","member":"codec"}
+  "entry":"provider.codec","member":"codec"},
+ {"kind":"service","service":"nupp.digest","name":"sha256","api":1,
+  "entry":"provider.digest"}
 ]}
 ]],
         ["vendor/provider/nupp/provider/codec.d.nupp"] = [[
 local codec: {name: string}
 return {codec = codec}
+]],
+        [
+            "vendor/provider/nupp/provider/digest.d.nupp"
+        ] = [[
+local provider = require("nupp.digest.provider")
+local algorithm: provider.Algorithm
+return algorithm
 ]],
     })
     assertEq(project.build(dir), 0, "a packaged generator and runtime service build")
@@ -3868,44 +3886,7 @@ return {answer = answer}
     remove(dir)
 end
 
-function M.targetDependencyCanSupplyAnHmacProvider()
-    local rockspec = [[
-rockspec_format = "3.0"
-package = "acme-crypto"
-version = "1.0-1"
-source = { url = "file://provider.lua" }
-description = { summary = "Target-selected crypto backend fixture." }
-dependencies = { "lua >= 5.1" }
-build = {
-   type = "builtin",
-   modules = {
-      ["acme.hmac_sha256"] = "provider.lua",
-   },
-   copy_directories = { "nupp" },
-}
-]]
-    local provider = [[
-local expected = "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
-local function hex(key, message)
-   if key == "key" and message == "The quick brown fox jumps over the lazy dog" then
-      return expected
-   end
-   assert(key == "" and message == "")
-   return "b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad"
-end
-local function digest(key, message)
-   local encoded = hex(key, message)
-   return encoded:gsub("..", function(byte) return string.char(tonumber(byte, 16)) end)
-end
-return {digest = digest, hex = hex}
-]]
-    local declaration = [[
-module acme.cryptobackend
-export = {
-   name = "acme.crypto",
-   seams = {["crypto.hmac_sha256"] = "acme.hmac_sha256"},
-}
-]]
+function M.targetDependencyCanSupplyAMacService()
     local dir = tempProject({
         [
             "nupp.lua"
@@ -3914,76 +3895,69 @@ return {
    include = {"src"},
    dependencies = {crypto = {kind = "luarocks", path = "vendor/crypto",
       rockspec = "vendor/crypto/acme-crypto-1.0-1.rockspec"}},
-   build = {targets = {
-      portable = {outDir = "out", entries = {"main"}, dialect = "lua51",
-         dependencies = {"crypto"},
-         backends = {"acme.cryptobackend", "nupp.runtime.backend.portable"}},
-      native = {outDir = "native", entries = {"main"}, dialect = "luajit"},
-   }},
+   build = {outDir = "out", entries = {"main"}, dependencies = {"crypto"}},
 }
 ]],
         [
             "src/main.nupp"
         ] = [[
-local hash = require("nupp.data.hash")
-return hash.hmacHex("key", "The quick brown fox jumps over the lazy dog")
+local mac = require("nupp.mac")
+local rolling = mac.create("hmac-sha256", "key")
+assert(rolling:digestSize() == 32)
+rolling:update("The quick brown fox ")
+rolling:update("jumps over the lazy dog")
+return rolling:hexDigest()
 ]],
-        ["vendor/crypto/acme-crypto-1.0-1.rockspec"] = rockspec,
-        ["vendor/crypto/provider.lua"] = provider,
-        ["vendor/crypto/nupp/acme/cryptobackend.nupp"] = declaration,
+        [
+            "vendor/crypto/acme-crypto-1.0-1.rockspec"
+        ] = [[
+rockspec_format = "3.0"
+package = "acme-crypto"
+version = "1.0-1"
+source = {url = "file://provider.lua"}
+description = {summary = "Target-selected incremental MAC service fixture."}
+dependencies = {"lua >= 5.1"}
+build = {type = "builtin", modules = {["acme.hmac_sha256"] = "provider.lua"},
+   copy_directories = {"nupp"}}
+]],
+        [
+            "vendor/crypto/nupp/capabilities.json"
+        ] = [[
+{"schema":1,"capabilities":[
+ {"kind":"service","service":"nupp.mac","name":"hmac-sha256","api":1,
+  "entry":"acme.hmac_sha256"}
+]}
+]],
+        [
+            "vendor/crypto/provider.lua"
+        ] = [[
+local ffi = require("ffi")
+local expected = "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
+local raw = expected:gsub("..", function(byte) return string.char(tonumber(byte, 16)) end)
+return {name = "hmac-sha256", digestSize = 32, create = function(_, key)
+   assert(key == "key")
+   local parts = {}
+   return {
+      update = function(_, bytes)
+         local pointer, count = bytes:ref()
+         parts[#parts + 1] = ffi.string(pointer, count)
+      end,
+      finish = function(_, destination)
+         assert(table.concat(parts) == "The quick brown fox jumps over the lazy dog")
+         local pointer = destination:ref()
+         ffi.copy(pointer, raw, #raw)
+      end,
+      close = function() parts = {} end,
+   }
+end}
+]],
     })
-    local task = assert(project.describeTasks(dir, "portable"))
-    assertEq(task.dependencies[1], "crypto", "the portable target owns its crypto rock")
-    assertEq(task.backends[1], "acme.cryptobackend", "the same target owns its backend")
-    local produced = {}
-    assertEq(
-        project.build(dir, {
-            target = "portable",
-            produced = produced
-        }),
-        0,
-        "a checked backend can name a provider from its target dependency"
-    )
-    -- `nupp.data.hash` is one module over two seams: the rock supplies the HMAC
-    -- accelerator, and `numeric.bitops` is what the portable digest underneath
-    -- it needs on this dialect, which is why the target names both backends.
-    local hmacSeam
-    for _, resolved in ipairs(produced.backendResolution) do
-        if resolved.name == "crypto.hmac_sha256" then
-            hmacSeam = resolved
-        end
-    end
-    assert(hmacSeam, "requiring HMAC reaches the dependency-backed seam")
-    assertEq(
-        hmacSeam.runtimeDependency.package,
-        "acme-crypto",
-        "artifact accounting names the provider package rather than its manifest alias"
-    )
-    assertEq(hmacSeam.runtimeDependency.version, "1.0-1", "artifact accounting pins the provider package version")
-    assert(
-        exists(dir .. "/.rocks/lib/luarocks/rocks-5.1/acme-crypto/1.0-1/" .. "nupp/acme/cryptobackend.nupp"),
-        "the target dependency carries the checked backend source"
-    )
-    assert(
-        exists(dir .. "/out/acme/cryptobackend.lua"),
-        "the selected dependency backend is compiled for the consuming target"
-    )
-    -- The seam layer, not a module per contract: a declaration names a provider
-    -- and `nupp.runtime.seam.module` installs it, so what the artifact has to
-    -- carry is that installer and the registry it reads.
-    assert(
-        exists(dir .. "/out/nupp/runtime/seam/module.lua"),
-        "the artifact carries the compiler-owned runtime support its backend requires"
-    )
-    assert(
-        exists(dir .. "/out/nupp/runtime/seam/registry.lua"),
-        "the artifact carries the registry the installer resolves contracts through"
-    )
+    assertEq(project.build(dir), 0, "a target dependency supplies an incremental MAC service")
     local script = (
         "package.path=%q..package.path;io.write(require('main'))"
     ):format(dir .. "/out/?.lua;" .. dir .. "/.rocks/share/lua/5.1/?.lua;")
     local status, output = process.capture({"luajit", "-e", script})
-    assertEq(status, 0, "the dependency-backed artifact loads its target rock: " .. tostring(output))
+    assertEq(status, 0, "the dependency-backed MAC artifact loads: " .. tostring(output))
     assertEq(output, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8")
     remove(dir)
 end

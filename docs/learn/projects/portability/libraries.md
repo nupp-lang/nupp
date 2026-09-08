@@ -287,7 +287,7 @@ selected during lowering.
 | `representation.structvalue` | Table-backed structs |
 
 `text.buffer` supplies `string.buffer`, which is LuaJIT's. The standard library
-builds strings by appending into one, so it is what `nupp.data.serde` and the
+builds strings by appending into one, so it is what `nupp.serde` and the
 bundled `@derive` recipes render through; a `lua51` target that reaches either
 needs a provider selected, and `nupp.runtime.provider.tablebuffer` is the carried
 one. The provider implements the declared module rather than replacing it, so
@@ -334,10 +334,10 @@ after the selected backend installs it.
 
 | Seam | Standard or host surface |
 | --- | --- |
-| `data.json` | `nupp.data.json` (contract 2) |
-| `data.sha256` | `nupp.data.sha256` |
+| `data.json` | `nupp.codec.json` (contract 2) |
+| `data.sha256` | compiler-private one-shot SHA-256 |
 | `text.buffer` | `string.buffer` |
-| `data.uuid` | `nupp.data.uuid4` and `uuid7` |
+| `data.uuid` | `nupp.uuid.v4` and `uuid7` |
 | `peg` | `nupp.peg`, LPeg, and `re` |
 | `suspension` | `nupp.suspension` management |
 | `host.path` | The environment behind `nupp.io.path` |
@@ -346,24 +346,24 @@ after the selected backend installs it.
 | `host.time` | `nupp.time` |
 | `host.wasm` | Private host memory and transfer leases |
 | `host.workers` | `nupp.workers` (contract 2) |
-| `host.crypto` | `nupp.data.crypto` |
+| `host.crypto` | `nupp.crypto` |
 | `host.storage` | `nupp.io.storage` |
 | `compute.gpu` | `nupp.gpu` |
 
 One runtime contract is an accelerator rather than a contract a program needs
 filled: `crypto.hmac_sha256` names no module in the table above, because
-[](nupp.data.hash) answers on every target without one, being SHA-256 and
+[](nupp.digest.internal.streaming) answers on every target without one, being SHA-256 and
 HMAC-SHA256 written in Nupp against `numeric.bitops` alone. A backend that
 installs one replaces a working implementation with a faster one, which is why
 the seam is not required and does not refuse a program that selected nothing.
-`nupp.data.hash` prefers an installed provider from its one-shot `hmacDigest`
+`nupp.digest.internal.streaming` prefers an installed provider from its one-shot `hmacDigest`
 and `hmacHex`; its streaming constructors have none to prefer, the seam being
 one-shot.
 
 A facility that no backend can currently supply has no seam. `nupp.io`,
 [](nupp.io.files), [](nupp.io.net), [](nupp.io.tls) and [](nupp.io.process)
 name a capability a `lua51` target lacks rather than a contract nobody
-implements, and [](nupp.data.utf8) needs neither: it reads scalars out of
+implements, and [](nupp.text.utf8) needs neither: it reads scalars out of
 ordinary strings and is portable as written.
 
 The other runtime contracts use existing LuaJIT or compiler-provided
@@ -396,7 +396,7 @@ lowering or a complete seam. These boundaries remain unavailable under
 `lua51`:
 
 - `cdef`, C pointers, and other `cinterop` operations;
-- C-backed storage, `nupp.data.serde`, and modules built on `nupp.mem`;
+- C-backed storage, `nupp.serde`, and modules built on `nupp.mem`;
 - authored labels and `goto`;
 - direct use of LuaJIT-only prelude identities and VM modules; and
 - standard modules with no selected seam.

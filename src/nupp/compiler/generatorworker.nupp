@@ -5,7 +5,7 @@ module nupp.compiler.generatorworker
 -- request and can only write through the request object into its staging directory.
 
 local fs = require("nupp.compiler.fs")
-local json = nupp.data.json
+local json = nupp.codec.json
 
 local worker = {}
 

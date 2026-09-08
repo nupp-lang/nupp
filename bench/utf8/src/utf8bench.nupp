@@ -3,7 +3,7 @@ module utf8bench
 --[[
 UTF-8 validation as an `@aot` entry, beside the ordinary Nupp it would replace.
 
-`nupp.data.utf8`'s `scan` reads bytes with `string.byte` and counts in binary64,
+`nupp.text.utf8`'s `scan` reads bytes with `string.byte` and counts in binary64,
 which is what LuaJIT wants and what runs anywhere. This is the same ladder in
 the admitted subset, so the `utf8` target compiles it and `utf8-scalar` leaves
 the same source to LuaJIT. What this benchmark answers is what each of those is
@@ -18,7 +18,7 @@ check. Every `@aot` entry in the tree today returns `any` or a Lua value, so
 nothing else has met this.
 ]]
 
-local valuebuilder = require("nupp.data.valuebuilder")
+local valuebuilder = require("nupp.codec.valuebuilder")
 
 local function u32(value: integer): uint32
     return nupp.math.u32.wrap(value)

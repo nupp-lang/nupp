@@ -156,7 +156,7 @@ local function decode(source: string): unknown
                     elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
                         fail("low surrogate without a high surrogate")
                     end
-                    parts[#parts + 1] = nupp.data.utf8.encode(codepoint)
+                    parts[#parts + 1] = nupp.text.utf8.encode(codepoint)
                 else
                     fail("unknown escape")
                 end

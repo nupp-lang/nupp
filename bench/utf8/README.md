@@ -1,6 +1,6 @@
 # UTF-8 validation, four ways
 
-What `nupp.data.utf8.isValid` is worth written four different ways, on one
+What `nupp.text.utf8.isValid` is worth written four different ways, on one
 machine in one run: the lookup4 SIMD validator `nupp.simd` carries, the same
 scalar ladder compiled by `@aot` and left to LuaJIT, the ordinary Nupp that
 ships.
@@ -20,7 +20,7 @@ does not care either way.
 Best of seven, one implementation and one corpus a process, against the shipped
 Nupp implementation:
 
-| corpus                 |  SIMD | `@aot` | `@aot` on LuaJIT | `nupp.data.utf8` |
+| corpus                 |  SIMD | `@aot` | `@aot` on LuaJIT | `nupp.text.utf8` |
 | ---------------------- | ----: | -----: | ---------------: | ---------------: |
 | short ascii (8-24 B)   | 0.47x |  0.57x |            0.16x |            1.00x |
 | short accented (~20 B) | 0.89x |  1.16x |            0.31x |            1.00x |
@@ -44,13 +44,13 @@ twenty-four bytes, where the Lua-to-C boundary is most of the call and, for the
 SIMD entry, the species, the three nibble tables and the padded string are set
 up to validate twenty bytes. Short values are most of what a program validates.
 
-So `nupp.data.utf8` stays ordinary Nupp. Not because the backend cannot do
+So `nupp.text.utf8` stays ordinary Nupp. Not because the backend cannot do
 better -- it can do three times better -- but because it would be slower at what
 the module is actually asked to do, and a target without an AOT policy would get
 the fallback, which is four to twenty-five times worse than what ships.
 
 Where this would pay is a caller validating buffers rather than fields, and the
-shape it would take is `nupp.data.json`'s: a seam with the compiled validator
+shape it would take is `nupp.codec.json`'s: a seam with the compiled validator
 behind it and the portable one underneath, not a replacement.
 
 ## Why the SIMD validator is its own project, beside this one

@@ -1,0 +1,157 @@
+module nupp.random
+
+--[[
+Deterministic pseudo-random generation with explicit, serializable state.
+
+Each `Random` owns an independent xoshiro128** sequence. A seed is always
+interpreted as one 32-bit word, and omitting it chooses a fixed seed rather
+than consulting a clock, so every sequence is reproducible. Generators are
+mutable and intentionally not safe to share between concurrent workers.
+
+```nupp
+local random = require("nupp.random")
+
+local dice = random.newRandom(42)
+local d20 = dice:integer(20)
+local unit = dice:next()
+```
+
+`state` and `setState` copy the four signed 32-bit state words. They are the
+portable checkpoint format: preserving them preserves the next draw exactly.
+]]
+
+const INV32 = 1.0 / 4294967296.0
+const DEFAULT_SEED = 0x5EED1234
+const GOLDEN = nupp.math.i32.wrap(0x9E3779B9)
+const ZERO = nupp.math.i32.wrap(0)
+
+--- SplitMix32's finalizer: one word in, one avalanched word out.
+local function mix32(value: int32): int32
+    local shifted = nupp.math.i32.fromU32(nupp.math.u32.shiftRightLogical(nupp.math.u32.fromI32(value), 16))
+    local mixed = nupp.math.i32.mul(nupp.math.i32.xorBits(value, shifted), nupp.math.i32.wrap(0x21F0AAAD))
+    shifted = nupp.math.i32.fromU32(nupp.math.u32.shiftRightLogical(nupp.math.u32.fromI32(mixed), 15))
+    mixed = nupp.math.i32.mul(nupp.math.i32.xorBits(mixed, shifted), nupp.math.i32.wrap(0x735A2D97))
+    shifted = nupp.math.i32.fromU32(nupp.math.u32.shiftRightLogical(nupp.math.u32.fromI32(mixed), 15))
+
+    return nupp.math.i32.xorBits(mixed, shifted)
+end
+
+--- Expands one seed into four state words without xoshiro's all-zero state.
+local function expand(seed: integer): (int32, int32, int32, int32)
+    local counter = nupp.math.i32.wrap(seed)
+    counter = nupp.math.i32.add(counter, GOLDEN)
+    local s0 = mix32(counter)
+    counter = nupp.math.i32.add(counter, GOLDEN)
+    local s1 = mix32(counter)
+    counter = nupp.math.i32.add(counter, GOLDEN)
+    local s2 = mix32(counter)
+    counter = nupp.math.i32.add(counter, GOLDEN)
+    local s3 = mix32(counter)
+    if s0 == ZERO and s1 == ZERO and s2 == ZERO and s3 == ZERO then
+        return GOLDEN, ZERO, ZERO, ZERO
+    end
+
+    return s0, s1, s2, s3
+end
+
+--- An independent deterministic xoshiro128** sequence.
+--- @export
+export record Random
+    private s0: int32
+    private s1: int32
+    private s2: int32
+    private s3: int32
+
+    --- Creates a generator. An omitted seed uses a fixed reproducible value.
+    constructor(self, seed: integer?)
+        self.s0, self.s1, self.s2, self.s3 = expand(seed or DEFAULT_SEED)
+    end
+
+    --- Returns the next multiple of 2^-32 in [0, 1).
+    function next(self): number
+        -- A destructured record load no longer carries the checker's
+        -- fixed-width provenance, so establish each local explicitly before
+        -- feeding it back to the i32 operations.
+        local s0 = nupp.math.i32.wrap(self.s0 as integer)
+        local s1 = nupp.math.i32.wrap(self.s1 as integer)
+        local s2 = nupp.math.i32.wrap(self.s2 as integer)
+        local s3 = nupp.math.i32.wrap(self.s3 as integer)
+        local result = nupp.math.i32.mul(
+            nupp.math.i32.rotateLeft(nupp.math.i32.mul(s1, nupp.math.i32.wrap(5)), 7),
+            nupp.math.i32.wrap(9)
+        )
+        local shifted = nupp.math.i32.shiftLeft(s1, 9)
+        s2 = nupp.math.i32.xorBits(s2, s0)
+        s3 = nupp.math.i32.xorBits(s3, s1)
+        s1 = nupp.math.i32.xorBits(s1, s2)
+        s0 = nupp.math.i32.xorBits(s0, s3)
+        s2 = nupp.math.i32.xorBits(s2, shifted)
+        s3 = nupp.math.i32.rotateLeft(s3, 11)
+        self.s0, self.s1, self.s2, self.s3 = s0, s1, s2, s3
+
+        return ((result as number) * INV32) % 1
+    end
+
+    --- Returns an integer in [1, m], or in [m, n] when both are given.
+    --- @raises when the selected range is empty
+    function integer(self, m: integer, n: integer?): integer
+        local low: integer = 1
+        local high: integer = m
+        if n ~= nil then
+            low = m
+            high = n
+        end
+        if high < low then
+            error("nupp.random: integer(" .. tostring(low) .. ", " .. tostring(high) .. ") has an empty range", 2)
+        end
+
+        return low + math.floor(self:next() * (high - low + 1))
+    end
+
+    --- Returns the next value in [low, high), or (high, low] when reversed.
+    function range(self, low: number, high: number): number
+        return low + self:next() * (high - low)
+    end
+
+    --- Shuffles a list in place with Fisher-Yates and returns the same list.
+    function shuffle<T>(self, values: {T}): {T}
+        for index = #values, 2, -1 do
+            local other = 1 + math.floor(self:next() * index)
+            values[index], values[other] = values[other], values[index]
+        end
+
+        return values
+    end
+
+    --- Restarts this generator from a 32-bit seed without changing its identity.
+    function reseed(self, seed: integer): nil
+        self.s0, self.s1, self.s2, self.s3 = expand(seed)
+    end
+
+    --- Copies the four signed 32-bit state words into a fresh array.
+    function state(self): {integer}
+        return {self.s0, self.s1, self.s2, self.s3}
+    end
+
+    --- Restores exactly four state words.
+    --- @raises when there are not four words or all four are zero
+    function setState(self, words: {integer}): nil
+        if #words ~= 4 then
+            error("nupp.random: setState needs four state words", 2)
+        end
+        local s0 = nupp.math.i32.wrap(words[1])
+        local s1 = nupp.math.i32.wrap(words[2])
+        local s2 = nupp.math.i32.wrap(words[3])
+        local s3 = nupp.math.i32.wrap(words[4])
+        if s0 == ZERO and s1 == ZERO and s2 == ZERO and s3 == ZERO then
+            error("nupp.random: the all-zero state is the one xoshiro cannot leave", 2)
+        end
+        self.s0, self.s1, self.s2, self.s3 = s0, s1, s2, s3
+    end
+end
+
+--- Creates a generator outside any host or scheduler.
+--- @export
+export function newRandom(seed: integer?): Random
+    return new Random(seed)
+end

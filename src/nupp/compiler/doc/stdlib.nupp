@@ -93,7 +93,7 @@ local REFLECTION_TYPES: {[string]: boolean} = {Layout = true, LayoutField = true
 
 -- A value is a global, a type is a type, and everything else on this page is a library
 -- of its own. `item.module` is set on a declaration whose name qualifies it into
--- another module -- `record nupp.data` is written in the prelude and belongs to `nupp`
+-- another module -- a prelude-qualified record belongs to its owning namespace
 -- -- and that module documents it already.
 local function isGlobal(item: extractMod.Item): boolean
     return not item.module and (item.kind == "function" or item.kind == "variable")

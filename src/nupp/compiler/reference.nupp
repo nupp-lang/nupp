@@ -1707,7 +1707,7 @@ dispatch-indexed spans remain dense; broadcast views are read-only because
 their zero strides alias.
 
 A parser builds an ordinary Lua value through the iterative
-`nupp.data.valuebuilder` stream. See
+`nupp.codec.valuebuilder` stream. See
 [lua-values.md](docs/learn/performance/ahead-of-time/lua-values.md)
 for its operations and limits.
 ]=],

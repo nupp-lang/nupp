@@ -1,0 +1,65 @@
+@!internal
+module nupp.digest.internal.builtin
+
+const provider = require("nupp.digest.provider")
+const streaming = require("nupp.digest.internal.streaming")
+const span = require("nupp.mem.span")
+const storage = require("nupp.runtime.storage")
+const words = require("nupp.digest.internal.words")
+
+local record State is provider.State
+    private value: streaming.Hasher
+
+    function update(exclusive self, borrows bytes: span.ByteSpan): nil
+        -- Bound temporary copies for span-backed portable implementations.
+        local offset: integer = 1
+        while offset <= #bytes do
+            local last: integer = math.min(offset + 4095, #bytes)
+            local part = bytes:slice(offset, last)
+            local pointer, count = part:ref()
+            self.value:update(storage.string(pointer, count))
+            offset = last + 1
+        end
+    end
+
+    function finish(exclusive self, exclusive destination: span.ByteWriteSpan): nil
+        self.value:writeDigest(destination)
+    end
+
+    function close(takes self): nil
+        -- Portable state owns no external resource.
+    end
+end
+
+local record Algorithm is provider.Algorithm
+    readonly name: string
+    readonly digestSize: integer
+
+    function create(self): provider.State
+        if self.name == "sha256" then
+            return new State(value = streaming.sha256())
+        end
+        return new State(value = words.create(self.name))
+    end
+end
+
+const ALGORITHMS: {
+    [string]: provider.Algorithm
+} = {
+    md5 = new Algorithm(name = "md5", digestSize = 16),
+    sha1 = new Algorithm(name = "sha1", digestSize = 20),
+    sha256 = new Algorithm(name = "sha256", digestSize = 32),
+    sha512 = new Algorithm(name = "sha512", digestSize = 64),
+}
+
+export function lookup(name: string): provider.Algorithm?
+    return ALGORITHMS[name]
+end
+
+export function names(): {string}
+    return {"md5", "sha1", "sha256", "sha512"}
+end
+
+export function hmacSha256(key: string): provider.State
+    return new State(value = streaming.hmac(key))
+end

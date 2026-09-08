@@ -557,8 +557,8 @@ function M.shippedImplementationModulesAreNotApplicationImports()
             "nupp.compiler.lexer",
             "nupp.runtime.browser.effects",
             "nupp.runtime.seam.registry",
-            "nupp.data.json.provider",
-            "nupp.data.json.aot",
+            "nupp.codec.json.provider",
+            "nupp.codec.json.aot",
             "nupp.io.net.internal",
             "nupp.gpu.internal",
             "nupp.gpu.layoutfacts"

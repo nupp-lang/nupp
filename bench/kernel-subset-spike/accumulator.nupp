@@ -1,7 +1,7 @@
 -- Fixed nonescaping accumulator storage at three literal block sizes. The
 -- generated assembly answers whether the stack arrays scalar-replace into
 -- registers before a broader blocked-kernel surface is justified.
-local valuebuilder = require("nupp.data.valuebuilder")
+local valuebuilder = require("nupp.codec.valuebuilder")
 
 local function indexOf(row: integer, column: integer, width: integer): uint32
     return nupp.math.u32.wrap((row - 1) * width + column - 1)

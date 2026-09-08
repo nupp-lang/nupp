@@ -94,7 +94,7 @@ for _, case in pairs(scalarTests) do
 end
 print("PASS shared ordinary I/O, scalar, ownership and upload-subset conformance")
 
-local bits = new nupp.data.Bitset(100)
+local bits = new nupp.bitset.Bitset(100)
 bits:set(0)
 bits:set(99)
 assert(bits:count() == 2 and bits:get(0) and bits:get(99))

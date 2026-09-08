@@ -13,11 +13,9 @@ bits of it.
 
 `sha256` is for a digest that leaves this machine: the one `nupp.compiler.build.package`
 writes into a stamped binary's trailer, where it is part of the file format and
-a reader elsewhere has to arrive at the same number. It is [](nupp.data.digest),
-which is the standard library's own SHA-256 rather than whatever hashing utility
-a platform ships, so it agrees everywhere -- and it is the same implementation a
-program that asks for `nupp.data.sha256` gets, rather than a second copy of the
-standard kept beside it.
+a reader elsewhere has to arrive at the same number. It is [](nupp.digest.internal.sha256),
+which is the compiler's provider-independent one-shot SHA-256, so artifact
+identity does not depend on an application's selected digest service.
 
 Do not swap one for the other. A cache key that changes between releases costs
 one rebuild; a trailer digest that changes makes every binary already stamped
@@ -40,7 +38,7 @@ a byte-by-byte little-endian assembly answers the same on a big-endian host,
 so this pays for portability without owing anything back to it.
 ]]
 
-local digest = require("nupp.data.digest")
+local digest = require("nupp.digest.internal.sha256")
 local bitops = require("nupp.compiler.bitops")
 
 local hash = {}

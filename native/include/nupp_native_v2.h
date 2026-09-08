@@ -57,6 +57,8 @@ NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2BytesRelease(uint64_t handle);
 NUPP_NATIVE_V2_EXPORT uint64_t nuppNativeV2MonotonicNs(void);
 NUPP_NATIVE_V2_EXPORT uint64_t nuppNativeV2WallMs(void);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2SleepMs(double milliseconds);
+NUPP_NATIVE_V2_EXPORT size_t nuppNativeV2AvailableParallelism(void);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2RandomBytes(uint8_t *output, size_t length);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2Xxh64Digest(
     const uint8_t *data, size_t length, uint8_t *output, size_t capacity);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TrailerDigest(

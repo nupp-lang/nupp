@@ -1,0 +1,18 @@
+module nupp.checksum.provider
+
+--[[Register an Algorithm under service nupp.checksum and its canonical name.
+State is incremental, independently owned and never retains its input spans.]]
+
+const span = require("nupp.mem.span")
+
+export affine interface State is nupp.Closeable
+    terminal close: nosuspend function(takes self: State): nil
+    update: function(exclusive self: State, borrows bytes: span.ByteSpan): nil
+    value: function(self: State): uint64
+end
+
+export interface Algorithm
+    readonly name: string
+    readonly width: integer
+    create: function(self: Algorithm): State
+end

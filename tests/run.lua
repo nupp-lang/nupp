@@ -38,7 +38,7 @@ if modulesRoot and modulesRoot ~= "" then
 end
 
 package.preload.testjson = package.preload.testjson or function()
-    local native = require("nupp.data.json")
+    local native = require("nupp.codec.json")
 
     local json = {
         NULL = native.NULL,

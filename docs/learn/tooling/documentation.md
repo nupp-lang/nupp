@@ -53,7 +53,7 @@ docs = {
 ```
 
 Nupp supplies Lunamark's UTF-8 integration itself. Numeric and named character
-entities are encoded with `nupp.data.utf8`. Markdown reference labels collapse
+entities are encoded with `nupp.text.utf8`. Markdown reference labels collapse
 spaces, tabs and line endings and compare ASCII letters without case; non-ASCII
 UTF-8 bytes compare exactly. Thus `[name][CAFÉ]` and `[name][café]` are different
 references, while `[name][TAG]` and `[name][tag]` are the same. The rule is

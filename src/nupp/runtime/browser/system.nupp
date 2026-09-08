@@ -1,0 +1,14 @@
+@!internal
+module nupp.runtime.browser.system
+
+const response = require("nupp.runtime.browser.response")
+
+export const platform: string = "browser"
+export const architecture: string = "wasm32"
+export const endianness: string = "little"
+export const pointerBits: integer = 32
+
+export function availableParallelism(): integer
+    local answer = response.await("system", {})
+    return answer.availableParallelism as integer
+end

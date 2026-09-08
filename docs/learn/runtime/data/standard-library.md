@@ -9,7 +9,7 @@ file. Reach for it when a program needs bytes, text, digests, logging, math, or
 a parser and does not want a dependency for them.
 
 ```nupp:playground
-local digest = nupp.data.sha256("payload")
+local digest = nupp.digest.hexDigest("sha256", "payload")
 print(#digest, nupp.math.lerp(10, 20, 0.25))
 ```
 
@@ -45,7 +45,7 @@ for how a declared module is named and resolved.
 ::: deepdive
 Keeping the intrinsic surface out of the module graph is what lets the compiler
 decide, per program, which implementations exist at all. A package tree would
-have to answer `require("nupp.data")` with a table whose members are all
+have to answer every parent-package import with a table whose members are all
 present, so either every program carries every facility or the answer depends
 on a load order the source does not show. A language surface hands out no such
 table: the members a file names are the members that get emitted.
@@ -56,11 +56,21 @@ table: the members a file names are the members that get emitted.
 The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
-- [](nupp.data) owns JSON, UTF-8, identifiers, hashes and checksums, and the
-  typed keys and stores that hold values of many types under one identity.
-- [](nupp.data.hash) provides SHA-256 and HMAC-SHA256, streaming or one-shot.
-- [](nupp.data.crypto) provides host-backed cryptographic randomness, digests, and
-  identifiers through the selected backend.
+- [](nupp.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512 with
+  provider lookup, output-size metadata and consuming finalization.
+- [](nupp.checksum) provides Adler-32 and explicitly named CRC variants as
+  numeric values; protocols choose their serialization byte order.
+- [](nupp.hash) provides general-purpose FNV-1a hashing.
+- [](nupp.mac) provides keyed authentication, including HMAC-SHA256.
+- [](nupp.crypto) provides cryptographically secure random bytes.
+- [](nupp.uuid) generates version 4 and version 7 identifiers.
+- [](nupp.codec.json), [](nupp.codec.base64) and [](nupp.codec.hex) encode and
+  decode representations. [](nupp.codec.valuebuilder) supports codec authors.
+- [](nupp.text.utf8) validates and walks UTF-8 text.
+- [](nupp.serde) binds application types to reusable serialization schemas.
+- [](nupp.store) owns typed keys and stores; [](nupp.bitset) owns bitsets.
+- [](nupp.system) reports execution platform, architecture, endianness, pointer
+  width and available parallelism, independently of the worker scheduler.
 - [](nupp.io.storage) provides persistent key-value storage through the selected
   backend.
 - [](nupp.io) owns byte buffers, readers, writers, and typed scalar reads and
@@ -82,7 +92,7 @@ intrinsic namespaces and the declared modules:
 - [](nupp.gpu) owns resident buffers, generated kernel dispatches, and
   tensor views; its browser provider also supplies the bounded `xorU32`
   convenience operation. [](nupp.gpu.layout) owns the checked layout algebra.
-- [](nupp.data.random) owns deterministic pseudo-random sequences with explicit,
+- [](nupp.random) owns deterministic pseudo-random sequences with explicit,
   serializable state.
 - [](nupp.suspension), [](nupp.tasks), and [](nupp.workers) provide waiting,
   application task scopes, and isolated worker lanes.
@@ -95,9 +105,11 @@ scheduler and sendable values.
 
 ## Availability, detection and lazy loading
 
-The `nupp`, `nupp.data`, `nupp.io` and `nupp.math` intrinsic tables always
-exist. What varies is which of their members reach the generated program, and
-when a member's native provider is initialized.
+`nupp` and `nupp.math` are intrinsic namespaces. The other standard modules
+have their own declared module identities and are loaded through qualified
+access or explicit imports. There is no `nupp.data` aggregate or compatibility
+alias. What varies is which facilities reach the program and when their
+providers are initialized.
 
 ### Selection follows use
 
@@ -105,8 +117,8 @@ A member's implementation is emitted only when checked source resolves that
 member, and an alias stays as precise as the name it came from:
 
 ```nupp
-local data = nupp.data
-print(data.sha256("payload")) -- selects SHA-256, but not UUID or JSON
+local uuid = nupp.uuid
+print(uuid.v4()) -- selects UUID support
 ```
 
 At `-O1` and above, feature effects are recomputed after constant folding, so a

@@ -3,7 +3,7 @@ local tasks = require("nupp.tasks")
 local time = require("nupp.time")
 local workers = require("nupp.workers")
 
--- The smoke page reads one JSON document, and `nupp.data.json` is not part of the
+-- The smoke page reads one JSON document, and `nupp.codec.json` is not part of the
 -- portable browser surface, so this writes the few scalars it reports itself.
 local report: {string} = {}
 

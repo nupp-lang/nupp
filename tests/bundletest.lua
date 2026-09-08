@@ -154,7 +154,7 @@ function M.aComponentInstallsBeforeItsEntryRuns()
       ["nupp.lua"] = COMPONENT_MANIFEST,
       ["src/app/main.g.nupp"] = [[
 local log = require("nupp.log")
-local json = require("nupp.data.json")
+local json = require("nupp.codec.json")
 assert(component_started == nil)
 log.info("starting component")
 component_json = json.encode({answer = 42})

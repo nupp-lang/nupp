@@ -1,0 +1,144 @@
+module nupp.checksum
+
+--[[Incremental numeric checksums for accidental corruption detection.
+The canonical CRC variants are crc32-ieee, crc32c and crc64-ecma (ECMA-182,
+non-reflected, zero initialization and zero final xor). Adler-32 is adler32.
+value() is a non-consuming snapshot; protocol code chooses byte order when
+serializing the number. These algorithms provide no authentication.]]
+
+const services = require("nupp.services")
+const span = require("nupp.mem.span")
+const provider = require("nupp.checksum.provider")
+const builtin = require("nupp.checksum.internal.builtin")
+
+--- Owned incremental checksum state with non-consuming numeric reads.
+export affine interface Checksum is nupp.Closeable
+    terminal close: nosuspend function(takes self: Checksum): nil
+    algorithm: function(self: Checksum): string
+    width: function(self: Checksum): integer
+    update: function(exclusive self: Checksum, bytes: string): nil
+    updateSpan: function(exclusive self: Checksum, borrows bytes: span.ByteSpan): nil
+    value: function(self: Checksum): uint64
+end
+
+local record Context is Checksum
+    private state: affine(provider.State)
+    private name: string
+    private bits: integer
+
+    function algorithm(self): string
+        return self.name
+    end
+
+    function width(self): integer
+        return self.bits
+    end
+
+    function update(exclusive self, bytes: string): nil
+        local view = span.fromString(bytes)
+        self.state:update(view)
+    end
+
+    function updateSpan(exclusive self, borrows bytes: span.ByteSpan): nil
+        self.state:update(bytes)
+    end
+
+    function value(self): uint64
+        return self.state:value()
+    end
+
+    function close(takes self): nil
+        self.state:close()
+    end
+end
+
+--- Checksum metadata and a factory for independent state.
+export record Algorithm
+    readonly name: string
+    readonly width: integer
+    private implementation: provider.Algorithm
+
+    function create(self): Checksum
+        return new Context(state = self.implementation:create(), name = self.name, bits = self.width)
+    end
+end
+
+--- Finds a checksum algorithm without creating incremental state.
+--- @param name the canonical checksum algorithm name
+--- @return the descriptor, or nil when unavailable
+--- @raises when a selected provider has an invalid descriptor
+export function lookup(name: string): Algorithm?
+    local selected = services.lookup("nupp.checksum", name)
+    local implementation: provider.Algorithm? = nil
+    if selected ~= nil then
+        if type(
+            selected
+        ) ~= "table" or selected.name ~= name or type(
+            selected.width
+        ) ~= "number" or selected.width < 1 or selected.width > 64 or selected.width % 1 ~= 0 or type(
+            selected.create
+        ) ~= "function" then
+            error("invalid checksum provider " .. name, 2)
+        end
+        implementation = selected as provider.Algorithm
+    else
+        implementation = builtin.lookup(name)
+    end
+    if implementation == nil then
+        return nil
+    end
+    local standard = builtin.lookup(name)
+    if standard ~= nil and implementation.width ~= standard.width then
+        error("checksum provider has the wrong width for " .. name, 2)
+    end
+
+    return new Algorithm(name = name, width = implementation.width, implementation = implementation)
+end
+
+--- Requires a checksum algorithm descriptor.
+--- @param name the canonical checksum algorithm name
+--- @return the selected descriptor
+--- @raises when the algorithm is unavailable
+export function algorithm(name: string): Algorithm
+    local found = lookup(name)
+    if found == nil then
+        error("unknown checksum algorithm " .. name, 2)
+    end
+
+    return found
+end
+
+--- Creates independent owned checksum state.
+--- @param name the canonical checksum algorithm name
+--- @return an unfinished checksum context
+export function create(name: string): Checksum
+    return algorithm(name):create()
+end
+
+--- Lists available canonical checksum names in ascending order.
+--- @return the available names
+export function algorithms(): {string}
+    local names = builtin.names()
+    local seen: {[string]: boolean} = {}
+    for _, name in ipairs(names) do
+        seen[name] = true
+    end
+    for _, name in ipairs(services.list("nupp.checksum")) do
+        if not seen[name] then
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+
+    return names
+end
+
+--- Computes a checksum; its bit width belongs to the algorithm descriptor.
+--- @param name the canonical checksum algorithm name
+--- @param bytes the message bytes
+--- @return the unsigned checksum value
+export function value(name: string, bytes: string): uint64
+    local context = create(name)
+    context:update(bytes)
+    return context:value()
+end

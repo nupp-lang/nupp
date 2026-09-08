@@ -1,0 +1,84 @@
+local digest = require("nupp.digest")
+local M = {}
+
+-- Expected bytes independently generated with Node's OpenSSL-backed crypto.
+function M.independentBoundaryVectors(): nil
+    local vectors: {
+        {any}
+    } = {
+        {"md5", 55, "9dd2ec95e889917950ad909f58764fb7"},
+        {"md5", 56, "d977447899b6a8d6ff5c071719363761"},
+        {"md5", 64, "37393fa907a5ea5e36dd0830622bf2f0"},
+        {"md5", 111, "e6a01ffe1eaab8b67e2f12ba8c997295"},
+        {"md5", 112, "f5daec69b5f48858694df62966e42868"},
+        {"md5", 128, "f1e41e5bd504a0e903cf30dcd3d30aca"},
+        {"md5", 4097, "d774244f445342c8e657c8c9363d321e"},
+        {"sha1", 55, "35200912e8649aae19647dbd16a1aaafc3f229bd"},
+        {"sha1", 56, "1fdbd1ca46dbc3272d9c540287255b4217e74e61"},
+        {"sha1", 64, "ba9e3015586146a9fa82009fad167db499c24087"},
+        {"sha1", 111, "2f8fd63802f5fb2cfa332ba9b165c0cc67207603"},
+        {"sha1", 112, "ff4ba6dc707fe9e9e5ce38aa67137347d528b18d"},
+        {"sha1", 128, "3d2a6087b753ee344b2449332fcde215c5cf71af"},
+        {"sha1", 4097, "36948e7c1585cdb71744ceb2f1534b9ec147233f"},
+        {"sha256", 55, "0c43a30970ee9525a6603d5656803c325bded148fa65bbd363df54cb3ac3dee5"},
+        {"sha256", 56, "f4dcdc09c846d1b3621701516b300055c1e7875e216ba019dd4423f5a420f2d0"},
+        {"sha256", 64, "cb6862268ca7c02e7b6af558f0e3d236ce9ec7ff41cc746b2848c04c582da94e"},
+        {"sha256", 111, "715c2e3e337161fc6415cd9dc7cd83bd8e4211e169d9c4445527b39bee41b8e0"},
+        {"sha256", 112, "697c0c79169f4d58bab06dd524ad64be1383f27b423efe3ab25b643acb1a5f30"},
+        {"sha256", 128, "d399f065c9f21e2fd51e2aeadb7768eab7e6e45e5150f31227c9711934a4d1d3"},
+        {"sha256", 4097, "6dea11fd585c26a1d50de04c9fc6c9b3f6918df71bcd53eda777069cd5512243"},
+        {
+            "sha512",
+            55,
+            "d8e3cf09d9254ec857508ec6ab41fdb7dd5189e033378e0651854e635117117a83527cc72a2911f1befe761db261960a13d1113257e1e70ab8086393779f0070"
+        },
+        {
+            "sha512",
+            56,
+            "9624fb0c235e516821f197db6ba49d80eab68eb5a719ab8bc67cd8d491f007c1a88e75bdedf53aff9fea14b9b25e0ce67cdc5b0dec5cc15c99e6525bf03dcae4"
+        },
+        {
+            "sha512",
+            64,
+            "2b7208397240e5b0cd4e15315c1af44441bd0e59e5736f991c8edc59b003bdb5bcd176f46bdcc69e133cc7cfea68d9c56e97405ad12bd4baa27348f59f4fc2c5"
+        },
+        {
+            "sha512",
+            111,
+            "0c330029b0f2ed8fea837070d4517e7e9550be33edc4c7ca093b54e88feb1d31d7ebcd4346118426cea0c37b847cb01dd31944df33a9c14d877f8e15978cfbbd"
+        },
+        {
+            "sha512",
+            112,
+            "488344c22f89524d9cdc23cbf3989b64fc4f120a935e0151b51193d373e42eb576bd735fff13483df6ff54fe7efc0dec18a1bcac8f89765d4aa5d4e89fb72898"
+        },
+        {
+            "sha512",
+            128,
+            "ed2d30321c4049c05a61a1524a34657ceece93fe85ec2157565b7232306bc8f04c7946ccf4325538c1d23f096a09eb0b005e901a6fb33e8558eb66f5785d6167"
+        },
+        {
+            "sha512",
+            4097,
+            "e870939178d358819d6115cb0b502ca449e31655f8fe431003f1702c0618af96ddc9b47f535d8292c329c1c5acf1826cff62f6d5991e8fc742436a193ea25d8c"
+        },
+    }
+    for _, vector in ipairs(vectors) do
+        local name = vector[1] as string
+        local length = vector[2] as integer
+        local expected = vector[3] as string
+        local bytes: {string} = {}
+        for index = 0, length - 1 do
+            bytes[#bytes + 1] = string.char((index * 73 + 19) % 256)
+        end
+        local input = table.concat(bytes)
+        assert(digest.hexDigest(name, input) == expected, name .. " length " .. length)
+        local rolling = digest.create(name)
+        for index = 1, length, 13 do
+            rolling:update(input:sub(index, index + 12))
+        end
+        assert(rolling:hexDigest() == expected, name .. " chunked length " .. length)
+    end
+end
+
+return M

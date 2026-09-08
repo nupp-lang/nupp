@@ -1,6 +1,6 @@
 /* The benchmark control's digest, declared for the two files that name it.
  *
- * Nothing in Nupp builds this. `nupp.data.sha256` is `nupp.data.digest` now, in
+ * Nothing outside this benchmark builds this. The compiler digest is now in
  * Nupp, and the check a stamped binary runs before trusting its payload is
  * XXH64, in the Rust base provider. What is left here is the frozen control
  * `sha256_control.c` defines and `implementations.lua` calls through the FFI.
