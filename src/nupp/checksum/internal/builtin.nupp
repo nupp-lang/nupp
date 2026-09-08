@@ -14,7 +14,7 @@ perform no SPI lookups.
 
 const provider = require("nupp.runtime.services.checksum")
 const span = require("nupp.mem.span")
-const bit = require("bit")
+const bit = require("nupp.runtime.bitops")
 
 local function unsigned(word: integer): integer
     return word < 0 and word + 4294967296 or word

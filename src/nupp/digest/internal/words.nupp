@@ -11,7 +11,7 @@ result into the supplied byte span. This module uses the retained bit operations
 and performs no SPI resolution itself. MD5 and SHA-1 serve interoperability uses.
 ]]
 
-const bit = require("bit")
+const bit = require("nupp.runtime.bitops")
 const span = require("nupp.mem.span")
 const hex = require("nupp.codec.hex")
 const streaming = require("nupp.digest.internal.streaming")

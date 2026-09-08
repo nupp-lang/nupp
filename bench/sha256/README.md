@@ -7,13 +7,10 @@ Four implementations of one digest, measured against each other in one process.
   registered Lua C closure.
 - **Nupp on LuaJIT** — the same source built by the `sha256-scalar` target,
   which leaves it to LuaJIT.
-- **C** — `sha256_control.c`, which was `nupp.data.sha256` before the Nupp
-  implementation replaced it. Nothing in Nupp builds it any more; it lives here
-  for the same reason `legacy.lua` does, and goes when this benchmark does.
-- **Lua bit ops** — `legacy.lua`, frozen from what
-  `nupp.compiler.build.hash.sha256` was. It is on no path any more; do not fix
-  it and do not make it faster. Its value is being exactly what was measured
-  before.
+- **C** — `sha256_control.c`, a standalone control built only by this benchmark.
+- **Lua bit ops** — `legacy.lua`, a fixed control using Lua bit operations.
+
+Keep both controls unchanged so repeated measurements compare the same code.
 
 ```sh
 ./run.sh

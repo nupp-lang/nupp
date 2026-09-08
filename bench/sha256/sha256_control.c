@@ -1,13 +1,7 @@
-/* The C that was `nupp.data.sha256`, kept as this benchmark's control.
+/* Standalone SHA-256 benchmark control.
  *
- * Nothing in Nupp builds this any more. It lived in the native provider until
- * `nupp.digest.internal.sha256` replaced it, and it is here for the same reason
- * `legacy.lua` is: a port is only worth what it can be measured against, and
- * the thing to measure against is the implementation that was actually there.
- *
- * Frozen, like `legacy.lua`. Do not fix it and do not make it faster. Its whole
- * value is being exactly what was replaced, and it goes when this benchmark
- * does.
+ * Built only by this benchmark. Keep the implementation fixed so repeated
+ * measurements compare the same control code.
  */
 
 #include "nupp_sha256.h"

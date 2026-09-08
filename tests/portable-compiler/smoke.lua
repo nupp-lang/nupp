@@ -48,14 +48,15 @@ return function(Browser)
 
     local browserSource = [[
 local crypto = require("nupp.crypto")
-local digest = require("nupp.digest")
-local mac = require("nupp.mac")
 local storage = require("nupp.io.storage")
 local time = require("nupp.time")
+local digest = require("nupp.digest")
+local mac = require("nupp.mac")
 local uuid = require("nupp.uuid")
+local system = require("nupp.system")
 time.sleep(1)
 storage.set("key", digest.hexDigest("sha256", crypto.randomBytes(16)))
-print(storage.get("key"), mac.hexDigest("hmac-sha256", "key", "message"), uuid.v4())
+print(storage.get("key"), mac.hexDigest("hmac-sha256", "key", "message"), uuid.v4(), system.availableParallelism())
 ]]
     local browser = session:compile(browserSource, "browser-platform.nupp", {strict = true, dialect = "lua51",})
     noErrors(browser, "browser platform compile")

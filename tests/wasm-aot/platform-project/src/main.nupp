@@ -3,8 +3,10 @@ local browserStorage = require("nupp.io.storage")
 local browserTime = require("nupp.time")
 local digest = require("nupp.digest")
 local mac = require("nupp.mac")
+local checksum = require("nupp.checksum")
 local uuid = require("nupp.uuid")
 local json = require("nupp.codec.json")
+local system = require("nupp.system")
 
 local started = browserTime.now()
 browserTime.sleep(1)
@@ -14,9 +16,19 @@ local stored = browserStorage.get("browser-platform-smoke")
 browserStorage.remove("browser-platform-smoke")
 
 return json.encode({
+    platform = system.platform,
+    architecture = system.architecture,
+    pointerBits = system.pointerBits,
+    endianness = system.endianness,
+    parallelism = system.availableParallelism(),
     elapsed = elapsed,
     randomBytes = #browserCrypto.randomBytes(32),
+    md5 = digest.hexDigest("md5", "abc"),
+    sha1 = digest.hexDigest("sha1", "abc"),
     sha256 = digest.hexDigest("sha256", "abc"),
+    sha512 = digest.hexDigest("sha512", "abc"),
+    crc32c = checksum.value("crc32c", "123456789") == 0xe3069283ULL,
+    crc64 = checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL,
     hmac = mac.hexDigest("hmac-sha256", "key", "abc"),
     uuid4 = uuid.v4(),
     uuid7 = uuid.v7(),
