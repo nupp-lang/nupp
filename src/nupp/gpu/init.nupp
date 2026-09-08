@@ -62,9 +62,7 @@ export const workgroups: function(
 ): nil = operations.workgroups
 
 --- Opens a compute device through the selected provider.
-export function open(): affine(api.Context, api.destroyContext)
-    return provider.open()
-end
+export const open: function(): affine(api.Context, api.destroyContext) = provider.open
 
 export function bufferLayout<T>(borrows buffer: api.Buffer<T>): tensorlayout.Layout
     return buffer:layout()

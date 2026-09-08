@@ -48,11 +48,6 @@ require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"))
 -- checked module. What stays here is the binding: the namespace the prelude's
 -- `nupp.peg` declaration promises, and the two helper names materialized grammars are
 -- generated against, which have to be locals of the chunk that carries them.
---
--- The stack limit is raised here rather than in the module because it belongs to the
--- program. A module raises it once, when it is first required; a program that runs
--- beside another one holding a different LPeg handle would then inherit whichever
--- limit was set first, which is not a decision either program made.
 local PEG_RUNTIME = compact(
     [=[
 local __nuppPegRuntime=require("nupp.compiler.runtime.peg")

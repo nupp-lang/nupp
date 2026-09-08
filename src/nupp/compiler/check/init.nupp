@@ -1731,6 +1731,8 @@ function checkMod.check(
                     bounds[#params] = c.resolveType(boundNode)
                     params[#params].bound = bounds[#params]
                 end
+            elseif not isPack and not isConst then
+                params[#params].bound = nil
             end
             -- Kept as written. A const default has to travel the const evaluation path
             -- and a type default the ordinary one, and only the application site knows
