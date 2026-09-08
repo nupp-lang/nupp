@@ -2324,6 +2324,41 @@ function M.windowsStandaloneIntermediateHostHasAnExecutableSuffix()
     )
 end
 
+function M.sourceFixpointNamesTheStageZeroToItsWorkers()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {
+   entries = {"main"}, outDir = "out"},
+   selfHost = {bootstrap = "luajit find-stage0.lua"}}]],
+        ["src/main.nupp"] = "return 1\n",
+        [
+            "stage0.lua"
+        ] = [[
+local input = assert(io.open(arg[0], "rb"))
+local source = input:read("*a")
+input:close()
+if arg[0]:match("stage0%.lua$") then
+   assert(os.getenv("NUPP_STAGE0") == arg[0], "workers need this stage-zero entry")
+end
+local output
+for index = 1, #arg do
+   if arg[index] == "--out-dir" then output = arg[index + 1] end
+end
+assert(output)
+os.execute('mkdir "' .. output .. '"')
+local file = assert(io.open(output .. "/main.lua", "wb"))
+file:write(source)
+file:close()
+]],
+    })
+    write(dir .. "/find-stage0.lua", ("print(%q)\n"):format(dir .. "/stage0.lua"))
+    local ok, status = pcall(project.fixpoint, dir, {result = {}})
+    remove(dir)
+    assert(ok, status)
+    assertEq(status, 0, "each stage can launch workers through the selected compiler")
+end
+
 function M.binaryFixpointReadsThePlatformNamedHostOutput()
     local dir = tempProject({
         [

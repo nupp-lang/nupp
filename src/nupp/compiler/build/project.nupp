@@ -1493,7 +1493,7 @@ local function buildWithCompiler(
 
     return process.run(argv, {
         cwd = root,
-        env = not packageRoot and {NUPP_COMPILER_ROOT = fs.dirname(compiler)} or nil
+        env = not packageRoot and {NUPP_COMPILER_ROOT = fs.dirname(compiler), NUPP_STAGE0 = compiler} or nil
     }) == 0
 end
 

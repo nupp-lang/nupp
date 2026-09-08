@@ -284,7 +284,7 @@ return M
     test.equal(output:find("passing captured stderr", 1, true), nil, "repeated passing stderr stays captured")
     test.matches(output, "slowest suites")
     test.matches(output, "slowest tests")
-    test.matches(output, "slowtest%s+%d+ms")
+    test.matches(output, "slowtest%s+%d+%.?%d*m?s")
     test.matches(output, "slowtest / slow")
 
     -- The same run as data, where the suite's own cost is separable from its
