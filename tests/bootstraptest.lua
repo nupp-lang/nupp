@@ -118,7 +118,7 @@ end
 -- file with the pinned digest is the one thing that makes `scripts/toolchain
 -- stage0` answer offline, and what these cases want is a compiler that prints a
 -- word, not the real one.
-local function plantedTree()
+local function plantedTree(stage0Body)
     local dir = os.tmpname()
     os.remove(dir)
     assert(
@@ -144,7 +144,9 @@ local function plantedTree()
     -- here reads only the first line.
     plant(
         "stage0.lua",
-        'package.preload["nupp.compiler.build.native"] = function() error("provider body must not run") end\nprint("BOOTSTRAP")\nprint("NUPP_STAGE0=" .. tostring(os.getenv("NUPP_STAGE0")))\n'
+        'package.preload["nupp.compiler.build.native"] = function() error("provider body must not run") end\n' .. (
+            stage0Body or 'print("BOOTSTRAP")\nprint("NUPP_STAGE0=" .. tostring(os.getenv("NUPP_STAGE0")))\n'
+        )
     )
     local digest = capture(("shasum -a 256 '%s/stage0.lua' 2>/dev/null || sha256sum '%s/stage0.lua'"):format(dir, dir))
         :match("^(%x+)")
@@ -180,6 +182,26 @@ end
 local function ran(dir, env, command)
     local out = capture(("cd '%s' && %s ./bin/nupp %s 2>&1"):format(dir, env, command))
     return out
+end
+
+function M.aColdBuildPublishesSelfHostedRuntimeArtifacts()
+    local dir, _, env = plantedTree(
+        [=[
+print("BOOTSTRAP")
+local output = assert(io.open("build/nupp/compiler/main.lua", "wb"))
+output:write([[assert(arg[1] == "build")
+assert(not os.getenv("NUPP_COMPILER_ROOT"):find("/stage0/", 1, true))
+print("SELF_HOSTED")
+]])
+output:close()
+]=]
+    )
+    assert(os.remove(dir .. "/build/nupp/compiler/main.lua"))
+    local output = ran(dir, env, "build")
+    local bootstrap = assert(output:find("BOOTSTRAP", 1, true), output)
+    local selfHosted = assert(output:find("SELF_HOSTED", 1, true), output)
+    assert(bootstrap < selfHosted, output)
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- Which compiler a command runs is decided on whether one is there, not on
@@ -270,26 +292,17 @@ function M.theStageZeroIsNamedToWhatItRuns()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
--- The compiler that runs the first build of a cold checkout is the pinned
--- release, not these sources. A release older than NEP 28 starts its Windows
--- comptime workers from a hardcoded `<root>/bootstrap/nupp.lua` -- the file NEP
--- 32 deleted -- and reads no `NUPP_STAGE0`, so it cannot be told where the
--- compiler went. `bin/nupp` puts the fetched bundle back under that name for as
--- long as the pin names such a release.
---
--- What this asks is whether the launcher and the pinned bundle agree about that,
--- which the pin decides and every platform can read. It fails the day the pin
--- moves to a release that reads the name instead, which is when the shim it
--- guards should come out.
+-- The launcher must supply the worker executable path expected by the pinned
+-- compiler on Windows. The artifact itself determines which path it reads.
 function M.theLauncherServesThePinnedReleasesWorkerPath()
     local path = stage0()
     assert(path, "no stage-zero compiler; run scripts/toolchain stage0")
     local bundle = assert(readFile(path), "the fetched stage zero is readable")
     local launcher = assert(readFile(ROOT .. "/bin/nupp"), "the launcher is readable")
 
-    local wantsTheDeletedPath = bundle:find("/bootstrap/nupp.lua", 1, true) ~= nil
+    local wantsFixedWorkerPath = bundle:find("/bootstrap/nupp.lua", 1, true) ~= nil
     local servesIt = launcher:find("stage0_compat_path", 1, true) ~= nil
-    if wantsTheDeletedPath then
+    if wantsFixedWorkerPath then
         assert(
             servesIt,
             "the pinned stage zero starts its Windows workers from bootstrap/nupp.lua "

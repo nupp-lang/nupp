@@ -407,6 +407,8 @@ local function gemmBatched(
     end
 end
 
+export const now = require("nupp.time").now
+
 export const gemm = gemmNaive
 export const cpu = gemmCpu
 export const tiled = gemmTiled

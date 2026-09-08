@@ -4,10 +4,9 @@ local ffi = require("ffi")
 local span = require("nupp.mem.span")
 local generated = require("gemm")
 local gpu = require("nupp.gpu")
-local time = require("nupp.time")
 
 local function now()
-    return time.now() * 1e-3
+    return generated.now() * 1e-3
 end
 
 local m = tonumber(os.getenv("GEMM_M") or 256)

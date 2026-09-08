@@ -22,6 +22,7 @@ type native.Feature = {
     providerFeature: string?,
     library: string?,
     binary: boolean?,
+    externalModule: boolean?,
     override: boolean?,
     requires: {string}?,
     runtimeModule: string?,
@@ -284,7 +285,7 @@ local FEATURES: {[string]: native.Feature} = {
     },
 
     ["runtime.test"] = {name = "test", module = "nupp.test", runtimeModule = "nupp.test", portableRuntime = true,},
-    ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true,},
+    ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true, externalModule = true,},
     [
         "stdlib.lpeg.re"
     ] = {name = "lpeg_re", module = "re", runtimeModule = "re", portableRuntime = true, requires = {"native.lpeg"},},

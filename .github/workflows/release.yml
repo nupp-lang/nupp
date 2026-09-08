@@ -600,7 +600,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          name="nupp-stage0-${GITHUB_REF_NAME:-untagged}.lua"
+          label=${GITHUB_REF_NAME:-untagged}
+          name="nupp-stage0-${label//\//-}.lua"
           ./bin/nupp fixpoint --emit-stage0 "release/$name"
           gzip -9 -n "release/$name"
           printf 'STAGE0_SHA256 for this release: %s\n' \

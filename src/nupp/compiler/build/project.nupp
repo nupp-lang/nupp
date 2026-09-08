@@ -591,7 +591,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         local unresolved = {}
         for effect in pairs(resolvedEffects) do
             local feature = nativeFeatures.feature(effect)
-            if feature == nil or feature.binary then
+            -- A host module such as LPeg remains an ordinary require dependency.
+            -- Provider sidecars need a modules or binary artifact.
+            local hostModule = feature and feature.externalModule == true
+            if feature == nil or feature.binary and not hostModule then
                 unresolved[#unresolved + 1] = effect
             end
         end

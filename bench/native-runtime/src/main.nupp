@@ -35,11 +35,15 @@ local function nativeProcessId(): integer
             return ffi.C.getpid() as integer
         end)
     end
-    if not declared or not read or type(pid) ~= "number" or pid < 1 then
+    if not declared or not read or type(pid) ~= "number" then
         error("native runtime benchmark could not read its process ID")
     end
+    local processId = pid as integer
+    if processId < 1 then
+        error("native runtime benchmark requires a positive process ID")
+    end
 
-    return pid as integer
+    return processId
 end
 
 local function median(values: {number}): number
@@ -133,13 +137,14 @@ local function netPort(): integer
 end
 
 local function httpLatency(port: integer): number
-    local client = new http.Client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    local client = http.client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
     const target = assert(uri.newURI(("http://127.0.0.1:%d/small"):format(port)))
     local samples: {number} = {}
     for sample = 1, SAMPLES + WARMUPS do
         const started = time.now()
         for _ = 1, HTTP_LATENCY_REQUESTS do
-            local response = assert(client:send(new http.Request(url = target as any)))
+            local request = new http.Request(url = target)
+            local response = assert(client:send(request))
             local received: integer = 0
             while true do
                 const chunk, why = response.body:read(CHUNK_BYTES)
@@ -166,13 +171,14 @@ local function httpLatency(port: integer): number
 end
 
 local function httpThroughput(port: integer): number
-    local client = new http.Client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    local client = http.client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
     const target = assert(uri.newURI(("http://127.0.0.1:%d/large"):format(port)))
     local samples: {number} = {}
     for sample = 1, SAMPLES + WARMUPS do
         const started = time.now()
         for _ = 1, HTTP_THROUGHPUT_REQUESTS do
-            local response = assert(client:send(new http.Request(url = target as any)))
+            local request = new http.Request(url = target)
+            local response = assert(client:send(request))
             local received: integer = 0
             while true do
                 const chunk, why = response.body:read(CHUNK_BYTES)
@@ -236,10 +242,9 @@ end
 
 local function httpSlowReader(port: integer): nil
     io.stdout:setvbuf("no")
-    local client = new http.Client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
-    local response = assert(
-        client:send(new http.Request(url = assert(uri.newURI(("http://127.0.0.1:%d/slow-reader"):format(port))) as any))
-    )
+    local client = http.client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    local request = new http.Request(url = assert(uri.newURI(("http://127.0.0.1:%d/slow-reader"):format(port))))
+    local response = assert(client:send(request))
     print("READY http-slow-reader")
     time.sleep(30000)
     response:close()
@@ -248,10 +253,9 @@ end
 
 local function httpSlowWriter(port: integer): nil
     io.stdout:setvbuf("no")
-    local client = new http.Client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
-    local response = assert(
-        client:send(new http.Request(url = assert(uri.newURI(("http://127.0.0.1:%d/slow-writer"):format(port))) as any))
-    )
+    local client = http.client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    local request = new http.Request(url = assert(uri.newURI(("http://127.0.0.1:%d/slow-writer"):format(port))))
+    local response = assert(client:send(request))
     print("READY http-slow-writer")
     while true do
         const chunk, why = response.body:read(CHUNK_BYTES)

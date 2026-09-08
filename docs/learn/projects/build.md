@@ -539,8 +539,9 @@ so a sysroot remains relocatable after the archive is installed elsewhere.
 Native artifacts are sidecars for modules targets and ordinary prebuilt stubs.
 Ship the target's `lib` directory with a binary unless its selected stub links
 the provider itself; a Lua payload cannot embed a shared library. A one-file
-`bundle` target with a detected native feature is refused rather than silently
-becoming a sidecar package. See
+`bundle` target rejects providers that need sidecars. Host-supplied modules such
+as LPeg remain ordinary `require` dependencies and must be available in the
+runtime that loads the bundle. See
 [distribution.md](../../reference/distribution.md#limits) for what a stamped
 binary can and cannot carry.
 
@@ -1194,7 +1195,7 @@ fetches the release pinned in `scripts/toolchain.pins` and verifies it against
 the digest committed beside it. The cost of that is a rule on these sources:
 they may only use language features the pinned release already understands, and
 a feature reaches them a release later. [NEP
-32](https://github.com/nupp-lang/nupp/blob/main/docs/neps/0028-fetched-stage-zero.md)
+28](https://github.com/nupp-lang/nupp/blob/main/docs/neps/0028-fetched-stage-zero.md)
 records why that trade was made.
 
 The build system's own implementation lives under the internal
@@ -1219,9 +1220,9 @@ rather than leaving that to be inferred from how long it took.
 
 ### Can a one-file bundle carry a native library?
 
-No. A `.so` is not a Lua chunk, so a bundle with a detected native feature is
-refused rather than becoming a sidecar package, and a binary that needs a
-native provider needs a stub linked against it. See
+No. A bundle contains Lua chunks. It can require a host-supplied module such as
+LPeg, but cannot embed a shared library. A binary that uses native providers
+ships their sidecars or links them into its host. See
 [distribution.md](../../reference/distribution.md#limits) for the whole boundary.
 
 ::: seealso

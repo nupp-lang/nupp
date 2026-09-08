@@ -35,6 +35,31 @@ local function remove(dir)
     assert(require("nupp.io.files").remove(dir, true))
 end
 
+function M.fixedHostLibrariesRemainOrdinaryBundleImports()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {
+            kind = "bundle", dialect = "lua51", outDir = "out",
+            output = "out/app.lua", entries = {"main"}
+        }}]],
+        ["src/main.g.nupp"] = [[local re = require("re")
+return re.match("aaa", "'a'+")]],
+    })
+    assertEq(project.build(dir), 0, "bundle with host LPeg")
+    local output = read(dir .. "/out/app.lua")
+    assert(not output:find('package.preload["lpeg"]', 1, true))
+    assert(not output:find('package.preload["nupp.services"]', 1, true))
+    local status, value = process.capture({
+        "luajit",
+        "-e",
+        "io.write(assert(loadfile(" .. string.format("%q", dir .. "/out/app.lua") .. "))())"
+    })
+    assertEq(status, 0, value)
+    assertEq(value, "4")
+    remove(dir)
+end
+
 function M.packagedGeneratorsAndRuntimeServicesUseSeparateDependencyRoles()
     local rockspec = [[
 rockspec_format = "3.0"
