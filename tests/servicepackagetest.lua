@@ -224,7 +224,9 @@ assert(require("consumer") == consumer)
 io.write("direct")
 ]=]
     ):format(dir .. "/out/?.lua;")
-    local status, output = process.capture({"luajit", "-e", script})
+    local probe = dir .. "/verify.lua"
+    write(probe, script)
+    local status, output = process.capture({"luajit", probe})
     assertEq(status, 0, "portable provider initialization: " .. tostring(output))
     assertEq(output, "direct")
     local code = read(dir .. "/out/consumer.lua")
@@ -283,7 +285,9 @@ assert(not pcall(function() contracts.cstorage:select("nupp.wasm") end))
 io.write("direct")
 ]=]
     ):format(dir .. "/out/?.lua;")
-    local status, output = process.capture({"luajit", "-e", script})
+    local probe = dir .. "/verify.lua"
+    write(probe, script)
+    local status, output = process.capture({"luajit", probe})
     assertEq(status, 0, "portable struct initialization: " .. tostring(output))
     assertEq(output, "direct")
     local code = read(dir .. "/out/consumer.lua")
