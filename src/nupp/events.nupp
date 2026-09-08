@@ -24,6 +24,12 @@ bus:observe(7, Damage, |event| -> print(event.amount, event.kind), "log")
 bus:emit(7, Damage, amount = 10, source = 3)
 ```
 
+Here `bus` is the event source: it owns the observer registry and reusable
+event storage. `7` is the address within that source, so observers registered
+at another entity id do not receive this delivery. The `MessageBus` methods
+forward to the module functions below; the equivalent direct call is
+`events.observe(bus, 7, Damage, callback, "log")`.
+
 Observer state belongs to a source: `MessageBus<A>` is one, and any record with
 an `observers` field implements [](nupp.events.Source) and dispatches through
 the same functions. Record events draw from a [](nupp.mem.pool) and struct
@@ -485,7 +491,7 @@ end
 --- Observers run in registration order. A name lets `stopObserving` remove this
 --- registration by name; a name already registered at the same address and event
 --- is an error, since the second could never be removed alone.
---- @param source the bus or world to observe through
+--- @param source the bus or world that owns the observer registry and event storage
 --- @param address where the event is delivered
 --- @param event the event declaration
 --- @param callback what runs when one is delivered

@@ -629,6 +629,39 @@ function M.foldsMethodsWrittenWithAnExplicitReceiverAndHidesAPrivateTypesOwn()
     assert(stop.raises[1] == "when it already stopped", "raises must fold in too")
 end
 
+-- An explicitly typed or owned receiver has to be written as an ordinary first
+-- parameter in source. It is still a method at the call site, and the documentation
+-- signature should show that surface rather than make `worker.send(...)` look like the
+-- intended spelling.
+function M.explicitSelfReceiversUseMethodSyntaxInSignatures()
+    local module = assert(
+        doc.extract(
+            table.concat(
+                {
+                    "--- Sends through a worker declared in another module.",
+                    "function job.Worker.send(exclusive self: job.Worker, value: any): nil",
+                    "end",
+                    "",
+                    "--- Destroys a value passed as an ordinary argument.",
+                    "function job.destroy<T>(takes self: T): nil",
+                    "end",
+                },
+                "\n"
+            ),
+            "src/job.nupp",
+            "job"
+        )
+    )
+    local send = assert(module.items[1], "method missing")
+    assert(send.name == "job.Worker.send", send.name)
+    assert(send.signature == "function job.Worker:send(exclusive self: job.Worker, value: any): nil", send.signature)
+    local destroy = assert(module.items[2], "function missing")
+    assert(destroy.signature == "function job.destroy<T>(takes self: T): nil", destroy.signature)
+    local markdown = doc.markdown({module})
+    assert(markdown:find(send.signature, 1, true), markdown)
+    assert(not markdown:find("function job.Worker.send", 1, true), markdown)
+end
+
 function M.omitsImplementationBodiesFromStructureSignatures()
     local source = table.concat(
         {

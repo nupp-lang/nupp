@@ -124,6 +124,11 @@ function-typed record fields that declaration files are written with, so
 function. The checker reports an `@param` name that does not match a real
 parameter.
 
+An out-of-line method that spells an explicit `self` receiver with a dot still
+renders its final name segment with `:`. The source may need
+`function Buffer.write(exclusive self: Buffer, ...)` to state the receiver's
+ownership, but its documentation signature names the method as `Buffer:write`.
+
 ### Raised errors
 
 `@raises` says what makes a function raise, one line per condition. Lua has no

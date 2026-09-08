@@ -536,7 +536,24 @@ local function functionSignature(stat, name)
     else
         prefix = (stat.comptimeTok and "comptime " or "") .. "function "
     end
-    local result = prefix .. name .. genericText(body) .. "(" .. table.concat(params, ", ") .. ")"
+    -- A leading `self` typed as the table before the final dot makes that segment a
+    -- method even when ownership forces the source declaration to spell the receiver
+    -- explicitly. A module helper may also call its first parameter `self`, so the
+    -- receiver type is what keeps `heap.destroyArray(takes self: T)` a plain function.
+    -- Documentation names the call surface: module and type qualifiers stay dotted,
+    -- while the method gets the separator a caller writes.
+    local shownName = name
+    local first = body and body.params and body.params[1]
+    if first and first.name and first.name.text == "self" and first.type then
+        local owner, method = name:match("^(.*)%.([^.]+)$")
+        local receiver = syntax(first.type)
+        local ownerTail = owner and (owner:match("([^.]+)$") or owner) or nil
+        local receiverBase = receiver:gsub("^const%s+", ""):match("^([%w_.]+)")
+        if owner and (receiverBase == owner or receiverBase == ownerTail) then
+            shownName = owner .. ":" .. method
+        end
+    end
+    local result = prefix .. shownName .. genericText(body) .. "(" .. table.concat(params, ", ") .. ")"
     if #returns > 0 then
         result = result .. ": " .. table.concat(returns, ", ")
     end
