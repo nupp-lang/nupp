@@ -36,6 +36,8 @@ jobs:
           foreach ($tier in @('baseline', 'avx2', 'avx512f')) {
             $source = "diagnostics/simd-tail-$tier.c"
             $content = (Get-Content $source -Raw).Replace('__attribute__((optimize("O0")))', '__attribute__((optimize("O1", "no-tree-vectorize", "no-tree-slp-vectorize")))')
+            $footer = "simd-tail-$tier.c"
+            if ($content.EndsWith($footer)) { $content = $content.Substring(0, $content.Length - $footer.Length) }
             Set-Content $source $content
             $tierFlags = @()
             if ($tier -ne 'baseline') { $tierFlags = @("-m$tier") }
