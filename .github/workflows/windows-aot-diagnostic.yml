@@ -1,0 +1,42 @@
+name: Windows AOT reproduction
+on:
+  pull_request:
+    paths:
+      - .github/workflows/windows-aot-diagnostic.yml
+      - .github/scripts/diagnose-windows-aot.lua
+permissions:
+  contents: read
+  actions: read
+jobs:
+  reproduce:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-worker-crashes
+          run-id: 34258649751
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: diagnostics
+      - name: Run the captured library
+        shell: pwsh
+        run: |
+          $locations = @('C:\mingw64\bin', 'C:\msys64\ucrt64\bin', 'C:\msys64\mingw64\bin', 'C:\Program Files\Git\mingw64\bin')
+          foreach ($location in $locations) {
+            if (Test-Path $location) { $env:PATH = "$location;$env:PATH" }
+          }
+          $failed = $false
+          foreach ($mode in @('default', 'off', 'hot')) {
+            & ./diagnostics/luajit.exe .github/scripts/diagnose-windows-aot.lua ./diagnostics/native_aot.dll $mode *> "diagnostics/$mode.log"
+            $result = $LASTEXITCODE
+            Get-Content "diagnostics/$mode.log" -Tail 12
+            Write-Output "$mode exit $result"
+            if ($result -ne 0) { $failed = $true }
+          }
+          if ($failed) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-aot-reproduction
+          path: diagnostics/*.log
