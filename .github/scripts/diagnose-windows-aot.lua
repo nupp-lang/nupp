@@ -1,5 +1,9 @@
 local ffi = require("ffi")
 local mode = arg[2]
+ffi.cdef("void trace_install(const char *prefix);")
+local crashTrace = ffi.load("./diagnostics/trace.dll")
+crashTrace.trace_install("diagnostics/" .. mode)
+
 if mode == "off" then
     jit.off()
 elseif mode == "hot" then
@@ -77,11 +81,13 @@ for round = 1, 50 do
                 expected = expected + 1
             end
         end
+        trace("quotes")
         test.equal(
             tonumber(lib[countQuotes](source, count)),
             expected,
             "packed and scalar tail lanes agree at length " .. count
         )
+        trace("quotes")
         test.equal(
             tonumber(lib[countQuotes](source, count)),
             tonumber(lib[countQuotesScalar](source, count)),
@@ -90,7 +96,9 @@ for round = 1, 50 do
         -- `bits`, `tail`, `any` and `all` have target-specific lowerings that the
         -- scalar oracle does not share, so each one is compared rather than only
         -- the reduction that happens to consume them.
+        trace("shapes packed")
         local packed = lib[shapes](source, count)
+        trace("shapes scalar")
         local oracle = lib[shapesScalar](source, count)
         test.equal(
             tonumber(packed.v1),

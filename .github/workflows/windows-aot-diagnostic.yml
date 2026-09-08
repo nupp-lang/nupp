@@ -4,6 +4,7 @@ on:
     paths:
       - .github/workflows/windows-aot-diagnostic.yml
       - .github/scripts/diagnose-windows-aot.lua
+      - .github/scripts/windows-aot-crash-trace.c
 permissions:
   contents: read
   actions: read
@@ -19,6 +20,10 @@ jobs:
           run-id: 34258649751
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: diagnostics
+      - uses: step-security/msvc-dev-cmd@v1
+      - name: Build the exception recorder
+        shell: cmd
+        run: cl /nologo /LD .github/scripts/windows-aot-crash-trace.c /link /OUT:diagnostics/trace.dll Dbghelp.lib
       - name: Run the captured library
         shell: pwsh
         run: |
@@ -39,4 +44,7 @@ jobs:
         if: always()
         with:
           name: windows-aot-reproduction
-          path: diagnostics/*.log
+          path: |
+            diagnostics/*.log
+            diagnostics/*.txt
+            diagnostics/*.dmp
