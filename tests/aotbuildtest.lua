@@ -2495,6 +2495,14 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         return
     end
 
+    local function trace(phase)
+        if os.getenv("NUPP_TEST_AOT_TRACE") then
+            io.stderr:write("AOT packed bytes: " .. phase .. "\n")
+            io.stderr:flush()
+        end
+    end
+
+    trace("build")
     local dir = project("require")
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(SIMD_KERNEL)
@@ -2502,8 +2510,24 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local out, code = build(dir)
     test.equal(code, 0, out)
 
+    local artifacts = os.getenv("NUPP_TEST_AOT_ARTIFACTS")
+    if artifacts then
+        local function save(name, bytes)
+            local file = assert(io.open(artifacts .. "/" .. name, "wb"))
+            file:write(assert(bytes, name))
+            file:close()
+        end
+
+        local library = libraryPath(dir)
+        save(assert(library:match("[^/\\]+$")), read(library))
+        for _, tier in ipairs(buildTiers(nil, nil)) do
+            save("simd-tail-" .. tier.tier .. ".c", read(tieredC(dir, tier.tier)))
+        end
+    end
+    trace("load " .. libraryPath(dir))
     local ffi = require("ffi")
     local lib = ffi.load(libraryPath(dir))
+    trace("select symbols")
     local countQuotes = librarySymbol(lib, "ks_count_quotes")
     local countQuotesScalar = librarySymbol(lib, "ks_count_quotes_forced_scalar")
     local maskOps = librarySymbol(lib, "ks_mask_ops")
@@ -2511,6 +2535,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local lookupScalar = librarySymbol(lib, "ks_lookup_aligned_forced_scalar")
     local shapes = librarySymbol(lib, "ks_mask_shapes")
     local shapesScalar = librarySymbol(lib, "ks_mask_shapes_forced_scalar")
+    trace("declare symbols")
     ffi.cdef(
         (
             [=[
@@ -2537,6 +2562,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
             librarySymbol(lib, "ks_mask_add")
         )
     )
+    trace("tail comparisons")
     for count = 0, 40 do
         local source = ffi.new("uint8_t[?]", math.max(count, 1))
         local expected = 0
@@ -2584,6 +2610,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     end
     -- A 64-bit mask add is only worth having if it carries between the words,
     -- which is the whole reason run parity is stated as an addition.
+    trace("mask addition")
     local add = librarySymbol(lib, "ks_mask_add")
     local carried = lib[add](0xFFFFFFFF, 0, 1)
     test.equal(tonumber(carried.v1), 0, "the low word wraps")
@@ -2594,11 +2621,13 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local saturated = lib[add](0xFFFFFFFF, 0xFFFFFFFF, 1)
     test.equal(tonumber(saturated.v1), 0, "the low word wraps at the top")
     test.equal(tonumber(saturated.v2), 0, "and the carry out of the high word is dropped")
+    trace("mask operations")
     local mask = lib[maskOps](5, 1)
     test.equal(tonumber(mask.v1), 3, "prefix XOR crosses the low mask word")
     test.equal(tonumber(mask.v2), 0xFFFFFFFF, "prefix XOR carries into the high mask word")
     test.equal(tonumber(mask.v3), 0, "firstSet finds the first logical bit")
     test.equal(tonumber(mask.v4), 33, "clearFirst drains one bit from a 64-bit mask")
+    trace("lookup")
     local lookupSource = ffi.new("uint8_t[64]")
     for i = 0, 63 do
         lookupSource[i] = i % 16
@@ -2608,6 +2637,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         tonumber(lib[lookupScalar](lookupSource, 64)),
         "lookup and cross-vector alignment agree with the scalar oracle"
     )
+    trace("complete")
 end
 
 function M.explicitSimdNamesWhyAotOffCannotRunIt()

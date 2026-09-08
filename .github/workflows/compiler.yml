@@ -647,15 +647,26 @@ jobs:
           done
           exit 0
 
-      # These name the Git Bash the suite hands its POSIX commands to. They were
-      # set by a provisioning script that no longer exists, and an undefined
-      # `env` expands to the empty string rather than failing, so the suite spent
-      # two days launching `""` and reporting no tests at all. Resolve them in
-      # the step that uses them: this shell is that bash, so nothing has to be
-      # carried between steps to be dropped again.
+      - name: Collect Windows worker crash dumps
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dumpDirectory = Join-Path $env:RUNNER_TEMP 'nupp-worker-dumps'
+          New-Item -ItemType Directory -Force $dumpDirectory | Out-Null
+          foreach ($application in @('luajit.exe', 'nupp-test.exe')) {
+            $key = "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\$application"
+            New-Item -Force $key | Out-Null
+            New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value $dumpDirectory -Force | Out-Null
+            New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
+            New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 3 -Force | Out-Null
+          }
+
       - name: Run the compiler suite
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          NUPP_TEST_AOT_TRACE: 1
+          NUPP_TEST_AOT_ARTIFACTS: ${{ runner.temp }}/nupp-worker-dumps
         run: |
           set -euo pipefail
           bash_path=$(command -v bash)
@@ -664,6 +675,45 @@ jobs:
           NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
           NUPP_TEST_SH=$(cygpath -w "$sh_path") \
           ./bin/nupp test
+
+      - name: Report Windows worker crashes
+        if: failure() && runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dumpDirectory = Join-Path $env:RUNNER_TEMP 'nupp-worker-dumps'
+          New-Item -ItemType Directory -Force $dumpDirectory | Out-Null
+          $events = Get-WinEvent -FilterHashtable @{
+            LogName = 'Application'
+            Id = 1000, 1001
+            StartTime = (Get-Date).AddHours(-2)
+          } -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'luajit|nupp-test' }
+          $events | Format-List TimeCreated, Id, Message | Out-String | Tee-Object -FilePath (Join-Path $dumpDirectory 'events.txt')
+          $interpreter = (Get-Command luajit).Source
+          Copy-Item $interpreter $dumpDirectory
+          $runtime = Join-Path (Split-Path $interpreter) 'lua51.dll'
+          if (Test-Path $runtime) { Copy-Item $runtime $dumpDirectory }
+          foreach ($event in $events) {
+            $xml = [xml]$event.ToXml()
+            foreach ($entry in $xml.Event.EventData.Data) {
+              if ($entry.Name -eq 'ModulePath') {
+                $modulePath = [string]$entry.'#text'
+                if (($modulePath.StartsWith($env:GITHUB_WORKSPACE) -or $modulePath.StartsWith($env:TEMP)) -and (Test-Path $modulePath -PathType Leaf)) {
+                  Copy-Item $modulePath $dumpDirectory -Force
+                }
+              }
+            }
+          }
+          Get-ChildItem $dumpDirectory | Format-Table Name, Length
+
+      - name: Upload Windows worker crash diagnostics
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-worker-crashes
+          path: ${{ runner.temp }}/nupp-worker-dumps
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Verify the self-hosting fixpoint
         shell: bash
