@@ -4,20 +4,12 @@
 -- the draining and the deadlines -- the policy above the Rust-backed provider -- so
 -- the test supplies the platform and the module supplies the behaviour.
 local process = require("nupp.io.process")
-local backendapi = require("nupp.runtime.backend.process")
+local processTypes = require("nupp.io.process.types")
 local suspension = require("nupp.suspension")
 
-local function spawnOn(backend, options)
-    local providers = require("nupp.runtime.backend.process")
-    local previous = providers.current()
-    providers.install(backend)
-    local ok, child = pcall(process.Process.__nuppCtor1, options)
-    providers.install(previous)
-    if not ok then
-        error(child, 0)
-    end
-
-    return child
+local function spawnOn(provider, options)
+    local instance = require("providerstate").load("process", provider)
+    return instance.Process.__nuppCtor1(options)
 end
 
 local function assertEq(got, want, label)
@@ -94,12 +86,12 @@ local function fakeBackend(script)
             if state.killPolls <= (state.killLag or 0) then
                 return nil
             end
-            state.exited = backendapi.exited(137, true, false)
+            state.exited = processTypes.exited(137, true, false)
             return state.exited
         end
         -- Having stopped reading, it is done: the next poll is what notices.
         if script.stopsReadingAfter ~= nil and #state.written >= script.stopsReadingAfter then
-            state.exited = backendapi.exited(script.code or 0, false, false)
+            state.exited = processTypes.exited(script.code or 0, false, false)
 
             return state.exited
         end
@@ -110,7 +102,7 @@ local function fakeBackend(script)
         end
         -- Exits once both output scripts are spent and the script says so.
         if script.exitAfter ~= nil and state.polls >= script.exitAfter then
-            state.exited = backendapi.exited(script.code or 0, false, false)
+            state.exited = processTypes.exited(script.code or 0, false, false)
             return state.exited
         end
 

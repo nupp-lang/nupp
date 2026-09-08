@@ -1,18 +1,18 @@
 return {
-   include = { "src" },
-   build = {
-      targets = {
-         app = {
-            kind = "bundle",
-            entries = { "main" },
-            sources = { "src" },
-            output = "dist/app.lua",
-            outDir = "build/app",
-            dialect = "lua51",
-            backends = { "backend" },
-            aot = "require-wasm",
-            aotFeatures = "simd128",
-         },
-      },
-   },
+    include = {"src"},
+    build = {
+        targets = {
+            app = {
+                kind = "bundle",
+                entries = {"main"},
+                sources = {"src"},
+                output = "dist/app.lua",
+                outDir = "build/app",
+                dialect = "lua51",
+
+                aot = "require-wasm",
+                aotFeatures = "simd128",
+            },
+        },
+    },
 }

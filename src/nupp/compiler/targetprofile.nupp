@@ -186,7 +186,7 @@ end
 ---
 --- The layout model is referenced rather than restated: a descriptor names a
 --- `layoutModel` that is already modelled, so admitting a triple does not open
---- the set of layout models. NEP 28 puts that limit on this deliberately.
+--- the set of layout models. NEP 25 puts that limit on this deliberately.
 function targetProfile.fromDescriptor(target: string, value: any, origin: string): (targetProfile.Profile?, string?)
     local label = "target profile for " .. target .. " in " .. origin
     if type(value) ~= "table" then

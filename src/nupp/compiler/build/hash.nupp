@@ -21,20 +21,10 @@ Do not swap one for the other. A cache key that changes between releases costs
 one rebuild; a trailer digest that changes makes every binary already stamped
 unreadable.
 
-This module is itself reached from the portable compiler: `nupp.compiler.hotsession`,
-`nupp.compiler.incremental` and the rest of the checker call into it from inside
-a `lua51` session the same as from the CLI's own `luajit` one, so `int64` and
-`cinterop` are not this file's to spend -- both are `forbidden` under `lua51`
-with no backend that can seat them, per
-[NEP 13](../../../../docs/neps/0013-dialects-and-capability-backends.md). XXH64
-is defined over 64-bit words regardless, so every word here is carried as two
-`uint32` halves, high first, and combined by hand the way
-`nupp.compiler.hash` next door already carries SHA-256's 32-bit words: through
-`nupp.compiler.bitops`, whose `require("bit")` is the checked seam a portable
-target substitutes a scalar provider for, rather than the raw prelude identity
-ordinary source may not name. Reading the input goes through `string.byte`
-for the same reason `ffi.cast` cannot -- and unlike a pointer reinterpretation,
-a byte-by-byte little-endian assembly answers the same on a big-endian host,
+This module is shared by LuaJIT and Lua 5.1 compiler sessions. XXH64 words use
+two `uint32` halves, high first, combined through `nupp.compiler.bitops`.
+Reading input with `string.byte` and assembling little-endian words preserves
+identical digests across host representations,
 so this pays for portability without owing anything back to it.
 ]]
 

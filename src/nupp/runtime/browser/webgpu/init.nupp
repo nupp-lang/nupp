@@ -1,27 +1,32 @@
 module nupp.runtime.browser.webgpu
+local response = require("nupp.runtime.browser.response")
+local json = require("nupp.codec.json.provider")
+local gpu = {}
+local MAX_XOR_VALUES = 262144
 
---[[WebGPU provider over the browser Worker's Wasm memory and effect boundary.]]
+--- Xors every uint32 in `values` with `mask` in one WebGPU invocation per
+--- element. The result is copied back only after the Worker observes completion.
+--- @raises when WebGPU is unavailable or the request is outside the portable cap
+function gpu.xorU32(values: {uint32}, mask: uint32): {uint32}
+    if #values == 0 then
+        return {}
+    end
+    if #values > MAX_XOR_VALUES then
+        error("nupp: browser GPU xor accepts at most " .. MAX_XOR_VALUES .. " uint32 values", 2)
+    end
 
-local implementation = require("nupp.runtime.browser.webgpu.internal")
+    local input: {any} = json.asArray({})
+    for index, value in ipairs(values) do
+        input[index] = value
+    end
 
-export type Layout = implementation.Layout
-export const Layout = implementation.Layout
-export type Element<T> = implementation.Element<T>
-export const Element = implementation.Element
-export type Buffer<T> = implementation.Buffer<T>
-export const Buffer = implementation.Buffer
-export type Shared<T> = implementation.Shared<T>
-export const Shared = implementation.Shared
-export type Phases = implementation.Phases
-export const Phases = implementation.Phases
-export type ContextToken = implementation.ContextToken
-export type Context = implementation.Context
-export const Context = implementation.Context
-export const PORTABLE_WORKGROUP_THREADS = implementation.PORTABLE_WORKGROUP_THREADS
-export const PORTABLE_SCRATCH_BYTES = implementation.PORTABLE_SCRATCH_BYTES
-export const xorU32 = implementation.xorU32
-export const destroyContext = implementation.destroyContext
-export const workgroups = implementation.workgroups
-export const open = implementation.open
-export const uint32 = implementation.uint32
-export const int32 = implementation.int32
+    local answer = response.await("gpu", {operation = "xor-u32", values = input, mask = mask,})
+    local output = answer.values
+    if type(output) ~= "table" or #output ~= #values then
+        error("nupp: browser GPU returned an invalid xor result", 2)
+    end
+
+    return output as {uint32}
+end
+
+export = gpu

@@ -133,9 +133,9 @@ dialect. The LuaJIT result is instead parsed by LuaJIT in the differential
 test suite, so LuaJIT-only `const` declarations and `ULL` literals do not
 produce a false generation diagnostic from Lua 5.1.
 
-The session resolves dialects, capabilities, standard modules, and selected
-backends through the same compiler machinery as `nupp check`. Browser sessions
-use the selected physical storage representation for Lua 5.1. When checking
+The session resolves dialects, capabilities, and standard modules through the
+same compiler machinery as `nupp check`. Browser sessions use the target
+physical storage representation for Lua 5.1. When checking
 LuaJIT output, they still mark native `cinterop` and `cstorage` unavailable:
 the in-memory compiler cannot inspect native FFI layouts.
 
@@ -150,4 +150,4 @@ checking source. A module required through a computed name is available only
 when the bundle target selected it independently. See
 [build.md](../build.md#target-source-sets) for the source-set contract and
 [portable-libraries.md](libraries.md) for dependencies that supply
-runtime seams.
+runtime services.

@@ -556,7 +556,6 @@ function M.shippedImplementationModulesAreNotApplicationImports()
         for _, name in ipairs({
             "nupp.compiler.lexer",
             "nupp.runtime.browser.effects",
-            "nupp.runtime.seam.registry",
             "nupp.codec.json.provider",
             "nupp.codec.json.aot",
             "nupp.io.net.internal",

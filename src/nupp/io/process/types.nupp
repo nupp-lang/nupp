@@ -81,4 +81,28 @@ record process.Result
     end
 end
 
+record process.Interest
+    --- The child, when its termination is one of the things being waited for, and nil
+    --- when this wait would not be advanced by it.
+    child: any?
+
+    --- Stream handles this wait wants bytes from.
+    read: {any}
+
+    --- Stream handles this wait wants to put bytes into.
+    write: {any}
+end
+
+function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): process.Exit
+    return {
+        exitCode = exitCode,
+        killed = killed,
+        timedOut = timedOut,
+        succeeded = function(self: process.Exit): boolean
+            -- A killed child never succeeded, whatever status the platform reported.
+            return not self.killed and not self.timedOut and self.exitCode == 0
+        end,
+    } as process.Exit
+end
+
 export = process

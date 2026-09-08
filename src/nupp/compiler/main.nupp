@@ -26,9 +26,4 @@ end
 -- loads the way it always did.
 require("nupp.compiler.bytecodecache").install()
 
--- Select the compiler's codec explicitly as well as in the build target. Stage
--- zero predates this public module's move, so its generated seam bootstrap does
--- not know the new binding name. The compiler's own registry does.
-require("nupp.runtime.backend").install(require("nupp.runtime.backend.lunajson"))
-
 os.exit(require("nupp.compiler.cli").main(arg))

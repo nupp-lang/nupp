@@ -5,7 +5,7 @@ module nupp.runtime.browser.path
 -- Browsers have POSIX-shaped resource paths but no process directory or host
 -- filesystem whose links can be resolved. Keeping those failures behind the
 -- environmental provider leaves every lexical path operation available.
-local contracts = require("nupp.runtime.backend.contracts")
+local contracts = require("nupp.runtime.services.contracts")
 local provider = {}
 
 function provider.separator(): string
@@ -20,8 +20,7 @@ function provider.canonicalize(_path: string): (string?, string?)
     return nil, "the browser has no host filesystem to canonicalize"
 end
 
--- Stated rather than assumed: the projection is what reports a member whose
--- signature drifted from the contract the seam installs this module behind.
+-- Check every member against the canonical path provider contract.
 local checked: contracts.PathProvider = {
     separator = provider.separator,
     currentDirectory = provider.currentDirectory,

@@ -1,0 +1,18 @@
+@!internal
+module nupp.runtime.int64
+
+local contracts = require("nupp.runtime.services.contracts")
+local representation = require("nupp.runtime.representation")
+export = contracts.int64:assemble(
+    function(): contracts.Int64Provider
+        return assert(representation.integers, "nupp.runtime.int64: this target requires an integer provider")
+    end,
+    function(provider: contracts.Int64Provider): nil
+        if representation.integers ~= nil then
+            assert(
+                provider == representation.integers,
+                "nupp.runtime.int64: integers must use the target storage implementation"
+            )
+        end
+    end
+)

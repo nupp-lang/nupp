@@ -1,0 +1,33 @@
+module nupp.runtime.provider.nativeuuid
+
+const native = require("nupp.runtime.native")
+
+native.ffi.cdef[[
+int32_t nuppNativeV2Uuid4(uint8_t *, size_t);
+int32_t nuppNativeV2Uuid7(uint8_t *, size_t);
+]]
+
+const C = native.C
+native.requireFeature(2, "UUID support")
+
+--- Generates a random version 4 UUID.
+---
+--- @return the UUID, hyphenated and lowercase
+--- @raises when the system has no randomness to draw on
+export function uuid4(): string
+    local output = native.ffi.new("uint8_t[37]")
+    native.succeeded(C.nuppNativeV2Uuid4(output, 37), 2)
+
+    return native.ffi.string(output)
+end
+
+--- Generates a time-ordered version 7 UUID.
+---
+--- @return the UUID, hyphenated and lowercase
+--- @raises when the system has no randomness to draw on
+export function uuid7(): string
+    local output = native.ffi.new("uint8_t[37]")
+    native.succeeded(C.nuppNativeV2Uuid7(output, 37), 2)
+
+    return native.ffi.string(output)
+end

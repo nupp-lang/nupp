@@ -213,19 +213,8 @@ function surface.requireModule(checker: any, name: string, at: any)
     if checker.opts.dialect ~= "lua51" or not RUNTIME_MODULES[name] then
         return
     end
-    local classification = require("nupp.compiler.standardsurface").classify(name)
-    local selected = classification
-        and classification.seam
-        and checker.opts.backendResolution
-        and checker.opts.backendResolution.seams
-        and checker.opts.backendResolution.seams[
-        classification.seam
-    ] or nil
-    if selected then
-        return
-    end
     checker.diag("NUPP3010", at, ("the `lua51` runtime surface does not include module `%s`"):format(name), nil, {
-        help = "select a portable backend seam or require a third-party adapter that checks its runtime dependency"
+        help = "require a target-compatible typed adapter"
     })
 end
 

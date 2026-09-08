@@ -15,10 +15,21 @@ type capabilities.Entry = {
     api: integer,
     entry: string,
     service: string?,
-    member: string?
+    member: string?,
+    contract: string?,
+    export: string?
 }
 
-local ENTRY_KEYS = {api = true, entry = true, kind = true, member = true, name = true, service = true}
+local ENTRY_KEYS = {
+    api = true,
+    entry = true,
+    kind = true,
+    member = true,
+    name = true,
+    service = true,
+    contract = true,
+    export = true
+}
 
 local function identifier(value)
     return type(value) == "string" and value:match("^[A-Za-z0-9][A-Za-z0-9_.-]*$") ~= nil
@@ -42,8 +53,8 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
             return nil, path .. " has no key " .. tostring(key)
         end
     end
-    if document.schema ~= 1 then
-        return nil, path .. ".schema must be 1"
+    if document.schema ~= 2 then
+        return nil, path .. ".schema must be 2"
     end
     if type(document.capabilities) ~= "table" or not json.isArray(document.capabilities) then
         return nil, path .. ".capabilities must be an array"
@@ -72,12 +83,17 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
         if not identifier(raw.entry) then
             return nil, label .. ".entry must be a module name"
         end
-        if raw.kind == "generator" and (raw.service ~= nil or raw.member ~= nil) then
-            return nil, label .. " generator must not name service or member"
+        if raw.kind == "generator" and (
+            raw.service ~= nil or raw.member ~= nil or raw.contract ~= nil or raw.export ~= nil
+        ) then
+            return nil, label .. " generator must not name a service contract or provider member"
         end
         if raw.kind == "service" then
             if not identifier(raw.service) then
                 return nil, label .. ".service must be an identifier"
+            end
+            if not identifier(raw.contract) or not identifier(raw.export) then
+                return nil, label .. " requires a contract module and service handle export"
             end
             if raw.member ~= nil and not identifier(raw.member) then
                 return nil, label .. ".member must be an identifier"

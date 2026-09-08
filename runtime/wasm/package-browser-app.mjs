@@ -210,7 +210,7 @@ export function packageBrowserApp(options) {
   copyFileSync(path.join(here, "browser-worker.mjs"), path.join(output, "browser-worker.mjs"));
   // Worker tasks are packaged only where the build reached them, so an application
   // without them ships neither the lane entry point nor a pool the page would boot.
-  const reachedWorkers = (result.backendResolution || []).some((seam) => seam.name === "host.workers");
+  const reachedWorkers = (result.services || []).some((provider) => provider.service === "host.workers");
   const manifest = {
     schemaVersion: 1,
     target: "wasm32-unknown-emscripten",

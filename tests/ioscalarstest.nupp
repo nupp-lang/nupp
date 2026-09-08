@@ -1,4 +1,4 @@
-local buffer = require("string.buffer")
+local buffer = require("nupp.text.buffer")
 local span = require("nupp.mem.span")
 
 local M = {}

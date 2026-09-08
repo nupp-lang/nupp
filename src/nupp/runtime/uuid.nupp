@@ -1,0 +1,12 @@
+@!internal
+module nupp.runtime.uuid
+
+local contracts = require("nupp.runtime.services.contracts")
+export = contracts.uuid:assemble(function(): contracts.UuidProvider
+    local native = contracts.uuid:lookup("nupp.native")
+    if native ~= nil then
+        return native
+    end
+
+    return contracts.uuid:require("nupp.browser")
+end)

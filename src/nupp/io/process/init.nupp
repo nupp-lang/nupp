@@ -19,12 +19,14 @@ waiting is a suspension rather than a block.
 ]]
 
 local suspension = require("nupp.suspension")
-local time = require("nupp.time")
-local ffi = require("ffi")
+local physical = require("nupp.runtime.storage")
 local span = require("nupp.mem.span")
-local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
+local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
-const backendapi = require("nupp.runtime.backend.process")
+const contract = require("nupp.runtime.services.process")
+const provider = contract.service:assemble(function(): contract.Provider
+    return contract.service:require("nupp.native")
+end)
 local process = {}
 const shared = require("nupp.io.process.types")
 
@@ -75,19 +77,14 @@ end
 
 local function spanString(borrows source: span.ByteSpan): string
     local pointer = source:ref()
-    return ffiString(pointer, #source)
+    return spanStringValue(pointer, #source)
 end
 
 local progressed, releasePump, await, pumpOnce
 -- Typed where it is declared, because `communicate` hands it a local function that
 -- borrows the child's streams, and a borrow may not cross an untyped call.
-local awaitTick: function(self: any, operation: string, scoped interest: function(): backendapi.Interest): nil
+local awaitTick: function(self: any, operation: string, scoped interest: function(): shared.Interest): nil
 local validateOptions: function(options: process.Options): nil
-local nativeBackend: function(): backendapi.Backend
-
--- The backend `new process.Process(...)` uses, installed by whichever platform module
--- is loaded. Kept internal: a caller naming its platform is a caller that has to change
--- when it moves to another one.
 
 --- One of a child's readable streams.
 ---
@@ -198,11 +195,11 @@ record process.Reader is nupp.io.Reader
 
                 return false
             end,
-            function(): backendapi.Interest
+            function(): shared.Interest
                 -- This stream, and the child: end of stream is something the child's
                 -- ending produces, so a reader that only asked about the pipe could
                 -- sleep through the very event that answers it.
-                return new backendapi.Interest(child = self.owner.handle, read = {self.handle}, write = {})
+                return new shared.Interest(child = self.owner.handle, read = {self.handle}, write = {})
             end
         )
 
@@ -237,8 +234,8 @@ record process.Reader is nupp.io.Reader
 
                 return false
             end,
-            function(): backendapi.Interest
-                return new backendapi.Interest(child = self.owner.handle, read = {self.handle}, write = {})
+            function(): shared.Interest
+                return new shared.Interest(child = self.owner.handle, read = {self.handle}, write = {})
             end,
             stopAt
         )
@@ -403,10 +400,10 @@ record process.Writer is nupp.io.Writer
         end
         local sent = 0
         local before = 0
-        local function interest(): backendapi.Interest
+        local function interest(): shared.Interest
             -- Room in this pipe, and the child: a child that exits makes every
             -- remaining write impossible, which is an answer too.
-            return new backendapi.Interest(child = self.owner.handle, read = {}, write = {self.handle})
+            return new shared.Interest(child = self.owner.handle, read = {}, write = {self.handle})
         end
 
         -- Both of these are written above the loop rather than in it, so the loop holds
@@ -593,7 +590,7 @@ local newWriter: function(owner: any, handle: any): process.Writer
 --- A running child.
 record process.Process
     drop: nosuspend function(takes self: process.Process): nil
-    private backend: backendapi.Backend
+    private backend: contract.Provider
     private handle: any
     private deadline: number?
     private exit: process.Exit?
@@ -656,17 +653,13 @@ record process.Process
     --- @param options what to run and how to connect it
     --- @raises when the options are invalid or the child cannot be started
     constructor(self, options: process.Options): affine(process.Process, process.Process.destroy)
-        local backend = backendapi.current()
-        if backend == nil then
-            backend = nativeBackend()
-            backendapi.install(backend)
-        end
+        local backend = provider
         validateOptions(options)
-        local handle, inHandle, outHandle, errHandle, pid, problem = (backend as backendapi.Backend):spawn(options)
+        local handle, inHandle, outHandle, errHandle, pid, problem = (backend as contract.Provider):spawn(options)
         if handle == nil then
             error(problem or "the process could not be started", 2)
         end
-        self.backend = backend as backendapi.Backend
+        self.backend = backend as contract.Provider
         self.handle = handle
         self.exit = nil
         self.reaped = false
@@ -676,7 +669,7 @@ record process.Process
         self.pump = nil
         self.timedOut = false
         self.pid = pid
-        self.deadline = options.timeoutMs ~= nil and ((backend as backendapi.Backend):now() + options.timeoutMs) or nil
+        self.deadline = options.timeoutMs ~= nil and ((backend as contract.Provider):now() + options.timeoutMs) or nil
         if inHandle ~= nil then
             self.stdin = newWriter(self, inHandle)
         end
@@ -713,12 +706,12 @@ record process.Process
             function(): boolean
                 return self.exit ~= nil
             end,
-            function(): backendapi.Interest
+            function(): shared.Interest
                 -- The child alone. Its streams are deliberately left out: output nobody
                 -- is reading stays ready forever, so asking about it here would turn
                 -- this sleep into a spin. The cost is that waiting without draining can
                 -- fill a pipe and stall, which is exactly what `communicate` is for.
-                return new backendapi.Interest(child = self.handle, read = {}, write = {})
+                return new shared.Interest(child = self.handle, read = {}, write = {})
             end
         )
         if self.timedOut and self.exit ~= nil then
@@ -796,7 +789,7 @@ record process.Process
             -- Written here rather than at the wait it belongs to, because that wait is
             -- inside the loop, and a function built inside a loop is one LuaJIT never
             -- compiles. It reads what varies through names the loop shares with it.
-            local function interest(): backendapi.Interest
+            local function interest(): shared.Interest
                 local read: {any} = {}
                 if stdout ~= nil and not stdout.eof and not stdout.closed then
                     read[#read + 1] = stdout.handle
@@ -813,7 +806,7 @@ record process.Process
                     write[#write + 1] = stdin.handle
                 end
 
-                return new backendapi.Interest(child = self.handle, read = read, write = write)
+                return new shared.Interest(child = self.handle, read = read, write = write)
             end
 
             while not (inputDone() and outputDone()) do
@@ -928,8 +921,8 @@ record process.Process
                 function(): boolean
                     return not self.closing
                 end,
-                function(): backendapi.Interest
-                    return new backendapi.Interest(child = self.handle, read = {}, write = {})
+                function(): shared.Interest
+                    return new shared.Interest(child = self.handle, read = {}, write = {})
                 end
             )
             if self.reaped then
@@ -992,8 +985,8 @@ record process.Process
                     function(): boolean
                         return self.exit ~= nil
                     end,
-                    function(): backendapi.Interest
-                        return new backendapi.Interest(child = self.handle, read = {}, write = {})
+                    function(): shared.Interest
+                        return new shared.Interest(child = self.handle, read = {}, write = {})
                     end
                 )
             end)
@@ -1157,7 +1150,7 @@ local BLOCKING_WAIT_MS = 20
 -- Bounded rather than indefinite, because a deadline has to be reached even when the
 -- child never speaks again, and never overshooting it: a wait longer than what is left
 -- would report the timeout late by however much it overslept.
-local function blockOnce(self: any, interest: backendapi.Interest, stopAt: number?): nil
+local function blockOnce(self: any, interest: shared.Interest, stopAt: number?): nil
     local budget = BLOCKING_WAIT_MS
     -- Only until it fires. Once `timedOut` is set the deadline is in the past and
     -- what remains of it is negative forever, so clamping to it would pin every
@@ -1179,7 +1172,7 @@ local function blockOnce(self: any, interest: backendapi.Interest, stopAt: numbe
     pumpOnce(self)
 end
 
-awaitTick = function(self: any, operation: string, scoped interest: function(): backendapi.Interest): nil
+awaitTick = function(self: any, operation: string, scoped interest: function(): shared.Interest): nil
     if not suspension.handled() then
         blockOnce(self, interest())
 
@@ -1207,7 +1200,7 @@ await = function(
     self: any,
     operation: string,
     ready: function(): boolean,
-    scoped interest: function(): backendapi.Interest,
+    scoped interest: function(): shared.Interest,
     stopAt: number?
 ): boolean
     if ready() then
@@ -1307,322 +1300,6 @@ validateOptions = function(options: process.Options): nil
     ) then
         error("nupp: process timeout must be 0 through 2147483647 milliseconds", 3)
     end
-end
-
---- Builds the owned state after the platform has successfully spawned.
---- Starts a child on a given backend.
---[[
-The platform binding.
-
-Everything above is platform-neutral: it moves bytes between buffers and decides when
-to wait. This is the other side of `Backend` for the machine the program is on, over
-the versioned, generational ABI the Rust-native process provider exports.
-
-It used to be a string in the compiler, installed as `nupp.io.processnative` through
-`package.preload` and reached from here by a cast, because a module of its own could
-not name `Backend`. Naming it would have made the two require each other, and a
-resolved cycle answers `any` without reporting one. Written here it names `Backend`
-directly and is checked against it, which is what the cast was standing in for.
-]]
-
-----------------------------------------------------------------------------
--- The native backend
-----------------------------------------------------------------------------
-
-const native = require("nupp.runtime.native")
-
-native.ffi.cdef[[
-typedef struct {
-    const uint8_t *data;
-    size_t length;
-} NuppNativeV2ProcessSlice;
-
-typedef struct {
-    NuppNativeV2ProcessSlice name;
-    NuppNativeV2ProcessSlice value;
-} NuppNativeV2ProcessEnv;
-
-typedef struct {
-    const NuppNativeV2ProcessSlice *args;
-    size_t arg_count;
-    const NuppNativeV2ProcessEnv *env;
-    size_t env_count;
-    NuppNativeV2ProcessSlice cwd;
-    int32_t cwd_present;
-    int32_t clear_env;
-    uint8_t stdin_mode;
-    uint8_t stdout_mode;
-    uint8_t stderr_mode;
-} NuppNativeV2ProcessSpawn;
-
-typedef struct {
-    uint64_t process;
-    uint64_t stdin_stream;
-    uint64_t stdout_stream;
-    uint64_t stderr_stream;
-    uint32_t pid;
-} NuppNativeV2ProcessStarted;
-
-typedef struct {
-    int32_t ready;
-    int32_t code;
-    int32_t killed;
-} NuppNativeV2ProcessExit;
-
-int32_t nuppNativeV2ProcessSpawn(
-    const NuppNativeV2ProcessSpawn *, NuppNativeV2ProcessStarted *);
-int32_t nuppNativeV2ProcessPollExit(uint64_t, NuppNativeV2ProcessExit *);
-int32_t nuppNativeV2ProcessKill(uint64_t, int32_t);
-int32_t nuppNativeV2ProcessRelease(uint64_t);
-int32_t nuppNativeV2ProcessStreamRead(
-    uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeV2ProcessStreamWrite(
-    uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeV2ProcessStreamRelease(uint64_t);
-int32_t nuppNativeV2ProcessWait(
-    uint64_t, const uint64_t *, size_t, const uint64_t *, size_t,
-    uint64_t, size_t *);
-size_t nuppNativeV2ProcessAbandonedTotal(void);
-]]
-
-const C = native.C
-const PROCESS_FEATURE = 32
-const MODE: {[string]: integer} = {pipe = 0, inherit = 1, ["null"] = 2, stdout = 3}
-const READ_DATA = 0
-const READ_PENDING = 1
-const READ_EOF = 2
-const WRITE_ACCEPTED = 0
-const WRITE_PENDING = 1
-const WRITE_GONE = 2
-const READ_SIZE = 65536
-const INT32_MAX = 2147483647
-
-local function reason(prefix: string): string
-    return prefix .. ": " .. native.ffi.string(C.nuppNativeV2LastError())
-end
-
-local function configured(status: integer, what: string): nil
-    if status ~= 0 then
-        error(reason("nupp: could not " .. what), 0)
-    end
-end
-
-local function makeArray(streams: {any}): (any, integer)
-    local count = #streams
-    if count == 0 then
-        return nil, 0
-    end
-    local out = native.ffi.new("uint64_t[?]", count)
-    for index, stream in ipairs(streams) do
-        local handle = stream and stream.handle
-        if handle == nil then
-            error("nupp: readiness interest named a released process stream", 0)
-        end
-        out[index - 1] = handle
-    end
-
-    return out, count
-end
-
-local function whole(value: number?): integer
-    local number = tonumber(value) or 0
-    if number ~= number then
-        return 0
-    end
-
-    return math.floor(number) as integer
-end
-
-local function wrap(owner: any, handle: any): any
-    if handle == 0 then
-        return nil
-    end
-
-    return {owner = owner, handle = handle, released = false, scratch = nil, capacity = 0}
-end
-
-nativeBackend = function(): backendapi.Backend
-    native.requireFeature(PROCESS_FEATURE, "process")
-    return new backendapi.Backend(
-        spawn = function(self: backendapi.Backend, options: process.Options): (any?, any?, any?, any?, integer, string?)
-            local inputMode = options.stdin or "pipe"
-            local outputMode = options.stdout or "pipe"
-            local errorMode = options.stderr or "pipe"
-            if MODE[inputMode] == nil then
-                error("nupp: process has no stdin mode named " .. tostring(inputMode), 0)
-            end
-            if MODE[outputMode] == nil or outputMode == "stdout" then
-                error("nupp: process has no stdout mode named " .. tostring(outputMode), 0)
-            end
-            if MODE[errorMode] == nil then
-                error("nupp: process has no stderr mode named " .. tostring(errorMode), 0)
-            end
-
-            local arguments = options.args or {}
-            local argumentSlices = native.ffi.new("NuppNativeV2ProcessSlice[?]", #arguments)
-            for index, argument in ipairs(arguments) do
-                argumentSlices[index - 1].data = argument
-                argumentSlices[index - 1].length = #argument
-            end
-
-            local environment: {any} = {}
-            for key, value in pairs(options.env or {}) do
-                environment[#environment + 1] = {name = key, value = value}
-            end
-            local environmentEntries = native.ffi.new("NuppNativeV2ProcessEnv[?]", #environment)
-            for index, entry in ipairs(environment) do
-                environmentEntries[index - 1].name.data = entry.name
-                environmentEntries[index - 1].name.length = #entry.name
-                environmentEntries[index - 1].value.data = entry.value
-                environmentEntries[index - 1].value.length = #entry.value
-            end
-
-            local cwd: string? = nil
-            if options.cwd ~= nil then
-                cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
-            end
-            local descriptor = native.ffi.new("NuppNativeV2ProcessSpawn[1]")
-            local cwdLength = 0
-            if cwd ~= nil then
-                cwdLength = #cwd
-            end
-            descriptor[0].args = #arguments == 0 and nil or argumentSlices
-            descriptor[0].arg_count = #arguments
-            descriptor[0].env = #environment == 0 and nil or environmentEntries
-            descriptor[0].env_count = #environment
-            descriptor[0].cwd.data = cwd
-            descriptor[0].cwd.length = cwdLength
-            descriptor[0].cwd_present = cwd == nil and 0 or 1
-            descriptor[0].clear_env = options.clearEnv == true and 1 or 0
-            descriptor[0].stdin_mode = MODE[inputMode]
-            descriptor[0].stdout_mode = MODE[outputMode]
-            descriptor[0].stderr_mode = MODE[errorMode]
-
-            local started = native.ffi.new("NuppNativeV2ProcessStarted[1]")
-            local status = C.nuppNativeV2ProcessSpawn(descriptor, started)
-            if status ~= 0 then
-                return nil, nil, nil, nil, 0, reason("nupp: could not start process")
-            end
-            local owner = {handle = started[0].process, released = false}
-            local input = wrap(owner, started[0].stdin_stream)
-            local output = wrap(owner, started[0].stdout_stream)
-            local err = wrap(owner, started[0].stderr_stream)
-
-            return owner, input, output, err, tonumber(started[0].pid) as integer
-        end,
-        poll = function(self: backendapi.Backend, owner: any): process.Exit?
-            local output = native.ffi.new("NuppNativeV2ProcessExit[1]")
-            configured(C.nuppNativeV2ProcessPollExit(owner.handle, output), "poll process")
-            if output[0].ready == 0 then
-                return nil
-            end
-
-            return backendapi.exited(tonumber(output[0].code) as integer, output[0].killed ~= 0, false)
-        end,
-        kill = function(self: backendapi.Backend, owner: any, force: boolean): nil
-            configured(C.nuppNativeV2ProcessKill(owner.handle, force and 1 or 0), "kill process")
-        end,
-        read = function(self: backendapi.Backend, stream: any, limit: integer): string?
-            local wanted = whole(limit)
-            if wanted < 1 then
-                wanted = 1
-            elseif wanted > READ_SIZE then
-                wanted = READ_SIZE
-            end
-            if stream.capacity < wanted then
-                stream.scratch = native.ffi.new("uint8_t[?]", wanted)
-                stream.capacity = wanted
-            end
-            local state = native.ffi.new("uint32_t[1]")
-            local length = native.ffi.new("size_t[1]")
-            configured(
-                C.nuppNativeV2ProcessStreamRead(stream.handle, stream.scratch, wanted, state, length),
-                "read process stream"
-            )
-            if state[0] == READ_DATA then
-                return native.ffi.string(stream.scratch, tonumber(length[0]) as integer)
-            end
-            if state[0] == READ_PENDING then
-                return ""
-            end
-            if state[0] == READ_EOF then
-                return nil
-            end
-            error("nupp: Rust process provider returned an invalid read state", 0)
-        end,
-        write = function(self: backendapi.Backend, stream: any, bytes: string): (integer, boolean)
-            local state = native.ffi.new("uint32_t[1]")
-            local length = native.ffi.new("size_t[1]")
-            configured(
-                C.nuppNativeV2ProcessStreamWrite(stream.handle, bytes, #bytes, state, length),
-                "write process stream"
-            )
-            if state[0] == WRITE_ACCEPTED then
-                return tonumber(length[0]) as integer, false
-            end
-            if state[0] == WRITE_PENDING then
-                return 0, false
-            end
-            if state[0] == WRITE_GONE then
-                return 0, true
-            end
-            error("nupp: Rust process provider returned an invalid write state", 0)
-        end,
-        closeStream = function(self: backendapi.Backend, stream: any): (boolean, string?)
-            if stream.released then
-                return true, nil
-            end
-            local status = C.nuppNativeV2ProcessStreamRelease(stream.handle)
-            if status ~= 0 then
-                return false, reason("nupp: could not close process stream")
-            end
-            stream.released = true
-            stream.handle = nil
-
-            return true, nil
-        end,
-        reap = function(self: backendapi.Backend, owner: any): (boolean, string?)
-            if owner.released then
-                return true, nil
-            end
-            local status = C.nuppNativeV2ProcessRelease(owner.handle)
-            if status ~= 0 then
-                return false, reason("nupp: could not release process")
-            end
-            owner.released = true
-            owner.handle = nil
-
-            return true, nil
-        end,
-        now = function(self: backendapi.Backend): number
-            return time.now()
-        end,
-        waitReady = function(self: backendapi.Backend, interest: backendapi.Interest, timeoutMs: number): integer
-            local readable, readCount = makeArray(interest.read)
-            local writable, writeCount = makeArray(interest.write)
-            local timeout = whole(timeoutMs)
-            if timeout < 0 then
-                timeout = 0
-            elseif timeout > INT32_MAX then
-                timeout = INT32_MAX
-            end
-            local ready = native.ffi.new("size_t[1]")
-            configured(
-                C.nuppNativeV2ProcessWait(
-                    interest.child.handle,
-                    readable,
-                    readCount,
-                    writable,
-                    writeCount,
-                    timeout,
-                    ready
-                ),
-                "wait for process readiness"
-            )
-
-            return tonumber(ready[0]) as integer
-        end
-    )
 end
 
 export = process

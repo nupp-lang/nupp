@@ -1,9 +1,0 @@
-module portable.backend
-
-export = {
-    name = "dual-dialect-portable",
-    seams = {
-        ["numeric.bitops"] = "portable.bitops",
-        ["representation.structvalue"] = "nupp.runtime.provider.tablestruct",
-    },
-}

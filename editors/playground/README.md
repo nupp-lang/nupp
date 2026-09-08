@@ -96,8 +96,8 @@ AOT host, or C-header parser. `cinterop` and `cstorage` are unavailable because
 the browser supplies no native ABI or storage provider. Their diagnostics come
 from the same dialect and capability machinery as command-line builds.
 
-The application runtime carries the browser backend, `lunajson`, and the
-standard modules those providers implement. A dependency-backed seam not
+The application runtime carries browser providers, `lunajson`, and the
+standard modules those providers implement. A dependency-provided service not
 carried by that bundle can still check and lower, but execution reports an
 ordinary missing-module or missing-provider error.
 

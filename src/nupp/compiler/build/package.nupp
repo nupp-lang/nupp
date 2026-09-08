@@ -116,7 +116,6 @@ local function bundleText(
     banner: string?,
     modules: {[string]: ModuleRecord}?,
     workerDispatch: boolean?,
-    workerBootstrap: string?,
     runtimeModules: {string}?,
     hostFeatures: {string}?,
     component: boolean?
@@ -431,17 +430,15 @@ local function bundleText(
         chunks[#chunks + 1] = mainText
         chunks[#chunks + 1] = "\nend\n"
         chunks[#chunks + 1] = "local __nuppEntry = rawget(_G, \"__nuppWorkerEntry\")\n"
-        -- Selected backends install in the entry module's own bootstrap, which a lane
-        -- never runs. A seam-supplied workers runtime is reached under its public
-        -- module name, so a lane has to install the same backends the entry would.
-        if workerBootstrap ~= nil and workerBootstrap ~= "" then
-            chunks[#chunks + 1] = ("if __nuppEntry ~= nil then %s end\n"):format(workerBootstrap)
-        end
         -- The workers runtime owns the scheduler loop. User callables remain ordinary
         -- preloaded modules and are required by that loop when their first task runs.
         -- Its own module body performs no wait, so reaching it through `require` is
         -- what it should be: one module, loaded once, cached like any other.
         chunks[#chunks + 1] = "if __nuppEntry ~= nil then\n"
+        chunks[#chunks + 1] = "local __nuppSetup = rawget(_G, \"__nuppWorkerSetup\")\n"
+        chunks[
+            #chunks + 1
+        ] = "if __nuppSetup ~= nil then rawset(_G, \"__nuppWorkerSetup\", nil); assert((loadstring or load)(__nuppSetup, \"=nupp-worker-setup\"))() end\n"
         chunks[#chunks + 1] = "local __nuppServed = require(__nuppEntry)\n"
         chunks[#chunks + 1] = "if __nuppEntry == \"nupp.workers\" and type(__nuppServed) == \"table\" then\n"
         chunks[#chunks + 1] = "local __nuppServe = rawget(__nuppServed, \"__runScheduler\")\n"

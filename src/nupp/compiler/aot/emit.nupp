@@ -1654,14 +1654,13 @@ function emit.luaPrelude(wideNumbers: boolean): {string}
         "extern int lua_equal(lua_State *L, int index1, int index2);",
         "extern int luaL_error(lua_State *L, const char *format, ...);",
         "",
-        "static const unsigned char ks_lua_empty_bytes[64] = {0};",
         "static KS_UNUSED const unsigned char *ks_lua_bytes(lua_State *L, int index, size_t *length) {",
         "    if (lua_type(L, index) == 4) { return (const unsigned char *)luaL_checklstring(L, index, length); }",
-        "    if (lua_type(L, index) != 7 || !lua_getmetatable(L, index)) { return (const unsigned char *)(uintptr_t)luaL_error(L, \"string or string.buffer.Buffer expected\"); }",
-        "    lua_getfield(L, -1, \"__metatable\"); size_t tag_length = 0u; const char *tag = lua_tolstring(L, -1, &tag_length); int buffer = tag != NULL && tag_length == 6u && memcmp(tag, \"buffer\", 6u) == 0; lua_settop(L, lua_gettop(L) - 1);",
-        "    if (!buffer) { lua_settop(L, lua_gettop(L) - 1); return (const unsigned char *)(uintptr_t)luaL_error(L, \"string or string.buffer.Buffer expected\"); }",
-        "    lua_settop(L, lua_gettop(L) - 1); const unsigned char *storage = (const unsigned char *)lua_touserdata(L, index); uintptr_t write = 0u, end = 0u, begin = 0u, read4 = 0u, read5 = 0u; memcpy(&write, storage, sizeof(write)); memcpy(&end, storage + sizeof(uintptr_t), sizeof(end)); memcpy(&begin, storage + 2u * sizeof(uintptr_t), sizeof(begin)); memcpy(&read4, storage + 4u * sizeof(uintptr_t), sizeof(read4)); memcpy(&read5, storage + 5u * sizeof(uintptr_t), sizeof(read5));",
-        "    int valid4 = begin <= read4 && read4 <= write && write <= end, valid5 = begin <= read5 && read5 <= write && write <= end; if (valid4 && valid5 && read4 != read5) { return (const unsigned char *)(uintptr_t)luaL_error(L, \"string.buffer layout is ambiguous on this LuaJIT\"); } uintptr_t read = valid5 ? read5 : valid4 ? read4 : 0u; if (!valid4 && !valid5) { return (const unsigned char *)(uintptr_t)luaL_error(L, \"string.buffer layout is incompatible with this LuaJIT\"); } *length = (size_t)(write - read); return read == 0u ? ks_lua_empty_bytes : (const unsigned char *)read;",
+        "    if (lua_type(L, index) != 5 && lua_type(L, index) != 7) { return (const unsigned char *)(uintptr_t)luaL_error(L, \"string or nupp.text.buffer.Buffer expected\"); }",
+        "    lua_getfield(L, index, \"tostring\"); if (lua_type(L, -1) != 6) { return (const unsigned char *)(uintptr_t)luaL_error(L, \"buffer tostring method expected\"); }",
+        "    lua_pushvalue(L, index); lua_call(L, 1, 1);",
+        "    if (lua_type(L, -1) != 4) { return (const unsigned char *)(uintptr_t)luaL_error(L, \"buffer tostring must return a string\"); }",
+        "    return (const unsigned char *)lua_tolstring(L, -1, length);",
         "}",
         "",
         "static KS_UNUSED int ks_lua_count(lua_State *L, double value, const char *what) {",
@@ -5867,11 +5866,17 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
         local general = program.body ~= nil
         if program.entryMode == "lua-builder" then
             explicitScalar = false
+            local byteRoots = 0
+            for _, param in ipairs(program.params) do
+                if param.type == "lua_bytes" then
+                    byteRoots = byteRoots + 1
+                end
+            end
             lines[#lines + 1] = "static int " .. program.symbol .. "_lua(lua_State *L) {"
             lines[
                 #lines + 1
             ] = "    if (!lua_checkstack(L, " .. tostring(
-                program.maxStack or 4
+                (program.maxStack or 4) + byteRoots + (byteRoots > 0 and 2 or 0)
             ) .. ")) return luaL_error(L, \"AOT builder Lua stack exhausted\");"
             for position, param in ipairs(program.params) do
                 if param.kind == "uniform" then

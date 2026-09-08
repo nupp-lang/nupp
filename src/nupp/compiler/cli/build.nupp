@@ -90,6 +90,24 @@ local command = spec.command{
                 type = "string",
                 description = "The packaged Wasm AOT manifest beside the transportable artifact."
             },
+            services = {
+                type = "array",
+                description = "Checked service providers carried by the artifact, in service/name order.",
+                items = {
+                    type = "object",
+                    properties = {
+                        service = {type = "string"},
+                        name = {type = "string"},
+                        api = {type = "integer"},
+                        contract = {type = "string"},
+                        export = {type = "string"},
+                        entry = {type = "string"},
+                        member = {type = "string"},
+                        dependency = {type = "string"},
+                    },
+                    required = {"service", "name", "api", "contract", "export", "entry"},
+                },
+            },
             materializations = {
                 type = "array",
                 description = "Materialized expressions and their versioned provider and backend facts.",
@@ -157,51 +175,6 @@ local command = spec.command{
                     },
                 },
             },
-            backends = {
-                type = "array",
-                description = "Checked backend descriptors selected without executing their modules.",
-                items = {
-                    type = "object",
-                    properties = {
-                        name = {type = "string"},
-                        module = {type = "string"},
-                        fingerprint = {type = "string"},
-                        digest = {type = "string"},
-                        seams = {
-                            type = "array",
-                            items = {
-                                type = "object",
-                                properties = {
-                                    name = {type = "string"},
-                                    version = {type = "integer"},
-                                    effect = {type = "string"},
-                                    effects = {type = "array", items = {type = "string"}},
-                                    binding = {type = "string", enum = {"compile", "runtime"}},
-                                    runtimeModule = {type = "string"},
-                                },
-                                required = {"name", "version", "effect", "effects", "binding", "runtimeModule"},
-                            },
-                        },
-                    },
-                    required = {"name", "module", "fingerprint", "digest", "seams"},
-                },
-            },
-            backendResolution = {
-                type = "array",
-                description = "Exactly the reached seam resolution recorded in generated artifacts; this is not a certification claim.",
-                items = {
-                    type = "object",
-                    properties = {
-                        name = {type = "string"},
-                        version = {type = "integer"},
-                        binding = {type = "string"},
-                        backend = {type = "string"},
-                        backendDigest = {type = "string"},
-                        runtimeModule = {type = "string"},
-                    },
-                    required = {"name", "version", "binding", "backend", "backendDigest", "runtimeModule"},
-                },
-            },
             timing = {
                 type = "object",
                 description = "Where the build's wall-clock time went. Absent when a "
@@ -243,16 +216,7 @@ local command = spec.command{
                 description = "Whether the build completed. False when a " .. "diagnostic stopped it."
             },
         },
-        required = {
-            "ok",
-            "diagnostics",
-            "written",
-            "materializations",
-            "derives",
-            "backends",
-            "backendResolution",
-            "dialect"
-        },
+        required = {"ok", "diagnostics", "written", "materializations", "derives", "dialect"},
     },
     detail = [[Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
@@ -323,8 +287,6 @@ local function run(parsed: any): integer
     local progressMode = values.progress or (asJson and "never" or nil)
     local materializations: {any} = {}
     local derives: {any} = {}
-    local selectedBackends: {any} = {}
-    local reachedBackends: {any} = {}
     -- Ends the command with what the build produced, in the shape the project build
     -- fills in; the file shape fills in the fields it has and leaves the rest absent.
     local function finish(code: integer, produced: {[string]: any}): integer
@@ -343,8 +305,7 @@ local function run(parsed: any): integer
                 aotManifest = produced.aotManifest,
                 materializations = produced.materializations or materializations,
                 derives = produced.derives or derives,
-                backends = selectedBackends,
-                backendResolution = reachedBackends,
+                services = produced.services or {},
                 timing = code == 0 and produced.timing or nil,
             })
         end
@@ -369,8 +330,6 @@ local function run(parsed: any): integer
             produced = asJson and produced or nil,
             progress = progressMode
         })
-        selectedBackends = produced.backends or {}
-        reachedBackends = produced.backendResolution or {}
         selectedDialect = produced.dialect or selectedDialect
         return finish(code, produced)
     end

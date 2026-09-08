@@ -1,0 +1,23 @@
+module nupp.runtime.services.cancellation
+
+local TaskCancellationMT: any = {}
+TaskCancellationMT.__index = TaskCancellationMT
+
+function TaskCancellationMT.__tostring(self: any): string
+    if self.reason ~= nil then
+        return ("nupp: %s was cancelled: %s"):format(self.operation, self.reason)
+    end
+
+    return ("nupp: %s was cancelled"):format(self.operation)
+end
+
+local function taskCancellation(operation: string, reason: string?): any
+    return setmetatable({operation = operation, reason = reason,}, TaskCancellationMT)
+end
+
+local function isTaskCancellation(value: any): boolean
+    return getmetatable(value) == TaskCancellationMT
+end
+
+export const create = taskCancellation
+export const is = isTaskCancellation

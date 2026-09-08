@@ -41,6 +41,32 @@ local type Config = nupp.compiler.build.manifest.Config
 local type Target = nupp.compiler.build.manifest.Target
 local type Dependency = nupp.compiler.build.manifest.Dependency
 
+--- Explicit dependency edges retain the target role throughout their closure.
+function deps.targetNames(config: Config, target: Target?): {string}
+    local selected: {[string]: boolean} = {}
+    local function visit(name: string): nil
+        if selected[name] then
+            return
+        end
+        selected[name] = true
+        local dependency = (config.dependencies or {})[name]
+        for _, child in ipairs(dependency and dependency.dependencies or {}) do
+            visit(child)
+        end
+    end
+
+    for _, name in ipairs(target and target.dependencies or {}) do
+        visit(name)
+    end
+    local names: {string} = {}
+    for name in pairs(selected) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
 --- The search-path entries one rock tree adds.
 type deps.RockPaths = {
     path: string,
@@ -1151,7 +1177,7 @@ local function rockPaths(
     records: {[string]: cache.DependencyRecord}?
 ): deps.RockPaths?
     local paths, cpaths, typeRoots, seen = {}, {}, {}, {}
-    for _, name in ipairs(target and target.dependencies or {}) do
+    for _, name in ipairs(deps.targetNames(config, target)) do
         local dep = (config.dependencies or {})[name] as manifest.Dependency
         if type(dep) == "table" and dep.kind == "luarocks" then
             local tree, luaVersion = rockTree(root, dep)
@@ -1193,7 +1219,7 @@ local function runtimeModuleOwner(
     moduleName: string
 ): any?
     local relative = moduleName:gsub("%.", "/")
-    for _, name in ipairs(target and target.dependencies or {}) do
+    for _, name in ipairs(deps.targetNames(config, target)) do
         local dep = (config.dependencies or {})[name] as manifest.Dependency
         local record = records and records[name] or nil
         if type(dep) == "table" and dep.kind == "luarocks" then
@@ -1233,7 +1259,7 @@ end
 --- it.
 local function rockModules(root: string, config: Config, target: Target?): {deps.RockModule}
     local selected, seen = {}, {}
-    for _, name in ipairs(target and target.dependencies or {}) do
+    for _, name in ipairs(deps.targetNames(config, target)) do
         local dep = (config.dependencies or {})[name] as manifest.Dependency
         if type(dep) == "table" and dep.kind == "luarocks" and dep.bundle then
             local tree, luaVersion = rockTree(root, dep)
@@ -1390,7 +1416,7 @@ local function typeRoots(root: string, config: Config, records: {[string]: cache
     for _, name in ipairs(names) do
         selected[name] = true
     end
-    for _, name in ipairs(target.dependencies or {}) do
+    for _, name in ipairs(deps.targetNames(config, target)) do
         selected[name] = true
     end
     for name in pairs(selected) do

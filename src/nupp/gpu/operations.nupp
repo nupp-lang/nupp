@@ -1,0 +1,258 @@
+@!internal
+module nupp.gpu.operations
+local api = require("nupp.gpu.api")
+local types = require("nupp.gpu.types")
+local tensorlayout = require("nupp.gpu.layout")
+local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
+local {type Layout as TensorLayout} = require("nupp.gpu.layout")
+local gpu = {}
+type gpu.Buffer<T> = types.Buffer<T>
+gpu.Buffer = types.Buffer
+type gpu.Shared<T> = types.Shared<T>
+gpu.Shared = types.Shared
+type gpu.Phases = types.Phases
+gpu.Phases = types.Phases
+type gpu.Context = api.Context
+gpu.PORTABLE_WORKGROUP_THREADS = types.PORTABLE_WORKGROUP_THREADS
+local function denseShape(shape: {integer}): (integer, {integer})
+    if #shape < 1 or #shape > 4 then
+        error("nupp: GPU tensors take one through four dimensions", 3)
+    end
+    local count: integer = 1
+    local strides: {integer} = {}
+    for index = #shape, 1, -1 do
+        local dimension = shape[index]
+        if dimension < 1 or count > 4294967295 // dimension then
+            error("nupp: GPU tensor dimensions must have 1 through 4294967295 elements", 3)
+        end
+        strides[index] = count
+        count = count * dimension
+    end
+
+    return count, strides
+end
+
+local function copied(values: {integer}): {integer}
+    local out: {integer} = {}
+    for index, value in ipairs(values) do
+        out[index] = value
+    end
+
+    return out
+end
+
+function gpu.Shared.get<T>(borrows self: gpu.Shared<T>, index: integer): T
+    if index < 0 or index >= self.count then
+        error("nupp: GPU shared-scratch index out of bounds", 2)
+    end
+    return self._values[index + 1]
+end
+
+function gpu.Shared.set<T>(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
+    if index < 0 or index >= self.count then
+        error("nupp: GPU shared-scratch index out of bounds", 2)
+    end
+    self._values[index + 1] = value
+end
+
+function gpu.Phases.scratch<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
+    if count < 1 then
+        error("nupp: GPU shared scratch must contain at least one element", 2)
+    end
+    local values: {T} = {}
+    for index = 1, count do
+        values[index] = initial
+    end
+
+    return new types.Shared(_values = values, count = count)
+end
+
+function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
+    for index = 0, self._size - 1 do
+        stage(nupp.math.u32.wrap(index))
+    end
+end
+
+function gpu.Phases.reduceSumF32(borrows self: gpu.Phases, exclusive valuesInput: api.Shared<float>): nil
+    local values = valuesInput as gpu.Shared<float>
+    if values.count ~= self._size or self._size < 1 or self._size & (self._size - 1) ~= 0 then
+        error("nupp: fixed-tree reduction needs one power-of-two value per lane", 2)
+    end
+    local stride = self._size // 2
+    while stride > 0 do
+        local active = stride
+        self:run(function(localIndex: uint32)
+            local lane = localIndex as integer
+            if lane < active then
+                values[
+                    lane
+                ] = nupp.math.f32.add(nupp.math.f32.narrow(values[lane]), nupp.math.f32.narrow(values[lane + active]))
+            end
+        end)
+        stride = stride // 2
+    end
+end
+
+function gpu.Phases.inclusiveScanU32(
+    borrows self: gpu.Phases,
+    exclusive valuesInput: api.Shared<uint32>,
+    exclusive temporaryInput: api.Shared<uint32>
+): nil
+    local values = valuesInput as gpu.Shared<uint32>
+    local temporary = temporaryInput as gpu.Shared<uint32>
+    if values.count ~= self._size or temporary.count ~= self._size or self._size < 1 or self._size & (
+        self._size - 1
+    ) ~= 0 then
+        error("nupp: fixed scan needs two power-of-two arrays with one value per lane", 2)
+    end
+    local offset: integer = 1
+    local valuesAreSource = true
+    while offset < self._size do
+        local distance: integer = offset
+        if valuesAreSource then
+            self:run(function(localIndex: uint32)
+                local lane = localIndex as integer
+                local value = values[lane]
+                if lane >= distance then
+                    value = nupp.math.u32.add(
+                        nupp.math.u32.wrap(value as integer),
+                        nupp.math.u32.wrap(values[lane - distance] as integer)
+                    )
+                end
+                temporary[lane] = value
+            end)
+        else
+            self:run(function(localIndex: uint32)
+                local lane = localIndex as integer
+                local value = temporary[lane]
+                if lane >= distance then
+                    value = nupp.math.u32.add(
+                        nupp.math.u32.wrap(value as integer),
+                        nupp.math.u32.wrap(temporary[lane - distance] as integer)
+                    )
+                end
+                values[lane] = value
+            end)
+        end
+        valuesAreSource = not valuesAreSource
+        offset = offset * 2
+    end
+    if not valuesAreSource then
+        self:run(function(localIndex: uint32)
+            local lane = localIndex as integer
+            values[lane] = temporary[lane]
+        end)
+    end
+end
+
+--- Executes uniformly ordered workgroup phases on the CPU.
+---
+--- A GPU AOT body recognizes this call and its immediate callbacks as
+--- structure: the controller does not escape, each `run` is a device barrier,
+--- and each stage invocation becomes one local lane.
+--- @export
+--- @raises when size is outside the portable workgroup limit
+function gpu.workgroups(groups: uint32, size: uint32, scoped controller: function(uint32, gpu.Phases): nil): nil
+    local groupCount = groups as integer
+    local groupSize = size as integer
+    if groupSize < 1 or groupSize > gpu.PORTABLE_WORKGROUP_THREADS then
+        error("nupp: GPU workgroup size exceeds the portable limit", 2)
+    end
+    local phases = new types.Phases(_size = groupSize)
+    for groupIndex = 0, groupCount - 1 do
+        controller(nupp.math.u32.wrap(groupIndex), phases)
+    end
+end
+
+function gpu.tensor<T>(borrows self: gpu.Context, element: ctype<T>, shape: {integer}): api.Buffer<T> borrows (self)
+    local count, strides = denseShape(shape)
+    local value = self:buffer(element, count)
+    local out = value as types.Buffer<T>
+    out._shape = copied(shape)
+    out._strides = strides
+
+    return value
+end
+
+function gpu.Buffer.dimensions<T>(borrows self: gpu.Buffer<T>): {integer}
+    return copied(self._shape)
+end
+
+function gpu.Buffer.strides<T>(borrows self: gpu.Buffer<T>): {integer}
+    return copied(self._strides)
+end
+
+function gpu.bufferIsDense<T>(borrows buffer: gpu.Buffer<T>): boolean
+    local _, _, dense = layoutFacts(buffer._shape, buffer._strides, 2)
+    return dense
+end
+
+function gpu.bufferIsInjective<T>(borrows buffer: gpu.Buffer<T>): boolean
+    local _, _, _, injective = layoutFacts(buffer._shape, buffer._strides, 2)
+    return injective
+end
+
+function gpu.Buffer.layout<T>(borrows buffer: gpu.Buffer<T>): TensorLayout
+    return tensorlayout.new(buffer._offset, buffer._shape, buffer._strides)
+end
+
+function gpu.Buffer.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (buffer)
+    local offset = tensorlayout.offset(layout)
+    local extent = tensorlayout.extent(layout)
+    if offset > buffer._capacity or extent > buffer._capacity - offset then
+        error("nupp: GPU tensor view exceeds its allocation", 2)
+    end
+
+    return new types.Buffer(
+        _anchor = buffer,
+        _handle = buffer._handle,
+        _width = buffer._width,
+        _offset = offset,
+        _capacity = buffer._capacity,
+        _root = false,
+        _released = buffer._released,
+        _shape = tensorlayout.dimensions(layout),
+        _strides = tensorlayout.strides(layout),
+        count = layout.count
+    )
+end
+
+function gpu.Buffer.subview<T>(
+    borrows self: gpu.Buffer<T>,
+    origin: {integer},
+    shape: {integer}
+): gpu.Buffer<T> borrows (self)
+    if #origin ~= #self._shape or #shape ~= #self._shape then
+        error("nupp: GPU tensor subview rank does not match its buffer", 2)
+    end
+    local count, extent = layoutFacts(shape, self._strides, 2)
+    local offset = self._offset
+    for index = #shape, 1, -1 do
+        local first = origin[index]
+        local dimension = shape[index]
+        if first < 0 or first > self._shape[index] or dimension > self._shape[index] - first then
+            error("nupp: GPU tensor subview is outside its buffer", 2)
+        end
+        offset = offset + first * self._strides[index]
+    end
+    if offset > self._capacity or extent > self._capacity - offset then
+        error("nupp: GPU tensor subview exceeds its allocation", 2)
+    end
+
+    return new types.Buffer(
+        _anchor = self,
+        _handle = self._handle,
+        _width = self._width,
+        _offset = offset,
+        _capacity = self._capacity,
+        _root = false,
+        _released = self._released,
+        _shape = copied(shape),
+        _strides = copied(self._strides),
+        count = count
+    )
+end
+
+gpu.bufferLayout = gpu.Buffer.layout
+gpu.view = gpu.Buffer.view
+export = gpu

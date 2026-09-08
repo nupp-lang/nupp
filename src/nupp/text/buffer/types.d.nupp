@@ -1,0 +1,16 @@
+--- A mutable FIFO byte sequence shared by all portable buffer providers.
+record Buffer
+    metamethod __len: function(self): integer
+    metamethod __concat: function(self, other: any): string
+    metamethod __tostring: function(self): string
+    put: function(exclusive b: Buffer, ...: any): Buffer borrows (b)
+    putf: function(exclusive b: Buffer, fmt: string, ...: any): Buffer borrows (b)
+    get: function(exclusive b: Buffer, ...: integer?): (string,...string)
+    tostring: function(b: Buffer): string
+    reset: function(exclusive b: Buffer): Buffer borrows (b)
+    free: function(exclusive b: Buffer): Buffer borrows (b)
+    skip: function(exclusive b: Buffer, count: integer): Buffer borrows (b)
+    set: function(exclusive b: Buffer, bytes: string): Buffer borrows (b)
+end
+
+return {}

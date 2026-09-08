@@ -53,7 +53,7 @@ Its `--fp-mode contract=off` is required for the exact binary32 comparison.
   against the CPU body from the same source.
 - `run-batched-gemm.sh` covers checked strided, transposed, and broadcast
   layouts without materializing layout conversions.
-- `run-tiled-gemm.sh` covers phased workgroups and shared scratch from NEP 26.
+- `run-tiled-gemm.sh` covers phased workgroups and shared scratch from NEP 23.
 - `run-fixed-tree-reduction.sh` covers deterministic phased reductions.
 - `run-stable-compaction.sh` covers a phased scan and compacted write.
 - `run-fast-transcendentals.sh` exercises explicitly granted native

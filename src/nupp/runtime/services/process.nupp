@@ -1,0 +1,49 @@
+module nupp.runtime.services.process
+
+local services = require("nupp.services")
+local {type Options, type Exit, type Interest} = require("nupp.io.process.types")
+
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+export interface Provider
+    readonly spawn: function(Provider, Options): (any?, any?, any?, any?, integer, string?)
+
+    readonly poll: function(Provider, any): (Exit?)
+
+    readonly kill: function(Provider, any, boolean): nil
+
+    readonly read: function(Provider, any, integer): (string?)
+
+    readonly write: function(Provider, any, string): (integer, boolean)
+
+    readonly closeStream: function(Provider, any): (boolean, string?)
+
+    readonly reap: function(Provider, any): (boolean, string?)
+
+    readonly now: function(Provider): number
+
+    readonly waitReady: function(Provider, Interest, number): integer
+end
+
+export const service: services.Service<Provider> = services.define("host.process", 1, nil, comptime do
+    return shape(nupp.reflect(Provider))
+end)

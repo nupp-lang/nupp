@@ -34,7 +34,7 @@ them: **they may only use language features the pinned release already
 understands.** A feature you add today reaches the compiler's own sources a
 release later, once a tag carrying it is published and the pin moves to it.
 `nupp fixpoint` is what catches a violation, because its first stage is built by
-that release. [NEP 32](docs/neps/0032-fetched-stage-zero.md) records the trade.
+that release. [NEP 28](docs/neps/0028-fetched-stage-zero.md) records the trade.
 
 The same rule reaches `nupp.lua`: the pinned release reads that manifest, so a
 manifest key it does not know about fails every build before anything is

@@ -35,7 +35,9 @@ export function scaled(count: integer, factor: number): {number}
     drop rows
 
     local output = array.new(new Sample(), count)
-    scale(output:write(), input:read(), factor)
+    local writable = output:write()
+    scale(writable, input:read(), factor)
+    drop writable
 
     local produced = output:read()
     local values: {number} = {}

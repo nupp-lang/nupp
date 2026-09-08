@@ -1,0 +1,116 @@
+module nupp.runtime.services.suspension
+
+local services = require("nupp.services")
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+export record Source
+    release: nosuspend function(Source): nil
+    releaseImpl: function(Source): nil
+
+    name: string
+
+    priority: integer
+
+    wait: (function(integer): integer)?
+
+    active: (function(Source): boolean)?
+    sequence: integer = 0
+    poller: (function(): integer)?
+    waiter: (function(integer): integer)?
+    released: boolean = false
+end
+
+function Source.release(self: Source): nil
+    self.releaseImpl(self)
+end
+
+export record Context
+    source: function(Context, string, integer, function(): integer, (function(integer): integer)?): Source
+
+    uses: function(Context, Source): nil
+
+    canPark: function(Context): boolean
+    handler: any
+    associated: {Source}?
+end
+
+export record Waiting
+    ready: function(Waiting): boolean
+
+    onResume: function(Waiting, function(): nil): nil
+
+    operation: string
+    state: any
+end
+
+export record Handler
+    park: function(Handler, Waiting, function(): nil): nil
+
+    canPark: function(Handler): boolean
+
+    shutdown: function(Handler): nil
+end
+
+export record Installed
+    drop: nosuspend function(takes self: Installed): nil
+    release: function(self: Installed): nil
+    co: any
+    previous: any
+    handler: Handler
+    transparent: boolean
+    restored: boolean = false
+    released: boolean = false
+    parks: any
+end
+
+function Installed.drop(takes self: Installed): nil
+    self:release()
+end
+
+export function destroyInstalled(takes value: Installed): nil
+    value:drop()
+end
+
+export type Suspend = function<T>(operation: string, subscribe: function(function(T), Context): (function()?)): T
+export type Create = function<A..., R...>(body: function(A...): R...): thread
+
+export interface Provider
+    readonly source: function(
+        name: string,
+        priority: integer,
+        poll: function(): integer,
+        wait: (function(integer): integer)?,
+        active: (function(Source): boolean)?
+    ): Source
+    readonly poll: function(): integer
+    readonly suspend: Suspend
+    readonly install: function(handler: Handler, transparent: boolean?): affine(Installed, destroyInstalled)
+    readonly create: Create
+    readonly handled: function(): boolean
+    readonly delegatedCanPark: function(): function(): boolean
+    readonly delegatedPark: function(): function(Waiting, function(): nil): nil
+    readonly canSuspend: function(): boolean
+end
+
+export const service: services.Service<Provider> = services.define("suspension", 1, nil, comptime do
+    return shape(nupp.reflect(Provider))
+end)

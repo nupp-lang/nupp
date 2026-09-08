@@ -271,7 +271,7 @@ shape previously took the 5.2 us codec fallback.
 
 ## Shared immutable byte regions
 
-NEP 22's core landed: `nupp.mem.sharedbytes.Region`, an engine-owned
+NEP 20's core landed: `nupp.mem.sharedbytes.Region`, an engine-owned
 immutable byte extent that crosses lanes as a message attachment while
 the copied spine carries a placeholder, is sliced without copying, and
 is read in place through the existing `nupp.mem.span` byte view. The
@@ -318,7 +318,7 @@ predated this work stopped reproducing under the optimized compiler.
 
 ## Transferable owned buffers
 
-NEP 23 landed: a worker parameter may take a `nupp.mem.heap` array of a
+NEP 21 landed: a worker parameter may take a `nupp.mem.heap` array of a
 fixed-width element and an affine result may return one, and neither is a
 copy. The message carries the allocation's pointer as a moved attachment,
 the receiving lane becomes the one owner, and the affine layer consumes
@@ -345,7 +345,7 @@ buffer one way for a lane-side sum and free, covering two layout tags.
 
 ## Builder reservations and region accounting
 
-The two blocking NEP 22 specification gaps landed. A builder lends a
+The two blocking NEP 20 specification gaps landed. A builder lends a
 checked `span.Writable<uint8>` over reserved storage through a
 reserve-and-commit pair: growth is confined to the reserve, every other
 builder operation is a compile error while the writer lives, and misuse

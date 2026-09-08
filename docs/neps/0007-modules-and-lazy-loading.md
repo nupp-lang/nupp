@@ -101,7 +101,7 @@ Selection from a module uses the ordinary binding pattern, which is not a
 module feature:
 
 ```nupp
-const {decode, Encoder as JSONEncoder} = require("nupp.data.json")
+const {decode, Encoder as JSONEncoder} = require("nupp.codec.json")
 ```
 
 ### Lowering

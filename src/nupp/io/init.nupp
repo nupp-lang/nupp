@@ -216,13 +216,13 @@ live.
 
 ## Byte queues
 
-A `string.buffer` is a byte queue: `put` appends to the back and `get` consumes
+A `nupp.text.buffer` is a byte queue: `put` appends to the back and `get` consumes
 from the front. `newScalarReader` accepts one directly, so bytes assembled
 there are read without copying everything in it first, and the queue's own
 `get` stays usable over the same bytes.
 
 ```nupp
-local buffer = string.buffer
+local buffer = nupp.text.buffer
 
 local queue = buffer.new()
 queue:put("header:")
@@ -240,7 +240,7 @@ Reading drains the queue, and `remaining()` reports what it still holds.
 contract already covers.
 
 ```nupp
-local buffer = string.buffer
+local buffer = nupp.text.buffer
 
 local destination = nupp.io.newBuffer()
 local queue = buffer.new()

@@ -158,7 +158,6 @@ local function taskDescription(config, name, isDefault)
         dependencies = copyStrings(target.dependencies),
         nativeFeatures = target.nativeFeatures,
         dialect = target.dialect or dialects.DEFAULT,
-        backends = copyStrings(target.backends),
         layoutTarget = target.layoutTarget,
         platforms = copyStrings(target.platforms),
         command = jsonArray({"nupp", "build", "--target", name}),

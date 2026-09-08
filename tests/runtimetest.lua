@@ -343,7 +343,7 @@ local models = require("runtime_derive_models")
 local record Outer inner: models.Inner end
 local value = new Outer(inner = new models.Inner())
 print(value:debug())
-local out = string.buffer.new()
+local out = require("nupp.text.buffer").new()
 local writer = nupp.codec.json.writer(out)
 value:writeJSON(writer)
 writer:close()

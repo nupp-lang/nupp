@@ -976,6 +976,8 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
     host: *const WorkersHost,
     inbox: *const AdapterChannel,
     outbox: *const AdapterChannel,
+    setup: *const c_char,
+    setup_length: usize,
     error: *mut c_char,
     error_capacity: usize,
 ) -> *mut AdapterWorker {
@@ -1001,6 +1003,14 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
         let inbox = Arc::clone(&inbox);
         let outbox = Arc::clone(&outbox);
         let tasks = Arc::new(AdapterTasks::new());
+        // The Lua argument remains rooted until this callback returns. Copy only
+        // serialized setup data into the new state, never parent Lua values.
+        let setup = if setup_length == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: worker_shim passes the pointer and length of a Lua string.
+            unsafe { std::slice::from_raw_parts(setup.cast::<u8>(), setup_length) }.to_vec()
+        };
         let payload = host.payload.clone();
         let executable = host.executable.clone();
         let thread_inbox = Arc::clone(&inbox);
@@ -1026,6 +1036,13 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
                         Arc::as_ptr(&thread_inbox).cast(),
                         Arc::as_ptr(&thread_outbox).cast(),
                         Arc::as_ptr(&thread_tasks).cast(),
+                    )
+                    .map_err(|problem| problem.to_string())?;
+                runtime
+                    .run_buffer(
+                        b"rawset(_G, '__nuppWorkerSetup', arg[1])",
+                        "=nupp-worker-setup",
+                        &[setup],
                     )
                     .map_err(|problem| problem.to_string())?;
                 Ok(move |job: WorkerJob, _cancel: CancellationToken| {

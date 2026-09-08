@@ -789,7 +789,7 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
         {
             "--- @namespace lib",
             "local lib: {",
-            "   data: {",
+            "   codec: {",
             "      --- Encodes a value.",
             "      encode: function(value: any): string",
             "   },",
@@ -860,8 +860,8 @@ function M.namespaceTagsIgnoreWindowsLineEndings()
             "--- Compiler facilities.",
             "--- @namespace nupp",
             "local nupp: {",
-            "   --- Data helpers.",
-            "   data: {",
+            "   --- Codec helpers.",
+            "   codec: {",
             "      --- Encodes a value.",
             "      encode: function(value: any): string",
             "   }",
@@ -872,7 +872,7 @@ function M.namespaceTagsIgnoreWindowsLineEndings()
     local _, errors, extra = doc.extract(source, "prelude.d.nupp", "prelude")
     assert(not errors or #errors == 0, errors and errors[1] and errors[1].msg)
     assert(
-        extra and extra[1] and extra[1].name == "nupp.data",
+        extra and extra[1] and extra[1].name == "nupp.codec",
         extra and extra[1] and extra[1].name or "namespace missing"
     )
 end
@@ -3968,13 +3968,24 @@ end
 
 function M.gpuPublicPageExpandsItsExplicitAliases()
     local files = {}
-    for _, path in ipairs({"init.nupp", "internal.nupp", "layout.nupp", "layoutfacts.nupp"}) do
+    for _, path in ipairs({
+        "init.nupp",
+        "api.nupp",
+        "types.nupp",
+        "operations.nupp",
+        "internal.nupp",
+        "layout.nupp",
+        "layoutfacts.nupp"
+    }) do
         files["src/nupp/gpu/" .. path] = readFile(HERE .. "/../src/nupp/gpu/" .. path)
     end
     local dir = tempProject(files)
     assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
     local text = readFile(dir .. "/api.md")
-    assert(text:find("Opens the preferred WGPU compute device", 1, true), "open must have a callable declaration")
+    assert(
+        text:find("Opens a compute device through the selected provider", 1, true),
+        "open must have a callable declaration"
+    )
     assert(
         text:find("Number of elements, kept with the allocation", 1, true),
         "generic Buffer must document its members"

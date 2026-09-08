@@ -1,7 +1,7 @@
 module portable.int64
 
---[[Four-limb reference provider used only to prove the complete int64 seam on
-stock Lua. Production targets should select a maintained integer rock.]]
+-- Four-limb integer implementation for the stock Lua conformance matrix.
+local bits = require("nupp.runtime.bitops") as any
 
 local wide = {}
 local BASE = 65536
@@ -10,21 +10,17 @@ local function value(a: number, b: number, c: number, d: number, unsigned: boole
     return {a = a % BASE, b = b % BASE, c = c % BASE, d = d % BASE, unsigned = unsigned == true}
 end
 
-
 local function copy(input: any, unsigned: boolean?): any
     return value(input.a, input.b, input.c, input.d, unsigned == nil and input.unsigned or unsigned)
 end
-
 
 local function isZero(input: any): boolean
     return input.a == 0 and input.b == 0 and input.c == 0 and input.d == 0
 end
 
-
 local function negative(input: any): boolean
     return not input.unsigned and input.d >= 32768
 end
-
 
 local function addRaw(left: any, right: any, unsigned: boolean?): any
     local out, carry = {}, 0
@@ -37,13 +33,11 @@ local function addRaw(left: any, right: any, unsigned: boolean?): any
     return out
 end
 
-
 local function negate(input: any, unsigned: boolean?): any
     local inverted = value(BASE - 1 - input.a, BASE - 1 - input.b, BASE - 1 - input.c, BASE - 1 - input.d)
 
     return addRaw(inverted, value(1, 0, 0, 0), unsigned)
 end
-
 
 local function compareRaw(left: any, right: any): integer
     for _, limb in ipairs({"d", "c", "b", "a"}) do
@@ -55,7 +49,6 @@ local function compareRaw(left: any, right: any): integer
     return 0
 end
 
-
 local function shiftLeftOne(input: any): any
     local out, carry = {}, 0
     for _, limb in ipairs({"a", "b", "c", "d"}) do
@@ -66,7 +59,6 @@ local function shiftLeftOne(input: any): any
 
     return out
 end
-
 
 local function shiftRightOne(input: any, fill: boolean?): any
     local out, carry = {}, fill and 32768 or 0
@@ -80,7 +72,6 @@ local function shiftRightOne(input: any, fill: boolean?): any
     return out
 end
 
-
 local function getBit(input: any, index: integer): boolean
     local names = {"a", "b", "c", "d"}
     local limb = input[names[math.floor(index / 16) + 1]]
@@ -88,13 +79,11 @@ local function getBit(input: any, index: integer): boolean
     return math.floor(limb / 2 ^ (index % 16)) % 2 == 1
 end
 
-
 local function setBit(input: any, index: integer): nil
     local names = {"a", "b", "c", "d"}
     local name = names[math.floor(index / 16) + 1]
     input[name] = input[name] + 2 ^ (index % 16)
 end
-
 
 local function multiplySmall(input: any, multiplier: number): any
     local out, carry = {}, 0
@@ -107,11 +96,9 @@ local function multiplySmall(input: any, multiplier: number): any
     return out
 end
 
-
 local function addSmall(input: any, amount: number): any
     return addRaw(input, value(amount, 0, 0, 0), input.unsigned)
 end
-
 
 local function parse(input: any, unsigned: boolean): any
     if type(input) == "table" then
@@ -134,13 +121,11 @@ local function parse(input: any, unsigned: boolean): any
     return out
 end
 
-
 local function magnitude(input: any): any, boolean
     local wasNegative = negative(input)
 
     return wasNegative and negate(input, true) or copy(input, true), wasNegative
 end
-
 
 local function divideUnsigned(dividend: any, divisor: any): any, any
     assert(not isZero(divisor), "division by zero")
@@ -160,7 +145,6 @@ local function divideUnsigned(dividend: any, divisor: any): any, any
     return quotient, remainder
 end
 
-
 local function divideSmall(input: any, divisor: number): any, number
     local out, remainder = {}, 0
     for _, limb in ipairs({"d", "c", "b", "a"}) do
@@ -171,7 +155,6 @@ local function divideSmall(input: any, divisor: number): any, number
 
     return out, remainder
 end
-
 
 function wide.int64(input: any): any
     return parse(input, false)
@@ -287,17 +270,16 @@ function wide.arshift(input: any, count: any): any
 end
 
 local function limbBits(left: any, right: any?, operation: string): any
-    local bits: any = assert(rawget(_G, "__nuppBitops"))
     local out = {}
     for _, limb in ipairs({"a", "b", "c", "d"}) do
-        out[limb] = operation == "not" and bits.bnot(left[limb]) % BASE
-            or bits[operation](left[limb], right[limb]) % BASE
+        out[
+            limb
+        ] = operation == "not" and bits.bnot(left[limb]) % BASE or bits[operation](left[limb], right[limb]) % BASE
     end
     out.unsigned = left.unsigned or right and right.unsigned or false
 
     return out
 end
-
 
 function wide.band(left: any, right: any): any
     return limbBits(left, right, "band")
@@ -318,9 +300,15 @@ end
 function wide.toNumber(input: any): number
     local magnitudeValue, wasNegative = magnitude(input)
     local out = magnitudeValue.a
-        + magnitudeValue.b * BASE
-        + magnitudeValue.c * BASE * BASE
-        + magnitudeValue.d * BASE * BASE * BASE
+        + magnitudeValue.b
+        * BASE
+        + magnitudeValue.c
+        * BASE
+        * BASE
+        + magnitudeValue.d
+        * BASE
+        * BASE
+        * BASE
 
     return wasNegative and -out or out
 end

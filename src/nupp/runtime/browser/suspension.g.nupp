@@ -5,6 +5,8 @@ module nupp.runtime.browser.suspension
 -- provider's protected C-boundary behavior unchanged.
 
 local effects = require("nupp.runtime.browser.effects")
+local contract = require("nupp.runtime.services.suspension")
+local cancellation = require("nupp.runtime.services.cancellation")
 local suspension = {}
 local running = coroutine.running
 local sources: {any} = {}
@@ -15,24 +17,8 @@ local sourcesVersion: integer = 0
 -- a complete replacement of `nupp.suspension` has to keep publishing: `nupp.tasks`
 -- builds every cancellation through it, and a browser worker lane raises the same
 -- value at `tasks.checkpoint()`.
-local TaskCancellationMT: any = {}
-TaskCancellationMT.__index = TaskCancellationMT
-
-function TaskCancellationMT.__tostring(self: any): string
-    if self.reason ~= nil then
-        return ("nupp: %s was cancelled: %s"):format(self.operation, self.reason)
-    end
-
-    return ("nupp: %s was cancelled"):format(self.operation)
-end
-
-local function taskCancellation(operation: string, reason: string?): any
-    return setmetatable({operation = operation, reason = reason,}, TaskCancellationMT)
-end
-
-local function isTaskCancellation(value: any): boolean
-    return getmetatable(value) == TaskCancellationMT
-end
+local taskCancellation = cancellation.create
+local isTaskCancellation = cancellation.is
 
 rawset(suspension, "__taskCancellation", taskCancellation)
 rawset(suspension, "__isTaskCancellation", isTaskCancellation)
@@ -47,102 +33,72 @@ local ACTIVATIONS_PER_TURN: integer = 64
 local turnRemaining: integer = ACTIVATIONS_PER_TURN
 local turnHost: any = nil
 
-record suspension.Source
-    name: string
-    priority: integer
-    private sequence: integer
-    poller: function(): integer
+type suspension.Source = contract.Source
+suspension.Source = contract.Source
+local function sourcerelease(self: contract.Source): nil
+    if self.released then
+        return
+    end
+    self.released = true
+    for index = 1, #sources do
+        if sources[index] == self then
+            table.remove(sources, index)
+            sourcesVersion = sourcesVersion + 1
+            break
+        end
+    end
+end
+
+type suspension.Context = contract.Context
+suspension.Context = contract.Context
+local function contextsource(
+    self: contract.Context,
+    name: string,
+    priority: integer,
+    poller: function(): integer,
     waiter: (function(integer): integer)?
-    released: boolean
-
-    function release(self): nil
-        if self.released then
-            return
-        end
-        self.released = true
-        for index = 1, #sources do
-            if sources[index] == self then
-                table.remove(sources, index)
-                sourcesVersion = sourcesVersion + 1
-                break
-            end
-        end
-    end
+): suspension.Source
+    local source = suspension.source(name, priority, poller, waiter)
+    local associated = assert(self.associated)
+    associated[#associated + 1] = source
+    return source
 end
 
-record suspension.Context
-    handler: any
-    associated: {suspension.Source}
-
-    function source(
-        self,
-        name: string,
-        priority: integer,
-        poller: function(): integer,
-        waiter: (function(integer): integer)?
-    ): suspension.Source
-        local source = suspension.source(name, priority, poller, waiter)
-        self.associated[#self.associated + 1] = source
-        return source
-    end
-
-    function uses(self, source: suspension.Source): nil
-        self.associated[#self.associated + 1] = source
-    end
-
-    function canPark(self): boolean
-        return self.handler == nil or self.handler.canPark == nil or self.handler:canPark() ~= false
-    end
+local function contextuses(self: contract.Context, source: suspension.Source): nil
+    local associated = assert(self.associated)
+    associated[#associated + 1] = source
 end
 
-record suspension.Waiting
-    operation: string
-    state: any
-
-    function ready(self): boolean
-        return self.state.ready
-    end
-
-    function onResume(self, wake: function(): nil): nil
-        self.state.wake = wake
-    end
+local function contextcanPark(self: contract.Context): boolean
+    return self.handler == nil or self.handler.canPark == nil or self.handler:canPark() ~= false
 end
 
-record suspension.Handler
-    park: function(suspension.Handler, suspension.Waiting, function(): nil): nil
-    canPark: function(suspension.Handler): boolean
-    shutdown: function(suspension.Handler): nil
+type suspension.Waiting = contract.Waiting
+suspension.Waiting = contract.Waiting
+local function waitingready(self: contract.Waiting): boolean
+    return self.state.ready
 end
 
-record suspension.Installed
-    --- The terminal an installed extent carries, so a handler stops being in force
-    --- where its block ends rather than where somebody remembers to say so.
-    ---
-    --- There are no park tickets to unwind here as there are natively: this provider
-    --- parks either through the installed handler, which owns its own continuations,
-    --- or on the Wasm host boundary, which is a call that returns rather than a
-    --- continuation somebody else holds. Restoring the slot and shutting the handler
-    --- down is the whole of a release.
-    drop: nosuspend function(takes self: suspension.Installed): nil
+local function waitingonResume(self: contract.Waiting, wake: function(): nil): nil
+    self.state.wake = wake
+end
 
-    coroutine: any
-    previous: any
-    handler: suspension.Handler
-    transparent: boolean
-    released: boolean
+type suspension.Handler = contract.Handler
+suspension.Handler = contract.Handler
 
-    function release(self): nil
-        if self.released then
-            return
-        end
-        self.released = true
-        if self.coroutine == nil then
-            suspension._main = self.previous
-        else
-            suspension._installed[self.coroutine] = self.previous
-        end
-        self.handler:shutdown()
+type suspension.Installed = contract.Installed
+suspension.Installed = contract.Installed
+local function installedrelease(self: contract.Installed): nil
+    if self.released then
+        return
     end
+    self.released = true
+    if self.co == nil then
+        suspension._main = self.previous
+    else
+        suspension._installed[self.co] = self.previous
+    end
+    self.handler:shutdown()
 end
 
 suspension._installed = setmetatable({}, {__mode = "k"})
@@ -252,15 +208,19 @@ function suspension.source(
     name: string,
     priority: integer,
     poller: function(): integer,
-    waiter: (function(integer): integer)?
+    waiter: (function(integer): integer)?,
+    active: (function(suspension.Source): boolean)?
 ): suspension.Source
     sourceSequence = sourceSequence + 1
-    local source = new suspension.Source(
+    local source = new contract.Source(
+        releaseImpl = sourcerelease,
         name = name,
         priority = priority,
         sequence = sourceSequence,
         poller = poller,
         waiter = waiter,
+        wait = waiter,
+        active = active,
         released = false
     )
     table.insert(sources, firstSourceAfter(source), source)
@@ -279,7 +239,7 @@ function suspension.poll(): integer
         if source.sequence > boundary then
             index = (index + 1) as integer
         else
-            settled = settled + (source.poller() or 0)
+            settled = settled + ((source.poller as function(): integer)() or 0)
             if sourcesVersion == version then
                 index = (index + 1) as integer
             else
@@ -364,7 +324,13 @@ function suspension.suspend<T>(
         end
     end
 
-    local context = new suspension.Context(handler = current, associated = {})
+    local context = new contract.Context(
+        source = contextsource,
+        uses = contextuses,
+        canPark = contextcanPark,
+        handler = current,
+        associated = {}
+    )
     local cancel = subscribe(resume, context)
     if state.ready then
         return state.value as T
@@ -376,7 +342,12 @@ function suspension.suspend<T>(
         cancel()
         error("nupp: " .. operation .. " cannot suspend here", 0)
     end
-    local waiting = new suspension.Waiting(operation = operation, state = state)
+    local waiting = new contract.Waiting(
+        ready = waitingready,
+        onResume = waitingonResume,
+        operation = operation,
+        state = state
+    )
     if current ~= nil then
         current:park(waiting, cancel)
     else
@@ -393,29 +364,24 @@ function suspension.suspend<T>(
     return state.value as T
 end
 
-function suspension.Installed.drop(takes self: suspension.Installed): nil
-    self:release()
-end
-
 --- Releases an installation, which is what an install's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
 --- scope boundary or an explicit `drop` reaches it.
 ---
 --- @param self the installation, spent by this call
-function suspension.destroyInstalled(takes self: suspension.Installed): nil
-    self:drop()
-end
+suspension.destroyInstalled = contract.destroyInstalled
 
 --- Installs `value` for suspensions performed on this coroutine.
 function suspension.install(
     value: suspension.Handler,
     transparent: boolean?
-): affine(suspension.Installed, suspension.destroyInstalled)
+): affine(contract.Installed, contract.destroyInstalled)
     local coroutine = running()
     local previous = coroutine == nil and suspension._main or suspension._installed[coroutine]
-    local installed = new suspension.Installed(
-        coroutine = coroutine,
+    local installed = new contract.Installed(
+        release = installedrelease,
+        co = coroutine,
         previous = previous,
         handler = value,
         transparent = transparent == true,
@@ -440,4 +406,5 @@ function suspension.create<A..., R...>(body: function(A...): R...): thread
     return co
 end
 
+local _checked: contract.Provider = suspension
 export = suspension

@@ -1,0 +1,40 @@
+@!internal
+module nupp.runtime.representation
+
+local contracts = require("nupp.runtime.services.contracts")
+local dialect = require("nupp.services").dialect()
+
+export const storage = contracts.cstorage:assembleOptional(
+    function(): contracts.CstorageProvider?
+        if dialect ~= "lua51" then
+            return contracts.cstorage:require("nupp.native")
+        end
+        if rawget(_G, "__nuppWasmHost") ~= nil then
+            return contracts.cstorage:require("nupp.wasm")
+        end
+
+        return nil
+    end,
+    function(value: contracts.CstorageProvider): nil
+        if dialect == "lua51" then
+            assert(value.representation == "linear32", "nupp.runtime.storage: target requires linear32 storage")
+            assert(
+                value.layout ~= nil and value.reference ~= nil,
+                "nupp.runtime.storage: portable layout operations are missing"
+            )
+            assert(value.integers ~= nil, "nupp.runtime.storage: integer implementation is missing")
+            assert(
+                value.structs ~= nil and value.structs.referenceValued,
+                "nupp.runtime.storage: reference-valued structs are required"
+            )
+            assert(value.host ~= nil, "nupp.runtime.storage: memory host is missing")
+        else
+            assert(value.representation == "native", "nupp.runtime.storage: target requires native pointer storage")
+        end
+    end
+)
+
+local tableStructs: contracts.StructvalueProvider = require("nupp.runtime.provider.tablestruct")
+export const structs: contracts.StructvalueProvider = storage and storage.structs or tableStructs
+export const integers = storage and storage.integers or nil
+export const host = storage and storage.host or nil

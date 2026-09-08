@@ -86,23 +86,57 @@ and `mac.hexDigest(name, key, bytes)`.
 
 ## Service providers
 
-An installed target dependency may advertise `service = "nupp.digest"`,
-`name = "sha256"`, `api = 1`, and an entry exporting a
-`nupp.digest.provider.Algorithm`. Its descriptor supplies `name`,
-`digestSize`, and `create(self): State`. State implements incremental
-`update(ByteSpan)`, `finish(ByteWriteSpan)`, and consuming `close()`.
-The facade owns finalization allocation, hex formatting and state cleanup.
-State must not retain input or destination views, and each create must return
-independent state. A finish implementation writes exactly the descriptor's size.
+Each family has a canonical typed catalog under `nupp.runtime.services`:
 
-An installed algorithm takes precedence over the built-in with the same name.
-Built-in names require their standard output sizes; malformed descriptors raise.
-Provider failures propagate without silently retrying another implementation.
-Two dependencies registering the same service/name fail the build. Without a
-registered service, the standard built-in answers.
+| Facade | Contract module | Provider contents |
+| --- | --- | --- |
+| `nupp.digest` | `nupp.runtime.services.digest` | `algorithms: {[string]: Algorithm}` |
+| `nupp.checksum` | `nupp.runtime.services.checksum` | `algorithms: {[string]: Algorithm}` |
+| `nupp.mac` | `nupp.runtime.services.mac` | `algorithms: {[string]: Algorithm}` |
 
-Checksums use `nupp.checksum.provider.Algorithm` under `nupp.checksum`;
-their state implements `update(ByteSpan)`, `value(): uint64`, and `close()`.
-MACs use `nupp.mac.Provider` under `nupp.mac`, whose factory also takes the key.
-See [Service providers](../../projects/service-providers.md) for dependency
-descriptors and deterministic build composition.
+Import the contract's `service` handle in an ordinary setup module, register a
+checked loader returning its `Provider`, and select its implementation name before
+requiring the public facade. An implementation name identifies a catalog, such as
+`acme`, independently of the algorithm names its map contains.
+
+```nupp
+local contract = require("nupp.runtime.services.digest")
+contract.service:register("acme", function(): contract.Provider
+    return require("acme.digests")
+end)
+contract.service:select("acme")
+local digest = require("nupp.digest")
+```
+
+A target dependency can advertise the same provider without executing its loader
+during discovery. Its schema 2 capability names `service = "nupp.digest"`,
+`name = "acme"`, `api = 1`, `contract = "nupp.runtime.services.digest"`,
+`export = "service"`, and the implementation's module in `entry`. Lua providers
+supply a matching `.d.nupp` declaration or a typed adapter. The compiler checks the
+export against the canonical `Provider`, including the owned state signatures.
+
+The facade resolves its selected catalog while being required and retains its
+algorithm descriptors. Explicitly selected entries override matching built-ins
+and can add names; other built-ins remain available. Without explicit selection,
+the built-in catalog supplies all algorithms. Discovery order never chooses a
+provider. Selection freezes at facade initialization, and later changes raise.
+Lookup, listing, context creation, updates, and finalization make no SPI calls.
+
+Descriptors must agree with their map keys and report a positive fixed output
+size, or a checksum width from 1 through 64. Built-in names retain their standard
+sizes and widths. Invalid descriptors fail the facade's require. Provider failures
+propagate without retrying another implementation. Duplicate implementation names
+are rejected.
+
+Each digest descriptor creates a fresh canonical `State`. Its `update` borrows
+input bytes, `finish` borrows the caller's writable destination exclusively, and
+`close` consumes ownership without suspension. The facade allocates final output,
+encodes hexadecimal, and closes state on both successful and failed finalization.
+Providers must not retain input or output views and must write exactly their
+advertised byte count. Checksums use their canonical `State` with a non-consuming
+`value(): uint64`; MAC factories additionally accept the raw-byte key and return
+the shared digest state. Reuse these interfaces rather than defining public
+nominal identities in a provider.
+
+See [Service providers](../../projects/service-providers.md) for setup, dependency
+metadata, and worker-state initialization.

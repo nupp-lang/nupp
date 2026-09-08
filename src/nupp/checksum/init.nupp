@@ -4,12 +4,18 @@ module nupp.checksum
 The canonical CRC variants are crc32-ieee, crc32c and crc64-ecma (ECMA-182,
 non-reflected, zero initialization and zero final xor). Adler-32 is adler32.
 value() is a non-consuming snapshot; protocol code chooses byte order when
-serializing the number. These algorithms provide no authentication.]]
+serializing the number. These algorithms provide no authentication.
 
-const services = require("nupp.services")
+Setup selects a typed catalog through nupp.runtime.services.checksum before this
+module loads. Initialization validates and retains algorithm descriptors. An
+explicit selection overrides matching built-ins and may add names; unselected
+built-ins remain available. Lookup and context operations use the retained catalog
+without SPI resolution. Provider names identify implementations, independently
+of the algorithm names in their catalogs.
+]]
+
 const span = require("nupp.mem.span")
-const provider = require("nupp.checksum.provider")
-const builtin = require("nupp.checksum.internal.builtin")
+const provider = require("nupp.runtime.services.checksum")
 
 --- Owned incremental checksum state with non-consuming numeric reads.
 export affine interface Checksum is nupp.Closeable
@@ -63,36 +69,51 @@ export record Algorithm
     end
 end
 
+local standard = provider.service:require("nupp.builtin")
+local function validate(selected: provider.Provider): nil
+    for name, implementation in pairs(selected.algorithms) do
+        if type(
+            name
+        ) ~= "string" or name == "" or type(
+            implementation
+        ) ~= "table" or implementation.name ~= name or type(
+            implementation.width
+        ) ~= "number" or implementation.width < 1 or implementation.width > 64 or implementation.width % 1 ~= 0 or type(
+            implementation.create
+        ) ~= "function" then
+            error("invalid checksum algorithm descriptor " .. tostring(name), 2)
+        end
+        local expected = standard.algorithms[name]
+        if expected ~= nil and implementation.width ~= expected.width then
+            error("checksum provider has the wrong width for " .. name, 2)
+        end
+    end
+end
+
+local selected = provider.service:assemble(
+    function(): provider.Provider
+        return standard
+    end,
+    validate
+)
+local available: {[string]: Algorithm} = {}
+for name, implementation in pairs(standard.algorithms) do
+    available[name] = new Algorithm(name = name, width = implementation.width, implementation = implementation)
+end
+for name, implementation in pairs(selected.algorithms) do
+    available[name] = new Algorithm(name = name, width = implementation.width, implementation = implementation)
+end
+local names: {string} = {}
+for name in pairs(available) do
+    names[#names + 1] = name
+end
+table.sort(names)
+
 --- Finds a checksum algorithm without creating incremental state.
 --- @param name the canonical checksum algorithm name
 --- @return the descriptor, or nil when unavailable
---- @raises when a selected provider has an invalid descriptor
 export function lookup(name: string): Algorithm?
-    local selected = services.lookup("nupp.checksum", name)
-    local implementation: provider.Algorithm? = nil
-    if selected ~= nil then
-        if type(
-            selected
-        ) ~= "table" or selected.name ~= name or type(
-            selected.width
-        ) ~= "number" or selected.width < 1 or selected.width > 64 or selected.width % 1 ~= 0 or type(
-            selected.create
-        ) ~= "function" then
-            error("invalid checksum provider " .. name, 2)
-        end
-        implementation = selected as provider.Algorithm
-    else
-        implementation = builtin.lookup(name)
-    end
-    if implementation == nil then
-        return nil
-    end
-    local standard = builtin.lookup(name)
-    if standard ~= nil and implementation.width ~= standard.width then
-        error("checksum provider has the wrong width for " .. name, 2)
-    end
-
-    return new Algorithm(name = name, width = implementation.width, implementation = implementation)
+    return available[name]
 end
 
 --- Requires a checksum algorithm descriptor.
@@ -118,19 +139,12 @@ end
 --- Lists available canonical checksum names in ascending order.
 --- @return the available names
 export function algorithms(): {string}
-    local names = builtin.names()
-    local seen: {[string]: boolean} = {}
-    for _, name in ipairs(names) do
-        seen[name] = true
+    local result: {string} = {}
+    for index, name in ipairs(names) do
+        result[index] = name
     end
-    for _, name in ipairs(services.list("nupp.checksum")) do
-        if not seen[name] then
-            names[#names + 1] = name
-        end
-    end
-    table.sort(names)
 
-    return names
+    return result
 end
 
 --- Computes a checksum; its bit width belongs to the algorithm descriptor.

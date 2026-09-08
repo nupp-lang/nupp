@@ -1,7 +1,7 @@
 @!internal
 module nupp.runtime.browser.uri
 
-const contracts = require("nupp.runtime.backend.contracts")
+const contracts = require("nupp.runtime.services.contracts")
 const pathtext = require("nupp.io.uri.pathtext")
 local provider = {}
 

@@ -41,7 +41,7 @@ local parser = require("nupp.compiler.parser")
 local predicate = require("nupp.compiler.predicate")
 local switchplan = require("nupp.compiler.switchplan")
 local stdlib = require("nupp.compiler.stdlib")
-local backends = require("nupp.compiler.backends")
+local native = require("nupp.compiler.native")
 local capabilities = require("nupp.compiler.capabilities")
 local dialects = require("nupp.compiler.dialects")
 local cabi = require("nupp.compiler.cabi")
@@ -49,18 +49,10 @@ local bit = require("nupp.compiler.bitops")
 
 local gen = {}
 
---- Runtime modules selected by generated Lua. This is narrower than the checked source
---- dependency set: type-only imports have erased before this walk, so packaging the
---- answer cannot turn a type dependency into an executable one. It includes constant
---- module loads and the provider modules named indirectly by the generated backend
---- resolution record.
+--- Runtime modules required by generated Lua after type-only imports are erased.
 function gen.runtimeModules(code: string): {string}
     local parsed = parser.parse(code, "=generated")
     local found: {[string]: boolean} = {}
-    for _, name in ipairs(backends.artifactProviders(code)) do
-        found[name] = true
-    end
-
     local function visit(node: any): nil
         if type(node) ~= "table" then
             return
@@ -76,6 +68,17 @@ function gen.runtimeModules(code: string): {string}
                 and callee.name
                 and callee.name.text == "require"
             local argument = node.args.exprs and node.args.exprs[1]
+            if callee.kind == "name"
+                and callee.token
+                and callee.token.text == "pcall"
+                and argument
+                and argument.kind == "name"
+                and argument.token
+                and argument.token.text == "require"
+            then
+                direct = true
+                argument = node.args.exprs[2]
+            end
             if (direct or global) and argument and argument.kind == "string" then
                 local name = lexer.stringValue(argument.token.text)
                 if name ~= nil then
@@ -537,21 +540,20 @@ function gen.generate(
     filename: string?,
     coverage: (boolean | gen.CoverageRequest)?,
     hot: gen.HotRequest?,
-    backendResolution: any?,
     validatingHostDialect: string?,
     bytecodeBoundary: string?,
     forcedEffects: {[string]: boolean}?
 ): string, {any}, gen.Coverage?, {[string]: boolean}, gen.HotMetadata?
     local out = {}
-    local capabilityResolution = capabilities.resolve(result.dialect or "luajit", backendResolution)
+    local capabilityResolution = capabilities.resolve(result.dialect or "luajit")
     local bitopsCapability = capabilities.get(capabilityResolution, "bitops")
     local compatibilityBitops = result.dialect == "luajit-compat"
-    local portableBitops = bitopsCapability.kind == "seam" or compatibilityBitops
+    local portableBitops = bitopsCapability.kind == "service" or compatibilityBitops
     local needsCompatibilityBitops = false
     local structvalueCapability = capabilities.get(capabilityResolution, "structvalue")
-    local portableStructvalue = structvalueCapability.kind == "seam"
+    local portableStructvalue = structvalueCapability.kind == "service"
     local int64Capability = capabilities.get(capabilityResolution, "int64")
-    local portableInt64 = int64Capability.kind == "seam"
+    local portableInt64 = int64Capability.kind == "service"
     --[[
     The fixed-width scalar members that lower to inline BitOp rather than to a
     call through the installed `nupp.math`.
@@ -656,17 +658,8 @@ function gen.generate(
             emittedFeatureEffects[effect] = true
             -- The runtime math table binds its bit functions when it loads.
             -- Install the selected representation before that table is required.
-            if effect == "stdlib.math" and bitopsCapability.kind == "seam" then
+            if effect == "stdlib.math" and bitopsCapability.kind == "service" then
                 emittedFeatureEffects[bitopsCapability.effect] = true
-            end
-        end
-        if moduleName ~= nil then
-            for _, seam in pairs(backendResolution and backendResolution.seams or {}) do
-                if (
-                    seam.modules and seam.modules[moduleName] ~= nil
-                ) or (seam.implementationModules and seam.implementationModules[moduleName] ~= nil) then
-                    emittedFeatureEffects[seam.effect] = true
-                end
             end
         end
     end
@@ -910,7 +903,7 @@ function gen.generate(
     -- The BitOp primitives an inlined scalar intrinsic reaches, bound once per
     -- module. `bit` is a global every Nupp runtime already requires: the math
     -- runtime reads it at load time, and a host without LuaJIT's own installs
-    -- one through the `numeric.bitops` seam before any generated module loads.
+    -- one from the bitops facade while loading the generated module.
     local INLINE_BITOPS = {"arshift", "band", "bnot", "bor", "bxor", "lshift", "rol", "ror", "rshift", "tobit",}
     local inlineBitopNames: {[string]: string} = {}
 
@@ -1274,12 +1267,13 @@ function gen.generate(
 
     -- A module projected through a builtin namespace is required once per generated
     -- module. Reserved rather than assumed, so a user local with the preferred name
-    -- does not collide with it. OPT-5 reaches string.buffer through the same registry.
+    -- does not collide with it. OPT-5 reaches nupp.text.buffer through the same
+    -- registry.
 
     local function compilerModuleName(moduleName: string): string
         local name = compilerModules[moduleName]
         if not name then
-            local preferred = moduleName == "string.buffer" and "__nuppBuffer" or "__nuppModule"
+            local preferred = moduleName == "nupp.text.buffer" and "__nuppBuffer" or "__nuppModule"
             name = reservedName(preferred)
             compilerModules[moduleName] = name
             compilerModuleOrder[#compilerModuleOrder + 1] = moduleName
@@ -1295,11 +1289,11 @@ function gen.generate(
     end
 
     local function concatBufferName()
-        return compilerModuleName("string.buffer")
+        return compilerModuleName("nupp.text.buffer")
     end
 
     -- The suspension runtime, bound once per module that installs a handler, the way
-    -- `string.buffer` is. A file that never writes `handle suspension` requires
+    -- `nupp.text.buffer` is. A file that never writes `handle suspension` requires
     -- nothing.
     local function suspensionModule()
         needsSuspension = true
@@ -1858,7 +1852,7 @@ function gen.generate(
         else
             local root = rootView(view)
             local producerKind = root and root.producer and root.producer.kind or nil
-            if producerKind == "string" and capabilities.get(capabilityResolution, "cstorage").kind == "seam" then
+            if producerKind == "string" and capabilities.get(capabilityResolution, "cstorage").kind == "service" then
                 e("string.byte(")
                 emitViewRoot(view)
                 e(",")
@@ -2108,7 +2102,7 @@ function gen.generate(
         scalarInline = {forms = SCALAR_INLINE, bitop = inlineBitop,},
         structvalue = {enabled = portableStructvalue, name = structvalueName, effect = "runtime.structvalue",},
         storage = {
-            enabled = capabilities.get(capabilityResolution, "cstorage").kind == "seam",
+            enabled = capabilities.get(capabilityResolution, "cstorage").kind == "service",
             name = reservedName("__nuppCstorage")
         },
         int64 = {
@@ -2537,11 +2531,11 @@ function gen.generate(
     -- Publishes cleanup terminals to the registry under their declaration identity.
     -- `after` selects the registrations written: nil for all of them, and true or
     -- false for the ones marked to follow the statement or to precede it.
-    function pluck.emitRegistrations(list, line, after: boolean?)
+    function pluck.emitRegistrations(list, line, after: boolean?, declarationName: string?)
         for _, registration in ipairs(list or {}) do
             if after == nil or (registration.after and true or false) == after then
                 local cleanup = registration.cleanup
-                e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, cleanup.name), line)
+                e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, declarationName or cleanup.name), line)
             end
         end
     end
@@ -5440,7 +5434,7 @@ function gen.generate(
             else
                 e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, name, ns, name), line)
             end
-            pluck.emitRegistrations(x.name.cleanupRegistrations, line)
+            pluck.emitRegistrations(x.name.cleanupRegistrations, line, nil, x.name.text)
             return
         end
 
@@ -6558,11 +6552,12 @@ function gen.generate(
             return
 
         elseif kind == "inlineMethod" and x.inlineRuntimeOwner then
+            local declarationName = x.inlineRuntimeOwner .. "." .. (x.overloadMember or x.name.text)
             local dispatch = pluck.hotDispatch
             local planned = dispatch and dispatch.byNode[x] or nil
             if dispatch and planned then
                 dispatch.emit(planned)
-                pluck.emitRegistrations(x.name and x.name.cleanupRegistrations, sourceLine(x))
+                pluck.emitRegistrations(x.name and x.name.cleanupRegistrations, sourceLine(x), nil, declarationName)
                 return
             end
             local body = x.body
@@ -6607,7 +6602,7 @@ function gen.generate(
             emitDepth.fn = emitDepth.fn - 1
             local endTok = pluck.endToken(body)
             e("end", endTok and endTok.line or nil)
-            pluck.emitRegistrations(x.name and x.name.cleanupRegistrations, sourceLine(x))
+            pluck.emitRegistrations(x.name and x.name.cleanupRegistrations, sourceLine(x), nil, declarationName)
             return
 
         elseif kind == "funcStmt" and x.structOwner and x.memberName then
@@ -7515,7 +7510,7 @@ function gen.generate(
                 pluck.constSpecialize.emitSpecialization(x, specialization)
             end
             pluck.constSpecialize.emitRegistrations(x)
-            pluck.emitRegistrations(x.name and x.name.cleanupRegistrations, sourceLine(x))
+            pluck.emitRegistrations(x.name and x.name.cleanupRegistrations, sourceLine(x), nil, x.name and x.name.text)
 
         elseif kind == "funcStmt" and x.exported and x.name and x.name.base and #x.name == 1 and not x.name.method then
             e(x.name.base.text .. "=function", sourceLine(x))
@@ -7539,7 +7534,12 @@ function gen.generate(
             -- `function module.close()` can publish a terminal just like a local
             -- function declaration can.
             for _, name in ipairs(x.name or {}) do
-                pluck.emitRegistrations(name.cleanupRegistrations, sourceLine(x))
+                pluck.emitRegistrations(
+                    name.cleanupRegistrations,
+                    sourceLine(x),
+                    nil,
+                    (cst.textOf(x.name):gsub(":", "."))
+                )
             end
 
         elseif kind == "pragmaStmt" then
@@ -7803,7 +7803,7 @@ function gen.generate(
 
         elseif kind == "dotIndex" and x.compilerModule then
             -- The module the checker projected through a builtin namespace. OPT-5
-            -- shares this binding when the module is string.buffer.
+            -- shares this binding when the module is nupp.text.buffer.
             e(compilerModuleName(x.compilerModule), sourceLine(x))
 
         elseif kind == "localStmt" and #(
@@ -8145,9 +8145,10 @@ function gen.generate(
         local recordDefinitions = {}
         if #exportedRecords > 0 then
             -- A worker state loads the same immutable module graph into a different Lua
-            -- heap. Publish only the stable module/member address: string.buffer maps
-            -- the sender's and receiver's distinct record tables through the matching
-            -- index. The weak keys do not retain a module replaced by hot reload.
+            -- heap. Publish only the stable module/member address: nupp.text.buffer
+            -- maps the sender's and receiver's distinct record tables through the
+            -- matching index. The weak keys do not retain a module replaced by hot
+            -- reload.
             local registry = reservedName("__nuppWorkerRecords")
             recordDefinitions[
                 1
@@ -8214,9 +8215,40 @@ function gen.generate(
                 )
             end
         end
+        local consumesService = false
+        local visitedServices = {}
+        local function inspectServices(node: any): nil
+            if type(node) ~= "table" or visitedServices[node] or cst.isToken(node) then
+                return
+            end
+            visitedServices[node] = true
+            if node.kind == "methodCall" and node.name and (
+                node.name.text == "assemble"
+                or node.name.text == "assembleOptional"
+                or node.name.text == "require"
+                or node.name.text == "lookup"
+            ) then
+                local receiver = node.obj and node.obj.inferredType
+                local origin = receiver and receiver.origin
+                consumesService = consumesService
+                    or origin ~= nil
+                    and origin.moduleName == "nupp.services"
+                    and origin.name == "Service"
+            end
+            for _, child in ipairs(node) do
+                inspectServices(child)
+            end
+            for _, child in ipairs(node.stats or {}) do
+                inspectServices(child)
+            end
+        end
+
+        inspectServices(result.root)
         local prefix
         if migrationAssignment then
             prefix = ("local %s;local __nuppOk,__nuppWhy=pcall(function()"):format(emitDepth.exportTableName)
+        elseif consumesService then
+            prefix = ("local %s={};local __nuppOk,__nuppWhy=pcall(function()"):format(emitDepth.exportTableName)
         else
             prefix = (
                 "local %s={};package.loaded[%q]=%s;local __nuppOk,__nuppWhy=pcall(function()"
@@ -8303,27 +8335,13 @@ function gen.generate(
         pluck.needRuntimeEffect("runtime.managed")
     end
     local runtimeEffects = emittedFeatureEffects
+    local canSuspend = native.expand(runtimeEffects)["runtime.suspension"] == true
     local useYieldableCleanupCalls = false
     local cleanupCoroutineCreate = "coroutine.create"
     if needsCleanupRegions then
-        local selectedSuspension = false
-        for _, seam in pairs(backendResolution and backendResolution.seams or {}) do
-            selectedSuspension = selectedSuspension or seam.effect == "runtime.suspension"
-        end
-        useYieldableCleanupCalls = yieldableXpcallName ~= nil and (
-            emittedFeatureEffects["runtime.suspension"] or selectedSuspension
-        )
+        useYieldableCleanupCalls = yieldableXpcallName ~= nil and canSuspend
         if useYieldableCleanupCalls then
-            if emittedFeatureEffects["runtime.suspension"] then
-                cleanupCoroutineCreate = suspensionModule() .. ".create"
-            else
-                -- A selected portable provider may have been installed by another
-                -- module. Look it up when the region runs rather than caching the
-                -- absence observed while this module was loading.
-                cleanupCoroutineCreate = "(function(body) local provider=rawget(_G,"
-                    .. "\"__nuppSuspensionProvider\");local create=provider and "
-                    .. "rawget(provider,\"create\");return (create or coroutine.create)(body) end)"
-            end
+            cleanupCoroutineCreate = suspensionModule() .. ".create"
         end
     end
     -- Bound here rather than with the required modules below, because those are
@@ -8334,31 +8352,25 @@ function gen.generate(
             "const %s = require(\"nupp.log\").forModule(%q); "
         ):format(compilerModules["nupp.log"], result.moduleName or filename or "?") .. code
     end
-    local nativeRuntimeEffects = {}
-    for effect, reached in pairs(runtimeEffects) do
-        nativeRuntimeEffects[effect] = reached
-    end
-    backends.withoutNative(nativeRuntimeEffects, backendResolution)
-    local runtimeBootstrap = stdlib.bootstrap(
-        nativeRuntimeEffects,
-        hotState ~= nil,
-        backends.bootstrap(runtimeEffects, backendResolution),
-        installingManaged
-    )
+    local runtimeBootstrap = stdlib.bootstrap(runtimeEffects, hotState ~= nil, installingManaged)
     if runtimeEffects[pluck.bitops.effect] then
-        runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppBitops;"):format(pluck.bitops.name)
+        runtimeBootstrap = runtimeBootstrap .. ("local %s=require(\"nupp.runtime.bitops\");"):format(pluck.bitops.name)
     end
     if needsCompatibilityBitops then
         runtimeBootstrap = runtimeBootstrap .. ("local %s=require(\"bit\");"):format(pluck.bitops.name)
     end
     if pluck.storage.enabled and runtimeEffects["runtime.cstorage"] then
-        runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppCstorage;"):format(pluck.storage.name)
+        runtimeBootstrap = runtimeBootstrap .. (
+            "local %s=require(%q);"
+        ):format(pluck.storage.name, "nupp.runtime.storage")
     end
     if portableStructvalue and runtimeEffects["runtime.structvalue"] then
-        runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppStructvalue;"):format(structvalueName)
+        runtimeBootstrap = runtimeBootstrap .. (
+            "local %s=require(%q);"
+        ):format(structvalueName, "nupp.runtime.structvalue")
     end
     if portableInt64 and runtimeEffects["runtime.int64"] then
-        runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppInt64;"):format(int64Name)
+        runtimeBootstrap = runtimeBootstrap .. ("local %s=require(%q);"):format(int64Name, "nupp.runtime.int64")
     end
     if needsCleanupRegions then
         -- A cleanup region runs its terminals inside a protected call, and stock Lua
@@ -8373,7 +8385,6 @@ function gen.generate(
             values[
                 #values + 1
             ] = name == "xpcall"
-                and useYieldableCleanupCalls
                 and yieldableXpcallName
                 or name == "pcall"
                 and yieldableCleanupPcall
@@ -8408,7 +8419,10 @@ function gen.generate(
                 "unpack",
                 cleanupPackName,
                 "unpack"
-            ) or ""
+            ) or yieldableXpcallName and (
+                "const function %s(body,handler,...) local args=%s(...);"
+                .. "return xpcall(function() return body(unpack(args,1,args.n)) end,handler) end; "
+            ):format(yieldableXpcallName, cleanupPackName) or ""
         ) .. (
             yieldableCleanupPcall and (
                 "const function %s(body,...) return %s(body,function(problem) return problem end,...) end; "
@@ -8605,9 +8619,6 @@ function gen.generate(
             code = ("const %s = require(%q); "):format(compilerModules[moduleName], moduleName) .. code
         end
     end
-    -- A selected backend owns the module identities projected through standard
-    -- namespaces. Install it before requiring any of those modules; otherwise a
-    -- native fallback can be loaded first and the selected backend arrives too late.
     if runtimeBootstrap ~= "" then
         code = runtimeBootstrap .. code
     else
@@ -8712,22 +8723,10 @@ function gen.generate(
         --
         -- Lexical, like the two names below it, so the process global table is left
         -- alone and a source local of the same name still shadows it normally.
-        local portableSuspension = false
-        for _, seam in pairs(backendResolution and backendResolution.seams or {}) do
-            portableSuspension = portableSuspension or seam.effect == "runtime.suspension"
-        end
-        if portableSuspension or runtimeEffects["runtime.suspension"] then
-            -- This wrapper precedes the module body and therefore cannot close over
-            -- a suspension require emitted inside that body. Raw lookup is also what
-            -- keeps the protected call used to load the provider from recursively
-            -- asking that same provider for `create`. Once any handler has been
-            -- installed the seam binding has published `create`, and inheritance is
-            -- used; while the provider itself is loading there is nothing to inherit.
-            local portableCoroutineCreate = "(function(body) local provider=rawget(_G,"
-                .. "\"__nuppSuspensionProvider\");"
-                .. "local create=provider and rawget(provider,\"create\");"
-                .. "return (create or coroutine.create)(body) end)"
-            code = "local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;"
+        if canSuspend then
+            local portableCoroutineCreate = "__nuppProtectedCreate"
+            code = 'local __nuppProtectedCreate=require("nupp.suspension").create;'
+                .. "local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;"
                 -- The body is wrapped rather than handed over: `coroutine.create`
                 -- takes a Lua function, and a protected call takes anything callable.
                 .. "local function __nuppProtected(handler,body,...) " .. (
@@ -8750,11 +8749,6 @@ function gen.generate(
         -- leaves a same-spelled source local free to shadow it normally.
         code = "local unpack=unpack or table.unpack;local loadstring=loadstring or load;" .. code
     end
-    local backendArtifact = backends.artifact(runtimeEffects, backendResolution)
-    if backendArtifact ~= "" then
-        code = backendArtifact .. code
-    end
-
     -- Prelude implementation bodies are ordinary checked and generated Nupp. Execute
     -- their generated chunk before this module on one physical line so authored source
     -- line numbers remain aligned with the module body.

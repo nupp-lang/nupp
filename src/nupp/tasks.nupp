@@ -62,20 +62,17 @@ assert(total == 500500)
 ]]
 
 local suspension = require("nupp.suspension")
-local {type Submittable} = require("nupp.workers")
+local {type Submittable} = require("nupp.runtime.services.workers")
+local workerModule = require("nupp.runtime.workersprovider").provider
 local suspensionRuntime = suspension as any
-local dynamicRequire = require as function(string): any
-local timeModule: any = nil
+local loadedTime = require("nupp.runtime.timeprovider").provider
+local function missingTime(): never
+    error("nupp.tasks: deadlines require a clock provider", 2)
+end
+
+local timeModule: any = loadedTime or {now = missingTime, wakeAt = missingTime}
 
 local tasks = {}
-
-local function timeRuntime(): any
-    if timeModule == nil then
-        timeModule = dynamicRequire("nupp." .. "time")
-    end
-
-    return timeModule
-end
 
 local type Packed = {
     values: {any},
@@ -272,7 +269,7 @@ record tasks.Scope
     fork: function<F is Submittable>(
         borrows self: tasks.Scope,
         F,
-        ...: unpackof nupp.workers.Submitted(F)
+        ...: unpackof nupp.runtime.services.workers.Submitted(F)
     ): tasks.Task<F> borrows (self)
 
     --- Requests cancellation of every child.
@@ -430,7 +427,7 @@ local function deadlinePassed(owner: ScopeState): boolean
     if deadline == nil then
         return false
     end
-    if timeRuntime().now() < deadline then
+    if timeModule.now() < deadline then
         return false
     end
     requestCancellation(owner, "the task scope", "its deadline passed")
@@ -514,7 +511,7 @@ local function parkScope(owner: ScopeState): function(function(any), suspension.
                 removeWaker(owner, wake)
             end
         end
-        const cancelTimer = timeRuntime().wakeAt(deadline, function(_: boolean): nil
+        const cancelTimer = timeModule.wakeAt(deadline, function(_: boolean): nil
             fireWakers(owner)
         end)
 
@@ -603,7 +600,7 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                         return waiting:ready() or (#owner.queue > 0 and suspensionRuntime.__turnAvailable())
                     end
                     const deadline = owner.deadline
-                    const expired = deadline ~= nil and timeRuntime().now() >= deadline
+                    const expired = deadline ~= nil and timeModule.now() >= deadline
 
                     return waiting:ready() or (
                         #owner.queue > 0 and suspensionRuntime.__turnAvailable()
@@ -630,7 +627,7 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                     owner.wakers[#owner.wakers + 1] = waker
                     const deadline = owner.deadline
                     if deadline ~= nil and cancelTimer == nil then
-                        cancelTimer = timeRuntime().wakeAt(deadline, function(_: boolean): nil
+                        cancelTimer = timeModule.wakeAt(deadline, function(_: boolean): nil
                             fireWakers(owner)
                         end)
                     end
@@ -964,10 +961,9 @@ end
 local function workersImpl(scope: tasks.Scope): any
     local owner = state(scope)
     if owner.workerScope == nil then
-        -- Dynamic on purpose. A coroutine-only task scope must not make native
-        -- workers a requirement of every target that carries `nupp.tasks`.
-        local moduleName = "nupp." .. "workers"
-        local workerModule = dynamicRequire(moduleName)
+        if workerModule == nil then
+            error("nupp.tasks: worker provider unavailable: " .. tostring(workerModule), 2)
+        end
         local observer = {
             created = function(_: any, _: any): nil
                 owner.forks = owner.forks + 1
@@ -982,8 +978,9 @@ local function workersImpl(scope: tasks.Scope): any
                 wakeSlots(owner)
             end,
         }
-        owner.settleHook = workerModule.__settle
-        owner.workerScope = workerModule.__scope(owner.deadline, observer)
+        owner.settleHook = workerModule.settle
+        local workerScope = workerModule.openScope(owner.deadline, observer)
+        owner.workerScope = unsafe release workerScope
     end
 
     return owner.workerScope
@@ -1068,7 +1065,7 @@ local spawnNamedSurface: function<F>(
 local forkSurface: function<F is Submittable>(
     borrows self: tasks.Scope,
     F,
-    ...: unpackof nupp.workers.Submitted(F)
+    ...: unpackof nupp.runtime.services.workers.Submitted(F)
 ): tasks.Task<F> borrows (self)
 local cancelSurface: function(borrows self: tasks.Scope, reason: string?): nil
 unsafe do
@@ -1440,7 +1437,7 @@ function tasks.open(limit: integer?, deadline: number?): affine(tasks.Scope, tas
         if deadline ~= deadline or deadline < 0 or deadline == math.huge then
             error("nupp: a task deadline must be a finite non-negative number", 2)
         end
-        absolute = timeRuntime().now() + deadline
+        absolute = timeModule.now() + deadline
     end
     const inherited = tasks.deadline()
     if inherited ~= nil and (absolute == nil or inherited < absolute) then

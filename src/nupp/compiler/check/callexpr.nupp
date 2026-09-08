@@ -32,7 +32,6 @@ local pegTyping = require(
     "nupp.compiler.materialize.peg"
 ) as {inferSourceResult: function(string, T.Type?): (T.Pack?, any)}
 local runtimeSurface = require("nupp.compiler.runtimesurface")
-local backends = require("nupp.compiler.backends")
 
 local isA = relations.isA
 local packIsA = relations.packIsA
@@ -45,7 +44,8 @@ local callexpr: {install: function(state.Checker): state.ExprHandlers} = {}
 
 --- What one compiler-owned call surface asks of the checker and the generator.
 local type CompilerSurface = {
-    --- The feature effect calling it records, so a target packages the seam it needs.
+    --- The feature effect calling it records, so a target packages the runtime it
+    --- needs.
     effect: string?,
 
     --- Whether the source form puts the callable last while the library signature
@@ -64,10 +64,17 @@ local type CompilerSurface = {
 local COMPILER_SURFACES: {
     [string]: {[string]: {[string]: CompilerSurface}}
 } = {
-    ["nupp.workers"] = {Scope = {spawn = {rotate = true, sendableLast = true,},},},
+    [
+        "nupp.runtime.services.workers"
+    ] = {
+        Scope = {spawn = {rotate = true, sendableLast = true,},},
+        PublicScope = {spawn = {rotate = true, sendableLast = true,},},
+    },
     [
         "nupp.tasks"
-    ] = {Scope = {spawn = {rotate = true,}, fork = {effect = "native.workers", rotate = true, sendableLast = true,},},},
+    ] = {
+        Scope = {spawn = {rotate = true,}, fork = {effect = "runtime.workers", rotate = true, sendableLast = true,},},
+    },
 }
 
 --- Whether a callee names `nupp.tasks.open`, reached by its qualified path or through
@@ -1102,10 +1109,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         (node as any).compilerFeatureEffect = effect
                         c.recordEffect(effect)
                     end
-                    -- The seams this module prefers where a backend installs
-                    -- one and answers without where none does. Carried beside
-                    -- the effect that gates the module rather than instead of
-                    -- it, because a module can have both.
+                    -- Optional native accelerators contribute their packaging effects.
                     local accelerators = require("nupp.compiler.standardsurface").accelerators(modname)
                     if accelerators and c.recordEffect then
                         local carried = (node as any).compilerFeatureEffects or {}
@@ -1778,15 +1782,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
-        -- `nupp.tasks.open(limit, deadline)` needs the monotonic clock only when a
-        -- deadline is passed, and a coroutine-only scope must not make `native.time` a
-        -- requirement of every program that opens one. So the effect is recorded here,
-        -- by the call's argument pack, rather than on the member as a whole.
+        -- A supplied task deadline needs the target's clock provider.
         if node.kind == "call" and callee and opensTaskScope(c, callee) and c.recordEffect then
             local deadline = node.argumentPack and T.packAt(node.argumentPack, 2) or nil
             if deadline ~= nil and deadline ~= T.nil_ then
-                c.recordEffect("native.time");
-                (node as any).compilerFeatureEffect = "native.time"
+                c.recordEffect("runtime.time");
+                (node as any).compilerFeatureEffect = "runtime.time"
             end
         end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
@@ -2016,16 +2017,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- first, because a variadic type pack cannot precede a named parameter,
             -- while its source form puts the callable last. Reorder only the checker
             -- view, then restore the tree so lowering can retain source evaluation
-            -- order. A selected `host.workers` seam declares the worker surface in its
-            -- own provider module, and the reorder is a property of the surface rather
-            -- than of whichever module supplies it, so the lookup goes through the
-            -- public module name.
+            -- order. Canonical worker interfaces identify the calls that require
+            -- this argument ordering.
             local originModule = origin and (
                 origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
             ) or nil
-            local publicName = originModule and (
-                backends.publicModule(c.opts and c.opts.backendResolution, originModule) or originModule
-            ) or nil
+            local publicName = originModule and (originModule) or nil
             local surfaceModule = publicName and COMPILER_SURFACES[publicName] or nil
             local surfaceNominal = surfaceModule and origin and surfaceModule[origin.name] or nil
             local surface = surfaceNominal and surfaceNominal[member.text] or nil

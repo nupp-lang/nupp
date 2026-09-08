@@ -17,7 +17,7 @@ if [[ ! -f "$lua_source/lapi.c" ]]; then
   exit 2
 fi
 
-cp -R "$script_dir/project/." "$scalar_project"
+cp -RL "$script_dir/project/." "$scalar_project"
 (
   cd "$scalar_project"
   NUPP_WASM_CC="$emcc_command" "$repo/bin/nupp" build --target app

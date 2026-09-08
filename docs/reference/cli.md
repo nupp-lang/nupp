@@ -23,7 +23,6 @@ The commands, in the order `nupp help` lists them:
 - [`check`](#check): type-check source without emitting Lua
 - [`fmt`](#fmt): format Nupp source
 - [`build`](#build): build source files or a configured project target
-- [`backend`](#backend): run checked backend conformance suites
 - [`clean`](#clean): remove build outputs configured in `nupp.lua`
 - [`tasks`](#tasks): list or inspect project tasks from `nupp.lua`
 - [`lints`](#lints): list the lints and the level each runs at
@@ -88,7 +87,7 @@ nupp check --json
 nupp check --schema
 ```
 
-`init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `backend`, `clean`, `tasks`, `lints`,
+`init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `clean`, `tasks`, `lints`,
 `ownership-audit`, `explain`, `doc`, `fixpoint`, `import-c`, `export-c` and
 `version` take all three, and so does every `lsp` operation. `reference` names its
 formats `markdown`, `skill` and `json` instead. `coverage`, `test`, `test-runner` and `run`
@@ -934,40 +933,6 @@ versions.
   to ship
 :::
 
-### `backend`
-
-```text [nupp backend --help]
-Run checked backend conformance suites
-
-Usage:
-  nupp backend test <module> [--dialect luajit|luajit-compat|lua51] [--runtime LUA] [--seam NAME] [--json]
-
-Options:
-  --dialect DIALECT  Check and compile for this dialect (default: luajit)
-  --runtime LUA      Execute the checked modules with this interpreter
-  --seam NAME        Run only the named seam suite
-  --json             Report as one JSON document
-  -h, --help         Show this help
-  --schema           Print the JSON Schema of --json output and exit
-
-The command checks and compiles the backend without executing it, then runs all or one of its compiler-owned seam suites. --runtime writes the checked modules as real Lua files and executes them with that interpreter; without it the isolated CLI process is used. It reports resolution evidence, not a cached certification claim.
-```
-
-The backend module and every seam suite are checked source. Passing
-`--runtime` compiles that source into an isolated Lua module tree before the
-named executable runs it, so a Lua 5.1 compatibility result does not come from
-the compiler's LuaJIT process:
-
-```bash
-nupp backend test acme.portable --dialect lua51 --runtime lua5.1
-```
-
-The command reports evidence from that run. It does not modify a manifest,
-discover providers, or record a certification for later builds.
-
-See [portable-libraries.md](../learn/projects/portability/libraries.md#backend-conformance)
-for backend source, dependency providers, and a multi-runtime test matrix.
-
 ### `clean`
 
 ```text [nupp clean --help]
@@ -1394,7 +1359,7 @@ _nupp() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD - 1]}"
   if (( COMP_CWORD == 1 )); then
-    COMPREPLY=( $(compgen -W 'init ast aot bc check fmt build backend clean tasks lints ownership-audit explain reference completions test test-runner coverage task doc fixpoint run import-c migrate export-c rock lsp help' -- "$cur") )
+    COMPREPLY=( $(compgen -W 'init ast aot bc check fmt build clean tasks lints ownership-audit explain reference completions test test-runner coverage task doc fixpoint run import-c migrate export-c rock lsp help' -- "$cur") )
     return 0
   fi
   command="${COMP_WORDS[1]}"
@@ -2017,6 +1982,7 @@ Usage:
   nupp lsp serve [root]
   nupp lsp inspect [options] <file> <line> <column>
   nupp lsp definition [options] <file> <line> <column>
+  nupp lsp implementation [options] <file> <line> <column>
   nupp lsp references [options] [--include-declaration] <file> <line> <column>
   nupp lsp symbols [options] [--file FILE] [pattern]
   nupp lsp rename [options] [-w|--write] <file> <line> <column> <new-name>
@@ -2220,7 +2186,6 @@ Commands:
   check            Type-check source without emitting Lua
   fmt              Format Nupp source
   build            Build source files or a configured project target
-  backend          Run checked backend conformance suites
   clean            Remove build outputs configured in nupp.lua
   tasks            List or inspect project tasks from nupp.lua
   lints            List the lints and the level each runs at

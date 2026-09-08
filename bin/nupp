@@ -387,9 +387,9 @@ build_now() {
     fi
     if stage0_path >/dev/null; then
         if [ -n "$BUILD_COLOR_ARG" ]; then
-            (cd "$ROOT" && luajit "$STAGE0" build "$BUILD_COLOR_ARG")
+            (cd "$ROOT" && NUPP_COMPILER_ROOT="$(dirname "$STAGE0")" luajit "$STAGE0" build "$BUILD_COLOR_ARG")
         else
-            (cd "$ROOT" && luajit "$STAGE0" build)
+            (cd "$ROOT" && NUPP_COMPILER_ROOT="$(dirname "$STAGE0")" luajit "$STAGE0" build)
         fi
         build_status=$?
     fi
@@ -505,6 +505,7 @@ fi
 if [ -f "$BUILT" ]; then
     set -- luajit -e "$LUAPATH" "$LUA_BUILT" "$@"
 elif stage0_path >/dev/null; then
+    export NUPP_COMPILER_ROOT="$(dirname "$STAGE0")"
     set -- luajit "$STAGE0" "$@"
 else
     echo "nupp: no built compiler, and the stage-zero compiler is not available" >&2

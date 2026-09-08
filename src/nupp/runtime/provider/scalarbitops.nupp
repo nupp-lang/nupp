@@ -3,20 +3,28 @@ module nupp.runtime.provider.scalarbitops
 -- Portable BitOp-compatible 32-bit words. This is the deliberately slow host
 -- provider; generated LuaJIT keeps using the VM's native operations.
 
-local bitops = {}
 local MODULUS = 4294967296
 local SIGN = 2147483648
 
 local function unsigned(value: number): number
-    return math.floor(value) % MODULUS
+    if value ~= value or value == math.huge or value == -math.huge then
+        return 0
+    end
+    local whole = math.floor(value)
+    local fraction = value - whole
+    if fraction > 0.5 or fraction == 0.5 and whole % 2 ~= 0 then
+        whole = whole + 1
+    end
+
+    return whole % MODULUS
 end
 
-local function signed(value: number): number
+local function signed(value: number): integer
     value = unsigned(value)
-    return value >= SIGN and value - MODULUS or value
+    return (value >= SIGN and value - MODULUS or value) as integer
 end
 
-local function combine(left: number, right: number, operation: string): number
+local function combine(left: number, right: number, operation: string): integer
     left, right = unsigned(left), unsigned(right)
     local place, answer = 1, 0
     for _ = 1, 32 do
@@ -33,7 +41,7 @@ local function combine(left: number, right: number, operation: string): number
     return signed(answer)
 end
 
-local function fold(operation: string, identity: number, first: number, ...: number): number
+local function fold(operation: string, identity: number, first: number, ...: number): integer
     local answer = combine(identity, first, operation)
     for index = 1, select("#", ...) do
         answer = combine(answer, select(index, ...), operation)
@@ -42,70 +50,86 @@ local function fold(operation: string, identity: number, first: number, ...: num
     return answer
 end
 
-function bitops.tobit(value: number): number
+local function tobit(value: number): integer
     return signed(value)
 end
 
-function bitops.band(first: number, ...: number): number
+local function band(first: number, ...: number): integer
     return fold("and", -1, first, ...)
 end
 
-function bitops.bor(first: number, ...: number): number
+local function bor(first: number, ...: number): integer
     return fold("or", 0, first, ...)
 end
 
-function bitops.bxor(first: number, ...: number): number
+local function bxor(first: number, ...: number): integer
     return fold("xor", 0, first, ...)
 end
 
-function bitops.bnot(value: number): number
+local function bnot(value: number): integer
     return signed(MODULUS - 1 - unsigned(value))
 end
 
-function bitops.lshift(value: number, count: number): number
+local function lshift(value: number, count: number): integer
     return signed(unsigned(value) * 2 ^ (unsigned(count) % 32))
 end
 
-function bitops.rshift(value: number, count: number): number
+local function rshift(value: number, count: number): integer
     return signed(math.floor(unsigned(value) / 2 ^ (unsigned(count) % 32)))
 end
 
-function bitops.arshift(value: number, count: number): number
+local function arshift(value: number, count: number): integer
     count = unsigned(count) % 32
     value = signed(value)
     return signed(math.floor(value / 2 ^ count))
 end
 
-function bitops.rol(value: number, count: number): number
+local function rol(value: number, count: number): integer
     count = unsigned(count) % 32
     if count == 0 then
         return signed(value)
     end
 
-    return bitops.bor(bitops.lshift(value, count), bitops.rshift(value, 32 - count))
+    return bor(lshift(value, count), rshift(value, 32 - count))
 end
 
-function bitops.ror(value: number, count: number): number
-    return bitops.rol(value, 32 - unsigned(count) % 32)
+local function ror(value: number, count: number): integer
+    return rol(value, 32 - unsigned(count) % 32)
 end
 
-function bitops.bswap(value: number): number
-    local b0 = bitops.band(value, 0xff)
-    local b1 = bitops.band(bitops.rshift(value, 8), 0xff)
-    local b2 = bitops.band(bitops.rshift(value, 16), 0xff)
-    local b3 = bitops.band(bitops.rshift(value, 24), 0xff)
+local function bswap(value: number): integer
+    local b0 = band(value, 0xff)
+    local b1 = band(rshift(value, 8), 0xff)
+    local b2 = band(rshift(value, 16), 0xff)
+    local b3 = band(rshift(value, 24), 0xff)
 
-    return bitops.bor(bitops.lshift(b0, 24), bitops.lshift(b1, 16), bitops.lshift(b2, 8), b3)
+    return bor(lshift(b0, 24), lshift(b1, 16), lshift(b2, 8), b3)
 end
 
-function bitops.tohex(value: number, digits: number?): string
+local function tohex(value: number, digits: number?): string
     digits = digits or 8
     local upper = digits < 0
-    digits = math.abs(digits)
+    digits = math.abs(signed(digits))
+    if digits == 0 then
+        return ""
+    end
     local text = ("%08x"):format(unsigned(value))
-    text = text:sub(-digits)
+    text = digits > 8 and string.rep("0", digits - 8) .. text or text:sub(-digits)
 
     return upper and text:upper() or text
 end
 
-export = bitops
+export = {
+    tobit = tobit,
+    band = band,
+    bor = bor,
+    bxor = bxor,
+    bnot = bnot,
+    lshift = lshift,
+    rshift = rshift,
+    arshift = arshift,
+    rol = rol,
+    ror = ror,
+    bswap = bswap,
+    tohex = tohex,
+}

@@ -1,36 +1,8 @@
 @!internal
+module nupp.codec.json.provider
 
--- The internal binding for `nupp.codec.json`. A selected runtime backend
--- preloads this name; otherwise production uses Nupp's SIMD AOT codec.
---
--- The shape below restates [](nupp.runtime.backend.contracts.JsonProvider), which
--- is what the `data.json` seam checks a provider against and what both
--- providers project themselves onto. Restated rather than named: this module is
--- part of the surface a consumer resolves `nupp.codec.json` through, and a
--- declaration there naming an interface from another module does not survive
--- bundling -- the module resolves to `unknown`, `native.json` stops being
--- recorded, and a selected backend never reaches the generated program. The
--- two are held together by `dataJsonBindingAnswersItsContract`.
-local interface JsonProvider
-    decode: function(text: string, nullValue: any?): any
-    pull: function(text: string, shape: any, nullValue: any?): any
-    compileSerde: function(plan: any, unknownMembers: string): any
-    decodeSerde: function(schema: any, text: string): (any?, string?)
-    decodeSerdeBuffer: function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?)
-    arrayOf: function(shape: any?): table
-    asArray: function<T is table>(takes value: T): T preserves value
-    asObject: function<T is table>(takes value: T): T preserves value
-    isArray: function(value: any): boolean
-    encode: function(value: any, nullValue: any?): string
-    serialize: function(value: any, nullValue: any?): string
-    encoded: function(value: any, nullValue: any?): any
-    encodedString: function(value: string): any
-    verified: function(text: string): any
-    verifiedString: function(text: string): any
-    writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): any
-    NULL: any
-    EMPTY_ARRAY: table
-    EMPTY_OBJECT: table
-end
+const contracts = require("nupp.runtime.services.contracts")
 
-return require("nupp.codec.json.aot") as JsonProvider
+export = contracts.json:assemble(function(): contracts.JsonProvider
+    return require("nupp.runtime.provider.lunajson")
+end)

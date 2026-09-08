@@ -24,7 +24,9 @@ local function roundUp(value: integer, alignment: integer): integer
 end
 
 function factory.new(memory: any): any
-    local provider: any = {referenceValued = true}
+    local provider: any = {referenceValued = true, representation = "linear32", integers = memory.int64}
+    provider.structs = provider
+    provider.host = provider
     local descriptors: any = setmetatable({}, {__mode = "k"})
     for _, name in ipairs({"allocate", "pointer", "offset", "load", "store", "copy", "lease", "releaseLease"}) do
         provider[name] = memory[name]

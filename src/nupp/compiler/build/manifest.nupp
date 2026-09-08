@@ -14,7 +14,6 @@ local aotTargets = require("nupp.compiler.aot.target")
 local check = require("nupp.compiler.check")
 local fs = require("nupp.compiler.fs")
 local native = require("nupp.compiler.native")
-local backends = require("nupp.compiler.backends")
 local dialects = require("nupp.compiler.dialects")
 
 local join = fs.join
@@ -85,7 +84,6 @@ type manifest.Target = {
     --- build target.
     layoutTarget: string?,
     dialect: string?,
-    backends: {string}?,
     format: string?,
     title: string?,
 
@@ -348,7 +346,6 @@ local DOCS_KEYS = {
     "platformOutputs",
     "nativeFeatures",
     "dialect",
-    "backends",
     "layoutTarget",
 }
 
@@ -425,7 +422,6 @@ local TARGET_KEYS = {
     "compileDependencies",
     "nativeFeatures",
     "dialect",
-    "backends",
     "layoutTarget",
     "format",
     "title",
@@ -784,10 +780,6 @@ local function validateTarget(target, label, dependencies)
     local _, dialectErr = dialects.resolve(target.dialect, label .. ".dialect")
     if dialectErr then
         return nil, dialectErr
-    end
-    local validBackends, backendErr = backends.validate(target.backends, label .. ".backends")
-    if not validBackends then
-        return nil, backendErr
     end
     if target.outDir ~= nil then
         local valid, err = validateString(target.outDir, label .. ".outDir")

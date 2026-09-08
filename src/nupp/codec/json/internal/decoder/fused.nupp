@@ -14,7 +14,7 @@ variants' constructs pruned before lowering classifies the entry.
 local _valueBuilder = require("nupp.codec.valuebuilder")
 local _simd = require("nupp.simd")
 local _preferredU8 = _simd.preferredU8
-local {type Buffer} = require("string.buffer")
+local {type Buffer} = require("nupp.text.buffer")
 
 local fused = {}
 

@@ -14,7 +14,7 @@ local newDecoder = require(
     "nupp.runtime.vendor.lunajson.decoder"
 ) as function(): function(string, integer?, any?, boolean?): any
 local newEncoder = require("nupp.runtime.vendor.lunajson.encoder") as function(): function(any, any?): string
-local contracts = require("nupp.runtime.backend.contracts")
+local contracts = require("nupp.runtime.services.contracts")
 local core = {decode = newDecoder(), encode = newEncoder(),}
 local json = {}
 
@@ -299,7 +299,7 @@ function json.verifiedString(text: string): any
     return verified
 end
 
-function json.writer(exclusive out: string.buffer.Buffer, nullValue: any?): any
+function json.writer(exclusive out: nupp.text.buffer.Buffer, nullValue: any?): any
     local parts, stack, root, closed = {}, {}, false, false
     local pending = 0
     local writer = {}
@@ -437,10 +437,7 @@ function json.writer(exclusive out: string.buffer.Buffer, nullValue: any?): any
     return writer
 end
 
--- Stated rather than assumed. The projection is what reports a member whose
--- signature drifted from the contract `nupp.codec.json` is written against;
--- without it a provider satisfying the seam's name check installed cleanly and
--- answered a different signature than the declaration promised.
+-- Check every member against the canonical JSON provider contract.
 local checked: contracts.JsonProvider = {
     arrayOf = json.arrayOf,
     -- `asArray` and `asObject` are asserted where every other member is checked.

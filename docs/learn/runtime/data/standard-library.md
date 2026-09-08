@@ -71,8 +71,8 @@ intrinsic namespaces and the declared modules:
 - [](nupp.store) owns typed keys and stores; [](nupp.bitset) owns bitsets.
 - [](nupp.system) reports execution platform, architecture, endianness, pointer
   width and available parallelism, independently of the worker scheduler.
-- [](nupp.io.storage) provides persistent key-value storage through the selected
-  backend.
+- [](nupp.io.storage) provides persistent key-value storage through the require-time
+  provider.
 - [](nupp.io) owns byte buffers, readers, writers, and typed scalar reads and
   writes over them.
 - [](nupp.io.files) owns filesystem metadata and directories.
@@ -103,13 +103,11 @@ See [gpu.md](../../performance/ahead-of-time/gpu.md) for generated GPU kernels a
 browser provider, and [workers.md](../concurrency/workers.md) for the worker
 scheduler and sendable values.
 
-## Availability, detection and lazy loading
+## Availability and initialization
 
 `nupp` and `nupp.math` are intrinsic namespaces. The other standard modules
 have their own declared module identities and are loaded through qualified
-access or explicit imports. There is no `nupp.data` aggregate or compatibility
-alias. What varies is which facilities reach the program and when their
-providers are initialized.
+references or ordinary require calls. Providers resolve while their facades load.
 
 ### Selection follows use
 
@@ -130,12 +128,18 @@ first-line bootstrap. Native FFI declarations are split by that same set:
 selecting UUID does not declare the path, files, or process ABI. SHA-256
 declares none of its own: it is Nupp rather than a native provider.
 
-### Provider laziness
+### Provider initialization
 
-A selected member loads its native provider on first access, which is a second
-level of omission inside the first. An unused facility contributes no generated
-adapter and no native artifact, and a selected but unvisited member never
-initializes its provider.
+A service-backed module resolves its provider while it is required. Generated
+module prologues bind those modules before the consumer body runs. Exported
+operations retain the resolved implementation and call it directly.
+
+A setup entry imports canonical handles from `nupp.runtime.services`, registers
+or selects implementations, and then requires its consumer entry. Importing a
+contract defines its handle without loading a provider. Once a facade resolves,
+its default selection is fixed for that Lua state. See
+[service providers](../../projects/service-providers.md) for typed contracts and
+package discovery.
 
 The public surface does not expose the JSON provider module, a provider's own
 handles, or FFI pointers. Those are implementation details, so application code

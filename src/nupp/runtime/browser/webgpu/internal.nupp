@@ -1,176 +1,149 @@
 @!internal
 module nupp.runtime.browser.webgpu.internal
-
---[[WebGPU provider over the browser Worker's Wasm memory and effect boundary.]]
-
 local response = require("nupp.runtime.browser.response")
-local json = require("nupp.runtime.provider.lunajson")
+local memory = require("nupp.runtime.wasm") as any
+local storage = require("nupp.runtime.storage")
+local span = require("nupp.mem.span")
 local {type Span, type WriteSpan} = require("nupp.mem.span")
+local shared = require("nupp.gpu.types")
+local api = require("nupp.gpu.api")
+local operations = require("nupp.gpu.operations")
 local gpu = {}
+type gpu.Buffer<T> = shared.Buffer<T>
+gpu.Buffer = shared.Buffer
+type gpu.Kernel = shared.Kernel
+gpu.Kernel = shared.Kernel
+type gpu.ArtifactSet = shared.ArtifactSet
+gpu.ArtifactSet = shared.ArtifactSet
 
-local MAX_XOR_VALUES = 262144
+type gpu.Shared<T> = shared.Shared<T>
+gpu.Shared = shared.Shared
+type gpu.Phases = shared.Phases
+gpu.Phases = shared.Phases
 
--- The portable compiler also runs under an ordinary native Lua 5.1 host,
--- where the browser's Wasm memory service is intentionally absent. Keep the
--- provider loadable there and resolve storage only when an actual WebGPU
--- operation needs it.
-local storageValue: any? = nil
-local function storage(): any
-    local value = storageValue
-    if value == nil then
-        value = require("nupp.runtime.provider.wasmstorage")
-        storageValue = value
-    end
+gpu.destroyContext = shared.destroyContext
+gpu.bufferIsDense = operations.bufferIsDense
+record gpu.Binding is api.Binding
+    readonly _anchor: any
+    readonly _kernel: gpu.Kernel
+    readonly _read: {integer}
+    readonly _write: {integer}
+    readonly _readCounts: {integer}
+    readonly _writeCounts: {integer}
+    readonly _readOffsets: {integer}
+    readonly _writeOffsets: {integer}
+    readonly _context: any
+    readonly _handle: any
+    readonly _uniformBytes: integer
+    readonly _readonlyBuffers: integer
+    _spanCounts: {integer}
+    _spanOffsets: {integer}
+    _released: boolean
 
-    return value
-end
-
-const gpu.PORTABLE_WORKGROUP_THREADS = 256
-const gpu.PORTABLE_SCRATCH_BYTES = 16384
-
---- Xors every uint32 in `values` with `mask` in one WebGPU invocation per
---- element. The result is copied back only after the Worker observes completion.
---- @raises when WebGPU is unavailable or the request is outside the portable cap
-function gpu.xorU32(values: {uint32}, mask: uint32): {uint32}
-    if #values == 0 then
-        return {}
-    end
-    if #values > MAX_XOR_VALUES then
-        error("nupp: browser GPU xor accepts at most " .. MAX_XOR_VALUES .. " uint32 values", 2)
-    end
-
-    local input: {any} = json.asArray({})
-    for index, value in ipairs(values) do
-        input[index] = value
-    end
-
-    local answer = response.await("gpu", {operation = "xor-u32", values = input, mask = mask,})
-    local output = answer.values
-    if type(output) ~= "table" or #output ~= #values then
-        error("nupp: browser GPU returned an invalid xor result", 2)
-    end
-
-    return output as {uint32}
-end
-
-record gpu.Layout
-end
-
-record gpu.Element<T>
-    private readonly _kind: string
-    private readonly _width: integer
-end
-
-const gpu.uint32 = new gpu.Element(_kind = "uint32", _width = 4) as gpu.Element<uint32>
-const gpu.int32 = new gpu.Element(_kind = "int32", _width = 4) as gpu.Element<int32>
-
-record gpu.Buffer<T>
-    private readonly _anchor: any
-    private readonly _handle: integer
-    private readonly _width: integer
-    private _released: boolean
+    --- Number of elements dispatched by this binding.
     readonly count: integer
-end
 
-record gpu.Kernel
-    private readonly _anchor: any
-    private readonly _handle: integer
-    private readonly _readonly: integer
-    private readonly _writable: integer
-    private readonly _uniformBytes: integer
-    private readonly _threads: integer
-end
-
-record gpu.ArtifactSet
-    readonly wgsl: string
-    readonly entrypoint: string
-end
-
-record gpu.Binding
-    private readonly _anchor: any
-    private readonly _kernel: gpu.Kernel
-    private readonly _read: {integer}
-    private readonly _write: {integer}
-    private readonly _readCounts: {integer}
-    private readonly _writeCounts: {integer}
-    private readonly _readOffsets: {integer}
-    private readonly _writeOffsets: {integer}
-    private _released: boolean
-    readonly count: integer
+    --- Attaches a resident buffer to one read-only slot. A dispatch-indexed
+    --- span asks for `matchCount`, which holds the buffer to one element per
+    --- dispatched thread; a cursor-proved span passes false and may be any
+    --- length, because its bound check runs inside the shader.
+    --- @internal
     setRead: function<T>(
         borrows self: gpu.Binding,
         slot: integer,
-        borrows buffer: gpu.Buffer<T>,
+        borrows buffer: api.Buffer<T>,
         matchCount: boolean
     ): nil
+
+    --- Attaches a resident buffer to one writable slot.
+    --- @internal
     setWrite: function<T>(
         borrows self: gpu.Binding,
         slot: integer,
-        borrows buffer: gpu.Buffer<T>,
+        borrows buffer: api.Buffer<T>,
         matchCount: boolean
     ): nil
+
+    --- Enqueues the binding with a compiler-laid-out uniform block.
+    --- @internal
     dispatchWords: function(borrows self: gpu.Binding, scalars: {uint32}): nil
+
+    dispatchPacked: function(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
 end
 
-record gpu.Shared<T>
-    private _values: {T}
-    readonly count: integer
-    metamethod __len: function(borrows self: gpu.Shared<T>): integer
-    metamethod __index: function(borrows self: gpu.Shared<T>, index: integer): T
-    metamethod __newindex: function(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
-end
+record gpu.Context is api.KernelContext
+    _handle: any
+    _closed: boolean
 
-record gpu.Phases
-    private readonly _size: integer
-    scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
-    run: function(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
-end
+    --- Releases the device, compiled kernels, and resident buffers.
+    drop: nosuspend function(takes self: Context): nil
 
-sealed interface gpu.ContextToken
-    drop: nosuspend function(takes self: gpu.ContextToken): nil
-end
+    _destroy: nosuspend function(state: any): nil
 
-function gpu.destroyContext<T is gpu.ContextToken>(takes context: T): nil
-    context:drop()
-end
+    --- Native provider family selected for this device.
+    driver: function(borrows self: Context): string
 
-record gpu.Context is gpu.ContextToken
-    private _closed: boolean
-    drop: nosuspend function(takes self: gpu.Context): nil
-    driver: function(borrows self: gpu.Context): string
-    buffer: function<T>(
-        borrows self: gpu.Context,
-        element: gpu.Element<T>,
-        count: integer
-    ): gpu.Buffer<T> borrows (self)
-    private compileGenerated: function(
-        borrows self: gpu.Context,
+    --- Allocates a typed resident device buffer.
+    buffer: function<T>(borrows self: Context, element: ctype<T>, count: integer): api.Buffer<T> borrows (self)
+
+    --- Allocates a dense row-major resident tensor.
+    tensor: function<T>(borrows self: Context, element: ctype<T>, shape: {integer}): api.Buffer<T> borrows (self)
+
+    --- Compiles the artifacts emitted beside an `@aot(target = "gpu")` body.
+    --- The selected provider chooses its source member from this set.
+    --- @internal
+    compileGenerated: function(
+        borrows self: Context,
         artifacts: gpu.ArtifactSet,
         readonlyBuffers: integer,
         writableBuffers: integer,
         uniformBytes: integer,
         threads: integer?
-    ): gpu.Kernel borrows (self)
-    private bindKernel: function(
-        borrows self: gpu.Context,
-        borrows kernel: gpu.Kernel,
-        count: integer
-    ): gpu.Binding borrows (self)
-    releaseBuffer: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
-    private releaseKernel: function(borrows self: gpu.Context, borrows kernel: gpu.Kernel): nil
-    private releaseBinding: function(borrows self: gpu.Context, exclusive binding: gpu.Binding): nil
-    upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: Span<T>): nil
-    enqueueDownload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
-    synchronize: function(borrows self: gpu.Context): nil
+    ): api.Kernel borrows (self)
+
+    --- Starts attaching a generated kernel to resident buffers. `count` is the
+    --- dispatch length, which the compiler takes from the kernel's primary
+    --- span; the generated binding fills every slot before dispatching.
+    --- @internal
+    bindKernel: function(borrows self: Context, borrows kernel: api.Kernel, count: integer): api.Binding borrows (self)
+
+    --- Releases one root buffer's device storage without closing the context.
+    --- Refused while commands are queued; synchronize first. Any view of the
+    --- buffer is invalid afterwards, and using one raises.
+    releaseBuffer: function<T>(borrows self: Context, borrows buffer: api.Buffer<T>): nil
+
+    --- Releases a compiled kernel no binding uses any more.
+    --- @internal
+    releaseKernel: function(borrows self: Context, borrows kernel: api.Kernel): nil
+
+    --- Releases a binding's host-side attachment. The kernel and buffers it
+    --- named remain the context's.
+    --- @internal
+    releaseBinding: function(borrows self: Context, exclusive binding: api.Binding): nil
+
+    --- Copies a complete shared span into a resident buffer or view and
+    --- enqueues its transfer. It does not wait.
+    upload: function<T>(borrows self: Context, borrows buffer: api.Buffer<T>, borrows source: span.Span<T>): nil
+
+    --- Enqueues a complete resident-buffer or view download without waiting.
+    enqueueDownload: function<T>(borrows self: Context, borrows buffer: api.Buffer<T>): nil
+
+    --- Submits the accumulated command stream and waits for it.
+    synchronize: function(borrows self: Context): nil
+
+    --- Copies a download completed by `synchronize()` into a complete writable
+    --- span. No GPU work or waiting happens here.
     readDownloaded: function<T>(
-        borrows self: gpu.Context,
-        borrows buffer: gpu.Buffer<T>,
-        exclusive destination: WriteSpan<T>
+        borrows self: Context,
+        borrows buffer: api.Buffer<T>,
+        exclusive destination: span.WriteSpan<T>
     ): nil
+
+    --- Convenience CPU boundary: enqueue, synchronize, and copy out.
     download: function<T>(
-        borrows self: gpu.Context,
-        borrows buffer: gpu.Buffer<T>,
-        exclusive destination: WriteSpan<T>
+        borrows self: Context,
+        borrows buffer: api.Buffer<T>,
+        exclusive destination: span.WriteSpan<T>
     ): nil
 end
 
@@ -189,54 +162,7 @@ local function answerHandle(answer: any, field: string): integer
     return handle as integer
 end
 
-function gpu.Shared.get<T>(borrows self: gpu.Shared<T>, index: integer): T
-    if index < 0 or index >= self.count then
-        error("nupp: GPU shared-scratch index out of bounds", 2)
-    end
-    return self._values[index + 1]
-end
-
-function gpu.Shared.set<T>(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
-    if index < 0 or index >= self.count then
-        error("nupp: GPU shared-scratch index out of bounds", 2)
-    end
-    self._values[index + 1] = value
-end
-
-function gpu.Phases.scratch<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
-    if count < 1 then
-        error("nupp: GPU shared scratch must contain at least one element", 2)
-    end
-    local values: {T} = {}
-    for index = 1, count do
-        values[index] = initial
-    end
-
-    return new gpu.Shared(_values = values, count = count)
-end
-
-function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
-    for index = 0, self._size - 1 do
-        stage(nupp.math.u32.wrap(index))
-    end
-end
-
-function gpu.workgroups(groups: uint32, size: uint32, scoped controller: function(uint32, gpu.Phases): nil): nil
-    local groupCount = groups as integer
-    local groupSize = size as integer
-    if groupSize < 1 or groupSize > gpu.PORTABLE_WORKGROUP_THREADS then
-        error("nupp: GPU workgroup size exceeds the portable limit", 2)
-    end
-    local phases = new gpu.Phases(_size = groupSize)
-    for index = 0, groupCount - 1 do
-        controller(nupp.math.u32.wrap(index), phases)
-    end
-end
-
-function gpu.Context.drop(takes self: gpu.Context): nil
-    local value = unsafe release self
-    value._closed = true
-end
+local contextdestroy = shared.markClosed
 
 function gpu.Context.driver(borrows self: gpu.Context): string
     live(self)
@@ -245,20 +171,26 @@ end
 
 function gpu.Context.buffer<T>(
     borrows self: gpu.Context,
-    element: gpu.Element<T>,
+    element: ctype<T>,
     count: integer
-): gpu.Buffer<T> borrows (self)
+): shared.Buffer<T> borrows (self)
+    local width = storage.sizeOf(element)
     live(self)
-    if count < 1 or count > 268435456 // element._width then
+    if count < 1 or count > 268435456 // width then
         error("nupp: browser GPU buffer count is outside the portable limit", 2)
     end
-    local answer = response.await("gpu", {operation = "runtime-create-buffer", bytes = count * element._width,})
+    local answer = response.await("gpu", {operation = "runtime-create-buffer", bytes = count * width,})
 
-    return new gpu.Buffer(
+    return new shared.Buffer(
         _anchor = self,
         _handle = answerHandle(answer, "buffer"),
-        _width = element._width,
+        _width = width,
         _released = false,
+        _offset = 0,
+        _capacity = count,
+        _root = true,
+        _shape = {count},
+        _strides = {1},
         count = count
     )
 end
@@ -293,47 +225,24 @@ function gpu.Context.compileGenerated(
         threads = group,
     })
 
-    return new gpu.Kernel(
+    return new shared.Kernel(
         _anchor = self,
         _handle = answerHandle(answer, "kernel"),
-        _readonly = readonlyBuffers,
-        _writable = writableBuffers,
+        _readonlyBuffers = readonlyBuffers,
+        _writableBuffers = writableBuffers,
         _uniformBytes = uniformBytes,
         _threads = group
-    )
-end
-
-function gpu.Context.bindKernel(
-    borrows self: gpu.Context,
-    borrows kernel: gpu.Kernel,
-    count: integer
-): gpu.Binding borrows (self)
-    live(self)
-    if count < 0 or count > 4294967295 then
-        error("nupp: GPU dispatch count must be a uint32", 2)
-    end
-
-    return new gpu.Binding(
-        _anchor = self,
-        _kernel = kernel,
-        _read = {},
-        _write = {},
-        _readCounts = {},
-        _writeCounts = {},
-        _readOffsets = {},
-        _writeOffsets = {},
-        _released = false,
-        count = count
     )
 end
 
 function gpu.Binding.setRead<T>(
     borrows self: gpu.Binding,
     slot: integer,
-    borrows buffer: gpu.Buffer<T>,
+    borrows bufferValue: api.Buffer<T>,
     matchCount: boolean
 ): nil
-    if self._released or slot < 0 or slot >= self._kernel._readonly or buffer._released then
+    local buffer = bufferValue as gpu.Buffer<T>
+    if self._released or slot < 0 or slot >= self._kernel._readonlyBuffers or buffer._released then
         error("nupp: browser GPU read binding is invalid", 2)
     end
     if matchCount and buffer.count ~= self.count then
@@ -341,16 +250,17 @@ function gpu.Binding.setRead<T>(
     end
     self._read[slot + 1] = buffer._handle
     self._readCounts[slot + 1] = buffer.count
-    self._readOffsets[slot + 1] = 0
+    self._readOffsets[slot + 1] = buffer._offset
 end
 
 function gpu.Binding.setWrite<T>(
     borrows self: gpu.Binding,
     slot: integer,
-    borrows buffer: gpu.Buffer<T>,
+    borrows bufferValue: api.Buffer<T>,
     matchCount: boolean
 ): nil
-    if self._released or slot < 0 or slot >= self._kernel._writable or buffer._released then
+    local buffer = bufferValue as gpu.Buffer<T>
+    if self._released or slot < 0 or slot >= self._kernel._writableBuffers or buffer._released then
         error("nupp: browser GPU write binding is invalid", 2)
     end
     if matchCount and buffer.count ~= self.count then
@@ -358,11 +268,14 @@ function gpu.Binding.setWrite<T>(
     end
     self._write[slot + 1] = buffer._handle
     self._writeCounts[slot + 1] = buffer.count
-    self._writeOffsets[slot + 1] = 0
+    self._writeOffsets[slot + 1] = buffer._offset
 end
 
 function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32}): nil
-    if self._released or #self._read ~= self._kernel._readonly or #self._write ~= self._kernel._writable then
+    if self._released
+        or #self._read ~= self._kernel._readonlyBuffers
+        or #self._write ~= self._kernel._writableBuffers
+    then
         error("nupp: browser GPU binding is incomplete", 2)
     end
     local words: {uint32} = {nupp.math.u32.wrap(self.count)}
@@ -374,7 +287,6 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
     if #words * 4 ~= self._kernel._uniformBytes then
         error("nupp: browser GPU uniform block has the wrong size", 2)
     end
-    local memory = storage()
     local allocation = memory.allocate(#words * 4)
     local pointer = memory.pointer(allocation, 0, 1)
     for index, value in ipairs(words) do
@@ -392,13 +304,17 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
     memory.releaseLease(lease)
 end
 
-function gpu.Context.upload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: Span<T>): nil
+function gpu.Context.upload<T>(
+    borrows self: gpu.Context,
+    borrows bufferValue: api.Buffer<T>,
+    borrows source: Span<T>
+): nil
+    local buffer = bufferValue as gpu.Buffer<T>
     live(self)
     local pointer, count = source:ref()
-    if count ~= buffer.count or buffer._released then
+    if count ~= buffer.count or buffer._released or not buffer._root then
         error("nupp: browser GPU upload span length does not match its buffer", 2)
     end
-    local memory = storage()
     local leasePointer = memory.lease as function(
         borrows pointer: const T[?],
         bytes: integer,
@@ -409,7 +325,8 @@ function gpu.Context.upload<T>(borrows self: gpu.Context, borrows buffer: gpu.Bu
     memory.releaseLease(lease)
 end
 
-function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
+    local buffer = bufferValue as gpu.Buffer<T>
     live(self)
     if buffer._released then
         error("nupp: browser GPU buffer was released", 2)
@@ -423,15 +340,15 @@ end
 
 function gpu.Context.readDownloaded<T>(
     borrows self: gpu.Context,
-    borrows buffer: gpu.Buffer<T>,
+    borrows bufferValue: api.Buffer<T>,
     exclusive destination: WriteSpan<T>
 ): nil
+    local buffer = bufferValue as gpu.Buffer<T>
     live(self)
     local pointer, count = destination:ref()
-    if count ~= buffer.count or buffer._released then
+    if count ~= buffer.count or buffer._released or not buffer._root then
         error("nupp: browser GPU download span length does not match its buffer", 2)
     end
-    local memory = storage()
     local leasePointer = memory.lease as function(exclusive pointer: T[?], bytes: integer, writable: boolean?): integer
     local lease = leasePointer(pointer, count * buffer._width, true)
     response.await("gpu", {operation = "runtime-download", buffer = buffer._handle, lease = lease,})
@@ -440,54 +357,81 @@ end
 
 function gpu.Context.download<T>(
     borrows self: gpu.Context,
-    borrows buffer: gpu.Buffer<T>,
+    borrows bufferValue: api.Buffer<T>,
     exclusive destination: WriteSpan<T>
 ): nil
+    local buffer = bufferValue as gpu.Buffer<T>
     self:enqueueDownload(buffer)
     self:synchronize()
     self:readDownloaded(buffer, destination)
 end
 
-function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
+    local buffer = bufferValue as gpu.Buffer<T>
     buffer._released = true
 end
 
-function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernel: gpu.Kernel): nil
+function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernelValue: api.Kernel): nil
+    local kernel = kernelValue as gpu.Kernel
     response.await("gpu", {operation = "runtime-destroy-kernel", kernel = kernel._handle,})
 end
 
-function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive binding: gpu.Binding): nil
+function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive bindingValue: api.Binding): nil
+    local binding = bindingValue as gpu.Binding
     binding._released = true
 end
 
-function gpu.open(): affine(gpu.Context, gpu.destroyContext)
-    response.await("gpu", {operation = "runtime-open",})
-    return new gpu.Context(_closed = false)
+function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
+    error("nupp: linear32 GPU dispatch requires scalar words", 2)
 end
 
-gpu.Layout = gpu.Layout
-gpu.Buffer = gpu.Buffer
-gpu.Shared = gpu.Shared
-gpu.Phases = gpu.Phases
-gpu.Context = gpu.Context
-
-function gpu.compileGenerated(
-    borrows context: gpu.Context,
-    artifacts: gpu.ArtifactSet,
-    readonlyBuffers: integer,
-    writableBuffers: integer,
-    uniformBytes: integer,
-    threads: integer?
-): gpu.Kernel borrows (context)
-    return context:compileGenerated(artifacts, readonlyBuffers, writableBuffers, uniformBytes, threads)
-end
-
-function gpu.bindKernel(
-    borrows context: gpu.Context,
-    borrows kernel: gpu.Kernel,
+function gpu.Context.bindKernel(
+    borrows self: gpu.Context,
+    borrows kernelValue: api.Kernel,
     count: integer
-): gpu.Binding borrows (context)
-    return context:bindKernel(kernel, count)
+): gpu.Binding borrows (self)
+    local kernel = kernelValue as gpu.Kernel
+    live(self)
+    if count < 0 or count > 4294967295 then
+        error("nupp: GPU dispatch count must be a uint32", 2)
+    end
+
+    return new gpu.Binding(
+        _anchor = self,
+        _context = self,
+        _handle = nil,
+        _uniformBytes = kernel._uniformBytes,
+        _readonlyBuffers = kernel._readonlyBuffers,
+        _spanCounts = {},
+        _spanOffsets = {},
+        _kernel = kernel,
+        _read = {},
+        _write = {},
+        _readCounts = {},
+        _writeCounts = {},
+        _readOffsets = {},
+        _writeOffsets = {},
+        _released = false,
+        count = count
+    )
 end
 
-export = gpu
+function gpu.Context.drop(takes self: gpu.Context): nil
+    local state = unsafe release self
+    state._destroy(state)
+end
+
+function gpu.Context.tensor<T>(
+    borrows self: gpu.Context,
+    element: ctype<T>,
+    shape: {integer}
+): api.Buffer<T> borrows (self)
+    return operations.tensor(self, element, shape)
+end
+
+function gpu.open(): affine(api.KernelContext, api.destroyContext)
+    response.await("gpu", {operation = "runtime-open",})
+    return new gpu.Context(_destroy = contextdestroy, _closed = false, _handle = nil)
+end
+
+export const open = gpu.open

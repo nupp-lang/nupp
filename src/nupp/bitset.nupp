@@ -1,7 +1,7 @@
 module nupp.bitset
 
 local data = {}
-local bit: any = rawget(_G, "bit") or rawget(_G, "__nuppBitops")
+local bit: any = require("nupp.runtime.bitops")
 local physical = require("nupp.runtime.storage")
 const band: function(number, number): integer = bit.band
 const bnot: function(number): integer = bit.bnot

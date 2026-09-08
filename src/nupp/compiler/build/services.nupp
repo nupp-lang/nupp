@@ -3,19 +3,46 @@ module nupp.compiler.build.services
 local capabilities = require("nupp.compiler.build.capabilities")
 local deps = require("nupp.compiler.build.deps")
 local fs = require("nupp.compiler.fs")
+local lexer = require("nupp.compiler.lexer")
+
+local builtin = require("nupp.runtime.services.catalog")
 
 local services = {}
+
+--- The checked provider declarations carried by an artifact.
+function services.describe(entries: {any}): {any}
+    local result = {}
+    for _, entry in ipairs(entries) do
+        local item = {}
+        for _, key in ipairs({"service", "name", "api", "contract", "export", "entry", "member", "dependency"}) do
+            item[key] = entry[key]
+        end
+        result[#result + 1] = item
+    end
+    table.sort(result, function(a, b)
+        return a.service == b.service and a.name < b.name or a.service < b.service
+    end)
+
+    return result
+end
 
 local function quote(value: string): string
     return string.format("%q", value)
 end
 
---- Writes the deterministic, lazy service registry for one target. Only target-role
---- dependencies participate; host tools and compile-only declarations never become
---- runtime providers merely because they share a package format.
-function services.write(root, outDir, config, target, records): (boolean?, string?, boolean?)
+--- Writes provider metadata without loading implementations. Only target dependencies
+--- participate.
+function services.write(
+    root,
+    outDir,
+    config,
+    target,
+    records,
+    checkedEntries: {any}?,
+    publish: boolean?
+): (boolean?, string?, boolean?, {any}?)
     local found = {}
-    for _, dependencyName in ipairs(target.dependencies or {}) do
+    for _, dependencyName in ipairs(deps.targetNames(config, target)) do
         local dependency = (config.dependencies or {})[dependencyName]
         local record = deps.record(records, dependencyName, "target")
         local descriptor = record and record.typeRoot and fs.join(record.typeRoot, "capabilities.json") or nil
@@ -27,14 +54,6 @@ function services.write(root, outDir, config, target, records): (boolean?, strin
             for _, entry in ipairs(entries) do
                 if entry.kind == "service" then
                     local service = entry.service as string
-                    if entry.api ~= 1 then
-                        return nil, "service "
-                            .. service
-                            .. "/"
-                            .. entry.name
-                            .. " requires unsupported API "
-                            .. entry.api
-                    end
                     local key = service .. "\0" .. entry.name
                     if found[key] then
                         return nil, "duplicate service provider " .. service .. "/" .. entry.name .. " from " .. found[
@@ -49,44 +68,214 @@ function services.write(root, outDir, config, target, records): (boolean?, strin
                         name = entry.name,
                         entry = entry.entry,
                         member = entry.member,
+                        api = entry.api,
+                        contract = entry.contract,
+                        export = entry.export,
                     }
                 end
             end
         end
     end
 
-    local ordered = {}
-    for _, provider in pairs(found) do
-        ordered[#ordered + 1] = provider
+    local ordered = checkedEntries or {}
+    if checkedEntries == nil then
+        for _, provider in pairs(found) do
+            ordered[#ordered + 1] = provider
+        end
+    end
+    if not publish and #ordered == 0 then
+        return true, nil, false, ordered
     end
     table.sort(ordered, function(left, right)
         return left.service == right.service and left.name < right.name or left.service < right.service
     end)
-    local lines = {"module nupp.service.registry", "", "local registry = {}",}
+    local lines = {
+        "module nupp.runtime.services.artifact",
+        "",
+        "export = {",
+        "    dialect = " .. quote(target.dialect or "luajit") .. ",",
+        "    providers = {"
+    }
     for _, provider in ipairs(ordered) do
-        lines[
-            #lines + 1
-        ] = "registry[" .. quote(provider.service) .. "] = registry[" .. quote(provider.service) .. "] or {}"
-        local expression = "require(" .. quote(provider.entry) .. ")"
-        if provider.member then
-            expression = expression .. "." .. provider.member
+        local fields = {}
+        for _, key in ipairs({"service", "name", "entry", "member", "contract", "export"}) do
+            if provider[key] ~= nil then
+                fields[#fields + 1] = "[" .. quote(key) .. "] = " .. quote(provider[key])
+            end
         end
-        lines[
-            #lines + 1
-        ] = "registry[" .. quote(
-            provider.service
-        ) .. "][" .. quote(provider.name) .. "] = function() return " .. expression .. " end"
+        fields[#fields + 1] = "api = " .. provider.api
+        if provider.members ~= nil then
+            local members = {}
+            for _, member in ipairs(provider.members) do
+                local kinds = {}
+                for _, kind in ipairs(member.kinds) do
+                    kinds[#kinds + 1] = quote(kind)
+                end
+                members[#members + 1] = "{name=" .. quote(member.name) .. ",kinds={" .. table.concat(kinds, ",") .. "}}"
+            end
+            fields[#fields + 1] = "members = {" .. table.concat(members, ",") .. "}"
+        end
+        lines[#lines + 1] = "        {" .. table.concat(fields, ", ") .. "},"
     end
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = "export = registry"
+    lines[#lines + 1] = "    },"
+    lines[#lines + 1] = "}"
     lines[#lines + 1] = ""
 
+    if not publish and fs.exists(fs.join(root, fs.join(outDir, "generated/nupp/runtime/services/artifact.g.nupp"))) then
+        return true, nil, #ordered > 0, ordered
+    end
     local wrote, err = fs.writeFileIfChanged(
-        fs.join(root, fs.join(outDir, "generated/nupp/service/registry.g.nupp")),
+        fs.join(root, fs.join(outDir, "generated/nupp/runtime/services/artifact.g.nupp")),
         table.concat(lines, "\n")
     )
 
-    return wrote, err, #ordered > 0
+    return wrote, err, #ordered > 0, ordered
+end
+
+local function literal(node: any): any
+    if node == nil then
+        return nil
+    end
+    if node.kind == "string" then
+        return lexer.stringValue(node.token.text)
+    end
+    if node.kind == "number" then
+        return tonumber(node.token.text)
+    end
+    local value = node.valuePack and node.valuePack.head[1]
+    if value and value.tag == "literal" then
+        return value.constant
+    end
+
+    return nil
+end
+
+local function identity(root: any, name: string): any?, any?
+    local expressions = {}
+    for _, block in ipairs(root.blocks or {}) do
+        for _, statement in ipairs(block.stats or {}) do
+            local stat = statement.kind == "exportStmt" and statement.stat or statement
+            if stat and stat.kind == "localStmt" then
+                for index, token in ipairs(stat.names or {}) do
+                    expressions[token.text] = (stat.exprs or {})[index]
+                end
+            end
+        end
+    end
+    local expression = expressions[name]
+    local args = expression and expression.kind == "call" and expression.args and expression.args.exprs or {}
+    local function value(node: any): any
+        return literal(node) or (node and node.kind == "name" and literal(expressions[node.token.text]) or nil)
+    end
+
+    return value(args[1]), value(args[2])
+end
+
+local function shape(provider: any): {any}
+    local members = {}
+    local function kinds(t: any, out: {[string]: boolean}): nil
+        if t.tag == "union" then
+            for _, arm in ipairs(t.members) do
+                kinds(arm, out)
+            end
+        elseif t.tag == "genericAlias" then
+            kinds(t.body, out)
+        elseif t.tag == "literal" then
+            kinds(t.base, out)
+        elseif t.tag == "affine" or t.tag == "borrowed" or t.tag == "const" then
+            kinds(t.base or t.inner, out)
+        else
+            out[t.tag] = true
+        end
+    end
+
+    for name, t in pairs(provider.byname or {}) do
+        local unique, ordered = {}, {}
+        kinds(t, unique)
+        for kind in pairs(unique) do
+            ordered[#ordered + 1] = kind
+        end
+        table.sort(ordered)
+        members[#members + 1] = {name = name, kinds = ordered}
+    end
+    table.sort(members, function(a, b)
+        return a.name < b.name
+    end)
+
+    return members
+end
+
+--- Checks catalog identities and loader return types through the target's module graph.
+function services.check(session: any, entries: {any}, root: string, outDir: string): (boolean?, string?)
+    local identities, names = {}, {}
+    for _, entry in ipairs(builtin.entries) do
+        identities[entry.service] = entry.contract .. "." .. entry.export .. ":" .. entry.api
+        names[entry.service .. "/" .. entry.name] = entry
+    end
+    for index, entry in ipairs(entries) do
+        local canonical = entry.contract .. "." .. entry.export .. ":" .. entry.api
+        if identities[entry.service] ~= nil and identities[entry.service] ~= canonical then
+            return nil, "conflicting contract identity for " .. entry.service
+        end
+        identities[entry.service] = canonical
+        local named = entry.service .. "/" .. entry.name
+        if names[named] ~= nil and names[named] ~= entry then
+            return nil, "duplicate service provider " .. named
+        end
+        names[named] = entry
+        local contractPath = session.inc.modulePath(entry.contract) or session.stageBundled(entry.contract)
+        local label = "service " .. entry.service .. "/" .. entry.name
+        if contractPath == nil then
+            return nil, label .. ": contract module not found: " .. entry.contract
+        end
+        local declaration = session.inc.checkFile(contractPath)
+        local exported = declaration.exports and declaration.exports.values[entry.export]
+        local origin = exported and (exported.origin or exported)
+        if not origin or origin.moduleName ~= "nupp.services" or origin.name ~= "Service" then
+            return nil, label .. ": " .. entry.contract .. "." .. entry.export .. " must export a typed Service handle"
+        end
+        local id, api = identity(declaration.result.root, entry.export)
+        if id ~= entry.service or api ~= entry.api then
+            return nil, label .. ": contract identity or API version does not match its declaration"
+        end
+        entry.members = shape(exported.typeArgs[1])
+        local providerPath = session.inc.modulePath(entry.entry) or session.stageBundled(entry.entry)
+        local bundledDeclaration = session.inc.env and session.inc.env.bundled and session.inc.env.bundled[entry.entry]
+        if providerPath ~= nil and providerPath:match(
+            "%.lua$"
+        ) or providerPath == nil and bundledDeclaration == nil then
+            return nil, label .. ": provider requires a .d.nupp declaration or typed Nupp adapter: " .. entry.entry
+        end
+        local provider = providerPath and session.inc.checkFile(providerPath) or nil
+        local providerType = provider and provider.moduleType or bundledDeclaration and bundledDeclaration.type
+        if entry.member ~= nil then
+            providerType = providerType and providerType.byname and providerType.byname[entry.member]
+        end
+        if providerType == nil then
+            return nil, label .. ": provider export is missing"
+        end
+        local matches, reason = require("nupp.compiler.relations").isA(providerType, exported.typeArgs[1])
+        if not matches then
+            return nil, label .. ": NUPP2001: " .. tostring(reason)
+        end
+        local value = "require(" .. quote(entry.entry) .. ")" .. (entry.member and "." .. entry.member or "")
+        local source = "module nupp.runtime.services.catalogcheck" .. index .. "\nlocal contract = require(" .. quote(
+            entry.contract
+        ) .. ")\ncontract." .. entry.export .. ":register(" .. quote(
+            entry.name
+        ) .. ", function() return " .. value .. " end)\n"
+        local path = fs.join(root, fs.join(outDir, "generated/nupp/runtime/services/catalogcheck" .. index .. ".nupp"))
+        session.inc.openGeneratedDocument(path, source)
+        local checked = session.inc.checkFile(path)
+        session.inc.closeDocument(path)
+        for _, diagnostic in ipairs(checked.diags) do
+            if diagnostic.severity == "error" then
+                return nil, label .. ": " .. diagnostic.code .. ": " .. diagnostic.msg
+            end
+        end
+    end
+
+    return true
 end
 
 export = services

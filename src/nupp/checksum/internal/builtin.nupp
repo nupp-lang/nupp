@@ -1,7 +1,18 @@
 @!internal
 module nupp.checksum.internal.builtin
 
-const provider = require("nupp.checksum.provider")
+--[[Built-in Adler-32 and CRC algorithm descriptors and incremental states.
+
+The catalog exposes adler32, crc32-ieee, crc32c, and crc64-ecma with canonical widths.
+Lookup tables for reflected CRC-32 variants are initialized once. Each descriptor
+creates independently owned state; updates borrow byte spans without retaining
+them. value returns a non-consuming uint64 snapshot so callers can continue
+updating. Closing owns no external resources. CRC64 uses ECMA-182 with no reflection,
+zero initialization, and zero final xor. Operations use retained bit methods and
+perform no SPI lookups.
+]]
+
+const provider = require("nupp.runtime.services.checksum")
 const span = require("nupp.mem.span")
 const bit = require("bit")
 

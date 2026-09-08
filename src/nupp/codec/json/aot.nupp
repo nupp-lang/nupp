@@ -10,9 +10,9 @@ module nupp.codec.json.aot
 local eagerDecoder = require("nupp.codec.json.internal.decoder.eager")
 local pullDecoder = require("nupp.codec.json.internal.decode")
 local serdeDecoder = require("nupp.codec.json.internal.decoder.serde")
-local newBuffer = require("string.buffer").new
+local newBuffer = require("nupp.text.buffer").new
 local bit = require("bit")
-local contracts = require("nupp.runtime.backend.contracts")
+local contracts = require("nupp.runtime.services.contracts")
 
 local json = {}
 local ARRAY_MARKER, OBJECT_MARKER, ARRAY_SHAPE = {}, {}, {}
@@ -645,7 +645,7 @@ function json.decodeSerde(schema: any, text: string): (any?, string?)
     return value, nil
 end
 
-function json.decodeSerdeBuffer(schema: any, exclusive input: string.buffer.Buffer): (any?, string?)
+function json.decodeSerdeBuffer(schema: any, exclusive input: nupp.text.buffer.Buffer): (any?, string?)
     local value, code, position = serdeDecoder.decode(
         input,
         nil,
@@ -697,7 +697,7 @@ function json.verifiedString(text: string): any
     return result
 end
 
-function json.writer(exclusive out: string.buffer.Buffer, nullValue: any?): any
+function json.writer(exclusive out: nupp.text.buffer.Buffer, nullValue: any?): any
     local parts: {string} = {}
     local bytes: integer = 0
     local stack: {any} = {}

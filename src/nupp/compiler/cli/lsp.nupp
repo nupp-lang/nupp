@@ -229,6 +229,17 @@ local OPERATION_SPECS: {
             },
         }
     ),
+    implementation = operationSpec(
+        "implementation",
+        "Find registered implementations of a service member",
+        "nupp lsp implementation [options] <file> <line> <column>",
+        {},
+        {
+            type = "object",
+            properties = {implementations = {type = "array", items = reportMod.LOCATION}},
+            required = {"implementations"},
+        }
+    ),
     references = operationSpec(
         "references",
         "Find the semantic references to the symbol at a position",
@@ -344,7 +355,16 @@ local OPERATION_SPECS: {
 }
 
 -- The operations in the order help lists them.
-local OPERATION_ORDER = {"inspect", "definition", "references", "symbols", "rename", "actions", "trace-check"}
+local OPERATION_ORDER = {
+    "inspect",
+    "definition",
+    "implementation",
+    "references",
+    "symbols",
+    "rename",
+    "actions",
+    "trace-check"
+}
 
 --- The group's option list, rendered from the operations' grammars rather than written
 --- beside them: an option the group lists is one some operation parses, and an option
@@ -415,6 +435,7 @@ local command = spec.command{
         "nupp lsp serve [root]",
         "nupp lsp inspect [options] <file> <line> <column>",
         "nupp lsp definition [options] <file> <line> <column>",
+        "nupp lsp implementation [options] <file> <line> <column>",
         "nupp lsp references [options] [--include-declaration] <file> <line> <column>",
         "nupp lsp symbols [options] [--file FILE] [pattern]",
         "nupp lsp rename [options] [-w|--write] <file> <line> <column> <new-name>",
@@ -713,12 +734,15 @@ local function runInspect(client, opts)
     return true
 end
 
-local function runDefinition(client, opts)
+local function runDefinition(client, opts, implementation: boolean?)
     local path, _, position, err = target(client, opts)
     if not path then
         return nil, err
     end
-    local result, requestErr = client.request("textDocument/definition", positionParams(path, position))
+    local result, requestErr = client.request(
+        implementation and "textDocument/implementation" or "textDocument/definition",
+        positionParams(path, position)
+    )
     if requestErr then
         return nil, requestErr
     end
@@ -740,7 +764,9 @@ local function runDefinition(client, opts)
         end
     end
     if opts.format == "json" then
-        if #values > 1 then
+        if implementation then
+            jsonOutput({implementations = jsonArray(values)})
+        elseif #values > 1 then
             jsonOutput({definition = values[1], definitions = jsonArray(values)})
         else
             jsonOutput({definition = values[1] or json.NULL})
@@ -1137,6 +1163,9 @@ end
 local OPERATIONS = {
     inspect = runInspect,
     definition = runDefinition,
+    implementation = function(client, opts)
+        return runDefinition(client, opts, true)
+    end,
     references = runReferences,
     symbols = runSymbols,
     rename = runRename,

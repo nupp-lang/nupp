@@ -1,0 +1,16 @@
+module nupp.runtime.provider.nativebuffer
+
+local native = require("string.buffer")
+local {type Buffer} = require("nupp.text.buffer.types")
+
+--- Adapts the host buffer object to the shared FIFO contract.
+export function new(size: (integer | table)?, options: table?): Buffer
+    if options ~= nil then
+        return native.new(size, options) as any
+    end
+    if size ~= nil then
+        return native.new(size) as any
+    end
+
+    return native.new() as any
+end

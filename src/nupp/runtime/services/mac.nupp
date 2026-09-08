@@ -1,0 +1,65 @@
+module nupp.runtime.services.mac
+
+--[[Canonical `nupp.mac` API 1 catalog for keyed authentication algorithms.
+
+Setup selects `service` before requiring `nupp.mac`. A selected catalog overrides
+matching built-ins and may add names; an unselected facade uses the built-in
+catalog. Descriptors are checked and retained at module initialization, so context
+creation and finalization perform no SPI resolution. Catalog discovery executes
+no provider. Importing this declaration creates no keyed or storage state.
+
+Algorithm names match their map keys. digestSize is a positive fixed byte count;
+hmac-sha256 always produces 32 bytes. create receives the retained descriptor and
+a raw-byte key and returns independently owned State using the shared digest
+protocol. Updates must not retain input views. finish writes exactly digestSize
+bytes without consuming state; the facade closes state on success and failure.
+Cleanup consumes ownership without suspension. Providers define private records
+satisfying the canonical State interface rather than substituting its identity.
+]]
+
+local services = require("nupp.services")
+local {type State} = require("nupp.runtime.services.digest")
+
+--- Fixed-output authentication algorithm and a factory for keyed state.
+export interface Algorithm
+    --- Canonical algorithm name matching the catalog key.
+    readonly name: string
+
+    --- Fixed output size in bytes.
+    readonly digestSize: integer
+
+    --- Creates independent owned state from the raw-byte secret key.
+    create: function(self: Algorithm, key: string): State
+end
+
+--- A selectable catalog of keyed algorithm descriptors.
+export interface Provider
+    --- Algorithms keyed by canonical name; additional descriptor fields are allowed.
+    readonly algorithms: {[string]: Algorithm}
+end
+
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+--- Select during setup before the MAC facade loads.
+export const service: services.Service<Provider> = services.define("nupp.mac", 1, nil, comptime do
+    return shape(nupp.reflect(Provider))
+end)

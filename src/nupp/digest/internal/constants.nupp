@@ -1,6 +1,14 @@
 @!internal
 module nupp.digest.internal.constants
 
+--[[Fixed constants for the incremental digest word implementations.
+
+Tables encode the standardized initial states, rotations, and round constants
+used by the private digest algorithms. They are shared immutable implementation
+data within one Lua state and contain no provider selection or mutable digest
+state. Callers must not mutate these tables.
+]]
+
 -- SHA-512 words are high/low pairs: fractional square roots (initial state)
 -- and cube roots (round constants) of the first primes, as specified in RFC 6234.
 -- MD5 constants are floor(2^32 * abs(sin(i))), as specified in RFC 1321.

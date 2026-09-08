@@ -1,0 +1,15 @@
+module nupp.runtime.workersprovider
+local contracts = require("nupp.runtime.services.workers")
+export const provider = contracts.service:assembleOptional(function(): contracts.Provider?
+    if package.preload["nupp.workers.native"] ~= nil or package.loaded["nupp.workers.native"] ~= nil then
+        local native = contracts.service:lookup("nupp.native")
+        if native ~= nil then
+            return native
+        end
+    end
+    if rawget(_G, "__nuppWasmHost") ~= nil then
+        return contracts.service:lookup("nupp.browser")
+    end
+
+    return nil
+end)

@@ -52,21 +52,15 @@ local derivedByType: any = setmetatable({}, {__mode = "k"})
 -- kept here rather than assumed.
 local reflect: any = nil
 
--- The module value is required only by the allocating encode wrappers. `writeJSON`
--- receives its buffer, so that path neither allocates one nor loads the constructor.
-local bufferModule: any = nil
+local bufferModule = require("nupp.text.buffer")
 local serdeRuntime: any = nil
 
 ----------------------------------------------------------------------------
 -- Writing JSON
 ----------------------------------------------------------------------------
 
-local function newBuffer(): string.buffer.Buffer
-    if bufferModule == nil then
-        bufferModule = require("string.buffer")
-    end
-
-    return bufferModule.new() as string.buffer.Buffer
+local function newBuffer(): nupp.text.buffer.Buffer
+    return bufferModule.new() as nupp.text.buffer.Buffer
 end
 
 --- Copies a field default so two instances never share one table.

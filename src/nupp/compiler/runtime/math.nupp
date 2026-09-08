@@ -23,14 +23,7 @@ because the compiler answers most of it directly. What the bootstrap installs is
 `install`, below.
 ]]
 
---- Where the bit operations come from, wherever this is running.
----
---- LuaJIT's `bit` when there is one, and the `numeric.bitops` provider a portable
---- target selected otherwise. This module is the run-time half of `nupp.math` on
---- every target the compiler emits for, so it cannot name a facility only one of
---- them has: `bit` is absent from the `lua51` surface, and a `lua51` program that
---- reads `nupp.math` as a value gets here just the same.
-local bitops: any = rawget(_G, "bit") or rawget(_G, "__nuppBitops")
+local bitops: any = require("nupp.runtime.bitops")
 
 const band = bitops.band
 const bnot = bitops.bnot
@@ -40,8 +33,7 @@ const lshift = bitops.lshift
 const rshift = bitops.rshift
 const arshift = bitops.arshift
 
---- The seam's contract is the seven above, so the three below are written in terms
---- of them rather than required of a provider that never promised them.
+--- Rotations and signed conversion use the required bit operations.
 const tobit: function(number): number = bitops.tobit or function(value: number): number
     return band(value, -1)
 end

@@ -1,0 +1,210 @@
+module nupp.compiler.lsp.services
+
+local catalog = require("nupp.runtime.services.catalog")
+local parser = require("nupp.compiler.parser")
+local lexer = require("nupp.compiler.lexer")
+local cst = require("nupp.compiler.cst")
+local text = require("nupp.compiler.lsp.text")
+local wire = require("nupp.compiler.lsp.wire")
+local fs = require("nupp.compiler.fs")
+local bundled = require("nupp.compiler.bundled")
+
+local services = {}
+
+local function literal(node: any): any
+    if node == nil then
+        return nil
+    end
+    if node.kind == "string" then
+        return lexer.stringValue(node.token.text)
+    end
+    if node.kind == "number" then
+        return tonumber(node.token.text)
+    end
+    if node.kind ~= "tableExpr" then
+        return nil
+    end
+    local value = {}
+    for _, field in ipairs(node.fields or {}) do
+        if field.kind == "fieldNamed" then
+            value[field.name.text] = literal(field.value)
+        elseif field.kind == "fieldBracket" then
+            value[literal(field.key)] = literal(field.value)
+        else
+            value[#value + 1] = literal(field.value or field.expr)
+        end
+    end
+
+    return value
+end
+
+local function entries(inc: any): {any}
+    local out, paths, seen = {}, {}, {}
+    for _, entry in ipairs(catalog.entries) do
+        out[#out + 1] = entry
+    end
+    local direct = inc.modulePath("nupp.runtime.services.artifact")
+    if direct ~= nil then
+        paths[#paths + 1] = direct
+    end
+    local config = require("nupp.compiler.build.manifest").load(inc.env.rootDir)
+    local build = config and config.build or {}
+    local function addOutput(directory: string): nil
+        paths[#paths + 1] = fs.join(inc.env.rootDir, directory .. "/generated/nupp/runtime/services/artifact.g.nupp")
+    end
+
+    addOutput(build.outDir or "build")
+    for _, target in pairs(build.targets or {}) do
+        addOutput(target.outDir or build.outDir or "build")
+    end
+    table.sort(paths)
+    for _, path in ipairs(paths) do
+        if not seen[path] then
+            seen[path] = true
+            local source = text.readFile(path)
+            if source ~= nil then
+                local parsed = parser.parse(source, path)
+                local stat = cst.exportAssignment(parsed.root)
+                local data = stat and literal(stat.value)
+                for _, entry in ipairs(data and data.providers or {}) do
+                    out[#out + 1] = entry
+                end
+            end
+        end
+    end
+
+    return out
+end
+
+local function declaration(inc: any, name: string): (any, string?)
+    local path = inc.modulePath(name)
+    if path ~= nil then
+        return inc.checkFile(path), path
+    end
+    local record = inc.env.bundled[name]
+    if not record or record.source == nil or record.resource == nil then
+        return nil, nil
+    end
+    local original = bundled.sourcePathFor(record.resource)
+    if original ~= nil and text.readFile(original) == record.source then
+        path = original
+    else
+        path = fs.join(inc.env.rootDir, ".nupp-cache/lsp-sources" .. record.resource)
+        if text.readFile(path) ~= record.source then
+            local written = fs.writeFile(path, record.source)
+            if not written then
+                return nil, nil
+            end
+        end
+    end
+
+    return {moduleType = record.type, exports = record.exports}, path
+end
+
+local function contractType(inc: any, entry: any): (any, string?)
+    local checked, path = declaration(inc, entry.contract)
+    local handle = checked and checked.exports and checked.exports.values[entry.export]
+    return handle and handle.typeArgs and handle.typeArgs[1], path
+end
+
+local function fieldDefinition(provider: any, name: string): any
+    return provider and provider.fieldDefs and provider.fieldDefs[name]
+end
+
+--- The interface member a service-backed facade exports.
+function services.definition(inc: any, moduleName: string, memberName: string): any
+    local id = catalog.facades[moduleName]
+    if id == nil then
+        return nil
+    end
+    for _, entry in ipairs(entries(inc)) do
+        if entry.service == id then
+            local provider, path = contractType(inc, entry)
+            local definition = fieldDefinition(provider, memberName)
+            if definition ~= nil then
+                local located = {}
+                for key, value in pairs(definition) do
+                    located[key] = value
+                end
+                located.filename = path or definition.filename
+                return located
+            end
+        end
+    end
+
+    return nil
+end
+
+local function sameDefinition(left: any, right: any): boolean
+    return left ~= nil
+        and right ~= nil
+        and left.filename == right.filename
+        and left.token ~= nil
+        and right.token ~= nil
+        and left.token.offset == right.token.offset
+end
+
+--- Finds catalog exports and authored registrations without loading an implementation.
+function services.implementations(inc: any, member: any, token: any): {any}
+    local locations, seen = wire.array({}), {}
+    local name = member and member.name or token and token.text
+    if name == nil then
+        return locations
+    end
+    local id = member and catalog.facades[member.moduleName]
+    local definition = member and services.definition(inc, member.moduleName, name) or token and token.definition
+    local function add(path: string, at: any): nil
+        if at == nil then
+            return
+        end
+        local key = path .. ":" .. at.offset
+        local source = text.readFile(path)
+        if source ~= nil and not seen[key] then
+            seen[key] = true
+            locations[#locations + 1] = {uri = text.pathToUri(path), range = text.tokenRange(source, at)}
+        end
+    end
+
+    for _, entry in ipairs(entries(inc)) do
+        local field = fieldDefinition(contractType(inc, entry), name)
+        if (id ~= nil and entry.service == id) or sameDefinition(definition, field) then
+            local checked, path = declaration(inc, entry.entry)
+            if checked ~= nil and path ~= nil then
+                local exported = checked.moduleType
+                if entry.member ~= nil then
+                    exported = exported and exported.byname and exported.byname[entry.member]
+                end
+                local at = fieldDefinition(
+                    exported,
+                    name
+                ) or checked.exports and checked.exports.valueDefs and checked.exports.valueDefs[name]
+                add(path, at and at.token or cst.firstToken(checked.result and checked.result.root))
+            end
+        end
+    end
+    for _, path in ipairs(inc.projectFiles()) do
+        local source = text.readFile(path)
+        if source ~= nil and source:find("register", 1, true) then
+            local checked = inc.checkFile(path)
+            require("nupp.compiler.lsp.tree").walkNodes(checked.result and checked.result.root, function(node: any): nil
+                if node.kind == "methodCall" and node.name and node.name.text == "register" then
+                    local receiver = node.obj and node.obj.inferredType
+                    local origin = receiver and receiver.origin
+                    if origin and origin.moduleName == "nupp.services" and origin.name == "Service" then
+                        local provider = receiver.typeArgs and receiver.typeArgs[1]
+                        if sameDefinition(definition, fieldDefinition(provider, name)) then
+                            add(path, node.name)
+                        end
+                    end
+                end
+            end)
+        end
+    end
+    table.sort(locations, function(left, right)
+        return left.uri == right.uri and left.range.start.line < right.range.start.line or left.uri < right.uri
+    end)
+
+    return locations
+end
+
+export = services

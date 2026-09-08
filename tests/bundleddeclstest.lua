@@ -47,8 +47,6 @@ local BUNDLED = {
     "nupp.mem.pool",
     "nupp.mem.arena",
     "nupp.events",
-    "nupp.runtime.backend.portable",
-    "nupp.runtime.backend.wasm",
     "nupp.profile.zone",
     "nupp.profile",
 }
@@ -70,27 +68,16 @@ end
 
 local M = {}
 
-function M.projectedUuidUsesSelectedProviderWithoutNativeCompilerServices()
-    local backends = require("nupp.compiler.backends")
-    local descriptor = assert(backends.describe("browser-uuid", {["data.uuid"] = "nupp.runtime.browser.crypto",}))
-    local resolution = {modules = {descriptor}, seams = {}, byEffect = {}}
-    for _, seam in ipairs(descriptor.seams) do
-        resolution.seams[seam.name] = seam
-    end
-    local env = envMod.new(".", {
-        memoryOnly = true,
-        nativeCompilerServices = false,
-        backendResolution = resolution,
-        typeRoots = {},
-    })
+function M.uuidUsesItsContractWithoutNativeCompilerServices()
+    local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})
     local uuid = assert(env.resolveModule(env, "nupp.uuid"))
-    local provider = assert(env.resolveModule(env, "nupp.runtime.browser.crypto"))
-    assertEq(uuid.byname.v4, provider.byname.uuid4, "v4 uses the selected provider signature")
-    assertEq(uuid.byname.v7, provider.byname.uuid7, "v7 uses the selected provider signature")
-    assertEq(uuid.byname.randomBytes, nil, "unprojected provider members stay private")
+    local provider = assert(env.resolveModule(env, "nupp.runtime.uuid"))
+    assertEq(uuid.byname.v4, provider.byname.uuid4, "v4 retains the canonical contract signature")
+    assertEq(uuid.byname.v7, provider.byname.uuid7, "v7 retains the canonical contract signature")
+    assertEq(uuid.byname.randomBytes, nil, "unrelated operations are absent")
     local exports = assert(env.resolveModuleExports(env, "nupp.uuid"))
     assertEq(exports.values.v4, uuid.byname.v4, "module and export resolution agree")
-    assertEq(rawget(env.bundled, "nupp.runtime.native"), nil, "the native implementation was not loaded")
+    assertEq(rawget(env.bundled, "nupp.runtime.provider.nativeuuid"), nil, "the native implementation was not loaded")
 end
 
 -- What `pcall` hands back on failure is whatever was raised, so the error slot is

@@ -12,6 +12,8 @@ local uri = require("nupp.io.uri")
 const {type Path} = require("nupp.io.path")
 local io = require("nupp.io")
 local ownedReader = require("nupp.io.internal.ownedreader")
+local contracts = require("nupp.runtime.services.http")
+local memory = require("nupp.runtime.wasm") as any
 local http = {}
 
 const messages = require("nupp.io.http.messages")
@@ -43,7 +45,7 @@ http.Request = messages.Request
 
 type http.Body = io.Reader
 
-record http.Response is nupp.Closeable
+record http.Response is contracts.Response
     status: integer
     version: http.Version?
     url: uri.URI
@@ -112,7 +114,7 @@ local function makeResponse(
     )
 end
 
-record http.Client is nupp.Closeable
+record http.Client is contracts.Client
     private _options: http.Options
     private _closed: boolean
     private _pending: integer
@@ -208,7 +210,6 @@ record http.Client is nupp.Closeable
             -- iterate as header pairs; no field means no headers.
             descriptor.headers = headers
         end
-        local memory = require("nupp.runtime.provider.wasmstorage") as any
         local leaseRead = memory.lease as function(
             borrows pointer: const uint8[?],
             count: integer,
@@ -288,12 +289,8 @@ record http.Client is nupp.Closeable
     end
 end
 
-function http.reader(takes reader: messages.Reader, length: integer?, contentType: string?): http.ReaderBody
-    return new messages.ReaderBody(reader = reader, length = length, contentType = contentType)
+local function client(options: messages.Options?): contracts.Client
+    return new http.Client(options)
 end
 
-function http.file(path: string | Path, contentType: string?): http.FileBody
-    return new http.FileBody(path = path, contentType = contentType)
-end
-
-export = http
+export = {client = client, capabilities = http.capabilities}

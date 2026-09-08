@@ -38,6 +38,140 @@ type native.Feature = {
 }
 
 local FEATURES: {[string]: native.Feature} = {
+    [
+        "runtime.crypto"
+    ] = {name = "crypto_runtime", module = "nupp.crypto", runtimeModule = "nupp.crypto", portableRuntime = true},
+    [
+        "runtime.storage"
+    ] = {
+        name = "storage_runtime",
+        module = "nupp.io.storage",
+        runtimeModule = "nupp.io.storage",
+        portableRuntime = true
+    },
+    [
+        "runtime.http"
+    ] = {
+        name = "http_runtime",
+        module = "nupp.io.http",
+        runtimeModule = "nupp.io.http",
+        portableRuntime = true,
+        requires = {"runtime.suspension"}
+    },
+    [
+        "runtime.uri_provider"
+    ] = {
+        name = "uri_provider",
+        module = "nupp.io.uri.provider",
+        runtimeModule = "nupp.io.uri.provider",
+        portableRuntime = true
+    },
+    [
+        "runtime.path_provider"
+    ] = {
+        name = "path_provider",
+        module = "nupp.io.path.provider",
+        runtimeModule = "nupp.io.path.provider",
+        portableRuntime = true
+    },
+    [
+        "runtime.process"
+    ] = {
+        name = "process_runtime",
+        module = "nupp.io.process",
+        runtimeModule = "nupp.io.process",
+        portableRuntime = true,
+        requires = {"runtime.suspension"}
+    },
+    [
+        "runtime.tls"
+    ] = {
+        name = "tls_runtime",
+        module = "nupp.io.tls",
+        runtimeModule = "nupp.io.tls",
+        portableRuntime = true,
+        requires = {"runtime.suspension"}
+    },
+    [
+        "runtime.net"
+    ] = {
+        name = "net_runtime",
+        module = "nupp.io.net",
+        runtimeModule = "nupp.io.net",
+        portableRuntime = true,
+        requires = {"runtime.suspension"}
+    },
+    [
+        "runtime.time"
+    ] = {
+        name = "time_runtime",
+        module = "nupp.time",
+        runtimeModule = "nupp.time",
+        portableRuntime = true,
+        requires = {"runtime.suspension"}
+    },
+    [
+        "runtime.workers"
+    ] = {
+        name = "workers_runtime",
+        module = "nupp.workers",
+        runtimeModule = "nupp.workers",
+        portableRuntime = true,
+        requires = {"runtime.suspension"}
+    },
+    [
+        "runtime.services"
+    ] = {
+        name = "services",
+        module = "nupp.services",
+        runtimeModule = "nupp.services",
+        portableRuntime = true,
+        requires = {"runtime.service_catalog"}
+    },
+    [
+        "runtime.service_catalog"
+    ] = {name = "service_catalog", runtimeModule = "nupp.runtime.services.catalog", portableRuntime = true},
+    [
+        "runtime.int64"
+    ] = {
+        name = "int64",
+        runtimeModule = "nupp.runtime.int64",
+        portableRuntime = true,
+        requires = {"runtime.service_contracts"}
+    },
+    [
+        "runtime.structvalue"
+    ] = {
+        name = "structvalue",
+        runtimeModule = "nupp.runtime.structvalue",
+        portableRuntime = true,
+        requires = {"runtime.service_contracts"}
+    },
+    [
+        "runtime.wasm"
+    ] = {
+        name = "wasm",
+        runtimeModule = "nupp.runtime.wasm",
+        portableRuntime = true,
+        requires = {"runtime.service_contracts"}
+    },
+    ["runtime.simd"] = {name = "simd", runtimeModule = "nupp.runtime.provider.scalarsimd", portableRuntime = true},
+    [
+        "runtime.uuid"
+    ] = {
+        name = "uuid_runtime",
+        exports = {"nupp.uuid.v4", "nupp.uuid.v7"},
+        runtimeModule = "nupp.runtime.uuid",
+        portableRuntime = true
+    },
+    [
+        "runtime.bitops"
+    ] = {
+        name = "bitops",
+        runtimeModule = "nupp.runtime.bitops",
+        portableRuntime = true,
+        requires = {"runtime.service_contracts"}
+    },
     ["runtime.managed"] = {name = "managed", runtimeModule = "nupp.runtime.managed", portableRuntime = true},
     [
         "runtime.io_internal_ownedreader"
@@ -65,18 +199,18 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
     },
     [
-        "runtime.backend_contracts"
+        "runtime.service_contracts"
     ] = {
-        name = "backend_contracts",
-        runtimeModule = "nupp.runtime.backend.contracts",
+        name = "service_contracts",
+        runtimeModule = "nupp.runtime.services.contracts",
         portableRuntime = true,
-        requires = {}
+        requires = {"runtime.services"}
     },
     [
-        "runtime.net_backend"
+        "runtime.net_contract"
     ] = {
-        name = "net_backend",
-        runtimeModule = "nupp.runtime.backend.net",
+        name = "net_contract",
+        runtimeModule = "nupp.runtime.services.net",
         portableRuntime = true,
         requires = {"runtime.net_types"}
     },
@@ -87,10 +221,10 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.net_internal"
     ] = {name = "net_internal", runtimeModule = "nupp.io.net.internal", portableRuntime = true, requires = {}},
     [
-        "runtime.tls_backend"
+        "runtime.tls_contract"
     ] = {
-        name = "tls_backend",
-        runtimeModule = "nupp.runtime.backend.tls",
+        name = "tls_contract",
+        runtimeModule = "nupp.runtime.services.tls",
         portableRuntime = true,
         requires = {"runtime.tls_types"}
     },
@@ -98,10 +232,10 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.tls_types"
     ] = {name = "tls_types", runtimeModule = "nupp.io.tls.types", portableRuntime = true, requires = {}},
     [
-        "runtime.process_backend"
+        "runtime.process_contract"
     ] = {
-        name = "process_backend",
-        runtimeModule = "nupp.runtime.backend.process",
+        name = "process_contract",
+        runtimeModule = "nupp.runtime.services.process",
         portableRuntime = true,
         requires = {"runtime.process_types"}
     },
@@ -114,7 +248,7 @@ local FEATURES: {[string]: native.Feature} = {
         name = "http_messages",
         runtimeModule = "nupp.io.http.messages",
         portableRuntime = true,
-        requires = {"runtime.backend_contracts"}
+        requires = {"runtime.service_contracts"}
     },
 
     [
@@ -151,7 +285,9 @@ local FEATURES: {[string]: native.Feature} = {
 
     ["runtime.test"] = {name = "test", module = "nupp.test", runtimeModule = "nupp.test", portableRuntime = true,},
     ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true,},
-    ["stdlib.lpeg.re"] = {name = "lpeg_re", module = "re", requires = {"native.lpeg"},},
+    [
+        "stdlib.lpeg.re"
+    ] = {name = "lpeg_re", module = "re", runtimeModule = "re", portableRuntime = true, requires = {"native.lpeg"},},
     -- The native JSON effect binds the package-private codec provider.
     [
         "native.json"
@@ -174,13 +310,13 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.gpu_layoutfacts"
     ] = {name = "gpu_layoutfacts", runtimeModule = "nupp.gpu.layoutfacts", portableRuntime = true},
     ["runtime.gpu_api"] = {name = "gpu_api", runtimeModule = "nupp.gpu", portableRuntime = true},
-    ["native.gpu"] = {
+    ["runtime.gpu"] = {name = "gpu_runtime", module = "nupp.gpu", runtimeModule = "nupp.gpu", portableRuntime = true},
+    [
+        "native.gpu"
+    ] = {
         name = "gpu",
-        -- The public facade selects this provider by default. Recording the
-        -- feature on the implementation means an alternate backend can replace
-        -- the facade without accidentally carrying the native library with it.
-        modules = {"nupp.gpu", "nupp.gpu.internal"},
-        runtimeModule = "nupp.gpu.internal",
+        modules = {"nupp.runtime.provider.nativegpu"},
+        runtimeModule = "nupp.runtime.provider.nativegpu",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "gpu",
@@ -191,11 +327,19 @@ local FEATURES: {[string]: native.Feature} = {
     -- UTF-8 itself, which is Nupp and so asks the host for nothing. The record
     -- exists to attribute the module rather than to select anything.
     ["runtime.data_utf8"] = {name = "data_utf8", modules = {"nupp.text.utf8"},},
-    ["stdlib.peg"] = {name = "peg", runtimeModule = "nupp.compiler.runtime.peg", requires = {"native.lpeg"},},
+    [
+        "stdlib.peg"
+    ] = {
+        portableRuntime = true,
+        name = "peg",
+        runtimeModule = "nupp.compiler.runtime.peg",
+        requires = {"native.lpeg"},
+    },
     [
         "stdlib.peg.compile"
     ] = {
         name = "peg_compile",
+        portableRuntime = true,
         globals = {"nupp.peg.compile"},
         runtimeModule = "nupp.compiler.runtime.peg",
         requires = {"native.lpeg"},
@@ -223,13 +367,18 @@ local FEATURES: {[string]: native.Feature} = {
         name = "io",
         modules = {"nupp.io"},
         runtimeModule = "nupp.io",
+        portableRuntime = true,
         requires = {"runtime.io_internal_bytes", "runtime.io_internal_scalars", "runtime.io_internal_lines"},
     },
-    -- LuaJIT's buffer, which the standard library builds strings with. Recorded so a
-    -- target that selected a `text.buffer` provider installs it: nothing stages here,
-    -- because on LuaJIT the module is the runtime's own and on a portable target it
-    -- is whichever provider the backend named.
-    ["runtime.text_buffer"] = {name = "text_buffer", module = "string.buffer",},
+    [
+        "runtime.text_buffer"
+    ] = {
+        name = "text_buffer",
+        module = "nupp.text.buffer",
+        runtimeModule = "nupp.text.buffer",
+        portableRuntime = true,
+        requires = {"runtime.service_contracts"}
+    },
     -- `portableRuntime` because the run-time half of `nupp.math` names nothing
     -- LuaJIT alone has: its bit operations come from whatever answers
     -- `numeric.bitops` on the target, and its `binary32` conversions are
@@ -237,47 +386,55 @@ local FEATURES: {[string]: native.Feature} = {
     -- for therefore compiles it rather than staging the compiler's own artifact.
     [
         "stdlib.math"
-    ] = {name = "math", globals = {"nupp.math"}, runtimeModule = "nupp.compiler.runtime.math", portableRuntime = true,},
+    ] = {
+        name = "math",
+        globals = {"nupp.math"},
+        runtimeModule = "nupp.compiler.runtime.math",
+        portableRuntime = true,
+        requires = {"runtime.bitops"},
+    },
     ["native.path"] = {
         name = "path",
         -- The public module records the facility at the call site; its internal
         -- provider records it when the module graph is followed directly.
-        modules = {"nupp.io.path", "nupp.io.path.provider"},
+        modules = {"nupp.runtime.provider.nativepath"},
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "filesystem",
         host = "native-files",
         library = "nupp_native_v2",
         binary = true,
-        runtimeModule = "nupp.io.path.provider",
+        runtimeModule = "nupp.runtime.provider.nativepath",
         requires = {"runtime.path", "runtime.native_v2"},
     },
     [
         "runtime.path"
     ] = {
         name = "path_runtime",
+        module = "nupp.io.path",
         runtimeModule = "nupp.io.path",
         portableRuntime = true,
-        requires = {"runtime.pathtext"},
+        requires = {"runtime.pathtext", "runtime.path_provider"},
     },
     ["runtime.pathtext"] = {name = "pathtext", runtimeModule = "nupp.io.path.pathtext", portableRuntime = true,},
     [
         "native.uri"
     ] = {
         name = "uri",
-        modules = {"nupp.io.uri", "nupp.io.uri.provider"},
-        runtimeModule = "nupp.io.uri.provider",
+        modules = {"nupp.runtime.provider.nativeuri"},
+        runtimeModule = "nupp.runtime.provider.nativeuri",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "uri",
         library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.backend_contracts", "runtime.uri", "runtime.native_v2"},
+        requires = {"runtime.service_contracts", "runtime.uri", "runtime.native_v2"},
     },
     [
         "runtime.uri"
     ] = {
         name = "uri_runtime",
+        module = "nupp.io.uri",
         runtimeModule = "nupp.io.uri",
         portableRuntime = true,
         requires = {"runtime.uri_pathtext"}
@@ -287,7 +444,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.uuid"
     ] = {
         name = "uuid",
-        exports = {"nupp.uuid.v4", "nupp.uuid.v7"},
+        modules = {"nupp.runtime.provider.nativeuuid"},
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "uuid",
@@ -314,6 +471,7 @@ local FEATURES: {[string]: native.Feature} = {
         -- own copy of. Deliberately not `binary`, so no manifest can force it on or
         -- off -- nothing selects this, it is implied by what waits.
         name = "suspension",
+        module = "nupp.suspension",
         runtimeModule = "nupp.suspension",
         portableRuntime = true,
     },
@@ -331,8 +489,8 @@ local FEATURES: {[string]: native.Feature} = {
         "native.time"
     ] = {
         name = "time",
-        module = "nupp.time",
-        runtimeModule = "nupp.time",
+        module = "nupp.runtime.provider.nativetime",
+        runtimeModule = "nupp.runtime.provider.nativetime",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "base",
@@ -345,8 +503,8 @@ local FEATURES: {[string]: native.Feature} = {
         -- The public surface, and only that: listening, connecting, and the
         -- connections either produces. Rust owns every platform handle behind
         -- the ABI-v2 resource boundary.
-        module = "nupp.io.net",
-        runtimeModule = "nupp.io.net",
+        module = "nupp.runtime.provider.nativenet",
+        runtimeModule = "nupp.runtime.provider.nativenet",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "net",
@@ -354,7 +512,7 @@ local FEATURES: {[string]: native.Feature} = {
         library = "nupp_native_v2",
         binary = true,
         requires = {
-            "runtime.net_backend",
+            "runtime.net_contract",
             "runtime.net_types",
             "runtime.net_internal",
             "runtime.suspension",
@@ -366,8 +524,8 @@ local FEATURES: {[string]: native.Feature} = {
         -- Rustls encrypts a stream the Rust network provider already owns. TLS
         -- therefore extends that same resource boundary instead of borrowing a
         -- descriptor from a second native stack.
-        module = "nupp.io.tls",
-        runtimeModule = "nupp.io.tls",
+        module = "nupp.runtime.provider.nativetls",
+        runtimeModule = "nupp.runtime.provider.nativetls",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "tls",
@@ -375,7 +533,7 @@ local FEATURES: {[string]: native.Feature} = {
         library = "nupp_native_v2",
         binary = true,
         requires = {
-            "runtime.tls_backend",
+            "runtime.tls_contract",
             "runtime.tls_types",
             "native.net",
             "runtime.suspension",
@@ -389,25 +547,25 @@ local FEATURES: {[string]: native.Feature} = {
         -- readiness waiting -- reach Nupp under a separate internal binding, because a
         -- global that a program can name is a global a program will use, and the
         -- backend ABI is not something to promise by accident.
-        module = "nupp.io.process",
-        runtimeModule = "nupp.io.process",
+        module = "nupp.runtime.provider.nativeprocess",
+        runtimeModule = "nupp.runtime.provider.nativeprocess",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "process",
         host = "native-process",
         library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.process_backend", "runtime.process_types", "runtime.suspension", "runtime.native_v2"},
+        requires = {"runtime.process_contract", "runtime.process_types", "runtime.suspension", "runtime.native_v2"},
     },
     [
         "native.workers"
     ] = {
         name = "workers",
-        module = "nupp.workers",
+        module = "nupp.runtime.provider.workers",
         host = "workers",
         binary = true,
-        runtimeModule = "nupp.workers",
-        requires = {"runtime.suspension", "runtime.tasks"},
+        runtimeModule = "nupp.runtime.provider.workers",
+        requires = {"runtime.suspension", "runtime.tasks", "runtime.workers"},
     },
     [
         "native.sharedbytes"
@@ -431,8 +589,8 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {name = "heap", module = "nupp.mem.heap", runtimeModule = "nupp.mem.heap", requires = {"runtime.spanview"},},
     ["native.http"] = {
         name = "http",
-        module = "nupp.io.http",
-        runtimeModule = "nupp.io.http",
+        module = "nupp.runtime.provider.nativehttp",
+        runtimeModule = "nupp.runtime.provider.nativehttp",
         provider = "nupp_native_v2",
         providerDriver = "native-rust",
         providerFeature = "http",
@@ -452,11 +610,6 @@ local FEATURES: {[string]: native.Feature} = {
             "stdlib.io",
         },
     },
-    -- SHA-256 stopped being native when `nupp.digest.internal.sha256` replaced the C
-    -- one, so this selects a runtime module rather than a provider. The effect keeps
-    -- its `native.` spelling: an effect identifier is what recorded effects and stamped
-    -- binaries carry, and renaming one to describe an implementation change would
-    -- invalidate every artifact that already names it.
     [
         "native.sha256"
     ] = {
@@ -465,8 +618,15 @@ local FEATURES: {[string]: native.Feature} = {
         runtimeModule = "nupp.digest.internal.sha256",
         portableRuntime = true,
     },
-    ["native.system"] = {name = "system", module = "nupp.system", requires = {"runtime.native_v2"},},
-    ["runtime.crypto"] = {name = "crypto", module = "nupp.crypto", requires = {"runtime.native_v2"},},
+    [
+        "runtime.system"
+    ] = {name = "system_runtime", module = "nupp.system", runtimeModule = "nupp.system", portableRuntime = true},
+    [
+        "native.system"
+    ] = {name = "system", module = "nupp.runtime.provider.nativesystem", requires = {"runtime.native_v2"},},
+    [
+        "native.crypto"
+    ] = {name = "crypto", module = "nupp.runtime.provider.nativecrypto", requires = {"runtime.native_v2"},},
 }
 
 local byGlobal, byModule, byModuleMember, byName = {}, {}, {}, {}

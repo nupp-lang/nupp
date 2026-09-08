@@ -1,0 +1,126 @@
+@!internal
+module nupp.gpu.types
+
+local {type Span, type WriteSpan} = require("nupp.mem.span")
+local {type Layout as TensorLayout} = require("nupp.gpu.layout")
+local api = require("nupp.gpu.api")
+local gpu = {}
+
+--- A checked logical tensor layout independent of its element and allocation.
+--- @export
+type gpu.Layout = TensorLayout
+
+--- The portable floor reserved for one generated workgroup. Backends may
+--- support more, but generated kernels deliberately do not depend on it.
+--- @export
+const gpu.PORTABLE_WORKGROUP_THREADS = 256
+
+--- The portable workgroup-scratch floor in bytes. Generated kernels are
+--- refused at compile time when their statically sized scratch exceeds it.
+--- @export
+const gpu.PORTABLE_SCRATCH_BYTES = 16384
+
+--- One typed resident device range. A root buffer owns an allocation; a
+--- subview shares it with a checked element offset. Storage is not
+--- CPU-addressable, so upload and download explicitly cross that boundary.
+--- @export
+record gpu.Buffer<T> is api.Buffer<T>
+    readonly _anchor: any
+    readonly _handle: any
+    readonly _width: integer
+    readonly _offset: integer
+    readonly _capacity: integer
+    _released: boolean
+    readonly _root: boolean
+    _shape: {integer}
+    _strides: {integer}
+
+    --- Number of elements, kept with the allocation.
+    readonly count: integer
+
+    --- Logical tensor dimensions. The returned table is a copy.
+    dimensions: function(borrows self: gpu.Buffer<T>): {integer}
+
+    --- Physical element strides. The returned table is a copy.
+    strides: function(borrows self: gpu.Buffer<T>): {integer}
+
+    layout: function(borrows self: gpu.Buffer<T>): TensorLayout
+    view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (self)
+
+    --- Creates an allocation-free checked subview.
+    subview: function(borrows self: gpu.Buffer<T>, origin: {integer}, shape: {integer}): gpu.Buffer<T> borrows (self)
+end
+
+--- One compiled compute entry owned by its context.
+--- @internal
+record gpu.Kernel is api.Kernel
+    readonly _anchor: any
+    readonly _handle: any
+    readonly _uniformBytes: integer
+    readonly _readonlyBuffers: integer
+    readonly _writableBuffers: integer
+    readonly _threads: integer
+end
+
+--- The canonical shader artifact emitted for one verified native GPU kernel.
+--- @internal
+type gpu.ArtifactSet = api.ArtifactSet
+
+gpu.ArtifactSet = api.ArtifactSet
+
+--- A compiler-generated kernel attached to its resident buffers. User source
+--- receives a more specific generated wrapper; this erased value is the shared
+--- runtime implementation underneath it.
+--- @internal
+
+--- Statically sized, zero-based storage shared by one CPU workgroup.
+---
+--- GPU AOT replaces this ordinary representation with workgroup address-space
+--- storage. Keeping its indexing zero-based makes the interpreted CPU body and
+--- the shader body use exactly the same authored indices.
+--- @export
+record gpu.Shared<T> is api.Shared<T>
+    _values: {T}
+    readonly count: integer
+
+    metamethod __len: function(borrows self: gpu.Shared<T>): integer
+    metamethod __index: function(borrows self: gpu.Shared<T>, index: integer): T
+    metamethod __newindex: function(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
+end
+
+--- The ordered stages and scratch belonging to one workgroup.
+--- @export
+record gpu.Phases is api.Phases
+    readonly _size: integer
+
+    --- Allocates fresh zero-based scratch for this workgroup.
+    scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
+
+    --- Runs one stage to completion in ascending local-index order.
+    run: function(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
+
+    --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
+    --- tree. The sum is left in element zero.
+    reduceSumF32: function(borrows self: gpu.Phases, exclusive values: api.Shared<float>): nil
+
+    --- Computes one deterministic inclusive u32 prefix sum. `temporary` is a
+    --- same-sized scratch array used for disjoint ping-pong stages; the result
+    --- is left in `values`.
+    inclusiveScanU32: function(
+        borrows self: gpu.Phases,
+        exclusive values: api.Shared<uint32>,
+        exclusive temporary: api.Shared<uint32>
+    ): nil
+end
+
+type gpu.ContextToken = api.ContextToken
+gpu.destroyContext = api.destroyContext
+
+--- A WGPU compute device and its current asynchronous command stream.
+--- @export
+
+function gpu.markClosed(state: any): nil
+    state._closed = true
+end
+
+export = gpu

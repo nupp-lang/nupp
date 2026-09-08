@@ -503,17 +503,11 @@ function resolve.install(c: state.Checker): nil
         c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
 
         local origin = (t.origin or t) as T.Nominal
-        local selectedGpu = c.opts.backendResolution
-            and c.opts.backendResolution.seams
-            and c.opts.backendResolution.seams[
-            "compute.gpu"
-        ]
         local isGpuBuffer = origin.name == "Buffer" and (
             origin.moduleName == "nupp.gpu"
             or origin.moduleName == "nupp.gpu.internal"
-            or origin.moduleName == "nupp.runtime.browser.webgpu.internal"
-            or selectedGpu
-            and origin.moduleName == selectedGpu.runtimeModule
+            or origin.moduleName == "nupp.gpu.types"
+            or origin.moduleName == "nupp.gpu.api"
         )
         local storageGeneric = (
             origin.moduleName == "nupp.mem.span" and (

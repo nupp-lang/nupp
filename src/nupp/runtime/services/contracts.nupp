@@ -1,0 +1,263 @@
+module nupp.runtime.services.contracts
+
+const services = require("nupp.services")
+local {type Buffer as SharedBuffer} = require("nupp.text.buffer.types")
+
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+export interface BitopsProvider
+    readonly tobit: function(value: number): integer
+    readonly tohex: function(value: number, digits: number?): string
+    readonly rol: function(value: number, count: number): integer
+    readonly ror: function(value: number, count: number): integer
+    readonly bswap: function(value: number): integer
+    readonly band: function(first: number, ...: number): integer
+    readonly bor: function(first: number, ...: number): integer
+    readonly bxor: function(first: number, ...: number): integer
+    readonly bnot: function(value: number): integer
+    readonly lshift: function(value: number, count: number): integer
+    readonly rshift: function(value: number, count: number): integer
+    readonly arshift: function(value: number, count: number): integer
+end
+
+export const bitops: services.Service<BitopsProvider> = services.define("numeric.bitops", 1, nil, comptime do
+    return shape(nupp.reflect(BitopsProvider))
+end)
+
+export interface TextBufferProvider
+    readonly new: function(size: (integer | table)?, options: table?): SharedBuffer
+end
+
+export const buffer: services.Service<TextBufferProvider> = services.define("text.buffer", 1, nil, comptime do
+    return shape(nupp.reflect(TextBufferProvider))
+end)
+
+--- Cryptographically secure randomness for the executing host.
+export interface CryptoProvider
+    --- Returns exactly count random bytes. Accepts integers from zero through
+    --- 1048576; zero returns an empty string. Raises on invalid counts or failure.
+    readonly randomBytes: function(count: integer): string
+end
+
+export const crypto: services.Service<CryptoProvider> = services.define("host.crypto", 1, nil, comptime do
+    return shape(nupp.reflect(CryptoProvider))
+end)
+
+export type CastElements = function<T>(element: ctype<T>, pointer: any): any
+
+export interface CstorageProvider
+    readonly boundedCount: function(borrows source: any, count: integer): integer
+    readonly representation: string
+    readonly integers: Int64Provider?
+    readonly structs: StructvalueProvider?
+    readonly host: WasmProvider?
+    readonly layout: (function(subject: any): any)?
+    readonly scalar: function(kind: string): any
+    readonly descriptor: function(value: any): any
+    readonly reference: (function(resolve: function(): any): any)?
+    readonly allocateArray: function(element: any, count: integer): any
+    readonly allocateBytes: function(count: integer): uint8[?]
+    readonly borrowString: function(borrows bytes: string): const uint8[?] borrows (bytes)
+    readonly castBytes: function(borrows pointer: any): const uint8[?] borrows (pointer)
+    readonly castElements: CastElements
+    readonly copy: function(borrows destination: any, borrows source: any, count: integer): nil
+    readonly fill: function(destination: any, count: integer, value: integer): nil
+    readonly sizeOf: function(element: any): integer
+    readonly string: function(borrows source: any, count: integer): string
+    readonly decodeUint8: function(bytes: string): uint32
+    readonly encodeUint8: function(value: uint32): string
+    readonly decodeInt8: function(bytes: string): int32
+    readonly encodeInt8: function(value: int32): string
+    readonly decodeUint16: function(bytes: string): uint32
+    readonly encodeUint16: function(value: uint32): string
+    readonly decodeInt16: function(bytes: string): int32
+    readonly encodeInt16: function(value: int32): string
+    readonly decodeUint32: function(bytes: string): uint32
+    readonly encodeUint32: function(value: uint32): string
+    readonly decodeInt32: function(bytes: string): int32
+    readonly encodeInt32: function(value: int32): string
+    readonly decodeUint64: function(bytes: string): uint64
+    readonly encodeUint64: function(value: uint64): string
+    readonly decodeInt64: function(bytes: string): int64
+    readonly encodeInt64: function(value: int64): string
+    readonly decodeFloat32: function(bytes: string): float
+    readonly encodeFloat32: function(value: number): string
+    readonly decodeFloat64: function(bytes: string): number
+    readonly encodeFloat64: function(value: number): string
+end
+
+export const cstorage: services.Service<
+    CstorageProvider
+> = services.define("representation.cstorage", 1, nil, comptime do
+    return shape(nupp.reflect(CstorageProvider))
+end)
+
+export record HttpCapabilities
+    --- Response bytes become available before the whole response arrives.
+    streamingResponse: boolean
+
+    --- Request bodies may be read incrementally from a reader or file.
+    streamingRequest: boolean
+
+    --- Proxy and per-host certificate policy can be configured by the caller.
+    transportPolicy: boolean
+
+    --- Redirect and connection limits can be enforced by the caller.
+    connectionPolicy: boolean
+
+    --- The negotiated HTTP version is observable.
+    protocolVersion: boolean
+end
+
+export interface Int64Provider
+    readonly int64: function(value: any): any
+    readonly uint64: function(value: any): any
+    readonly add: function(left: any, right: any): any
+    readonly sub: function(left: any, right: any): any
+    readonly mul: function(left: any, right: any): any
+    readonly div: function(left: any, right: any): any
+    readonly mod: function(left: any, right: any): any
+    readonly pow: function(left: any, right: any): any
+    readonly neg: function(value: any): any
+    readonly band: function(left: any, right: any): any
+    readonly bor: function(left: any, right: any): any
+    readonly bxor: function(left: any, right: any): any
+    readonly bnot: function(value: any): any
+    readonly lshift: function(value: any, count: number): any
+    readonly rshift: function(value: any, count: number): any
+    readonly arshift: function(value: any, count: number): any
+    readonly compare: function(left: any, right: any): number
+    readonly toNumber: function(value: any): number
+    readonly toString: function(value: any): string
+end
+
+export const int64: services.Service<Int64Provider> = services.define("numeric.int64", 1, nil, comptime do
+    return shape(nupp.reflect(Int64Provider))
+end)
+
+export type MarkContainer = function<T is table>(takes value: T): T preserves value
+
+export interface JsonProvider
+    readonly arrayOf: function(shape: any?): any
+    readonly asArray: MarkContainer
+    readonly asObject: MarkContainer
+    readonly isArray: function(value: any): boolean
+    readonly decode: function(text: string, nullValue: any?): any
+    readonly encode: function(value: any, nullValue: any?): string
+    readonly serialize: function(value: any, nullValue: any?): string
+    readonly encoded: function(value: any, nullValue: any?): any
+    readonly encodedString: function(value: string): any
+    readonly pull: function(text: string, shape: any, nullValue: any?): any
+    readonly verified: function(text: string): any
+    readonly verifiedString: function(text: string): any
+    readonly writer: function(exclusive out: SharedBuffer, nullValue: any?): any
+    readonly NULL: any
+    readonly EMPTY_ARRAY: table
+    readonly EMPTY_OBJECT: table
+    readonly compileSerde: (function(plan: any, unknownMembers: string): any)?
+    readonly decodeSerde: (function(schema: any, text: string): (any?, string?))?
+    readonly decodeSerdeBuffer: (function(schema: any, exclusive input: SharedBuffer): (any?, string?))?
+end
+
+export const json: services.Service<JsonProvider> = services.define("data.json", 2, nil, comptime do
+    return shape(nupp.reflect(JsonProvider))
+end)
+
+export interface PathProvider
+    readonly separator: function(): string
+    readonly currentDirectory: function(): (string?, string?)
+    readonly canonicalize: function(path: string): (string?, string?)
+end
+
+export const path: services.Service<PathProvider> = services.define("host.path", 1, nil, comptime do
+    return shape(nupp.reflect(PathProvider))
+end)
+
+export interface StorageProvider
+    readonly get: function(name: string): string?
+    readonly set: function(name: string, value: string): nil
+    readonly remove: function(name: string): nil
+    readonly clear: function(): nil
+end
+
+export const storage: services.Service<StorageProvider> = services.define("host.storage", 1, nil, comptime do
+    return shape(nupp.reflect(StorageProvider))
+end)
+
+export interface StructvalueProvider
+    readonly scalar: function(kind: string): any
+    readonly array: function(element: any, count: integer): any
+    readonly define: function(layout: any, methods: table): any
+    readonly referenceValued: boolean
+end
+
+export interface TimeProvider
+    readonly wakeAt: function(deadline: number, resume: function(boolean): nil): function(): nil
+    readonly now: function(): number
+    readonly wallTime: function(): number
+    readonly sleep: function(milliseconds: number): nil
+    readonly sleepUntil: function(deadline: number): nil
+end
+
+export const time: services.Service<TimeProvider> = services.define("host.time", 1, nil, comptime do
+    return shape(nupp.reflect(TimeProvider))
+end)
+
+export record UriParts
+    text: string
+    scheme: string
+    authority: string?
+    username: string
+    password: string?
+    host: string?
+    port: integer?
+    path: string
+    query: string?
+    fragment: string?
+end
+
+export interface UriTextProvider
+    readonly parse: function(text: string): (UriParts?, string?)
+end
+
+export const uri: services.Service<UriTextProvider> = services.define("host.uri", 1, nil, comptime do
+    return shape(nupp.reflect(UriTextProvider))
+end)
+
+export interface UuidProvider
+    readonly uuid4: function(): string
+    readonly uuid7: function(): string
+end
+
+export const uuid: services.Service<UuidProvider> = services.define("data.uuid", 1, nil, comptime do
+    return shape(nupp.reflect(UuidProvider))
+end)
+
+export interface WasmProvider
+    readonly allocate: function(bytes: integer): any
+    readonly pointer: function(allocation: any, index: integer, stride: integer): any
+    readonly offset: function(pointer: any, count: integer): any
+    readonly load: function(pointer: any, byteOffset: integer, kind: string): any
+    readonly store: function(pointer: any, byteOffset: integer, kind: string, value: any): nil
+    readonly copy: function(destination: any, source: any, bytes: integer): nil
+    readonly descriptor: function(value: any): any
+end

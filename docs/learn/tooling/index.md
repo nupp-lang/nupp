@@ -37,7 +37,6 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 | `ownership-audit` | Report resource obligations and transfers | [ownership.md](../runtime/ownership/index.md) |
 | `coverage` | Aggregate Nupp coverage data | [testing.md](../projects/testing.md) |
 | `completions` | Generate shell completion definitions | [cli.md](../../reference/cli.md) |
-| `backend` | Inspect and verify capability backends | [libraries.md](../projects/portability/libraries.md) |
 | `rock` | Create and package typed Lua rocks | [LuaRocks](../projects/integrations/luarocks.md) |
 | `tasks` | List or inspect manifest targets | [build.md](../projects/build.md) |
 | `task` | Run a configured project task | [project-tasks.md](../projects/project-tasks.md) |

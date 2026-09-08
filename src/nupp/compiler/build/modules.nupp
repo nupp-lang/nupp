@@ -21,9 +21,9 @@ local cache = require("nupp.compiler.build.cache")
 local deps = require("nupp.compiler.build.deps")
 local materializeObserve = require("nupp.compiler.materialize.observe")
 local progress = require("nupp.compiler.build.progress")
-local backends = require("nupp.compiler.backends")
 local constspecialize = require("nupp.compiler.constspecialize")
 local native = require("nupp.compiler.native")
+local serviceCatalog = require("nupp.runtime.services.catalog")
 
 local normalize, join = fs.normalize, fs.join
 local readFile, writeFile = fs.readFile, fs.writeFile
@@ -142,12 +142,11 @@ type modules.Result = {
 
     materializations: {any},
     derives: {any},
+    services: {any},
 
     --- Every native feature the built modules asked for, merged.
-    effects: {[string]: any}?,
+    effects: {[string]: any}?
 
-    --- Checked static descriptors for the target's selected backend modules.
-    backends: any?
 }
 
 --- A check asked about named files rather than about the project.
@@ -185,11 +184,7 @@ record modules.Session
     --- answers where it landed, or nil when the compiler carries no such module. A
     --- module the project can already reach answers its own path and stages nothing.
     ---
-    --- On the session because two phases need it and they run in order: the
-    --- ahead-of-time pass resolves the target's backends before the module build
-    --- does, and a backend the compiler ships has no path until it is staged. One
-    --- owner of the tree is also what keeps the second phase from emptying it under
-    --- the first.
+    --- Shared by catalog validation, AOT, and module compilation.
     stageBundled: function(string, boolean?): string?
 
     --- Stages the compiler-carried native GPU runtime -- the layout, the native
@@ -526,18 +521,13 @@ end
 --- What a module's readers depend on, as one digest: its type, the definition
 --- metadata that changes how an export may be used (deprecations, comptime-only
 --- aliases), the nominal, derive and comptime-function fingerprints the checker
---- publishes beside it, and the backend that resolved its seams. An external
+--- publishes beside it. An external
 --- module adds its source hash, since nothing else of a declaration file is
 --- recorded.
 ---
 --- The one function for it, so the build's records and the hot session's
 --- snapshots cannot disagree about what an interface change is.
-function modules.interfaceHash(
-    moduleType: nupp.compiler.types.Type?,
-    exports: any,
-    backendFingerprint: string?,
-    externalSourceHash: string?
-): string
+function modules.interfaceHash(moduleType: nupp.compiler.types.Type?, exports: any, externalSourceHash: string?): string
     exports = exports or {}
 
     return hash.digest(
@@ -551,7 +541,7 @@ function modules.interfaceHash(
             exports.deriveInterfaceFingerprint or ""
         ) .. "\0comptime-functions:" .. (
             exports.comptimeFunctionFingerprint or ""
-        ) .. "\0backend:" .. (backendFingerprint or "") .. (externalSourceHash and ("\0" .. externalSourceHash) or "")
+        ) .. (externalSourceHash and ("\0" .. externalSourceHash) or "")
     )
 end
 
@@ -634,8 +624,6 @@ local function copyModuleRecord(record)
         coverage = record.coverage,
         materializations = record.materializations,
         derives = record.derives,
-        backend = record.backend,
-        backendHash = record.backendHash,
         specializationHash = record.specializationHash,
     }
 end
@@ -675,7 +663,7 @@ local function openSession(
     local rocks = deps.rockPaths(root, config, target, dependencies)
     local ambientTypeRoots = deps.typeRoots(root, config, dependencies)
     local checkMs: {[string]: number} = {}
-    local stagedRoot = join(root, join(outDir, "cache/backend-runtime-source"))
+    local stagedRoot = join(root, join(outDir, "cache/runtime-source"))
     local stagedReady = false
     local open: {{
         startedAt: number,
@@ -725,11 +713,8 @@ local function openSession(
         observe = observer,
     })
 
-    -- Built-in backends are checked source carried by the compiler, just like
-    -- dependency backends are checked source carried by a rock. Materialize a
-    -- selected built-in before descriptor resolution so an installed compiler can
-    -- select it without the application copying Nupp's own source tree.
-    local function stageBundled(name: string, replaceTypeOnly: boolean?): string?
+    local stageBundled: function(string, boolean?): string?
+    stageBundled = function(name: string, replaceTypeOnly: boolean?): string?
         local existing = inc.modulePath(name)
         if existing ~= nil and not (replaceTypeOnly and envMod.isDependencyTypePath(inc.env, existing)) then
             return existing
@@ -741,7 +726,7 @@ local function openSession(
         -- over a vendored library, and that library is plain Lua the compiler carries
         -- rather than Nupp it compiles. Staging it is what puts it on the ordinary
         -- path: linked like any dependency, carried into the artifact like any module.
-        for _, suffix in ipairs({".nupp", ".g.nupp", "/init.nupp", "/init.g.nupp", ".lua"}) do
+        for _, suffix in ipairs({".nupp", ".g.nupp", "/init.nupp", "/init.g.nupp", ".d.nupp", ".lua"}) do
             resource = "/" .. name:gsub("%.", "/") .. suffix
             source = carried.source(resource)
             if source ~= nil then
@@ -753,7 +738,7 @@ local function openSession(
         end
         if not stagedReady then
             nupp.io.files.remove(stagedRoot, true)
-            assert(fs.mkdir(stagedRoot), "cannot create backend runtime source staging tree")
+            assert(fs.mkdir(stagedRoot), "cannot create runtime source staging tree")
             inc.env.roots[#inc.env.roots + 1] = stagedRoot
             stagedReady = true
         end
@@ -763,11 +748,15 @@ local function openSession(
             "/init%.nupp$"
         ) and "/init.nupp" or resource:match(
             "%.g%.nupp$"
-        ) and ".g.nupp" or resource:match("%.lua$") and ".lua" or ".nupp"
+        ) and ".g.nupp" or resource:match("%.d%.nupp$") and ".d.nupp" or resource:match("%.lua$") and ".lua" or ".nupp"
         local path = join(stagedRoot, name:gsub("%.", "/") .. suffix)
         local wrote, problem = writeFile(path, source)
         assert(wrote, problem)
         inc.openDocument(path, source)
+        local header = inc.projectHeader(path)
+        for _, dependency in ipairs(header and header.dependencies or {}) do
+            stageBundled(dependency, replaceTypeOnly)
+        end
 
         return path
     end
@@ -775,7 +764,9 @@ local function openSession(
     local function stageGpuRuntime(): nil
         stageBundled("nupp.gpu.internal")
         stageBundled("nupp.gpu.layout")
-        stageBundled("nupp.runtime.native")
+        if target.dialect ~= "lua51" then
+            stageBundled("nupp.runtime.native")
+        end
         stageBundled("nupp.gpu")
     end
 
@@ -860,86 +851,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
-    -- Built-in backends are checked source carried by the compiler, just like
-    -- dependency backends are checked source carried by a rock. Materialize a
-    -- selected built-in before descriptor resolution so an installed compiler
-    -- can select it without the application copying Nupp's own source tree.
     local linkedModules: {[string]: boolean} = {}
     local stageBundled = opened.stageBundled
-
-    for _, name in ipairs(target.backends or {}) do
-        stageBundled(name)
-    end
-    local backendResolution, backendErr, backendFailure = backends.resolve(inc, target.backends)
-    if not backendResolution then
-        local diagnostic = {
-            filename = backendFailure and backendFailure.path or join(root, "nupp.lua"),
-            line = 1,
-            col = 1,
-            offset = 0,
-            length = 1,
-            code = "NUPP3008",
-            msg = backendErr,
-            help = "select a checked module exporting one constant backend declaration",
-            docs = "docs/neps/0013-dialects-and-capability-backends.md",
-        }
-        if diagnostics ~= nil then
-            diagnostics[#diagnostics + 1] = diagnostic
-        else
-            require("nupp.compiler.diagnostics").report({diagnostic})
-        end
-
-        return nil, "project has errors"
-    end
-    for _, descriptor in ipairs(backendResolution.modules or {}) do
-        for _, seam in ipairs(descriptor.seams or {}) do
-            local owner = deps.runtimeModuleOwner(root, config, target, newState.dependencies, seam.runtimeModule)
-            seam.runtimeDependency = owner
-            if backendResolution.seams[seam.name] then
-                backendResolution.seams[seam.name].runtimeDependency = owner
-            end
-        end
-    end
-    inc.setBackendResolution(backendResolution)
-
-    -- A selected backend is executable runtime support, including when its checked
-    -- source came from a rock's versioned `nupp/` root. Compile that source for this
-    -- target and materialize the compiler-owned factories it requires as ordinary Lua
-    -- files beside the application. The staging tree contains real `.nupp` source and
-    -- is never part of the artifact; it exists only because bundled compiler sources
-    -- have no project path of their own.
-    -- The tree itself is the session's, made where the first module is staged into
-    -- it. Every backend reaches at least the three compiler-owned modules below.
-    local hasBackends = #(backendResolution.modules or {}) > 0
-
-    -- A checked standard-library facade reached through a selected seam is runtime
-    -- support too. Its source is normally an external compiler type root, but an
-    -- artifact cannot depend on the compiler's own build tree. Link each real source
-    -- dependency of a module that reaches a selected effect, then let the ordinary
-    -- dependency walk close over it. Declaration-only `.d.nupp` modules still describe
-    -- third-party runtime modules and therefore remain external.
-
-    --- Whether a selected seam replaces this whole public module with a provider.
-    ---
-    --- What the artifact requires there is the provider, so the module it stands in
-    --- for is not compiled for this target -- and usually could not be, which is why
-    --- the seam exists.
-    local function seamReplaces(dependency: string): boolean
-        for _, seam in pairs(backendResolution.seams or {}) do
-            if seam.modules and seam.modules[dependency] ~= nil then
-                return true
-            end
-            -- An implementation the seam replaces without replacing the declared
-            -- interface at that name. The default one is not compiled, because a
-            -- provider was selected instead of it; what a caller is checked against
-            -- is the contract, which stays where it was declared.
-            if seam.implementationModules and seam.implementationModules[dependency] ~= nil then
-                return true
-            end
-        end
-
-        return false
-    end
 
     local linkingRuntimeSource: {[string]: boolean} = {}
     local linkedRuntimeSource: {[string]: boolean} = {}
@@ -959,15 +872,82 @@ local function buildModules(root: string, outDir: string, config: Config, target
         or target.kind == "binary"
         or target.kind == "component"
 
+    local enqueueLinked: function(string): nil
+    local checkedProviders: {[string]: boolean} = {}
+    local function compatibleProvider(name: string): boolean
+        local found = false
+        for _, provider in ipairs(serviceCatalog.entries) do
+            if provider.entry == name then
+                found = true
+                if serviceCatalog.supports(provider, target.dialect or "luajit") then
+                    return true
+                end
+            end
+        end
+
+        return not found
+    end
+
+    local function runtimeImports(name: string, code: string): any
+        local required = gen.runtimeModules(code)
+        local service = serviceCatalog.facades[name]
+        if service ~= nil then
+            for _, provider in ipairs(serviceCatalog.entries) do
+                if provider.service == service and serviceCatalog.supports(provider, target.dialect or "luajit") then
+                    required[#required + 1] = provider.entry
+                end
+            end
+        elseif name == "nupp.runtime.services.artifact" then
+            for _, provider in ipairs(config._serviceEntries or {}) do
+                required[#required + 1] = provider.contract
+                required[#required + 1] = provider.entry
+            end
+        end
+        local unique, seen = {}, {}
+        for _, dependency in ipairs(required) do
+            if not seen[dependency] and compatibleProvider(dependency) then
+                seen[dependency] = true
+                unique[#unique + 1] = dependency
+            end
+        end
+        table.sort(unique)
+
+        return jsonArray(unique)
+    end
+
     local linkRuntimeSource: function(name: string): nil
     linkRuntimeSource = function(name: string): nil
-        if linkedRuntimeSource[name] or linkingRuntimeSource[name] or seamReplaces(name) then
+        if linkedRuntimeSource[name] or linkingRuntimeSource[name] or not compatibleProvider(name) then
             return
         end
         linkingRuntimeSource[name] = true
+        if not checkedProviders[name] then
+            checkedProviders[name] = true
+            for _, provider in ipairs(serviceCatalog.entries) do
+                if provider.entry == name and serviceCatalog.supports(provider, target.dialect or "luajit") then
+                    local valid, problem = require(
+                        "nupp.compiler.build.services"
+                    ).check(opened, {provider}, root, outDir)
+                    if not valid then
+                        error(problem, 0)
+                    end
+                end
+            end
+        end
+        local service = serviceCatalog.facades[name]
+        if service ~= nil then
+            for _, provider in ipairs(serviceCatalog.entries) do
+                if provider.service == service and serviceCatalog.supports(provider, target.dialect or "luajit") then
+                    linkRuntimeSource(provider.entry)
+                end
+            end
+        end
         local path = inc.modulePath(name) or stageBundled(name)
         if path ~= nil and not path:match("%.d%.nupp$") then
             linkedModules[name] = true
+            if enqueueLinked ~= nil then
+                enqueueLinked(name)
+            end
             for _, dependency in ipairs(inc.moduleDependencies(path)) do
                 linkRuntimeSource(dependency)
             end
@@ -1006,9 +986,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- closure, while `moduleDependencies` also contains erased type-only imports and
     -- would make those imports executable by accident.
     local function linkPackagedRuntime(name: string): nil
-        if seamReplaces(name) then
-            return
-        end
         local existing = inc.modulePath(name)
         if not selfContainedTarget or (
             existing ~= nil and not envMod.isDependencyTypePath(inc.env, existing) and not packagedCheckSources[name]
@@ -1037,10 +1014,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- Assigned once the work queue exists, below. Staging a module puts its source
     -- on the path; compiling it is a separate step, and a module nothing requires
     -- reaches the queue only by being put there.
-    local enqueueLinked: function(string): nil
 
     local function linkFeatureRuntime(effects: any): nil
-        if not portableTarget then
+        if not portableTarget and not selfContainedTarget then
             return
         end
         local named: {[string]: boolean} = {}
@@ -1049,7 +1025,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
         for effect in pairs(native.expand(named)) do
             local feature = native.feature(effect)
-            if feature ~= nil and feature.runtimeModule ~= nil and feature.portableRuntime then
+            if feature ~= nil and feature.runtimeModule ~= nil and (feature.portableRuntime or not portableTarget) then
                 local runtimeModule = feature.runtimeModule as string
                 linkRuntimeSource(runtimeModule)
                 if linkedModules[runtimeModule] and enqueueLinked ~= nil then
@@ -1060,50 +1036,18 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
 
     local function linkSelectedDependencies(name: string, names: any, effects: any): nil
-        linkFeatureRuntime(effects)
-        local selected = linkedModules[name] == true and not packagedRuntimeModules[name]
-        for _, effect in ipairs(effects) do
-            selected = selected or backendResolution.byEffect[effect] ~= nil
+        if serviceCatalog.facades[name] ~= nil then
+            linkRuntimeSource(name)
         end
+        linkFeatureRuntime(effects)
+        local selected = name == "nupp.services" or serviceCatalog.facades[
+            name
+        ] ~= nil or (linkedModules[name] == true and not packagedRuntimeModules[name])
         if not selected then
             return
         end
         for _, dependency in ipairs(names) do
             linkRuntimeSource(dependency)
-        end
-    end
-
-    -- A selected whole-module provider is source in its own right. Link its
-    -- ordinary dependencies before the work queue checks it, just as it would
-    -- for a source module reached from an application. Otherwise a provider
-    -- whose contract module was replaced can see declarations but not the
-    -- implementation modules it requires.
-    for _, descriptor in ipairs(backendResolution.modules or {}) do
-        for _, seam in ipairs(descriptor.seams or {}) do
-            linkRuntimeSource(seam.runtimeModule)
-        end
-    end
-
-    if hasBackends then
-        for _, name in ipairs({
-            "nupp.runtime.backend",
-            "nupp.runtime.seam.registry",
-            "nupp.runtime.backend.contracts",
-            "nupp.runtime.seam.module",
-        }) do
-            linkedModules[name] = true
-            stageBundled(name)
-        end
-    end
-    for _, descriptor in ipairs(backendResolution.modules or {}) do
-        linkedModules[descriptor.module] = true
-        for _, seam in ipairs(descriptor.seams or {}) do
-            local providerPath = inc.modulePath(seam.runtimeModule)
-            if providerPath and providerPath:match("%.nupp$") then
-                linkedModules[seam.runtimeModule] = true
-            elseif providerPath == nil and stageBundled(seam.runtimeModule) ~= nil then
-                linkedModules[seam.runtimeModule] = true
-            end
         end
     end
 
@@ -1162,20 +1106,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- entry. Entries never say what exists.
     local queue, queuedPaths = {}, {}
 
-    -- A `lua51` target does not compile what a selected seam replaced. What the
-    -- artifact requires there is the provider, and the implementation standing in for
-    -- it is the one thing the dialect is least likely to be able to express -- being
-    -- unable to express it is usually why the seam exists. The bundles were reported
-    -- against the FFI implementations of physical storage and of the path and URI
-    -- providers, none of which they contain and none of which stock Lua 5.1 could run.
-    --
-    -- Only there. A native target compiles the replaced implementation perfectly well,
-    -- and what a payload carries is decided from what was compiled: skipping these
-    -- everywhere left an installed component without `nupp.runtime.backend.contracts`
-    -- at the preload its entry reads.
     local function seed(name, path)
+        if name == "nupp.runtime.services.artifact" then
+            return
+        end
         path = normalize(path)
-        if queuedPaths[path] or (portableTarget and seamReplaces(name)) then
+        if queuedPaths[path] then
             return
         end
         queuedPaths[path] = true
@@ -1349,22 +1285,26 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- that would mix two copies of nominal standard-library types in one checker
     -- session. Portable targets still compile the carried source below.
     local addingCarriedRuntime: {[string]: boolean} = {}
-    local copiedRuntime: {[string]: boolean} = {}
+    local carriedRuntime: {[string]: boolean} = {}
+    local runtimeSourceRoot = join(root, join(outDir, "cache/runtime-source"))
     local function addCarriedRuntime(name: string): boolean
-        if portableTarget or not selfContainedTarget then
+        if portableTarget then
             return false
         end
         -- The worker lane bridge is supplied by the selected host stub. The compiler
         -- build carries a failure stub only so its own non-worker process can name
         -- the module; embedding that stub would shadow the host implementation.
-        if inc.runtimeProjectedModule(name) or name == "nupp.workers.native" then
+        if name == "nupp.workers.native" then
             return false
         end
         if records[name] ~= nil then
             return records[name].compilerRuntime == true
         end
         local existing = inc.modulePath(name)
-        if existing ~= nil and not envMod.isDependencyTypePath(inc.env, existing) then
+        if existing ~= nil and not envMod.isDependencyTypePath(
+            inc.env,
+            existing
+        ) and existing:sub(1, #runtimeSourceRoot + 1) ~= runtimeSourceRoot .. "/" then
             return false
         end
         local bundled = require("nupp.compiler.bundled")
@@ -1384,30 +1324,38 @@ local function buildModules(root: string, outDir: string, config: Config, target
             return true
         end
         addingCarriedRuntime[name] = true
-        local required = jsonArray(carriedRecord and carriedRecord.runtimeModules or gen.runtimeModules(text))
+        if not checkedProviders[name] then
+            checkedProviders[name] = true
+            for _, provider in ipairs(serviceCatalog.entries) do
+                if provider.entry == name and serviceCatalog.supports(provider, target.dialect or "luajit") then
+                    local valid, problem = require(
+                        "nupp.compiler.build.services"
+                    ).check(opened, {provider}, root, outDir)
+                    if not valid then
+                        error(problem, 0)
+                    end
+                end
+            end
+        end
+        local required = runtimeImports(name, text)
         local carriedEffects = jsonArray({})
         if carriedRecord then
             for _, effect in ipairs(carriedRecord.effects or {}) do
                 carriedEffects[#carriedEffects + 1] = effect
             end
-        else
-            local moduleEffect = native.forModule(name)
-            if moduleEffect ~= nil then
+        end
+        local moduleEffect = native.forModule(name)
+        if moduleEffect ~= nil then
+            local found = false
+            for _, effect in ipairs(carriedEffects) do
+                found = found or effect == moduleEffect
+            end
+            if not found then
                 carriedEffects[#carriedEffects + 1] = moduleEffect
             end
         end
         local output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
         local artifactHash = hash.digest(text)
-        local previous = oldState.modules[name]
-        if cacheCompatible
-            and previous
-            and previous.compilerRuntime
-            and previous.artifactHash == artifactHash
-            and hashFile(
-            output
-        ) == artifactHash then
-            reused[name] = true
-        end
         records[
             name
         ] = {
@@ -1423,12 +1371,17 @@ local function buildModules(root: string, outDir: string, config: Config, target
             diags = jsonArray({}),
             materializations = jsonArray({}),
             derives = jsonArray({}),
-            backendHash = backendResolution.fingerprint,
             specializationHash = emptySpecializationHash,
         }
         codeFor[name] = text
-        copiedRuntime[name] = true
+        carriedRuntime[name] = true
         paths[name] = output
+        local previous = oldState.modules[name]
+        if cacheCompatible and previous and previous.compilerRuntime and previous.artifactHash == artifactHash and (
+            checkOnly or hashFile(output) == artifactHash
+        ) then
+            reused[name] = true
+        end
         order[#order + 1] = name
         for _, dependency in ipairs(required) do
             if not addCarriedRuntime(dependency) then
@@ -1444,10 +1397,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
 
     local function enqueue(name, path)
-        if queued[name] or records[name] or seamReplaces(name) then
-            return
-        end
-        if inc.runtimeProjectedModule(name) then
+        if queued[name] or records[name] or not compatibleProvider(name) then
             return
         end
         path = path or inc.modulePath(name)
@@ -1458,7 +1408,20 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
 
     enqueueLinked = function(name: string): nil
-        enqueue(name)
+        if not addCarriedRuntime(name) then
+            enqueue(name)
+        end
+    end
+
+    local configuredEffects = {}
+    for effect in pairs(native.resolve(nil, target.nativeFeatures)) do
+        configuredEffects[#configuredEffects + 1] = effect
+    end
+    linkFeatureRuntime(configuredEffects)
+
+    for _, provider in ipairs(config._serviceEntries or {}) do
+        linkRuntimeSource(provider.contract)
+        linkRuntimeSource(provider.entry)
     end
 
     -- A note or a warning is said and stepped over. Only an error stops the build, and
@@ -1475,7 +1438,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
 
     local function compile(name, path, sourceHash)
-        local external = envMod.isDependencyTypePath(inc.env, path) and not linkedModules[name]
+        local external = path:match(
+            "%.d%.nupp$"
+        ) ~= nil or envMod.isDependencyTypePath(inc.env, path) and not linkedModules[name]
         local result = inc.checkFile(path)
         stats.checkedModules = stats.checkedModules + 1
         local mine = {}
@@ -1509,7 +1474,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
             table.sort(effectNames)
         end
-        local output = external and nil or join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
+        local output: string? = nil
+        if not external then
+            output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
+        end
         local artifactHash, code, coverage
         local runtimeModules = jsonArray({})
         if not external and not fatal and not checkOnly then
@@ -1535,19 +1503,16 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 path,
                 config._coverage and {path = path} or nil,
                 nil,
-                backendResolution,
                 nil,
                 nil,
-                ((target as any)._aotGpuSources or {})[normalize(path)] and {["native.gpu"] = true} or nil
+                ((target as any)._aotGpuSources or {})[normalize(path)] and {["runtime.gpu"] = true} or nil
             )
             -- Generation is the last word on runtime reachability: it has now seen
             -- which checked nodes survived folding, comptime erasure, materialization,
             -- and lowering. Persist the same set that selected the generated prologue
-            -- so packaging cannot retain a backend seam the Lua does not use.
+            -- so packaging carries only features the generated Lua uses.
             result.result.effects = emittedEffects
-            if selfContainedTarget then
-                runtimeModules = jsonArray(gen.runtimeModules(code))
-            end
+            runtimeModules = runtimeImports(name, code)
             for effect in pairs(emittedEffects) do
                 effectNames[#effectNames + 1] = effect
             end
@@ -1561,6 +1526,17 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
             generateMs[name] = (generateMs[name] or 0) + (progress.now() - startedGenerating)
         end
+        local moduleEffect = native.forModule(name)
+        if moduleEffect ~= nil then
+            local found = false
+            for _, effect in ipairs(effectNames) do
+                found = found or effect == moduleEffect
+            end
+            if not found then
+                effectNames[#effectNames + 1] = moduleEffect;
+                table.sort(effectNames)
+            end
+        end
         said[name] = mine
         local materializations = materializeObserve.collect(result.result and result.result.root, path)
         local derives = result.result and result.result.deriveObservations or {}
@@ -1568,12 +1544,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local checkedExports = result.exports or {}
         records[name] = {
             sourceHash = sourceHash,
-            interfaceHash = modules.interfaceHash(
-                result.moduleType,
-                checkedExports,
-                result.backend and result.backend.fingerprint or nil,
-                external and sourceHash or nil
-            ),
+            interfaceHash = modules.interfaceHash(result.moduleType, checkedExports, external and sourceHash or nil),
             artifactHash = artifactHash,
             dependencies = jsonArray(depNames),
             runtimeModules = runtimeModules,
@@ -1589,8 +1560,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
             coverage = coverage,
             materializations = jsonArray(materializations),
             derives = jsonArray(derives),
-            backend = result.backend,
-            backendHash = backendResolution.fingerprint,
             specializationHash = specializationHashes[normalize(path)] or emptySpecializationHash,
         }
         codeFor[name] = code
@@ -1634,7 +1603,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 report:step(item.name)
                 local sourceHash = sourceContentHash(path)
                 local previous = oldState.modules[item.name]
-                local external = envMod.isDependencyTypePath(inc.env, path) and not linkedModules[item.name]
+                local external = path:match(
+                    "%.d%.nupp$"
+                ) ~= nil or envMod.isDependencyTypePath(inc.env, path) and not linkedModules[item.name]
                 local output: string? = nil
                 if not external then
                     output = join(root, join(outDir, item.name:gsub("%.", "/") .. ".lua"))
@@ -1647,7 +1618,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     and previous.sourceHash == sourceHash
                     and previous.specializationHash == (
                     specializationHashes[normalize(path)] or emptySpecializationHash
-                ) and previous.backendHash == backendResolution.fingerprint and previous.interfaceHash and type(
+                ) and previous.interfaceHash and type(
                     previous.dependencies
                 ) == "table" and type(
                     previous.projectDependencies
@@ -1721,16 +1692,11 @@ local function buildModules(root: string, outDir: string, config: Config, target
         invalidated = false
         for _, name in ipairs(order) do
             local record = records[name]
-            if reused[name] and record and not copiedRuntime[name] then
+            if reused[name] and record and not carriedRuntime[name] then
                 local dependencyChanged = false
                 for _, depName in ipairs(record.dependencies or {}) do
                     local depPath = inc.modulePath(depName)
-                    -- A module a backend projects through its seams has a source
-                    -- path but no record of its own -- `enqueue` never compiles it --
-                    -- so looking one up would invalidate its readers on every build.
-                    -- Its interface is the bundled one, which the backend and
-                    -- compiler fingerprints already cover.
-                    if depPath and not inc.runtimeProjectedModule(depName) then
+                    if depPath then
                         local current = records[depName]
                         local previous = oldState.modules[depName]
                         if not current or not previous or current.interfaceHash ~= previous.interfaceHash then
@@ -1748,6 +1714,64 @@ local function buildModules(root: string, outDir: string, config: Config, target
         processQueue()
     end
 
+    -- The artifact catalog names exactly the providers its module graph carries.
+    local artifactProviders = {}
+    for _, provider in ipairs(config._serviceEntries or {}) do
+        artifactProviders[#artifactProviders + 1] = provider
+    end
+    for _, provider in ipairs(serviceCatalog.entries) do
+        if serviceCatalog.supports(
+            provider,
+            target.dialect or "luajit"
+        ) and (records[provider.entry] ~= nil or checkedProviders[provider.entry]) then
+            artifactProviders[#artifactProviders + 1] = provider
+        end
+    end
+    local serviceWriter = require("nupp.compiler.build.services")
+    if #artifactProviders > 0 or records["nupp.services"] ~= nil or linkedRuntimeSource["nupp.services"] then
+        local catalogWritten, catalogProblem = serviceWriter.write(
+            root,
+            outDir,
+            config,
+            target,
+            newState.dependencies,
+            artifactProviders,
+            true
+        )
+        if not catalogWritten then
+            return nil, catalogProblem
+        end
+        local catalogPath = join(root, join(outDir, "generated/nupp/runtime/services/artifact.g.nupp"))
+        local catalogHash = hashFile(catalogPath)
+        local catalogRecord = records["nupp.runtime.services.artifact"]
+        if catalogRecord == nil or catalogRecord.sourceHash ~= catalogHash then
+            if catalogRecord == nil then
+                paths["nupp.runtime.services.artifact"] = catalogPath
+                order[#order + 1] = "nupp.runtime.services.artifact"
+            end
+            local name = "nupp.runtime.services.artifact"
+            local previous = oldState.modules[name]
+            local catalogOutput = join(root, join(outDir, "nupp/runtime/services/artifact.lua"))
+            -- The catalog is generated data. Its source, compiler, and output hashes
+            -- determine whether its existing artifact can be retained.
+            if cacheCompatible and previous and previous.sourceHash == catalogHash and (
+                checkOnly or previous.output == catalogOutput and previous.artifactHash ~= nil and hashFile(
+                    catalogOutput
+                ) == previous.artifactHash
+            ) then
+                records[name] = copyModuleRecord(previous)
+                reused[name] = true
+                codeFor[name] = nil
+                said[name] = previous.diags
+            else
+                inc.diskChanged(catalogPath, 2)
+                compile(name, catalogPath, catalogHash)
+                processQueue()
+            end
+        end
+
+    end
+
     -- Counted here rather than where reuse is decided, because a module reused early
     -- can be invalidated by a dependency later and recompiled; only once the loop above
     -- settles is `reused` the answer. A check counts the same way a build does, which
@@ -1756,7 +1780,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     for _, name in ipairs(order) do
         if reused[name] then
             reusedArtifacts = reusedArtifacts + 1
-            if not copiedRuntime[name] then
+            if not carriedRuntime[name] then
                 stats.reusedModules = stats.reusedModules + 1
             end
         end
@@ -1862,7 +1886,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
     if checkOnly then
-        return {outputs = {}, materializations = materializations, derives = derives, backends = backendResolution}
+        return {
+            outputs = {},
+            materializations = materializations,
+            derives = derives,
+            services = serviceWriter.describe(artifactProviders)
+        }
     end
 
     -- Every module compiled, with no closure to prune it back to. A stale dependency
@@ -1933,7 +1962,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         effects = effects,
         materializations = materializations,
         derives = derives,
-        backends = backendResolution,
+        services = serviceWriter.describe(artifactProviders)
     }
 end
 

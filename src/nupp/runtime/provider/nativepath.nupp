@@ -1,0 +1,61 @@
+@!internal
+
+module nupp.runtime.provider.nativepath
+
+const native = require("nupp.runtime.native")
+
+cdef struct NuppNativeV2FilesystemSlice
+    data: cstring
+    length: uint64
+end
+
+native.ffi.cdef[[
+int32_t nuppNativeV2FilesCurrentDirectory(uint64_t *);
+int32_t nuppNativeV2FilesCanonicalize(
+    struct NuppNativeV2FilesystemSlice, uint64_t *);
+]]
+
+local provider = {}
+local ffi = native.ffi
+local C = native.C
+const FILESYSTEM_FEATURE = 64
+native.requireFeature(FILESYSTEM_FEATURE, "filesystem")
+
+local function slice(text: string): any
+    local value = ffi.new<NuppNativeV2FilesystemSlice>()
+    -- The slice points into the Lua string; every caller hands it to C and returns
+    -- while `text` is still a live argument of its own, so the string outlives the
+    -- call.
+    unsafe do
+        value.data = text
+    end
+    value.length = #text
+
+    return value
+end
+
+local function answered(status: integer, output: any): (string?, string?)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
+    end
+
+    return native.bytes(output[0]), nil
+end
+
+function provider.separator(): string
+    return package.config:sub(1, 1)
+end
+
+function provider.currentDirectory(): (string?, string?)
+    local output = ffi.new("uint64_t[1]")
+
+    return answered(C.nuppNativeV2FilesCurrentDirectory(output), output)
+end
+
+function provider.canonicalize(path: string): (string?, string?)
+    local output = ffi.new("uint64_t[1]")
+
+    return answered(C.nuppNativeV2FilesCanonicalize(slice(path), output), output)
+end
+
+export = provider

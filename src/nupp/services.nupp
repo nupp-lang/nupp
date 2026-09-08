@@ -1,37 +1,348 @@
 module nupp.services
 
--- Generic runtime lookup over the registry composed from a target's service-provider
--- dependencies. Service-specific packages can put a typed facade over this deliberately
--- dynamic boundary.
+-- Named implementations of a typed contract, owned by one Lua state. Resolve
+-- services during module initialization and retain their returned implementations.
 
-local registry = require("nupp.service.registry") as {[string]: {[string]: function(): any}}
+const _DYNAMIC_PROVIDERS = "@requires-dynamically nupp.runtime.services.* @requires-dynamically nupp.runtime.provider.* @requires-dynamically nupp.runtime.browser.* @requires-dynamically nupp.codec.json.aot"
+local builtin = require("nupp.runtime.services.catalog")
+local catalog: any = {}
+local foundCatalog, loadedCatalog = pcall(require, "nupp.runtime.services.artifact")
+if foundCatalog then
+    catalog = loadedCatalog
+elseif not tostring(loadedCatalog):find("module 'nupp.runtime.services.artifact' not found", 1, true) then
+    error("nupp.services: cannot read provider catalog: " .. tostring(loadedCatalog), 0)
+end
+local targetDialect: string = catalog.dialect or (rawget(_G, "jit") ~= nil and "luajit" or "lua51")
 
-local services = {}
+local definitions: {[string]: any} = {}
+local loading: {string} = {}
+local workerSetups: {string} = {}
+local workerSetupNames: {[string]: boolean} = {}
+local workerInitialization: string?
 
-function services.lookup(service: string, name: string): any?
-    local providers = registry[service]
-    local load = providers and providers[name]
-
-    return load and load() or nil
+export interface Member
+    name: string
+    kinds: {string}
 end
 
-function services.require(service: string, name: string): any
-    local provider = services.lookup(service, name)
-    if provider == nil then
-        error("no service provider " .. service .. "/" .. name, 2)
+local function validate(id: string, members: {Member}?, value: any): nil
+    if members == nil then
+        return
+    end
+    if type(value) ~= "table" then
+        error("nupp.services: " .. id .. " must return a provider table", 2)
+    end
+    for _, member in ipairs(members) do
+        local actual = type(value[member.name])
+        local accepted = false
+        for _, kind in ipairs(member.kinds) do
+            accepted = accepted
+                or kind == "any"
+                or kind == "unknown"
+                or kind == actual
+                or kind == "func"
+                and actual == "function"
+                or (
+                kind == "interface"
+                or kind == "record"
+                or kind == "nominal"
+                or kind == "shape"
+                or kind == "map"
+                or kind == "array"
+            ) and actual == "table" or (
+                kind == "integer" or kind == "fixedwidth" or kind == "literalnumber"
+            ) and actual == "number"
+        end
+        if not accepted then
+            error("nupp.services: " .. id .. "." .. member.name .. " has type " .. actual, 2)
+        end
+    end
+end
+
+--- A named, versioned module contract and its registered implementations.
+export record Service<T>
+    readonly id: string
+    readonly api: integer
+    private loaders: {[string]: function(): T}
+    private values: {[string]: T}
+    private active: {[string]: boolean}
+    private selected: string?
+    private resolved: boolean = false
+    private resolving: boolean = false
+    private value: T?
+    private members: {Member}?
+    private defaultLoader: (function(): T?)?
+    private checkImplementation: (function(T): nil)?
+
+    --- Registers a provider without loading it.
+    --- @raises when the name is empty or already registered
+    function register(self: Service<T>, name: string, loader: function(): T): nil
+        if name == "" then
+            error("nupp.services: empty provider name for " .. self.id, 2)
+        end
+        if self.loaders[name] ~= nil then
+            error("nupp.services: duplicate provider " .. self.id .. "/" .. name, 2)
+        end
+        self.loaders[name] = loader
     end
 
-    return provider
-end
-
-function services.list(service: string): {string}
-    local names = {}
-    for name in pairs(registry[service] or {}) do
-        names[#names + 1] = name
+    --- Selects the implementation a module's unnamed lookup will resolve.
+    --- @raises when the service is already resolving or resolved
+    function select(self: Service<T>, name: string): nil
+        if self.resolved or self.resolving then
+            error("nupp.services: " .. self.id .. " is already resolved", 2)
+        end
+        if name == "" then
+            error("nupp.services: empty provider name for " .. self.id, 2)
+        end
+        self.selected = name
     end
-    table.sort(names)
 
-    return names
+    --- Lists provider names without executing their loaders.
+    function list(self: Service<T>): {string}
+        local names: {string} = {}
+        for name in pairs(self.loaders) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+
+        return names
+    end
+
+    --- Resolves a named provider or the default implementation.
+    --- @raises when a selected provider is absent, cyclic, or fails to load
+    function lookup(self: Service<T>, name: string?): T?
+        if name ~= nil then
+            local loaded = self.values[name]
+            if loaded ~= nil then
+                return loaded
+            end
+            local loader = self.loaders[name]
+            if loader == nil then
+                return nil
+            end
+            local identity = self.id .. "/" .. name
+            if self.active[name] then
+                error("nupp.services: provider cycle " .. table.concat(loading, " -> ") .. " -> " .. identity, 2)
+            end
+            self.active[name] = true
+            loading[#loading + 1] = identity
+            local function load(): T
+                local value = loader()
+                if value == nil then
+                    error("provider returned nil", 2)
+                end
+                validate(identity, self.members, value)
+
+                return value
+            end
+
+            local ok, value = pcall(load)
+            loading[#loading] = nil
+            self.active[name] = nil
+            if not ok then
+                error("nupp.services: cannot load " .. identity .. ": " .. tostring(value), 2)
+            end
+            self.values[name] = value
+            return value
+        end
+        if self.resolved then
+            return self.value
+        end
+        if self.resolving then
+            error("nupp.services: default cycle " .. table.concat(loading, " -> ") .. " -> " .. self.id, 2)
+        end
+        self.resolving = true
+        loading[#loading + 1] = self.id
+        local function choose(): T?
+            local selected = self.selected
+            if selected ~= nil then
+                local value = self:lookup(selected)
+                if value == nil then
+                    error("nupp.services: no provider " .. self.id .. "/" .. selected, 2)
+                end
+                return value
+            end
+            local defaultLoader = self.defaultLoader
+            if defaultLoader ~= nil then
+                return defaultLoader()
+            end
+
+            return nil
+        end
+
+        local function resolve(): T?
+            local value = choose()
+            if value ~= nil then
+                validate(self.id, self.members, value)
+                local checkImplementation = self.checkImplementation
+                if checkImplementation ~= nil then
+                    checkImplementation(value)
+                end
+            end
+
+            return value
+        end
+
+        local ok, value = pcall(resolve)
+        loading[#loading] = nil
+        self.resolving = false
+        if not ok then
+            error(tostring(value), 2)
+        end
+        self.value = value
+        self.resolved = true
+
+        return value
+    end
+
+    --- Assembles a facade's default implementation unless setup selected a name.
+    --- @raises when the service cannot resolve an implementation
+    function assemble(self: Service<T>, defaultLoader: function(): T, checkImplementation: (function(T): nil)?): T
+        self:assembleOptional(defaultLoader, checkImplementation)
+        return self:require()
+    end
+
+    --- Assembles an optional facade and freezes absence as well as presence.
+    function assembleOptional(
+        self: Service<T>,
+        defaultLoader: function(): T?,
+        checkImplementation: (function(T): nil)?
+    ): T?
+        if not self.resolved and not self.resolving then
+            self.defaultLoader = defaultLoader
+            self.checkImplementation = checkImplementation
+        elseif self.resolved and checkImplementation ~= nil and self.value ~= nil then
+            checkImplementation(self.value)
+        end
+
+        return self:lookup()
+    end
+
+    --- Resolves an implementation that must be present.
+    --- @raises when no implementation is available or its loader fails
+    function require(self: Service<T>, name: string?): T
+        local value = self:lookup(name)
+        if value == nil then
+            error("nupp.services: no provider for " .. self.id .. (name and "/" .. name or ""), 2)
+        end
+
+        return value
+    end
 end
 
-export = services
+--- Defines the unique handle owned by a service's declaration module.
+--- @raises when the identity or API version is invalid or already defined
+export function define<T>(id: string, api: integer, defaultLoader: (function(): T?)?, members: {Member}?): Service<T>
+    if id == "" or api < 1 or api % 1 ~= 0 then
+        error("nupp.services: a service requires an identity and positive API version", 2)
+    end
+    if definitions[id] ~= nil then
+        error("nupp.services: duplicate contract " .. id, 2)
+    end
+    local service: Service<T> = new Service(
+        id = id,
+        api = api,
+        loaders = {},
+        values = {},
+        active = {},
+        defaultLoader = defaultLoader,
+        members = members
+    )
+    local function add(entry: any): nil
+        if entry.service ~= id or not builtin.supports(entry, targetDialect) then
+            return
+        end
+        if entry.api ~= api then
+            error("nupp.services: API mismatch for " .. id .. "/" .. entry.name, 2)
+        end
+        if service.members == nil and entry.members ~= nil then
+            service.members = entry.members
+        end
+        service:register(entry.name, function(): T
+            local declaration: any = require(entry.contract)
+            if declaration[entry.export] ~= service then
+                error("nupp.services: contract identity mismatch for " .. id .. "/" .. entry.name, 2)
+            end
+            local value: any = require(entry.entry)
+            if entry.member ~= nil then
+                value = value[entry.member]
+            end
+
+            return value as T
+        end)
+    end
+
+    for _, entry in ipairs(foundCatalog and catalog.providers or builtin.entries) do
+        add(entry)
+    end
+    definitions[id] = service
+
+    return service
+end
+
+--- The artifact target fixes its runtime representations.
+export function dialect(): string
+    return targetDialect
+end
+
+--- Registers a module that initializes providers in each child worker state.
+--- Include the setup module in the artifact's entry modules.
+--- @raises when the module name is invalid or worker initialization is fixed
+export function setupWorkers(moduleName: string): nil
+    if workerInitialization ~= nil then
+        error("nupp.services: worker initialization is already fixed", 2)
+    end
+    if moduleName == "" or not moduleName:match("^[A-Za-z_][A-Za-z0-9_.]*$") then
+        error("nupp.services: invalid worker setup module " .. moduleName, 2)
+    end
+    if not workerSetupNames[moduleName] then
+        workerSetupNames[moduleName] = true
+        workerSetups[#workerSetups + 1] = moduleName
+    end
+end
+
+--- Captures loadable setup modules and catalog-backed selections for child states.
+--- @raises when a runtime-only selection has no explicit worker setup
+export function workerConfiguration(): string
+    if workerInitialization ~= nil then
+        return workerInitialization
+    end
+    local lines: {string} = {}
+    for _, moduleName in ipairs(workerSetups) do
+        lines[#lines + 1] = ("require(%q)"):format(moduleName)
+    end
+    local identities: {string} = {}
+    for id in pairs(definitions) do
+        identities[#identities + 1] = id
+    end
+    table.sort(identities)
+    for _, id in ipairs(identities) do
+        local selected = definitions[id].selected
+        if selected ~= nil then
+            local found: any = nil
+            for _, entries in ipairs({foundCatalog and catalog.providers or builtin.entries}) do
+                for _, entry in ipairs(entries) do
+                    if entry.service == id and entry.name == selected and builtin.supports(entry, targetDialect) then
+                        found = entry
+                    end
+                end
+            end
+            if found ~= nil then
+                lines[#lines + 1] = ("require(%q)[%q]:select(%q)"):format(found.contract, found.export, selected)
+            elseif #workerSetups == 0 then
+                error(
+                    "nupp.services: runtime-only provider "
+                    .. id
+                    .. "/"
+                    .. selected
+                    .. " requires an explicit worker setup module",
+                    2
+                )
+            end
+        end
+    end
+    workerInitialization = table.concat(lines, "\n")
+
+    return workerInitialization
+end

@@ -2009,7 +2009,7 @@ local uri = require("nupp.io.uri")
 
 function m.statuses(urls: {string}): {integer}
     local function storeStatus(codes: {integer}, index: integer, url: string): nil
-        local client = new http.Client()
+        local client = http.client()
         local request = new http.Request(url = assert(uri.newURI(url)))
         local response = assert(client:send(request))
         codes[index] = response.status

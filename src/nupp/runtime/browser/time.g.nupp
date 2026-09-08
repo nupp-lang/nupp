@@ -4,7 +4,8 @@ module nupp.runtime.browser.time
 -- suspension boundary once; no clock probe occurs in ordinary compute code.
 
 local response = require("nupp.runtime.browser.response")
-local contracts = require("nupp.runtime.backend.contracts")
+local contracts = require("nupp.runtime.services.contracts")
+local effects = require("nupp.runtime.browser.effects")
 local time = {}
 
 local function duration(value: number, label: string): number
@@ -38,9 +39,22 @@ function time.sleepUntil(deadline: number): nil
     time.sleep(remaining)
 end
 
--- Stated rather than assumed: the projection is what reports a member whose
--- signature drifted from the contract the seam installs this module behind.
+--- Registers one cancellable timer without suspending its subscriber.
+function time.wakeAt(deadline: number, resume: function(boolean): nil): function(): nil
+    return effects.request(
+        "time",
+        {
+            operation = "until",
+            deadline = duration(deadline, "deadline")
+        },
+        function(result: any): nil
+            resume(result.error == nil)
+        end
+    )
+end
+
 local checked: contracts.TimeProvider = {
+    wakeAt = time.wakeAt,
     now = time.now,
     wallTime = time.wallTime,
     sleep = time.sleep,

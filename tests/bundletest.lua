@@ -177,7 +177,7 @@ return game
    assert(artifact:find('package.preload["nupp.log"]', 1, true),
       "the component carries standard-library modules reached by its source")
    assert(artifact:find('package.preload["nupp.runtime.provider.lunajson"]', 1, true),
-      "the component carries providers selected indirectly through reached seams")
+      "the component carries providers reached through service facades")
 
    local script = [[
 _G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
@@ -259,10 +259,10 @@ return loaded
    local target = {kind = "binary", outDir = "build", entries = {"main"}}
    local modules = {main = {output = dir .. "/build/main.lua"}}
    local text = assert(packaging.bundleText(
-      dir, {}, target, nil, modules, false, nil, {}, {"workers"}
+      dir, {}, target, nil, modules, false, {}, {"workers"}
    ))
    local again = assert(packaging.bundleText(
-      dir, {}, target, nil, modules, false, nil, {}, {"workers"}
+      dir, {}, target, nil, modules, false, {}, {"workers"}
    ))
    assert(text == again, "the payload depends on selected features, not ambient stub state")
 
@@ -310,7 +310,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
       ["src/main.nupp"] = [[
 const http = require("nupp.io.http")
 
-with client = new http.Client() do
+with client = http.client() do
     print("mixed native provider")
 end
 ]],
@@ -403,7 +403,7 @@ function M.aWorkerPayloadCarriesRuntimeModulesAndDispatchesItsEntry()
    }, nil, {
       main = {output = dir .. "/build/main.lua"},
       ["jobs.hash"] = {output = dir .. "/build/jobs/hash.lua"},
-   }, true, nil, {"nupp.suspension", "nupp.workers"})
+   }, true, {"nupp.suspension", "nupp.workers"})
    assert(text, "the worker payload is assembled: " .. tostring(problem))
    assert(text:find('package.preload["nupp.suspension"]', 1, true),
       "the suspension runtime is carried")
@@ -429,32 +429,6 @@ function M.aWorkerPayloadCarriesRuntimeModulesAndDispatchesItsEntry()
       "an entry that returned nothing still returns nothing")
    assert(not text:find("if __nuppEntry ~= nil then (require", 1, true),
       "a native worker payload installs nothing a lane has to install for itself")
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
--- A seam-supplied workers runtime is reached under its public name, which nothing
--- has preloaded until the backends the entry module would have installed are
--- installed. A lane never runs that entry, so the payload installs them for it.
-function M.aSeamBackedWorkerPayloadInstallsItsBackendsBeforeTheLaneEntry()
-   local dir = tempProject({
-      ["build/main.lua"] = "return 'main'\n",
-   })
-   local text, problem = packaging.bundleText(dir, {}, {
-      kind = "bundle",
-      outDir = "build",
-      entries = {"main"},
-   }, nil, {
-      main = {output = dir .. "/build/main.lua"},
-   }, true, '(require("nupp.runtime.backend.browser")):install();')
-   assert(text, "the worker payload is assembled: " .. tostring(problem))
-   assert(text:find(
-      'if __nuppEntry ~= nil then (require("nupp.runtime.backend.browser")):install(); end',
-      1,
-      true
-   ), "the lane installs the same backends the entry module would have")
-   assert(text:find('local __nuppEntry = rawget(_G, "__nuppWorkerEntry")', 1, true)
-      < text:find("__nuppEntry ~= nil then", 1, true),
-      "the entry is read before it decides whether to install")
    os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -936,7 +910,7 @@ end
    os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.workersRefuseTargetsWithoutTheCompilerOwnedHost()
+function M.nativeWorkersRequireACompatibleBinaryHost()
    local function rejected(kind, stub)
       local manifest = ([[
 return {
@@ -952,12 +926,10 @@ return {
       })
       local out, ok = run(dir, "'" .. NUPP .. "' build")
       os.execute("rm -rf '" .. dir .. "'")
-      assert(not ok and out:find('workers currently require a binary target with stub = "nupp"', 1, true),
+      assert(not ok and out:find('native workers require a binary host with stub = "nupp"', 1, true),
          kind .. " with " .. tostring(stub) .. " is refused before runtime: " .. out)
    end
 
-   rejected("modules")
-   rejected("bundle")
    rejected("binary", "third-party-host")
 end
 

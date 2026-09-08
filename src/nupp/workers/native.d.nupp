@@ -29,7 +29,7 @@ local record native
     channelCount: nosuspend function(any): integer
     channelClosed: nosuspend function(any): boolean
 
-    workerSpawn: nosuspend function(any, any): (any?, string?)
+    workerSpawn: nosuspend function(any, any, string?): (any?, string?)
     workerJoin: nosuspend function(any): (integer, string?)
     workerParallelism: nosuspend function(): integer
     workerTaskCreate: nosuspend function(any, integer, number?): boolean

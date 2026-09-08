@@ -1,0 +1,61 @@
+module nupp.runtime.services.system
+
+--[[Canonical host.system API 1 environment contract.
+
+Setup selects service before requiring nupp.system. Importing this declaration
+loads no host implementation. Facts describe the executing Nupp ABI, including
+emulated environments, and remain fixed for the loaded facade. Providers report
+nonempty platform and architecture names, little or big endianness, and a 32- or
+64-bit pointer width. They must agree with the target ABI used by generated code.
+
+availableParallelism estimates the number of execution units usable by this
+process, including host restrictions, and returns an integer of at least one.
+It must not create a worker pool. The browser implementation may suspend while
+requesting host facts. Native and browser implementations are selected only from
+the artifact's compatible provider catalog; explicit setup selection takes priority.
+]]
+local services = require("nupp.services")
+
+--- Facts and a parallelism query for the executing ABI.
+export interface Provider
+    --- Platform name, such as macos, linux, windows, or browser.
+    readonly platform: string
+
+    --- Architecture name, such as aarch64, x86_64, or wasm32.
+    readonly architecture: string
+
+    --- Byte order: little or big.
+    readonly endianness: string
+
+    --- Pointer width in bits: 32 or 64.
+    readonly pointerBits: integer
+
+    --- Estimates usable execution units, always at least one.
+    readonly availableParallelism: function(): integer
+end
+
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+--- Select during setup before the system facade loads.
+export const service: services.Service<Provider> = services.define("host.system", 1, nil, comptime do
+    return shape(nupp.reflect(Provider))
+end)

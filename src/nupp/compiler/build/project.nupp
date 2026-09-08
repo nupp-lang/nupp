@@ -25,7 +25,6 @@ local buildPlatform = require("nupp.compiler.build.platform")
 local storeMod = require("nupp.compiler.build.store")
 local native = require("nupp.compiler.build.native")
 local nativeFeatures = require("nupp.compiler.native")
-local backends = require("nupp.compiler.backends")
 local materializeObserve = require("nupp.compiler.materialize.observe")
 local progressMod = require("nupp.compiler.build.progress")
 
@@ -409,7 +408,13 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     newState.generators = generated
-    local wroteServices, serviceErr, hasServices = services.write(root, outDir, config, target, dependencies)
+    local wroteServices, serviceErr, hasServices, serviceEntries = services.write(
+        root,
+        outDir,
+        config,
+        target,
+        dependencies
+    )
     if not wroteServices then
         io.stderr:write("nupp: " .. tostring(serviceErr) .. "\n")
         return 1
@@ -417,26 +422,26 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- One query graph for the whole build, opened here because the ahead-of-time
     -- policy checks through it before the module build does. It reads the
     -- dependencies just resolved, which is why it cannot be opened any earlier.
+    config._serviceEntries = serviceEntries or {}
     local session = modules.session(root, outDir, config, target, dependencies, strict, report)
     if hasServices then
         session.stageBundled("nupp.services")
+        local valid, why = services.check(session, serviceEntries or {}, root, outDir)
+        if not valid then
+            io.stderr:write("nupp: " .. tostring(why) .. "\n")
+            return 1
+        end
+        local written, problem = services.write(root, outDir, config, target, dependencies, serviceEntries)
+        if not written then
+            io.stderr:write("nupp: " .. tostring(problem) .. "\n");
+            return 1
+        end
+        session.inc.diskChanged(join(root, join(outDir, "generated/nupp/runtime/services/artifact.g.nupp")), 2)
     end
-    -- AOT consumes checked trees before the module pass. Give that shared graph
-    -- the target's backend resolution now, so a portable standard surface reached
-    -- by an AOT source is checked under the same seams as the later overlay.
-    -- A backend the compiler ships has no path until it is staged, and staging is
-    -- what the module build used to do first. Resolving before that answered nothing
-    -- for those targets, and an AOT source reaching a seam they supply then failed to
-    -- check and was silently left uncompiled.
-    for _, backendModule in ipairs(target.backends or {}) do
-        session.stageBundled(backendModule)
-    end
-    if opts.checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
+    if opts.checkOnly and (
+        target.aot == "require" or target.aot == "require-wasm"
+    ) and checkedTargetNeedsGpu(root, config, opts.paths) then
         session.stageGpuRuntime()
-    end
-    local earlyBackend = backends.resolve(session.inc, target.backends)
-    if earlyBackend ~= nil then
-        session.inc.setBackendResolution(earlyBackend)
     end
     -- The AOT policy runs before the modules it affects. `off` is the default
     -- and looks for nothing, so a project that has not asked for native code
@@ -556,7 +561,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     if aotGpu then
         result.effects = result.effects or {}
-        (result.effects as {[string]: any})["native.gpu"] = true
+        (result.effects as {[string]: any})["runtime.gpu"] = true
     end
     if opts.checkOnly then
         if opts.produced then
@@ -573,25 +578,11 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
 
     local detectedEffects = native.dependencyEffects(root, config, target, result.effects)
-    -- Whether this target reached worker tasks at all, read before a seam can remove
-    -- the feature it replaces. A lane runs the same payload with the workers runtime
-    -- named as its entry, and that dispatch is what the payload needs whichever
-    -- implementation supplies the lanes.
-    local reachedWorkers = detectedEffects["native.workers"] == true
-    -- What a lane has to install before it can reach the workers runtime under its
-    -- public name: exactly the backend installation the entry module would have run.
-    -- Empty wherever no seam is selected, so a native worker bundle is unchanged.
-    local workerBootstrap = reachedWorkers and backends.bootstrap(detectedEffects, result.backends) or nil
-    -- A selected seam replaces the standard feature before its native dependency
-    -- closure is expanded. Otherwise a complete HTTP provider still inherits the
-    -- native implementation's byte-I/O dependency even though none of that
-    -- implementation is packaged.
-    backends.withoutNative(detectedEffects, result.backends)
+    local reachedWorkers = detectedEffects["runtime.workers"] == true or detectedEffects["native.workers"] == true
     local resolvedEffects = native.resolve(detectedEffects, target.nativeFeatures)
-    backends.withoutNative(resolvedEffects, result.backends)
-    if resolvedEffects["native.workers"] and (target.kind ~= "binary" or target.stub ~= "nupp") then
+    if resolvedEffects["native.workers"] and target.kind == "binary" and target.stub ~= "nupp" then
         io.stderr:write(
-            "nupp: workers currently require a binary target with stub = \"nupp\"; "
+            "nupp: native workers require a binary host with stub = \"nupp\"; "
             .. "the compiler-owned host supplies the isolated Lua states and early machine-code arena\n"
         )
         return 1
@@ -657,7 +648,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             nil,
             newState.modules,
             reachedWorkers or resolvedEffects["native.workers"] == true,
-            workerBootstrap,
             runtimeModules,
             (
                 (target.kind == "binary" and target.stub == "nupp") or target.kind == "component"
@@ -892,8 +882,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.outputs = mine
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
-        opts.produced.backends = result.backends and result.backends.modules or cache.jsonArray({})
-        opts.produced.backendResolution = require("nupp.compiler.backends").reached(result.effects, result.backends)
+        opts.produced.services = result.services
     end
     report:at("write")
     local ok, stateErr = saveState(statePath, newState)
@@ -950,7 +939,6 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         aggregate.dialect = nil
         aggregate.outputs = cache.jsonArray({})
         aggregate.platforms = cache.jsonArray({})
-        aggregate.backends = cache.jsonArray({})
     end
     local failed = false
     for _, selected in ipairs(target.platforms) do
@@ -967,7 +955,6 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         failed = failed or code ~= 0
         if aggregate then
             aggregate.dialect = produced.dialect or aggregate.dialect
-            aggregate.backends = produced.backends or aggregate.backends
             local entry = {
                 platform = selected,
                 status = code == 0 and "built" or "failed",
@@ -1501,7 +1488,10 @@ local function buildWithCompiler(
         argv[#argv + 1] = targetName
     end
 
-    return process.run(argv, {cwd = root}) == 0
+    return process.run(argv, {
+        cwd = root,
+        env = not packageRoot and {NUPP_COMPILER_ROOT = fs.dirname(compiler)} or nil
+    }) == 0
 end
 
 --- Where the compiler a stage built lives, so the next stage can be run from it.
@@ -1531,7 +1521,7 @@ end
 ---
 --- What it no longer says anything about is a tracked file. Stage zero is pinned to a
 --- release and is meant to differ from the current compiler; see
---- [NEP 32](docs/neps/0032-fetched-stage-zero.md).
+--- [NEP 28](docs/neps/0028-fetched-stage-zero.md).
 function project.fixpoint(root: string?, opts: project.FixpointOptions?): integer
     root, opts = root or ".", (opts or {}) as project.FixpointOptions
     local config, err = project.loadManifest(root)

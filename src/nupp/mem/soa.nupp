@@ -289,7 +289,7 @@ local record SpanImpl<T> is soa.Span<T>
         ) as soa.Span<T>
     end
 
-    function field(self, name: string): any
+    function field(borrows self, name: string): any borrows (self)
         error("SoA field projection requires compiler lowering: " .. tostring(name), 2)
     end
 
@@ -398,7 +398,7 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
         end
     end
 
-    function field(exclusive self, name: string): any
+    function field(exclusive self, name: string): any borrows (self)
         error("SoA field projection requires compiler lowering: " .. tostring(name), 2)
     end
 

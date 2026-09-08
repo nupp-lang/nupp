@@ -32,6 +32,7 @@ export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, Worker
   const queue = [];
   let started = [];
   let closed = false;
+  let setup;
 
   const drainStarted = () => {
     const reported = started;
@@ -96,7 +97,7 @@ export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, Worker
     worker.addEventListener("messageerror", () => laneFailure(
       lane, "nupp: a worker lane could not decode a task",
     ));
-    worker.postMessage({type: "boot", manifestUrl, entry: LANE_ENTRY_MODULE, limits});
+    worker.postMessage({type: "boot", manifestUrl, entry: LANE_ENTRY_MODULE, limits, setup});
     lanes.push(lane);
 
     return lane;
@@ -194,6 +195,10 @@ export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, Worker
 
   return {
     perform(effect) {
+      const requestedSetup = effect.setup || "";
+      if (typeof requestedSetup !== "string") throw new Error("worker setup must be serialized text");
+      if (setup === undefined) setup = requestedSetup;
+      else if (setup !== requestedSetup) throw new Error("worker provider setup is already fixed");
       if (effect.operation === "submit") return submit(effect);
       if (effect.operation === "await") return settlement(effect);
       if (effect.operation === "cancel") {

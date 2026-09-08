@@ -771,19 +771,19 @@ end
 --- @export
 export sealed interface PreparedDebug<T>
     format: function(self, value: T): string
-    write: function(self, value: T, exclusive out: string.buffer.Buffer): nil
+    write: function(self, value: T, exclusive out: nupp.text.buffer.Buffer): nil
 end
 
 ----------------------------------------------------------------------------
 -- Debug rendering
 ----------------------------------------------------------------------------
 
-local type DebugWrite = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+local type DebugWrite = function(value: any, exclusive out: nupp.text.buffer.Buffer, state: any): nil
 local type DebugPlan = {write: DebugWrite}
 
 local buildPreparedDebug: function(binding: any): any
 local debugPlanFor: function(schema: Schema, access: any?, dynamicValues: boolean, seen: any): DebugPlan
-local writeDebugAny: function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+local writeDebugAny: function(value: any, exclusive out: nupp.text.buffer.Buffer, state: any): nil
 
 local debugPreparedKey = extensions.key(function(binding: any): any
     return buildPreparedDebug(binding)
@@ -827,7 +827,7 @@ local function debugTypeName(value: any): string
     return "<" .. type(value) .. ">"
 end
 
-writeDebugAny = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+writeDebugAny = function(value: any, exclusive out: nupp.text.buffer.Buffer, state: any): nil
     local kind = type(value)
     if kind == "nil" or kind == "boolean" or kind == "number" then
         out:put(tostring(value))
@@ -891,7 +891,7 @@ debugPlanFor = function(schema: Schema, access: any?, dynamicValues: boolean, se
     if schema.kind == "optional" then
         local target = schema:element() as Schema
         local element = debugPlanFor(target, debugAccess(target, dynamicValues), dynamicValues, seen)
-        plan.write = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+        plan.write = function(value: any, exclusive out: nupp.text.buffer.Buffer, state: any): nil
             if value == nil then
                 out:put("nil")
             else
@@ -899,13 +899,13 @@ debugPlanFor = function(schema: Schema, access: any?, dynamicValues: boolean, se
             end
         end
     elseif schema.state.debugMode == "customDebug" then
-        plan.write = function(value: any, exclusive out: string.buffer.Buffer): nil
+        plan.write = function(value: any, exclusive out: nupp.text.buffer.Buffer): nil
             out:put(value:debug() as string)
         end
     elseif schema.kind == "document" then
         plan.write = writeDebugAny
     elseif schema.kind == "string" or schema.state.hasLiteral and type(schema.state.literalValue) == "string" then
-        plan.write = function(value: any, exclusive out: string.buffer.Buffer): nil
+        plan.write = function(value: any, exclusive out: nupp.text.buffer.Buffer): nil
             out:put(_G.string.format("%q", value))
         end
     elseif schema.kind == "unit"
@@ -916,13 +916,13 @@ debugPlanFor = function(schema: Schema, access: any?, dynamicValues: boolean, se
         or schema.kind == "number"
         or schema.state.hasLiteral
     then
-        plan.write = function(value: any, exclusive out: string.buffer.Buffer): nil
+        plan.write = function(value: any, exclusive out: nupp.text.buffer.Buffer): nil
             out:put(tostring(value))
         end
     elseif schema.kind == "list" then
         local target = schema:element() as Schema
         local element = debugPlanFor(target, debugAccess(target, dynamicValues), dynamicValues, seen)
-        plan.write = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+        plan.write = function(value: any, exclusive out: nupp.text.buffer.Buffer, state: any): nil
             if type(value) ~= "table" then
                 out:put(debugTypeName(value))
                 return
@@ -946,7 +946,7 @@ debugPlanFor = function(schema: Schema, access: any?, dynamicValues: boolean, se
         local value = schema:value() as Schema
         local keyPlan = debugPlanFor(key, debugAccess(key, dynamicValues), dynamicValues, seen)
         local valuePlan = debugPlanFor(value, debugAccess(value, dynamicValues), dynamicValues, seen)
-        plan.write = function(input: any, exclusive out: string.buffer.Buffer, state: any): nil
+        plan.write = function(input: any, exclusive out: nupp.text.buffer.Buffer, state: any): nil
             if type(input) ~= "table" then
                 out:put(debugTypeName(input))
                 return
@@ -975,7 +975,7 @@ debugPlanFor = function(schema: Schema, access: any?, dynamicValues: boolean, se
         for index, item in ipairs(schema.state.items or {}) do
             items[index] = debugPlanFor(item, debugAccess(item, dynamicValues), dynamicValues, seen)
         end
-        plan.write = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+        plan.write = function(value: any, exclusive out: nupp.text.buffer.Buffer, state: any): nil
             if type(value) ~= "table" then
                 out:put(debugTypeName(value))
                 return
@@ -1013,7 +1013,7 @@ debugPlanFor = function(schema: Schema, access: any?, dynamicValues: boolean, se
         end
         local prefix = schema.name ~= nil and schema.name .. " { " or "{"
         local suffix = schema.name ~= nil and " }" or "}"
-        plan.write = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+        plan.write = function(value: any, exclusive out: nupp.text.buffer.Buffer, state: any): nil
             if not debugContainer(value, state) then
                 out:put("<cycle>")
                 return
@@ -1032,7 +1032,7 @@ debugPlanFor = function(schema: Schema, access: any?, dynamicValues: boolean, se
             state.active[value] = nil
         end
     else
-        plan.write = function(value: any, exclusive out: string.buffer.Buffer): nil
+        plan.write = function(value: any, exclusive out: nupp.text.buffer.Buffer): nil
             out:put(debugTypeName(value))
         end
     end
@@ -1044,16 +1044,16 @@ local record PreparedDebugImpl<T> is PreparedDebug<T>
     private readonly plan: DebugPlan
     -- Pop while in use and return only after reset. Reentrant and interleaved calls
     -- therefore acquire distinct buffers while steady-state calls allocate none.
-    private readonly buffers: {string.buffer.Buffer}
+    private readonly buffers: {nupp.text.buffer.Buffer}
 
-    function write(self, value: T, exclusive out: string.buffer.Buffer): nil
+    function write(self, value: T, exclusive out: nupp.text.buffer.Buffer): nil
         self.plan.write(value, out, {active = {}})
     end
 
     function format(self, value: T): string
         local out = self.buffers[#self.buffers]
         if out == nil then
-            out = require("string.buffer").new() as string.buffer.Buffer
+            out = require("nupp.text.buffer").new() as nupp.text.buffer.Buffer
         else
             self.buffers[#self.buffers] = nil
         end
@@ -1110,13 +1110,13 @@ export sealed interface Prepared<T>
     --- Appends one encoded root through reserved caller-owned storage.
     ---
     --- The prepared traversal writes one complete encoded value.
-    write: function(self, value: T, exclusive out: string.buffer.Buffer): nil
+    write: function(self, value: T, exclusive out: nupp.text.buffer.Buffer): nil
         & function(self, value: T, exclusive out: nupp.codec.json.Writer): nil
 
     decode: function(self, text: string): (T?, string?)
 
     --- Decodes a value held in caller-owned storage.
-    decodeBuffer: function(self, exclusive input: string.buffer.Buffer): (T?, string?)
+    decodeBuffer: function(self, exclusive input: nupp.text.buffer.Buffer): (T?, string?)
 end
 
 local preparedStates: any = setmetatable({}, {__mode = "k"})
@@ -1413,7 +1413,7 @@ local record PreparedImpl<T> is Prepared<T>
         return state.fallbackEncode(value) as string
     end
 
-    function write(self, value: T, exclusive out: string.buffer.Buffer): nil
+    function write(self, value: T, exclusive out: nupp.text.buffer.Buffer): nil
         local state = preparedStates[self]
         out:put(state.fallbackEncode(value))
     end
@@ -1433,7 +1433,7 @@ local record PreparedImpl<T> is Prepared<T>
         return value as T, nil
     end
 
-    function decodeBuffer(self, exclusive input: string.buffer.Buffer): (T?, string?)
+    function decodeBuffer(self, exclusive input: nupp.text.buffer.Buffer): (T?, string?)
         local state = preparedStates[self]
         local ok, value = pcall(state.fallbackDecodeBuffer, input)
         if not ok then
@@ -1688,7 +1688,7 @@ export record JsonCodec
             -- codec independent of a C++ host module and shares JSON semantics
             -- with ordinary encode/decode.
             fallbackEncode = function(value: any): string
-                local buffer = require("string.buffer").new()
+                local buffer = require("nupp.text.buffer").new()
                 local writer = json.writer(buffer)
                 writeDocument(writer, value, schema, self.profile, access)
                 writer:close()
@@ -1739,7 +1739,7 @@ export record JsonCodec
     end
 
     --- Appends one complete encoded root to caller-owned storage in one chunk.
-    function write<T>(self, binding: Binding<T>, value: T, exclusive out: string.buffer.Buffer): nil
+    function write<T>(self, binding: Binding<T>, value: T, exclusive out: nupp.text.buffer.Buffer): nil
         self:prepare(binding):write(value, out)
     end
 
@@ -1753,7 +1753,7 @@ export record JsonCodec
     end
 
     --- Decodes from caller-owned storage without materializing a final string.
-    function decodeBuffer<T>(self, binding: Binding<T>, exclusive input: string.buffer.Buffer): (T?, string?)
+    function decodeBuffer<T>(self, binding: Binding<T>, exclusive input: nupp.text.buffer.Buffer): (T?, string?)
         return self:prepare(binding):decodeBuffer(input)
     end
 end

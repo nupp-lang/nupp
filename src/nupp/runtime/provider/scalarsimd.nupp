@@ -3,11 +3,7 @@ module nupp.runtime.provider.scalarsimd
 --[[Sixteen-lane scalar implementation of the confined SIMD vocabulary.]]
 
 local provider = {lanes = 16}
-local function bits(): any
-    local value = rawget(_G, "__nuppBitops")
-    assert(value ~= nil, "nupp: numeric.simd scalar provider requires the numeric.bitops seam")
-    return value
-end
+local bits = require("nupp.runtime.bitops")
 
 local function byte(value: number): number
     return value % 256
@@ -16,7 +12,7 @@ end
 local function popcount(value: number): integer
     local count: integer = 0
     while value ~= 0 do
-        value = bits().band(value, value - 1)
+        value = bits.band(value, value - 1)
         count = count + 1
     end
 
@@ -32,7 +28,7 @@ local function vector(lanes: {number}): any
 end
 
 local function mask(value: number): any
-    return setmetatable({value = bits().band(value, 0xffff)}, maskMt)
+    return setmetatable({value = bits.band(value, 0xffff)}, maskMt)
 end
 
 local function mask64(low: number, high: number): any
@@ -62,31 +58,31 @@ function vectorMethods:inRange(low: number, high: number): any
     return mask(out)
 end
 
-local function vectorBinary(left: any, right: any, op: string): any
+local function vectorBinary(left: any, right: any, op: function(number, number): integer): any
     local out = {}
     for i = 1, 16 do
-        out[i] = byte(bits()[op](left.lanes[i], right.lanes[i]))
+        out[i] = byte(op(left.lanes[i], right.lanes[i]))
     end
 
     return vector(out)
 end
 
 function vectorMethods:andBits(other: any): any
-    return vectorBinary(self, other, "band")
+    return vectorBinary(self, other, bits.band)
 end
 
 function vectorMethods:orBits(other: any): any
-    return vectorBinary(self, other, "bor")
+    return vectorBinary(self, other, bits.bor)
 end
 
 function vectorMethods:xorBits(other: any): any
-    return vectorBinary(self, other, "bxor")
+    return vectorBinary(self, other, bits.bxor)
 end
 
 function vectorMethods:notBits(): any
     local out = {};
     for i = 1, 16 do
-        out[i] = byte(bits().bnot(self.lanes[i]))
+        out[i] = byte(bits.bnot(self.lanes[i]))
     end;
 
     return vector(out)
@@ -95,7 +91,7 @@ end
 function vectorMethods:shiftRight(count: number): any
     local out = {};
     for i = 1, 16 do
-        out[i] = byte(bits().rshift(self.lanes[i], count))
+        out[i] = byte(bits.rshift(self.lanes[i], count))
     end;
 
     return vector(out)
@@ -112,25 +108,25 @@ function vectorMethods:lookup16(table16: any): any
 end
 
 function maskMethods:andBits(other: any): any
-    return mask(bits().band(self.value, other.value))
+    return mask(bits.band(self.value, other.value))
 end
 
 function maskMethods:orBits(other: any): any
-    return mask(bits().bor(self.value, other.value))
+    return mask(bits.bor(self.value, other.value))
 end
 
 function maskMethods:xorBits(other: any): any
-    return mask(bits().bxor(self.value, other.value))
+    return mask(bits.bxor(self.value, other.value))
 end
 
 function maskMethods:notBits(): any
-    return mask(bits().bnot(self.value))
+    return mask(bits.bnot(self.value))
 end
 
 function maskMethods:select(whenTrue: any, whenFalse: any): any
     local out = {};
     for i = 1, 16 do
-        out[i] = bits().band(self.value, 2 ^ (i - 1)) ~= 0 and whenTrue.lanes[i] or whenFalse.lanes[i]
+        out[i] = bits.band(self.value, 2 ^ (i - 1)) ~= 0 and whenTrue.lanes[i] or whenFalse.lanes[i]
     end;
 
     return vector(out)
@@ -152,24 +148,24 @@ function maskMethods:bits(): number
     return self.value
 end
 
-local function binary64(left: any, right: any, op: string): any
-    return mask64(bits()[op](left.low, right.low), bits()[op](left.high, right.high))
+local function binary64(left: any, right: any, op: function(number, number): integer): any
+    return mask64(op(left.low, right.low), op(left.high, right.high))
 end
 
 function mask64Methods:andBits(other: any): any
-    return binary64(self, other, "band")
+    return binary64(self, other, bits.band)
 end
 
 function mask64Methods:orBits(other: any): any
-    return binary64(self, other, "bor")
+    return binary64(self, other, bits.bor)
 end
 
 function mask64Methods:xorBits(other: any): any
-    return binary64(self, other, "bxor")
+    return binary64(self, other, bits.bxor)
 end
 
 function mask64Methods:notBits(): any
-    return mask64(bits().bnot(self.low), bits().bnot(self.high))
+    return mask64(bits.bnot(self.low), bits.bnot(self.high))
 end
 
 function mask64Methods:shiftLeft(count: number): any
@@ -179,12 +175,12 @@ function mask64Methods:shiftLeft(count: number): any
     end
     if count < 32 then
         return mask64(
-            bits().lshift(self.low, count),
-            bits().bor(bits().lshift(self.high, count), bits().rshift(self.low, 32 - count))
+            bits.lshift(self.low, count),
+            bits.bor(bits.lshift(self.high, count), bits.rshift(self.low, 32 - count))
         )
     end
 
-    return mask64(0, bits().lshift(self.low, count - 32))
+    return mask64(0, bits.lshift(self.low, count - 32))
 end
 
 function mask64Methods:shiftRight(count: number): any
@@ -194,18 +190,18 @@ function mask64Methods:shiftRight(count: number): any
     end
     if count < 32 then
         return mask64(
-            bits().bor(bits().rshift(self.low, count), bits().lshift(self.high, 32 - count)),
-            bits().rshift(self.high, count)
+            bits.bor(bits.rshift(self.low, count), bits.lshift(self.high, 32 - count)),
+            bits.rshift(self.high, count)
         )
     end
 
-    return mask64(bits().rshift(self.high, count - 32), 0)
+    return mask64(bits.rshift(self.high, count - 32), 0)
 end
 
 function mask64Methods:prefixXor(carry: boolean): any
     local low, high, state = 0, 0, carry
     for i = 0, 63 do
-        if bits().band(i < 32 and self.low or self.high, 2 ^ (i % 32)) ~= 0 then
+        if bits.band(i < 32 and self.low or self.high, 2 ^ (i % 32)) ~= 0 then
             state = not state
         end
         if state then
@@ -238,12 +234,12 @@ end
 
 function mask64Methods:firstSet(): number
     for i = 0, 31 do
-        if bits().band(self.low, 2 ^ i) ~= 0 then
+        if bits.band(self.low, 2 ^ i) ~= 0 then
             return i
         end
     end
     for i = 0, 31 do
-        if bits().band(self.high, 2 ^ i) ~= 0 then
+        if bits.band(self.high, 2 ^ i) ~= 0 then
             return i + 32
         end
     end
@@ -253,9 +249,9 @@ end
 
 function mask64Methods:clearFirst(): any
     if self.low ~= 0 then
-        return mask64(bits().band(self.low, self.low - 1), self.high)
+        return mask64(bits.band(self.low, self.low - 1), self.high)
     end
-    return mask64(self.low, bits().band(self.high, self.high - 1))
+    return mask64(self.low, bits.band(self.high, self.high - 1))
 end
 
 local species: any = {lanes = 16}

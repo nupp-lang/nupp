@@ -13,4 +13,5 @@ local record bit
     bswap: nosuspend function(value: number): integer
 end
 
-return bit
+local value: bit
+return value

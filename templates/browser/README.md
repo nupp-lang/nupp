@@ -3,7 +3,7 @@
 A Nupp browser application. Ordinary code lowers to Lua 5.1 and runs in a
 WebAssembly-hosted Lua VM. Checked providers use Web Crypto, browser timers,
 randomness, and IndexedDB at suspension boundaries. The selected browser
-backend also carries the standard HTTP provider for applications that need it.
+catalog also carries the standard HTTP provider for applications that need it.
 
 ```sh
 nupp check

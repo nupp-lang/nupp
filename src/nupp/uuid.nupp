@@ -1,36 +1,18 @@
 module nupp.uuid
 
---[[UUID generation. UUIDs are lowercase, hyphenated strings.]]
+--[[UUID generation using the implementation retained when this module loads.
 
-const native = require("nupp.runtime.native")
-native.ffi.cdef[[
-int32_t nuppNativeV2Uuid4(uint8_t *, size_t);
-int32_t nuppNativeV2Uuid7(uint8_t *, size_t);
+UUIDs are lowercase, hyphenated strings. Setup selects the canonical uuid service
+before requiring this module. The built-in default uses the native or browser host.
 ]]
-const C = native.C
+local provider = require("nupp.runtime.uuid")
 
 --- Generates a random version 4 UUID.
----
 --- @return the UUID, hyphenated and lowercase
---- @raises when the system has no randomness to draw on
---- @export
-export function v4(): string
-    native.requireFeature(2, "UUID support")
-    local output = native.ffi.new("uint8_t[37]")
-    native.succeeded(C.nuppNativeV2Uuid4(output, 37), 2)
-
-    return native.ffi.string(output)
-end
+--- @raises when the system cannot supply randomness
+export const v4 = provider.uuid4
 
 --- Generates a time-ordered version 7 UUID.
----
 --- @return the UUID, hyphenated and lowercase
---- @raises when the system has no randomness to draw on
---- @export
-export function v7(): string
-    native.requireFeature(2, "UUID support")
-    local output = native.ffi.new("uint8_t[37]")
-    native.succeeded(C.nuppNativeV2Uuid7(output, 37), 2)
-
-    return native.ffi.string(output)
-end
+--- @raises when the system cannot supply randomness
+export const v7 = provider.uuid7

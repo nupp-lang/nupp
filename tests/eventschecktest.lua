@@ -77,21 +77,26 @@ local M = {}
 ---------------------------------------------------------------------------
 
 function M.shortFunctionsAdoptTheSlotsModes()
-    clean(OBSERVED .. [[
+    clean(
+        OBSERVED
+        .. [[
 bus:observe(|event, world| -> do
     event.amount = event.amount * 2
     world.frame = world.frame + 1
 end)
-]])
+]]
+    )
 end
 
 function M.functionLiteralsAdoptTheSlotsModes()
-    clean(OBSERVED .. [[
+    clean(
+        OBSERVED .. [[
 bus:observe(function(event, world)
     world.frame = world.frame + 1
     print(event.amount)
 end)
-]])
+]]
+    )
 end
 
 function M.aOneArgumentObserverFits()
@@ -101,23 +106,34 @@ bus:observe(|event| -> print(event.amount))
 end
 
 function M.anAdoptedBorrowCannotBeStored()
-    assertEq(codes(OBSERVED .. [[
+    assertEq(
+        codes(OBSERVED .. [[
 local kept: {Damage} = {}
 bus:observe(|event| -> do
     kept[#kept + 1] = event
 end)
-]]), "NUPP2603", "storing an adopted borrow")
+]]),
+        "NUPP2603",
+        "storing an adopted borrow"
+    )
 end
 
 function M.anAdoptedBorrowCannotBeReturnedFromANestedFunction()
-    assertEq(codes(OBSERVED .. [[
+    assertEq(
+        codes(
+            OBSERVED
+            .. [[
 bus:observe(function(event, world): nil
     local function grab(): Damage
         return event
     end
     world.frame = #tostring(grab())
 end)
-]]), "NUPP2608", "returning an adopted borrow")
+]]
+        ),
+        "NUPP2608",
+        "returning an adopted borrow"
+    )
 end
 
 function M.aWrittenModeIsKept()
@@ -129,15 +145,24 @@ bus:observe(function(borrows event: Damage, world: World): nil
     world.frame = 1
 end)
 ]])
-    assertEq(codes(OBSERVED .. [[
+    assertEq(
+        codes(
+            OBSERVED
+            .. [[
 bus:observe(function(borrows event: Damage, borrows world: World): nil
     print(world.frame)
 end)
-]]), "NUPP2006", "a written borrows does not become exclusive")
+]]
+        ),
+        "NUPP2006",
+        "a written borrows does not become exclusive"
+    )
 end
 
 function M.takesIsNeverAdopted()
-    assertEq(codes([[
+    assertEq(
+        codes(
+            [[
 local record Token
     closed: boolean
     function drop(takes self): nil
@@ -150,11 +175,17 @@ local function consume(callback: function(takes token: Token): nil): nil
 end
 
 consume(|token| -> print(token.closed))
-]]), "NUPP2006", "a literal does not adopt takes")
+]]
+        ),
+        "NUPP2006",
+        "a literal does not adopt takes"
+    )
 end
 
 function M.anAnnotatedLocalHandsItsCallableTypeToALiteral()
-    clean(OBSERVED .. [[
+    clean(
+        OBSERVED
+        .. [[
 local f: Observer = |event| -> print(event.amount)
 local g: Observer = function(event, world)
     world.frame = world.frame + 1
@@ -162,21 +193,30 @@ local g: Observer = function(event, world)
 end
 bus:observe(f)
 bus:observe(g)
-]])
-    assertEq(codes(OBSERVED .. [[
+]]
+    )
+    assertEq(
+        codes(
+            OBSERVED
+            .. [[
 local kept: {Damage} = {}
 local h: Observer = |event| -> do
     kept[1] = event
 end
 bus:observe(h)
-]]), "NUPP2603", "an adopted borrow stored from an annotated local")
+]]
+        ),
+        "NUPP2603",
+        "an adopted borrow stored from an annotated local"
+    )
 end
 
 function M.aCallbackBodyKeepsOnlyItsSecondPassDiagnostics()
     -- A generic call infers a callback once with `any` parameters to bind its
     -- generics. A named argument on a method of such a parameter is refused in
     -- that pass and accepted in the real one; only the real one is reported.
-    clean([[
+    clean(
+        [[
 local record Damage
     amount: number
     source: integer
@@ -198,7 +238,8 @@ end
 each(Damage, new Bus(frame = 0), |event, bus| -> do
     bus:send(amount = event.amount, source = event.source)
 end)
-]])
+]]
+    )
 end
 
 function M.aParameterBorrowSuspendsThroughAHandledCallOnly()
@@ -206,7 +247,8 @@ function M.aParameterBorrowSuspendsThroughAHandledCallOnly()
     -- so an observer holding the borrowed event may park. A raw yield leaves
     -- nobody responsible, and the caller's owner would be stranded through
     -- this frame, which is why a parameter borrow counts as an obligation.
-    clean([[
+    clean(
+        [[
 local time = require("nupp.time")
 
 local record Damage
@@ -219,8 +261,11 @@ local function observe(borrows event: Damage): nil
 end
 
 print(observe)
-]])
-    assertEq(codes([[
+]]
+    )
+    assertEq(
+        codes(
+            [[
 local record Damage
     amount: number
 end
@@ -231,14 +276,19 @@ local function observe(borrows event: Damage): nil
 end
 
 print(observe)
-]]), "NUPP2603", "a raw yield with a parameter borrow live")
+]]
+        ),
+        "NUPP2603",
+        "a raw yield with a parameter borrow live"
+    )
 end
 
 function M.aCallbackTypedWithAUnionDoesNotWidenAWitnessBoundBinder()
     -- The witness binds E; what the callback accepts is contravariant and is
     -- checked by subtyping, so a callback written against the shape union fits
     -- a slot for one of its members.
-    clean([[
+    clean(
+        [[
 local record Down
     kind: "down"
     x: number
@@ -259,11 +309,13 @@ observe(Down, |event: Button| -> print(event.kind))
 observe(Up, function(event: Button)
     print(event.x)
 end)
-]])
+]]
+    )
 end
 
 function M.anIsTestAcceptsAUnionOfRecords()
-    clean([[
+    clean(
+        [[
 local record Down
     kind: "down"
 end
@@ -286,8 +338,11 @@ local function describe(event: Button | Other): string
 end
 
 print(describe(new Down(kind = "down")))
-]])
-    assertEq(codes([[
+]]
+    )
+    assertEq(
+        codes(
+            [[
 local record Down
     kind: "down"
 end
@@ -302,7 +357,11 @@ local function describe(event: Named | integer): string
 end
 
 print(describe)
-]]), "NUPP3001", "a union with a structural member has no identity to test")
+]]
+        ),
+        "NUPP3001",
+        "a union with a structural member has no identity to test"
+    )
 end
 
 ---------------------------------------------------------------------------
@@ -320,7 +379,9 @@ end
 ]]
 
 function M.aProtectedCallForwardsAnExclusiveView()
-    clean(FORWARDED .. [[
+    clean(
+        FORWARDED
+        .. [[
 local function step(exclusive world: World, delta: integer): nil
     world.frame = world.frame + delta
 end
@@ -332,11 +393,15 @@ local function protectedStep(exclusive world: World): nil
     end
     apply(step, world, 2)
 end
-]])
+]]
+    )
 end
 
 function M.aForwardedViewHoldsTheCalleeToItsMode()
-    assertEq(codes(FORWARDED .. [[
+    assertEq(
+        codes(
+            FORWARDED
+            .. [[
 local function step(world: World, delta: integer): nil
     world.frame = world.frame + delta
 end
@@ -345,11 +410,17 @@ local function protectedStep(exclusive world: World): nil
     local ok = pcall(step, world, 1)
     print(ok)
 end
-]]), "NUPP2603", "a plain callee cannot receive a forwarded exclusive view")
+]]
+        ),
+        "NUPP2603",
+        "a plain callee cannot receive a forwarded exclusive view"
+    )
 end
 
 function M.aProtectedCallForwardsABorrow()
-    clean(FORWARDED .. [[
+    clean(
+        FORWARDED
+        .. [[
 local function read(borrows world: World): integer
     return world.frame
 end
@@ -358,7 +429,8 @@ local function protectedRead(borrows world: World): integer
     local ok, frame = pcall(read, world)
     return ok and frame or 0
 end
-]])
+]]
+    )
 end
 
 ---------------------------------------------------------------------------
@@ -391,19 +463,26 @@ end
 ]]
 
 function M.aComputedTailBindsNamedArguments()
-    clean(CONSTRUCTED .. [[
+    clean(
+        CONSTRUCTED
+        .. [[
 print(count(Damage, amount = 1, source = 2))
 print(count(Damage, 1, 2, "fire"))
 print(count(Damage, amount = 1, source = 2, kind = "fire"))
 print(count(Diagonal, at = 4))
 print(count(Diagonal, 4))
-]])
+]]
+    )
 end
 
 function M.aComputedTailRefusesAnUnknownName()
-    assertEq(codes(CONSTRUCTED .. [[
+    assertEq(
+        codes(CONSTRUCTED .. [[
 print(count(Damage, amount = 1, sauce = 2))
-]]), "NUPP2125", "an unknown named argument")
+]]),
+        "NUPP2125",
+        "an unknown named argument"
+    )
 end
 
 function M.aComputedTailRefusesAMissingRequiredSlot()
@@ -413,7 +492,8 @@ print(count(Damage, amount = 1))
 end
 
 function M.severalConstructorsHaveNoContract()
-    local found = diagnostics([[
+    local found = diagnostics(
+        [[
 local record Overloaded
     x: integer
     constructor(self, x: integer)
@@ -433,7 +513,8 @@ local function count<E>(event: Type<E>, ...: unpackof Construction(E)): integer
 end
 
 print(count(Overloaded, 1))
-]])
+]]
+    )
     assert(#found > 0, "several constructors were accepted as one contract")
     contains(found[1].msg, "several")
 end
@@ -448,20 +529,26 @@ function M.theConsumerFixtureChecksStrictlyAndRuns()
     assert(checked == 0, checkOutput)
     local ran, output = process.capture({NUPP, "run", consumer})
     assert(ran == 0, output)
-    assertEq(output, table.concat({
-        "damage 10 3 physical 4",
-        "second 11",
-        "damage 5 9 fire 4",
-        "second 6",
-        "heal 8",
-        "contact 1.5 2.5 0.25",
-        "damage 99 4 physical 3",
-        "second 100",
-        "true",
-        "second 2",
-        "false 1 3 combat.Heal 1",
-        "",
-    }, "\n"))
+    assertEq(
+        output,
+        table.concat(
+            {
+                "damage 10 3 physical 4",
+                "second 11",
+                "damage 5 9 fire 4",
+                "second 6",
+                "heal 8",
+                "contact 1.5 2.5 0.25",
+                "damage 99 4 physical 3",
+                "second 100",
+                "true",
+                "second 2",
+                "false 1 3 combat.Heal 1",
+                "",
+            },
+            "\n"
+        )
+    )
 end
 
 function M.theDeriveRefusesWhatReusedStorageCannotHold()

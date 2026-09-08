@@ -745,17 +745,13 @@ end
 function M.interfaceFingerprintIsTheBuildsOwn()
     local buildModules = require("nupp.compiler.build.modules")
     local exports = {typeDefs = {Field = {}}, valueDefs = {}}
-    local plain = buildModules.interfaceHash(nil, exports, nil, nil)
-    assertEq(buildModules.interfaceHash(nil, exports, nil, nil), plain, "the digest is a function of its inputs")
+    local plain = buildModules.interfaceHash(nil, exports, nil)
+    assertEq(buildModules.interfaceHash(nil, exports, nil), plain, "the digest is a function of its inputs")
     exports.typeDefs.Field.comptimeOnly = true
-    local comptimeOnly = buildModules.interfaceHash(nil, exports, nil, nil)
+    local comptimeOnly = buildModules.interfaceHash(nil, exports, nil)
     assert(comptimeOnly ~= plain, "an alias becoming comptime-only changes the interface")
     assert(
-        buildModules.interfaceHash(nil, exports, "browser", nil) ~= comptimeOnly,
-        "the backend that resolved the module's seams is part of its interface"
-    )
-    assert(
-        buildModules.interfaceHash(nil, exports, nil, "abc") ~= comptimeOnly,
+        buildModules.interfaceHash(nil, exports, "abc") ~= comptimeOnly,
         "an external declaration's source is part of its interface"
     )
 end

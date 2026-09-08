@@ -27,7 +27,7 @@ separate provider rather than a second transport under the native one:
   request costs one turn of that lane's event loop, so a checkpoint belongs at a
   granularity the loop chooses rather than on every iteration of a tight one.
 
-See [workers.md](docs/learn/runtime/concurrency/workers.md) for the shared surface and NEP 18 for why
+See [workers.md](docs/learn/runtime/concurrency/workers.md) for the shared surface and NEP 16 for why
 worker tasks are structured this way.
 ]]
 
@@ -46,168 +46,16 @@ local codec = require("nupp.runtime.browser.workercodec")
 local suspension = require("nupp.suspension")
 local suspensionRuntime = suspension as any
 local workers = {}
+local workerConfiguration = require("nupp.services").workerConfiguration()
 
--- What a handle is parameterized by: any function, since a task type is derived from
--- the signature alone and says nothing about where the function came from.
+local contracts = require("nupp.runtime.services.workers")
 local type Callable = function(...: any): any
-
---- What may actually be submitted: a module member, or an outlined literal whose
---- effectively-final captures can be copied into a lane. Exported so a task scope can
---- hold its `fork` to the same bound without linking this module.
-type workers.Submittable = sendable function(...: any): any
-
+type workers.Submittable = contracts.Submittable
+type workers.Task<F is Callable> = contracts.Task<F>
 local type Packed = {
     values: {any},
     count: integer
 }
-
---- Why one type in a submitted signature can never cross a lane boundary, or nil when
---- nothing about it rules that out.
----
---- The native scheduler makes one exception for an engine-backed owned buffer, whose
---- storage lives in neither Lua heap and can therefore move rather than copy. A browser
---- application has no such storage -- `nupp.mem` needs the `cstorage` capability that
---- `lua51` does not have -- so every ownership mode keeps the refusal here.
-local comptime function unsendable(T: type, label: string): string?
-    local named = {
-        thread = "a thread",
-        userdata = "userdata",
-        cdata = "cdata",
-        cstring = "a C string",
-        voidptr = "a pointer",
-    }
-    local pending = {{at = T, path = label}}
-    local index: integer = 1
-    while index <= #pending do
-        local item = pending[index]
-        index = index + 1
-        local kind = nupp.types.kind(item.at)
-        if kind == "primitive" then
-            local why = named[nupp.types.describe(item.at).name]
-            if why ~= nil then
-                return item.path .. " is " .. why
-            end
-        elseif kind == "function" then
-            return item.path .. " is a function"
-        elseif kind == "affine" then
-            return item.path .. " is an affine owner"
-        elseif kind == "ptr" or kind == "carray" then
-            return item.path .. " is a C pointer"
-        elseif kind == "array" then
-            for _, element in ipairs(nupp.types.elements(item.at)) do
-                pending[#pending + 1] = {at = element, path = item.path .. "[]"}
-            end
-        elseif kind == "tuple" then
-            for position, member in ipairs(nupp.types.elements(item.at)) do
-                pending[#pending + 1] = {at = member, path = item.path .. "[" .. tostring(position) .. "]"}
-            end
-        elseif kind == "union" or kind == "intersection" then
-            for position, member in ipairs(nupp.types.elements(item.at)) do
-                pending[#pending + 1] = {at = member, path = item.path .. " (alternative " .. tostring(position) .. ")"}
-            end
-        elseif kind == "const" or kind == "borrowed" or kind == "pinned" then
-            for _, inner in ipairs(nupp.types.elements(item.at)) do
-                pending[#pending + 1] = {at = inner, path = item.path}
-            end
-        elseif kind == "shape" then
-            for _, field in ipairs(nupp.types.describe(item.at).fields or {}) do
-                if field.read ~= nil then
-                    pending[#pending + 1] = {at = field.read, path = item.path .. "." .. field.name}
-                end
-            end
-        end
-    end
-
-    return nil
-end
-
---- The arguments a submitted function takes, once its whole signature is known to be
---- copyable. Reached only from `spawn`, so naming `Task<F>` describes a handle rather
---- than a crossing.
-comptime function workers.Submitted(F: type): typepack
-    if nupp.types.kind(F) ~= "function" then
-        return nupp.types.error("a worker task must name a function type")
-    end
-    local packs = {{of = nupp.types.parameters(F), what = "argument"}, {of = nupp.types.results(F), what = "result"},}
-    for _, one in ipairs(packs) do
-        local described = nupp.types.describe(one.of)
-        for position, mode in ipairs(described.modes or {}) do
-            if mode ~= "plain" then
-                return nupp.types.error(
-                    one.what .. " " .. tostring(
-                        position
-                    ) .. " is an owner or a borrow, which cannot cross into another Lua state"
-                )
-            end
-        end
-        for position, member in ipairs(described.head or {}) do
-            local why = unsendable(member, one.what .. " " .. tostring(position))
-            if why ~= nil then
-                return nupp.types.error(why .. ", which cannot cross into another Lua state")
-            end
-        end
-        if described.tail ~= nil then
-            local why = unsendable(described.tail, "every extra " .. one.what)
-            if why ~= nil then
-                return nupp.types.error(why .. ", which cannot cross into another Lua state")
-            end
-        end
-    end
-
-    return nupp.types.parameters(F)
-end
-
-local comptime function TaskType(F: type): type
-    if nupp.types.kind(F) ~= "function" then
-        return nupp.types.error("a worker task must name a function type")
-    end
-    return nupp.types.shape({
-        {
-            name = "await",
-            read = nupp.types.function_(
-                nupp.types.pack({
-                    nupp.types.any
-                }),
-                nupp.types.results(F)
-            ),
-        },
-        {
-            name = "isDone",
-            read = nupp.types.function_(
-                nupp.types.pack({
-                    nupp.types.any
-                }),
-                nupp.types.pack({
-                    nupp.types.boolean
-                })
-            ),
-        },
-        {
-            name = "status",
-            read = nupp.types.function_(
-                nupp.types.pack({
-                    nupp.types.any
-                }),
-                nupp.types.pack({
-                    nupp.types.string
-                })
-            ),
-        },
-        {
-            name = "cancel",
-            read = nupp.types.function_(
-                nupp.types.pack({
-                    nupp.types.any,
-                    nupp.types.optional(nupp.types.string)
-                }),
-                nupp.types.pack({nupp.types.boolean})
-            ),
-        },
-    })
-end
-
---- The typed handle for one submitted function.
-type workers.Task<F is Callable> = TaskType(F)
 
 local function pack(...: any): Packed
     return {values = {...}, count = select("#", ...)}
@@ -218,7 +66,7 @@ end
 --- Stock Lua 5.1 cannot yield through `pcall`, and every wait a browser application
 --- performs is a yield out to JavaScript. So the body runs on its own coroutine and
 --- this forwards whatever it yields, which is the same shape the generated cleanup
---- regions use where a suspension seam is selected.
+--- regions use with the selected suspension provider.
 local function protectedCall(body: function(): any): (boolean, any)
     -- The resumed value belongs to whichever `coroutine.yield` inside the body is
     -- waiting for it, not to the body's own parameters, which is a shape the typed
@@ -277,8 +125,8 @@ local function describeSendable(fn: any, moduleName: string, member: string, ...
     return fn
 end
 
-rawset(workers, "__defineSendable", defineSendable)
-rawset(workers, "__sendable", describeSendable)
+workers.defineSendable = defineSendable
+workers.describeSendable = describeSendable
 
 -- A function with no compiler descriptor is located by scanning every loaded module
 -- once; the answer is a property of the function value, so it is kept. Failures are
@@ -343,35 +191,9 @@ local record TaskImpl
     cancel: nosuspend function(TaskImpl, string?): boolean
 end
 
---- The cleanup contract a structured worker scope carries.
-affine interface workers.ScopeToken
-    terminal drop: function(takes self: workers.ScopeToken): nil
-end
-
---- A lexical family of parallel child tasks.
-record workers.Scope is workers.ScopeToken
-    _tasks: {any}
-    _closed: boolean
-    _deadline: number?
-    _observer: any
-
-    --- Starts one sendable function with copied arguments.
-    spawn: function<F is workers.Submittable>(
-        borrows self: workers.Scope,
-        F,
-        ...: unpackof workers.Submitted(F)
-    ): workers.Task<F>
-
-    --- Waits for every child. Idempotent.
-    close: function(borrows self: workers.Scope): nil
-
-    --- Closes the scope on every structured exit. A settling terminal: under a
-    --- suspension handler it parks until every child has settled, and without one it
-    --- blocks.
-    drop: function(takes self: workers.Scope): nil
-
-    private _cancelAll: function(workers.Scope, string?): nil
-end
+type workers.ScopeToken = contracts.ScopeToken
+type workers.Scope = contracts.Scope
+workers.Scope = contracts.Scope
 
 local TaskMT: metatable<TaskImpl> = {__index = TaskImpl}
 local ScopeMT: metatable<workers.Scope> = {__index = workers.Scope}
@@ -463,6 +285,7 @@ end
 --- Queues one pool request. The browser effect layer sends it with whatever else is
 --- queued at the next park, so submission itself never waits.
 local function poolRequest(payload: any, resume: function(any): nil): function()
+    payload.setup = workerConfiguration
     return browserEffects.request("workers", payload, resume)
 end
 
@@ -608,7 +431,7 @@ local function settleForScope(task: any): (string, {any}?, integer, any)
     return "done", task._values, task._count, nil
 end
 
-rawset(workers, "__settle", settleForScope)
+workers.settle = settleForScope
 
 function TaskImpl:await(): ...any
     self._observed = true
@@ -684,11 +507,10 @@ end
 local spawnSurface: function<F is workers.Submittable>(
     borrows self: workers.Scope,
     F,
-    ...: unpackof workers.Submitted(F)
+    ...: unpackof contracts.Submitted(F)
 ): workers.Task<F>
 unsafe do
     spawnSurface = spawnImpl as any
-    workers.Scope.spawn = spawnSurface as any
 end
 
 --- Settles every child, answering the first failure the body never observed.
@@ -725,7 +547,7 @@ local function settleAll(children: {any}, wait: function(any): nil): any?
     return firstFailure
 end
 
-function workers.Scope.close(borrows self: workers.Scope): nil
+local function closeScope(borrows self: workers.Scope): nil
     if self._closed then
         return
     end
@@ -736,11 +558,12 @@ function workers.Scope.close(borrows self: workers.Scope): nil
     end
 end
 
-function workers.Scope.drop(takes self: workers.Scope): nil
-    workers.Scope.close(self)
+local function dropScope(takes self: workers.Scope): nil
+    local state = unsafe release self
+    closeScope(state)
 end
 
-function workers.Scope:_cancelAll(reason: string?): nil
+local function cancelAllScope(self: workers.Scope, reason: string?): nil
     for _, task in ipairs(self._tasks) do
         task:cancel(reason)
     end
@@ -752,7 +575,16 @@ local function openScope(deadline: number?, observer: any): workers.Scope
     end
 
     return setmetatable(
-        {_tasks = {}, _closed = false, _deadline = deadline, _observer = observer,},
+        {
+            spawn = spawnSurface,
+            close = closeScope,
+            drop = dropScope,
+            _cancelAll = cancelAllScope,
+            _tasks = {},
+            _closed = false,
+            _deadline = deadline,
+            _observer = observer,
+        },
         ScopeMT
     ) as workers.Scope
 end
@@ -762,7 +594,7 @@ function workers.scope(): affine(workers.Scope)
     return openScope(nil, nil)
 end
 
-rawset(workers, "__scope", openScope)
+workers.openScope = openScope
 
 --- How many lanes the page's pool runs, which is what a caller sizes chunks against.
 local function parallelism(): integer
@@ -777,7 +609,7 @@ local function parallelism(): integer
     return (answered(answer).lanes or 1) as integer
 end
 
-rawset(workers, "__parallelism", parallelism)
+workers.parallelism = parallelism
 
 ----------------------------------------------------------------------------
 -- The lane
@@ -861,7 +693,7 @@ end
 --- The generated bundle calls this when the page's lane entry point boots the payload
 --- with this module named as its worker entry, so a lane never runs the application's
 --- own entry module.
-function workers.__runScheduler(): nil
+function workers.runScheduler(): nil
     laneActive = true
     rawset(_G.nupp, "__workerCheckpoint", laneCheckpoint)
     local reply: any = {operation = "next"}
@@ -874,7 +706,7 @@ function workers.__runScheduler(): nil
     end
 end
 
-workers.Scope = workers.Scope
-workers.ScopeToken = workers.ScopeToken
+@allow("unused-binding")
+local checked: contracts.Provider = workers
 
 export = workers

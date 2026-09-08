@@ -48,14 +48,12 @@ type cache.ModuleRecord = {
     sourceHash: string?,
     interfaceHash: string?,
     artifactHash: string?,
-    backendHash: string?,
     specializationHash: string?,
-    backend: any?,
     dependencies: {string}?,
 
     --- Runtime module selections that survived generation. Unlike `dependencies`,
     --- this excludes type-only imports and includes providers selected indirectly
-    --- through seams. It is the closure a self-contained target carries.
+    --- through service catalogs. It is the closure a self-contained target carries.
     runtimeModules: {string}?,
 
     --- This artifact was compiled from source carried by the compiler rather than
@@ -473,8 +471,7 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
             end
         end
         -- What a module said it may load, resolved against the tree the same way a
-        -- literal is. A pattern naming nothing that exists is not an error: a seam
-        -- whose providers are not built here has none to depend on.
+        -- literal is. A pattern naming nothing that exists has no local dependencies.
         for _, pattern in ipairs(declared) do
             local prefix = pattern:match("^(.+)%.%*$")
             if prefix then

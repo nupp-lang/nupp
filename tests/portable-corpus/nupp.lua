@@ -1,8 +1,8 @@
 return {
     include = {"src"},
     build = {
-        entries = {"main"},
+        entries = {"setup"},
         dialect = "lua51",
-        backends = {"backend"},
+
     },
 }

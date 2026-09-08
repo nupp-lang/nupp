@@ -124,7 +124,7 @@ local record User
     kind: "user"
     id: integer
 end
-local out = string.buffer.new()
+local out = require("nupp.text.buffer").new()
 local writer = nupp.codec.json.writer(out)
 local user = new User(kind = "user", id = 7)
 user:writeJSON(writer)
@@ -151,7 +151,7 @@ local record User
     id: integer
 end
 local user = new User(id = 7)
-local out = string.buffer.new()
+local out = require("nupp.text.buffer").new()
 out:put("prefix:")
 local writer = nupp.codec.json.writer(out)
 nupp.codec.json.writeRecord(user, writer)

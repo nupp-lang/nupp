@@ -1,80 +1,47 @@
 module nupp.compiler.standardsurface
 
---[[Closed portable classification for public standard-library facilities.]]
-
 local surface = {}
-local seamRegistry = require("nupp.runtime.seam.registry")
-
-local function selected(kind: string, name: string, allDialects: boolean?, accelerators: {string}?): any
-    local seam = seamRegistry.get(name)
-
-    return {
-        kind = kind,
-        seam = seam.name,
-        effect = seam.effect,
-        allDialects = allDialects,
-        accelerators = accelerators,
-    }
+local function facility(kind: string, effect: string, allDialects: boolean?, accelerators: {string}?): any
+    return {kind = kind, effect = effect, allDialects = allDialects, accelerators = accelerators}
 end
 
--- This registry is deliberately positive. Adding a public module requires an
--- explicit classification before `lua51` can claim it is portable.
 local MODULES = {
-    ["bit"] = selected("runtime", "numeric.bitops"),
-    ["string.buffer"] = selected("runtime", "text.buffer"),
-    ["nupp.codec.json.provider"] = selected("runtime", "data.json"),
+    ["bit"] = facility("runtime", "runtime.bitops"),
+    ["nupp.text.buffer"] = facility("runtime", "runtime.text_buffer"),
+    ["nupp.codec.json.provider"] = facility("runtime", "native.json"),
     ["nupp"] = {kind = "common"},
     ["nupp.test"] = {kind = "common"},
-    ["nupp.crypto"] = selected("host", "host.crypto"),
-    ["nupp.system"] = selected("host", "host.system"),
+    ["nupp.crypto"] = facility("host", "runtime.crypto"),
+    ["nupp.system"] = facility("host", "runtime.system"),
     ["nupp.services"] = {kind = "common"},
-    ["nupp.service.registry"] = {kind = "common"},
     ["nupp.codec.hex"] = {kind = "common"},
-    ["nupp.digest"] = selected("runtime", "numeric.bitops"),
-    ["nupp.digest.provider"] = {kind = "common"},
+    ["nupp.digest"] = facility("runtime", "runtime.bitops"),
+    ["nupp.runtime.services.mac"] = {kind = "common"},
+    ["nupp.runtime.services.system"] = {kind = "common"},
+    ["nupp.runtime.services.digest"] = {kind = "common"},
     ["nupp.digest.internal.context"] = {kind = "common"},
-    ["nupp.digest.internal.builtin"] = selected("runtime", "numeric.bitops"),
-    ["nupp.digest.internal.words"] = selected("runtime", "numeric.bitops"),
+    ["nupp.digest.internal.builtin"] = facility("runtime", "runtime.bitops"),
+    ["nupp.digest.internal.words"] = facility("runtime", "runtime.bitops"),
     ["nupp.digest.internal.constants"] = {kind = "common"},
-    ["nupp.checksum"] = selected("runtime", "numeric.bitops"),
-    ["nupp.checksum.provider"] = {kind = "common"},
-    ["nupp.checksum.internal.builtin"] = selected("runtime", "numeric.bitops"),
-    ["nupp.mac"] = selected("runtime", "numeric.bitops"),
-    ["nupp.hash"] = selected("runtime", "numeric.bitops"),
-    ["nupp.uuid"] = selected("runtime", "data.uuid"),
-    ["nupp.io.storage"] = selected("host", "host.storage", true),
+    ["nupp.checksum"] = facility("runtime", "runtime.bitops"),
+    ["nupp.runtime.services.checksum"] = {kind = "common"},
+    ["nupp.checksum.internal.builtin"] = facility("runtime", "runtime.bitops"),
+    ["nupp.mac"] = facility("runtime", "runtime.bitops"),
+    ["nupp.hash"] = facility("runtime", "runtime.bitops"),
+    ["nupp.uuid"] = facility("runtime", "runtime.uuid"),
+    ["nupp.io.storage"] = facility("host", "runtime.storage", true),
     ["nupp.bitset"] = {kind = "unavailable", capability = "cstorage"},
-    -- Tables, integers, and one metatable: nothing a dialect could lack.
     ["nupp.store"] = {kind = "common"},
-    ["nupp.codec.json"] = selected("runtime", "data.json"),
-    -- Two seams, and only the first stands between a target and this module.
-    -- `numeric.bitops` is what the digests are written against and a `lua51`
-    -- target has to select. `crypto.hmac_sha256` is an accelerator the one-shot
-    -- HMAC prefers where a backend installs one, so it is recorded as reached
-    -- -- a target that names such a backend gets it installed -- and never
-    -- gated on, because the module answers without it.
-    ["nupp.digest.internal.streaming"] = selected("runtime", "numeric.bitops", nil, {
-        "runtime.hmac_sha256"
-    }),
-    ["nupp.serde"] = selected("runtime", "text.buffer"),
-    -- Scalars out of ordinary strings, in ordinary Lua. This was gated on a
-    -- `data.utf8` seam nothing ever implemented, which made a portable module
-    -- refusable on a target that could have run it as written.
+    ["nupp.codec.json"] = facility("runtime", "native.json"),
+    ["nupp.serde"] = facility("runtime", "runtime.text_buffer"),
     ["nupp.text.utf8"] = {kind = "common"},
-    -- Portable given a buffer, which is the only thing in either of these that a
-    -- `lua51` target could not answer: both build their output by appending into
-    -- one. Classified through the seam that supplies it rather than as portable
-    -- outright, so a program that reaches them without selecting a provider is told
-    -- which seam it is missing, on the line that reached them.
-    ["nupp.derive"] = selected("runtime", "text.buffer"),
-    ["nupp.gpu"] = selected("runtime", "compute.gpu"),
-    ["nupp.gpu.internal"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.derive"] = facility("runtime", "runtime.text_buffer"),
+    ["nupp.gpu"] = facility("runtime", "runtime.gpu"),
+    ["nupp.gpu.internal"] = {kind = "common"},
+    ["nupp.digest.internal.streaming"] = facility("runtime", "runtime.bitops"),
     ["nupp.gpu.layoutfacts"] = {kind = "common"},
     ["nupp.gpu.layout"] = {kind = "common"},
     ["nupp.runtime.hotreload"] = {kind = "unavailable", capability = "cinterop"},
-    -- The core byte types are cdata: a view is a pointer and a length, and no
-    -- table stands in for one. A dialect without C storage cannot have them,
-    -- which is what this says now that no seam claims otherwise.
     ["nupp.runtime.storage"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.internal.bytes"] = {kind = "unavailable", capability = "cstorage"},
@@ -82,29 +49,26 @@ local MODULES = {
     ["nupp.io.internal.scalars"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.internal.lines"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.http.internal.transport"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.io.path.provider"] = selected("host", "host.path"),
+    ["nupp.io.path.provider"] = facility("host", "runtime.path_provider"),
     ["nupp.io.path.pathtext"] = {kind = "common"},
     ["nupp.io.files"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.io.http"] = selected("host", "host.http"),
+    ["nupp.io.http"] = facility("host", "runtime.http"),
     ["nupp.io.path"] = {kind = "common"},
     ["nupp.codec.base64"] = {kind = "common"},
     ["nupp.codec.valuebuilder"] = {kind = "common"},
-    ["nupp.io.net"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.io.process"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.io.tls"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.io.uri"] = selected("runtime", "host.uri"),
-    ["nupp.io.uri.provider"] = selected("runtime", "host.uri"),
+    ["nupp.io.net"] = facility("host", "runtime.net"),
+    ["nupp.io.process"] = facility("host", "runtime.process"),
+    ["nupp.io.tls"] = facility("host", "runtime.tls"),
+    ["nupp.io.uri"] = facility("runtime", "runtime.uri_provider"),
+    ["nupp.io.uri.provider"] = facility("runtime", "runtime.uri_provider"),
     ["nupp.log"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.compiler.runtime.extensions"] = {kind = "compiler"},
     ["nupp.compiler.runtime.math"] = {kind = "compiler"},
-    ["nupp.compiler.runtime.peg"] = selected("runtime", "peg"),
+    ["nupp.compiler.runtime.peg"] = facility("runtime", "native.lpeg"),
     ["nupp.compiler.runtime.reflect"] = {kind = "compiler"},
     ["nupp.mem"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.mem.heap"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.indexed"] = {kind = "unavailable", capability = "cstorage"},
-    -- Engine-backed shared storage, not the worker scheduler. It shares the native
-    -- host feature, but a `lua51` target reaching it needs the storage capability
-    -- rather than whichever module implements `host.workers` there.
     ["nupp.mem.sharedbytes"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.soa"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
@@ -113,20 +77,18 @@ local MODULES = {
     ["nupp.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.random"] = {kind = "common"},
-    ["nupp.simd"] = selected("compile", "numeric.simd"),
+    ["nupp.simd"] = facility("compile", "runtime.simd"),
     ["nupp.suspension"] = {kind = "common"},
     ["nupp.tasks"] = {kind = "common"},
-    ["nupp.time"] = selected("host", "host.time"),
-    ["nupp.workers"] = selected("host", "host.workers"),
+    ["nupp.time"] = facility("host", "runtime.time"),
+    ["nupp.workers"] = facility("host", "runtime.workers"),
     ["nupp.mem.array"] = {kind = "unavailable", capability = "cstorage"},
-    -- Ordinary tables stamped with a record's metatable, so every backend has it.
     ["nupp.mem.pool"] = {kind = "common"},
-    -- Pages are `S[?]` arrays reached through the storage seam.
     ["nupp.mem.arena"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.events"] = {kind = "unavailable", capability = "cstorage"},
 }
 
-local FACILITIES = {["task.deadline"] = selected("host", "host.time"),}
+local FACILITIES = {["task.deadline"] = facility("host", "runtime.time")}
 
 local MODULE_MEMBERS = {["nupp.tasks"] = {runFor = "task.deadline",},}
 
@@ -143,9 +105,6 @@ function surface.all(): {[string]: any}
     return copy
 end
 
---- The classification standing between this target and a module, or nil when
---- nothing does: a module every dialect reaches, one this dialect reaches anyway, and
---- one the compiler itself supplies are all open.
 local function gate(checker: any, moduleName: string): any
     local classification = MODULES[moduleName]
     if checker.opts.dialect ~= "lua51" and not (classification and classification.allDialects) then
@@ -162,10 +121,25 @@ local function gate(checker: any, moduleName: string): any
     return classification
 end
 
---- Whether the target reaches a module, reporting at `at` when it does not and `at`
---- was given. One ladder for both questions, so that what is reported is exactly what
---- was answered.
 local function reach(checker: any, moduleName: string, at: any?): boolean
+    local catalog = require("nupp.runtime.services.catalog")
+    local declared, compatible = false, false
+    for _, provider in ipairs(catalog.entries) do
+        if provider.entry == moduleName then
+            declared = true
+            compatible = compatible or catalog.supports(provider, checker.opts.dialect or "luajit")
+        end
+    end
+    if declared and not compatible then
+        if at ~= nil then
+            checker.diag(
+                "NUPP3006",
+                at,
+                ("provider module %q does not support dialect %q"):format(moduleName, checker.opts.dialect)
+            )
+        end
+        return false
+    end
     local classification = gate(checker, moduleName)
     if classification == nil then
         return true
@@ -178,56 +152,20 @@ local function reach(checker: any, moduleName: string, at: any?): boolean
 
         return capabilities.available(checker, classification.capability)
     end
-    local selected = checker.opts.backendResolution
-        and checker.opts.backendResolution.seams
-        and checker.opts.backendResolution.seams[
-        classification.seam
-    ]
-    if selected == nil and at then
-        checker.diag(
-            "NUPP3012",
-            at,
-            (
-                "the `%s` dialect needs standard seam `%s` to reach module `%s`"
-            ):format(checker.opts.dialect, classification.seam, moduleName),
-            nil,
-            {help = "select a checked backend whose exact runtime module implements the complete contract"}
-        )
-    end
 
-    return selected ~= nil
+    return true
 end
 
---- Whether a target can reach a public standard module at all.
----
---- The same question `requireModule` answers by reporting, asked without reporting,
---- for a caller that has to decide what to do next rather than only what to say. A
---- module resolution is checking is one it will report about itself; asking first
---- is what keeps the report on the line that asked for the module.
 function surface.reachable(checker: any, moduleName: string): boolean
     return reach(checker, moduleName, nil)
 end
 
---- The accelerator seams a module prefers but does not need, or nil.
----
---- Reaching the module is what reaches them: a program that requires it may
---- call the member a provider would answer, and the build has to install the
---- backend the target named for that to be true. Nothing is gated on them, so
---- an accelerator no backend supplies costs a reached effect with no provider
---- behind it, which is what an optional seam is.
----
---- The caller attaches these to the requiring node rather than recording them
---- on the checker, because generation is the last word on reachability: it
---- rebuilds the effect set from the nodes that survived, and an effect no node
---- carries is one packaging is right to drop.
 function surface.accelerators(moduleName: string): {string}?
     local classification = MODULES[moduleName]
 
     return classification and classification.accelerators or nil
 end
 
---- Requires a module for the target, reporting at `at` what stands in the way, and
---- answers the effect a seam-supplied module carries once it is reached.
 function surface.requireModule(checker: any, moduleName: string, at: any): string?
     if not reach(checker, moduleName, at) then
         return nil
@@ -237,7 +175,6 @@ function surface.requireModule(checker: any, moduleName: string, at: any): strin
     return classification and classification.kind ~= "unavailable" and classification.effect or nil
 end
 
---- Requires the seam owning one member of a mixed standard module.
 function surface.requireMember(checker: any, moduleName: string, member: string, at: any): string?
     if checker.opts.dialect ~= "lua51" then
         return nil
@@ -250,26 +187,9 @@ function surface.requireMember(checker: any, moduleName: string, member: string,
     if classification.kind == "unavailable" then
         local capabilities = require("nupp.compiler.capabilities")
         if capabilities.require(checker, classification.capability, at) then
-            local resolved = capabilities.resolve(checker.opts.dialect, checker.opts.backendResolution)
+            local resolved = capabilities.resolve(checker.opts.dialect)
             return classification.effect or capabilities.get(resolved, classification.capability).effect
         end
-        return nil
-    end
-    local selected = checker.opts.backendResolution
-        and checker.opts.backendResolution.seams
-        and checker.opts.backendResolution.seams[
-        classification.seam
-    ]
-    if selected == nil then
-        checker.diag(
-            "NUPP3012",
-            at,
-            (
-                "the `%s` dialect needs standard seam `%s` to reach `%s.%s`"
-            ):format(checker.opts.dialect, classification.seam, moduleName, member),
-            nil,
-            {help = "select a checked backend whose exact runtime module implements the complete contract"}
-        )
         return nil
     end
 

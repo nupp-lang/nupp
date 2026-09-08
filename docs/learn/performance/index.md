@@ -781,7 +781,7 @@ ownership, construction, or output-parameter lowering are not rewritten.
 
 ### `OPT-5`, concat buffer
 
-A string appended to round a loop is built in a `string.buffer` and read back
+A string appended to round a loop is built in a `nupp.text.buffer` and read back
 once, instead of being rebuilt on every pass.
 
 ::: code-group
@@ -796,7 +796,7 @@ end
 ```
 
 ```lua [-O1]
-const __nuppBuffer = require("string.buffer")
+const __nuppBuffer = require("nupp.text.buffer")
 
 function m.join(items)
     local out = ""

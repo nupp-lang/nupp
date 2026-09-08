@@ -1,0 +1,13 @@
+@!internal
+module nupp.runtime.provider.nativegpurelease
+local native = require("nupp.runtime.native")
+export function destroy(state: any): nil
+    if state._closed then
+        return
+    end
+    state._closed = true
+    local handle = state._handle
+    state._handle = nil
+    local destroy = native.C.nuppNativeV2GpuContextRelease as nosuspend function(any): integer
+    destroy(handle)
+end

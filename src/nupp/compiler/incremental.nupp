@@ -24,7 +24,6 @@ local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.env")
 local storeMod = require("nupp.compiler.build.store")
 local T = require("nupp.compiler.types")
-local backends = require("nupp.compiler.backends")
 
 local incremental = {}
 local hostServices = require("nupp.compiler.hostservices")
@@ -86,11 +85,8 @@ type incremental.CheckResult = {
     missing: boolean?,
 
     --- The parse this was checked from, kept so callers need not reparse.
-    result: any,
+    result: any
 
-    --- The backend declaration's descriptor, read without executing the module.
-    backend: any?,
-    backendProblem: string?
 }
 
 --- The compiler's query graph, with the editor and build entry points that read it.
@@ -121,9 +117,6 @@ record incremental.Inc
     --- Parse and check diagnostics for one file, plus the parse itself.
     checkFile: function(path: string): incremental.CheckResult
 
-    --- Selects the checked backend metadata language capabilities resolve against.
-    setBackendResolution: function(resolved: any)
-
     --- The overlay-aware project declaration and module index.
     projectIndex: function(): any
 
@@ -141,9 +134,6 @@ record incremental.Inc
 
     --- Where a module name resolves to, or nil when nothing provides it.
     modulePath: function(name: string): string?
-
-    --- Whether selected runtime seams construct this facade without its source body.
-    runtimeProjectedModule: function(name: string): boolean
 
     --- The module names this file requires, sorted. Read from the recorded query edges,
     --- so the build planner need not know how memos are laid out.
@@ -278,7 +268,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     end
 
     updateProjectFiles()
-    q:setInput("backendResolution", "root", nil)
 
     -- Two queries, one reader: a source file and a file a module reads at compile
     -- time are tracked apart, but both are the bytes at a path or nothing.
@@ -478,36 +467,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return self:get("projectModulePath", name) or envMod.findModulePath(env, name)
     end
 
-    -- An exact seam module is the provider's complete public interface under a
-    -- stable public name. Incremental checks must observe the same replacement
-    -- as the ordinary environment loader; otherwise installed-project builds
-    -- see the facade declaration (or `unknown`) while portable single-file
-    -- checks see the selected provider.
-    local function runtimeModuleName(self: any, name: string): string
-        local resolved = self:get("backendResolution", "root")
-        for seamName, selected in pairs(resolved and resolved.seams or {}) do
-            local contract = require("nupp.runtime.seam.registry").get(seamName)
-            if contract.modules and contract.modules[name] == "" then
-                return selected.runtimeModule
-            end
-        end
-
-        return name
-    end
-
-    local function runtimeProjectedModule(self: any, name: string): boolean
-        local resolved = self:get("backendResolution", "root")
-        for _, selected in pairs(resolved and resolved.seams or {}) do
-            for path in pairs(selected.exports or {}) do
-                if path:match("^(.*)%.[^%.]+$") == name then
-                    return true
-                end
-            end
-        end
-
-        return false
-    end
-
     -- Recipes are immutable semantic envelopes keyed by their behavior fingerprint.
     -- The checker still supplies source provenance separately on each run; this query
     -- owns only the canonical result and therefore safely interns it across edits.
@@ -550,7 +509,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             {
                 resolveModule = function(_, name)
                     local interface = self:get("moduleInterface", name)
-                    local target = modulePath(self, runtimeModuleName(self, name))
+                    local target = modulePath(self, name)
                     local active = target and activeModules[target]
                     if not interface and active then
                         return active.declared and interfaceType(active.exports) or T.any
@@ -560,12 +519,12 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 end,
                 resolveModuleExports = function(_, name)
                     local exports = self:get("moduleExports", name)
-                    local target = modulePath(self, runtimeModuleName(self, name))
+                    local target = modulePath(self, name)
                     local active = target and activeModules[target]
                     return exports or active and active.declared and active.exports or nil
                 end,
                 moduleInitializing = function(_, name)
-                    local target = modulePath(self, runtimeModuleName(self, name))
+                    local target = modulePath(self, name)
                     return target ~= nil and activeModules[target] ~= nil
                 end,
                 observeCallGuarantee = function(_, module, member, identity, guarantee)
@@ -621,7 +580,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             -- consumer's `--strict` must not reinterpret that foreign contract.
             strict = external and false or strict,
             dialect = dialect,
-            backendResolution = self:get("backendResolution", "root"),
             traceInspection = traceInspection,
             generatedSource = self:get("generatedSource", path),
             initialExports = seeded,
@@ -650,16 +608,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             end
         end
 
-        local backend, backendProblem = backends.inspect(result.root, envMod.moduleNameForPath(env, path))
-
-        return {
-            diags = diags,
-            moduleType = moduleType,
-            exports = exports,
-            result = result,
-            backend = backend,
-            backendProblem = backendProblem,
-        }
+        return {diags = diags, moduleType = moduleType, exports = exports, result = result,}
     end
 
     -- The announcement wraps the definition rather than living inside it, so every way
@@ -682,18 +631,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     q:define(
         "moduleInterface",
         function(self, name)
-            if runtimeProjectedModule(self, name) then
-                local bundled = env.bundled and env.bundled[name]
-                if bundled then
-                    return {
-                        type = bundled.type,
-                        nominalEffectFingerprint = bundled.exports and bundled.exports.nominalEffectFingerprint,
-                        deriveInterfaceFingerprint = bundled.exports and bundled.exports.deriveInterfaceFingerprint,
-                        backendFingerprint = nil,
-                    }
-                end
-            end
-            name = runtimeModuleName(self, name)
             local path = modulePath(self, name)
             if not path then
                 -- project files shadow bundled declarations; see env.resolveModule
@@ -702,7 +639,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                     type = bundled.type,
                     nominalEffectFingerprint = bundled.exports and bundled.exports.nominalEffectFingerprint,
                     deriveInterfaceFingerprint = bundled.exports and bundled.exports.deriveInterfaceFingerprint,
-                    backendFingerprint = nil,
                 } or nil
             end
             -- nil on the re-entrant edge of a require cycle: the module is mid-check,
@@ -713,7 +649,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 type = r.moduleType,
                 nominalEffectFingerprint = r.exports and r.exports.nominalEffectFingerprint,
                 deriveInterfaceFingerprint = r.exports and r.exports.deriveInterfaceFingerprint,
-                backendFingerprint = r.backend and r.backend.fingerprint or nil,
             } or nil
         end,
         function(left, right)
@@ -723,7 +658,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             return left.type == right.type
             and left.nominalEffectFingerprint == right.nominalEffectFingerprint
             and left.deriveInterfaceFingerprint == right.deriveInterfaceFingerprint
-            and left.backendFingerprint == right.backendFingerprint
         end
     )
 
@@ -794,13 +728,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     q:define(
         "moduleExports",
         function(self, name)
-            if runtimeProjectedModule(self, name) then
-                local bundled = env.bundled and env.bundled[name]
-                if bundled then
-                    return bundled.exports
-                end
-            end
-            name = runtimeModuleName(self, name)
             local path = modulePath(self, name)
             if not path then
                 -- Type-side lookups need the bundled declaration's exports just as the
@@ -822,11 +749,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         "moduleCallGuarantees",
         function(self, key)
             local module, member = key:match("^([^%z]+)%z(.+)$")
-            if module and runtimeProjectedModule(self, module) then
-                local bundled = env.bundled and env.bundled[module]
-                return bundled and bundled.exports and bundled.exports.callGuarantees or nil
-            end
-            module = module and runtimeModuleName(self, module) or nil
             local path = module and modulePath(self, module) or nil
             local exports
             if path then
@@ -850,6 +772,33 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
 
         return actualIdentity .. (present and "\0present" or "\0absent")
     end)
+
+    -- Bundled declarations share the query graph with project declarations. Their
+    -- imports observe overlays and retain the canonical types returned by it.
+    q:define("bundledModule", function(_, name)
+        return env.loadBundledModule and env.loadBundledModule(name) or false
+    end)
+    env.bundled = setmetatable({}, {
+        __index = function(_, name)
+            return q:get("bundledModule", name)
+        end
+    })
+    env.resolveModule = function(_, name)
+        local resolved = q:get("moduleInterface", name)
+        local path = modulePath(q, name)
+        local active = path and activeModules[path]
+        if not resolved and active then
+            return active.declared and interfaceType(active.exports) or T.any
+        end
+
+        return resolved and resolved.type or nil
+    end
+    env.resolveModuleExports = function(_, name)
+        local exports = q:get("moduleExports", name)
+        local path = modulePath(q, name)
+        local active = path and activeModules[path]
+        return exports or active and active.declared and active.exports or nil
+    end
 
     -- Editor overlay management.
 
@@ -910,11 +859,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return q:get("checkModule", path)
     end
 
-    function inc.setBackendResolution(resolved: any)
-        env.backendResolution = resolved
-        q:setInput("backendResolution", "root", resolved)
-    end
-
     function inc.projectIndex(): any
         return q:get("projectIndex", "root")
     end
@@ -944,10 +888,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- depend on query's internal table layout.
     function inc.modulePath(name: string): string?
         return modulePath(q, name)
-    end
-
-    function inc.runtimeProjectedModule(name: string): boolean
-        return runtimeProjectedModule(q, name)
     end
 
     function inc.moduleDependencies(path: string): {string}

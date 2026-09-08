@@ -142,7 +142,10 @@ local function plantedTree()
     -- It reports the name the launcher gave it as well as which compiler it is,
     -- because `theStageZeroIsNamedToWhatItRuns` asks for that and every other case
     -- here reads only the first line.
-    plant("stage0.lua", 'print("BOOTSTRAP")\nprint("NUPP_STAGE0=" .. tostring(os.getenv("NUPP_STAGE0")))\n')
+    plant(
+        "stage0.lua",
+        'package.preload["nupp.compiler.build.native"] = function() error("provider body must not run") end\nprint("BOOTSTRAP")\nprint("NUPP_STAGE0=" .. tostring(os.getenv("NUPP_STAGE0")))\n'
+    )
     local digest = capture(("shasum -a 256 '%s/stage0.lua' 2>/dev/null || sha256sum '%s/stage0.lua'"):format(dir, dir))
         :match("^(%x+)")
     local tag = pins:match("\nSTAGE0_TAG=(%S+)")
@@ -161,6 +164,15 @@ local function plantedTree()
     local env = (
         "NUPP_TOOLCHAIN_DIR='%s/toolchain' NUPP_HOST_OFFLINE=1 NUPP_HOST_SOURCE_DIR='%s/supplied'"
     ):format(dir, dir)
+
+    local prefix = capture(("%s '%s/scripts/toolchain' --prefix"):format(env, dir)):match("([^\n]+)%s*$")
+    assert(prefix)
+    assert(os.execute(("mkdir -p '%s/luajit/bin'"):format(prefix)) == 0)
+    local interpreter = capture("command -v luajit"):match("([^\n]+)%s*$")
+    assert(interpreter)
+    assert(os.execute(("ln -s '%s' '%s/luajit/bin/luajit'"):format(interpreter, prefix)) == 0)
+    local complete = assert(io.open(prefix .. "/luajit/.complete", "wb"))
+    complete:close()
 
     return dir, plant, env
 end
@@ -259,7 +271,7 @@ function M.theStageZeroIsNamedToWhatItRuns()
 end
 
 -- The compiler that runs the first build of a cold checkout is the pinned
--- release, not these sources. A release older than NEP 32 starts its Windows
+-- release, not these sources. A release older than NEP 28 starts its Windows
 -- comptime workers from a hardcoded `<root>/bootstrap/nupp.lua` -- the file NEP
 -- 32 deleted -- and reads no `NUPP_STAGE0`, so it cannot be told where the
 -- compiler went. `bin/nupp` puts the fetched bundle back under that name for as
@@ -305,7 +317,12 @@ function M.theStageZeroBuildsTheCurrentCompiler()
     assert(os.execute(("cp '%s/nupp.lua' '%s/nupp.lua'"):format(ROOT, dir)) == 0)
     assert(os.execute(("cp -R '%s/src' '%s/src'"):format(ROOT, dir)) == 0)
 
-    local out, ok = capture(("cd '%s' && luajit '%s' build 2>&1"):format(dir, path))
+    local compilerRoot = assert(path:match("^(.*)[/\\][^/\\]+$"))
+    local out, ok = capture(
+        (
+            "cd '%s' && NUPP_COMPILER_ROOT='%s' NUPP_STAGE0='%s' luajit '%s' build 2>&1"
+        ):format(dir, compilerRoot, path, path)
+    )
     assert(ok, "the pinned stage zero cannot build the current compiler: " .. out)
 
     local stamp = io.open(dir .. "/build/.nupp-complete", "rb")

@@ -6,7 +6,7 @@ local function target(output, outDir, features)
         output = output,
         outDir = outDir,
         dialect = "lua51",
-        backends = {"nupp.runtime.backend.browser"},
+
         aot = "require-wasm",
         aotFeatures = features,
     }

@@ -26,7 +26,7 @@ exactly `nupp <tag without the leading v>`. That is what makes the number
 trustworthy rather than merely believed: what shipped is what says it shipped.
 
 Nothing else in the tree moves with a release. The stage-zero bundle used to be
-tracked and had to be refreshed by hand; since NEP 32 it is composed by CI at
+tracked and had to be refreshed by hand; since NEP 28 it is composed by CI at
 release time, so a release commit touches one file.
 
 ## Cutting one
@@ -78,7 +78,7 @@ below.
 
 The compiler is written in Nupp, so a checkout's first build is done by a
 previous release: the one named by `STAGE0_TAG` in `scripts/toolchain.pins`,
-fetched and verified against `STAGE0_SHA256`. NEP 32 records why.
+fetched and verified against `STAGE0_SHA256`. NEP 28 records why.
 
 The consequence is a standing rule on `src/`, the standard library, the runtime
 and `nupp.lua`: **they may only use language features and manifest keys the

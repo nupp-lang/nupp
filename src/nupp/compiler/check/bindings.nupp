@@ -201,6 +201,27 @@ function bindings.install(c: state.Checker): state.StatHandlers
         for j, nameTok in ipairs(stat.names) do
             local ann = annotations[j]
             local init = inferred[j]
+            local moduleInitializer = initializers[j]
+            if nameTok.text == c.moduleLocal
+                and init
+                and init.tag == "shape"
+                and moduleInitializer
+                and moduleInitializer.kind == "tableExpr"
+            then
+                for _, field in ipairs(moduleInitializer.fields or {}) do
+                    if field.kind == "fieldNamed" and field.name then
+                        local member = init.byname and init.byname[field.name.text]
+                        if member then
+                            local target: any = {
+                                kind = "dotIndex",
+                                obj = {kind = "name", token = nameTok},
+                                name = field.name,
+                            }
+                            recordModuleField(target, member, field.isConst, field.value)
+                        end
+                    end
+                end
+            end
             if ann and init then
                 local initializer = initializers[
                     j

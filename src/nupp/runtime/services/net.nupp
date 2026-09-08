@@ -1,0 +1,118 @@
+module nupp.runtime.services.net
+
+local services = require("nupp.services")
+local {type Address} = require("nupp.io.net.types")
+
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+export interface Provider
+    readonly listen: function(
+        self: Provider,
+        host: string,
+        port: integer,
+        backlog: integer,
+        reusePort: boolean
+    ): (any?, string?)
+
+    readonly listenPath: function(self: Provider, path: string, backlog: integer): (any?, string?)
+
+    readonly listenerPort: function(self: Provider, listener: any): integer
+
+    readonly accept: function(self: Provider, listener: any): (any?, string?)
+
+    readonly closeListener: function(self: Provider, listener: any): nil
+
+    readonly connect: function(self: Provider, host: string, port: integer, timeoutMs: integer): (any?, string?)
+
+    readonly connectPath: function(self: Provider, path: string, timeoutMs: integer): (any?, string?)
+
+    readonly connectPoll: function(self: Provider, request: any): (any?, string?)
+
+    readonly closeConnect: function(self: Provider, request: any): nil
+
+    readonly read: function(self: Provider, stream: any, wanted: integer): (string?, string?)
+
+    readonly ended: function(self: Provider, stream: any): boolean
+
+    readonly write: function(self: Provider, stream: any, bytes: string): (integer?, string?)
+
+    readonly pending: function(self: Provider, stream: any): integer
+
+    readonly writeFailed: function(self: Provider, stream: any): boolean
+
+    readonly shuttingDown: function(self: Provider, stream: any): boolean
+
+    readonly shutdownWrite: function(self: Provider, stream: any): (boolean, string?)
+
+    readonly address: function(self: Provider, stream: any, peer: boolean): Address?
+
+    readonly noDelay: function(self: Provider, stream: any, enable: boolean): (boolean, string?)
+
+    readonly keepAlive: function(
+        self: Provider,
+        stream: any,
+        enable: boolean,
+        delaySeconds: integer
+    ): (boolean, string?)
+
+    readonly broadcast: function(self: Provider, socket: any, enable: boolean): (boolean, string?)
+
+    readonly multicastTtl: function(self: Provider, socket: any, ttl: integer): (boolean, string?)
+
+    readonly multicastLoop: function(self: Provider, socket: any, enable: boolean): (boolean, string?)
+
+    readonly membership: function(
+        self: Provider,
+        socket: any,
+        group: string,
+        interfaceAddress: string,
+        join: boolean
+    ): (boolean, string?)
+
+    readonly closeStream: function(self: Provider, stream: any): nil
+
+    readonly bindDatagram: function(self: Provider, host: string, port: integer, reusePort: boolean): (any?, string?)
+
+    readonly datagramPort: function(self: Provider, socket: any): integer
+
+    readonly receive: function(
+        self: Provider,
+        socket: any,
+        maximum: integer
+    ): (string?, string?, integer?, boolean?, string?)
+
+    readonly sendTo: function(
+        self: Provider,
+        socket: any,
+        host: string,
+        port: integer,
+        bytes: string
+    ): (boolean, string?)
+
+    readonly closeDatagram: function(self: Provider, socket: any): nil
+
+    readonly run: function(self: Provider, timeoutMs: integer): nil
+end
+
+export const service: services.Service<Provider> = services.define("host.net", 1, nil, comptime do
+    return shape(nupp.reflect(Provider))
+end)

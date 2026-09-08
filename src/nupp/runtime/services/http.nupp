@@ -1,0 +1,54 @@
+module nupp.runtime.services.http
+
+local services = require("nupp.services")
+local {type Version, type Request, type Options, type Capabilities} = require("nupp.io.http.messages")
+local {type URI} = require("nupp.io.uri")
+local {type Reader as ResponseBody} = require("nupp.io")
+export type Body = ResponseBody
+
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+export affine interface Response is nupp.Closeable
+    readonly status: integer
+    readonly version: Version?
+    readonly url: URI
+    readonly body: Body
+    readonly ok: function(self: Response): boolean
+    readonly header: function(self: Response, name: string): string?
+    readonly getAll: function(self: Response, name: string): {string}
+    readonly headers: function(self: Response): {[string]: string}
+end
+
+export affine interface Client is nupp.Closeable
+    readonly flush: function(exclusive self: Client): nil
+    readonly pending: function(self: Client): integer
+    readonly send: function(self: Client, borrows request: Request): (Response?, string?)
+end
+
+export interface Provider
+    readonly client: function(options: Options?): Client
+    readonly capabilities: function(): Capabilities
+end
+
+export const service: services.Service<Provider> = services.define("host.http", 1, nil, comptime do
+    return shape(nupp.reflect(Provider))
+end)

@@ -152,7 +152,7 @@ sha256() { sha256_stdin < "$1"; }
 # The pins that decide a native artifact, which is every pin but the stage-zero
 # one. That one names a Nupp release and a bundle of Lua; no C compiler ever
 # sees it, and keying LuaJIT, LPeg and every Rust crate on it would make the
-# one-line pin bump NEP 32 asks for a from-scratch native rebuild on every
+# one-line pin bump NEP 28 asks for a from-scratch native rebuild on every
 # machine that pulls it. Assignments only, so a comment is documentation rather
 # than a cache generation.
 pins_digest() {
@@ -357,13 +357,38 @@ source_tree() {
 # compiler-pair key, and every worktree of every checkout on this machine that
 # pins the same release shares the one copy.
 #
-# NEP 32 says why this is fetched rather than committed, and the pin says why the
+# NEP 28 says why this is fetched rather than committed, and the pin says why the
 # digest is of the decompressed file.
+stage0_runtime() {
+    stage0_verified_file=$1
+    stage0_runtime_root="$ROOT/build/stage0/$STAGE0_SHA256"
+    stage0_runtime_file="$stage0_runtime_root/nupp.lua"
+    stage0_runtime_digest=$(sha256 "$ROOT/scripts/stage0-runtime.lua")
+    build_luajit
+    mkdir -p "$stage0_runtime_root/scripts" "$stage0_runtime_root/bin"
+    [ -f "$stage0_runtime_file" ] || cp "$stage0_verified_file" "$stage0_runtime_file"
+    stage0_driver=$(printf '%s' "$ROOT/scripts/toolchain" | sed "s/'/'\\\\''/g")
+    printf '#!/bin/sh\nexec '\''%s'\'' "$@"\n' "$stage0_driver" > "$stage0_runtime_root/scripts/toolchain"
+    chmod +x "$stage0_runtime_root/scripts/toolchain"
+    stage0_entry=$(printf '%s' "$stage0_runtime_file" | sed "s/'/'\\\\''/g")
+    printf '#!/bin/sh\nexec luajit '\''%s'\'' "$@"\n' "$stage0_entry" > "$stage0_runtime_root/bin/nupp"
+    chmod +x "$stage0_runtime_root/bin/nupp"
+    stage0_runtime_stamp="$stage0_runtime_root/.runtime-$stage0_runtime_digest.complete"
+    take_lock "stage0-runtime-$STAGE0_SHA256" "$stage0_runtime_stamp" || return 0
+    "$PREFIX/luajit/bin/luajit" \
+        "$(native_path "$ROOT/scripts/stage0-runtime.lua")" \
+        "$(native_path "$stage0_runtime_file")" \
+        "$(native_path "$stage0_runtime_root")" \
+        "$(native_path "$stage0_runtime_stamp")"
+    release_lock
+}
+
 stage0() {
     out="$CACHE/stage0/$STAGE0_SHA256"
     file="$out/nupp.lua"
     if [ -f "$file" ]; then
-        native_path "$file"
+        stage0_runtime "$file"
+        native_path "$stage0_runtime_file"
         return 0
     fi
 
@@ -413,7 +438,8 @@ stage0() {
     mv "$file.$$" "$file"
     rm -rf "$staged"
     trap - EXIT HUP INT TERM
-    native_path "$file"
+    stage0_runtime "$file"
+    native_path "$stage0_runtime_file"
 }
 
 # --- notices ----------------------------------------------------------------

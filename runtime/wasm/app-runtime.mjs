@@ -100,6 +100,9 @@ function abortable(value, signal) {
 async function performTimeEffect(effect, options) {
   if (effect.operation === "now") return (options.performance || globalThis.performance).now();
   if (effect.operation === "wall") return (options.dateNow || Date.now)();
+  if (effect.operation === "until" && typeof effect.deadline === "number" && Number.isFinite(effect.deadline) && effect.deadline >= 0) {
+    effect = {...effect, operation: "sleep", milliseconds: Math.max(0, effect.deadline - (options.performance || globalThis.performance).now())};
+  }
   if (effect.operation !== "sleep" || typeof effect.milliseconds !== "number" ||
       !Number.isFinite(effect.milliseconds) || effect.milliseconds < 0) {
     throw new Error("invalid browser time operation");

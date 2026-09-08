@@ -1,34 +1,23 @@
 # Portable Lua libraries
 
-Nupp libraries can be written to take full advantage of LuaJIT's performance
-features, and that same library can be compiled to work with Lua 5.1 too.
+A library can target LuaJIT's native representations or portable Lua syntax. The
+target determines representations and calling conventions. Runtime service
+providers supply operations for those representations.
 
 ```lua
 return {
-   include = { "src" },
+   include = {"src"},
    build = {
       default = "portable",
       targets = {
-         native = {
-            entries = { "main" },
-            dialect = "luajit",
-            outDir = "build/luajit",
-         },
-         portable = {
-            entries = { "main" },
-            dialect = "lua51",
-            outDir = "build/lua51",
-            backends = { "portable.backend" },
-         }
-      }
-   }
+         native = {entries = {"main"}, dialect = "luajit", outDir = "build/luajit"},
+         portable = {entries = {"main"}, dialect = "lua51", outDir = "build/lua51"},
+      },
+   },
 }
 ```
 
-## Dialect targets
-
-A [dialect](../build.md#dialect-selection) belongs to a build target, not to a
-source file. Check and build both targets before publishing the library:
+Check and build each supported target:
 
 ```bash
 nupp check --target native
@@ -37,385 +26,110 @@ nupp build --target native
 nupp build --target portable
 ```
 
-The `luajit` target is the default language path. It retains LuaJIT operators,
-FFI representations, and native intrinsics without a runtime dialect test. An
-explicit `dialect = "luajit"` produces the same Lua as omitting the dialect.
+## Target representations
 
-`luajit-compat` retains those LuaJIT runtime facilities but lowers the newer
-LuaJIT spellings Nupp ordinarily passes through. Use it for an embedded LuaJIT
-such as LÖVE when its FFI is available but its parser is older than Nupp's
-default target floor. It is not portable Lua: FFI, `jit`, `bit`, and native
-struct representations remain available.
+`luajit` uses native FFI pointers, layouts, integer values, and supported operators.
+`luajit-compat` keeps those representations while lowering syntax for older
+embedded LuaJIT parsers. `lua51` lowers portable operations to retained module
+functions. Provider names do not change generated operations or machine layouts.
 
-The `lua51` target lowers syntax that Nupp can preserve across Lua 5.1 through
-5.4 and LuaJIT. This includes `const`, `continue`, compound assignment,
-optional access and calls, lambdas, digit separators, `table.new`,
-`table.clear`, and `table.clone`. It also binds moved prelude functions such as
-`unpack` and `loadstring` to the name present in the running interpreter.
+Portable bit operations and table struct values have built-in implementations.
+Physical storage requires a compatible implementation at module initialization.
+The Wasm storage implementation supplies its exact integers, reference-valued
+structs, and memory host together. A module requiring physical storage fails to
+load if that representation is unavailable.
 
-Checking fails closed where syntax lowering is not enough. Authored `goto` and
-labels are unavailable because Lua 5.1 cannot parse them. LuaJIT-only prelude
-identities and modules, including `ffi`, `bit`, `jit`, and `string.buffer`, are
-unavailable to ordinary portable source. A checked seam may still name `bit`
-as its exact third-party runtime dependency.
+Unsupported source operations still fail during checking. Foreign C calls need a
+native target; registering a provider cannot change that requirement.
 
-## Backend composition
+## Require-time selection
 
-A backend is a checked module that exports one declaration: a constant name,
-and the provider module that answers each seam it selects. This backend
-supplies portable bit operations and table-backed struct values:
+SPI covers operations whose implementation varies. Fixed hashing, scalar SIMD,
+layout arithmetic, and other ordinary helpers are normal modules.
+
+Canonical interfaces and handles live under `nupp.runtime.services`. Importing a
+contract defines its handle without loading its implementations. A setup entry
+can select a named provider before requiring application modules:
 
 ```nupp
-module portable.backend
-
-export = {
-    name = "portable",
-    seams = {
-        ["numeric.bitops"] = "bit",
-        ["representation.structvalue"] = "nupp.runtime.provider.tablestruct",
-    },
-}
+module setup
+local contracts = require("nupp.runtime.services.contracts")
+contracts.bitops:select("nupp.scalar")
+return require("application")
 ```
 
-Every key is a seam the compiler carries and every value is a constant module
-name. A seam cannot be selected twice, because it is a key; the build rejects
-two selected backends that supply the same seam, and it rejects a key that
-names no known contract.
+Use `setup` as the target entry. A consuming facade resolves its provider during
+`require`, retains the resulting table, and exports its actual operations. Lua's
+module cache retains that assembled module. Calls perform no SPI lookup.
 
-The manifest names backend modules explicitly. Nupp does not scan the source
-tree, the Lua module path, or installed rocks for providers. Checking reads the
-declaration as a value, without executing the module's top level or requiring
-the provider it names.
+An explicit selection wins. Without one, a facade chooses its documented built-in
+default with ordinary conditions. Discovering a third-party provider never makes
+it the default. Once the facade resolves, its default selection is frozen;
+reselection fails. A failed loader, invalid implementation, missing required
+provider, or dependency cycle fails the require with service context.
 
-Each seam has a compiler-owned name, version, structural contract, installer,
-and behavioral suite. A backend may select any subset of the known seams, but
-each selected seam supplies its whole contract. There is no partial seam that
-inherits unspecified behavior from another backend.
+## Runtime contracts
 
-### Compile-bound seams
-
-A compile-bound seam changes how a source construct lowers when its dialect
-does not have the native representation. The generated module installs the
-selected backend and calls the checked provider operations:
-
-```nupp
-local struct State
-    value: uint32
-end
-
-local state = new State(2166136261)
-state.value = state.value ~ 16777619
-```
-
-The same source uses an FFI struct and direct bitwise operator under `luajit`.
-Under `lua51`, `representation.structvalue` creates the value and
-`numeric.bitops` performs the XOR. The dialect decision is made while lowering;
-the artifact does not branch on the running interpreter.
-
-### Runtime-bound seams
-
-A runtime-bound seam adapts an exact module to a standard-library or host
-contract. Installation creates a lazy binding, and the first reached member
-requires and validates the selected module. A missing module or incompatible
-shape reports the seam and module that failed.
-
-The installer and every conformance suite are ordinary checked `.nupp` source
-files. Provider implementations are ordinary `.nupp` or `.lua` modules.
-Generated Lua contains the selected installation and calls, not fallback source
-stored in compiler strings.
-
-## Dependency-provided backends
-
-A [LuaRock dependency](../integrations/luarocks.md#consume-a-typed-rock) may carry both a
-runtime provider and the checked backend module that selects it. An HMAC rock
-can install this backend source as `nupp/acme/cryptobackend.nupp`:
-
-```nupp
-module acme.cryptobackend
-
-export = {
-    name = "acme.crypto",
-    seams = {["crypto.hmac_sha256"] = "acme.hmac_sha256"},
-}
-```
-
-The same rock installs `acme.hmac_sha256` as a runtime Lua module. That module
-may implement HMAC itself or adapt another rock; Nupp requires only the seam's
-`digest` and `hex` contract. The compiler-owned suite checks published
-HMAC-SHA256 vectors instead of requiring Nupp to maintain another HMAC
-implementation.
-
-Pin the rock, select it on the portable target, and name its backend from the
-same target:
-
-```lua
-return {
-   include = { "src" },
-   dependencies = {
-      crypto = {
-         kind = "luarocks",
-         rock = "acme-crypto",
-         version = "1.0-1",
-      }
-   },
-   build = {
-      default = "portable",
-      targets = {
-         portable = {
-            entries = { "main" },
-            dialect = "lua51",
-            dependencies = { "crypto" },
-            backends = { "acme.cryptobackend" }
-         }
-      }
-   }
-}
-```
-
-The selected dependency's checked `nupp/` root participates in backend
-resolution. Its ordinary Lua modules remain in the target's rock tree. A
-target that names the backend without selecting the dependency cannot resolve
-the backend source or its runtime module.
-
-This arrangement also applies to SHA-256, UTF-8, JSON, UUID, bitsets, PEG, and
-host services. A package owns the adapter for the third-party API it chose,
-while Nupp owns the stable seam contract and suite.
-
-## Backend conformance
-
-`nupp backend test` checks the backend and runs the compiler-owned suite for
-every seam it contains. Name the portable dialect and the actual interpreter
-to test a stock Lua result outside the compiler's LuaJIT process:
-
-```bash
-nupp backend test acme.cryptobackend \
-   --dialect lua51 \
-   --runtime lua5.1
-```
-
-Use `--seam` to isolate one contract and `--json` to retain the backend digest,
-runtime identity, contract version, binding kind, and result:
-
-```bash
-nupp backend test acme.cryptobackend \
-   --dialect lua51 \
-   --runtime lua5.4 \
-   --seam crypto.hmac_sha256 \
-   --json
-```
-
-The command compiles the backend, seam adapters, suites, and any checked
-provider source into a temporary Lua module tree. It adds the manifest's
-default target rock paths for third-party modules. Set the portable target as
-`build.default` when its dependencies provide the modules under test.
-
-Checking and building never run behavioral suites. This keeps dependency
-execution out of compilation, but it means a successful build is not a
-conformance result. Run the suite and a consumer smoke test on every runtime
-the library supports:
-
-```bash
-for runtime in lua5.1 lua5.2 lua5.3 lua5.4 luajit; do
-   nupp backend test portable.backend --dialect lua51 --runtime "$runtime"
-done
-```
-
-The loop proves each provider against its seam. Run the built library's own
-tests with the same interpreters to prove that the complete artifact loads and
-behaves correctly.
-
-## Artifact accounting
-
-`nupp build --json` records the resolved dialect and every seam reached by the
-target. A dependency-backed entry also records the package and pinned version:
-
-```json
-{
-   "dialect": "lua51",
-   "backendResolution": [
-      {
-         "name": "crypto.hmac_sha256",
-         "version": 1,
-         "binding": "runtime",
-         "backend": "acme.cryptobackend",
-         "runtimeModule": "acme.hmac_sha256",
-         "runtimeDependency": {
-            "package": "acme-crypto",
-            "version": "1.0-1"
-         }
-      }
-   ]
-}
-```
-
-The record also carries the backend source digest. Changing the selected
-backend, its provider module, its contract version, or the dialect invalidates
-the affected build cache entries. The artifact never searches for another
-provider when the recorded module is absent.
-
-## Seam catalog
-
-Backend authors use `nupp.runtime.backend` to validate, install, and test a
-backend declaration. The interfaces in `nupp.runtime.backend.contracts` state
-the callable contract each provider implements. The registry, reflection-derived
-member lists, installers, and conformance-suite modules under `runtime.seam`
-are private implementation details.
-
-Use the supplied `nupp.runtime.backend.browser`, `.portable`, and `.wasm`
-backend declarations when they match the target. A custom declaration names
-its own providers; application imports name the public standard-library API.
-
-Network, process, and TLS backend authors use `nupp.runtime.backend.net`,
-`.process`, and `.tls`. Each owns its `Backend` contract and lane-local
-`install`/`current` selection. Network event-loop integrations call
-`nupp.runtime.backend.net.pump`. Application code uses `nupp.io.net`,
-`nupp.io.process`, and `nupp.io.tls`; it does not receive raw handles or backend
-installation hooks. Process construction always takes application options.
-
-Contract versions are 1 except where the table says otherwise.
-
-### Compile-bound contracts
-
-Compile-bound contracts preserve source operations through a representation
-selected during lowering.
-
-| Seam | Source surface |
+| Handle | Interface and consumer |
 | --- | --- |
-| `numeric.bitops` | Integer bitwise operators |
-| `numeric.int64` | Wide integers and numerals |
-| `numeric.simd` | SIMD values and operations |
-| `representation.structvalue` | Table-backed structs |
+| `contracts.bitops` | Signed, variadic word operations; `nupp.runtime.bitops` |
+| `contracts.buffer` | Portable buffers; `nupp.text.buffer` |
+| `contracts.json` | JSON values and markers; `nupp.codec.json` |
+| `contracts.cstorage` | Target storage and its representation operations |
+| `contracts.path`, `contracts.uri` | Path and URI operations |
+| `contracts.time` | Clock and timer operations; `nupp.time` |
+| `contracts.uuid`, `contracts.crypto`, `contracts.storage` | UUIDs, host cryptography, and persistent storage |
+| `services.suspension.service` | Suspension and cancellation |
+| `services.workers.service` | Isolated worker execution |
+| `services.http.service` | HTTP clients and responses |
+| `services.gpu.service` | GPU devices sharing canonical buffer and context types |
+| `services.net.service`, `services.process.service`, `services.tls.service` | Network, process, and TLS transports |
 
-`text.buffer` supplies `string.buffer`, which is LuaJIT's. The standard library
-builds strings by appending into one, so it is what `nupp.serde` and the
-bundled `@derive` recipes render through; a `lua51` target that reaches either
-needs a provider selected, and `nupp.runtime.provider.tablebuffer` is the carried
-one. The provider implements the declared module rather than replacing it, so
-signatures keep naming `string.buffer.Buffer` on both targets.
+Here `contracts` names `nupp.runtime.services.contracts`, and `services.*` names
+the corresponding module under `nupp.runtime.services`.
 
-`numeric.bitops` also answers the run-time half of `nupp.math`. Most reads of
-`nupp.math` are lowered to operations and never reach it, but one taken as a
-value is a call into a module that is itself written in bit operations, so a
-`lua51` target reaching `nupp.math` needs a provider selected for the same
-reason a target performing an explicit XOR does.
+`nupp.text.buffer` owns the portable buffer surface and one shared `Buffer` type.
+Its native adapter uses LuaJIT's `string.buffer`. Explicitly native pointer and
+serialization facilities remain on the native `string.buffer` surface.
 
-### Physical storage and ordinary I/O
+GPU providers use the shared interfaces in `nupp.runtime.services.gpu`. Each context retains its
+device methods. CPU workgroups and tensor layout operations are ordinary code.
+HTTP clients are created with `nupp.io.http.client(options)` and retain their
+response and body cleanup responsibilities.
 
-`nupp.runtime.backend.wasm` and `nupp.runtime.backend.browser` select compatible
-`representation.cstorage`, `representation.structvalue`, and `numeric.int64`
-providers. In the supported Wasm host, ordinary `nupp.io` buffers, rich readers
-and writers, scalar adapters, and `nupp.mem.span` views use this storage directly.
-`carray(T, count)` keeps its struct type argument. `nupp.mem.array` supplies owned
-struct and scalar arrays with the same span contracts. Native LuaJIT keeps FFI
-storage and its direct indexing; applications select no provider per object.
+Host code pumps network events with `nupp.io.net.pump(milliseconds)`. Process
+providers construct exit values with `nupp.io.process.types.exited`.
 
-Borrowing a string or slicing a span copies no payload. `ref()` returns a rooted,
-bounded opaque reference on Wasm, preserving its typed signature and permission;
-it grants no arbitrary C address access. Scalar storage includes exact signed
-and unsigned 64-bit values, with target-native byte order (little-endian on
-wasm32). Struct references retain their owners through stores and copies.
-Allocation owners remain GC-rooted; dropping a borrow ends access and does not
-promise immediate physical reclamation.
+## Dependency providers
 
-Standalone Lua 5.1 without a physical host still cannot satisfy `cstorage`.
-`cinterop` remains unavailable on the Wasm backend. Native malloc/free allocators
-(`mem.heap`, `mem.soa`) and native shared/transfer regions (`mem.sharedbytes`)
-retain that additional requirement. A selected storage provider does not make
-files, sockets, TLS or processes available in a browser.
+A runtime dependency advertises a canonical contract module, handle export, API
+version, provider name, and implementation export in its static descriptor. The
+build checks that export against the contract, including generic signatures,
+ownership, and suspension guarantees. Additional members are allowed. Lua
+implementations need a matching `.d.nupp` declaration or a typed adapter.
 
-The portable `text.buffer` provider supports FIFO `get` and constant-time length
-as well as appends. It satisfies ordinary I/O's structural `ByteQueue` contract.
-Pointer methods and serialization are separate native buffer facilities.
+The artifact catalog contains target-compatible implementations from the runtime
+dependency graph. Discovery and checking never execute provider code. Native
+adapters remain separately loadable and are excluded from portable payloads.
+Only target dependencies contribute runtime providers.
 
-### Runtime contracts
+See [Service Providers](../service-providers.md) for descriptors and the typed API.
 
-Runtime contracts project a provider module into a standard or host module
-after the selected backend installs it.
+## Workers
 
-| Seam | Standard or host surface |
-| --- | --- |
-| `data.json` | `nupp.codec.json` (contract 2) |
-| `data.sha256` | compiler-private one-shot SHA-256 |
-| `text.buffer` | `string.buffer` |
-| `data.uuid` | `nupp.uuid.v4` and `uuid7` |
-| `peg` | `nupp.peg`, LPeg, and `re` |
-| `suspension` | `nupp.suspension` management |
-| `host.path` | The environment behind `nupp.io.path` |
-| `host.uri` | Parsing for `nupp.io.uri` |
-| `host.http` | `nupp.io.http` |
-| `host.time` | `nupp.time` |
-| `host.wasm` | Private host memory and transfer leases |
-| `host.workers` | `nupp.workers` (contract 2) |
-| `host.crypto` | `nupp.crypto` |
-| `host.storage` | `nupp.io.storage` |
-| `compute.gpu` | `nupp.gpu` |
+Worker lanes start fresh Lua states. Before loading consumers, child initialization
+loads explicit setup modules and replays catalog-backed named selections. Provider
+instances and loader closures do not cross the lane boundary.
 
-One runtime contract is an accelerator rather than a contract a program needs
-filled: `crypto.hmac_sha256` names no module in the table above, because
-[](nupp.digest.internal.streaming) answers on every target without one, being SHA-256 and
-HMAC-SHA256 written in Nupp against `numeric.bitops` alone. A backend that
-installs one replaces a working implementation with a faster one, which is why
-the seam is not required and does not refuse a program that selected nothing.
-`nupp.digest.internal.streaming` prefers an installed provider from its one-shot `hmacDigest`
-and `hmacHex`; its streaming constructors have none to prefer, the seam being
-one-shot.
+Register a setup module with `nupp.services.setupWorkers("workersetup")` before
+requiring consumers, and include that module in the artifact's entry modules.
+Runtime-only registrations need explicit setup in the destination lane. Each lane
+loads and caches its own provider instances.
 
-A facility that no backend can currently supply has no seam. `nupp.io`,
-[](nupp.io.files), [](nupp.io.net), [](nupp.io.tls) and [](nupp.io.process)
-name a capability a `lua51` target lacks rather than a contract nobody
-implements, and [](nupp.text.utf8) needs neither: it reads scalars out of
-ordinary strings and is portable as written.
+## Validation
 
-The other runtime contracts use existing LuaJIT or compiler-provided
-implementations under `luajit` and require seams when `lua51` reaches them.
-
-## Runtime cost
-
-Separate artifacts keep dialect selection out of the running program. A
-`luajit` target uses direct operators, FFI values, and compiler-native standard
-facilities where they exist. It does not install portable seams merely because
-another target in the manifest names them.
-
-A `lua51` artifact installs a backend only in modules that reach one of its
-seams. Installation is idempotent, and runtime-bound provider modules load on
-first use. A backend containing several seams creates all of their lazy
-bindings when installed, so use smaller backends when even that setup matters.
-
-Compile-bound operations still pay for their selected representation. A
-table-backed struct uses tables, an emulated bit operation calls its provider,
-and scalar SIMD may allocate.
-
-Conformance proves behavior, not speed. Benchmark each portable provider on the
-runtime combinations the library supports. Keep a native target for callers
-that want LuaJIT's direct representations and operations.
-
-## Limits
-
-Portable lowering preserves meaning only where the compiler has a complete
-lowering or a complete seam. These boundaries remain unavailable under
-`lua51`:
-
-- `cdef`, C pointers, and other `cinterop` operations;
-- C-backed storage, `nupp.serde`, and modules built on `nupp.mem`;
-- authored labels and `goto`;
-- direct use of LuaJIT-only prelude identities and VM modules; and
-- standard modules with no selected seam.
-
-The runtime check at first use is structural. It can prove that a provider
-loads and exposes the required values, but only `nupp backend test` exercises
-the behavioral contract. A finite suite cannot prove performance or behavior
-the contract does not state.
-
-Portable SIMD and struct providers may change representation and cost, but not
-observable contract behavior. A backend cannot supply a C ABI, make a Lua table
-carry a C pointer, invent a compiler capability, or replace a forbidden
-capability with a value that only has the same name.
-
-::: seealso
-- [build.md](../build.md#dialect-selection) for target selection, cache behavior,
-  and build output
-- [LuaRocks](../integrations/luarocks.md) for packaging checked source and runtime modules
-- [cli.md](../../../reference/cli.md#backend) for every backend test option
-- [NEP 13](../../../neps/0013-dialects-and-capability-backends.md) for the design
-  record behind dialects and seams
-:::
+Type-check provider exports and run behavioral conformance tests on each supported
+host. Exercise signed bit operations, JSON markers, buffer ownership, storage
+interoperability, and resource lifecycles. Tests using different selections should
+initialize separate states. Instrument resolution during module loading and verify
+that repeated exported operations leave that count unchanged.

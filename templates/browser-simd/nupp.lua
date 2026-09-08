@@ -7,7 +7,6 @@ local function target(entry, output, outDir, features)
         outDir = outDir,
         dialect = "lua51",
         dependencies = {"lunajson"},
-        backends = {"nupp.runtime.backend.browser"},
         aot = features and "require-wasm" or "off",
         aotFeatures = features,
     }

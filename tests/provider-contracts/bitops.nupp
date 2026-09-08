@@ -1,0 +1,40 @@
+@!internal
+
+module nupp.tests.providers.bitops
+
+--[[Behavioral contract vectors for the `numeric.bitops` contract.]]
+
+local bitopsSuite = {}
+
+--- Runs the language's 32-bit bit-operation contract against one provider.
+function bitopsSuite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        assert(provider.band(0xf0, 0x3c) == 0x30, "band must combine 32-bit words")
+        assert(provider.bor(0xf0, 0x3c) == 0xfc, "bor must combine 32-bit words")
+        assert(provider.bxor(0xf0, 0x3c) == 0xcc, "bxor must combine 32-bit words")
+        assert(provider.bnot(0) == -1, "bnot must return a signed 32-bit word")
+        assert(provider.lshift(1, 31) == -2147483648, "lshift must use signed 32-bit results")
+        assert(provider.lshift(1, 32) == 1, "shift counts must be reduced modulo 32")
+        assert(provider.rshift(-1, 1) == 2147483647, "rshift must fill with zero bits")
+        assert(provider.arshift(-2, 1) == -1, "arshift must preserve the sign bit")
+        assert(provider.band(-1, 0xff, 0x3c) == 0x3c, "band must accept variadic operands")
+        assert(provider.bor(1, 2, 4, 8) == 15, "bor must accept variadic operands")
+        assert(provider.bxor(-1, 0xff, 0xff) == -1, "bxor must accept signed variadic operands")
+        assert(provider.rol(0x80000001, 1) == 3, "rol must wrap the high bit")
+        assert(provider.ror(3, 1) == -2147483647, "ror must wrap the low bit")
+        assert(provider.bswap(0x12345678) == 0x78563412, "bswap must reverse all four bytes")
+        assert(provider.tobit(1.5) == 2 and provider.tobit(2.5) == 2, "conversion must round ties to even")
+        assert(provider.tobit(-1.5) == -2 and provider.tobit(-2.5) == -2, "negative ties must round to even")
+        assert(provider.tobit(math.huge) == 0 and provider.tobit(0 / 0) == 0, "nonfinite conversion must yield zero")
+        assert(provider.tohex(-1, 0) == "", "zero digits must produce an empty string")
+        assert(provider.tohex(-1, 10) == "00ffffffff", "wide hex output must pad with zeros")
+        assert(provider.tohex(-1, -10) == "00FFFFFFFF", "negative digits must select uppercase")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = bitopsSuite

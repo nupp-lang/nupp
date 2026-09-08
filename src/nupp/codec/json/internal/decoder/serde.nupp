@@ -1,7 +1,7 @@
 module nupp.codec.json.internal.decoder.serde
 
 local _fused = require("nupp.codec.json.internal.decoder.fused")
-local {type Buffer} = require("string.buffer")
+local {type Buffer} = require("nupp.text.buffer")
 
 local fused = {}
 

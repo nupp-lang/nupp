@@ -132,10 +132,10 @@ files. The resolved value appears in build and check JSON and in `nupp tasks`.
 It is part of the cache key, so artifacts and checks from different dialects
 cannot satisfy one another.
 
-The `lua51` checker also requires a complete lowering or selected backend seam
-for every reached construct and standard facility. See
-[portable-libraries.md](portability/libraries.md) for dual targets, checked
-backends, provider dependencies, and the runtime test matrix.
+The `lua51` checker requires a supported target representation for every
+reached construct. Service facades resolve their implementations when required.
+See [portable libraries](portability/libraries.md) for typed providers, target
+dependencies, and setup entry modules.
 
 A target's `dependencies` are names, declared once at the top level of the
 manifest and shared by every target that lists them:
@@ -1194,7 +1194,7 @@ fetches the release pinned in `scripts/toolchain.pins` and verifies it against
 the digest committed beside it. The cost of that is a rule on these sources:
 they may only use language features the pinned release already understands, and
 a feature reaches them a release later. [NEP
-32](https://github.com/nupp-lang/nupp/blob/main/docs/neps/0032-fetched-stage-zero.md)
+32](https://github.com/nupp-lang/nupp/blob/main/docs/neps/0028-fetched-stage-zero.md)
 records why that trade was made.
 
 The build system's own implementation lives under the internal

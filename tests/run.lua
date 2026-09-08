@@ -1155,6 +1155,7 @@ local PROCESS_ISOLATED = {
     -- absolute checkout path on hosts where debug information is relative.
     hotreloadguaranteetest = true,
     projectlinktest = true,
+    servicepackagetest = true,
     profiletest = true,
     runnertest = true,
     -- These execute generated ownership cleanups. Their providers are registered
@@ -1251,45 +1252,53 @@ if #shard == 0 and #suites > 0 and (
                 -- output is captured in its state, process-writing suites are in the
                 -- isolated phase, and progress has its own saved descriptor.
                 local restoreOutput = silenceProcessOutput()
-                for _, lane in ipairs(lanes) do
-                    local index = children + 1
-                    children = index
-                    madeShardRoot = madeShardRoot or os.execute("mkdir -p '" .. shardCacheRoot .. "'") ~= nil
-                    local cache = ("%s/shard-%d"):format(shardCacheRoot, index)
-                    running[
-                        #running + 1
-                    ] = {
-                        label = lane.label,
-                        index = index,
-                        startedAt = now() - started,
-                        task = scope:spawn(job.run, lane.arg, cache, progressFd, verbose, colorMode, suiteCatalog),
-                    }
-                end
-
-                if #running > 0 then
-                    beginPhase(("%d suites across %d Nupp workers"):format(suiteCount or #shareable, #running))
-                    marked = true
-                end
-
-                local reports = {}
-                for _, child in ipairs(running) do
-                    local ok, report = pcall(function()
-                        return child.task:await()
-                    end)
-                    if ok and type(report) == "table" then
-                        report.shard = {
-                            index = child.index,
-                            names = (report.claimed and #report.claimed > 0) and report.claimed or {child.label},
-                            startedAt = child.startedAt,
-                            collectedAt = now() - started
+                local completed, reports = pcall(function()
+                    for _, lane in ipairs(lanes) do
+                        local index = children + 1
+                        children = index
+                        madeShardRoot = madeShardRoot or os.execute("mkdir -p '" .. shardCacheRoot .. "'") ~= nil
+                        local cache = ("%s/shard-%d"):format(shardCacheRoot, index)
+                        running[
+                            #running + 1
+                        ] = {
+                            label = lane.label,
+                            index = index,
+                            startedAt = now() - started,
+                            task = scope:spawn(job.run, lane.arg, cache, progressFd, verbose, colorMode, suiteCatalog),
                         }
-                        reports[#reports + 1] = report
-                    else
-                        reports[#reports + 1] = {names = {child.label}, failure = tostring(report)}
                     end
-                end
-                scope:close()
+
+                    if #running > 0 then
+                        beginPhase(("%d suites across %d Nupp workers"):format(suiteCount or #shareable, #running))
+                        marked = true
+                    end
+
+                    local reports = {}
+                    for _, child in ipairs(running) do
+                        local ok, report = pcall(function()
+                            return child.task:await()
+                        end)
+                        if ok and type(report) == "table" then
+                            report.shard = {
+                                index = child.index,
+                                names = (report.claimed and #report.claimed > 0) and report.claimed or {child.label},
+                                startedAt = child.startedAt,
+                                collectedAt = now() - started
+                            }
+                            reports[#reports + 1] = report
+                        else
+                            reports[#reports + 1] = {names = {child.label}, failure = tostring(report)}
+                        end
+                    end
+                    scope:close()
+
+                    return reports
+                end)
                 restoreOutput()
+                if not completed then
+                    pcall(scope.close, scope)
+                    error(reports, 0)
+                end
 
                 return reports
             end
@@ -1770,6 +1779,11 @@ restoreLane = function()
         end
     end
 
+    for name, value in pairs(package.loaded) do
+        if name:match("^nupp%.runtime%.services%.") then
+            laneBaseline.loaded[name] = value
+        end
+    end
     restore(package.loaded, laneBaseline.loaded)
     restore(package.preload, laneBaseline.preload)
     for key, item in pairs(laneBaseline.globals) do

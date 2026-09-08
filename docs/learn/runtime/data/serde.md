@@ -34,7 +34,7 @@ local binding = nupp.serde.of(User)
 local prepared = nupp.serde.json():prepare(binding)
 local text = prepared:encode(new User(id = 41, name = "Ada"))
 local restored, problem = prepared:decode(text)
-local output = string.buffer.new()
+local output = require("nupp.text.buffer").new()
 prepared:write(new User(id = 42), output)
 
 assert(text == [[{"id":41,"name":"Ada"}]])
@@ -129,12 +129,12 @@ result on the binding:
 local prepared = serde.prepareDebug(binding)
 local text = prepared:format(value)
 
-local output = string.buffer.new()
+local output = require("nupp.text.buffer").new()
 prepared:write(value, output)
 ```
 
 `format` returns the conventional Debug string. `write` appends directly to a
-caller-owned LuaJIT string buffer, which avoids allocating that complete result
+caller-owned FIFO byte buffer, which avoids allocating that complete result
 and is the appropriate path for logging and larger composed diagnostics. A
 derived `value:debug()` lazily retains the prepared operation on its type entry;
 it does not resolve schema extensions for each field or each call.
@@ -248,5 +248,5 @@ language-wide abstraction for new codecs and dynamic clients; compatibility
 derives can migrate only after their complete format behavior and diagnostics
 have matching prepared implementations.
 
-See [NEP 15](../../../neps/0015-schema-driven-serde.md) for the design reasoning and
+See [NEP 14](../../../neps/0014-schema-driven-serde.md) for the design reasoning and
 the alternatives it rejected.

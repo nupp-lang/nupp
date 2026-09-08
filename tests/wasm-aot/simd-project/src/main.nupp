@@ -38,7 +38,11 @@ inputRows[3] = new Sample(5, 30, 7)
 drop inputRows
 
 local output = array.new(new Sample(), 3)
-scale(output:write(), input:read(), 2, true)
+do
+    local writable = output:write()
+    scale(writable, input:read(), 2, true)
+    drop writable
+end
 
 local rows = output:read()
 assert(#rows == 3)

@@ -1,0 +1,32 @@
+@!internal
+module nupp.runtime.provider.nativesystem
+
+--[[Native host.system API 1 implementation.
+
+LuaJIT ABI queries supply platform, architecture, byte order, and pointer width.
+The native host estimates usable parallelism with process restrictions accounted
+for and without starting workers. Facts describe the executing ABI under emulation.
+The system facade retains these values and this query at require time. This module
+is packaged only for native targets and owns no persistent native resources.
+]]
+
+const ffi = require("ffi")
+const native = require("nupp.runtime.native")
+native.ffi.cdef[[
+size_t nuppNativeV2AvailableParallelism(void);
+]]
+
+local platforms: {
+    [string]: string
+} = {OSX = "macos", Linux = "linux", Windows = "windows", BSD = "bsd", POSIX = "posix"}
+local architectures: {[string]: string} = {x64 = "x86_64", x86 = "x86", arm64 = "aarch64"}
+
+export const platform: string = platforms[ffi.os] or string.lower(ffi.os)
+export const architecture: string = architectures[ffi.arch] or ffi.arch
+export const endianness: string = ffi.abi("le") and "little" or "big"
+export const pointerBits: integer = ffi.abi("64bit") and 64 or 32
+
+--- Estimates usable parallelism, always at least one, without opening a worker pool.
+export function availableParallelism(): integer
+    return tonumber(native.C.nuppNativeV2AvailableParallelism()) as integer
+end

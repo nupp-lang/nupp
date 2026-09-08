@@ -35,7 +35,7 @@ an `observers` field implements [](nupp.events.Source) and dispatches through
 the same functions. Record events draw from a [](nupp.mem.pool) and struct
 events from a [](nupp.mem.arena), each created the first time an event type is
 emitted through a source; `setAllocator` installs one the caller owns instead.
-[NEP 33](../../neps/0033-typed-events.md) records the design.
+[NEP 29](../../neps/0029-typed-events.md) records the design.
 ]]
 
 local derive = require("nupp.derive")

@@ -1,10 +1,21 @@
 @!internal
 module nupp.digest.internal.context
 
+--[[Owned public digest contexts over canonical provider state.
+
+A context retains its algorithm name, output size, and one affine State. Updates
+borrow input only for the duration of the call. Both digest overloads and hexDigest
+consume the context; finalization closes state exactly once on success or failure.
+An undersized destination is rejected before bytes are written, and the caller
+retains ownership of its destination. Dropping an unfinished context also closes
+its provider state. Allocation, encoding, and cleanup use retained module methods;
+context operations perform no provider resolution.
+]]
+
 const span = require("nupp.mem.span")
 const storage = require("nupp.runtime.storage")
 const hex = require("nupp.codec.hex")
-const provider = require("nupp.digest.provider")
+const provider = require("nupp.runtime.services.digest")
 
 export affine interface Digest is nupp.Closeable
     terminal close: nosuspend function(takes self: Digest): nil

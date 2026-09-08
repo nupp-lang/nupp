@@ -170,7 +170,7 @@ end
 -- rebuilding the one owner around a received pointer. The tag vocabulary is
 -- positional and must agree with the comptime walk in nupp.workers; a receiver
 -- that cannot honor a tag gets nil and fails the task rather than
--- reinterpreting memory. Kept off the authored surface. See NEP 23.
+-- reinterpreting memory. Kept off the authored surface. See NEP 21.
 local MOVABLE_ELEMENTS: {
     string
 } = {"uint8_t", "int8_t", "uint16_t", "int16_t", "uint32_t", "int32_t", "uint64_t", "int64_t", "float", "double",}

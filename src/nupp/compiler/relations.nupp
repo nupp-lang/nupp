@@ -17,6 +17,7 @@ local members = require("nupp.compiler.members")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 
 local relations = {}
+local rigidBinders: {[T.Type]: boolean} = setmetatable({}, {__mode = "k"}) as {[T.Type]: boolean}
 
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
@@ -357,6 +358,30 @@ local function hasReceiver(ft: T.Func, owner: Type?): boolean
     return false
 end
 
+--- The borrow relation a callable states, spelled so two callables that state the
+--- same one compare equal, and "" for none: which parameters the borrowed result
+--- reads, and which result slot it lands on.
+local function borrowRelation(ft: T.Func): string
+    local sources: {integer} = {}
+    if ft.borrowsParam then
+        sources[#sources + 1] = ft.borrowsParam
+    end
+    for _, param in ipairs(ft.borrowsParams or {}) do
+        sources[#sources + 1] = param
+    end
+    local implicitSelf = ft.borrowsSelf
+    if implicitSelf and ft.paramNames and ft.paramNames[1] == "self" then
+        sources[#sources + 1] = 1
+        implicitSelf = false
+    end
+    if #sources == 0 and not implicitSelf then
+        return ""
+    end
+    table.sort(sources)
+
+    return table.concat(sources, ",") .. (implicitSelf and "|self" or "") .. "|into" .. (ft.borrowsResult or 1)
+end
+
 --- Member function conformance ignores each declaration's receiver when both
 --- declare one, since each implementation names itself there. The remaining
 --- function still observes ordinary parameter/return variance.
@@ -378,6 +403,9 @@ local function memberIsA(have: Type, want: Type, haveOwner: Type?, wantOwner: Ty
             if (haveSource == 1) ~= (wantSource == 1) then
                 return false
             end
+        end
+        if borrowRelation(have) ~= borrowRelation(want) then
+            return false
         end
         local hp, wp = {}, {}
         for j = 2, #have.params do
@@ -412,17 +440,13 @@ local function memberIsA(have: Type, want: Type, haveOwner: Type?, wantOwner: Ty
             return next(shifted) and shifted or nil
         end
 
-        -- Only the receiver is dropped. The generic parameters go with it, since a
-        -- member's binders are compared by the receiver that declares them, and the
-        -- guarantees a member states -- no-yield, sendable -- stay, so an interface
-        -- that promises one holds every implementor to it.
+        -- Keep method binders and guarantees when comparing the remaining
+        -- parameters. Each generic method quantifies its own type variables.
         local function withoutReceiver(ft: T.Func, params: {Type}, modes: {string}, names: {string}): Type
             return T.funcWith(ft, {
                 params = params,
                 paramModes = modes,
                 predicate = false,
-                typeParams = false,
-                typeBounds = false,
                 borrowsParam = false,
                 borrowsSelf = false,
                 borrowsParams = false,
@@ -433,8 +457,6 @@ local function memberIsA(have: Type, want: Type, haveOwner: Type?, wantOwner: Ty
                 paramNames = names,
                 preservesResults = shiftedPreserves(ft) or false,
                 foreign = false,
-                constParams = false,
-                paramKinds = false,
                 partitionResults = false,
                 comptimeOnly = false,
                 explicitPreserves = false,
@@ -494,25 +516,6 @@ local function affine(t)
     end
 
     return false
-end
-
---- The borrow relation a callable states, spelled so two callables that state the
---- same one compare equal, and "" for none: which parameters the borrowed result
---- reads, and which result slot it lands on.
-local function borrowRelation(ft: T.Func): string
-    local sources: {integer} = {}
-    if ft.borrowsParam then
-        sources[#sources + 1] = ft.borrowsParam
-    end
-    for _, param in ipairs(ft.borrowsParams or {}) do
-        sources[#sources + 1] = param
-    end
-    if #sources == 0 and not ft.borrowsSelf then
-        return ""
-    end
-    table.sort(sources)
-
-    return table.concat(sources, ",") .. (ft.borrowsSelf and "|self" or "") .. "|into" .. (ft.borrowsResult or 1)
 end
 
 --- Covariant compatibility between complete result packs.
@@ -787,11 +790,17 @@ local function check(a: Type, b: Type): boolean, string?
     end
     -- Unsubstituted type parameters behave gradually (call-site instantiation replaces
     -- them before real checking).
+    if btag == "typevar" and rigidBinders[b] then
+        if atag == "typevar" and a.bound then
+            return isA(a.bound, b)
+        end
+        return fail(a, b)
+    end
     if atag == "typevar" then
         if a.bound then
             return isA(a.bound, b)
         end
-        return true
+        return not rigidBinders[a]
     end
     if btag == "typevar" then
         return true
@@ -1354,6 +1363,63 @@ local function check(a: Type, b: Type): boolean, string?
     end
 
     if atag == "func" and btag == "func" then
+        if (
+            #(a.typeParams or {}) + #(a.packParams or {}) + #(a.constParams or {})
+        ) > 0 and (#(b.typeParams or {}) + #(b.packParams or {}) + #(b.constParams or {})) > 0 then
+            if #(
+                a.packParams or {}
+            ) ~= #(
+                b.packParams or {}
+            ) or #(a.typeParams or {}) ~= #(b.typeParams or {}) or #(a.constParams or {}) ~= #(b.constParams or {}) then
+                return false, ("%s is not a %s (generic parameter count)"):format(T.tostring(a), T.tostring(b))
+            end
+            local generic = require("nupp.compiler.generics")
+            local map = {}
+            for index, variable in ipairs(a.packParams or {}) do
+                map[variable] = T.pack({}, {kind = "generic", var = (b.packParams or {})[index]})
+            end
+            for index, variable in ipairs(a.typeParams or {}) do
+                map[variable] = (b.typeParams or {})[index]
+            end
+            for index, variable in ipairs(a.constParams or {}) do
+                map[variable] = (b.constParams or {})[index]
+            end
+            for index, bound in ipairs(a.typeBounds or {}) do
+                local expected = b.typeBounds and b.typeBounds[index]
+                if bound and (expected == nil or not isA(expected, generic.rebind(bound, map))) then
+                    return false, ("%s is not a %s (generic bound)"):format(T.tostring(a), T.tostring(b))
+                end
+            end
+            local aligned = generic.rebind(a, map) as T.Func
+            -- A quantified variable denotes one arbitrary fixed type. Give both
+            -- signatures the same rigid witnesses before comparing their bodies.
+            local witnesses = {}
+            for _, variable in ipairs(b.typeParams or {}) do
+                local witness = T.typevar(
+                    variable.name,
+                    "quantified:" .. a.id .. ":" .. b.id .. ":" .. variable.id
+                ) as T.TypeVar
+                rigidBinders[witness] = true
+                witnesses[variable] = witness
+            end
+            for index, variable in ipairs(b.typeParams or {}) do
+                local bound = b.typeBounds and b.typeBounds[index]
+                if bound then
+                    (witnesses[variable] as T.TypeVar).bound = generic.rebind(bound, witnesses)
+                end
+            end
+            local closed = {
+                typeParams = false,
+                typeBounds = false,
+                packParams = false,
+                constParams = false,
+                paramKinds = false
+            }
+            return isA(
+                T.funcWith(generic.rebind(aligned, witnesses) as T.Func, closed),
+                T.funcWith(generic.rebind(b, witnesses) as T.Func, closed)
+            )
+        end
         -- A generic function value is universally quantified: it can stand where one
         -- concrete instantiation is wanted. Infer that instantiation from the target's
         -- parameter pack, validate ordinary bounds, then compare the resulting

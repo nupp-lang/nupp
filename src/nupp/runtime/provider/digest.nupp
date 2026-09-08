@@ -1,0 +1,20 @@
+@!internal
+module nupp.runtime.provider.digest
+
+--[[Built-in incremental digest catalog for `nupp.digest` API 1.
+
+Module initialization retains the fixed algorithm descriptors from the ordinary
+digest implementation. It creates no mutable algorithm state. Factories return
+independent affine contexts; updates keep bounded state and do not retain spans.
+The public facade selects and validates this catalog during require-time assembly.
+Calls through retained descriptors perform no service resolution.
+]]
+
+local contract = require("nupp.runtime.services.digest")
+local builtin = require("nupp.digest.internal.builtin")
+local algorithms: {[string]: contract.Algorithm} = {}
+for _, name in ipairs(builtin.names()) do
+    algorithms[name] = assert(builtin.lookup(name))
+end
+local provider: contract.Provider = {algorithms = algorithms}
+export = provider

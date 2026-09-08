@@ -1,0 +1,79 @@
+module nupp.runtime.services.checksum
+
+--[[Canonical `nupp.checksum` API 1 provider catalog.
+
+Setup imports `service` here and selects an implementation before requiring
+`nupp.checksum`. Importing this declaration does not load storage or algorithms.
+A provider supplies an algorithms map keyed by canonical algorithm name. Each
+descriptor's name agrees with its key, and each create returns independent owned
+state. An explicitly selected catalog replaces matching built-in algorithms and
+may add names; other built-in algorithms remain available. Without selection the
+facade uses the built-in catalog. Discovery order never selects a provider.
+
+The facade validates and retains descriptors while requiring the module. Lookup,
+listing, and context creation then use cached descriptors without SPI resolution.
+Provider state processes chunks incrementally and retains neither input nor
+output spans. Cleanup consumes state without suspension. Reuse these canonical
+State and Algorithm identities, including ownership and borrowing signatures.
+value returns a non-consuming uint64 snapshot; width specifies its meaningful
+bits from 1 through 64. Standard names retain their standard widths and exact
+CRC parameters. Checksums detect corruption and provide no authentication.
+]]
+local {type ByteSpan} = require("nupp.mem.span")
+local services = require("nupp.services")
+
+--- Independent incremental state; close consumes its ownership without suspension.
+export affine interface State is nupp.Closeable
+    --- Releases all state resources.
+    terminal close: nosuspend function(takes self: State): nil
+
+    --- Processes this borrowed chunk without retaining its bytes.
+    update: function(exclusive self: State, borrows bytes: ByteSpan): nil
+
+    --- Returns the current unsigned checksum without consuming state.
+    value: function(self: State): uint64
+end
+
+--- Immutable algorithm identity, output metadata, and a factory for fresh state.
+export interface Algorithm
+    --- Canonical algorithm name, matching the catalog map key.
+    readonly name: string
+
+    --- Number of meaningful checksum bits.
+    readonly width: integer
+
+    --- Creates independent owned state; self is the retained descriptor.
+    create: function(self: Algorithm): State
+end
+
+--- A selectable implementation catalog. Extra descriptor members are permitted.
+export interface Provider
+    --- Canonical names mapped to checked, independent-state factories.
+    readonly algorithms: {[string]: Algorithm}
+end
+
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+--- Select during setup, before the checksum facade loads.
+export const service: services.Service<Provider> = services.define("nupp.checksum", 1, nil, comptime do
+    return shape(nupp.reflect(Provider))
+end)

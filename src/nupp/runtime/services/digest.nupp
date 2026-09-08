@@ -1,0 +1,81 @@
+module nupp.runtime.services.digest
+
+--[[Canonical `nupp.digest` API 1 provider catalog.
+
+Setup imports `service` here and selects an implementation before requiring
+`nupp.digest`. Importing this declaration does not load storage or algorithms.
+A provider supplies an algorithms map keyed by canonical algorithm name. Each
+descriptor's name agrees with its key, and each create returns independent owned
+state. An explicitly selected catalog replaces matching built-in algorithms and
+may add names; other built-in algorithms remain available. Without selection the
+facade uses the built-in catalog. Discovery order never selects a provider.
+
+The facade validates and retains descriptors while requiring the module. Lookup,
+listing, and context creation then use cached descriptors without SPI resolution.
+Provider state processes chunks incrementally and retains neither input nor
+output spans. Cleanup consumes state without suspension. Reuse these canonical
+State and Algorithm identities, including ownership and borrowing signatures.
+Finalization writes exactly digestSize bytes into the caller's output span.
+The facade closes state on successful or failed finalization. Standard digest
+names retain their standard output sizes. MD5 and SHA-1 support interoperability;
+applications requiring collision resistance must choose an appropriate digest.
+]]
+local {type ByteSpan, type ByteWriteSpan} = require("nupp.mem.span")
+local services = require("nupp.services")
+
+--- Independent incremental state; close consumes its ownership without suspension.
+export affine interface State is nupp.Closeable
+    --- Releases all state resources.
+    terminal close: nosuspend function(takes self: State): nil
+
+    --- Processes this borrowed chunk without retaining its bytes.
+    update: function(exclusive self: State, borrows bytes: ByteSpan): nil
+
+    --- Writes exactly the descriptor's digestSize bytes. Does not close state;
+    --- the owning facade closes it on success and on failure.
+    finish: function(exclusive self: State, exclusive destination: ByteWriteSpan): nil
+end
+
+--- Immutable algorithm identity, output metadata, and a factory for fresh state.
+export interface Algorithm
+    --- Canonical algorithm name, matching the catalog map key.
+    readonly name: string
+
+    --- Fixed output size in bytes.
+    readonly digestSize: integer
+
+    --- Creates independent owned state; self is the retained descriptor.
+    create: function(self: Algorithm): State
+end
+
+--- A selectable implementation catalog. Extra descriptor members are permitted.
+export interface Provider
+    --- Canonical names mapped to checked, independent-state factories.
+    readonly algorithms: {[string]: Algorithm}
+end
+
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+--- Select during setup, before the digest facade loads.
+export const service: services.Service<Provider> = services.define("nupp.digest", 1, nil, comptime do
+    return shape(nupp.reflect(Provider))
+end)

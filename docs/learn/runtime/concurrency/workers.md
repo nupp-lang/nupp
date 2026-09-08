@@ -57,7 +57,7 @@ return {
 }
 ```
 
-A `lua51` bundle whose backend supplies the `host.workers` seam runs them too.
+A `lua51` bundle with a compatible `host.workers` provider runs them too.
 That is [the browser backend](#browser-lanes) today, where a lane is a Web
 Worker rather than a thread.
 :::
@@ -508,7 +508,7 @@ across process failure, and jobs that outlive the caller belong to a broker or
 ## Browser lanes
 
 A browser application selects
-[`nupp.runtime.backend.browser`](../../performance/ahead-of-time/wasm.md#browser-platform-backend),
+[browser platform services](../../performance/ahead-of-time/wasm.md#browser-platform-services),
 which supplies `host.workers`, so everything above is written the same way there.
 A lane is a module Web Worker holding its own Lua 5.1 Wasm state, booted from the
 same verified application package the page loaded; the packaging step ships the
@@ -539,5 +539,5 @@ Everything else is the same, [application task scopes](task-scopes.md) included:
 lane, and `nupp.tasks.checkpoint()` is where a running lane observes that its
 cancellation was requested.
 
-See [NEP 18](../../../neps/0018-structured-worker-tasks.md) for the design tradeoffs
+See [NEP 16](../../../neps/0016-structured-worker-tasks.md) for the design tradeoffs
 behind structured worker tasks.

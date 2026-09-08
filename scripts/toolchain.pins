@@ -39,7 +39,7 @@ LPEG_DIRECTORY='lpeg-${LPEG_VERSION}'
 # one pin whose subject is Nupp itself, and it is why the compiler's sources are
 # written in the language of the tag below rather than the language of this
 # commit -- a feature reaches them only after a release carrying it is tagged
-# and this pin moves to it. NEP 32 records why.
+# and this pin moves to it. NEP 28 records why.
 #
 # The digest is of the decompressed bundle, not of the `.gz` the release
 # publishes. Two gzips given identical input write different bytes, so pinning

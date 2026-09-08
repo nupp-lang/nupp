@@ -1,0 +1,13 @@
+module nupp.runtime.timeprovider
+local contracts = require("nupp.runtime.services.contracts")
+export const provider = contracts.time:assembleOptional(function(): contracts.TimeProvider?
+    local native = contracts.time:lookup("nupp.native")
+    if native ~= nil then
+        return native
+    end
+    if rawget(_G, "__nuppWasmHost") ~= nil then
+        return contracts.time:lookup("nupp.browser")
+    end
+
+    return nil
+end)

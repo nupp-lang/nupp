@@ -2131,7 +2131,14 @@ function M.aCallableSlotCannotForgetABorrowRelation()
     assertEq(
         codes(
             POOL .. table.concat(
-                {"", "local f: function(borrows p: Pool): Pool = peek", "local pool = open_pool()", "local v = f(pool)", "drop(pool)", "print(v ~= nil)",},
+                {
+                    "",
+                    "local f: function(borrows p: Pool): Pool = peek",
+                    "local pool = open_pool()",
+                    "local v = f(pool)",
+                    "drop(pool)",
+                    "print(v ~= nil)",
+                },
                 "\n"
             )
         ),
@@ -2824,7 +2831,6 @@ function M.aCallbackOnlyInvokedIsInferredScoped()
         "NUPP2603"
     )
 end
-
 
 -- A declared scoped callback was counted as invoked directly when the invocation
 -- sat inside a nested closure, which may be stored and run after the call has
@@ -3701,14 +3707,7 @@ function M.aRawYieldThroughAHelperIsRefused()
     -- With nothing live at the call, the helper is free to yield.
     assertClean(
         table.concat(
-            {
-                "local function pause()",
-                "   coroutine.yield()",
-                "end",
-                "local function body()",
-                "   pause()",
-                "end",
-            },
+            {"local function pause()", "   coroutine.yield()", "end", "local function body()", "   pause()", "end",},
             "\n"
         )
     )
@@ -5111,14 +5110,35 @@ function M.aCapturedTakingClosureCannotBeInvokedThroughABorrow()
         "\n"
     )
     assertEq(
-        codes(taking .. table.concat({"", "   local wrapper = function(): nil", "      finish()", "   end", "   wrapper()", "   wrapper()", "end",}, "\n")),
+        codes(
+            taking .. table.concat(
+                {
+                    "",
+                    "   local wrapper = function(): nil",
+                    "      finish()",
+                    "   end",
+                    "   wrapper()",
+                    "   wrapper()",
+                    "end",
+                },
+                "\n"
+            )
+        ),
         "NUPP2602",
         "an inferred capture"
     )
     assertEq(
         codes(
             taking .. table.concat(
-                {"", "   local wrapper = function(): nil borrows (finish)", "      finish()", "   end", "   wrapper()", "   finish()", "end",},
+                {
+                    "",
+                    "   local wrapper = function(): nil borrows (finish)",
+                    "      finish()",
+                    "   end",
+                    "   wrapper()",
+                    "   finish()",
+                    "end",
+                },
                 "\n"
             )
         ),
@@ -5126,12 +5146,27 @@ function M.aCapturedTakingClosureCannotBeInvokedThroughABorrow()
         "a declared borrow capture"
     )
     assertEq(
-        codes(taking .. table.concat({"", "   local function wrapper(): nil", "      finish()", "   end", "   wrapper()", "end",}, "\n")),
+        codes(
+            taking .. table.concat(
+                {"", "   local function wrapper(): nil", "      finish()", "   end", "   wrapper()", "end",},
+                "\n"
+            )
+        ),
         "NUPP2602",
         "a local function"
     )
     assertClean(
-        taking .. table.concat({"", "   local wrapper = function(): nil takes (finish)", "      finish()", "   end", "   wrapper()", "end",}, "\n")
+        taking .. table.concat(
+            {
+                "",
+                "   local wrapper = function(): nil takes (finish)",
+                "      finish()",
+                "   end",
+                "   wrapper()",
+                "end",
+            },
+            "\n"
+        )
     )
 end
 
@@ -5483,6 +5518,124 @@ end
 
 -- A terminal named only in a type still has to publish the function before a
 -- top-level owner can leave the module scope and ask the lazy resolver for it.
+function M.portableCleanupForwardsArgumentsWithLua51ProtectedCalls()
+    local result, diagnostics = checked(
+        [[
+local record Resource
+    id: integer
+    function destroy(takes self): nil
+        assert(self.id == 7)
+        unsafe do
+            local _self = unsafe release self
+        end
+    end
+end
+local function create(): affine(Resource, Resource.destroy)
+    return new Resource(id = 7)
+end
+local function run(): integer
+    local value = create()
+    return value.id
+end
+return run()
+]],
+        {dialect = "lua51"}
+    )
+    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local code, generation = gen.generate(result, "portablecleanup")
+    assertEq(#generation, 0)
+    local rawXpcall = xpcall
+    local globals = setmetatable(
+        {
+            xpcall = function(body, handler)
+                return rawXpcall(body, handler)
+            end
+        },
+        {__index = _G}
+    )
+    local chunk = assert(loadstring(code))
+    setfenv(chunk, globals)
+    assertEq(chunk(), 7)
+    assert(not code:find('require("nupp.suspension")', 1, true), code)
+end
+
+function M.inlineTerminalsRegisterTheirRuntimeOwner()
+    local result, diagnostics = checked(
+        [[
+local closed = 0
+local record Resource
+    function destroy(takes self): nil
+        closed = closed + 1
+        unsafe do
+            local _self = unsafe release self
+        end
+    end
+end
+local function create(): affine(Resource, Resource.destroy)
+    return new Resource()
+end
+drop(create())
+return closed
+]]
+    )
+    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local code, generation = gen.generate(result, "inlinecleanup")
+    assertEq(#generation, 0)
+    assertEq(assert(loadstring(code))(), 1)
+end
+
+function M.importedTerminalsRegisterTheirDeclaringModulesLocalName()
+    local environment = envMod.new(os.tmpname(), {cache = false})
+    local declarationPath = "cleanupcontract.nupp"
+    local declaration = parser.parse(
+        [[
+module cleanupcontract
+local resource = {closed = 0}
+record resource.Value
+    id: integer
+end
+function resource.release(takes value: resource.Value): nil
+    resource.closed = resource.closed + 1
+    unsafe do
+        local _value = unsafe release value
+    end
+end
+export = resource
+]],
+        declarationPath
+    )
+    local diagnostics, moduleType, exports = check.check(declaration, declarationPath, environment)
+    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    environment.loaded.cleanupcontract = {type = moduleType, exports = exports, path = declarationPath}
+    local consumer = parser.parse(
+        [[
+local imported = require("cleanupcontract")
+local function create(): affine(imported.Value, imported.release)
+    return {id = 1} as any
+end
+drop(create())
+return true
+]],
+        "cleanupconsumer.nupp"
+    )
+    diagnostics = check.check(consumer, "cleanupconsumer.nupp", environment)
+    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local code, generation = gen.generate(declaration, "cleanupcontract")
+    assertEq(#generation, 0)
+    assert(not code:find("=imported.release", 1, true), code)
+    local registry, loaded = _G.__nuppCleanupRegistry, package.loaded.cleanupcontract
+    local ok, problem = pcall(function()
+        local provider = assert(loadstring(code))()
+        package.loaded.cleanupcontract = provider
+        local caller = gen.generate(consumer, "cleanupconsumer")
+        assert(assert(loadstring(caller))())
+        assertEq(provider.closed, 1)
+    end)
+    package.loaded.cleanupcontract = loaded
+    _G.__nuppCleanupRegistry = registry
+    assert(ok, problem)
+end
+
 function M.aTerminalNamedInATypeIsRegisteredAtItsDeclaration()
     local source = table.concat(
         {
@@ -5757,7 +5910,6 @@ function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
     assertEq(chunk(), 1, "the cancelled child's uncalled capture was not dropped")
 end
 
-
 -- A consuming parameter whose type names a terminal is an owner the body has to
 -- discharge. The first `takes` parameter used to be marked consumed at the end of
 -- every body, the exemption a terminal's own definition needs applied to every
@@ -5777,9 +5929,7 @@ local CONSUMABLE = table.concat(
 function M.takesParameterLeftLiveAtAReturnIsReported()
     assertEq(
         codes(
-            CONSUMABLE
-            .. "\n"
-            .. table.concat(
+            CONSUMABLE .. "\n" .. table.concat(
                 {
                     "local function sink(takes r: Res, flag: boolean): nil",
                     "   if flag then return end",
@@ -5795,21 +5945,11 @@ function M.takesParameterLeftLiveAtAReturnIsReported()
 end
 
 function M.takesParameterLeftLiveAtTheBodyEndIsReported()
-    assertEq(
-        codes(CONSUMABLE .. "\nlocal function sink(takes r: Res): nil print(r.id) end\nsink(open(1))"),
-        "NUPP2603"
-    )
+    assertEq(codes(CONSUMABLE .. "\nlocal function sink(takes r: Res): nil print(r.id) end\nsink(open(1))"), "NUPP2603")
     assertEq(
         codes(
-            CONSUMABLE
-            .. "\n"
-            .. table.concat(
-                {
-                    "local function sink(takes r: Res, takes s: Res): nil",
-                    "   drop s",
-                    "end",
-                    "sink(open(1), open(2))",
-                },
+            CONSUMABLE .. "\n" .. table.concat(
+                {"local function sink(takes r: Res, takes s: Res): nil", "   drop s", "end", "sink(open(1), open(2))",},
                 "\n"
             )
         ),
@@ -5817,9 +5957,7 @@ function M.takesParameterLeftLiveAtTheBodyEndIsReported()
     )
     assertEq(
         codes(
-            CONSUMABLE
-            .. "\n"
-            .. table.concat(
+            CONSUMABLE .. "\n" .. table.concat(
                 {
                     "local record Sink",
                     "   function keep(self, takes r: Res): nil print(r.id) end",
@@ -5837,9 +5975,7 @@ end
 function M.takesParameterDischargedOnOnlySomePathsIsReported()
     assertEq(
         codes(
-            CONSUMABLE
-            .. "\n"
-            .. table.concat(
+            CONSUMABLE .. "\n" .. table.concat(
                 {
                     "local function sink(takes r: Res, flag: boolean): nil",
                     "   if flag then drop r end",
@@ -5853,9 +5989,7 @@ function M.takesParameterDischargedOnOnlySomePathsIsReported()
     )
     assertEq(
         codes(
-            CONSUMABLE
-            .. "\n"
-            .. table.concat(
+            CONSUMABLE .. "\n" .. table.concat(
                 {
                     "local function sink(takes r: Res, flag: boolean): integer",
                     "   return switch flag do",
@@ -5874,9 +6008,7 @@ end
 
 function M.takesParameterDischargedOnEveryPathIsAccepted()
     assertClean(
-        CONSUMABLE
-        .. "\n"
-        .. table.concat(
+        CONSUMABLE .. "\n" .. table.concat(
             {
                 "local function pass(takes r: Res): Res return r end",
                 "local function sink(takes r: Res, flag: boolean): nil",
@@ -5930,7 +6062,6 @@ function M.terminalDefinitionsAreTheEndpointOfTheirParameter()
     )
 end
 
-
 -- An owned temporary lives until the end of the full expression that made it, and
 -- nothing runs its terminal then. Only a bare call statement and a discarded pack
 -- were caught; a temporary handed to a borrowing parameter, indexed, or tested
@@ -5950,9 +6081,7 @@ end
 
 function M.anOwnedTemporaryThatIsBoundMovedOrReturnedIsAccepted()
     assertClean(
-        CONSUMABLE
-        .. "\n"
-        .. table.concat(
+        CONSUMABLE .. "\n" .. table.concat(
             {
                 "local record Holder",
                 "   kept: Res",
@@ -6008,18 +6137,13 @@ local PAIR = table.concat(
 
 function M.aFieldMovedInsideALoopIsReportedAtTheBackEdge()
     assertEq(codes(PAIR .. "\nlocal p = pair()\nfor i = 1, 2 do consume(p.left) end"), "NUPP2609")
-    assertEq(
-        codes(PAIR .. "\nlocal p = pair()\nlocal n = 0\nwhile n < 2 do n = n + 1 consume(p.left) end"),
-        "NUPP2609"
-    )
+    assertEq(codes(PAIR .. "\nlocal p = pair()\nlocal n = 0\nwhile n < 2 do n = n + 1 consume(p.left) end"), "NUPP2609")
     assertClean(PAIR .. "\nlocal p = pair()\nfor i = 1, 2 do consume(p.left) break end")
 end
 
 function M.aFieldMovedOnSomePathsOfAnAutomaticOwnerIsDroppedConditionally()
     assertClean(
-        PAIR
-        .. "\n"
-        .. table.concat(
+        PAIR .. "\n" .. table.concat(
             {
                 "local function run(flag: boolean): nil",
                 "   local p = pair()",
@@ -6040,15 +6164,8 @@ function M.aFieldMovedOnSomePathsOfAnAutomaticOwnerIsDroppedConditionally()
     -- refused store is then judged as any other store of an owner is.
     assertEq(
         codes(
-            PAIR
-            .. "\n"
-            .. table.concat(
-                {
-                    "local p = pair()",
-                    "if p.right.id == 2 then consume(p.left) end",
-                    "p.left = open(3)",
-                    "drop p",
-                },
+            PAIR .. "\n" .. table.concat(
+                {"local p = pair()", "if p.right.id == 2 then consume(p.left) end", "p.left = open(3)", "drop p",},
                 "\n"
             )
         ),
@@ -6061,9 +6178,7 @@ function M.aFieldMovedOnSomePathsOfAConsumingParameterIsReported()
     -- arms have to agree.
     assertEq(
         codes(
-            PAIR
-            .. "\n"
-            .. table.concat(
+            PAIR .. "\n" .. table.concat(
                 {
                     "local function sink(takes p: Pair, flag: boolean): nil",
                     "   if flag then consume(p.left) end",
@@ -6078,9 +6193,7 @@ function M.aFieldMovedOnSomePathsOfAConsumingParameterIsReported()
         "NUPP2603 NUPP2601 NUPP2602"
     )
     assertClean(
-        PAIR
-        .. "\n"
-        .. table.concat(
+        PAIR .. "\n" .. table.concat(
             {
                 "local function sink(takes p: Pair, flag: boolean): nil",
                 "   if flag then consume(p.left) else drop p.left end",
@@ -6097,9 +6210,7 @@ end
 -- that arm, so discharging it on the other arm only is not a partial discharge.
 function M.anOptionalConsumingParameterNarrowedToNilIsDischarged()
     assertClean(
-        CONSUMABLE
-        .. "\n"
-        .. table.concat(
+        CONSUMABLE .. "\n" .. table.concat(
             {
                 "local function sink(takes r: Res?): nil",
                 "   if r ~= nil then drop r end",
@@ -6116,7 +6227,10 @@ function M.anOptionalConsumingParameterNarrowedToNilIsDischarged()
         )
     )
     assertEq(
-        codes(CONSUMABLE .. "\nlocal function sink(takes r: Res?, flag: boolean): nil\n   if flag then drop r end\nend\nsink(open(1), true)"),
+        codes(
+            CONSUMABLE
+            .. "\nlocal function sink(takes r: Res?, flag: boolean): nil\n   if flag then drop r end\nend\nsink(open(1), true)"
+        ),
         "NUPP2603"
     )
 end
@@ -6125,9 +6239,7 @@ end
 -- like a local; it used to be reported as leaking at the loop variable.
 function M.aForInVariableHoldingAnOwnerIsDroppedEachIteration()
     assertClean(
-        CONSUMABLE
-        .. "\n"
-        .. table.concat(
+        CONSUMABLE .. "\n" .. table.concat(
             {
                 "local function use(borrows r: Res): nil print(r.id) end",
                 "local function iter(state: integer, control: integer): (integer?, Res?)",
@@ -6151,9 +6263,7 @@ function M.anOptionalOwnerSlotIsFilledOnceAndClearedAfterDischarge()
     assertClean(CONSUMABLE .. "\nlocal a: Res? = open(1)\ndrop a\na = nil")
     assertEq(codes(CONSUMABLE .. "\nlocal a: Res? = open(1)\na = nil"), "NUPP2602")
     assertClean(
-        CONSUMABLE
-        .. "\n"
-        .. table.concat(
+        CONSUMABLE .. "\n" .. table.concat(
             {
                 "local function use(borrows r: Res): nil print(r.id) end",
                 "local function late(flag: boolean): nil",
@@ -6167,7 +6277,10 @@ function M.anOptionalOwnerSlotIsFilledOnceAndClearedAfterDischarge()
         )
     )
     assertEq(
-        codes(CONSUMABLE .. "\nlocal function twice(flag: boolean): nil\n   local c: Res? = nil\n   if flag then c = open(2) end\n   c = open(3)\nend\ntwice(true)"),
+        codes(
+            CONSUMABLE
+            .. "\nlocal function twice(flag: boolean): nil\n   local c: Res? = nil\n   if flag then c = open(2) end\n   c = open(3)\nend\ntwice(true)"
+        ),
         "NUPP2602"
     )
 end
@@ -6176,9 +6289,7 @@ end
 -- is spent afterwards and the binding that takes the value closes it once.
 function M.aSwitchArmNamingAnOwnerMovesIt()
     assertClean(
-        CONSUMABLE
-        .. "\n"
-        .. table.concat(
+        CONSUMABLE .. "\n" .. table.concat(
             {
                 "local function pick(flag: boolean): nil",
                 "   local a = open(1)",
@@ -6195,9 +6306,7 @@ function M.aSwitchArmNamingAnOwnerMovesIt()
     )
     assertEq(
         codes(
-            CONSUMABLE
-            .. "\n"
-            .. table.concat(
+            CONSUMABLE .. "\n" .. table.concat(
                 {
                     "local function use(borrows r: Res): nil print(r.id) end",
                     "local function pick(flag: boolean): nil",
@@ -6221,7 +6330,9 @@ end
 -- An implicit global has no declaration, so a leak through it used to be
 -- reported at 0:0; the assignment that made the global is where it belongs.
 function M.aLeakThroughAnImplicitGlobalIsReportedAtTheAssignment()
-    local _, diags = checked(CONSUMABLE .. "\nlocal function stash(): nil\n   local a = open(1)\n   kept = a\nend\nstash()")
+    local _, diags = checked(
+        CONSUMABLE .. "\nlocal function stash(): nil\n   local a = open(1)\n   kept = a\nend\nstash()"
+    )
     assertEq(#diags, 1, diags[1] and diags[1].msg or "one leak")
     assertEq(diags[1].code, "NUPP2603")
     assertEq(diags[1].line, 9, "reported at the assignment")
@@ -6249,6 +6360,7 @@ function M.aLocalFunctionCapturingAnOwnerCannotEscapeItsScope()
             "\n"
         )
     end
+
     assertEq(codes(escaping("function(): integer", "peek")), "NUPP2608", "returned")
     assertEq(codes(escaping("{function(): integer}", "{peek}")), "NUPP2603", "stored in a table")
     assertEq(
@@ -6336,6 +6448,7 @@ function M.aRecordBuiltFromABorrowIsAViewOfItsRoot()
             "\n"
         )
     end
+
     assertEq(
         codes(constructed("peek: function(): integer", "peek = function(): integer return resource.value end")),
         "NUPP2608",
@@ -6412,6 +6525,7 @@ function M.aBorrowCannotCrossAnAnyParameter()
             "\n"
         )
     end
+
     assertEq(
         codes(crossing("local function keep(value: any): nil print(value) end", "keep(resource)")),
         "NUPP2611",
@@ -6545,7 +6659,10 @@ function M.anAnnotationCannotMintAnOwnerFromAny()
         "a plain value is not the affine type"
     )
     assertClean(
-        RESOURCE .. table.concat({"", "local value: affine(resource*, resource_free)? = nil", "print(value == nil)",}, "\n")
+        RESOURCE .. table.concat(
+            {"", "local value: affine(resource*, resource_free)? = nil", "print(value == nil)",},
+            "\n"
+        )
     )
 end
 

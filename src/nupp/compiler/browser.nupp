@@ -50,27 +50,6 @@ local type HoverResponse = {
     length: integer?
 }
 
--- The browser backend's own declaration, resolved the way a build resolves one.
--- This used to be a second copy of that provider list, because a backend was a
--- module of constructor calls and requiring it here would have pulled in
--- eighteen seam factories to learn eighteen strings. A declaration is data, so
--- there is one list and the host and a build cannot disagree about it.
-local BROWSER_MODULE = "nupp.runtime.backend.browser"
-local declared: any = require(BROWSER_MODULE)
-local BROWSER_DESCRIPTOR = assert(
-    require("nupp.compiler.backends").describe(declared.name, declared.seams, BROWSER_MODULE)
-)
-BROWSER_DESCRIPTOR.digest = "portable-browser-providers-6"
-local BACKENDS = {modules = {BROWSER_DESCRIPTOR}, seams = {}, byEffect = {},}
-for _, selected in ipairs(BROWSER_DESCRIPTOR.seams) do
-    selected.backend = declared.name
-    selected.module = BROWSER_MODULE
-    BACKENDS.seams[selected.name] = selected
-    for _, effect in ipairs(selected.effects) do
-        BACKENDS.byEffect[effect] = BROWSER_MODULE
-    end
-end
-
 local function selectedDialect(options: BrowserOptions?): 'lua51' | 'luajit'
     return options and options.dialect or "lua51"
 end
@@ -108,7 +87,7 @@ local function hasErrors(diags: {any}): boolean
 end
 
 local function capabilityResolution(dialect: string): any
-    local resolved = capabilities.resolve(dialect, BACKENDS)
+    local resolved = capabilities.resolve(dialect)
     if dialect == "luajit" then
         local reason = "the in-memory compiler has no native layout or storage provider"
         resolved.byName.cinterop = {kind = "missing", name = "cinterop", reason = reason,}
@@ -130,7 +109,6 @@ function Session:environment(dialect: string): any
         cache = false,
         memoryOnly = true,
         dialect = dialect,
-        backendResolution = BACKENDS,
         capabilityResolution = capabilityResolution(dialect),
         nativeCompilerServices = false,
         config = {_target = {dialect = dialect, layoutTarget = "x86_64-unknown-linux-gnu",},},
@@ -152,7 +130,6 @@ function Session:checked(source: string, filename: string, options: BrowserOptio
     local diags = check.check(result, filename, self:environment(dialect), {
         strict = options and options.strict == true,
         dialect = dialect,
-        backendResolution = BACKENDS,
         _capabilityResolution = capabilityResolution(dialect),
     })
     if not hasErrors(diags) then
@@ -182,7 +159,7 @@ function Session:compile(source: string, filename: string, options: BrowserOptio
         dialect = "lua51",
     })
     result.effects = optimize.liveEffects(result)
-    local code, generated = gen.generate(result, filename, nil, nil, BACKENDS, "lua51")
+    local code, generated = gen.generate(result, filename, nil, nil, "lua51")
     if #generated > 0 then
         return {reason = "code generation errors", diagnostics = diagnosticsOf(generated),}
     end

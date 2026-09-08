@@ -3,7 +3,7 @@ local json = require("nupp.codec.json")
 local uri = require("nupp.io.uri")
 local io = require("nupp.io")
 
-local client = new http.Client()
+local client = http.client()
 local request = new http.Request(
     url = assert(uri.newURI("http://127.0.0.1:8791/http-response.json")),
     headers = {accept = "application/json"} as {string: string},

@@ -682,7 +682,7 @@ local function lengthOnly(borrows values: span.Span<number>): number
     return #values
 end
 
-export = {lengthOnly = lengthOnly}
+export = {lengthOnly = lengthOnly, fromCarray = span.fromCarray}
 ]]
 
 local function lengthOnlyProject()
@@ -951,7 +951,7 @@ local M = {}
 function M.cpuOnlyAotDoesNotStageTheGpuRuntime()
     local dir = freshBuiltFixture("require")
     assert(
-        read(dir .. "/build/native/cache/backend-runtime-source/nupp/gpu.nupp") == nil,
+        read(dir .. "/build/native/cache/runtime-source/nupp/gpu/init.nupp") == nil,
         "a CPU-only AOT target staged the WGPU runtime"
     )
 end
@@ -961,9 +961,22 @@ function M.gpuCheckStagesTheDefaultProviderTypeSurface()
     local out, code = check(dir)
     test.equal(code, 0, out)
     assert(
-        read(dir .. "/build/native/cache/backend-runtime-source/nupp/gpu/init.nupp"),
+        read(dir .. "/build/native/cache/runtime-source/nupp/gpu/init.nupp"),
         "a GPU check did not stage the native provider types its public facade re-exports"
     )
+end
+
+function M.portableGpuChecksShareTheGeneratedInterface()
+    local dir = gpuProject()
+    local path = dir .. "/nupp.lua"
+    local source = assert(read(path)):gsub('aot = "require"', 'dialect = "lua51", aot = "require-wasm"')
+    local file = assert(io.open(path, "wb"))
+    assert(file:write(source))
+    file:close()
+    local out, code = check(dir)
+    test.equal(code, 0, out)
+    assert(read(dir .. "/build/native/cache/runtime-source/nupp/gpu/internal.nupp"))
+    assert(read(dir .. "/build/native/cache/runtime-source/nupp/runtime/native/init.nupp") == nil)
 end
 
 function M.gpuOverlayIsCheckedFromTheSameTypedShaderSchema()

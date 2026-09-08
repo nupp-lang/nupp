@@ -36,6 +36,42 @@ end
 
 local M = {}
 
+function M.waitingFacadesUseYieldableProtectedCalls()
+    for _, name in ipairs({
+        "nupp.suspension",
+        "nupp.io.http",
+        "nupp.io.net",
+        "nupp.io.tls",
+        "nupp.io.process",
+        "nupp.time",
+        "nupp.workers"
+    }) do
+        local result, diags = checked('local facility = require("' .. name .. '")\nreturn facility', "lua51")
+        for _, diagnostic in ipairs(diags) do
+            assert(diagnostic.severity ~= "error", diagnostic.msg)
+        end
+        local code, generation = gen.generate(result, "waiting-facade")
+        assertEq(#generation, 0)
+        assert(code:find('local __nuppProtectedCreate=require("nupp.suspension").create;', 1, true), name)
+    end
+end
+
+function M.taskDeadlinesUseThePortableClockContract()
+    local result, diags = checked(
+        [[
+local tasks = require("nupp.tasks")
+local scope = tasks.open(1, 100)
+scope:close()
+]],
+        "lua51"
+    )
+    for _, diagnostic in ipairs(diags) do
+        assert(diagnostic.severity ~= "error", diagnostic.msg)
+    end
+    assert(result.effects["runtime.time"], "deadline clock contract")
+    assert(not result.effects["native.time"], "a deadline does not select a native implementation")
+end
+
 function M.recordTestsLowerForPortableAndCompatibilityDialects()
     local source = table.concat(
         {
@@ -165,13 +201,12 @@ function M.authoredJumpsAreRefusedOnlyByThePortableDialect()
     )
 end
 
-function M.cdataNumeralsRequireRepresentationsThePortableDialectDoesNotHave()
+function M.complexNumeralsRequireForeignInterop()
     local _, nativeDiags = checked("return 1LL, 2ULL, 3i", "luajit")
     assertEq(#nativeDiags, 0, "LuaJIT retains cdata numerals")
     local _, portableDiags = checked("return 1LL, 2ULL, 3i", "lua51")
-    assertEq(#portableDiags, 3, "each unportable cdata numeral is diagnosed")
-    assert(portableDiags[1].msg:find("`int64` capability", 1, true), portableDiags[1].msg)
-    assert(portableDiags[3].msg:find("`cinterop` capability", 1, true), portableDiags[3].msg)
+    assertEq(#portableDiags, 1, "wide integers have portable operations; complex numerals require interop")
+    assert(portableDiags[1].msg:find("`cinterop` capability", 1, true), portableDiags[1].msg)
 end
 
 function M.crossDialectOutputSkipsTheHostParserCheck()
@@ -225,26 +260,18 @@ function M.runtimeSpecificPreludeUsesAreDefinitionBased()
     end
 end
 
-function M.portableCheckingStopsUnavailableRepresentationsBeforeGeneration()
-    local cases = {
-        {source = "local struct Point\n    x: number\nend\nreturn Point", capability = "structvalue"},
-        {source = "local type Pointer = int32*\nreturn 1", capability = "cstorage"},
-        {source = "cdef function read(value: int32): int32\nreturn read", capability = "cinterop"},
-    }
-    for _, case in ipairs(cases) do
-        local _, nativeDiags = checked(case.source, "luajit")
-        assertEq(#nativeDiags, 0, "LuaJIT retains native " .. case.capability)
-        local _, portableDiags = checked(case.source, "lua51")
-        local found = false
-        for _, diag in ipairs(portableDiags) do
-            found = found or diag.code == "NUPP3006" and diag.msg:find(
-                "`" .. case.capability .. "` capability",
-                1,
-                true
-            ) ~= nil
-        end
-        assert(found, "portable check reports missing " .. case.capability)
+function M.portableStorageDoesNotGrantForeignInterop()
+    for _, source in ipairs({
+        "local struct Point\n    x: number\nend\nreturn Point",
+        "local type Pointer = int32*\nreturn 1",
+    }) do
+        local _, diagnostics = checked(source, "lua51")
+        assertEq(#diagnostics, 0, "portable representation operations check without provider selection")
     end
+    local _, diagnostics = checked("cdef function read(value: int32): int32\nreturn read", "lua51")
+    assertEq(#diagnostics, 1)
+    assertEq(diagnostics[1].code, "NUPP3006")
+    assert(diagnostics[1].msg:find("`cinterop` capability", 1, true), diagnostics[1].msg)
 end
 
 function M.constErasureDoesNotRewriteStringContents()

@@ -1,0 +1,38 @@
+module nupp.runtime.services.gpu
+local services = require("nupp.services")
+local types = require("nupp.gpu.api")
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+export interface Provider
+    readonly open: function(): affine(types.KernelContext, types.destroyContext)
+end
+export const service: services.Service<Provider> = services.define("host.gpu", 1, nil, comptime do
+    return shape(nupp.reflect(Provider))
+end)
+
+export type Context = types.KernelContext
+export type ContextToken = types.ContextToken
+export type Buffer<T> = types.Buffer<T>
+export type Kernel = types.Kernel
+export type Binding = types.Binding
+export type ArtifactSet = types.ArtifactSet
+export const destroyContext = types.destroyContext

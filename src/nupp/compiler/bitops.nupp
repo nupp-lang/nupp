@@ -2,7 +2,7 @@ module nupp.compiler.bitops
 
 -- Typed compiler-private access to the target-selected BitOp-compatible module.
 
-local raw: any = require("bit")
+local raw: any = require("nupp.runtime.bitops")
 local bitops = {}
 
 function bitops.tobit(value: number): integer

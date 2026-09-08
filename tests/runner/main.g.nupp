@@ -12,5 +12,24 @@ arg[0] = "tests/run.lua"
 -- worker state and every suite observes the same assertion implementation.
 package.loaded["nupp.test"] = require("nupp.test")
 
+-- File-loaded suites share these host facilities in the parent and worker states.
+require("nupp.crypto")
+require("nupp.uuid")
+require("nupp.system")
+require("nupp.digest")
+require("nupp.checksum")
+require("nupp.mac")
+require("nupp.codec.json")
+require("nupp.io.path")
+require("nupp.io.uri")
+require("nupp.text.buffer")
+require("nupp.time")
+require("nupp.io.net")
+require("nupp.io.process")
+require("nupp.io.tls")
+require("nupp.io.http")
+require("nupp.gpu")
+require("nupp.workers")
+
 const run = assert(loadfile(arg[0]))
 run()

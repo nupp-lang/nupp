@@ -1,0 +1,303 @@
+module nupp.runtime.provider.nativeprocess
+
+local contract = require("nupp.runtime.services.process")
+local shared = require("nupp.io.process.types")
+local time = require("nupp.time")
+
+const native = require("nupp.runtime.native")
+
+native.ffi.cdef[[
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+} NuppNativeV2ProcessSlice;
+
+typedef struct {
+    NuppNativeV2ProcessSlice name;
+    NuppNativeV2ProcessSlice value;
+} NuppNativeV2ProcessEnv;
+
+typedef struct {
+    const NuppNativeV2ProcessSlice *args;
+    size_t arg_count;
+    const NuppNativeV2ProcessEnv *env;
+    size_t env_count;
+    NuppNativeV2ProcessSlice cwd;
+    int32_t cwd_present;
+    int32_t clear_env;
+    uint8_t stdin_mode;
+    uint8_t stdout_mode;
+    uint8_t stderr_mode;
+} NuppNativeV2ProcessSpawn;
+
+typedef struct {
+    uint64_t process;
+    uint64_t stdin_stream;
+    uint64_t stdout_stream;
+    uint64_t stderr_stream;
+    uint32_t pid;
+} NuppNativeV2ProcessStarted;
+
+typedef struct {
+    int32_t ready;
+    int32_t code;
+    int32_t killed;
+} NuppNativeV2ProcessExit;
+
+int32_t nuppNativeV2ProcessSpawn(
+    const NuppNativeV2ProcessSpawn *, NuppNativeV2ProcessStarted *);
+int32_t nuppNativeV2ProcessPollExit(uint64_t, NuppNativeV2ProcessExit *);
+int32_t nuppNativeV2ProcessKill(uint64_t, int32_t);
+int32_t nuppNativeV2ProcessRelease(uint64_t);
+int32_t nuppNativeV2ProcessStreamRead(
+    uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2ProcessStreamWrite(
+    uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2ProcessStreamRelease(uint64_t);
+int32_t nuppNativeV2ProcessWait(
+    uint64_t, const uint64_t *, size_t, const uint64_t *, size_t,
+    uint64_t, size_t *);
+size_t nuppNativeV2ProcessAbandonedTotal(void);
+]]
+
+const C = native.C
+const PROCESS_FEATURE = 32
+const MODE: {[string]: integer} = {pipe = 0, inherit = 1, ["null"] = 2, stdout = 3}
+const READ_DATA = 0
+const READ_PENDING = 1
+const READ_EOF = 2
+const WRITE_ACCEPTED = 0
+const WRITE_PENDING = 1
+const WRITE_GONE = 2
+const READ_SIZE = 65536
+const INT32_MAX = 2147483647
+
+local function reason(prefix: string): string
+    return prefix .. ": " .. native.ffi.string(C.nuppNativeV2LastError())
+end
+
+local function configured(status: integer, what: string): nil
+    if status ~= 0 then
+        error(reason("nupp: could not " .. what), 0)
+    end
+end
+
+local function makeArray(streams: {any}): (any, integer)
+    local count = #streams
+    if count == 0 then
+        return nil, 0
+    end
+    local out = native.ffi.new("uint64_t[?]", count)
+    for index, stream in ipairs(streams) do
+        local handle = stream and stream.handle
+        if handle == nil then
+            error("nupp: readiness interest named a released process stream", 0)
+        end
+        out[index - 1] = handle
+    end
+
+    return out, count
+end
+
+local function whole(value: number?): integer
+    local number = tonumber(value) or 0
+    if number ~= number then
+        return 0
+    end
+
+    return math.floor(number) as integer
+end
+
+local function wrap(owner: any, handle: any): any
+    if handle == 0 then
+        return nil
+    end
+
+    return {owner = owner, handle = handle, released = false, scratch = nil, capacity = 0}
+end
+
+local function create(): contract.Provider
+    native.requireFeature(PROCESS_FEATURE, "process")
+    return {
+        spawn = function(self: contract.Provider, options: shared.Options): (any?, any?, any?, any?, integer, string?)
+            local inputMode = options.stdin or "pipe"
+            local outputMode = options.stdout or "pipe"
+            local errorMode = options.stderr or "pipe"
+            if MODE[inputMode] == nil then
+                error("nupp: process has no stdin mode named " .. tostring(inputMode), 0)
+            end
+            if MODE[outputMode] == nil or outputMode == "stdout" then
+                error("nupp: process has no stdout mode named " .. tostring(outputMode), 0)
+            end
+            if MODE[errorMode] == nil then
+                error("nupp: process has no stderr mode named " .. tostring(errorMode), 0)
+            end
+
+            local arguments = options.args or {}
+            local argumentSlices = native.ffi.new("NuppNativeV2ProcessSlice[?]", #arguments)
+            for index, argument in ipairs(arguments) do
+                argumentSlices[index - 1].data = argument
+                argumentSlices[index - 1].length = #argument
+            end
+
+            local environment: {any} = {}
+            for key, value in pairs(options.env or {}) do
+                environment[#environment + 1] = {name = key, value = value}
+            end
+            local environmentEntries = native.ffi.new("NuppNativeV2ProcessEnv[?]", #environment)
+            for index, entry in ipairs(environment) do
+                environmentEntries[index - 1].name.data = entry.name
+                environmentEntries[index - 1].name.length = #entry.name
+                environmentEntries[index - 1].value.data = entry.value
+                environmentEntries[index - 1].value.length = #entry.value
+            end
+
+            local cwd: string? = nil
+            if options.cwd ~= nil then
+                cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
+            end
+            local descriptor = native.ffi.new("NuppNativeV2ProcessSpawn[1]")
+            local cwdLength = 0
+            if cwd ~= nil then
+                cwdLength = #cwd
+            end
+            descriptor[0].args = #arguments == 0 and nil or argumentSlices
+            descriptor[0].arg_count = #arguments
+            descriptor[0].env = #environment == 0 and nil or environmentEntries
+            descriptor[0].env_count = #environment
+            descriptor[0].cwd.data = cwd
+            descriptor[0].cwd.length = cwdLength
+            descriptor[0].cwd_present = cwd == nil and 0 or 1
+            descriptor[0].clear_env = options.clearEnv == true and 1 or 0
+            descriptor[0].stdin_mode = MODE[inputMode]
+            descriptor[0].stdout_mode = MODE[outputMode]
+            descriptor[0].stderr_mode = MODE[errorMode]
+
+            local started = native.ffi.new("NuppNativeV2ProcessStarted[1]")
+            local status = C.nuppNativeV2ProcessSpawn(descriptor, started)
+            if status ~= 0 then
+                return nil, nil, nil, nil, 0, reason("nupp: could not start process")
+            end
+            local owner = {handle = started[0].process, released = false}
+            local input = wrap(owner, started[0].stdin_stream)
+            local output = wrap(owner, started[0].stdout_stream)
+            local err = wrap(owner, started[0].stderr_stream)
+
+            return owner, input, output, err, tonumber(started[0].pid) as integer
+        end,
+        poll = function(self: contract.Provider, owner: any): shared.Exit?
+            local output = native.ffi.new("NuppNativeV2ProcessExit[1]")
+            configured(C.nuppNativeV2ProcessPollExit(owner.handle, output), "poll process")
+            if output[0].ready == 0 then
+                return nil
+            end
+
+            return shared.exited(tonumber(output[0].code) as integer, output[0].killed ~= 0, false)
+        end,
+        kill = function(self: contract.Provider, owner: any, force: boolean): nil
+            configured(C.nuppNativeV2ProcessKill(owner.handle, force and 1 or 0), "kill process")
+        end,
+        read = function(self: contract.Provider, stream: any, limit: integer): string?
+            local wanted = whole(limit)
+            if wanted < 1 then
+                wanted = 1
+            elseif wanted > READ_SIZE then
+                wanted = READ_SIZE
+            end
+            if stream.capacity < wanted then
+                stream.scratch = native.ffi.new("uint8_t[?]", wanted)
+                stream.capacity = wanted
+            end
+            local state = native.ffi.new("uint32_t[1]")
+            local length = native.ffi.new("size_t[1]")
+            configured(
+                C.nuppNativeV2ProcessStreamRead(stream.handle, stream.scratch, wanted, state, length),
+                "read process stream"
+            )
+            if state[0] == READ_DATA then
+                return native.ffi.string(stream.scratch, tonumber(length[0]) as integer)
+            end
+            if state[0] == READ_PENDING then
+                return ""
+            end
+            if state[0] == READ_EOF then
+                return nil
+            end
+            error("nupp: Rust process provider returned an invalid read state", 0)
+        end,
+        write = function(self: contract.Provider, stream: any, bytes: string): (integer, boolean)
+            local state = native.ffi.new("uint32_t[1]")
+            local length = native.ffi.new("size_t[1]")
+            configured(
+                C.nuppNativeV2ProcessStreamWrite(stream.handle, bytes, #bytes, state, length),
+                "write process stream"
+            )
+            if state[0] == WRITE_ACCEPTED then
+                return tonumber(length[0]) as integer, false
+            end
+            if state[0] == WRITE_PENDING then
+                return 0, false
+            end
+            if state[0] == WRITE_GONE then
+                return 0, true
+            end
+            error("nupp: Rust process provider returned an invalid write state", 0)
+        end,
+        closeStream = function(self: contract.Provider, stream: any): (boolean, string?)
+            if stream.released then
+                return true, nil
+            end
+            local status = C.nuppNativeV2ProcessStreamRelease(stream.handle)
+            if status ~= 0 then
+                return false, reason("nupp: could not close process stream")
+            end
+            stream.released = true
+            stream.handle = nil
+
+            return true, nil
+        end,
+        reap = function(self: contract.Provider, owner: any): (boolean, string?)
+            if owner.released then
+                return true, nil
+            end
+            local status = C.nuppNativeV2ProcessRelease(owner.handle)
+            if status ~= 0 then
+                return false, reason("nupp: could not release process")
+            end
+            owner.released = true
+            owner.handle = nil
+
+            return true, nil
+        end,
+        now = function(self: contract.Provider): number
+            return time.now()
+        end,
+        waitReady = function(self: contract.Provider, interest: shared.Interest, timeoutMs: number): integer
+            local readable, readCount = makeArray(interest.read)
+            local writable, writeCount = makeArray(interest.write)
+            local timeout = whole(timeoutMs)
+            if timeout < 0 then
+                timeout = 0
+            elseif timeout > INT32_MAX then
+                timeout = INT32_MAX
+            end
+            local ready = native.ffi.new("size_t[1]")
+            configured(
+                C.nuppNativeV2ProcessWait(
+                    interest.child.handle,
+                    readable,
+                    readCount,
+                    writable,
+                    writeCount,
+                    timeout,
+                    ready
+                ),
+                "wait for process readiness"
+            )
+
+            return tonumber(ready[0]) as integer
+        end
+    }
+end
+
+export = create()

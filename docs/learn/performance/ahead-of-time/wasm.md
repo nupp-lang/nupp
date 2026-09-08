@@ -26,19 +26,13 @@ The rest of the program remains Lua 5.1. The annotated body is replaced by one
 Lua C-closure call into compiled Wasm; its loop performs direct loads and stores
 without a Lua or JavaScript call per element.
 
-## Wasm backend
+## Wasm storage
 
-The target selects the supplied backend declaration, which owns the provider
-choices for struct layout and opaque Wasm memory:
-
-```lua
-backends = {"nupp.runtime.backend.wasm"},
-```
-
-`representation.cstorage` owns physical storage and agrees with the selected
-struct and exact-integer providers. `host.wasm` owns foreign transfer leases.
-Both have isolated conformance suites. Lua receives no numeric address and cannot
-construct a pointer from an integer.
+The Lua 5.1 target fixes portable calling conventions. During module initialization,
+`representation.cstorage` selects the compatible Wasm implementation when its host
+is present. That implementation supplies physical storage, exact integers,
+reference-valued structs, and transfer leases together. Lua receives no numeric
+address and cannot construct a pointer from an integer.
 
 The application target selects Lua 5.1 and requires Wasm AOT:
 
@@ -49,7 +43,6 @@ app = {
    output = "dist/app.lua",
    outDir = "build/app",
    dialect = "lua51",
-   backends = {"backend"},
    aot = "require-wasm",
 }
 ```
@@ -183,11 +176,11 @@ SIMD struct AOT, the browser platform providers, cancellation, runtime errors,
 missing side modules, and worker tasks in their scalar and SIMD packages
 through an HTTP server.
 
-## Browser platform backend
+## Browser platform services
 
-A browser application selects the checked browser backend. It supplies HTTP,
-URI, suspension, time, random bytes, SHA-256, HMAC-SHA256, UUIDs, and persistent
-string storage:
+Browser facades select catalog-backed implementations for HTTP, URI,
+suspension, time, random bytes, UUIDs, and persistent string storage when
+required. SHA-256 and HMAC-SHA256 are ordinary portable functions:
 
 ```nupp
 local crypto = nupp.crypto
@@ -201,24 +194,23 @@ local restored = storage.get("session")
 print(restored and #restored or 0)
 ```
 
-The target selects the backend by module name:
+A browser target uses ordinary entry modules:
 
 ```lua
 app = {
    kind = "bundle",
    entries = {"main"},
    dialect = "lua51",
-   backends = {"nupp.runtime.backend.browser"},
 }
 ```
 
-Each facility is an independent seam with a compiler-owned suite. The checked
+Facades resolve compatible providers while requiring their modules. The checked
 Lua provider suspends the application and sends one effect to the Worker. The
 Worker uses `fetch`, `setTimeout`, Worker clocks, Web Crypto, or IndexedDB and
 resumes Lua with the result. Pure Lua work and AOT kernels do not cross the
 effect boundary.
 
-The backend also supplies `host.workers`, so a browser application runs
+The host also supplies `host.workers`, so a browser application runs
 [worker tasks](../../runtime/concurrency/workers.md) on a bounded pool of lane Workers. Each
 lane boots this same verified manifest in its own Lua 5.1 Wasm state, including
 the packaged AOT side modules, and receives work through the same effect
@@ -242,7 +234,7 @@ the runtime can provide another database name or a storage adapter.
 
 ## WebGPU
 
-The browser backend can run admitted `@aot(target = "gpu")` map kernels through
+The browser GPU provider can run admitted `@aot(target = "gpu")` map kernels through
 WebGPU while keeping their storage in Wasm memory. See
 [gpu.md](gpu.md#browser-gpu-kernels) for the generated WGSL profile and the
 browser provider's convenience operation.
@@ -288,13 +280,13 @@ Lua-building entries lower from the verified AOT IR through C to Wasm.
 Pointer kernels use `nupp.mem.span` spans. A `lua-builder` entry instead receives
 the embedded VM's `lua_State` and constructs fresh tables or strings through
 the public Lua 5.1 API, with the same admitted subset and rooting rules as a
-native AOT builder. Ordinary `cstorage` and typed span references are supplied by the selected
-physical backend. Raw `ffi`, arbitrary `cinterop`, and native Lua modules remain
+native AOT builder. Ordinary `cstorage` and typed span references use the
+target-compatible storage provider. Raw `ffi`, arbitrary `cinterop`, and native Lua modules remain
 unavailable.
 
-Pure Lua dependencies work when the bundle selects them. The browser backend
-supplies its named platform seams; selecting Wasm storage does not supply
-filesystem, process, foreign C interoperability, or an arbitrary third-party seam.
+Pure Lua dependencies work when included by the target. The artifact catalog
+supplies compatible platform providers. Wasm storage does not supply
+filesystem, process, foreign C interoperability, or arbitrary third-party services.
 
 Browser HTTP accepts `http` and `https` absolute URIs. String and narrow
 `http.Reader` upload sources are accepted; reader uploads are collected before
@@ -326,5 +318,5 @@ call must remain outside a call to a C function such as
   numeric guarantees
 - [portable-compiler.md](../../projects/portability/compiler.md) for the separate compiler bundle
   used by the playground
-- [NEP 14](../../../neps/0014-lua-in-wasm-aot.md) for the binding decision
+- [NEP 13](../../../neps/0013-lua-in-wasm-aot.md) for the binding decision
 :::

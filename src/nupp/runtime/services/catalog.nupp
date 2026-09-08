@@ -1,0 +1,348 @@
+module nupp.runtime.services.catalog
+
+--- Compiler-carried provider declarations. Entries contain no implementation code.
+export const facades = {
+    ["nupp.system"] = "host.system",
+    ["nupp.digest"] = "nupp.digest",
+    ["nupp.checksum"] = "nupp.checksum",
+    ["nupp.mac"] = "nupp.mac",
+    ["nupp.gpu"] = "host.gpu",
+    ["nupp.io.http"] = "host.http",
+    ["nupp.workers"] = "host.workers",
+    ["nupp.runtime.uuid"] = "data.uuid",
+
+    ["nupp.runtime.representation"] = "representation.cstorage",
+
+    ["nupp.suspension"] = "suspension",
+    ["nupp.io.process"] = "host.process",
+    ["nupp.io.tls"] = "host.tls",
+    ["nupp.io.net"] = "host.net",
+    ["nupp.text.buffer"] = "text.buffer",
+    ["nupp.runtime.bitops"] = "numeric.bitops",
+    ["nupp.runtime.int64"] = "numeric.int64",
+    ["nupp.codec.json.provider"] = "data.json",
+    ["nupp.crypto"] = "host.crypto",
+    ["nupp.io.storage"] = "host.storage",
+    ["nupp.time"] = "host.time",
+    ["nupp.io.path.provider"] = "host.path",
+    ["nupp.io.uri.provider"] = "host.uri",
+}
+
+export const entries = {
+    {
+        service = "nupp.digest",
+        name = "nupp.builtin",
+        api = 1,
+        contract = "nupp.runtime.services.digest",
+        export = "service",
+        entry = "nupp.runtime.provider.digest"
+    },
+    {
+        service = "nupp.checksum",
+        name = "nupp.builtin",
+        api = 1,
+        contract = "nupp.runtime.services.checksum",
+        export = "service",
+        entry = "nupp.runtime.provider.checksum"
+    },
+    {
+        service = "nupp.mac",
+        name = "nupp.builtin",
+        api = 1,
+        contract = "nupp.runtime.services.mac",
+        export = "service",
+        entry = "nupp.runtime.provider.mac"
+    },
+    {
+        service = "host.system",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.system",
+        export = "service",
+        entry = "nupp.runtime.provider.nativesystem",
+        dialect = "luajit"
+    },
+    {
+        service = "host.system",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.system",
+        export = "service",
+        entry = "nupp.runtime.browser.system",
+        dialect = "lua51"
+    },
+    {
+        service = "host.crypto",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "crypto",
+        entry = "nupp.runtime.provider.nativecrypto",
+        dialect = "luajit"
+    },
+    {
+        service = "host.gpu",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.gpu",
+        export = "service",
+        entry = "nupp.runtime.provider.nativegpu",
+        dialect = "luajit"
+    },
+    {
+        service = "host.gpu",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.gpu",
+        export = "service",
+        entry = "nupp.runtime.browser.webgpu.internal",
+        dialect = "lua51"
+    },
+    {
+        service = "host.http",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.http",
+        export = "service",
+        entry = "nupp.runtime.provider.nativehttp",
+        dialect = "luajit"
+    },
+    {
+        service = "host.http",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.http",
+        export = "service",
+        entry = "nupp.runtime.browser.http",
+        dialect = "lua51"
+    },
+    {
+        service = "host.workers",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.workers",
+        export = "service",
+        entry = "nupp.runtime.provider.workers",
+        dialect = "luajit"
+    },
+    {
+        service = "host.workers",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.workers",
+        export = "service",
+        entry = "nupp.runtime.browser.workers",
+        dialect = "lua51"
+    },
+    {
+        service = "host.crypto",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "crypto",
+        entry = "nupp.runtime.browser.crypto",
+        dialect = "lua51"
+    },
+    {
+        service = "host.storage",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "storage",
+        entry = "nupp.runtime.browser.storage",
+        dialect = "lua51"
+    },
+    {
+        service = "data.uuid",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "uuid",
+        entry = "nupp.runtime.provider.nativeuuid",
+        dialect = "luajit"
+    },
+    {
+        service = "data.uuid",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "uuid",
+        entry = "nupp.runtime.browser.crypto",
+        dialect = "lua51"
+    },
+
+    {
+        service = "representation.cstorage",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "cstorage",
+        entry = "nupp.runtime.provider.nativestorage",
+        dialect = "luajit"
+    },
+    {
+        service = "representation.cstorage",
+        name = "nupp.wasm",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "cstorage",
+        entry = "nupp.runtime.provider.wasmstorage",
+        dialect = "lua51"
+    },
+
+    {
+        service = "suspension",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.suspension",
+        export = "service",
+        entry = "nupp.runtime.provider.suspension",
+        dialect = "luajit"
+    },
+    {
+        service = "suspension",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.suspension",
+        export = "service",
+        entry = "nupp.runtime.browser.suspension",
+        dialect = "lua51"
+    },
+    {
+        service = "host.process",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.process",
+        export = "service",
+        entry = "nupp.runtime.provider.nativeprocess",
+        dialect = "luajit"
+    },
+    {
+        service = "host.tls",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.tls",
+        export = "service",
+        entry = "nupp.runtime.provider.nativetls",
+        dialect = "luajit"
+    },
+    {
+        service = "host.net",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.net",
+        export = "service",
+        entry = "nupp.runtime.provider.nativenet",
+        dialect = "luajit"
+    },
+    {
+        service = "text.buffer",
+        name = "nupp.portable",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "buffer",
+        entry = "nupp.runtime.provider.tablebuffer"
+    },
+    {
+        service = "text.buffer",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "buffer",
+        entry = "nupp.runtime.provider.nativebuffer",
+        dialect = "luajit"
+    },
+    {
+        service = "host.uri",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "uri",
+        entry = "nupp.runtime.provider.nativeuri",
+        dialect = "luajit"
+    },
+    {
+        service = "host.uri",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "uri",
+        entry = "nupp.runtime.browser.uri",
+        dialect = "lua51"
+    },
+    {
+        service = "host.path",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "path",
+        entry = "nupp.runtime.provider.nativepath",
+        dialect = "luajit"
+    },
+    {
+        service = "host.path",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "path",
+        entry = "nupp.runtime.browser.path",
+        dialect = "lua51"
+    },
+    {
+        service = "host.time",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "time",
+        entry = "nupp.runtime.provider.nativetime",
+        dialect = "luajit"
+    },
+    {
+        service = "host.time",
+        name = "nupp.browser",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "time",
+        entry = "nupp.runtime.browser.time",
+        dialect = "lua51"
+    },
+    {
+        service = "numeric.bitops",
+        name = "nupp.scalar",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "bitops",
+        entry = "nupp.runtime.provider.scalarbitops"
+    },
+    {
+        service = "numeric.bitops",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.contracts",
+        export = "bitops",
+        entry = "bit",
+        dialect = "luajit"
+    },
+    {
+        service = "data.json",
+        name = "nupp.lunajson",
+        api = 2,
+        contract = "nupp.runtime.services.contracts",
+        export = "json",
+        entry = "nupp.runtime.provider.lunajson"
+    },
+    {
+        service = "data.json",
+        name = "nupp.aot",
+        api = 2,
+        contract = "nupp.runtime.services.contracts",
+        export = "json",
+        entry = "nupp.codec.json.aot",
+        dialect = "luajit"
+    },
+}
+
+--- Whether a declaration can be carried by a target with this dialect.
+export function supports(entry: any, dialect: string): boolean
+    return entry.dialect == nil or entry.dialect == dialect or entry.dialect == "luajit" and dialect == "luajit-compat"
+end

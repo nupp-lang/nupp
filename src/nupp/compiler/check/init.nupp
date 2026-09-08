@@ -1811,7 +1811,7 @@ function checkMod.check(
     --- reaching a symbol it never declared is NUPP2004 instead of silence.
     c.cNamespaceType = function(): Type
         local decls = {}
-        local resolved = c.opts._capabilityResolution or capabilities.resolve(c.opts.dialect, c.opts.backendResolution)
+        local resolved = c.opts._capabilityResolution or capabilities.resolve(c.opts.dialect)
         local cinterop = capabilities.get(resolved, "cinterop")
         if cinterop.kind ~= "missing" and (
             not c.env or c.env.nativeCompilerServices ~= false

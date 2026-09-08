@@ -1,34 +1,21 @@
 module nupp.io.storage
 
---[[Host-independent persistent key/value storage. Select a checked backend to supply this facility.]]
+--[[Persistent key/value storage owned by the current host.]]
 
-const contracts = require("nupp.runtime.backend.contracts")
+const contracts = require("nupp.runtime.services.contracts")
 
-local function provider(): contracts.StorageProvider
-    local selected = rawget(_G, "__nuppStorage")
-    if selected == nil then
-        error("nupp: nupp.io.storage needs a selected host provider", 2)
-    end
-
-    return selected as contracts.StorageProvider
-end
+const provider: contracts.StorageProvider = contracts.storage:assemble(function(): contracts.StorageProvider
+    return contracts.storage:require("nupp.browser")
+end)
 
 --- Reads one UTF-8 value, or nil if the key is absent.
-export function get(name: string): string?
-    return provider().get(name)
-end
+export const get: function(name: string): string? = provider.get
 
 --- Writes one UTF-8 value.
-export function set(name: string, value: string): nil
-    return provider().set(name, value)
-end
+export const set: function(name: string, value: string): nil = provider.set
 
 --- Removes one key.
-export function remove(name: string): nil
-    return provider().remove(name)
-end
+export const remove: function(name: string): nil = provider.remove
 
 --- Removes every key in the selected store.
-export function clear(): nil
-    return provider().clear()
-end
+export const clear: function(): nil = provider.clear

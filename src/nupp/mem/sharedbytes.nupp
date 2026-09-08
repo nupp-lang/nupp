@@ -6,7 +6,7 @@ Engine-owned immutable byte regions.
 A region names an extent of one reference-counted engine block. It crosses
 worker boundaries by reference, slices without copying, and is read in place
 through a borrowed [](nupp.mem.span) byte view; converting it to a Lua string
-is one explicit call. See NEP 22.
+is one explicit call. See NEP 20.
 
 ```nupp
 const sharedbytes = nupp.mem.sharedbytes

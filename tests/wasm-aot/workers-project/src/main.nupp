@@ -23,7 +23,7 @@ local function text(name: string, value: string): nil
     record(name, ("%q"):format(value))
 end
 
-local function raised(body: function(): nil): string?
+local function raised(borrows body: function(): nil): string?
     local ok, problem = pcall(body)
     if ok then
         return nil

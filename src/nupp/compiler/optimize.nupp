@@ -52,7 +52,11 @@ optimize.passes = {
     ] = {name = "static-callable", level = 1, summary = "bind repeated immutable dotted callees at their first use",},
     [
         "OPT-5"
-    ] = {name = "concat-buffer", level = 1, summary = "build a string accumulated round a loop with a string.buffer",},
+    ] = {
+        name = "concat-buffer",
+        level = 1,
+        summary = "build a string accumulated round a loop with a nupp.text.buffer",
+    },
     [
         "OPT-6"
     ] = {
@@ -490,7 +494,7 @@ end
 -- left operand and everything appended is down its right spine. Returns the pieces in
 -- the order they are concatenated, or nil when the shape is not an accumulation of
 -- `definition` -- including when any link is a concatenation the checker could not
--- prove primitive, since `string.buffer` will not run somebody's `__concat`.
+-- prove primitive, since `nupp.text.buffer` will not run somebody's `__concat`.
 local function appendedPieces(expr, definition)
     if not expr or isToken(expr) or expr.kind ~= "binop" then
         return nil
@@ -609,7 +613,7 @@ local function concatBufferBlocks(node, asked, remarks, counter: integer): integ
                     stat,
                     "OPT-5",
                     (
-                        "concat-buffer: %s is built with a string.buffer, " .. "which appends instead of rebuilding"
+                        "concat-buffer: %s is built with a nupp.text.buffer, " .. "which appends instead of rebuilding"
                     ):format(stat.names[1].text)
                 )
             end
@@ -626,7 +630,7 @@ end
 -- Driving the body passes
 ----------------------------------------------------------------------------
 
---- Lowers a string accumulated round a loop to a `string.buffer`.
+--- Lowers a string accumulated round a loop to a `nupp.text.buffer`.
 ---
 --- `s = s .. piece` in a loop is O(n^2): each round allocates a string holding
 --- everything so far and interns it, so the work grows with the length rather than with
@@ -2696,7 +2700,7 @@ type optimize.Options = {
     readonly filename: string?,
     readonly disabled: {[string]: boolean}?,
 
-    --- The dialect the result is generated for. `OPT-5` lowers to `string.buffer`,
+    --- The dialect the result is generated for. `OPT-5` lowers to `nupp.text.buffer`,
     --- which is LuaJIT's, so a Lua 5.1 target does not get that pass.
     readonly dialect: string?,
 
@@ -2729,7 +2733,7 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
     if level >= optimize.passes["OPT-4"].level and not disabled["OPT-4"] then
         staticCallableWalk(result.root, remarks)
     end
-    -- Not for Lua 5.1: this pass lowers a string accumulator to `string.buffer`,
+    -- Not for Lua 5.1: this pass lowers a string accumulator to `nupp.text.buffer`,
     -- and the module then requires it where it loads. That module is LuaJIT's, so
     -- a stock 5.1 host could not load what it produced -- which is the host the
     -- portable compiler is for, and which stopped loading it at all once this

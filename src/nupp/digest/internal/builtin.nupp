@@ -1,7 +1,18 @@
 @!internal
 module nupp.digest.internal.builtin
 
-const provider = require("nupp.digest.provider")
+--[[Built-in incremental digest and keyed-state factories.
+
+The catalog adapter uses lookup and names to publish MD5, SHA-1, SHA-256, and
+SHA-512 descriptors. Each factory creates independent state implementing the
+canonical digest protocol. Span updates copy at most four KiB at a time into the
+fixed word implementations, retain no borrowed views, and keep memory bounded.
+HMAC-SHA256 owns its inner hash state and precomputed key pads. The public facade
+owns output allocation and consuming cleanup; these states write into the supplied
+destination. This module performs no SPI selection during operations.
+]]
+
+const provider = require("nupp.runtime.services.digest")
 const streaming = require("nupp.digest.internal.streaming")
 const span = require("nupp.mem.span")
 const storage = require("nupp.runtime.storage")

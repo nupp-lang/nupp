@@ -2,7 +2,8 @@ module nupp.runtime.provider.tablestruct
 
 --[[Portable table implementation of the complete struct-value contract.]]
 
-local provider = {referenceValued = true}
+local provider = {}
+provider.referenceValued = true
 
 local function wrapInteger(value: number, bits: integer, signed: boolean): number
     local modulus = 2 ^ bits

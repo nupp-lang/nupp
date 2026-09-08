@@ -1,0 +1,12 @@
+module nupp.runtime.bitops
+
+const contracts = require("nupp.runtime.services.contracts")
+
+export = contracts.bitops:assemble(function(): contracts.BitopsProvider
+    local native = contracts.bitops:lookup("nupp.native")
+    if native ~= nil then
+        return native
+    end
+
+    return require("nupp.runtime.provider.scalarbitops")
+end)

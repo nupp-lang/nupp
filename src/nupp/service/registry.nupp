@@ -1,7 +1,0 @@
-@!internal
-module nupp.service.registry
-
--- A project build supplies a generated registry ahead of this empty default.
--- Standalone standard-library users need no service dependency.
-local registry: {[string]: {[string]: function(): any}} = {}
-export = registry

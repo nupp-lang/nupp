@@ -11,7 +11,7 @@ interface http.Reader is nupp.Closeable
     read: function(self: http.Reader, count: integer): (string?, string?)
 end
 
-const contracts = require("nupp.runtime.backend.contracts")
+const contracts = require("nupp.runtime.services.contracts")
 type http.Capabilities = contracts.HttpCapabilities
 http.Capabilities = contracts.HttpCapabilities
 
@@ -20,7 +20,7 @@ type http.Version = "1.0" | "1.1" | "2"
 
 --- What a client applies to every request it sends.
 ---
---- Every field is optional, so `new http.Client()` with nothing is a client with
+--- Every field is optional, so `http.client()` with nothing is a client with
 --- the defaults below. A request may override the three limits it also names.
 record http.Options
     --- The `user-agent` header sent with every request.

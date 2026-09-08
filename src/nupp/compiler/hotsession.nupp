@@ -328,8 +328,8 @@ end
 
 -- The build's own interface digest, so a change the build would recompile a
 -- reader for is one the session restarts for, and nothing less.
-local function interfaceFingerprint(moduleType, exports, backendFingerprint)
-    return buildModules.interfaceHash(moduleType, exports, backendFingerprint, nil)
+local function interfaceFingerprint(moduleType, exports)
+    return buildModules.interfaceHash(moduleType, exports, nil)
 end
 
 local function applyCMetadata(snapshot, metadata)
@@ -648,11 +648,7 @@ function Session:semanticSnapshot(path, checked, module)
         snapshot.modules[
             currentModule
         ] = {
-            fingerprint = interfaceFingerprint(
-                result.moduleType,
-                result.exports,
-                result.backend and result.backend.fingerprint or nil
-            ),
+            fingerprint = interfaceFingerprint(result.moduleType, result.exports),
             label = currentModule,
             path = currentPath,
             cFingerprint = cFingerprint,

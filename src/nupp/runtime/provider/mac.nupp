@@ -1,0 +1,25 @@
+@!internal
+module nupp.runtime.provider.mac
+
+--[[Built-in HMAC-SHA256 catalog for `nupp.mac` API 1.
+
+Initialization creates only the immutable 32-byte algorithm descriptor. Each
+factory invocation creates independent keyed incremental state through the fixed
+Nupp digest implementation. The public MAC facade owns output allocation, encoding,
+and consuming cleanup. No keyed state, provider instance, or closure crosses a
+worker boundary; each Lua state loads this module independently. Operations use
+retained implementation functions without further SPI resolution.
+]]
+
+local contract = require("nupp.runtime.services.mac")
+local {type State} = require("nupp.runtime.services.digest")
+local builtin = require("nupp.digest.internal.builtin")
+local record Algorithm is contract.Algorithm
+    readonly name: string = "hmac-sha256"
+    readonly digestSize: integer = 32
+    function create(self, key: string): State
+        return builtin.hmacSha256(key)
+    end
+end
+local provider: contract.Provider = {algorithms = {["hmac-sha256"] = new Algorithm()}}
+export = provider

@@ -85,7 +85,7 @@ building a Lua table or a complete result string. `endArray()` and
 leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
-local out = string.buffer.new()
+local out = nupp.text.buffer.new()
 local writer = nupp.codec.json.writer(out)
 writer:startObject():key("items"):startArray():write(1):write(2):endArray():endObject()
 writer:close()
@@ -177,7 +177,7 @@ end
 --- A checked incremental JSON writer.
 ---
 --- ```nupp
---- local out = string.buffer.new()
+--- local out = nupp.text.buffer.new()
 --- local writer = nupp.codec.json.writer(out)
 --- writer:startObject():key("ok"):write(true):endObject()
 --- writer:close()
@@ -188,7 +188,7 @@ export affine interface Writer is nupp.Closeable
     --- Starts an array value.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = nupp.text.buffer.new()
     --- local writer = nupp.codec.json.writer(out)
     --- writer:startArray():write("first"):endArray()
     --- writer:close()
@@ -201,7 +201,7 @@ export affine interface Writer is nupp.Closeable
     --- Starts an object value.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = nupp.text.buffer.new()
     --- local writer = nupp.codec.json.writer(out)
     --- writer:startObject():endObject()
     --- writer:close()
@@ -214,7 +214,7 @@ export affine interface Writer is nupp.Closeable
     --- Selects the next object member.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = nupp.text.buffer.new()
     --- local writer = nupp.codec.json.writer(out)
     --- writer:startObject():key("answer"):write(42):endObject()
     --- writer:close()
@@ -229,7 +229,7 @@ export affine interface Writer is nupp.Closeable
     --- Appends one complete Lua value.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = nupp.text.buffer.new()
     --- local writer = nupp.codec.json.writer(out)
     --- writer:startArray():write({id = 41}):endArray()
     --- writer:close()
@@ -247,7 +247,7 @@ export affine interface Writer is nupp.Closeable
     --- Appends JSON null.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = nupp.text.buffer.new()
     --- local writer = nupp.codec.json.writer(out)
     --- writer:startArray():null():endArray()
     --- writer:close()
@@ -260,7 +260,7 @@ export affine interface Writer is nupp.Closeable
     --- Ends the current array.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = nupp.text.buffer.new()
     --- local writer = nupp.codec.json.writer(out)
     --- writer:startArray():startObject():endObject():endArray()
     --- writer:close()
@@ -273,7 +273,7 @@ export affine interface Writer is nupp.Closeable
     --- Ends the current object.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = nupp.text.buffer.new()
     --- local writer = nupp.codec.json.writer(out)
     --- writer:startObject():key("items"):startArray():endArray():endObject()
     --- writer:close()
@@ -286,7 +286,7 @@ export affine interface Writer is nupp.Closeable
     --- Publishes staged bytes without ending the document.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = nupp.text.buffer.new()
     --- local writer = nupp.codec.json.writer(out)
     --- writer:startArray():write(1)
     --- writer:flush()
@@ -299,7 +299,7 @@ export affine interface Writer is nupp.Closeable
     --- Verifies and publishes one complete root, then releases backing state.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = nupp.text.buffer.new()
     --- local writer = nupp.codec.json.writer(out)
     --- writer:write({ok = true})
     --- writer:close()
@@ -580,7 +580,7 @@ end
 --- Creates an incremental JSON writer over caller-owned storage.
 ---
 --- ```nupp
---- local out = string.buffer.new()
+--- local out = nupp.text.buffer.new()
 --- local writer = nupp.codec.json.writer(out)
 --- writer:startObject():key("id"):write(41):endObject()
 --- writer:close()
@@ -590,7 +590,7 @@ end
 --- @param nullValue an additional value treated as JSON null
 --- @return a new writer
 --- @export
-export function writer(exclusive out: string.buffer.Buffer, nullValue: any?): Writer
+export function writer(exclusive out: nupp.text.buffer.Buffer, nullValue: any?): Writer
     if nullValue == nil then
         return new WriterImpl(raw = native.writer(out))
     end
@@ -626,7 +626,7 @@ end
 ---     id: integer
 --- end
 ---
---- local out = string.buffer.new()
+--- local out = nupp.text.buffer.new()
 --- local writer = nupp.codec.json.writer(out)
 --- nupp.codec.json.writeAs(User, new User(id = 41), writer)
 --- writer:close()
@@ -649,7 +649,7 @@ end
 ---     id: integer
 --- end
 ---
---- local out = string.buffer.new()
+--- local out = nupp.text.buffer.new()
 --- local writer = nupp.codec.json.writer(out)
 --- nupp.codec.json.writeRecord(new User(id = 41), writer)
 --- writer:close()

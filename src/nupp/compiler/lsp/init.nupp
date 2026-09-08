@@ -542,13 +542,9 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             capabilities = {
                 textDocumentSync = 1, -- full-document sync
                 definitionProvider = true,
+                implementationProvider = true,
                 hoverProvider = true,
-                completionProvider = {
-                    triggerCharacters = wire.array({
-                        ".",
-                        ":"
-                    }),
-                },
+                completionProvider = {triggerCharacters = wire.array({".", ":"}),},
                 signatureHelpProvider = {triggerCharacters = wire.array({"(", ","}),},
                 referencesProvider = true,
                 renameProvider = {prepareProvider = true},
@@ -671,6 +667,12 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         end
     end
 
+    handlers["textDocument/implementation"] = function(id, params)
+        local _, doc, token, offset = nav.symbolAt(params)
+        local member = doc and offset and require("nupp.compiler.lsp.tree").moduleMemberAt(doc.result, offset)
+        respond(id, require("nupp.compiler.lsp.services").implementations(s.inc, member, token))
+    end
+
     handlers["textDocument/definition"] = function(id, params)
         local uri = params and params.textDocument and params.textDocument.uri
         local doc = uri and s.documents[uri]
@@ -689,6 +691,16 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         if not tok then
             respond(id, json.NULL)
             return
+        end
+        local serviceMember = require("nupp.compiler.lsp.tree").moduleMemberAt(doc.result, offset)
+        if serviceMember then
+            local contract = require(
+                "nupp.compiler.lsp.services"
+            ).definition(s.inc, serviceMember.moduleName, serviceMember.name)
+            if contract ~= nil then
+                respond(id, definitionLocation(contract))
+                return
+            end
         end
         local member = memberAt(doc, offset)
         if member then

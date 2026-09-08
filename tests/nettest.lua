@@ -5,7 +5,11 @@
 -- a direction view's close does -- so the test supplies the platform and the
 -- module supplies the behaviour. `netnativetest.lua` is the other half, where
 -- real sockets check that the provider means what this one assumes.
-local net = require("nupp.io.net")
+local net
+local function install(provider)
+    net = require("providerstate").load("net", provider)
+end
+
 local io_ = require("nupp.io")
 local native = require("nupp.compiler.native")
 
@@ -200,7 +204,7 @@ end
 
 local function connected(script)
     local backend, state = fakeBackend(script or {})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local stream = assert(net.connect({host = "example", port = 80}))
     return stream, state
 end
@@ -245,7 +249,7 @@ function M.writeLargerThanTheBoundStillProceeds()
     -- The bound governs how much is queued at one time, not how much may be
     -- sent. An input larger than the high-water mark must not deadlock.
     local backend, state = fakeBackend({drains = false, drainsOnRun = true})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local stream = assert(net.connect({host = "example", port = 80, sendHighWater = 4}))
     assertTrue(stream:write("0123456789"), "a value larger than the bound is written")
     assertEq(table.concat(state.written), "0123456789", "in pieces, all of them")
@@ -258,7 +262,7 @@ function M.aBackendMayApplyAStricterSendBound()
     -- a larger policy bound. Zero acceptance means wait for the observed native
     -- queue to retire, not spin while it remains below the caller's bound.
     local backend, state = fakeBackend({backpressureOnce = true, backendPending = 4, drainsOnRun = true,})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local stream = assert(net.connect({host = "example", port = 80, sendHighWater = 16}))
     assertTrue(stream:write("payload"), "the write resumes after native backpressure")
     assertEq(table.concat(state.written), "payload", "and accepts every byte exactly once")
@@ -319,7 +323,7 @@ end
 
 function M.acceptWaitsForAConnection()
     local backend, state = fakeBackend({acceptAfter = 3})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
     local stream = assert(listener:accept())
     assertEq(state.accepted, 3, "a quiet listener came back for it")
@@ -330,7 +334,7 @@ end
 
 function M.aListenerReportsThePortItGot()
     local backend = fakeBackend({})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
     assertEq(listener:port(), 54321, "asking for zero answers what was chosen")
     listener:close()
@@ -338,7 +342,7 @@ end
 
 function M.reusePortIsPassedThroughRatherThanAssumed()
     local backend, state = fakeBackend({})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local listener = assert(net.listen({host = "127.0.0.1", port = 0, reusePort = true}))
     assertEq(state.reusePort, true, "the request reaches the platform")
     listener:close()
@@ -348,14 +352,14 @@ function M.reusePortIsPassedThroughRatherThanAssumed()
 end
 
 function M.listenReportsWhyItCouldNotBind()
-    require("nupp.runtime.backend.net").install((fakeBackend({listenFails = "address already in use"})))
+    install((fakeBackend({listenFails = "address already in use"})))
     local listener, why = net.listen({host = "127.0.0.1", port = 80})
     assertEq(listener, nil, "a refused bind answers nil")
     assertTrue(why ~= nil and why:find("address already in use", 1, true) ~= nil, "and carries what the platform said")
 end
 
 function M.connectReportsWhyItCouldNotConnect()
-    require("nupp.runtime.backend.net").install((fakeBackend({connectFails = "connection refused"})))
+    install((fakeBackend({connectFails = "connection refused"})))
     local stream, why = net.connect({host = "example", port = 80})
     assertEq(stream, nil, "a refused connect answers nil")
     assertTrue(why ~= nil and why:find("connection refused", 1, true) ~= nil, "and carries what the platform said")
@@ -363,7 +367,7 @@ end
 
 function M.connectWaitsForTheHandshake()
     local backend, state = fakeBackend({connectAfter = 3})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local stream = assert(net.connect({host = "example", port = 80}))
     assertEq(state.connectPolls, 3, "the connect was come back for")
     assertTrue(state.closedConnect, "and the request was released after it")
@@ -379,7 +383,7 @@ end
 
 function M.aDatagramCarriesItsPeerAndItsLength()
     local backend, state = fakeBackend({datagrams = {{bytes = "ping", host = "10.0.0.7", port = 9001}}})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
     local buffer = io_.newBuffer(64)
     local message = assert(socket:receiveFrom(buffer, 64))
@@ -396,7 +400,7 @@ function M.aTruncatedDatagramSaysSo()
     -- The security-relevant one: parsing the first part of a larger message
     -- without being told is parsing something nobody sent.
     local backend = fakeBackend({datagrams = {{bytes = "0123456789"}}})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
     local buffer = io_.newBuffer(64)
     local message = assert(socket:receiveFrom(buffer, 4))
@@ -410,7 +414,7 @@ function M.anEmptyDatagramIsAMessageNotAnAbsence()
     -- A quiet socket comes back for more; an empty datagram is delivered. A
     -- receive that could not tell them apart would make a live peer look silent.
     local backend, state = fakeBackend({datagrams = {false, false, {bytes = "", host = "10.0.0.9", port = 7}},})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
     local buffer = io_.newBuffer(64)
     local message = assert(socket:receiveFrom(buffer, 64))
@@ -423,7 +427,7 @@ end
 
 function M.sendingNamesThePeer()
     local backend, state = fakeBackend({})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
     assertTrue(socket:sendTo({host = "10.0.0.3", port = 4242}, "reply"), "the send is taken")
     assertEq(state.sent[1].host, "10.0.0.3", "to the address named")
@@ -433,14 +437,14 @@ function M.sendingNamesThePeer()
 end
 
 function M.aDatagramSocketReportsItsPort()
-    require("nupp.runtime.backend.net").install((fakeBackend({})))
+    install((fakeBackend({})))
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
     assertEq(socket:port(), 41234, "asking for zero answers what was chosen")
     socket:close()
 end
 
 function M.bindReportsWhyItCouldNotBind()
-    require("nupp.runtime.backend.net").install((fakeBackend({bindFails = "address already in use"})))
+    install((fakeBackend({bindFails = "address already in use"})))
     local socket, why = net.bind({host = "0.0.0.0", port = 53})
     assertEq(socket, nil, "a refused bind answers nil")
     assertTrue(why ~= nil and why:find("address already in use", 1, true) ~= nil, "and carries what the platform said")
@@ -448,7 +452,7 @@ end
 
 function M.flushWaitsForTheQueueToEmpty()
     local backend, state = fakeBackend({drains = false, drainsOnRun = true})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local stream = assert(net.connect({host = "example", port = 80}))
     assertTrue(stream:write("queued"), "the write completes locally")
     assertEq(stream:pending(), 6, "and the bytes are still held")
@@ -462,7 +466,7 @@ function M.flushReportsAWriteThatFailedAfterItWasAccepted()
     -- success: without asking about the failure a caller sees success at the
     -- exact moment its bytes were lost.
     local backend = fakeBackend({writeFails = true})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local stream = assert(net.connect({host = "example", port = 80}))
     assertTrue(stream:write("gone"), "the platform accepted it")
     local ok, why = stream:flush()
@@ -476,7 +480,7 @@ function M.closingAWritingViewWaitsForTheDirectionToEnd()
     -- return the moment the writes landed and leave the end of the direction
     -- exactly as cancellable as before.
     local backend, state = fakeBackend({shutdownPends = true})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local stream = assert(net.connect({host = "example", port = 80}))
     local writer = net.asWriter(stream)
     assertTrue(writer:write("last"), "the view writes")
@@ -490,7 +494,7 @@ function M.endingTheSendingHalfWaitsForIt()
     -- The public operation, not only the view's close: a caller that writes,
     -- ends its sending half and then closes must not cancel either.
     local backend, state = fakeBackend({shutdownPends = true})
-    require("nupp.runtime.backend.net").install(backend)
+    install(backend)
     local stream = assert(net.connect({host = "example", port = 80}))
     assertTrue(stream:write("before the end"), "the write completes")
     assertTrue(stream:shutdownWrite(), "the sending half is ended")
@@ -500,7 +504,7 @@ function M.endingTheSendingHalfWaitsForIt()
 end
 
 function M.portsAreChecked()
-    require("nupp.runtime.backend.net").install((fakeBackend({})))
+    install((fakeBackend({})))
     local ok = pcall(function()
         return net.listen({host = "127.0.0.1", port = 99999})
     end)

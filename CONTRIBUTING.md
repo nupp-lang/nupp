@@ -160,7 +160,7 @@ every other pinned archive.
 Because the compiler's own sources are compiled by that release, they may only
 use language features it already understands. A feature reaches them a release
 later, once a tag carrying it is published and the pin moves to it; see
-[NEP 32](docs/neps/0032-fetched-stage-zero.md).
+[NEP 28](docs/neps/0028-fetched-stage-zero.md).
 
 ## Optional libraries
 

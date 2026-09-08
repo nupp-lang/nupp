@@ -1,8 +1,16 @@
 @!internal
 module nupp.digest.internal.words
 
--- RFC 1321 MD5 and RFC 6234 SHA-1/SHA-512. All words are pairs or singles
--- of 32-bit integers, so the implementation does not depend on host uint64.
+--[[Incremental MD5, SHA-1, and SHA-512 word implementations.
+
+RFC 1321 and RFC 6234 operations use single 32-bit words or high/low word pairs,
+so SHA-512 arithmetic does not require native uint64 support. Each factory creates
+independent bounded state containing chaining words, a partial block, and byte
+counts. Finalization applies the algorithm's padding and writes the fixed-size
+result into the supplied byte span. This module uses the retained bit operations
+and performs no SPI resolution itself. MD5 and SHA-1 serve interoperability uses.
+]]
+
 const bit = require("bit")
 const span = require("nupp.mem.span")
 const hex = require("nupp.codec.hex")

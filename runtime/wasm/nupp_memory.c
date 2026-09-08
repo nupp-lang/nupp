@@ -989,10 +989,7 @@ static void push_memory(lua_State *state) {
 
 void nupp_wasm_install_memory(lua_State *state) {
     push_memory(state);
-    /* The host's raw service, which the checked storage provider wraps and adds
-       `descriptor` to. `__nuppWasm` is the name the selected seam publishes that
-       provider under, and it is what `nupp.wasm` reads; installing this table there
-       both shadowed the provider and made the seam refuse a binding already set. */
+    /* Raw host operations used by the checked storage provider. */
     lua_setglobal(state, "__nuppWasmHost");
 
     lua_newtable(state);

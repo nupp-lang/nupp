@@ -71,7 +71,11 @@ inputRows[3] = new Sample(5, 30, 7)
 drop inputRows
 
 local output = array.new(new Sample(), 3)
-scale(output:write(), input:read(), 2, true)
+do
+    local writable = output:write()
+    scale(writable, input:read(), 2, true)
+    drop writable
+end
 
 local rows = output:read()
 assert(#rows == 3)
@@ -106,7 +110,11 @@ do
     drop writable
 end
 local wideOutput = array.scalar(array.uint64, 2)
-incrementWide(wideOutput:write(), wideInput:read(), 1 as uint64)
+do
+    local writable = wideOutput:write()
+    incrementWide(writable, wideInput:read(), 1 as uint64)
+    drop writable
+end
 local exact = addWide(wideInput:read()[2], 1 as uint64)
 assert(tostring(exact) == "9007199254740993")
 assert(wideOutput:read()[1] == (0 as uint64))

@@ -7,14 +7,14 @@ title: Service Providers
 
 A package can advertise named capabilities without asking its consumers to copy a
 driver script into their projects. Nupp reads static capability metadata first and
-loads the entry module only after a build has selected it. The same discovery format
+checks the declared provider exports without executing them. The same discovery format
 supports build-time code generators and runtime services.
 
 Capability metadata belongs in `nupp/capabilities.json` inside an installed LuaRock:
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "capabilities": [
     {
       "kind": "generator",
@@ -27,7 +27,9 @@ Capability metadata belongs in `nupp/capabilities.json` inside an installed LuaR
       "service": "nupp.codec",
       "name": "json",
       "api": 1,
-      "entry": "my_codec.json",
+      "contract": "mycodec.contract",
+      "export": "service",
+      "entry": "mycodec.json",
       "member": "codec"
     }
   ]
@@ -105,27 +107,89 @@ sandbox; do not install an untrusted provider.
 
 ## Runtime services
 
-Put a service provider in the target's `dependencies`. During the build Nupp composes
-their static descriptors into a deterministic registry. There is no filesystem scan
-at program startup, and implementations are loaded lazily:
+Declare one canonical interface and typed handle in a module that loads no
+implementations:
 
-```lua
+```nupp
+module mycodec.contract
 local services = require("nupp.services")
-
-local codec = services.require("nupp.codec", "json")
-local optional = services.lookup("nupp.codec", "messagepack")
-local installed = services.list("nupp.codec")
+export interface Codec
+    readonly encode: function(value: any): string
+    readonly decode: function(text: string): any
+end
+export const service: services.Service<Codec> = services.define("nupp.codec", 1)
 ```
 
-The generic lookup returns `any` because unrelated services have unrelated contracts.
-A service package should normally publish a typed facade—for example,
-`codec.byName("json"): Codec`—which validates or casts the generic result once and
-keeps application code typed.
+The annotation supplies generic inference. `Service<T>` is invariant: a handle for
+one interface cannot be assigned to a handle for another.
 
-Only target dependencies contribute runtime services. A package used as a generator
-tool or compile-only declaration cannot silently register a runtime provider. Provider
-entry modules must still be part of the target's normal LuaRock module surface and,
-for single-file bundles, its configured bundled modules.
+| Method | Result |
+| --- | --- |
+| `register(name, loader)` | Registers a checked `function(): T` without loading it |
+| `select(name)` | Chooses the default before it resolves |
+| `lookup(name?)` | Loads and caches the implementation, or returns `nil` if absent |
+| `require(name?)` | Loads and caches the implementation, or raises if absent |
+| `list()` | Returns registered names in sorted order without loading them |
+
+Duplicate names fail. Successful named loads retain identity. Failed loads and
+cycles report the service and provider involved. Instances and registrations
+belong to the current Lua state.
+
+A facade resolves during its top-level initialization:
+
+```nupp
+module mycodec
+local contract = require("mycodec.contract")
+export = contract.service:assemble(function(): contract.Codec
+    return contract.service:require("json")
+end)
+```
+
+`assemble(defaultLoader, validator?)` resolves an explicit selection or calls the
+facade's default loader. `assembleOptional` permits a missing default. Both freeze
+the loaded facade's default selection; later `select` calls fail. Optional absence
+is also fixed for that facade. Validators run before an implementation is published.
+The module returns the actual provider operations, and normal `require` caching
+retains them. Store the module or its methods in locals and call them directly.
+
+A setup entry selects providers before it imports consumers:
+
+```nupp
+module setup
+local contract = require("mycodec.contract")
+contract.service:select("json")
+return require("application")
+```
+
+Put provider packages in the target's `dependencies`. The build validates the
+service identity, API version, canonical handle, and implementation export together.
+Provider exports may have additional members. Generic parameters, optional members,
+ownership, and suspension guarantees must satisfy the canonical interface. External
+Lua providers supply `.d.nupp` declarations or typed adapters. Runtime shape checks
+come from the declared contract; behavioral tests remain necessary.
+
+Only target dependencies contribute runtime providers. Generator and compile-only
+packages do not register them. Discovery order never selects a third-party default.
+The artifact catalog contains compatible provider declarations without executing
+their modules. `nupp build --json` reports these declarations in `services`,
+including their canonical contract, API version, entry, and exporting dependency.
+
+Worker lanes load fresh instances. `services.setupWorkers("workersetup")` registers
+an ordinary setup module for child initialization; include it in the artifact's
+entries. Catalog-backed named selections are replayed before child consumers load.
+Runtime-only registrations require setup in the destination state.
+
+The GPU service exports the complete provider protocol from
+`nupp.runtime.services.gpu`. Providers implement its shared buffer, kernel, binding,
+and context interfaces with their own records. Applications use `nupp.gpu`'s context
+interface, which exposes device operations without provider state or generated-kernel
+hooks. Context cleanup uses the canonical `destroyContext` contract.
+
+Portable 64-bit arithmetic uses `numeric.int64`. A stock Lua target may select an
+integer provider without physical storage. When a storage provider supplies integer
+operations, the integer facade uses that same instance; selecting an incompatible
+instance fails initialization. Provider selection cannot change the target's pointer
+or machine layout.
 
 ## Dependency roles
 
@@ -140,9 +204,8 @@ Dependency `kind` says how Nupp acquires something: `c`, `cargo`, `luarocks`, or
 When the same name is both compile-only and a target dependency, the target role wins.
 Roles propagate through explicit dependency edges.
 
-For compatibility, omitting `compileDependencies` keeps every `kind = "types"`
-dependency ambient. Once a target contains `compileDependencies`—even an empty
-table—only the names it lists are compile-only inputs. This makes the migration
-explicit without changing existing manifests.
+Omitting `compileDependencies` makes `kind = "types"` dependencies ambient. When
+`compileDependencies` is present, only its listed dependencies contribute those
+compile-only declarations.
 
 See [build.md](build.md) for the rest of the target and dependency configuration.

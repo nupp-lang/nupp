@@ -186,7 +186,7 @@ interface cst.Hints
     --- assume the operands are strings and numbers.
     plainConcat: boolean?
 
-    --- A string accumulator lowered to a `string.buffer` by `OPT-5`.
+    --- A string accumulator lowered to a `nupp.text.buffer` by `OPT-5`.
     concatBuffer: any
 
     --- A builtin namespace path the checker resolved to a module, which codegen emits

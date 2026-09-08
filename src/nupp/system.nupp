@@ -1,26 +1,46 @@
 module nupp.system
 
---[[Facts about the environment executing the Nupp ABI. Under emulation these
-describe the executing ABI, rather than the physical machine. Parallelism is
-an estimate for this process, including restrictions known to the host.]]
+--[[Facts about the environment executing the Nupp ABI.
 
-const ffi = require("ffi")
-const native = require("nupp.runtime.native")
-native.ffi.cdef[[
-size_t nuppNativeV2AvailableParallelism(void);
+Under emulation these describe the executing ABI. Setup selects the canonical
+system service before requiring this module; its facts and query are retained.
+Parallelism estimates usable execution units including restrictions known to the
+host. The browser query may suspend while asking its host for that estimate.
 ]]
+local contract = require("nupp.runtime.services.system")
+local provider = contract.service:assemble(
+    function(): contract.Provider
+        local native = contract.service:lookup("nupp.native")
+        if native ~= nil then
+            return native
+        end
 
-local platforms: {
-    [string]: string
-} = {OSX = "macos", Linux = "linux", Windows = "windows", BSD = "bsd", POSIX = "posix"}
-local architectures: {[string]: string} = {x64 = "x86_64", x86 = "x86", arm64 = "aarch64"}
+        return contract.service:require("nupp.browser")
+    end,
+    function(value: contract.Provider): nil
+        if value.platform == "" or value.architecture == "" then
+            error("system provider must name its platform and architecture", 2)
+        end
+        if value.endianness ~= "little" and value.endianness ~= "big" then
+            error("system provider endianness must be little or big", 2)
+        end
+        if value.pointerBits ~= 32 and value.pointerBits ~= 64 then
+            error("system provider pointerBits must be 32 or 64", 2)
+        end
+    end
+)
 
-export const platform: string = platforms[ffi.os] or string.lower(ffi.os)
-export const architecture: string = architectures[ffi.arch] or ffi.arch
-export const endianness: string = ffi.abi("le") and "little" or "big"
-export const pointerBits: integer = ffi.abi("64bit") and 64 or 32
+--- Platform executing this ABI.
+export const platform = provider.platform
+
+--- Architecture executing this ABI.
+export const architecture = provider.architecture
+
+--- Byte order, little or big.
+export const endianness = provider.endianness
+
+--- Pointer width in bits, 32 or 64.
+export const pointerBits = provider.pointerBits
 
 --- Estimates usable parallelism, always at least one, without opening a worker pool.
-export function availableParallelism(): integer
-    return tonumber(native.C.nuppNativeV2AvailableParallelism()) as integer
-end
+export const availableParallelism = provider.availableParallelism

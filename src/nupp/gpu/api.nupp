@@ -1,0 +1,150 @@
+@!internal
+module nupp.gpu.api
+local {type Span, type WriteSpan} = require("nupp.mem.span")
+local {type Layout as TensorLayout} = require("nupp.gpu.layout")
+local gpu = {}
+
+interface gpu.Buffer<T>
+    --- Number of elements, kept with the allocation.
+    readonly count: integer
+
+    readonly dimensions: function(borrows self: gpu.Buffer<T>): {integer}
+    readonly strides: function(borrows self: gpu.Buffer<T>): {integer}
+    readonly subview: function(
+        borrows self: gpu.Buffer<T>,
+        origin: {integer},
+        shape: {integer}
+    ): gpu.Buffer<T> borrows (self)
+    readonly layout: function(borrows self: gpu.Buffer<T>): TensorLayout
+    readonly view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (self)
+end
+
+interface gpu.Kernel
+end
+
+record gpu.ArtifactSet
+    readonly spirv: string?
+    readonly wgsl: string?
+    readonly entrypoint: string
+end
+
+interface gpu.Binding
+    readonly count: integer
+
+    readonly setRead: function<T>(
+        borrows self: gpu.Binding,
+        slot: integer,
+        borrows buffer: gpu.Buffer<T>,
+        matchCount: boolean
+    ): nil
+
+    readonly setWrite: function<T>(
+        borrows self: gpu.Binding,
+        slot: integer,
+        borrows buffer: gpu.Buffer<T>,
+        matchCount: boolean
+    ): nil
+
+    readonly dispatchWords: function(borrows self: gpu.Binding, scalars: {uint32}): nil
+    readonly dispatchPacked: function(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
+end
+
+interface gpu.ContextToken
+    readonly drop: nosuspend function(takes self: ContextToken): nil
+end
+
+function gpu.destroyContext<T is gpu.ContextToken>(takes context: T): nil
+    context:drop()
+end
+
+interface gpu.Context is gpu.ContextToken
+    readonly drop: nosuspend function(takes self: gpu.Context): nil
+
+    readonly driver: function(borrows self: gpu.Context): string
+
+    --- Allocates a typed resident device buffer.
+    readonly buffer: function<T>(
+        borrows self: gpu.Context,
+        element: ctype<T>,
+        count: integer
+    ): gpu.Buffer<T> borrows (self)
+
+    readonly tensor: function<T>(
+        borrows self: gpu.Context,
+        element: ctype<T>,
+        shape: {integer}
+    ): gpu.Buffer<T> borrows (self)
+
+    readonly releaseBuffer: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+
+    readonly upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: Span<T>): nil
+
+    readonly enqueueDownload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+
+    readonly synchronize: function(borrows self: gpu.Context): nil
+
+    readonly readDownloaded: function<T>(
+        borrows self: gpu.Context,
+        borrows buffer: gpu.Buffer<T>,
+        exclusive destination: WriteSpan<T>
+    ): nil
+
+    readonly download: function<T>(
+        borrows self: gpu.Context,
+        borrows buffer: gpu.Buffer<T>,
+        exclusive destination: WriteSpan<T>
+    ): nil
+end
+
+interface gpu.KernelContext is gpu.Context
+    readonly compileGenerated: function(
+        borrows self: gpu.KernelContext,
+        artifacts: gpu.ArtifactSet,
+        readonlyBuffers: integer,
+        writableBuffers: integer,
+        uniformBytes: integer,
+        threads: integer?
+    ): gpu.Kernel borrows (self)
+
+    readonly bindKernel: function(
+        borrows self: gpu.KernelContext,
+        borrows kernel: gpu.Kernel,
+        count: integer
+    ): gpu.Binding borrows (self)
+
+    readonly releaseKernel: function(borrows self: gpu.KernelContext, borrows kernel: gpu.Kernel): nil
+
+    readonly releaseBinding: function(borrows self: gpu.KernelContext, exclusive binding: gpu.Binding): nil
+end
+
+interface gpu.Shared<T>
+    readonly count: integer
+
+    metamethod __len: function(borrows self: gpu.Shared<T>): integer
+    metamethod __index: function(borrows self: gpu.Shared<T>, index: integer): T
+    metamethod __newindex: function(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
+end
+
+interface gpu.Phases
+
+    --- Allocates fresh zero-based scratch for this workgroup.
+    readonly scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
+
+    --- Runs one stage to completion in ascending local-index order.
+    readonly run: function(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
+
+    --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
+    --- tree. The sum is left in element zero.
+    readonly reduceSumF32: function(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
+
+    --- Computes one deterministic inclusive u32 prefix sum. `temporary` is a
+    --- same-sized scratch array used for disjoint ping-pong stages; the result
+    --- is left in `values`.
+    readonly inclusiveScanU32: function(
+        borrows self: gpu.Phases,
+        exclusive values: gpu.Shared<uint32>,
+        exclusive temporary: gpu.Shared<uint32>
+    ): nil
+end
+
+export = gpu

@@ -129,6 +129,92 @@ local TEMPLATE_FILES = {
 -- want in full. One list because they have never differed and a second copy is
 -- how they would start to.
 local RESOURCES = {
+    {source = "src/re.g.nupp", output = "nupp/compiler/re.g.nupp"},
+    {source = "src/nupp/text/buffer/types.d.nupp", output = "nupp/compiler/nupp/text/buffer/types.d.nupp"},
+    {source = "src/nupp/text/buffer/init.nupp", output = "nupp/compiler/nupp/text/buffer/init.nupp"},
+    {source = "src/nupp/runtime/workersprovider.nupp", output = "nupp/compiler/nupp/runtime/workersprovider.nupp"},
+    {source = "src/nupp/runtime/wasm.nupp", output = "nupp/compiler/nupp/runtime/wasm.nupp"},
+    {source = "src/nupp/runtime/uuid.nupp", output = "nupp/compiler/nupp/runtime/uuid.nupp"},
+    {source = "src/nupp/runtime/timeprovider.nupp", output = "nupp/compiler/nupp/runtime/timeprovider.nupp"},
+    {source = "src/nupp/runtime/structvalue.nupp", output = "nupp/compiler/nupp/runtime/structvalue.nupp"},
+    {source = "src/nupp/runtime/services/workers.nupp", output = "nupp/compiler/nupp/runtime/services/workers.nupp"},
+    {source = "src/nupp/runtime/services/tls.nupp", output = "nupp/compiler/nupp/runtime/services/tls.nupp"},
+    {
+        source = "src/nupp/runtime/services/suspension.nupp",
+        output = "nupp/compiler/nupp/runtime/services/suspension.nupp"
+    },
+    {source = "src/nupp/runtime/services/process.nupp", output = "nupp/compiler/nupp/runtime/services/process.nupp"},
+    {source = "src/nupp/runtime/services/net.nupp", output = "nupp/compiler/nupp/runtime/services/net.nupp"},
+    {source = "src/nupp/runtime/services/http.nupp", output = "nupp/compiler/nupp/runtime/services/http.nupp"},
+    {source = "src/nupp/runtime/services/gpu.nupp", output = "nupp/compiler/nupp/runtime/services/gpu.nupp"},
+    {
+        source = "src/nupp/runtime/services/contracts.nupp",
+        output = "nupp/compiler/nupp/runtime/services/contracts.nupp"
+    },
+    {source = "src/nupp/runtime/services/catalog.nupp", output = "nupp/compiler/nupp/runtime/services/catalog.nupp"},
+    {
+        source = "src/nupp/runtime/services/cancellation.nupp",
+        output = "nupp/compiler/nupp/runtime/services/cancellation.nupp"
+    },
+    {source = "src/nupp/runtime/representation.nupp", output = "nupp/compiler/nupp/runtime/representation.nupp"},
+    {source = "src/nupp/runtime/provider/workers.nupp", output = "nupp/compiler/nupp/runtime/provider/workers.nupp"},
+    {
+        source = "src/nupp/runtime/provider/suspension.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/suspension.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativeuuid.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativeuuid.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativeuri.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativeuri.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativetls.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativetls.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativetime.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativetime.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativestorage.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativestorage.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativeprocess.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativeprocess.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativepath.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativepath.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativenet.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativenet.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativehttp.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativehttp.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativegpurelease.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativegpurelease.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativegpu.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativegpu.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativebuffer.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativebuffer.nupp"
+    },
+    {source = "src/nupp/runtime/int64.nupp", output = "nupp/compiler/nupp/runtime/int64.nupp"},
+    {source = "src/nupp/runtime/bitops.nupp", output = "nupp/compiler/nupp/runtime/bitops.nupp"},
+    {source = "src/nupp/gpu/api.nupp", output = "nupp/compiler/nupp/gpu/api.nupp"},
+    {source = "src/nupp/gpu/types.nupp", output = "nupp/compiler/nupp/gpu/types.nupp"},
+    {source = "src/nupp/gpu/operations.nupp", output = "nupp/compiler/nupp/gpu/operations.nupp"},
     "src/nupp/compiler/decls/*.d.nupp",
     "src/nupp/compiler/decls/jit/*.d.nupp",
     {source = "src/nupp/test.nupp", output = "nupp/compiler/nupp/test.nupp"},
@@ -171,10 +257,6 @@ local RESOURCES = {
     {source = "src/nupp/codec/json/aot.nupp", output = "nupp/compiler/nupp/codec/json/aot.nupp",},
     {source = "src/nupp/serde.nupp", output = "nupp/compiler/nupp/serde.nupp"},
     {source = "src/nupp/digest/internal/streaming.nupp", output = "nupp/compiler/nupp/digest/internal/streaming.nupp"},
-    {source = "src/nupp/runtime/backend/init.nupp", output = "nupp/compiler/nupp/runtime/backend/init.nupp",},
-    {source = "src/nupp/runtime/backend/browser.nupp", output = "nupp/compiler/nupp/runtime/backend/browser.nupp",},
-    {source = "src/nupp/runtime/backend/portable.nupp", output = "nupp/compiler/nupp/runtime/backend/portable.nupp",},
-    {source = "src/nupp/runtime/backend/wasm.nupp", output = "nupp/compiler/nupp/runtime/backend/wasm.nupp",},
     {
         source = "src/nupp/runtime/provider/tablestruct.nupp",
         output = "nupp/compiler/nupp/runtime/provider/tablestruct.nupp",
@@ -195,29 +277,37 @@ local RESOURCES = {
     {source = "src/nupp/mem/pool.nupp", output = "nupp/compiler/nupp/mem/pool.nupp"},
     {source = "src/nupp/mem/arena.nupp", output = "nupp/compiler/nupp/mem/arena.nupp"},
     {source = "src/nupp/events.nupp", output = "nupp/compiler/nupp/events.nupp"},
-    {source = "src/nupp/runtime/seam/jsonsuite.nupp", output = "nupp/compiler/nupp/runtime/seam/jsonsuite.nupp",},
-    {source = "src/nupp/runtime/seam/bitopssuite.nupp", output = "nupp/compiler/nupp/runtime/seam/bitopssuite.nupp",},
     {source = "src/nupp/text/utf8.nupp", output = "nupp/compiler/nupp/text/utf8.nupp"},
     {source = "src/nupp/codec/base64.nupp", output = "nupp/compiler/nupp/codec/base64.nupp"},
     {source = "src/nupp/runtime/native.nupp", output = "nupp/compiler/nupp/runtime/native.nupp"},
     {source = "src/nupp/digest/init.nupp", output = "nupp/compiler/nupp/digest/init.nupp"},
-    {source = "src/nupp/digest/provider.nupp", output = "nupp/compiler/nupp/digest/provider.nupp"},
+    {source = "src/nupp/runtime/services/mac.nupp", output = "nupp/compiler/nupp/runtime/services/mac.nupp"},
+    {source = "src/nupp/runtime/services/system.nupp", output = "nupp/compiler/nupp/runtime/services/system.nupp"},
+    {source = "src/nupp/runtime/provider/digest.nupp", output = "nupp/compiler/nupp/runtime/provider/digest.nupp"},
+    {source = "src/nupp/runtime/provider/checksum.nupp", output = "nupp/compiler/nupp/runtime/provider/checksum.nupp"},
+    {source = "src/nupp/runtime/provider/mac.nupp", output = "nupp/compiler/nupp/runtime/provider/mac.nupp"},
+    {
+        source = "src/nupp/runtime/provider/nativecrypto.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativecrypto.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativesystem.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativesystem.nupp"
+    },
+    {source = "src/nupp/runtime/services/digest.nupp", output = "nupp/compiler/nupp/runtime/services/digest.nupp"},
     {source = "src/nupp/digest/internal/context.nupp", output = "nupp/compiler/nupp/digest/internal/context.nupp"},
     {source = "src/nupp/digest/internal/builtin.nupp", output = "nupp/compiler/nupp/digest/internal/builtin.nupp"},
     {source = "src/nupp/digest/internal/words.nupp", output = "nupp/compiler/nupp/digest/internal/words.nupp"},
     {source = "src/nupp/digest/internal/constants.nupp", output = "nupp/compiler/nupp/digest/internal/constants.nupp"},
     {source = "src/nupp/checksum/init.nupp", output = "nupp/compiler/nupp/checksum/init.nupp"},
-    {source = "src/nupp/checksum/provider.nupp", output = "nupp/compiler/nupp/checksum/provider.nupp"},
+    {source = "src/nupp/runtime/services/checksum.nupp", output = "nupp/compiler/nupp/runtime/services/checksum.nupp"},
     {source = "src/nupp/checksum/internal/builtin.nupp", output = "nupp/compiler/nupp/checksum/internal/builtin.nupp"},
     {source = "src/nupp/mac/init.nupp", output = "nupp/compiler/nupp/mac/init.nupp"},
     {source = "src/nupp/hash.nupp", output = "nupp/compiler/nupp/hash.nupp"},
     {source = "src/nupp/uuid.nupp", output = "nupp/compiler/nupp/uuid.nupp"},
     {source = "src/nupp/codec/hex.nupp", output = "nupp/compiler/nupp/codec/hex.nupp"},
-    {source = "src/nupp/service/registry.nupp", output = "nupp/compiler/nupp/service/registry.nupp"},
     {source = "src/nupp/system.nupp", output = "nupp/compiler/nupp/system.nupp"},
     {source = "src/nupp/runtime/browser/system.nupp", output = "nupp/compiler/nupp/runtime/browser/system.nupp"},
-    {source = "src/nupp/runtime/browser/random.nupp", output = "nupp/compiler/nupp/runtime/browser/random.nupp"},
-    {source = "src/nupp/runtime/seam/systemsuite.nupp", output = "nupp/compiler/nupp/runtime/seam/systemsuite.nupp"},
     {source = "src/nupp/bitset.nupp", output = "nupp/compiler/nupp/bitset.nupp"},
     {source = "src/nupp/store.nupp", output = "nupp/compiler/nupp/store.nupp"},
     {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},
@@ -242,54 +332,8 @@ local RESOURCES = {
 -- The compiler carries the GPU runtime as source for programs that select it,
 -- but does not execute it itself. Keep an ordinary compiler build independent
 -- of WGPU; an application that reaches `nupp.gpu` still selects the provider.
-local COMPILER_NATIVE_FEATURES = {gpu = false}
--- The seam layer proper: identity, declared contracts, and the one installer
--- every contract goes through. There used to be a factory module per contract
--- beside these, restating the contract's members, its global binding name and
--- its suite; all three now come from the registry.
-local SEAM_RESOURCES = {"registry", "module"}
-for _, name in ipairs(SEAM_RESOURCES) do
-    RESOURCES[
-        #RESOURCES + 1
-    ] = {
-        source = "src/nupp/runtime/seam/" .. name .. ".nupp",
-        output = "nupp/compiler/nupp/runtime/seam/" .. name .. ".nupp",
-    }
-end
--- One conformance suite per contract, named by the contract's registry slug.
-local SEAM_SUITE_RESOURCES = {
-    "cstorage",
-    "crypto",
-    "storage",
-    "hmacsha256",
-    "http",
-    "int64",
-    "path",
-    "peg",
-    "sha256",
-    "simd",
-    "structvalue",
-    "textbuffer",
-    "gpu",
-    "suspension",
-    "time",
-    "uri",
-    "uuid",
-    "wasm",
-    "workers",
-}
-for _, name in ipairs(SEAM_SUITE_RESOURCES) do
-    RESOURCES[
-        #RESOURCES + 1
-    ] = {
-        source = "src/nupp/runtime/seam/" .. name .. "suite.nupp",
-        output = "nupp/compiler/nupp/runtime/seam/" .. name .. "suite.nupp",
-    }
-end
+local COMPILER_NATIVE_FEATURES = {gpu = false, workers = false}
 for _, resource in ipairs({
-    "src/nupp/runtime/backend/net.nupp",
-    "src/nupp/runtime/backend/process.nupp",
-    "src/nupp/runtime/backend/tls.nupp",
     "src/nupp/io/net/internal.nupp",
     "src/nupp/io/net/types.nupp",
     "src/nupp/io/process/types.nupp",
@@ -307,14 +351,11 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/uri.nupp",
     "src/nupp/io/uri/pathtext.nupp",
     "src/nupp/io/uri/provider.nupp",
-    "src/nupp/runtime/seam/contractmembers.nupp",
     "src/nupp/crypto.nupp",
     "src/nupp/io/storage.nupp",
 
-    "src/nupp/runtime/backend/contracts.nupp",
     "src/nupp/runtime/browser/init.nupp",
     "src/nupp/runtime/provider/init.nupp",
-    "src/nupp/runtime/seam/init.nupp",
     "src/nupp/compiler/init.nupp",
     "src/nupp/compiler/runtime/extensions.nupp",
     "src/nupp/compiler/runtime/math.nupp",
@@ -334,7 +375,6 @@ for _, resource in ipairs({
     "src/nupp/runtime/provider/lunajson.nupp",
     "src/nupp/runtime/provider/scalarbitops.nupp",
     "src/nupp/runtime/provider/tablebuffer.nupp",
-    "src/nupp/runtime/provider/wasmint64.nupp",
     "src/nupp/runtime/storage.nupp",
     "src/nupp/runtime/managed.g.nupp",
     "src/nupp/runtime/vendor/lunajson/decoder.lua",
@@ -402,7 +442,7 @@ return {
                 description = "Build the self-hosted compiler",
                 optimize = 2,
                 entries = {"nupp.compiler.main"},
-                backends = {"nupp.runtime.backend.lunajson"},
+
                 nativeFeatures = COMPILER_NATIVE_FEATURES,
                 resources = RESOURCES,
             },
@@ -412,8 +452,8 @@ return {
                 outDir = "build/test-runner",
                 entries = {"main"},
                 sources = {"tests/runner/main.g.nupp", "tests/runner/job.g.nupp"},
-                backends = {"nupp.runtime.backend.lunajson"},
-                nativeFeatures = {workers = true},
+
+                nativeFeatures = {workers = true, lpeg = true},
                 stub = "nupp",
                 output = "build/nupp-test",
             },
@@ -422,7 +462,7 @@ return {
                 description = "Build the self-contained stage-zero compiler",
                 outDir = "build/bootstrap-compiler",
                 entries = {"nupp.compiler.main"},
-                backends = {"nupp.runtime.backend.lunajson"},
+
                 nativeFeatures = COMPILER_NATIVE_FEATURES,
                 resources = RESOURCES,
             },
@@ -434,7 +474,7 @@ return {
                 dialect = "lua51",
                 entries = {"nupp.compiler.browser"},
                 sources = {"src/nupp/compiler/browser.nupp"},
-                backends = {"nupp.runtime.backend.browser"},
+
                 resources = PLAYGROUND_COMPILER_RESOURCES,
             },
             -- The same bundle without the image, which is what generates one:
@@ -449,7 +489,7 @@ return {
                 dialect = "lua51",
                 entries = {"nupp.compiler.browser"},
                 sources = {"src/nupp/compiler/browser.nupp"},
-                backends = {"nupp.runtime.backend.browser"},
+
                 resources = RESOURCES,
             },
             playgroundApplicationRuntime = {
@@ -460,7 +500,7 @@ return {
                 dialect = "lua51",
                 entries = {"nupp.runtime.browser.playground"},
                 sources = {"src/nupp/runtime/browser/playground.g.nupp"},
-                backends = {"nupp.runtime.backend.browser"},
+
             },
             -- Nupp stamped into a feature-matched host as one self-contained
             -- executable. It is the first payload the format ever carries, on
@@ -474,7 +514,7 @@ return {
                 -- has no rock tree, and `nupp doc` is one of the commands it
                 -- claims to have.
                 dependencies = {"lunamark_lpeg", "lunamark_cosmo", "lunamark_getopt", "lunamark", "scintillua",},
-                backends = {"nupp.runtime.backend.lunajson"},
+
                 nativeFeatures = COMPILER_NATIVE_FEATURES,
                 resources = RESOURCES,
                 stub = "nupp",
@@ -565,7 +605,7 @@ return {
         -- The compiler this tree's first stage is compiled by. It is the previous
         -- release's, fetched and verified against the digest pinned in
         -- `scripts/toolchain.pins`, which is also what `bin/nupp` starts from in a
-        -- checkout that has never been built. NEP 32 says why it is fetched rather
+        -- checkout that has never been built. NEP 28 says why it is fetched rather
         -- than committed, and what that costs: the sources below may only use a
         -- language feature the pinned release already understands.
         --

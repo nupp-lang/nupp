@@ -2,17 +2,17 @@ module nupp.digest
 
 --[[Provider-selected fixed-output message digests.
 
-`create("sha256")` selects an installed `nupp.digest/sha256` service or the
-portable built-in. Descriptor names and sizes must agree with the algorithm.
+`create("sha256")` uses the descriptor retained when this module loads. Setup
+selects a typed provider catalog before requiring this facade. Its entries override
+matching built-ins; other built-ins remain available. Descriptor names and sizes
+must agree with the algorithm. No context operation resolves services.
 `digest()` returns raw bytes, `digest(destination)` writes into an existing
 writable byte span, and `hexDigest()` returns lowercase hexadecimal. Each
 final operation consumes the digest. Dropping an unfinished digest closes its
 provider context. MD5 and SHA-1 are for legacy interoperability only.
 ]]
 
-const services = require("nupp.services")
-const provider = require("nupp.digest.provider")
-const builtin = require("nupp.digest.internal.builtin")
+const provider = require("nupp.runtime.services.digest")
 
 const contexts = require("nupp.digest.internal.context")
 
@@ -37,36 +37,55 @@ export record Algorithm
     end
 end
 
+local standard = provider.service:require("nupp.builtin")
+local function validate(selected: provider.Provider): nil
+    for name, implementation in pairs(selected.algorithms) do
+        if type(
+            name
+        ) ~= "string" or name == "" or type(
+            implementation
+        ) ~= "table" or implementation.name ~= name or type(
+            implementation.digestSize
+        ) ~= "number" or implementation.digestSize <= 0 or implementation.digestSize % 1 ~= 0 or type(
+            implementation.create
+        ) ~= "function" then
+            error("invalid digest algorithm descriptor " .. tostring(name), 2)
+        end
+        local expected = standard.algorithms[name]
+        if expected ~= nil and implementation.digestSize ~= expected.digestSize then
+            error("digest provider has the wrong digestSize for " .. name, 2)
+        end
+    end
+end
+
+local selected = provider.service:assemble(
+    function(): provider.Provider
+        return standard
+    end,
+    validate
+)
+local available: {[string]: Algorithm} = {}
+for name, implementation in pairs(standard.algorithms) do
+    available[
+        name
+    ] = new Algorithm(name = name, digestSize = implementation.digestSize, implementation = implementation)
+end
+for name, implementation in pairs(selected.algorithms) do
+    available[
+        name
+    ] = new Algorithm(name = name, digestSize = implementation.digestSize, implementation = implementation)
+end
+local names: {string} = {}
+for name in pairs(available) do
+    names[#names + 1] = name
+end
+table.sort(names)
+
 --- Looks up an algorithm without constructing mutable provider state.
 --- @param name the canonical algorithm name
 --- @return the descriptor, or nil when unavailable
---- @raises when an installed provider has an invalid descriptor
 export function lookup(name: string): Algorithm?
-    local selected = services.lookup("nupp.digest", name)
-    local implementation: provider.Algorithm? = nil
-    if selected ~= nil then
-        if type(
-            selected
-        ) ~= "table" or selected.name ~= name or type(
-            selected.digestSize
-        ) ~= "number" or selected.digestSize <= 0 or selected.digestSize % 1 ~= 0 or type(
-            selected.create
-        ) ~= "function" then
-            error("invalid digest provider " .. name, 2)
-        end
-        implementation = selected as provider.Algorithm
-    else
-        implementation = builtin.lookup(name)
-    end
-    if implementation == nil then
-        return nil
-    end
-    local standard = builtin.lookup(name)
-    if standard ~= nil and implementation.digestSize ~= standard.digestSize then
-        error("digest provider has the wrong output size for " .. name, 2)
-    end
-
-    return new Algorithm(name = name, digestSize = implementation.digestSize, implementation = implementation)
+    return available[name]
 end
 
 --- Requires an available algorithm descriptor.
@@ -93,19 +112,12 @@ end
 --- Lists canonical available names in ascending order.
 --- @return the available canonical names
 export function algorithms(): {string}
-    local names = builtin.names()
-    local seen: {[string]: boolean} = {}
-    for _, name in ipairs(names) do
-        seen[name] = true
+    local result: {string} = {}
+    for index, name in ipairs(names) do
+        result[index] = name
     end
-    for _, name in ipairs(services.list("nupp.digest")) do
-        if not seen[name] then
-            names[#names + 1] = name
-        end
-    end
-    table.sort(names)
 
-    return names
+    return result
 end
 
 --- Computes one raw digest.

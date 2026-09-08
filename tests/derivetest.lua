@@ -86,7 +86,7 @@ end
 local user: User = new User()
 local printable: nupp.Debug = user
 local encodable: nupp.codec.json.JSONEncodable = user
-local out = string.buffer.new()
+local out = require("nupp.text.buffer").new()
 local writer = nupp.codec.json.writer(out)
 encodable:writeJSON(writer)
 writer:close()
@@ -119,7 +119,7 @@ local record User
     id: integer
 end
 
-local out = string.buffer.new()
+local out = require("nupp.text.buffer").new()
 local writer = nupp.codec.json.writer(out)
 local userKey = nupp.codec.json.encodedString("user")
 local cached = nupp.codec.json.verified('{"ok":true,"items":[1,2]}')
@@ -182,7 +182,7 @@ local codec = Payload.fieldCodec()
 local checked, checkedErr = codec:decode({name = "ok", labels = {"a"}})
 local payload = new Payload(name = "x", secret = "hidden", labels = {})
 local keyed = codec:encode(payload)
-local out = string.buffer.new()
+local out = require("nupp.text.buffer").new()
 local writer = nupp.codec.json.writer(out)
 payload:writeJSON(writer)
 writer:close()
@@ -229,7 +229,7 @@ end
 local root = new Node(value = 1, next = nil)
 root.next = root
 local debugged = root:debug()
-local out = string.buffer.new()
+local out = require("nupp.text.buffer").new()
 local encoded, cycle = pcall(function(): nil
     local writer = nupp.codec.json.writer(out)
     root:writeJSON(writer)
@@ -300,7 +300,7 @@ local record Envelope
 end
 
 local envelope = new Envelope(pet = new Cat(kind = "cat", lives = 9))
-local out = string.buffer.new()
+local out = require("nupp.text.buffer").new()
 local writer = nupp.codec.json.writer(out)
 envelope:writeJSON(writer)
 writer:close()

@@ -24,11 +24,8 @@ below is written as it runs rather than as it would be typed.
 See [](nupp.peg) for the surface a program actually writes.
 ]]
 
--- The backtrack stack limit is not raised here. LPeg's default of 400 frames is too
--- small for a recursive grammar of any depth, but the limit is global to the LPeg
--- handle, and a module raises it once for whoever required it first. The bootstrap
--- raises it per program instead, which is whose decision it is.
 local lpeg = require("lpeg")
+lpeg.setmaxstack(10000)
 
 --- Normalizes a match position against a subject.
 ---

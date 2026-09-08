@@ -1,0 +1,7 @@
+module setup
+const contracts = require("nupp.runtime.services.contracts")
+contracts.int64:register("fixture", function(): contracts.Int64Provider
+    return require("portable.int64")
+end)
+contracts.int64:select("fixture")
+export = require("main")

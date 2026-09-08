@@ -154,7 +154,6 @@ portable = {
    entries = {"main"},
    dialect = "lua51",
    outDir = "build/lua51",
-   backends = {"portable.backend"},
 }
 ```
 

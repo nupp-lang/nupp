@@ -3,12 +3,6 @@ local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
-local backends = require("nupp.compiler.backends")
-local runtimeBackend = require("nupp.runtime.backend")
-local moduleSeam = require("nupp.runtime.seam.module")
-local seamRegistry = require("nupp.runtime.seam.registry")
-local contracts = require("nupp.runtime.backend.contracts")
-local contractMembers = require("nupp.runtime.seam.contractmembers")
 local standardsurface = require("nupp.compiler.standardsurface")
 local optimize = require("nupp.compiler.optimize")
 local gen = require("nupp.compiler.gen")
@@ -122,25 +116,6 @@ function M.ownershipInstallerDoesNotRecursivelyLoadItsPrelude()
     assert(not code:find("@nupp-prelude", 1, true), "the intrinsic installer does not execute a dependent prelude")
 end
 
-function M.generatedRuntimeModulesIncludeIndirectBackendProviders()
-    local provider = "providers.json|checked;100%"
-    local descriptor = {
-        module = "backend",
-        digest = "digest",
-        seams = {
-            {name = "data.json", version = 2, effect = "native.json", binding = "runtime", runtimeModule = provider,},
-        },
-    }
-    local artifact = backends.artifact({['native.json'] = true}, {
-        modules = {descriptor},
-        byEffect = {['native.json'] = "backend"}
-    })
-    local modules = gen.runtimeModules(artifact .. 'require("direct.module")')
-    assertEq(#modules, 2, "the runtime closure contains one direct module and one provider")
-    assertEq(modules[1], "direct.module", "the direct module remains in the closure")
-    assertEq(modules[2], provider, "the escaped provider round-trips from backend metadata")
-end
-
 function M.checkerRecordsTheResolvedDialect()
     local default = parser.parse("return 42\n", "default.nupp")
     check.check(default, "default.nupp", sharedEnv)
@@ -151,130 +126,7 @@ function M.checkerRecordsTheResolvedDialect()
     assertEq(portable.dialect, "lua51", "the checker records the selected dialect")
 end
 
-local function jsonResolution(backendModule)
-    return {
-        modules = {{name = "portable", module = backendModule}},
-        seams = {['data.json'] = {module = backendModule}},
-        byEffect = {['native.json'] = backendModule},
-    }
-end
-
-local function bitopsResolution(backendModule)
-    return {
-        modules = {{name = "portable", module = backendModule}},
-        seams = {
-            [
-                'numeric.bitops'
-            ] = {name = "numeric.bitops", version = 1, effect = "runtime.bitops", module = backendModule,}
-        },
-        byEffect = {['runtime.bitops'] = backendModule},
-    }
-end
-
-local function structResolution(backendModule)
-    return {
-        modules = {
-            {
-                name = "portable",
-                module = backendModule,
-                fingerprint = "checked-digest",
-                seams = {
-                    {
-                        name = "representation.structvalue",
-                        version = 1,
-                        effect = "runtime.structvalue",
-                        effects = {"runtime.structvalue"},
-                        binding = "compile",
-                        runtimeModule = "nupp.runtime.provider.tablestruct"
-                    },
-                }
-            }
-        },
-        seams = {
-            [
-                'representation.structvalue'
-            ] = {
-                name = "representation.structvalue",
-                version = 1,
-                effect = "runtime.structvalue",
-                module = backendModule
-            }
-        },
-        byEffect = {['runtime.structvalue'] = backendModule},
-    }
-end
-
-local function wasmResolution(backendModule)
-    local struct = {
-        name = "representation.structvalue",
-        version = 1,
-        effect = "runtime.structvalue",
-        effects = {"runtime.structvalue"},
-        binding = "compile",
-        runtimeModule = "nupp.runtime.provider.wasmstorage",
-    }
-    local memory = {
-        name = "representation.cstorage",
-        version = 1,
-        effect = "runtime.cstorage",
-        effects = {"runtime.cstorage"},
-        binding = "compile",
-        runtimeModule = "nupp.runtime.provider.wasmstorage",
-    }
-
-    return {
-        modules = {{name = "wasm", module = backendModule, fingerprint = "wasm-digest", seams = {struct, memory}}},
-        seams = {
-            [struct.name] = {name = struct.name, version = 1, effect = struct.effect, module = backendModule},
-            [memory.name] = {name = memory.name, version = 1, effect = memory.effect, module = backendModule},
-        },
-        byEffect = {[struct.effect] = backendModule, [memory.effect] = backendModule},
-    }
-end
-
-local function int64Resolution(backendModule)
-    return {
-        modules = {
-            {
-                name = "wide",
-                module = backendModule,
-                fingerprint = "wide-digest",
-                seams = {
-                    {
-                        name = "numeric.int64",
-                        version = 1,
-                        effect = "runtime.int64",
-                        effects = {"runtime.int64"},
-                        binding = "compile",
-                        runtimeModule = "thirdparty.int64"
-                    },
-                }
-            }
-        },
-        seams = {
-            ['numeric.int64'] = {name = "numeric.int64", version = 1, effect = "runtime.int64", module = backendModule}
-        },
-        byEffect = {['runtime.int64'] = backendModule},
-    }
-end
-
-local function dataResolution(backendModule)
-    local seams, byEffect = {}, {}
-    for _, item in ipairs({
-        -- The digests are Nupp written against bit operations, so that is the seam
-        -- they need; only the identifiers and SHA-256 have providers of their own.
-        {"numeric.bitops", "runtime.bitops"},
-        {"data.sha256", "native.sha256"},
-        {"data.uuid", "native.uuid"},
-    }) do
-        seams[item[1]] = {name = item[1], version = 1, effect = item[2], module = backendModule}
-        byEffect[item[2]] = backendModule
-    end
-
-    return {modules = {{name = "data", module = backendModule}}, seams = seams, byEffect = byEffect}
-end
-
-function M.portableWideIntegersLowerThroughOneCompleteSeam()
+function M.portableWideIntegersUseFixedOperations()
     local source = [[
 local a: int64 = 9223372036854775807LL
 local b: int64 = 2LL
@@ -287,17 +139,16 @@ return c < a, c >> 1LL, ~c
     assert(nativeCode:find("9223372036854775807LL", 1, true), "native output keeps cdata literals")
     assert(not nativeCode:find("__nuppInt64", 1, true), "native output has no adapter")
 
-    local resolution = int64Resolution("fixtures.int64_backend")
     local portableTree = parser.parse(source, "portable-int64.nupp")
     assertEq(
         #check.check(portableTree, "portable-int64.nupp", sharedEnv, {
             dialect = "lua51",
-            backendResolution = resolution
+
         }),
         0,
         "portable int64 checks"
     )
-    local code, diags = gen.generate(portableTree, "portable-int64.nupp", nil, nil, resolution)
+    local code, diags = gen.generate(portableTree, "portable-int64.nupp")
     assertEq(#diags, 0, "portable int64 lowers")
     for _, operation in ipairs({"int64", "add", "mul", "compare", "rshift", "bnot"}) do
         assert(code:find("__nuppInt64." .. operation, 1, true), "wide operation lowers through " .. operation)
@@ -305,7 +156,7 @@ return c < a, c >> 1LL, ~c
     assert(not code:find("LL", 1, true), "portable output has no LuaJIT cdata suffix")
 end
 
-function M.portableStructsUseTheCheckedRepresentationSeam()
+function M.portableStructsUseTheTargetRepresentation()
     local source = [[
 local struct Point
    x: float
@@ -318,32 +169,21 @@ return p
     assertEq(#check.check(nativeTree, "native-struct.nupp", sharedEnv), 0, "native struct checks")
     local nativeCode = gen.generate(nativeTree, "native-struct.nupp")
     assert(nativeCode:find("require(\"ffi\")", 1, true), "native output keeps direct FFI representation")
-    assert(not nativeCode:find("__nuppStructvalue", 1, true), "native output pays no seam lookup")
+    assert(not nativeCode:find("__nuppStructvalue", 1, true), "native output pays no provider access")
 
-    local resolution = structResolution("fixtures.struct_backend")
     local portableTree = parser.parse(source, "portable-struct.nupp")
     assertEq(
         #check.check(portableTree, "portable-struct.nupp", sharedEnv, {
             dialect = "lua51",
-            backendResolution = resolution
+
         }),
         0,
-        "portable struct checks with its seam"
+        "portable struct checks with its contract"
     )
-    local portableCode, diags = gen.generate(portableTree, "portable-struct.nupp", nil, nil, resolution)
+    local portableCode, diags = gen.generate(portableTree, "portable-struct.nupp")
     assertEq(#diags, 0, "portable struct lowers")
     assert(portableCode:find("__nuppStructvalue.define", 1, true), "declaration uses the checked implementation")
     assert(not portableCode:find("require(\"ffi\")", 1, true), "portable struct output carries no FFI")
-    assert(
-        portableCode:find("nupp%-backends: resolved=representation.structvalue", 1),
-        "artifact records the reached seam"
-    )
-    assert(not portableCode:find("%z"), "artifact metadata contains a printable backend digest")
-end
-
-function M.tableStructProviderPassesItsIsolatedContract()
-    local passed, why = moduleSeam.test("representation.structvalue", "nupp.runtime.provider.tablestruct")
-    assert(passed, "table struct provider passes its checked suite: " .. tostring(why))
 end
 
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
@@ -360,17 +200,16 @@ drop writable
 local readable = values:read()
 return #readable, readable[1].value
 ]]
-    local resolution = wasmResolution("fixtures.wasm_backend")
     local tree = parser.parse(source, "wasm-view.nupp")
     assertEq(
         #check.check(tree, "wasm-view.nupp", sharedEnv, {
             dialect = "lua51",
-            backendResolution = resolution,
+
         }),
         0,
-        "Wasm views check through both required seams"
+        "Wasm views check through both required contracts"
     )
-    local code, diags = gen.generate(tree, "wasm-view.nupp", nil, nil, resolution)
+    local code, diags = gen.generate(tree, "wasm-view.nupp")
     assertEq(#diags, 0, "Wasm views lower")
     assert(code:find("writable%s*:set%s*%(%s*1"), code)
     assert(code:find("readable%s*%.count"), code)
@@ -379,8 +218,6 @@ return #readable, readable[1].value
 end
 
 function M.poolIsOrdinaryTablesOnEveryDialect()
-    -- A pool stamps and clears tables and reaches no C storage, so a portable
-    -- target checks it with no seam selected at all.
     assertClean(
         table.concat(
             {
@@ -400,11 +237,7 @@ function M.poolIsOrdinaryTablesOnEveryDialect()
     )
 end
 
-function M.arenaLowersThroughTheStorageSeam()
-    -- Pages are `S[?]` arrays, so an arena needs the storage capability: a
-    -- portable target with no seam refuses the module on the line that reaches
-    -- it (and the struct beneath it), and one that selects the storage seam
-    -- answers without any `ffi`.
+function M.arenaLowersThroughTheStorageContract()
     local source = table.concat(
         {
             "local arena = require('nupp.mem.arena')",
@@ -419,30 +252,15 @@ function M.arenaLowersThroughTheStorageSeam()
         },
         "\n"
     )
-    assertEq(diagsOf(source, {dialect = "lua51"}), "NUPP3006:1 NUPP3006:2", "an arena needs C storage")
-    local resolution = wasmResolution("fixtures.wasm_backend")
     sharedEnv.loaded = {}
     local tree = parser.parse(source, "wasm-arena.nupp")
-    local diags = check.check(tree, "wasm-arena.nupp", sharedEnv, {dialect = "lua51", backendResolution = resolution,})
-    assertEq(#diags, 0, "an arena checks through the storage seam" .. (diags[1] and (": " .. diags[1].msg) or ""))
-    local code, genDiags = gen.generate(tree, "wasm-arena.nupp", nil, nil, resolution)
-    assertEq(#genDiags, 0, "an arena lowers through the storage seam")
+    local diags = check.check(tree, "wasm-arena.nupp", sharedEnv, {dialect = "lua51",})
+    assertEq(#diags, 0, "an arena checks through the storage contract" .. (diags[1] and (": " .. diags[1].msg) or ""))
+    local code, genDiags = gen.generate(tree, "wasm-arena.nupp")
+    assertEq(#genDiags, 0, "an arena lowers through the storage contract")
     assert(not code:find("require(\"ffi\")", 1, true), code)
 end
 
-function M.wasmSeamNamesItsIsolatedContractSuite()
-    assertEq(seamRegistry.get("host.wasm").suiteModule, "nupp.runtime.seam.wasmsuite")
-end
-
-function M.bundledSuspensionPassesTheReplaceableSeamContract()
-    local passed, why = moduleSeam.test("suspension", "nupp.suspension")
-    assert(passed, "the bundled suspension policy passes the public seam suite: " .. tostring(why))
-end
-
--- A module name the file computes rather than spells. The checker resolves a
--- constant argument and returned there having inferred nothing else, so
--- everything written inside the call went unchecked: an undefined name, a field
--- no value has, the argument's own type, how many arguments there were.
 function M.aComputedRequireArgumentIsChecked()
     assertEq(
         (
@@ -472,52 +290,7 @@ function M.aComputedRequireArgumentIsChecked()
     assertEq((diagsOf("return require('nupp.uuid', 'extra')")), "NUPP2007:1", "and takes one of them")
 end
 
-function M.standardSurfaceRequiresExactPortableSeams()
-    local missing = diagsOf("local json = require('nupp.codec.json')", {dialect = "lua51"})
-    assertEq(missing, "NUPP3012:1", "a reached standard facility needs its exact seam")
-    local missingMember = diagsOf("return nupp.uuid.v4()", {dialect = "lua51"})
-    assertEq(missingMember, "NUPP3012:1", "a module member needs its owning seam")
-    local selected = dataResolution("fixtures.data_backend")
-    assertClean(table.concat({"local uuid = require('nupp.uuid')", "return uuid.v4(), uuid.v7()",}, "\n"), {
-        dialect = "lua51",
-        backendResolution = selected
-    })
-    local classified = standardsurface.all()
-    for _, name in ipairs({
-        "nupp.crypto",
-        "nupp.io.storage",
-        "nupp.digest.internal.streaming",
-        "nupp.codec.json",
-        "nupp.serde",
-        "nupp.text.utf8",
-        "nupp.io.files",
-        "nupp.io.http",
-        "nupp.io.process",
-        "nupp.io.path",
-        "nupp.io.uri",
-        "nupp.random",
-        "nupp.mem",
-        "nupp.runtime.native",
-        "nupp.simd",
-        "nupp.time",
-        "nupp.mem.array",
-        "nupp.mem.pool",
-        "nupp.mem.arena",
-        "nupp.events",
-        "nupp.test",
-        "nupp.workers",
-    }) do
-        assert(classified[name], "public standard module is classified: " .. name)
-    end
-    assert(not classified["nupp.wasm"], "ordinary arrays and spans have one public family")
-    -- Serde builds its output by appending into a buffer, which is the one thing in
-    -- it a portable target cannot answer for itself. It asks for the seam that
-    -- supplies one rather than for a capability it does not otherwise need.
-    local serde = diagsOf("local serde = require('nupp.serde')", {dialect = "lua51"})
-    assertEq(serde, "NUPP3012:1", "serde asks for the buffer seam it renders through")
-end
-
-function M.randomUsesOnlyThePortableBitopsSeam()
+function M.randomUsesPortableBitops()
     assertClean(
         table.concat(
             {
@@ -527,11 +300,11 @@ function M.randomUsesOnlyThePortableBitopsSeam()
             },
             "\n"
         ),
-        {dialect = "lua51", backendResolution = bitopsResolution("fixtures.bitops_backend"),}
+        {dialect = "lua51",}
     )
 end
 
-function M.digestUsesThePortableBitopsSeam()
+function M.digestUsesPortableBitops()
     assertClean(
         table.concat(
             {
@@ -542,11 +315,11 @@ function M.digestUsesThePortableBitopsSeam()
             },
             "\n"
         ),
-        {dialect = "lua51", backendResolution = bitopsResolution("fixtures.bitops_backend"),}
+        {dialect = "lua51",}
     )
 end
 
-function M.oneShotHmacNeedsNoCryptoSeam()
+function M.oneShotHmacUsesOrdinaryCode()
     assertClean(
         table.concat(
             {
@@ -555,768 +328,8 @@ function M.oneShotHmacNeedsNoCryptoSeam()
             },
             "\n"
         ),
-        {dialect = "lua51", backendResolution = bitopsResolution("fixtures.bitops_backend"),}
+        {dialect = "lua51",}
     )
-end
-
--- SHA-256 and UUID contracts install into distinct modules independently.
-function M.mixedDataSeamsComposeOneLazyPublicModule()
-    local providerNames = {sha = "fixtures.portable_sha", uuid = "fixtures.portable_uuid",}
-    local publicName = "nupp.uuid"
-    local shaName = "nupp.digest.internal.sha256"
-    local oldLoaded, oldPreload = {}, {}
-    for _, name in pairs(providerNames) do
-        oldLoaded[name], oldPreload[name] = package.loaded[name], package.preload[name]
-        package.loaded[name] = nil
-    end
-    oldLoaded[publicName], oldPreload[publicName] = package.loaded[publicName], package.preload[publicName]
-    package.loaded[publicName] = nil
-    oldLoaded[shaName], oldPreload[shaName] = package.loaded[shaName], package.preload[shaName]
-    package.loaded[shaName] = nil
-    local oldProviders = rawget(_G, "__nuppRuntimeProviders")
-    local oldModules = rawget(_G, "__nuppRuntimeModules")
-    local oldBindings = {rawget(_G, "__nuppSha256"), rawget(_G, "__nuppUuid")}
-    _G.__nuppRuntimeProviders, _G.__nuppRuntimeModules = nil, nil
-    _G.__nuppSha256, _G.__nuppUuid = nil, nil
-
-    local values = {
-        sha = {
-            sha256 = function()
-                return "sha"
-            end
-        },
-        uuid = {
-            uuid4 = function()
-                return "four"
-            end,
-            uuid7 = function()
-                return "seven"
-            end
-        },
-    }
-    for key, name in pairs(providerNames) do
-        local provider = values[key]
-        package.preload[name] = function()
-            return provider
-        end
-    end
-
-    local ok, problem = pcall(function()
-        runtimeBackend.install({
-            name = "fixtures.mixed_data_backend",
-            seams = {["data.sha256"] = providerNames.sha, ["data.uuid"] = providerNames.uuid,},
-        })
-        for _, name in pairs(providerNames) do
-            assertEq(package.loaded[name], nil, "installing the mixed module remains lazy")
-        end
-        local data = require(publicName)
-        assertEq(
-            require(shaName).sha256,
-            values.sha.sha256,
-            "the internal one-shot accelerator is independently projected"
-        )
-        assertEq(data.v4, values.uuid.uuid4, "UUID is a direct provider function")
-        assertEq(data.v7, values.uuid.uuid7, "one provider may supply several members")
-        assertEq(data.sha256, nil, "the UUID module exposes no digests")
-    end)
-
-    for _, name in pairs(providerNames) do
-        package.loaded[name], package.preload[name] = oldLoaded[name], oldPreload[name]
-    end
-    package.loaded[publicName], package.preload[publicName] = oldLoaded[publicName], oldPreload[publicName]
-    package.loaded[shaName], package.preload[shaName] = oldLoaded[shaName], oldPreload[shaName]
-    _G.__nuppRuntimeProviders, _G.__nuppRuntimeModules = oldProviders, oldModules
-    _G.__nuppSha256, _G.__nuppUuid = unpack(oldBindings)
-    assert(ok, problem)
-end
-
--- An implementation seam, where the declared interface at the public name stays
--- the contract and only what answers the require changes.
-function M.runtimeStandardSeamsReplaceExactPublicModulesLazily()
-    local providerName, publicName = "fixtures.portable_buffer", "string.buffer"
-    local oldProvider, oldProviderPreload = package.loaded[providerName], package.preload[providerName]
-    local oldPublic, oldPublicPreload = package.loaded[publicName], package.preload[publicName]
-    local oldRegistry, oldBinding = rawget(_G, "__nuppRuntimeProviders"), rawget(_G, "__nuppTextBuffer")
-    package.loaded[providerName], package.loaded[publicName] = nil, nil
-    _G.__nuppRuntimeProviders, _G.__nuppTextBuffer = nil, nil
-    local replacement = {
-        new = function()
-            return {}
-        end
-    }
-    package.preload[providerName] = function()
-        return replacement
-    end
-
-    local ok, problem = pcall(function()
-        moduleSeam.install("text.buffer", providerName)
-        assertEq(package.loaded[providerName], nil, "installing a runtime seam remains lazy")
-        assertEq(require(publicName), replacement, "the exact public module resolves to the selected adapter")
-        assertEq(package.loaded[providerName], replacement, "only reaching the public module loads its provider")
-    end)
-
-    package.loaded[providerName], package.preload[providerName] = oldProvider, oldProviderPreload
-    package.loaded[publicName], package.preload[publicName] = oldPublic, oldPublicPreload
-    _G.__nuppRuntimeProviders, _G.__nuppTextBuffer = oldRegistry, oldBinding
-    assert(ok, problem)
-end
-
-function M.bitopsCapabilityIsNativeOrRequiresItsClosedSeam()
-    assertClean("local a: integer\nlocal b: integer\nreturn (~a) & (b << 2)")
-    local missing, diags = diagsOf("local a: integer\nlocal b: integer\nreturn (~a) & (b << 2)", {dialect = "lua51"})
-    assertEq(
-        missing,
-        "NUPP3006:3 NUPP3006:3 NUPP3006:3",
-        "each portable construct without a seam is diagnosed where it is written"
-    )
-    assert(
-        diags[1].msg:find("`lua51` dialect has no `bitops` capability", 1, true),
-        "the diagnostic names the dialect and closed capability"
-    )
-    assert(
-        diags[1].help:find("numeric.bitops contract 1", 1, true),
-        "the diagnostic names the seam contract that can satisfy it"
-    )
-    assertClean("local a: integer\nlocal b: integer\nreturn (~a) & (b << 2)", {
-        dialect = "lua51",
-        backendResolution = bitopsResolution("fixtures.bitops_backend")
-    })
-end
-
-function M.portableBitopsLowerThroughTheSelectedSeamOnly()
-    local source = [[
-local function combine(a: integer, b: integer): integer
-   local value = (~a) & (b | (a << 2))
-   value &= b
-   value |= a
-   value ~= b
-   value <<= 2
-   value >>= 1
-   value ~>>= 1
-   return value
-end
-return combine
-]]
-    local native = parser.parse(source, "native-bitops.nupp")
-    assertEq(#native.errors, 0, "native bitops source parses")
-    assertEq(#check.check(native, "native-bitops.nupp", sharedEnv), 0, "native bitops source checks")
-    local ordinary = gen.generate(native, "native-bitops.nupp")
-    local selectedNative = gen.generate(
-        native,
-        "native-bitops.nupp",
-        nil,
-        nil,
-        bitopsResolution("fixtures.bitops_backend")
-    )
-    assertEq(selectedNative, ordinary, "selecting a portable provider changes no byte of native LuaJIT output")
-    assert(
-        ordinary:find("~", 1, true) and ordinary:find("<<", 1, true),
-        "the native dialect keeps direct LuaJIT operators"
-    )
-    assert(not ordinary:find("__nuppBitops", 1, true), "the native dialect has no runtime compatibility lookup")
-
-    local portable = parser.parse(source, "portable-bitops.nupp")
-    local resolution = bitopsResolution("fixtures.bitops_backend")
-    assertEq(
-        #check.check(portable, "portable-bitops.nupp", sharedEnv, {
-            dialect = "lua51",
-            backendResolution = resolution,
-        }),
-        0,
-        "the selected seam satisfies portable checking"
-    )
-    local lowered, loweringDiags = gen.generate(portable, "portable-bitops.nupp", nil, nil, resolution)
-    assertEq(#loweringDiags, 0, "portable bitops lower cleanly")
-    assert(lowered:find('__nuppBitops.bnot(', 1, true), "unary complement calls the seam")
-    assert(lowered:find('__nuppBitops.band(', 1, true), "and calls the seam")
-    assert(lowered:find('__nuppBitops.bor(', 1, true), "or calls the seam")
-    assert(lowered:find('__nuppBitops.lshift(', 1, true), "shift calls the seam")
-    assert(lowered:find('=__nuppBitops.bxor(', 1, true), "compound bit assignments lower through the same seam")
-    assert(lowered:find('=__nuppBitops.arshift(', 1, true), "compound arithmetic shifts lower through the same seam")
-    assert(
-        lowered:find('fixtures.bitops_backend', 1, true),
-        "a reached portable operation installs its selected backend"
-    )
-    assert(
-        not lowered:find(" << ", 1, true) and not lowered:find(" & ", 1, true),
-        "portable output contains no LuaJIT-only bit operator syntax"
-    )
-end
-
-function M.runtimeBitopsSeamIsLazyAndHasAnIsolatedSuite()
-    local selected = "fixtures.conforming_bitops"
-    local oldProvider, oldPreload = package.loaded[selected], package.preload[selected]
-    local oldBinding = rawget(_G, "__nuppBitops")
-    -- Every contract records its selection in the one provider table now; bit
-    -- operations used to keep a `__nuppBitopsProvider` global of their own,
-    -- because they installed through a factory that predated the shared one.
-    local oldSelection = rawget(_G, "__nuppRuntimeProviders")
-    local oldSuite = package.loaded[seamRegistry.get("numeric.bitops").suiteModule]
-    package.loaded[selected] = nil
-    package.loaded[seamRegistry.get("numeric.bitops").suiteModule] = nil
-    _G.__nuppBitops = nil
-    _G.__nuppRuntimeProviders = nil
-    package.preload[selected] = function()
-        return bit
-    end
-
-    local ok, problem = pcall(function()
-        local contract = seamRegistry.get("numeric.bitops")
-        assertEq(contract.name, "numeric.bitops", "the seam has its canonical name")
-        assertEq(contract.version, 1, "the bit operation contract is versioned")
-        moduleSeam.install("numeric.bitops", selected)
-        assertEq(package.loaded[selected], nil, "installation does not load the provider")
-        assertEq(
-            package.loaded[seamRegistry.get("numeric.bitops").suiteModule],
-            nil,
-            "installation does not load behavioral test vectors"
-        )
-        assertEq(_G.__nuppBitops.band(0xf0, 0x3c), 0x30, "the first operation lazily reaches the selected provider")
-        local passed, why = moduleSeam.test("numeric.bitops", selected)
-        assert(passed, "the BitOp-compatible module passes its isolated suite: " .. tostring(why))
-        assert(
-            package.loaded[seamRegistry.get("numeric.bitops").suiteModule] ~= nil,
-            "only the explicit test call loads the suite"
-        )
-    end)
-
-    package.loaded[selected] = oldProvider
-    package.preload[selected] = oldPreload
-    package.loaded[seamRegistry.get("numeric.bitops").suiteModule] = oldSuite
-    _G.__nuppBitops = oldBinding
-    _G.__nuppRuntimeProviders = oldSelection
-    assert(ok, problem)
-end
-
-function M.physicalStorageRejectsIncompatibleCompanionProviders()
-    local function resolve(structs, wide)
-        local seams = {["representation.cstorage"] = "nupp.runtime.provider.wasmstorage"}
-        if structs then
-            seams["representation.structvalue"] = structs
-        end
-        if wide then
-            seams["numeric.int64"] = wide
-        end
-        local descriptor = assert(backends.describe("physical", seams, "physical"))
-
-        return backends.resolve(
-            {
-                modulePath = function()
-                    return 'physical.nupp'
-                end,
-                checkFile = function()
-                    return {backend = descriptor}
-                end,
-            },
-            {'physical'}
-        )
-    end
-
-    for _, structs in ipairs({false, 'nupp.runtime.provider.tablestruct'}) do
-        local selected, problem = resolve(structs)
-        assert(not selected and problem:find('same physical provider', 1, true))
-    end
-    for _, wide in ipairs({false, 'nupp.runtime.provider.tableint64'}) do
-        local selected, problem = resolve('nupp.runtime.provider.wasmstorage', wide)
-        assert(not selected and problem:find('exact numeric.int64 provider', 1, true))
-    end
-    assert(resolve('nupp.runtime.provider.wasmstorage', 'nupp.runtime.provider.wasmint64'))
-end
-
-function M.backendDescriptorsAreStaticCheckedMetadata()
-    local parsed = parser.parse(
-        [[
-module portablebackend
-
-error("descriptor extraction executed the backend")
-export = {
-   name = "portable",
-   seams = {["data.json"] = "portable_json"},
-}
-]],
-        "portablebackend.nupp"
-    )
-    assertEq(#parsed.errors, 0, "backend descriptor source parses")
-    sharedEnv.loaded = {}
-    local descriptorDiags = check.check(parsed, "portablebackend.nupp", sharedEnv)
-    assertEq(#descriptorDiags, 0, "backend descriptor source checks")
-    local descriptor, problem = backends.inspect(parsed.root, "portablebackend")
-    assert(descriptor, problem)
-    assertEq(descriptor.name, "portable", "the constant backend name is recorded")
-    assertEq(descriptor.module, "portablebackend", "the selected module identity is recorded")
-    assertEq(descriptor.seams[1].name, "data.json", "the seam identity is recorded")
-    assertEq(descriptor.seams[1].version, 2, "the contract version is recorded")
-    assertEq(descriptor.seams[1].runtimeModule, "portable_json", "the exact runtime dependency is static metadata")
-
-    local second = assert(backends.inspect(parsed.root, "otherbackend"))
-    local selectedByPath = {portablebackend = descriptor, otherbackend = second,}
-    local resolved, conflict = backends.resolve(
-        {
-            modulePath = function(name)
-                return name .. ".nupp"
-            end,
-            checkFile = function(path)
-                return {backend = selectedByPath[path:match("^(.*)%.nupp$")]}
-            end,
-        },
-        {"portablebackend", "otherbackend"}
-    )
-    assert(
-        not resolved and tostring(conflict):find("backend seam conflict for data.json", 1, true),
-        "two selected backends cannot silently compete: " .. tostring(conflict)
-    )
-
-    local dynamic = parser.parse(
-        [[
-module dynamicbackend
-local chosen = "portable_json"
-export = {name = "portable", seams = {["data.json"] = chosen}}
-]],
-        "dynamicbackend.nupp"
-    )
-    sharedEnv.loaded = {}
-    check.check(dynamic, "dynamicbackend.nupp", sharedEnv)
-    local missing, dynamicProblem = backends.inspect(dynamic.root, "dynamicbackend")
-    assert(
-        not missing and tostring(dynamicProblem):find("constant string", 1, true),
-        "a descriptor cannot depend on executing a binding: " .. tostring(dynamicProblem)
-    )
-
-    local unknown = parser.parse(
-        [[
-module unknownbackend
-export = {name = "portable", seams = {["data.nosuchthing"] = "portable_json"}}
-]],
-        "unknownbackend.nupp"
-    )
-    sharedEnv.loaded = {}
-    check.check(unknown, "unknownbackend.nupp", sharedEnv)
-    local rejected, unknownProblem = backends.inspect(unknown.root, "unknownbackend")
-    assert(
-        not rejected and tostring(unknownProblem):find("unknown seam", 1, true),
-        "a declaration cannot name a contract the compiler does not carry: " .. tostring(unknownProblem)
-    )
-
-    -- An ordinary module that exports a table is not a malformed backend.
-    local ordinary = parser.parse([[
-module ordinarymodule
-export = {greeting = "hello"}
-]], "ordinarymodule.nupp")
-    sharedEnv.loaded = {}
-    check.check(ordinary, "ordinarymodule.nupp", sharedEnv)
-    local none, noProblem = backends.inspect(ordinary.root, "ordinarymodule")
-    assert(not none and not noProblem, "a table export without backend fields is not a backend")
-end
-
-function M.seamRegistryOwnsEveryRuntimeModuleSubstitution()
-    local wholeModules = {
-        ["compute.gpu"] = "nupp.gpu",
-        ["host.http"] = "nupp.io.http",
-        ["host.time"] = "nupp.time",
-        ["host.workers"] = "nupp.workers",
-        ["host.uri"] = "nupp.io.uri.provider",
-        ["suspension"] = "nupp.suspension",
-    }
-    for seamName, moduleName in pairs(wholeModules) do
-        local contract = seamRegistry.get(seamName)
-        assertEq(contract.modules[moduleName], "", seamName .. " replaces its whole public module in the registry")
-        assertEq(
-            contract.implementationModules,
-            nil,
-            seamName .. " does not preserve a different compiler-owned interface"
-        )
-    end
-
-    local implementations = {["data.json"] = "nupp.codec.json.provider", ["text.buffer"] = "string.buffer",}
-    for seamName, moduleName in pairs(implementations) do
-        local contract = seamRegistry.get(seamName)
-        assertEq(
-            contract.implementationModules[moduleName],
-            true,
-            seamName .. " implements its compiler-owned public interface"
-        )
-        assertEq(contract.modules, nil, seamName .. " does not substitute the interface used for checking")
-    end
-
-    -- The accelerator. It replaces a working implementation rather than supplying a
-    -- missing one, so it claims no module: a program reaching
-    -- `nupp.digest.internal.streaming` without selecting a backend is answered, not
-    -- refused.
-    local accelerator = seamRegistry.get("crypto.hmac_sha256")
-    assertEq(accelerator.modules, nil, "crypto.hmac_sha256 substitutes no module")
-    assertEq(
-        accelerator.implementationModules,
-        nil,
-        "crypto.hmac_sha256 implements no module, because its module stands alone"
-    )
-end
-
--- Every contract states its members once: as a declared interface where its
--- surface is one a loaded table can be checked against, and as a registry list
--- for the three whose real contract is affine.
-function M.everyContractResolvesItsMembersFromOneStatement()
-    local declared = 0
-    for _, contract in ipairs(seamRegistry.all()) do
-        assert(
-            #contract.requiredFunctions + #contract.requiredValues > 0,
-            contract.name .. " requires at least one member"
-        )
-        assertEq(
-            contract.suiteModule,
-            "nupp.runtime.seam." .. contract.slug .. "suite",
-            contract.name .. " names its suite by its slug"
-        )
-        if contractMembers[contract.name] then
-            declared = declared + 1
-            assertEq(contract.members, nil, contract.name .. " has an interface, so it spells out no second list")
-        end
-    end
-    assert(declared > 0, "contracts are declared as interfaces")
-end
-
-function M.nativeGpuProviderPassesItsDeviceFreeSeamContract()
-    local passed, problem = moduleSeam.test("compute.gpu", "nupp.gpu")
-    assert(passed, "the native GPU provider passes compute.gpu contract 1: " .. tostring(problem))
-end
-
-function M.runtimeJsonProviderIsOptInLazyAndChecked()
-    local selected = "fixtures.portable_json"
-    local backendModule = "fixtures.portable_backend"
-    local resolution = jsonResolution(backendModule)
-    local bootstrap = backends.bootstrap({["native.json"] = true}, resolution)
-    assertEq(
-        bootstrap,
-        ('require("nupp.runtime.backend").install(require(%q));'):format(backendModule),
-        "generated output contains composition only, not adapter source"
-    )
-    assertEq(
-        backends.bootstrap({["native.json"] = true}, nil),
-        "",
-        "the default native path emits no backend bootstrap"
-    )
-    assertEq(backends.bootstrap({}, resolution), "", "an unreachable seam emits no backend bootstrap")
-
-    local oldRegistry = rawget(_G, "__nuppRuntimeProviders")
-    local oldProviderModule = package.loaded[JSON_PROVIDER]
-    local oldProviderModulePreload = package.preload[JSON_PROVIDER]
-    local oldProvider = package.loaded[selected]
-    local oldProviderPreload = package.preload[selected]
-    local oldBackend = package.loaded[backendModule]
-    local oldBackendPreload = package.preload[backendModule]
-    local oldSuite = package.loaded[seamRegistry.get("data.json").suiteModule]
-    -- `data.json` binds a global like every other contract now, and install
-    -- refuses to replace one that is already there.
-    local oldJsonBinding = rawget(_G, "__nuppJson")
-    _G.__nuppRuntimeProviders, _G.__nuppJson = nil, nil
-    package.loaded[JSON_PROVIDER] = nil
-    package.preload[JSON_PROVIDER] = nil
-    package.loaded[selected] = nil
-    package.loaded[backendModule] = nil
-    package.loaded[seamRegistry.get("data.json").suiteModule] = nil
-    local sentinel = {}
-    package.preload[selected] = function()
-        local function same(value)
-            return value
-        end
-
-        return {
-            NULL = sentinel,
-            EMPTY_ARRAY = {},
-            EMPTY_OBJECT = {},
-            arrayOf = same,
-            asArray = same,
-            asObject = same,
-            isArray = function()
-                return false
-            end,
-            decode = same,
-            encode = same,
-            encoded = same,
-            encodedString = same,
-            pull = same,
-            serialize = same,
-            verified = same,
-            verifiedString = same,
-            writer = same,
-        }
-    end
-    package.preload[backendModule] = function()
-        return {name = backendModule, seams = {["data.json"] = selected}}
-    end
-
-    local ok, problem = pcall(function()
-        assert(loadstring(bootstrap))()
-        assertEq(package.loaded[selected], nil, "installing the adapter is lazy")
-        local json = require(JSON_PROVIDER)
-        assertEq(package.loaded[selected], json, "the boundary loads exactly the selected module")
-        assertEq(json.NULL, sentinel, "the compatible provider is returned unchanged")
-        assertEq(
-            package.loaded[seamRegistry.get("data.json").suiteModule],
-            nil,
-            "installing and using a seam does not load its conformance suite"
-        )
-    end)
-
-    _G.__nuppRuntimeProviders, _G.__nuppJson = oldRegistry, oldJsonBinding
-    package.loaded[JSON_PROVIDER] = oldProviderModule
-    package.preload[JSON_PROVIDER] = oldProviderModulePreload
-    package.loaded[selected] = oldProvider
-    package.preload[selected] = oldProviderPreload
-    package.loaded[backendModule] = oldBackend
-    package.preload[backendModule] = oldBackendPreload
-    package.loaded[seamRegistry.get("data.json").suiteModule] = oldSuite
-    assert(ok, problem)
-end
-
-function M.runtimeJsonSeamExposesItsOwnConformanceSuite()
-    local conforming = "fixtures.conforming_json_backend"
-    local broken = "fixtures.broken_json_backend"
-    local oldConforming = package.loaded[conforming]
-    local oldConformingPreload = package.preload[conforming]
-    local oldBroken = package.loaded[broken]
-    local oldBrokenPreload = package.preload[broken]
-    local nativeJson = require(JSON_PROVIDER)
-    package.loaded[conforming] = nil
-    package.loaded[broken] = nil
-    package.preload[conforming] = function()
-        return nativeJson
-    end
-    package.preload[broken] = function()
-        local adapter = {}
-        for name, value in pairs(nativeJson) do
-            adapter[name] = value
-        end
-        adapter.encode = function()
-            return 42
-        end
-
-        return adapter
-    end
-
-    local ok, problem = pcall(function()
-        local selected = {name = "conforming", seams = {["data.json"] = conforming}}
-        assertEq(seamRegistry.get("data.json").version, 2, "the JSON contract is versioned")
-        -- A declaration keys its selection by contract name, so naming one seam
-        -- twice is not a state the type admits; what it can get wrong is naming
-        -- none, or naming a contract that does not exist.
-        local nonempty, emptyProblem = pcall(runtimeBackend.selections, {name = "empty", seams = {}})
-        assert(
-            not nonempty and tostring(emptyProblem):find("at least one seam", 1, true),
-            "a backend must select at least one seam"
-        )
-        local known, unknownProblem = pcall(runtimeBackend.selections, {
-            name = "unknown",
-            seams = {["data.nosuchthing"] = conforming},
-        })
-        assert(
-            not known and tostring(unknownProblem):find("unknown seam", 1, true),
-            "a backend cannot select a contract the runtime does not carry"
-        )
-        local passed, why = runtimeBackend.test(selected)
-        assert(passed, "the native adapter passes the same public suite: " .. tostring(why))
-
-        local rejected, rejection = runtimeBackend.test({name = "broken", seams = {["data.json"] = broken}})
-        assert(not rejected, "behavior, not just member names, is checked")
-        assert(
-            tostring(rejection):find("data.json contract 2", 1, true),
-            "a failure identifies the seam contract: " .. tostring(rejection)
-        )
-    end)
-
-    package.loaded[conforming] = oldConforming
-    package.preload[conforming] = oldConformingPreload
-    package.loaded[broken] = oldBroken
-    package.preload[broken] = oldBrokenPreload
-    assert(ok, problem)
-end
-
--- The `data.json` shape is written twice: once in `nupp.codec.json.provider`,
--- which is the surface a consumer resolves `nupp.codec.json` through, and once
--- in `nupp.runtime.backend.contracts`, which is what a provider is checked
--- against. The second cannot name the first without the bundled declaration
--- for the first resolving to `unknown`, so they are held together here
--- instead: whatever the seam requires, the binding answers.
-function M.dataJsonBindingAnswersItsContract()
-    local required = contractMembers["data.json"]
-    assert(required, "the data.json contract is declared")
-    assert(#required.functions > 0, "the contract derives its function members")
-    local binding = require(JSON_PROVIDER)
-    assertEq(
-        moduleSeam.validate("data.json", binding),
-        nil,
-        "the native binding answers every member the seam requires"
-    )
-    for _, name in ipairs(required.functions) do
-        assertEq(type(binding[name]), "function", "binding member " .. name)
-    end
-    for _, name in ipairs(required.values) do
-        assert(binding[name] ~= nil, "binding member " .. name .. " is present")
-    end
-end
-
-function M.lunajsonAdapterPassesThePublicJsonContract()
-    local passed, problem = moduleSeam.test("data.json", "nupp.runtime.provider.lunajson")
-    assert(passed, "the pinned pure-Lua adapter passes data.json contract 2: " .. tostring(problem))
-end
-
-function M.scalarBitopsProviderPassesThePublicContract()
-    local passed, problem = moduleSeam.test("numeric.bitops", "nupp.runtime.provider.scalarbitops")
-    assert(passed, "the scalar provider passes numeric.bitops contract 1: " .. tostring(problem))
-end
-
-function M.tableBufferProviderPassesThePublicContract()
-    local passed, problem = moduleSeam.test("text.buffer", "nupp.runtime.provider.tablebuffer")
-    assert(passed, "the table provider passes text.buffer contract 1: " .. tostring(problem))
-end
-
--- The same suite against LuaJIT's own buffer. The provider is a stand-in for that
--- module, so a contract it passes and `string.buffer` fails would be a contract
--- describing the stand-in rather than the thing.
-function M.luajitBufferPassesThePublicContract()
-    local passed, problem = moduleSeam.test("text.buffer", "string.buffer")
-    assert(passed, "string.buffer passes text.buffer contract 1: " .. tostring(problem))
-end
-
--- The browser backend's suspension seam, which is the shape that matters here: a
--- seam naming a whole public module its provider stands in for.
-local function suspensionResolution()
-    local seam = {
-        name = "suspension",
-        version = 1,
-        effect = "runtime.suspension",
-        binding = "runtime",
-        modules = {["nupp.suspension"] = ""},
-        runtimeModule = "fixtures.substituted_suspension",
-        module = "nupp.runtime.backend.browser",
-    }
-
-    return {
-        modules = {{name = "nupp.browser", module = "nupp.runtime.backend.browser", seams = {seam}}},
-        seams = {suspension = seam},
-        byEffect = {["runtime.suspension"] = "nupp.runtime.backend.browser"},
-    }
-end
-
--- Naming a provider's record as a type and constructing one went through different
--- resolutions, and only the first followed the seam. The two nominals printed the
--- same, so the report was that a Handler is not a Handler.
---
--- Its own environment, because the substitution is a property of the environment a
--- module is loaded through rather than of one check's options.
-function M.aRecordASubstitutedProviderDeclaresIsOneNominalWhereverItIsNamed()
-    local resolution = suspensionResolution()
-    local env = envMod.new(HERE, {backendResolution = resolution})
-    local source = table.concat(
-        {
-            "local suspension = require('nupp.suspension')",
-            "local handler = new suspension.Handler(",
-            "    park = function(_: suspension.Handler, operation: string): nil end,",
-            "    canPark = function(_: suspension.Handler): boolean return true end",
-            ")",
-            "local named: suspension.Handler = handler",
-            "return named.canPark(named)",
-        },
-        "\n"
-    )
-    local result = parser.parse(source, "substituted.g.nupp")
-    assertEq(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "substituted.g.nupp", env, {dialect = "lua51", backendResolution = resolution,})
-    assertEq(
-        diags[1] and diags[1].msg or "",
-        "",
-        "constructing and naming the provider's record must reach one declaration"
-    )
-end
-
-function M.lua51ProtectedCallsInheritTheInstalledSuspensionHandler()
-    local resolution = suspensionResolution()
-    resolution.seams.suspension.runtimeModule = "nupp.runtime.browser.suspension"
-    local env = envMod.new(HERE, {backendResolution = resolution})
-    local source = table.concat(
-        {
-            "local suspension = require('nupp.suspension')",
-            "local handler = new suspension.Handler(",
-            "    park = function(_: suspension.Handler, _: suspension.Waiting, cancel: function(): nil): nil cancel() end,",
-            "    canPark = function(_: suspension.Handler): boolean return true end,",
-            "    shutdown = function(_: suspension.Handler): nil end",
-            ")",
-            "handle suspension with handler do",
-            "    coroutine.yield()",
-            "end",
-        },
-        "\n"
-    )
-    local result = parser.parse(source, "lua51-cleanup-suspension.nupp")
-    assertEq(#result.errors, 0, "syntax errors in suspension cleanup fixture")
-    local diags = check.check(result, "lua51-cleanup-suspension.nupp", env, {
-        dialect = "lua51",
-        backendResolution = resolution,
-    })
-    assertEq(diags[1] and diags[1].msg or "", "", "the handled cleanup fixture checks")
-    local code, generated = gen.generate(result, "lua51-cleanup-suspension.nupp", nil, nil, resolution)
-    assertEq(generated[1] and generated[1].msg or "", "", "the handled cleanup fixture generates")
-    local suspensionBinding = code:match('local ([%w_]+) = require%("nupp%.suspension"%)')
-    assert(
-        code:find('rawget(provider,"create")', 1, true),
-        "the portable protected-call wrapper inherits the installed handler:\n" .. code
-    )
-    assert(
-        suspensionBinding and code:find(suspensionBinding .. ".create(body)", 1, true),
-        "the cleanup wrapper creates its coroutine through the suspension provider:\n" .. code
-    )
-end
-
-function M.selectedProviderRecordsWinOverIndexedNativeDeclarations()
-    local nativeEnv = envMod.new(HERE)
-    local nativeHandler = nativeEnv.resolveModuleExports(nativeEnv, "nupp.suspension").types.Handler
-    local env = envMod.new(HERE, {backendResolution = suspensionResolution()})
-    local providerHandler = env.resolveModuleExports(env, "nupp.suspension").types.Handler
-    assert(nativeHandler ~= providerHandler, "the fixture needs distinct provider identities")
-    local index = env.ensureProjectIndex(env)
-    env.projectEntries = function(_, name)
-        if name == "Handler" then
-            return {{moduleName = "nupp.suspension", visibility = "module", kind = "record", type = nativeHandler}}
-        end
-        return index.byName[name] or {}
-    end
-    local constructed = envMod.exportedNominal(env, "nupp.suspension", "Handler")
-    assertEq(constructed, providerHandler, "construction must select the same provider as the type path")
-    env.projectEntries = function(_, name)
-        if name == "Handler" then
-            return {
-                {
-                    moduleName = "fixtures.substituted_suspension",
-                    visibility = "module",
-                    kind = "record",
-                    type = nativeHandler
-                }
-            }
-        end
-
-        return index.byName[name] or {}
-    end
-    constructed = envMod.exportedNominal(env, "nupp.suspension", "Handler")
-    assertEq(constructed, providerHandler, "a staged declaration must preserve the already loaded provider identity")
-    env.loaded["nupp.suspension"] = {exports = {types = {Handler = nativeHandler}}}
-    local named = env.resolveModuleExports(env, "nupp.suspension").types.Handler
-    assertEq(named, providerHandler, "a cached public alias must not override its selected provider")
-end
-
-function M.browserProvidersPassTheirPublicContracts()
-    local cases = {
-        {"suspension", "nupp.runtime.browser.suspension"},
-        {"host.uri", "nupp.runtime.browser.uri"},
-        {"host.http", "nupp.runtime.browser.http"},
-        {"host.crypto", "nupp.runtime.browser.random"},
-        {"host.system", "nupp.runtime.browser.system"},
-        {"host.storage", "nupp.runtime.browser.storage"},
-        {"host.time", "nupp.runtime.browser.time"},
-        {"host.workers", "nupp.runtime.browser.workers"},
-    }
-    for _, case in ipairs(cases) do
-        local passed, problem = moduleSeam.test(case[1], case[2])
-        assert(passed, case[1] .. " browser provider fails its contract: " .. tostring(problem))
-    end
 end
 
 function M.browserHttpProviderHasAPortableDependencyClosure()
@@ -1327,18 +340,15 @@ function M.browserHttpProviderHasAPortableDependencyClosure()
     local result = parser.parse(source, path)
     assertEq(#result.errors, 0, "syntax errors in browser HTTP provider")
     local root = HERE .. "/.."
-    local inc = require("nupp.compiler.incremental").new(root)
-    local resolution, problem = backends.resolve(inc, {"nupp.runtime.backend.browser"})
-    assert(resolution, problem)
-    local env = envMod.new(root, {backendResolution = resolution})
-    local diags = check.check(result, path, env, {dialect = "lua51", backendResolution = resolution})
+    local env = envMod.new(root)
+    local diags = check.check(result, path, env, {dialect = "lua51"})
     assertEq(diags[1] and diags[1].msg or "", "", "the browser HTTP provider must not reach a native implementation")
 end
 
 function M.browserHttpRejectsUnsupportedClientPolicy()
-    local browser = require("nupp.runtime.browser.http")
+    local browser = require("providerstate").browserHttp()
     for _, options in ipairs({{userAgent = "nupp-test"}, {connectTimeoutMs = 10}}) do
-        local ok, problem = pcall(browser.Client.__nuppCtor1, options)
+        local ok, problem = pcall(browser.client, options)
         assert(
             not ok and tostring(problem):find("does not support option", 1, true),
             "unsupported shared options must fail explicitly: " .. tostring(problem)
@@ -1347,14 +357,11 @@ function M.browserHttpRejectsUnsupportedClientPolicy()
 end
 
 function M.browserHttpTransfersItsBodyToTheReturnedResponse()
-    local browser = require("nupp.runtime.browser.http")
     local effects = require("nupp.runtime.browser.effects")
     local ffi = require("ffi")
     local prior = effects.request
-    local providerName = "nupp.runtime.provider.wasmstorage"
-    local priorProvider = package.loaded[providerName]
     local leases, nextLease = {}, 0
-    package.loaded[providerName] = {
+    local memory = {
         lease = function(pointer, count, writable)
             nextLease = nextLease + 1
             leases[nextLease] = {pointer = pointer, count = count, writable = writable}
@@ -1364,6 +371,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
             leases[id] = nil
         end,
     }
+    local browser = require("providerstate").browserHttp(memory)
     effects.request = function(_, effect, resume)
         if effect.operation == "read-body" then
             local lease = assert(leases[effect.lease])
@@ -1381,7 +389,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         end
     end
     local ok, problem = pcall(function()
-        local client = browser.Client.__nuppCtor1()
+        local client = browser.client()
         local closedUpload = false
         local input = "upload"
         local source = {
@@ -1395,8 +403,11 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
             end
         }
         local request = setmetatable(
-            {url = assert(require("nupp.io.uri").newURI("https://example.com/")), body = browser.reader(source, 6),},
-            browser.Request
+            {
+                url = assert(require("nupp.io.uri").newURI("https://example.com/")),
+                body = require("nupp.io.http").reader(source, 6),
+            },
+            require("nupp.io.http.messages").Request
         )
         local response, reason = client:send(request)
         assert(response, reason)
@@ -1414,91 +425,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         assert(next(leases) == nil, "completed transfers release both leases")
     end)
     effects.request = prior
-    package.loaded[providerName] = priorProvider
     assert(ok, problem)
-end
-
-function M.missingRuntimeJsonProviderNamesTheDependency()
-    local selected = "fixtures.provider_that_is_missing"
-    local backendModule = "fixtures.missing_provider_backend"
-    local oldRegistry = rawget(_G, "__nuppRuntimeProviders")
-    local oldProviderModule = package.loaded[JSON_PROVIDER]
-    local oldProviderModulePreload = package.preload[JSON_PROVIDER]
-    local oldProvider = package.loaded[selected]
-    local oldProviderPreload = package.preload[selected]
-    local oldBackend = package.loaded[backendModule]
-    local oldBackendPreload = package.preload[backendModule]
-    -- `data.json` binds a global like every other contract now, and install
-    -- refuses to replace one that is already there.
-    local oldJsonBinding = rawget(_G, "__nuppJson")
-    _G.__nuppRuntimeProviders, _G.__nuppJson = nil, nil
-    package.loaded[JSON_PROVIDER] = nil
-    package.preload[JSON_PROVIDER] = nil
-    package.loaded[selected] = nil
-    package.preload[selected] = nil
-    package.loaded[backendModule] = nil
-    package.preload[backendModule] = function()
-        return {name = backendModule, seams = {["data.json"] = selected}}
-    end
-
-    local installed, installProblem = pcall(
-        assert(loadstring(backends.bootstrap({["native.json"] = true}, jsonResolution(backendModule))))
-    )
-    local ok, problem = pcall(function()
-        local json = require(JSON_PROVIDER)
-        return json.NULL
-    end)
-
-    _G.__nuppRuntimeProviders, _G.__nuppJson = oldRegistry, oldJsonBinding
-    package.loaded[JSON_PROVIDER] = oldProviderModule
-    package.preload[JSON_PROVIDER] = oldProviderModulePreload
-    package.loaded[selected] = oldProvider
-    package.preload[selected] = oldProviderPreload
-    package.loaded[backendModule] = oldBackend
-    package.preload[backendModule] = oldBackendPreload
-    assert(installed, installProblem)
-    assert(
-        not ok and tostring(problem):find(selected, 1, true),
-        "the runtime error names the absent provider: " .. tostring(problem)
-    )
-    assert(
-        tostring(problem):find("data.json", 1, true),
-        "the runtime error names the standard contract: " .. tostring(problem)
-    )
-end
-
-function M.selectedRuntimeProviderSuppressesOnlyItsNativeFeature()
-    local effects = {['native.json'] = true, ['native.sha256'] = true}
-    backends.withoutNative(effects, jsonResolution("fixtures.portable_backend"))
-    assert(not effects['native.json'], "the selected JSON adapter replaces native JSON")
-    assert(effects['native.sha256'], "unrelated native features remain selected")
-end
-
-function M.generatedBackendSelectionDoesNotTouchDefaultOutput()
-    local source = "return nupp.codec.json.encode({answer = 42})"
-    local result = parser.parse(source, "runtime-provider.g.nupp")
-    assertEq(#result.errors, 0, "provider source parses")
-    check.check(result, "runtime-provider.g.nupp", sharedEnv)
-    local ordinary, ordinaryDiags = gen.generate(result, "runtime-provider.g.nupp")
-    local explicitNil, nilDiags = gen.generate(result, "runtime-provider.g.nupp", nil, nil, nil)
-    local portable, portableDiags = gen.generate(
-        result,
-        "runtime-provider.g.nupp",
-        nil,
-        nil,
-        jsonResolution("fixtures.portable_backend")
-    )
-    assertEq(#ordinaryDiags, 0, "ordinary source generates")
-    assertEq(#nilDiags, 0, "explicit native selection generates")
-    assertEq(#portableDiags, 0, "portable selection generates")
-    assertEq(explicitNil, ordinary, "an absent provider is byte-identical")
-    assert(not ordinary:find("__nuppRuntimeProviders", 1, true), "native output contains no compatibility registry")
-    assert(portable:find("fixtures.portable_backend", 1, true), "portable output names the selected backend")
-    local installAt = assert(
-        portable:find('require("nupp.runtime.backend").install(require("fixtures.portable_backend"))', 1, true)
-    )
-    local jsonAt = assert(portable:find('require("nupp.codec.json")', 1, true))
-    assert(installAt < jsonAt, "the selected backend is installed before a projected standard module loads")
 end
 
 function M.stringLibrary()
@@ -1545,8 +472,6 @@ function M.mathRandomOverloadsMatchLuaJitArities()
     assertEq(pcall(math.random, nil, 2), false, "the rejected nil hole also fails in LuaJIT")
 end
 
--- min and max are one homogeneous bounded type in, the same type out, so
--- comparing integers gives an integer rather than widening to number.
 function M.mathMinMaxKeepIntegers()
     assertClean(
         table.concat(
@@ -1560,14 +485,10 @@ function M.mathMinMaxKeepIntegers()
         )
     )
     assertClean("local w: number = math.min(1.5, 2)")
-    -- a float argument leaves the result non-integral
     assertEq((diagsOf("local bad: integer = math.min(1.5, 2.5)")), "NUPP2001:1")
-    -- the `N is number` bound is what refuses a non-number
     assertEq((diagsOf("math.min('nope', 1)")), "NUPP2116:1")
 end
 
--- A declared vararg element type is checked at every argument past the
--- last named parameter, and an untyped `...` still accepts anything.
 function M.typedVarargElements()
     assertClean(
         table.concat({"local function sum(...: integer): integer", "    return 0", "end", "sum(1, 2, 3)",}, "\n")
@@ -1596,11 +517,6 @@ function M.coreFunctions()
     assertClean("local t = setmetatable({}, {__index = {}})")
 end
 
--- A compiler-provided runtime is staged from the compiler's own build unless the
--- feature says the module compiles for a target the compiler did not build itself
--- for. A `luajit` artifact in a `lua51` payload does not parse, so a feature that
--- neither says it is portable nor is refused on that target is a payload waiting
--- to fail at load. This holds the whole table to that rule.
 function M.everyFeatureRuntimeIsPortableOrRefused()
     local surface = require("nupp.compiler.standardsurface")
     local portable = {opts = {dialect = "lua51"}}
@@ -1621,8 +537,21 @@ function M.everyFeatureRuntimeIsPortableOrRefused()
     end
 end
 
--- The other half: a feature that claims portability has to mean it. A module
--- `standardsurface` refuses on `lua51` cannot also be one this compiles for it.
+function M.reachableStandardFacilitiesHaveRuntimeMetadata()
+    local surface = require("nupp.compiler.standardsurface")
+    local portable = {opts = {dialect = "lua51"}}
+    for moduleName, facility in pairs(surface.all()) do
+        if facility.effect and surface.reachable(portable, moduleName) then
+            local feature = native.feature(facility.effect)
+            assert(feature, moduleName .. " has no runtime metadata for " .. facility.effect)
+            assert(
+                feature.runtimeModule == nil or feature.portableRuntime,
+                moduleName .. " cannot be packaged for Lua 5.1"
+            )
+        end
+    end
+end
+
 function M.portableFeatureRuntimesAreReachable()
     local surface = require("nupp.compiler.standardsurface")
     local portable = {opts = {dialect = "lua51"}}
@@ -1664,29 +593,18 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(test["runtime.test"], "require('nupp.test') carries the assertion module")
 
     local process = effectsOf("local process = require('nupp.io.process')")
-    assert(process["native.process"], "the public process module selects its provider")
-    local expanded = native.expand(process)
-    assert(expanded["runtime.suspension"], "the process provider brings its waiting runtime")
-
+    assert(process["runtime.process"], "the process module records its facade dependency")
+    assert(not process["native.process"], "provider choice follows target catalog resolution")
     local workers = effectsOf("local workers = require('nupp.workers')")
-    assert(workers["native.workers"], "the public workers module selects its host provider")
-    local workerEffects = native.expand(workers)
-    assert(workerEffects["runtime.suspension"], "workers bring their waiting runtime")
-
+    assert(workers["runtime.workers"], "the workers module records its facade dependency")
     local http = effectsOf("local http = require('nupp.io.http')")
-    assert(http["native.http"], "the public HTTP module selects its provider")
-    expanded = native.expand(http)
-    assert(expanded["runtime.suspension"], "HTTP brings its waiting runtime")
-    assert(expanded["native.uri"], "HTTP brings the URI provider")
-    assert(expanded["stdlib.io"], "HTTP brings buffers and stream contracts")
+    assert(http["runtime.http"], "the HTTP module records its facade dependency")
 
     local shadowed = effectsOf(
-        table.concat({"local nupp = {data = {sha256 = function() end}}", "nupp.data.sha256()",}, "\n")
+        table.concat({"local nupp = {digest = {hexDigest = function() end}}", "nupp.digest.hexDigest()",}, "\n")
     )
     assert(not shadowed["native.sha256"], "a local nupp is not the global facility")
 
-    -- Same shadow, one segment deeper: the qualified-path shortcut used to trust the
-    -- path text alone and ignore the shadow entirely.
     local shadowedIO = effectsOf(
         table.concat({"local nupp = {io = {path = {separator = function() end}}}", "nupp.io.path.separator()",}, "\n")
     )
@@ -1704,10 +622,10 @@ function M.nativeFeaturesAreResolvedEffects()
         ["nupp.io.newBuffer('hello')"] = "stdlib.io",
         ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
         ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
-        ["nupp.io.path.separator()"] = "native.path",
-        ["nupp.io.uri.newURI('https://example.com')"] = "native.uri",
-        ["nupp.uuid.v7()"] = "native.uuid",
-        ["nupp.system.availableParallelism()"] = "native.system",
+        ["nupp.io.path.separator()"] = "runtime.path",
+        ["nupp.io.uri.newURI('https://example.com')"] = "runtime.uri",
+        ["nupp.uuid.v7()"] = "runtime.uuid",
+        ["nupp.system.availableParallelism()"] = "runtime.system",
     }
     for source, effect in pairs(expected) do
         local found = effectsOf(source)
@@ -1738,8 +656,8 @@ function M.nativeFeaturesAreResolvedEffects()
     local aliased = effectsOf(
         table.concat({"const system = require('nupp.system')", "system.availableParallelism()",}, "\n")
     )
-    assert(aliased["native.system"], "requiring a facility records its feature")
-    assert(not aliased["native.uuid"], "separate facilities do not share effects")
+    assert(aliased["runtime.system"], "requiring a facility records its feature")
+    assert(not aliased["runtime.uuid"], "separate facilities do not share effects")
 
     local namespaceOnly = effectsOf("local store = nupp.store")
     assert(next(namespaceOnly) == nil, "reaching a namespace alone has no effect")
@@ -1867,11 +785,11 @@ function M.optimizedDeadCodeDropsItsNativeFeatures()
     )
     local result = parser.parse(source, "dead-native-feature")
     check.check(result, "dead-native-feature", sharedEnv)
-    assert(result.effects["native.system"] and result.effects["native.uuid"], "checking sees both source-level uses")
+    assert(result.effects["runtime.system"] and result.effects["runtime.uuid"], "checking sees both source-level uses")
     optimize.run(result, {level = 1})
     local live = optimize.liveEffects(result)
-    assert(not live["native.system"], "a folded-away branch loses its provider")
-    assert(live["native.uuid"], "the selected branch retains its provider")
+    assert(not live["runtime.system"], "a folded-away branch loses its provider")
+    assert(live["runtime.uuid"], "the selected branch retains its provider")
 end
 
 function M.generatedBootstrapFollowsWhatCodegenEmits()
@@ -1883,7 +801,7 @@ function M.generatedBootstrapFollowsWhatCodegenEmits()
     assertEq(#result.errors, 0, "generated-runtime-features source parses")
     check.check(result, "generated-runtime-features", sharedEnv)
     assert(
-        result.effects["native.system"] and result.effects["native.uuid"],
+        result.effects["runtime.system"] and result.effects["runtime.uuid"],
         "checking retains the complete source-level feature inventory"
     )
     optimize.run(result, {level = 1})
@@ -1891,15 +809,13 @@ function M.generatedBootstrapFollowsWhatCodegenEmits()
     local code, diagnostics, _, emitted = gen.generate(result, "generated-runtime-features")
     assertEq(#diagnostics, 0, "the optimized feature fragment generates")
     assert(
-        not emitted["native.system"] and emitted["native.uuid"],
+        not emitted["runtime.system"] and emitted["runtime.uuid"],
         "generation reports only features whose consumers it wrote"
     )
     assert(not code:find("availableParallelism", 1, true), "the dead system branch loses its member access")
     assert(code:find("v4", 1, true), "the live UUID branch keeps its member access")
 end
 
--- What the bootstrap still installs, which is the maths and nothing else: buffers,
--- hashes and the rest are modules a program requires.
 function M.compilerProvidedPureLibraries()
     local bootstrap = stdlib.bootstrap({["stdlib.math"] = true,})
     local previous = rawget(_G, "nupp")
@@ -1949,8 +865,6 @@ function M.compilerProvidedPureLibraries()
     assert(ok, problem)
 end
 
--- Bitset is the data module's nominal record. Plain-Lua tests call the constructor
--- implementation that checked `new data.Bitset(...)` lowers to.
 function M.bitsetsReachTheCheckedModule()
     local chunk = assert(
         loadstring(
@@ -2022,12 +936,9 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     assertEq((diagsOf("local n: number = nupp.io.files.read('x')")), "NUPP2001:1")
     assertClean("local paths: {string} = assert(nupp.io.files.glob('src/**/*.nupp'))")
     assertEq((diagsOf("nupp.io.files.info(42)")), "NUPP2006:1")
-    -- An owner nobody binds has nowhere to be cleaned up from.
     assertEq((diagsOf("nupp.io.files.open('x')")), "NUPP2605:1")
     assertEq((diagsOf("nupp.io.files.createTemporaryFile()")), "NUPP2605:1")
 
-    -- `open` and the temporaries answer owning results, so a binding the program drops
-    -- is dropped where it goes out of scope rather than leaking.
     local source = table.concat(
         {"local file = nupp.io.files.open('input.txt') as nupp.io.files.File", "print(file)",},
         "\n"
@@ -2037,9 +948,6 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     sharedEnv.loaded = {}
     check.check(parsed, "owned.g.nupp", sharedEnv)
     local code = gen.generate(parsed, "owned")
-    -- The terminal belongs to the module that hands the owner out, so scope exit
-    -- reaches it through the cleanup registry under that module's key rather than
-    -- calling a method the prelude used to publish.
     assert(
         code:find("nupp.io.files#destroyOwner", 1, true),
         "an open file is dropped at the end of its scope, through its module's terminal"
@@ -2077,7 +985,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
                 "const io = require('nupp.io')",
                 "const uri = require('nupp.io.uri')",
                 "const process = require('nupp.io.process')",
-                "do local client = new http.Client() end",
+                "do local client = http.client() end",
                 "do",
                 "    local request = new http.Request(",
                 "        url = assert(uri.newURI('https://example.com')),",
@@ -2187,9 +1095,6 @@ function M.bufferAppendsInAmortizedConstantTime()
     assert(ok, problem)
 end
 
--- UTF-8 is Nupp throughout now, so what used to be proved about the rock is
--- proved about its absence: requiring the module opens no native module at all,
--- and the answers are the same ones the rock gave.
 function M.theUtf8ModuleNeedsNoNativeModule()
     local loadedRock = package.loaded["lua-utf8"]
     local loadedModule = package.loaded["nupp.text.utf8"]
@@ -2211,8 +1116,6 @@ function M.theUtf8ModuleNeedsNoNativeModule()
     assert(ok, problem)
 end
 
--- JSON is a module rather than a lazily installed field, so loading the public
--- module also loads its package-private provider binding.
 function M.theJsonModuleLoadsItsNuppProviderOnRequire()
     local loadedProvider = package.loaded[JSON_PROVIDER]
     local loadedModule = package.loaded["nupp.codec.json"]
@@ -2220,7 +1123,7 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
     package.loaded["nupp.codec.json"] = nil
     local ok, problem = pcall(function()
         local json = require("nupp.codec.json")
-        assert(package.loaded[JSON_PROVIDER] ~= nil, "requiring the module loaded the provider seam")
+        assert(package.loaded[JSON_PROVIDER] ~= nil, "requiring the module loaded the provider contract")
         assert(json.encode({answer = 42}):find('"answer":42', 1, true))
         assert(json.encode(json.EMPTY_ARRAY) == "[]")
         assert(json.encode(json.EMPTY_OBJECT) == "{}")
@@ -2273,8 +1176,6 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
     assert(ok, problem)
 end
 
--- Encoding is Nupp throughout. Pin every boundary between sequence lengths,
--- both ends of the surrogate block, and the first value that is not a codepoint.
 function M.utf8EncodingCoversEveryBoundary()
     local utf8 = require("nupp.text.utf8")
     local boundaries = {
@@ -2306,8 +1207,6 @@ function M.utf8EncodingCoversEveryBoundary()
     end
 end
 
--- Every shape a lead byte alone cannot rule out, and the well-formed ones
--- around each boundary.
 local UTF8_SHAPES = {
     {"A", true},
     {"caf\xc3\xa9", true, "a two-byte scalar"},
@@ -2335,13 +1234,6 @@ local UTF8_SHAPES = {
     {"\xff", false, "a byte UTF-8 never uses"},
 }
 
--- The encoder checks UTF-8 as it escapes rather than in a pass of its own, so the
--- check is the encoder's own code instead of a call into a rock.
---
--- The AOT codec by name rather than through `nupp.codec.json`, because refusing
--- these bytes is this provider's behaviour: a selected runtime backend brings its
--- own encoder and answers to the seam's contract instead. Encoding is all that is
--- asked of it here; decoding is the SIMD parser, which needs a compiled entry.
 function M.jsonEncodingRefusesEveryMalformedUtf8Shape()
     local json = require("nupp.codec.json.aot")
     for _, case in ipairs(UTF8_SHAPES) do
@@ -2359,9 +1251,6 @@ function M.jsonEncodingRefusesEveryMalformedUtf8Shape()
     end
 end
 
--- `validPrefixLength` is checked for being maximal rather than merely valid --
--- the property that keeps a fixed-width field from splitting a scalar without
--- also throwing away a whole one.
 function M.utf8ValidationCoversEveryShape()
     local utf8 = require("nupp.text.utf8")
     for _, case in ipairs(UTF8_SHAPES) do
@@ -2386,10 +1275,6 @@ function M.utf8ValidationCoversEveryShape()
     end
 end
 
--- Nothing native is a lazily installed field on an ambient table any more. A facility
--- is a module, so what used to be proved about the lazy loader is proved about the
--- require: naming the feature stages its provider, and nothing opens it until the
--- module is loaded.
 function M.nativeProvidersOpenOnlyWhenTheirModuleLoads()
     local bootstrap = stdlib.bootstrap({["native.path"] = true})
     assert(not bootstrap:find("__nuppIO", 1, true), "the bootstrap no longer reserves an io namespace")
@@ -2403,13 +1288,6 @@ function M.nativeProvidersOpenOnlyWhenTheirModuleLoads()
     package.loaded["nupp.io.pathimpl"] = loadedPath
 end
 
--- Two facilities still reach C through the bootstrap's shared loader, and each carries
--- only the declarations it calls. Everything else declares its own ABI in the module
--- that calls it, and the bootstrap carries nothing for it at all.
--- No native ABI reaches the bootstrap at all. Every facility declares the symbols it
--- calls in the module that calls them, so a program's prologue is the same whichever
--- native feature it selected -- which is also what makes the declarations trimmed
--- rather than assembled: nothing has to decide what to leave out.
 function M.theBootstrapCarriesNoNativeAbi()
     local abi = {
         "nuppUuid4",
@@ -2639,8 +1517,6 @@ function M.stringBufferModule()
     )
 end
 
--- A declaration file names the types its own API is written in, so code that
--- passes those values around has to be able to name them too.
 function M.stringBufferTypeIsNameable()
     assertClean(
         table.concat(
@@ -2672,8 +1548,6 @@ function M.stringBufferTypeIsNameable()
     )
 end
 
--- Every method the module actually exposes, so a gap in the declarations
--- shows up here rather than as a spurious NUPP2004 in someone's code.
 function M.stringBufferCoversTheWholeApi()
     assertClean(
         table.concat(
@@ -2725,8 +1599,6 @@ function M.stringBufferBorrowBlocksInvalidation()
     )
 end
 
--- Pointer/length pairs are rooted by the buffer, then made bounds-carrying before
--- indexing. Ending the pointer scope before commit/skip proves invalidation is safe.
 function M.stringBufferPointersBecomeCheckedSpans()
     assertClean(
         table.concat(
@@ -2848,7 +1720,7 @@ end
 ]]
     )
     assert(
-        diagnostics:find("NUPP2209", 1, true),
+        diagnostics:find("NUPP2004", 1, true),
         "generated GPU hooks must be inaccessible to application source: " .. diagnostics
     )
     diagnostics = diagsOf(
@@ -2870,13 +1742,25 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
         {"nupp.io.http", "Response", "_packed"},
         {"nupp.io.http", "Client", "_native"},
         {"nupp.io.http", "Client", "_retainSource"},
+        {"nupp.gpu", "Buffer<uint32>", "_handle"},
+        {"nupp.gpu", "Shared<uint32>", "_values"},
+        {"nupp.gpu", "Phases", "_size"},
+        {"nupp.workers", "Scope", "_scheduler"},
+        {"nupp.workers", "Scope", "_cancelAll"},
     }) do
         local diagnostics = diagsOf(
             (
                 'const api = require(%q)\nlocal function expose(borrows value: api.%s): nil\nlocal hidden = value.%s\nend\n'
             ):format(example[1], example[2], example[3])
         )
-        assert(diagnostics:find("NUPP2209", 1, true), table.concat(example, ".") .. " must be private: " .. diagnostics)
+        assert(
+            diagnostics:find(
+                "NUPP2209",
+                1,
+                true
+            ) or diagnostics:find("NUPP2004", 1, true) or diagnostics:find("NUPP2006", 1, true),
+            table.concat(example, ".") .. " must be inaccessible: " .. diagnostics
+        )
     end
 end
 

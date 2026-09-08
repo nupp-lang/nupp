@@ -42,7 +42,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     local bindingType = typeName("GpuBinding", program)
     local lines: {string} = {}
     local recordDeclaration = artifact.exportTypes and "export record " or "local record "
-    local runtimeModule = browser and "nupp.runtime.browser.webgpu" or "nupp.gpu"
+    local runtimeModule = "nupp.gpu"
 
     append(lines, "local " .. runtime .. " = require(\"" .. runtimeModule .. "\")")
     append(lines, "local " .. implementation .. " = require(\"" .. runtimeModule .. ".internal\")")

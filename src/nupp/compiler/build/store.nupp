@@ -20,7 +20,12 @@ does not match discards the file. Recomputing is always available and always
 correct, so every failure here has the same answer.
 ]]
 
-local buffer = require("string.buffer")
+local loaded, nativeBuffer = pcall(require, "string.buffer")
+local function unavailable(): never
+    error("binary cache serialization is unavailable on this host")
+end
+
+local buffer = loaded and nativeBuffer or {encode = unavailable, decode = unavailable}
 local fs = require("nupp.compiler.fs")
 
 local store = {}

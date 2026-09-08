@@ -1,0 +1,63 @@
+module nupp.runtime.services.tls
+
+local services = require("nupp.services")
+
+local comptime function shape(info: nupp.reflect.Info): any
+    local result = {}
+    for _, field in ipairs(info.fields) do
+        local kinds = {}
+        if field.type ~= nil then
+            local node = info.types[field.type]
+            local arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    kinds[#kinds + 1] = info.types[arm].kind
+                end
+            else
+                kinds[1] = node.kind
+            end
+        end
+        result[#result + 1] = {name = field.name, kinds = kinds}
+    end
+
+    return result
+end
+
+export interface Provider
+    readonly wrap: function(
+        self: Provider,
+        handle: any,
+        server: boolean,
+        hostname: string,
+        certificate: string,
+        privateKey: string,
+        authority: string?,
+        protocols: string,
+        verify: boolean
+    ): (any?, string?)
+
+    readonly handshake: function(self: Provider, session: any): (boolean?, string?)
+
+    readonly verified: function(self: Provider, session: any): boolean
+
+    readonly resumed: (function(self: Provider, session: any): boolean)?
+
+    readonly read: function(self: Provider, session: any, wanted: integer): (string?, string?)
+
+    readonly write: function(self: Provider, session: any, bytes: string): (integer?, string?)
+
+    readonly flushed: function(self: Provider, session: any): (boolean, string?)
+
+    readonly closeNotify: function(self: Provider, session: any): (boolean, string?)
+
+    readonly destroy: function(self: Provider, session: any): nil
+
+    readonly connected: function(self: Provider, session: any): boolean
+
+    readonly protocol: function(self: Provider, session: any): string?
+
+end
+
+export const service: services.Service<Provider> = services.define("host.tls", 1, nil, comptime do
+    return shape(nupp.reflect(Provider))
+end)

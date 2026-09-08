@@ -9,7 +9,7 @@ return {
                 output = "dist/app.lua",
                 outDir = "build/app",
                 dialect = "lua51",
-                backends = {"nupp.runtime.backend.browser"},
+
                 aot = "require-wasm",
             },
         },

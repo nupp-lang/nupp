@@ -14,11 +14,8 @@ require their own native capabilities.
 
 const buffer = {}
 
---- An appended-to byte sequence, with the pieces still separate.
----
---- Not exported, and it does not have to be: what a program names is the declared
---- `string.buffer.Buffer`, because a `text.buffer` provider implements a module the
---- compiler declares rather than being one. Nothing outside here writes this type.
+local {type Buffer as SharedBuffer} = require("nupp.text.buffer.types")
+
 local record Buffer
     private pieces: {string}
     private count: integer
@@ -84,6 +81,24 @@ local record Buffer
         end
 
         return table.concat(chunks)
+    end
+
+    function putf(self, fmt: string, ...: any): Buffer
+        return self:put(string.format(fmt, ...))
+    end
+
+    function skip(self, count: integer): Buffer
+        self:take(count)
+        return self
+    end
+
+    function set(self, bytes: string): Buffer
+        self:reset()
+        return self:put(bytes)
+    end
+
+    function free(self): Buffer
+        return self:reset()
     end
 
     function reset(self): Buffer
@@ -182,6 +197,13 @@ if #lengthProbe ~= 1 then
         state:reset()
         return self
     end
+    for _, name in ipairs({"putf", "skip", "set", "free"}) do
+        proxyMetatable[name] = function(self: any, ...: any): any
+            local state: any = assert(proxyStates[self])
+            state[name](state, ...)
+            return self
+        end
+    end
     proxyMetatable.__len = function(self: any): integer
         const state: Buffer = assert(proxyStates[self])
         return (Buffer as any).__len(state) as integer
@@ -199,7 +221,7 @@ end
 --- @param size ignored, or the options table when it is the only argument
 --- @param options ignored
 --- @return the new buffer
-function buffer.new(size: (integer | table)?, options: table?): Buffer
+function buffer.new(size: (integer | table)?, options: table?): SharedBuffer
     const state = new Buffer(pieces = {}, count = 0, head = 1, firstByte = 1, bytes = 0)
     if proxyPrototype ~= nil then
         const proxy = proxyFactory(proxyPrototype) as userdata
@@ -207,7 +229,7 @@ function buffer.new(size: (integer | table)?, options: table?): Buffer
         return proxy as any
     end
 
-    return state
+    return state as any
 end
 
 export = buffer

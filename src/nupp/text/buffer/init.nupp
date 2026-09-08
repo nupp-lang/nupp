@@ -1,0 +1,11 @@
+module nupp.text.buffer
+
+local {type Buffer as SharedBuffer} = require("nupp.text.buffer.types")
+export type Buffer = SharedBuffer
+local contracts = require("nupp.runtime.services.contracts")
+local provider = contracts.buffer:assemble(function(): contracts.TextBufferProvider
+    return contracts.buffer:lookup("nupp.native") or contracts.buffer:require("nupp.portable")
+end)
+
+--- Creates an empty FIFO byte buffer.
+export const new = provider.new

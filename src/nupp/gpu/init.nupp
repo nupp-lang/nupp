@@ -1,7 +1,7 @@
 module nupp.gpu
 
 --[[
-Resident compute buffers over WGPU's safe Rust implementation.
+Resident compute buffers over the selected GPU provider.
 
 The context owns every buffer and compiled kernel created from it. Buffers and
 kernels borrow that context, so checked code cannot close the device while one
@@ -36,26 +36,48 @@ applied with `gpu.view(buffer, layout)` without allocating. Transfers remain den
 layout-aware kernels consume the explicit metadata.
 ]]
 
-local implementation = require("nupp.gpu.internal")
+local api = require("nupp.gpu.api")
+local implementation = require("nupp.gpu.types")
+local service = require("nupp.runtime.services.gpu").service
+local provider = service:assemble(function()
+    return service:lookup("nupp.native") or service:require("nupp.browser")
+end)
+local operations = require("nupp.gpu.operations")
 local tensorlayout = require("nupp.gpu.layout")
 
 export type Layout = tensorlayout.Layout
 export const Layout = tensorlayout.Layout
-export type Buffer<T> = implementation.Buffer<T>
-export const Buffer = implementation.Buffer
-export type Shared<T> = implementation.Shared<T>
-export const Shared = implementation.Shared
-export type Phases = implementation.Phases
-export const Phases = implementation.Phases
-export type ContextToken = implementation.ContextToken
-export type Context = implementation.Context
-export const Context = implementation.Context
+export type Buffer<T> = api.Buffer<T>
+export type Shared<T> = api.Shared<T>
+export type Phases = api.Phases
+export type ContextToken = api.ContextToken
+export type Context = api.Context
 export const PORTABLE_WORKGROUP_THREADS = implementation.PORTABLE_WORKGROUP_THREADS
 export const PORTABLE_SCRATCH_BYTES = implementation.PORTABLE_SCRATCH_BYTES
 export const destroyContext = implementation.destroyContext
-export const workgroups = implementation.workgroups
-export const open = implementation.open
-export const bufferIsDense = implementation.bufferIsDense
-export const bufferIsInjective = implementation.bufferIsInjective
-export const bufferLayout = implementation.bufferLayout
-export const view = implementation.view
+export const workgroups: function(
+    groups: uint32,
+    size: uint32,
+    scoped controller: function(uint32, api.Phases): nil
+): nil = operations.workgroups
+
+--- Opens a compute device through the selected provider.
+export function open(): affine(api.Context, api.destroyContext)
+    return provider.open()
+end
+
+export function bufferLayout<T>(borrows buffer: api.Buffer<T>): tensorlayout.Layout
+    return buffer:layout()
+end
+
+export function bufferIsDense<T>(borrows buffer: api.Buffer<T>): boolean
+    return tensorlayout.isDense(buffer:layout())
+end
+
+export function bufferIsInjective<T>(borrows buffer: api.Buffer<T>): boolean
+    return tensorlayout.isInjective(buffer:layout())
+end
+
+export function view<T>(borrows buffer: api.Buffer<T>, layout: tensorlayout.Layout): api.Buffer<T> borrows (buffer)
+    return buffer:view(layout)
+end
