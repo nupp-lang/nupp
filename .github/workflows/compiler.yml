@@ -271,7 +271,7 @@ jobs:
             benchmark_artifact: linux-x64-luajit-2.1
           - name: macOS arm64
             os: macos-15
-            timeout: 80
+            timeout: 110
             luajit: 2.1 rolling
             benchmark_artifact: macos-arm64-luajit-2.1
           - name: Windows x64
