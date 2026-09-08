@@ -1734,13 +1734,12 @@ local function runSuite(suiteInfo, slices)
     }
 end
 
--- A process lane now claims several suites from the dynamic queue. Restore the
--- shallow module and runtime-registration tables between them so a suite that
--- deliberately clears package.loaded cannot poison whichever suite it claims
--- next. Nupp lanes deliberately retain their warm compiler state; suites that
--- mutate these process-shaped tables are classified above instead.
+-- Process lanes restore shallow module tables and global bindings between queue
+-- pieces. Lua module() namespaces must be restored with package.loaded so a
+-- freshly loaded submodule cannot collide with an earlier exported function.
+-- Nupp lanes retain their warm compiler state; suites that mutate process-shaped
+-- tables run in the process-isolated phase.
 local laneBaseline = nil
-local missingGlobal = {}
 if queueDir and not embedded then
     local function copyTable(value)
         local copied = {}
@@ -1751,17 +1750,7 @@ if queueDir and not embedded then
         return copied
     end
 
-    local globals = {}
-    for _, key in ipairs({
-        "nupp",
-        "__nuppCleanupRegistry",
-        "__nuppManagedBrand",
-        "__nuppManagedCells",
-        "__nuppManagedPolicyCount"
-    }) do
-        globals[key] = _G[key] == nil and missingGlobal or _G[key]
-    end
-    laneBaseline = {globals = globals, loaded = copyTable(package.loaded), preload = copyTable(package.preload)}
+    laneBaseline = {globals = copyTable(_G), loaded = copyTable(package.loaded), preload = copyTable(package.preload)}
 end
 
 restoreLane = function()
@@ -1786,9 +1775,7 @@ restoreLane = function()
     end
     restore(package.loaded, laneBaseline.loaded)
     restore(package.preload, laneBaseline.preload)
-    for key, item in pairs(laneBaseline.globals) do
-        _G[key] = item == missingGlobal and nil or item
-    end
+    restore(_G, laneBaseline.globals)
 end
 
 --- What this process took off the queue, so the parent can tell work that was

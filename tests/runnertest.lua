@@ -385,6 +385,46 @@ function M.workersDivideAQueueBetweenThem()
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.processQueueRestoresModuleGlobalsBetweenPieces()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests/templater")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/queue")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(dir .. "/tests/templater/fill.lua", [[
+module(..., package.seeall)
+function render() return "ready" end
+]])
+    write(
+        dir .. "/tests/templater.lua",
+        [[
+local renderer = require("templater.fill")
+module(..., package.seeall)
+fill = renderer.render
+]]
+    )
+    for index, name in ipairs({"alphatest", "betatest"}) do
+        write(
+            dir .. "/tests/" .. name .. ".lua",
+            [[
+local M = {}
+function M.renders()
+    assert(require("templater").fill() == "ready")
+end
+return M
+]]
+        )
+        write(("%s/queue/piece-%d"):format(dir, index), name .. "\n")
+    end
+    write(dir .. "/queue/order", "alphatest\nbetatest\n")
+    local output = runJson(dir .. "/tests/run.lua", "--json --queue=" .. dir .. "/queue")
+    local report = require("testjson").decode(output)
+    test.equal(report.total, 2, "both queue pieces ran")
+    test.equal(report.passed, 2, output)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.embeddedWorkersDiscoverFromTheParentCatalogWithoutPopen()
     local dir = os.tmpname()
     os.remove(dir)
