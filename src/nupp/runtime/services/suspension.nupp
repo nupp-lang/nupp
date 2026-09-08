@@ -1,5 +1,27 @@
 module nupp.runtime.services.suspension
 
+--[[
+Scheduler integration contract for `suspension` API 1.
+
+Setup imports `service` here before any consumer requires [](nupp.suspension).
+The facade retains the selected functions. Source, Context, Waiting, Handler,
+and Installed are the shared types; providers initialize these declarations or
+satisfy their exact signatures without replacing their nominal identities.
+
+A subscription may resume synchronously or later. It must settle a Waiting only
+once and run returned cleanup when the wait ends, including cancellation. Source
+release and Installed.drop must not suspend. Nested installation restores the
+captured handler, and transparent handlers preserve delegation to the outer
+scheduler. `create` propagates the suspension context into a new coroutine.
+
+Sources report readiness in priority order. Context.uses identifies sources
+needed by a wait, while canPark distinguishes schedulers that can yield from
+ones that must drive readiness themselves. Cancellation values must come from
+[](nupp.runtime.services.cancellation), which preserves recognition by tasks and
+worker providers. State belongs to one Lua state; registrations and handlers are
+not copied into worker lanes.
+]]
+
 local services = require("nupp.services")
 local comptime function shape(info: nupp.reflect.Info): any
     local result = {}
@@ -22,20 +44,37 @@ local comptime function shape(info: nupp.reflect.Info): any
     return result
 end
 
+--- Readiness registration shared with callers and handlers.
+--- release must be idempotent and non-suspending; provider state tracks its lifetime.
 export record Source
+    --- Unregisters this source without suspending; repeated calls are harmless.
     release: nosuspend function(Source): nil
+
+    --- Provider callback used by the canonical release method.
     releaseImpl: function(Source): nil
 
+    --- Diagnostic identity of the readiness source.
     name: string
 
+    --- Readiness ordering key; smaller priorities are polled first.
     priority: integer
 
+    --- Optional bounded blocking waiter receiving milliseconds and returning progress.
     wait: (function(integer): integer)?
 
+    --- Optional predicate deciding whether the source has outstanding work.
     active: (function(Source): boolean)?
+
+    --- Stable registration-order tie breaker used by the provider.
     sequence: integer = 0
+
+    --- Provider-owned nonblocking readiness callback.
     poller: (function(): integer)?
+
+    --- Provider-owned blocking readiness callback.
     waiter: (function(integer): integer)?
+
+    --- Whether the registration has already been released.
     released: boolean = false
 end
 
@@ -43,42 +82,82 @@ function Source.release(self: Source): nil
     self.releaseImpl(self)
 end
 
+--- Subscription context used to register or associate readiness sources.
+--- A subscription may use an existing Source or create a scoped one.
 export record Context
+    --- Registers a source associated with this subscription.
     source: function(Context, string, integer, function(): integer, (function(integer): integer)?): Source
 
+    --- Associates an existing source with this wait without changing its identity.
     uses: function(Context, Source): nil
 
+    --- Reports whether the current handler can park this subscription.
     canPark: function(Context): boolean
+
+    --- Provider-owned active handler state.
     handler: any
+
+    --- Sources associated with this subscription, when explicitly tracked.
     associated: {Source}?
 end
 
+--- A single pending operation observed by a suspension handler.
+--- ready is monotonic once resumed; onResume installs the handler's wake callback.
 export record Waiting
+    --- Reports whether the subscription has settled.
     ready: function(Waiting): boolean
 
+    --- Registers a wake callback for the waiting scheduler.
     onResume: function(Waiting, function(): nil): nil
 
+    --- Diagnostic operation name supplied to suspend.
     operation: string
+
+    --- Provider-owned settlement and subscription state.
     state: any
 end
 
+--- Scheduler integration operations with explicit Handler receivers.
+--- park drives or yields a wait; shutdown releases handler-owned scheduling state.
 export record Handler
+    --- Parks or drives this Waiting; the callback performs subscription cleanup.
     park: function(Handler, Waiting, function(): nil): nil
 
+    --- Reports whether this handler can park the current execution.
     canPark: function(Handler): boolean
 
+    --- Releases scheduling state owned by this handler.
     shutdown: function(Handler): nil
 end
 
+--- Handler restoration state owned by one installation.
+--- Its affine drop restores the outer context and releases registration state.
 export record Installed
+    --- Canonical non-suspending affine cleanup for the installation.
     drop: nosuspend function(takes self: Installed): nil
+
+    --- Restores the outer handler and releases this installation.
     release: function(self: Installed): nil
+
+    --- Coroutine whose handler is installed, or the provider's main-state key.
     co: any
+
+    --- Captured outer handler state restored by release.
     previous: any
+
+    --- Handler supplied by the caller.
     handler: Handler
+
+    --- Whether operations may delegate through to the outer context.
     transparent: boolean
+
+    --- Whether the outer handler has been restored.
     restored: boolean = false
+
+    --- Whether installation cleanup has completed.
     released: boolean = false
+
+    --- Provider bookkeeping for waits owned by this installation.
     parks: any
 end
 
@@ -86,14 +165,21 @@ function Installed.drop(takes self: Installed): nil
     self:release()
 end
 
+--- Canonical affine cleanup for a handler installation.
 export function destroyInstalled(takes value: Installed): nil
     value:drop()
 end
 
+--- Typed subscription operation preserving the result type T.
+--- The subscription returns optional cleanup and may resume synchronously.
 export type Suspend = function<T>(operation: string, subscribe: function(function(T), Context): (function()?)): T
+
+--- Coroutine construction preserving arbitrary argument and result packs.
 export type Create = function<A..., R...>(body: function(A...): R...): thread
 
 export interface Provider
+    --- Registers a named poll source with a priority and optional blocking waiter.
+    --- The optional active predicate controls whether the source can make progress.
     readonly source: function(
         name: string,
         priority: integer,
@@ -101,16 +187,33 @@ export interface Provider
         wait: (function(integer): integer)?,
         active: (function(Source): boolean)?
     ): Source
+
+    --- Polls registered sources and returns the amount of progress reported.
     readonly poll: function(): integer
+
+    --- Subscribes once, then waits for one typed result through the active handler.
     readonly suspend: Suspend
+
+    --- Installs a handler and returns affine restoration state.
     readonly install: function(handler: Handler, transparent: boolean?): affine(Installed, destroyInstalled)
+
+    --- Creates a coroutine preserving the active suspension context and result pack.
     readonly create: Create
+
+    --- Reports whether an installed handler owns the current suspension context.
     readonly handled: function(): boolean
+
+    --- Captures the outer handler's park-availability query.
     readonly delegatedCanPark: function(): function(): boolean
+
+    --- Captures the outer handler's parking operation.
     readonly delegatedPark: function(): function(Waiting, function(): nil): nil
+
+    --- Reports whether this execution context can perform a suspension.
     readonly canSuspend: function(): boolean
 end
 
+--- Canonical suspension API 1 handle; setup selects before the public facade loads.
 export const service: services.Service<Provider> = services.define("suspension", 1, nil, comptime do
     return shape(nupp.reflect(Provider))
 end)

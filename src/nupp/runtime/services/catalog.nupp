@@ -1,4 +1,25 @@
+@!internal
+
 module nupp.runtime.services.catalog
+
+--[[
+Static declarations for compiler-carried runtime implementations.
+
+Entries name a service identity, API version, canonical contract module and
+handle export, provider module/member, and compatible dialect. The compiler uses
+these records with dependency capability metadata to check exports, form artifact
+closures, invalidate caches, and support implementation navigation. Reading this
+module never executes a provider body.
+
+The facade map identifies consumers that require service-backed operations.
+Runtime initialization uses an artifact's compatible catalog when present and
+the compiler-carried catalog otherwise. Catalog ordering never chooses a default;
+facade assembly or explicit setup makes that decision.
+
+Third-party packages publish capability descriptors as described in
+[Service Providers](docs/learn/projects/service-providers.md). They do not edit or
+import this internal catalog as a registration API.
+]]
 
 --- Compiler-carried provider declarations. Entries contain no implementation code.
 export const facades = {

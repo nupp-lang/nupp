@@ -1,6 +1,25 @@
+@!internal
+
 module nupp.runtime.provider.wasmstoragefactory
 
---[[Checked struct values over an opaque, bounds-checked Wasm memory service.]]
+--[[
+Constructs a coherent storage implementation over a Wasm memory host.
+
+`new(memory)` builds scalar descriptors, aligned struct layouts, array views,
+byte codecs, and reference-valued structs over the supplied bounds-checked host.
+The result reports `linear32` and shares its integer implementation with
+`memory.int64`. Its `structs` and `host` members refer to the same assembled
+storage family, which prevents independently selected representations drifting.
+
+The memory host supplies allocation, pointer arithmetic, loads, stores, copies,
+and leases. Pointer values are opaque host values rather than LuaJIT addresses.
+Borrowed views retain their source relationship, and descriptors report the
+bounds and layout needed by generated operations.
+
+Each factory call creates private descriptor caches for one memory host. The
+[](nupp.runtime.provider.wasmstorage) entry invokes it during module loading;
+this helper performs no service registration or selection itself.
+]]
 
 local factory = {}
 

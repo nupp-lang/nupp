@@ -2,6 +2,20 @@
 
 module nupp.runtime.provider.nativepath
 
+--[[
+Native filesystem environment for `host.path` API 1.
+
+This module requires the native filesystem feature at load time. It supplies the
+host separator, process working directory, and canonicalization through the
+operating system. Canonicalization may fail for inaccessible or missing paths
+and returns `nil, message`; temporary native string results are released after
+copying their bytes into Lua strings.
+
+Lexical path operations live in [](nupp.io.path.pathtext). This provider supplies
+only environmental facts and filesystem resolution to [](nupp.io.path). It does
+not register a second Path type or retain filesystem handles in returned paths.
+]]
+
 const native = require("nupp.runtime.native")
 
 cdef struct NuppNativeV2FilesystemSlice

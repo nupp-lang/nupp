@@ -1,8 +1,24 @@
+@!internal
+
 module nupp.runtime.browser.http
 
--- Browser implementation of the host.http module contract. Fetch completes in
--- JavaScript; this checked module owns the Nupp records, affine teardown, byte
--- preservation, and suspension boundary visible to application code.
+--[[
+Browser Fetch implementation of `host.http` API 1.
+
+Requests cross the browser effect channel and suspend until Fetch completes.
+Request and response bodies are buffered, and browser policy controls proxies,
+certificates, connections, and protocol details. `capabilities` therefore reports
+all five optional transport guarantees as false.
+
+Client and Response records implement [](nupp.runtime.services.http). Body bytes
+are exposed through the shared owned-reader machinery, and affine teardown
+releases retained response storage and outstanding work. Request values are
+borrowed rather than consumed by send.
+
+The [](nupp.io.http) facade resolves this provider once. The application must
+supply browser effects, suspension, and Wasm memory before consuming it. Operations
+use the retained client and effect transport directly.
+]]
 
 local effects = require("nupp.runtime.browser.effects")
 local span = require("nupp.mem.span")

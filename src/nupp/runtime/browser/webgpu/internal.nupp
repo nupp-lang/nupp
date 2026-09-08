@@ -1,5 +1,24 @@
 @!internal
 module nupp.runtime.browser.webgpu.internal
+
+--[[
+Browser resident-compute implementation of `host.gpu` API 1.
+
+`open` acquires a WebGPU context through the browser effect channel. Buffers,
+kernels, and bindings retain host identifiers while implementing the canonical
+[](nupp.gpu.api) interfaces. Generated shader artifacts and layout facts determine
+binding slots, uniform bytes, element counts, and supported operations.
+
+Upload and download use the selected linear-memory storage implementation.
+Synchronization and host responses may suspend. Context-dependent values retain
+their context borrows, and affine cleanup uses the shared `destroyContext`
+identity to release device resources without substituting a provider-local type.
+
+The browser application must install WebGPU effects and memory before requiring
+[](nupp.gpu). Its facade binds `open` directly; dispatch and cleanup use retained
+context state without service lookups.
+]]
+
 local response = require("nupp.runtime.browser.response")
 local memory = require("nupp.runtime.wasm") as any
 local storage = require("nupp.runtime.storage")

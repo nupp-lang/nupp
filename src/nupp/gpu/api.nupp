@@ -1,36 +1,78 @@
 @!internal
 module nupp.gpu.api
+
+--[[
+Shared resident-GPU protocol declarations.
+
+Application-facing context operations are re-exported through nupp.gpu, and the
+complete provider protocol through nupp.runtime.services.gpu. This internal module
+owns their common nominal identities. Implementations use private records that
+satisfy these interfaces rather than defining alternative public buffer, kernel,
+or context types.
+
+A context owns its device resources. Buffers, kernels, and bindings borrow that
+context; views retain their source relationship. Upload and download preserve
+host-span borrowing and exclusive output access. Context teardown consumes its
+owner without suspension through the canonical destroyContext function.
+
+KernelContext adds generated-artifact compilation and binding operations.
+Providers must honor the supplied layout, buffer-slot counts, uniform byte size,
+and workgroup requirements before dispatch. The service facade retains open at
+module initialization; resource methods operate on the resulting context.
+]]
 local {type Span, type WriteSpan} = require("nupp.mem.span")
 local {type Layout as TensorLayout} = require("nupp.gpu.layout")
 local gpu = {}
 
+--- Typed resident device storage or a view borrowing its owning context.
 interface gpu.Buffer<T>
     --- Number of elements, kept with the allocation.
     readonly count: integer
 
+    --- Returns the logical shape in elements.
     readonly dimensions: function(borrows self: gpu.Buffer<T>): {integer}
+
+    --- Returns the element strides for the logical view.
     readonly strides: function(borrows self: gpu.Buffer<T>): {integer}
+
+    --- Creates a context-borrowed view at a zero-based origin with the requested shape.
     readonly subview: function(
         borrows self: gpu.Buffer<T>,
         origin: {integer},
         shape: {integer}
     ): gpu.Buffer<T> borrows (self)
+
+    --- Returns the canonical tensor layout for this view.
     readonly layout: function(borrows self: gpu.Buffer<T>): TensorLayout
+
+    --- Creates a view using the supplied checked layout without copying storage.
     readonly view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (self)
 end
 
+--- Opaque compiled kernel borrowing the context that created it.
 interface gpu.Kernel
 end
 
+--- Generated shader representations and their entry point.
+--- At least one supplied representation must be supported by the selected device.
 record gpu.ArtifactSet
+    --- Optional SPIR-V artifact bytes.
     readonly spirv: string?
+
+    --- Optional WGSL shader source.
     readonly wgsl: string?
+
+    --- Name of the entry point within the supplied artifacts.
     readonly entrypoint: string
 end
 
+--- Bound kernel invocation retaining its context and attached buffers.
 interface gpu.Binding
+    --- Number of logical elements dispatched.
     readonly count: integer
 
+    --- Attaches a buffer to a zero-based read slot.
+    --- matchCount requires one buffer element per dispatched element.
     readonly setRead: function<T>(
         borrows self: gpu.Binding,
         slot: integer,
@@ -38,6 +80,7 @@ interface gpu.Binding
         matchCount: boolean
     ): nil
 
+    --- Attaches a buffer to a zero-based writable slot with the same count rule.
     readonly setWrite: function<T>(
         borrows self: gpu.Binding,
         slot: integer,
@@ -45,21 +88,31 @@ interface gpu.Binding
         matchCount: boolean
     ): nil
 
+    --- Dispatches using the generated scalar uniform words.
     readonly dispatchWords: function(borrows self: gpu.Binding, scalars: {uint32}): nil
+
+    --- Dispatches from the exact packed uniform layout and byte count.
+    --- The provider must validate the byte count against the compiled kernel.
     readonly dispatchPacked: function(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
 end
 
+--- Canonical non-suspending teardown obligation for a device context.
 interface gpu.ContextToken
+    --- Consumes and releases the context without suspending.
     readonly drop: nosuspend function(takes self: ContextToken): nil
 end
 
+--- Canonical affine cleanup identity used by every GPU provider.
 function gpu.destroyContext<T is gpu.ContextToken>(takes context: T): nil
     context:drop()
 end
 
+--- Device operations shared by application and provider contexts.
 interface gpu.Context is gpu.ContextToken
+    --- Consumes the context and releases all device resources without suspending.
     readonly drop: nosuspend function(takes self: gpu.Context): nil
 
+    --- Returns a diagnostic name for the selected device implementation.
     readonly driver: function(borrows self: gpu.Context): string
 
     --- Allocates a typed resident device buffer.
@@ -69,26 +122,34 @@ interface gpu.Context is gpu.ContextToken
         count: integer
     ): gpu.Buffer<T> borrows (self)
 
+    --- Allocates typed storage with the requested logical shape.
     readonly tensor: function<T>(
         borrows self: gpu.Context,
         element: ctype<T>,
         shape: {integer}
     ): gpu.Buffer<T> borrows (self)
 
+    --- Releases the device allocation represented by buffer.
+    --- The caller must not use it or its dependent views afterward.
     readonly releaseBuffer: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
 
+    --- Copies borrowed host-span data into the resident buffer.
     readonly upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: Span<T>): nil
 
+    --- Queues a buffer readback for subsequent synchronization and reading.
     readonly enqueueDownload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
 
+    --- Waits for queued device work and readbacks to complete.
     readonly synchronize: function(borrows self: gpu.Context): nil
 
+    --- Copies a completed readback into an exclusively borrowed destination span.
     readonly readDownloaded: function<T>(
         borrows self: gpu.Context,
         borrows buffer: gpu.Buffer<T>,
         exclusive destination: WriteSpan<T>
     ): nil
 
+    --- Performs readback, synchronization, and copying into the exclusive destination.
     readonly download: function<T>(
         borrows self: gpu.Context,
         borrows buffer: gpu.Buffer<T>,
@@ -96,7 +157,11 @@ interface gpu.Context is gpu.ContextToken
     ): nil
 end
 
+--- Complete provider context, including generated-kernel integration.
 interface gpu.KernelContext is gpu.Context
+    --- Compiles compatible artifacts with exact read/write slot counts and uniform
+    --- size. threads carries the generated workgroup requirement when specified. Reject
+    --- unsupported layouts or device limits before returning a kernel.
     readonly compileGenerated: function(
         borrows self: gpu.KernelContext,
         artifacts: gpu.ArtifactSet,
@@ -106,14 +171,17 @@ interface gpu.KernelContext is gpu.Context
         threads: integer?
     ): gpu.Kernel borrows (self)
 
+    --- Creates a binding for count elements using this context's compiled kernel.
     readonly bindKernel: function(
         borrows self: gpu.KernelContext,
         borrows kernel: gpu.Kernel,
         count: integer
     ): gpu.Binding borrows (self)
 
+    --- Releases a compiled kernel; dependent bindings must no longer be used.
     readonly releaseKernel: function(borrows self: gpu.KernelContext, borrows kernel: gpu.Kernel): nil
 
+    --- Releases a binding while holding exclusive access to it.
     readonly releaseBinding: function(borrows self: gpu.KernelContext, exclusive binding: gpu.Binding): nil
 end
 

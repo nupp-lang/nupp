@@ -1,7 +1,23 @@
+@!internal
+
 module nupp.runtime.browser.crypto
 
--- Web Crypto provider for random bytes, SHA-256, HMAC-SHA256, and UUIDs. The
--- Worker performs the primitive; formatting and the Nupp contracts stay here.
+--[[
+Browser Web Crypto implementation of `host.crypto` and `data.uuid`.
+
+Requests use the application Worker's effect channel. Random bytes and HMAC
+results cross that channel as base64 and return as byte-preserving Lua strings;
+SHA-256 uses the host's hexadecimal result. UUIDs are formatted here with the
+required version and variant bits.
+
+Operations may suspend while the Worker completes a request. A random request
+accepts at most 1,048,576 bytes, and invalid counts fail before dispatch. Host
+crypto failures propagate through the shared browser response mechanism.
+
+The crypto and UUID facades retain this module during initialization. Its values
+satisfy the canonical interfaces in [](nupp.runtime.services.contracts); no
+JavaScript function or provider instance is copied into a child Lua state.
+]]
 
 local base64 = require("nupp.codec.base64")
 local contracts = require("nupp.runtime.services.contracts")

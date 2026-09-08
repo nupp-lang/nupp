@@ -1,5 +1,25 @@
 module nupp.runtime.services.http
 
+--[[
+High-level HTTP provider contract for `host.http` API 1.
+
+Import `service` for setup before requiring [](nupp.io.http). Provider functions
+have no implicit receiver; Client and Response methods do. Request, Options,
+Version, and Capabilities come from [](nupp.io.http.messages), URI from
+[](nupp.io.uri), and Body is the canonical [](nupp.io) Reader interface.
+
+A Client owns its transport and outstanding work. A successful send returns an
+affine Response owning the response resources and body reader. Preserve borrowing
+of the Request during send and exclusive access during flush. Closing clients
+and responses must release resources on success, error, and cancellation paths.
+Implementers must not replace these affine contracts with unowned table aliases.
+
+Capabilities describe actual behavior, including streaming, policy control, and
+protocol observability. Unsupported options must follow the public HTTP API's
+error behavior. The facade selects the implementation at require-time; clients
+and resource methods retain direct provider operations.
+]]
+
 local services = require("nupp.services")
 local {type Version, type Request, type Options, type Capabilities} = require("nupp.io.http.messages")
 local {type URI} = require("nupp.io.uri")
@@ -28,27 +48,51 @@ local comptime function shape(info: nupp.reflect.Info): any
 end
 
 export affine interface Response is nupp.Closeable
+    --- HTTP response status code.
     readonly status: integer
+
+    --- Observed protocol version, absent when the host cannot expose it.
     readonly version: Version?
+
+    --- Canonical final response URI, including completed redirects.
     readonly url: URI
+
+    --- Owned response reader whose lifetime is governed by the response.
     readonly body: Body
+
+    --- Reports whether the status is in the successful 2xx range.
     readonly ok: function(self: Response): boolean
+
+    --- Returns one header value by case-insensitive name, or nil if absent.
     readonly header: function(self: Response, name: string): string?
+
+    --- Returns all values for a case-insensitive header name.
     readonly getAll: function(self: Response, name: string): {string}
+
+    --- Returns the response header mapping exposed by the host.
     readonly headers: function(self: Response): {[string]: string}
 end
 
 export affine interface Client is nupp.Closeable
+    --- Services outstanding client work while holding exclusive client access.
     readonly flush: function(exclusive self: Client): nil
+
+    --- Returns the number of outstanding requests or transfers.
     readonly pending: function(self: Client): integer
+
+    --- Borrows the Request while sending and returns an owned Response or an error.
     readonly send: function(self: Client, borrows request: Request): (Response?, string?)
 end
 
 export interface Provider
+    --- Constructs an owned client with the requested transport policy.
     readonly client: function(options: Options?): Client
+
+    --- Reports the guarantees this implementation actually provides.
     readonly capabilities: function(): Capabilities
 end
 
+--- Canonical host.http API 1 handle; setup selects before the public facade loads.
 export const service: services.Service<Provider> = services.define("host.http", 1, nil, comptime do
     return shape(nupp.reflect(Provider))
 end)

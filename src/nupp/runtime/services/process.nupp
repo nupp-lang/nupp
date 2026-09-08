@@ -1,5 +1,25 @@
 module nupp.runtime.services.process
 
+--[[
+Provider protocol for `host.process` API 1.
+
+Importing `service` defines the contract without starting a child. Select a named
+implementation before requiring [](nupp.io.process). Every operation receives the
+retained provider table as its first argument. Options, Exit, and Interest use
+the canonical declarations in [](nupp.io.process.types).
+
+Spawn returns the child owner, optional stdin/stdout/stderr handles, process ID,
+and optional failure message. Pipes and process lifetime are separate resources:
+closeStream releases a pipe, while reap releases the child owner after settlement.
+Construct exit results with `nupp.io.process.types.exited` so callers receive the
+shared identity and timeout/killed semantics.
+
+Readiness probes must distinguish pending input from EOF and backpressure from a
+closed pipe. waitReady services the requested read/write interests and child
+completion for a bounded interval; now supplies its monotonic millisecond clock.
+Process cleanup must remain valid after cancellation, kill, and partial spawn.
+]]
+
 local services = require("nupp.services")
 local {type Options, type Exit, type Interest} = require("nupp.io.process.types")
 
@@ -25,25 +45,40 @@ local comptime function shape(info: nupp.reflect.Info): any
 end
 
 export interface Provider
+    --- Returns child, stdin, stdout, stderr, pid, and error in that order.
+    --- Absent or inherited pipes have nil handles; failure has no child owner.
     readonly spawn: function(Provider, Options): (any?, any?, any?, any?, integer, string?)
 
+    --- Returns the canonical Exit once available, or nil while the child runs.
     readonly poll: function(Provider, any): (Exit?)
 
+    --- Requests termination; the boolean chooses forced termination.
+    --- The child still requires settlement and reap.
     readonly kill: function(Provider, any, boolean): nil
 
+    --- Reads at most the requested byte count. An empty string means pending;
+    --- nil means EOF. Report transport failures by raising.
     readonly read: function(Provider, any, integer): (string?)
 
+    --- Returns accepted bytes and whether the pipe is gone.
+    --- Zero bytes with false means backpressure; true means the pipe is closed.
     readonly write: function(Provider, any, string): (integer, boolean)
 
+    --- Releases one pipe handle; repeated release must be harmless.
     readonly closeStream: function(Provider, any): (boolean, string?)
 
+    --- Releases the settled child owner; repeated release must be harmless.
     readonly reap: function(Provider, any): (boolean, string?)
 
+    --- Returns monotonic milliseconds for process deadlines.
     readonly now: function(Provider): number
 
+    --- Waits for the Interest read/write sets or child completion up to the
+    --- requested millisecond interval, returning the number of ready interests.
     readonly waitReady: function(Provider, Interest, number): integer
 end
 
+--- Canonical host.process API 1 handle; setup selects before the public facade loads.
 export const service: services.Service<Provider> = services.define("host.process", 1, nil, comptime do
     return shape(nupp.reflect(Provider))
 end)

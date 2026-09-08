@@ -1,8 +1,22 @@
+@!internal
+
 module nupp.runtime.browser.storage
 
--- Persistent UTF-8 key/value storage backed by IndexedDB in the application
--- Worker. The host owns quotas and database lifetime; this module owns the
--- checked, backend-independent call surface.
+--[[
+Browser persistent key/value implementation of `host.storage` API 1.
+
+Operations use IndexedDB through the application Worker and may suspend until
+its response arrives. Values are UTF-8 strings. Keys must be nonempty and at most
+1,024 bytes. Missing keys return `nil`; removal and clearing affect the storage
+namespace managed by the browser host.
+
+The host owns database lifetime, persistence, and quota policy. Failed requests
+raise through the shared response mechanism. This module owns the checked
+StorageProvider table and does not retain a database handle in Lua.
+
+[](nupp.io.storage) resolves the implementation during module loading. Child
+states acquire their own provider instance and use the host's storage policy.
+]]
 
 local response = require("nupp.runtime.browser.response")
 local contracts = require("nupp.runtime.services.contracts")

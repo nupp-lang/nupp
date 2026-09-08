@@ -1,4 +1,25 @@
+@!internal
+
 module nupp.runtime.provider.nativeprocess
+
+--[[
+Native child-process implementation of `host.process` API 1.
+
+Loading requires the native process feature. Spawn translates the shared
+[](nupp.io.process.types) options into native argument, environment, directory,
+and stream descriptors. A successful result owns a child handle and any piped
+stdin, stdout, and stderr handles; inherited and redirected streams may have no
+separate pipe value.
+
+Reads distinguish pending input from EOF, writes report accepted bytes and a
+closed-pipe flag, and readiness waits use the native process reactor. Exit values
+are constructed with the shared `exited` function. Per-stream scratch storage and
+release flags belong to this Lua state.
+
+The [](nupp.io.process) facade resolves this table once. Closing streams and
+reaping the child remain distinct operations. Cleanup releases every native
+handle even when a process is killed or a caller stops reading its output.
+]]
 
 local contract = require("nupp.runtime.services.process")
 local shared = require("nupp.io.process.types")

@@ -1,15 +1,45 @@
 --- A mutable FIFO byte sequence shared by all portable buffer providers.
+---
+--- Providers return this one nominal declaration rather than defining their own
+--- Buffer type. Mutating methods require exclusive access; chaining returns a borrow
+--- of the same buffer and must not create another owner. Strings copied out of a
+--- buffer are independent of its subsequent mutation or release.
+---
+--- This portable contract contains FIFO and formatting operations. Native pointer
+--- access and host serialization belong to the native string.buffer surface.
 record Buffer
+    --- Returns the unread byte count without consuming data.
     metamethod __len: function(self): integer
+
+    --- Concatenates the buffer's unread text with another value.
     metamethod __concat: function(self, other: any): string
+
+    --- Returns unread bytes without consuming them.
     metamethod __tostring: function(self): string
+
+    --- Appends each value and returns a borrow of this same buffer for chaining.
     put: function(exclusive b: Buffer, ...: any): Buffer borrows (b)
+
+    --- Formats and appends text, returning the same borrowed buffer.
     putf: function(exclusive b: Buffer, fmt: string, ...: any): Buffer borrows (b)
+
+    --- Consumes successive requested byte counts and returns one string per count.
+    --- With no count, consumes all unread bytes.
     get: function(exclusive b: Buffer, ...: integer?): (string,...string)
+
+    --- Copies unread bytes into a string without advancing the FIFO.
     tostring: function(b: Buffer): string
+
+    --- Discards buffered bytes and returns the same reusable buffer.
     reset: function(exclusive b: Buffer): Buffer borrows (b)
+
+    --- Releases retained storage and returns the same reusable buffer.
     free: function(exclusive b: Buffer): Buffer borrows (b)
+
+    --- Discards a prefix of unread bytes and returns the same borrowed buffer.
     skip: function(exclusive b: Buffer, count: integer): Buffer borrows (b)
+
+    --- Replaces unread contents with bytes and returns the same borrowed buffer.
     set: function(exclusive b: Buffer, bytes: string): Buffer borrows (b)
 end
 

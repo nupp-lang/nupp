@@ -1,29 +1,27 @@
+@!internal
+
 module nupp.runtime.provider.workers
-const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
 --[[
-Structured parallel tasks.
+Native structured-worker implementation of `host.workers` API 1.
 
-An ordinary sendable function may run locally or on the shared worker scheduler.
-The scheduler owns a bounded set of native threads, and every thread owns one
-isolated LuaJIT state. Arguments and results are copied; Lua heap identity is never
-shared.
+A bounded native scheduler owns isolated LuaJIT states. Submitted sendable
+functions are identified by module/member metadata, and arguments and results
+cross lanes through the native buffer codec. Lua heap identity is not shared;
+engine-backed owners move only through the supported ownership protocol.
 
-```nupp
-const workers = nupp.workers
-const jobs = require("jobs")
+Scopes implement the canonical types in [](nupp.runtime.services.workers).
+Closing a scope settles every child, propagates unobserved failure after cleanup,
+and cooperates with [](nupp.suspension). Cancellation uses the shared cancellation
+identity, and scheduler operations retain their provider without SPI dispatch.
 
-with scope = workers.scope() do
-    const left = scope:spawn(first, jobs.hash)
-    const right = scope:spawn(second, jobs.hash)
-    return left:await() .. right:await()
-end
-```
-
-Leaving the scope waits for every child, including children the body did not await.
-The first unobserved child failure is raised after all children have settled. A wait
-blocks efficiently in an ordinary program and parks under a suspension handler.
+Requiring this module captures [](nupp.services)' worker configuration. Catalog
+selections and explicit setup modules run in each child before consumers load.
+The artifact needs native worker support and LuaJIT's buffer codec. Register any
+runtime-only provider setup before requiring [](nupp.workers).
 ]]
+
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
 ----------------------------------------------------------------------------
 -- The host bindings

@@ -1,4 +1,27 @@
+@!internal
+
 module nupp.runtime.provider.nativenet
+
+--[[
+Native reactor implementation of `host.net` API 1.
+
+The table returned by this module implements the receiver-based protocol in
+[](nupp.runtime.services.net). Listener, connection-request, stream, and datagram
+handles belong to the native runtime. The implementation retains scratch buffers
+and reactor generation state within the current Lua state.
+
+Operations report readiness without running a private event loop. The public
+[](nupp.io.net) facade coordinates suspension and calls `run` through its `pump`
+operation. Accept and connect polling distinguish pending work from errors;
+stream reads report EOF through `ended`, and queued writes expose their pending
+byte count separately.
+
+The artifact requires native networking support. Every created handle has a
+matching release operation; closing a connect request and closing its resulting
+stream are separate responsibilities. Address values use
+[](nupp.io.net.types), and TLS implementations that consume these stream handles
+must agree with their native representation.
+]]
 
 local contract = require("nupp.runtime.services.net")
 local shared = require("nupp.io.net.types")

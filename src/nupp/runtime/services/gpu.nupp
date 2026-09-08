@@ -1,4 +1,23 @@
 module nupp.runtime.services.gpu
+
+--[[
+Resident-compute provider contract for `host.gpu` API 1.
+
+Import `service` to register or select a device implementation before requiring
+[](nupp.gpu). `open` is a receiver-free function; it returns an affine KernelContext
+using the canonical `destroyContext` cleanup identity exported here.
+
+Implementations define private records satisfying the shared context, buffer,
+kernel, and binding interfaces. Reuse the exported types here rather than
+creating nominal substitutes. Context-bound buffers and kernels preserve their
+borrows, and cleanup preserves its non-suspending guarantees.
+
+Generated artifacts and layout facts constrain binding formats, counts, scalar
+uniforms, and target features. A provider may choose a compatible device, but it
+cannot change the representation compiled into a kernel. Device and artifact
+failures must be reported before incompatible operations are published or run.
+The facade exports the retained open function directly.
+]]
 local services = require("nupp.services")
 local types = require("nupp.gpu.api")
 local comptime function shape(info: nupp.reflect.Info): any
@@ -23,16 +42,33 @@ local comptime function shape(info: nupp.reflect.Info): any
 end
 
 export interface Provider
+    --- Opens an owned device context using the canonical destroyContext cleanup.
+    --- Raise if the host cannot provide a compatible device.
     readonly open: function(): affine(types.KernelContext, types.destroyContext)
 end
+
+--- Canonical host.gpu API 1 handle; setup selects before the public facade loads.
 export const service: services.Service<Provider> = services.define("host.gpu", 1, nil, comptime do
     return shape(nupp.reflect(Provider))
 end)
 
+--- Complete shared context protocol, including generated-kernel operations.
 export type Context = types.KernelContext
+
+--- Shared non-suspending context cleanup obligation.
 export type ContextToken = types.ContextToken
+
+--- Canonical typed resident buffer/view borrowing its context.
 export type Buffer<T> = types.Buffer<T>
+
+--- Canonical opaque kernel handle borrowing its context.
 export type Kernel = types.Kernel
+
+--- Canonical kernel invocation with buffer slots and uniform dispatch.
 export type Binding = types.Binding
+
+--- Generated shader formats and entrypoint accepted by provider compilation.
 export type ArtifactSet = types.ArtifactSet
+
+--- Shared affine cleanup identity; provider returns must preserve it.
 export const destroyContext = types.destroyContext

@@ -1,42 +1,26 @@
+@!internal
+
 module nupp.runtime.browser.workers
 
 --[[
-Browser implementation of the `host.workers` module contract.
+Browser structured-worker implementation of `host.workers` API 1.
 
-A lane here is a module Web Worker holding its own Lua 5.1 Wasm state, booted
-from the same verified application payload the page loaded. The pool lives in
-JavaScript because that is where Workers are created and messages are posted;
-everything a program can observe -- structured scopes, the copy rule, task
-status, cancellation identity, and the failures each raises -- stays in this
-checked module, exactly as the native scheduler keeps them in `nupp.workers`.
+Each lane is a module Web Worker with its own Lua 5.1 Wasm state, initialized from
+the application's verified payload. The host pool exchanges copied messages;
+parallel work requires neither Wasm threads nor shared memory. Sendable function
+metadata, scopes, and task results follow [](nupp.runtime.services.workers).
 
-Neither Wasm threads nor shared memory are used. A lane receives work and
-returns results as copies through the ordinary browser effect framing, so the
-same page that carries no cross-origin isolation headers still gets parallel
-CPU work.
+Replies become visible when the current state parks. `isDone` reflects the last
+received reply, queued cancellation settles at a park, and a running task observes
+cancellation at a checkpoint that gives its event loop a turn. Scope cleanup
+settles every child and preserves the shared cancellation identity.
 
-Three observable differences from the native scheduler follow from a browser
-having no synchronous channel between two Workers, and are the reason this is a
-separate provider rather than a second transport under the native one:
-
-- a reply reaches this state at a park rather than the moment a lane produced
-  it, so `Task:isDone` answers as of the last park;
-- `Task:cancel` still reports whether it made the first request, but a queued
-  task settles at the next park rather than inside the call;
-- a running task observes cancellation at `tasks.checkpoint()`, and reading the
-  request costs one turn of that lane's event loop, so a checkpoint belongs at a
-  granularity the loop chooses rather than on every iteration of a tight one.
-
-See [workers.md](docs/learn/runtime/concurrency/workers.md) for the shared surface and NEP 16 for why
-worker tasks are structured this way.
+Requiring this module captures the catalog selections and setup modules used to
+initialize child states before their consumers load. Runtime-only registrations
+need explicit destination setup. No provider instance or captured Lua closure is
+transferred between lanes.
 ]]
 
---- That the `require` in the lane loop is reflection, not a dependency, for
---- `nupp.compiler.build.cache`'s module graph.
----
---- The name it resolves is a module of the application this lane is running, which
---- is not code this one is defined by. Nothing the compiler carries is reached
---- there, and a stamp covering this need not cover anything the name could name.
 @allow("unused-binding")
 const DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 

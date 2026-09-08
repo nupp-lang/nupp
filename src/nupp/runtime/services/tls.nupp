@@ -1,5 +1,24 @@
 module nupp.runtime.services.tls
 
+--[[
+Provider protocol for `host.tls` API 1.
+
+Setup selects this service before requiring [](nupp.io.tls). The facade retains
+the provider and supplies its explicit receiver. The provider wraps an opaque
+network stream handle, so its transport representation must agree with the
+selected [](nupp.runtime.services.net) implementation.
+
+Wrapping creates TLS state; handshake and I/O then report pending work to the
+facade, which drives readiness. Verification is a policy input and an observable
+session result. Do not report a verified peer merely because a handshake
+completed with verification disabled. ALPN protocol text describes the negotiated
+result; resumed is an optional observation.
+
+closeNotify sends the TLS shutdown notification and may need further progress.
+destroy releases session state; the owning public connection separately controls
+the underlying network stream. No method may resolve or switch providers.
+]]
+
 local services = require("nupp.services")
 
 local comptime function shape(info: nupp.reflect.Info): any
@@ -24,6 +43,9 @@ local comptime function shape(info: nupp.reflect.Info): any
 end
 
 export interface Provider
+    --- Creates session state over a compatible network handle.
+    --- Certificate, private key, authority, hostname, and ALPN options follow the
+    --- public TLS API. Returns the session or nil and an error.
     readonly wrap: function(
         self: Provider,
         handle: any,
@@ -36,28 +58,41 @@ export interface Provider
         verify: boolean
     ): (any?, string?)
 
+    --- Returns true when ready, false while pending, or nil and an error.
     readonly handshake: function(self: Provider, session: any): (boolean?, string?)
 
+    --- Reports whether peer verification succeeded for this session.
     readonly verified: function(self: Provider, session: any): boolean
 
+    --- Optionally reports whether this session resumed prior TLS state.
     readonly resumed: (function(self: Provider, session: any): boolean)?
 
+    --- Returns bytes, nil while pending, an empty string at EOF, or nil and an error.
     readonly read: function(self: Provider, session: any, wanted: integer): (string?, string?)
 
+    --- Returns bytes accepted, nil while pending, or nil and an error.
     readonly write: function(self: Provider, session: any, bytes: string): (integer?, string?)
 
+    --- Returns true when encrypted output has drained, false while pending,
+    --- or false with an error on failure.
     readonly flushed: function(self: Provider, session: any): (boolean, string?)
 
+    --- Starts or continues orderly TLS shutdown; true means complete,
+    --- false means pending unless accompanied by an error.
     readonly closeNotify: function(self: Provider, session: any): (boolean, string?)
 
+    --- Releases TLS session state; the connection owner handles the transport.
     readonly destroy: function(self: Provider, session: any): nil
 
+    --- Reports whether the session remains connected.
     readonly connected: function(self: Provider, session: any): boolean
 
+    --- Returns the negotiated ALPN protocol, or nil when none is available.
     readonly protocol: function(self: Provider, session: any): string?
 
 end
 
+--- Canonical host.tls API 1 handle; setup selects before the public facade loads.
 export const service: services.Service<Provider> = services.define("host.tls", 1, nil, comptime do
     return shape(nupp.reflect(Provider))
 end)

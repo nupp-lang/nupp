@@ -18,13 +18,27 @@ const hex = require("nupp.codec.hex")
 const provider = require("nupp.runtime.services.digest")
 
 export affine interface Digest is nupp.Closeable
+    --- Consumes an unfinished context and releases provider state without suspension.
     terminal close: nosuspend function(takes self: Digest): nil
+
+    --- Returns the canonical algorithm name retained at creation.
     algorithm: function(self: Digest): string
+
+    --- Returns the fixed output size in bytes.
     digestSize: function(self: Digest): integer
+
+    --- Processes raw bytes without retaining a borrowed input.
     update: function(exclusive self: Digest, bytes: string): nil
+
+    --- Processes a borrowed byte view without retaining it.
     updateSpan: function(exclusive self: Digest, borrows bytes: span.ByteSpan): nil
+
+    --- Consumes this context and returns raw bytes, or writes the fixed-size
+    --- prefix of destination and returns its byte count. Always closes state.
     digest: function(takes self: Digest): string
         & function(takes self: Digest, exclusive destination: span.ByteWriteSpan): integer
+
+    --- Consumes this context and returns lowercase hexadecimal, always closing state.
     hexDigest: function(takes self: Digest): string
 end
 

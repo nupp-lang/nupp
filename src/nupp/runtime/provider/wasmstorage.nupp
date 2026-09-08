@@ -1,4 +1,21 @@
+@!internal
+
 module nupp.runtime.provider.wasmstorage
+
+--[[
+State-local entry for `representation.cstorage` on linear memory.
+
+The host must install `__nuppWasmHost` before this module is required. The module
+passes that memory service to [](nupp.runtime.provider.wasmstoragefactory) once
+and exports the resulting storage, integer, struct, and Wasm operations together.
+A missing host fails module initialization.
+
+The implementation reports `linear32`. Its allocations and pointers belong to
+that host instance, and its integer operations must remain the same ones used by
+[](nupp.runtime.int64). Worker lanes construct their own instance from their own
+host; provider tables, closures, and memory handles are not transferred between
+Lua states.
+]]
 
 local factory = require("nupp.runtime.provider.wasmstoragefactory")
 local memory: any = assert(rawget(_G, "__nuppWasmHost"), "nupp: the Wasm memory host is not installed")

@@ -1,6 +1,20 @@
 @!internal
 module nupp.runtime.browser.uri
 
+--[[
+Portable absolute-URI parsing for `host.uri` API 1.
+
+The parser splits scheme, authority, credentials, host, port, path, query, and
+fragment and constructs the canonical UriParts record. It normalizes supported
+special schemes and default ports and returns `nil, message` for invalid input
+or a relative URI without a base.
+
+Parsing is ordinary local logic and performs no network or browser effect
+request. [](nupp.io.uri) retains the parser during module initialization and
+constructs its shared public URI values from the returned components. Providers
+must preserve absent components separately from present empty strings.
+]]
+
 const contracts = require("nupp.runtime.services.contracts")
 const pathtext = require("nupp.io.uri.pathtext")
 local provider = {}

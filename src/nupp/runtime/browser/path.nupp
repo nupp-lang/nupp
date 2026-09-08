@@ -2,9 +2,19 @@
 
 module nupp.runtime.browser.path
 
--- Browsers have POSIX-shaped resource paths but no process directory or host
--- filesystem whose links can be resolved. Keeping those failures behind the
--- environmental provider leaves every lexical path operation available.
+--[[
+Browser environment for the `host.path` API 1 contract.
+
+Resource paths use `/` as their separator. The browser has no process working
+directory or host filesystem to canonicalize, so those two environmental
+operations return `nil` and an explanatory message.
+
+Lexical path manipulation remains available through [](nupp.io.path). This module
+returns only environmental operations checked against the canonical PathProvider;
+it introduces no alternate Path type and performs no browser request or native
+filesystem access when loaded.
+]]
+
 local contracts = require("nupp.runtime.services.contracts")
 local provider = {}
 

@@ -1,5 +1,37 @@
 module nupp.runtime.services.contracts
 
+--[[
+Canonical contracts for varying numeric, data, storage, and host facilities.
+
+Importing this module defines typed service handles and registers catalog loaders
+without loading their implementations. Setup imports a handle, registers or
+selects a named provider, and only then requires consumers. A facade resolves its
+provider during top-level assembly and retains the actual table or functions.
+
+Each handle's `Service<T>` annotation is the contract identity used by package
+checking. Implement the declared interface, including generic, borrowing, and
+ownership signatures; additional members are permitted. Provider functions here
+have no implicit receiver unless their signature includes one. Lua providers need
+matching declarations or a checked adapter. Runtime member checks validate the
+published shape; behavioral conformance remains the implementation's obligation.
+
+For example, a setup module can select a packaged buffer implementation without
+loading the facade:
+
+```nupp
+local contracts = require("nupp.runtime.services.contracts")
+contracts.buffer:select("my-buffer")
+return require("application")
+```
+
+Use these handles rather than defining a second handle with the same string ID.
+All contracts use API 1 except `data.json`, which uses API 2. Representation
+services must match the target's layout and pointer conventions. Structvalue and
+WasmProvider describe members of one storage family; they are not independent
+selection points. See [Service Providers](docs/learn/projects/service-providers.md)
+for registration, package descriptors, initialization, and worker setup.
+]]
+
 const services = require("nupp.services")
 local {type Buffer as SharedBuffer} = require("nupp.text.buffer.types")
 
@@ -24,93 +56,235 @@ local comptime function shape(info: nupp.reflect.Info): any
     return result
 end
 
+--- 32-bit operations with Lua BitOp semantics.
+---
+--- Results are signed integers representing 32-bit words, including logical right
+--- shift results whose high bit is set. Inputs normalize to 32 bits; shifts and
+--- rotates mask counts to five bits. Variadic operations consume every operand.
+--- Providers must preserve these conventions even on hosts with unsigned primitives.
 export interface BitopsProvider
+    --- Normalizes a numeric operand to a signed 32-bit word.
     readonly tobit: function(value: number): integer
+
+    --- Formats the low requested hexadecimal digits; negative digits select uppercase.
     readonly tohex: function(value: number, digits: number?): string
+
+    --- Rotates left by the low five bits of count.
     readonly rol: function(value: number, count: number): integer
+
+    --- Rotates right by the low five bits of count.
     readonly ror: function(value: number, count: number): integer
+
+    --- Reverses the four bytes of the normalized word.
     readonly bswap: function(value: number): integer
+
+    --- Bitwise conjunction of the first operand and every remaining operand.
     readonly band: function(first: number, ...: number): integer
+
+    --- Bitwise disjunction of every operand.
     readonly bor: function(first: number, ...: number): integer
+
+    --- Bitwise exclusive-or of every operand.
     readonly bxor: function(first: number, ...: number): integer
+
+    --- Inverts all 32 bits.
     readonly bnot: function(value: number): integer
+
+    --- Shifts left, discarding bits beyond the word.
     readonly lshift: function(value: number, count: number): integer
+
+    --- Shifts right with zero fill, then returns the signed word representation.
     readonly rshift: function(value: number, count: number): integer
+
+    --- Shifts right with sign extension.
     readonly arshift: function(value: number, count: number): integer
 end
 
+--- Canonical numeric.bitops API 1 handle. Register or select before its facade loads.
 export const bitops: services.Service<BitopsProvider> = services.define("numeric.bitops", 1, nil, comptime do
     return shape(nupp.reflect(BitopsProvider))
 end)
 
+--- Construction of the canonical portable FIFO Buffer.
+---
+--- Return the shared Buffer type from nupp.text.buffer.types. Implementations may
+--- use native objects or portable state, but all signatures and chaining results
+--- must retain that identity. Native pointer and serializer facilities are outside
+--- this portable contract.
 export interface TextBufferProvider
+    --- Creates an independent FIFO buffer; accepts a size hint or an options table.
     readonly new: function(size: (integer | table)?, options: table?): SharedBuffer
 end
 
+--- Canonical text.buffer API 1 handle. Register or select before its facade loads.
 export const buffer: services.Service<TextBufferProvider> = services.define("text.buffer", 1, nil, comptime do
     return shape(nupp.reflect(TextBufferProvider))
 end)
 
 --- Cryptographically secure randomness for the executing host.
+---
+--- Use the host secure random source and propagate its failures. Deterministic
+--- pseudo-random generators do not satisfy this contract. Host requests may suspend.
 export interface CryptoProvider
     --- Returns exactly count random bytes. Accepts integers from zero through
     --- 1048576; zero returns an empty string. Raises on invalid counts or failure.
     readonly randomBytes: function(count: integer): string
 end
 
+--- Canonical host.crypto API 1 handle. Register or select before its facade loads.
 export const crypto: services.Service<CryptoProvider> = services.define("host.crypto", 1, nil, comptime do
     return shape(nupp.reflect(CryptoProvider))
 end)
 
+--- Casts storage to elements of any supplied ctype.
+---
+--- The implementation must remain generic in T and use the target's representation;
+--- accepting one particular element type is not sufficient.
 export type CastElements = function<T>(element: ctype<T>, pointer: any): any
 
+--- One coherent family of physical storage operations.
+---
+--- `representation` is `native` for native pointers or `linear32` for 32-bit linear
+--- memory. The facade checks it against the target before publishing this table.
+--- Linear32 implementations must also supply layout, reference, integers, structs,
+--- and host. Their structs must be reference-valued. The integer facade must use
+--- the exact integer provider attached to this storage family.
+---
+--- Allocation, descriptors, scalar codecs, and copies must agree on byte order,
+--- alignment, width, and pointer units. Decode inputs contain at least the scalar
+--- width in bytes. Borrowed views preserve source lifetimes;
+--- `borrows`, generic casts, and const views are part of the implementation contract.
+--- Opaque values in these signatures carry provider storage, not permission to
+--- change a compiled representation at runtime.
 export interface CstorageProvider
+    --- Returns the requested count after any representation-specific extent check.
+    --- Callers remain responsible for valid native pointer extents.
     readonly boundedCount: function(borrows source: any, count: integer): integer
+
+    --- Target pointer/layout convention: native or linear32.
     readonly representation: string
+
+    --- Integer operations sharing this storage representation; required for linear32.
     readonly integers: Int64Provider?
+
+    --- Struct descriptors and row operations sharing this storage family.
     readonly structs: StructvalueProvider?
+
+    --- Opaque memory-host operations sharing these allocations and pointers.
     readonly host: WasmProvider?
+
+    --- Returns target layout facts for a type or descriptor; required for linear32.
     readonly layout: (function(subject: any): any)?
+
+    --- Returns the canonical descriptor for a scalar kind within this provider.
     readonly scalar: function(kind: string): any
+
+    --- Reports layout and bounds for a provider value.
     readonly descriptor: function(value: any): any
+
+    --- Creates a deferred descriptor reference for recursive layouts.
     readonly reference: (function(resolve: function(): any): any)?
+
+    --- Allocates count elements of the supplied descriptor.
     readonly allocateArray: function(element: any, count: integer): any
+
+    --- Allocates a writable byte region containing count bytes.
     readonly allocateBytes: function(count: integer): uint8[?]
+
+    --- Returns a read-only byte view whose lifetime borrows the source string.
     readonly borrowString: function(borrows bytes: string): const uint8[?] borrows (bytes)
+
+    --- Returns a read-only byte view borrowing the pointer owner.
     readonly castBytes: function(borrows pointer: any): const uint8[?] borrows (pointer)
+
+    --- Interprets a pointer using any supplied element ctype.
     readonly castElements: CastElements
+
+    --- Copies count bytes into destination without replacing its owner.
     readonly copy: function(borrows destination: any, borrows source: any, count: integer): nil
+
+    --- Fills count bytes in destination with the given byte value.
     readonly fill: function(destination: any, count: integer, value: integer): nil
+
+    --- Returns the descriptor size in bytes.
     readonly sizeOf: function(element: any): integer
+
+    --- Copies count source bytes into an independent Lua string.
     readonly string: function(borrows source: any, count: integer): string
+
+    --- Decodes one unsigned 8-bit integer using the target storage byte order.
     readonly decodeUint8: function(bytes: string): uint32
+
+    --- Encodes one unsigned 8-bit integer using the target storage byte order.
     readonly encodeUint8: function(value: uint32): string
+
+    --- Decodes one signed 8-bit integer using the target storage byte order.
     readonly decodeInt8: function(bytes: string): int32
+
+    --- Encodes one signed 8-bit integer using the target storage byte order.
     readonly encodeInt8: function(value: int32): string
+
+    --- Decodes one unsigned 16-bit integer using the target storage byte order.
     readonly decodeUint16: function(bytes: string): uint32
+
+    --- Encodes one unsigned 16-bit integer using the target storage byte order.
     readonly encodeUint16: function(value: uint32): string
+
+    --- Decodes one signed 16-bit integer using the target storage byte order.
     readonly decodeInt16: function(bytes: string): int32
+
+    --- Encodes one signed 16-bit integer using the target storage byte order.
     readonly encodeInt16: function(value: int32): string
+
+    --- Decodes one unsigned 32-bit integer using the target storage byte order.
     readonly decodeUint32: function(bytes: string): uint32
+
+    --- Encodes one unsigned 32-bit integer using the target storage byte order.
     readonly encodeUint32: function(value: uint32): string
+
+    --- Decodes one signed 32-bit integer using the target storage byte order.
     readonly decodeInt32: function(bytes: string): int32
+
+    --- Encodes one signed 32-bit integer using the target storage byte order.
     readonly encodeInt32: function(value: int32): string
+
+    --- Decodes one unsigned 64-bit integer using the target storage byte order.
     readonly decodeUint64: function(bytes: string): uint64
+
+    --- Encodes one unsigned 64-bit integer using the target storage byte order.
     readonly encodeUint64: function(value: uint64): string
+
+    --- Decodes one signed 64-bit integer using the target storage byte order.
     readonly decodeInt64: function(bytes: string): int64
+
+    --- Encodes one signed 64-bit integer using the target storage byte order.
     readonly encodeInt64: function(value: int64): string
+
+    --- Decodes one IEEE-754 binary32 value using the target storage byte order.
     readonly decodeFloat32: function(bytes: string): float
+
+    --- Encodes one IEEE-754 binary32 value using the target storage byte order.
     readonly encodeFloat32: function(value: number): string
+
+    --- Decodes one IEEE-754 binary64 value using the target storage byte order.
     readonly decodeFloat64: function(bytes: string): number
+
+    --- Encodes one IEEE-754 binary64 value using the target storage byte order.
     readonly encodeFloat64: function(value: number): string
 end
 
+--- Canonical representation.cstorage API 1 handle. Register or select before its facade
+--- loads.
 export const cstorage: services.Service<
     CstorageProvider
 > = services.define("representation.cstorage", 1, nil, comptime do
     return shape(nupp.reflect(CstorageProvider))
 end)
 
+--- Transport capability flags describing observable HTTP guarantees.
+---
+--- A true flag promises the corresponding behavior; callers must not infer support
+--- from a provider name or the presence of unrelated methods.
 export record HttpCapabilities
     --- Response bytes become available before the whole response arrives.
     streamingResponse: boolean
@@ -128,136 +302,350 @@ export record HttpCapabilities
     protocolVersion: boolean
 end
 
+--- 64-bit signed and unsigned arithmetic for generated portable operations.
+---
+--- Values must retain their full width rather than round through a Lua number.
+--- Arithmetic, comparisons, shifts, and conversions must agree with the signedness
+--- created by int64/uint64. toNumber is the explicit potentially inexact conversion.
+--- When physical storage supplies integers, this must be that same implementation.
 export interface Int64Provider
+    --- Constructs or converts a signed 64-bit value.
     readonly int64: function(value: any): any
+
+    --- Constructs or converts an unsigned 64-bit value.
     readonly uint64: function(value: any): any
+
+    --- Adds two full-width values.
     readonly add: function(left: any, right: any): any
+
+    --- Subtracts the right operand.
     readonly sub: function(left: any, right: any): any
+
+    --- Multiplies full-width values.
     readonly mul: function(left: any, right: any): any
+
+    --- Divides using the integer representation semantics.
     readonly div: function(left: any, right: any): any
+
+    --- Computes the corresponding integer remainder.
     readonly mod: function(left: any, right: any): any
+
+    --- Raises to an integer power.
     readonly pow: function(left: any, right: any): any
+
+    --- Negates the value.
     readonly neg: function(value: any): any
+
+    --- Computes 64-bit conjunction.
     readonly band: function(left: any, right: any): any
+
+    --- Computes 64-bit disjunction.
     readonly bor: function(left: any, right: any): any
+
+    --- Computes 64-bit exclusive-or.
     readonly bxor: function(left: any, right: any): any
+
+    --- Inverts all 64 bits.
     readonly bnot: function(value: any): any
+
+    --- Shifts left within the 64-bit representation.
     readonly lshift: function(value: any, count: number): any
+
+    --- Shifts right with zero fill.
     readonly rshift: function(value: any, count: number): any
+
+    --- Shifts right with sign extension.
     readonly arshift: function(value: any, count: number): any
+
+    --- Returns a negative number, zero, or a positive number for ordering.
     readonly compare: function(left: any, right: any): number
+
+    --- Converts to a Lua number, which may lose integer precision.
     readonly toNumber: function(value: any): number
+
+    --- Returns an exact decimal representation.
     readonly toString: function(value: any): string
 end
 
+--- Canonical numeric.int64 API 1 handle. Register or select before its facade loads.
 export const int64: services.Service<Int64Provider> = services.define("numeric.int64", 1, nil, comptime do
     return shape(nupp.reflect(Int64Provider))
 end)
 
+--- Marks a table while returning the same generic table and ownership.
+---
+--- The takes/preserves relation is intentional: an implementation must not copy the
+--- container or erase an affine owner while applying its JSON marker.
 export type MarkContainer = function<T is table>(takes value: T): T preserves value
 
+--- JSON API 2, including portable encoding and optional compiled serde.
+---
+--- Arrays, objects, null sentinels, and verified fragments must agree across every
+--- member of this table. Keep marker identities stable for the loaded provider.
+--- The caller's nullValue controls null conversion; omission follows the public
+--- JSON API's nil behavior. Reject malformed syntax, invalid UTF-8, unsupported
+--- container shapes, and invalid raw fragments according to that API.
+---
+--- The three serde hooks are optional accelerators. If supplied together, compiled
+--- schemas and both decode entry points must share their representation and
+--- unknown-member policy. All buffer operations use the canonical shared Buffer;
+--- they must preserve the declared exclusive access and ownership guarantees.
 export interface JsonProvider
+    --- Builds an array projection shape with the supplied element shape.
     readonly arrayOf: function(shape: any?): any
+
+    --- Marks and returns the same table as an array, preserving its ownership.
     readonly asArray: MarkContainer
+
+    --- Marks and returns the same table as an object, preserving its ownership.
     readonly asObject: MarkContainer
+
+    --- Reports whether a value has JSON array semantics.
     readonly isArray: function(value: any): boolean
+
+    --- Parses JSON, applying the caller-selected representation of null.
     readonly decode: function(text: string, nullValue: any?): any
+
+    --- Serializes a value with this provider's markers and null convention.
     readonly encode: function(value: any, nullValue: any?): string
+
+    --- Serializes with the same semantics as encode.
     readonly serialize: function(value: any, nullValue: any?): string
+
+    --- Creates a validated encoded-value fragment for subsequent composition.
     readonly encoded: function(value: any, nullValue: any?): any
+
+    --- Creates a fragment containing one escaped JSON string.
     readonly encodedString: function(value: string): any
+
+    --- Parses only the value projection described by shape.
     readonly pull: function(text: string, shape: any, nullValue: any?): any
+
+    --- Validates raw JSON and retains a fragment suitable for composition.
     readonly verified: function(text: string): any
+
+    --- Validates a raw encoded JSON string fragment.
     readonly verifiedString: function(text: string): any
+
+    --- Creates a JSON writer over exclusive access to the canonical buffer.
     readonly writer: function(exclusive out: SharedBuffer, nullValue: any?): any
+
+    --- Stable explicit null marker owned by this loaded implementation.
     readonly NULL: any
+
+    --- Stable empty-array marker value.
     readonly EMPTY_ARRAY: table
+
+    --- Stable empty-object marker value.
     readonly EMPTY_OBJECT: table
+
+    --- Optionally prepares a schema plan with its unknown-member policy.
     readonly compileSerde: (function(plan: any, unknownMembers: string): any)?
+
+    --- Optionally decodes a prepared schema, returning value or diagnostic.
     readonly decodeSerde: (function(schema: any, text: string): (any?, string?))?
+
+    --- Optionally decodes from exclusive access to the canonical buffer.
     readonly decodeSerdeBuffer: (function(schema: any, exclusive input: SharedBuffer): (any?, string?))?
 end
 
+--- Canonical data.json API 2 handle. Register or select before its facade loads.
 export const json: services.Service<JsonProvider> = services.define("data.json", 2, nil, comptime do
     return shape(nupp.reflect(JsonProvider))
 end)
 
+--- Environmental path facts, independent of lexical path manipulation.
+---
+--- separator reports the host convention. currentDirectory and canonicalize may
+--- return nil with an explanatory message when the host has no such facility or
+--- an operating-system operation fails. Public Path identity remains in nupp.io.path.
 export interface PathProvider
+    --- Returns the host path separator.
     readonly separator: function(): string
+
+    --- Returns the process directory or nil and an environmental error.
     readonly currentDirectory: function(): (string?, string?)
+
+    --- Resolves a host filesystem path or returns nil and an error.
     readonly canonicalize: function(path: string): (string?, string?)
 end
 
+--- Canonical host.path API 1 handle. Register or select before its facade loads.
 export const path: services.Service<PathProvider> = services.define("host.path", 1, nil, comptime do
     return shape(nupp.reflect(PathProvider))
 end)
 
+--- Persistent string key/value storage in the host's application namespace.
+---
+--- Missing keys return nil. Successful writes, removals, and clearing complete
+--- before returning; host-backed implementations may suspend and may raise on
+--- quota or access errors. clear affects the host-defined application namespace,
+--- not arbitrary storage outside it.
 export interface StorageProvider
+    --- Returns the stored string, or nil when the key is absent.
     readonly get: function(name: string): string?
+
+    --- Stores the complete string value.
     readonly set: function(name: string, value: string): nil
+
+    --- Removes the key; an absent key needs no value.
     readonly remove: function(name: string): nil
+
+    --- Removes all entries in the host-defined application namespace.
     readonly clear: function(): nil
 end
 
+--- Canonical host.storage API 1 handle. Register or select before its facade loads.
 export const storage: services.Service<StorageProvider> = services.define("host.storage", 1, nil, comptime do
     return shape(nupp.reflect(StorageProvider))
 end)
 
+--- Struct-value operations supplied as part of the storage family.
+---
+--- Descriptors, arrays, and constructed values must agree with compiler layouts and
+--- canonical struct declarations. referenceValued reports whether a row reference
+--- addresses the underlying storage. This interface has no independently selectable
+--- handle; representation assembly supplies a compatible implementation.
 export interface StructvalueProvider
+    --- Returns a scalar descriptor accepted by define and array.
     readonly scalar: function(kind: string): any
+
+    --- Allocates count elements using this family's element descriptor.
     readonly array: function(element: any, count: integer): any
+
+    --- Constructs a type descriptor from a compiler layout and method table.
     readonly define: function(layout: any, methods: table): any
+
+    --- Whether row references address their underlying storage.
     readonly referenceValued: boolean
 end
 
+--- Clocks and cancellable waits, measured in milliseconds.
+---
+--- now is monotonic with an unspecified origin; wallTime is Unix epoch time and
+--- must not be used for monotonic deadlines. wakeAt and sleepUntil use the same
+--- origin as now. Finite non-negative durations and deadlines are required.
+--- Waits cooperate with the selected suspension implementation. Timer callbacks and
+--- cancellation functions belong to the current Lua state.
 export interface TimeProvider
+    --- Schedules one deadline callback and returns its cancellation function.
+    --- Registration itself must not suspend the subscriber.
     readonly wakeAt: function(deadline: number, resume: function(boolean): nil): function(): nil
+
+    --- Returns monotonic milliseconds used for durations and deadlines.
     readonly now: function(): number
+
+    --- Returns milliseconds since the Unix epoch.
     readonly wallTime: function(): number
+
+    --- Waits for a relative interval through the current suspension context.
     readonly sleep: function(milliseconds: number): nil
+
+    --- Waits until an absolute deadline in the now clock domain.
     readonly sleepUntil: function(deadline: number): nil
 end
 
+--- Canonical host.time API 1 handle. Register or select before its facade loads.
 export const time: services.Service<TimeProvider> = services.define("host.time", 1, nil, comptime do
     return shape(nupp.reflect(TimeProvider))
 end)
 
+--- Normalized absolute-URI components shared by every parser.
+---
+--- Use nil for an absent optional component and an empty string for a present empty
+--- one. text is the normalized serialization; scheme is normalized consistently
+--- with it. The public URI wrapper uses this record without introducing a
+--- provider-specific nominal identity.
 export record UriParts
+    --- Normalized complete URI text.
     text: string
+
+    --- Normalized scheme without the colon.
     scheme: string
+
+    --- Serialized authority, or nil if the URI has none.
     authority: string?
+
+    --- Username component, empty when absent.
     username: string
+
+    --- Password component, retaining absent versus empty.
     password: string?
+
+    --- Normalized host, or nil for a URI without one.
     host: string?
+
+    --- Explicit non-default port when present.
     port: integer?
+
+    --- Normalized path component.
     path: string
+
+    --- Query without its question mark, or nil when absent.
     query: string?
+
+    --- Fragment without its hash mark, or nil when absent.
     fragment: string?
 end
 
+--- Absolute-URI parsing into canonical components.
+---
+--- Return nil and a diagnostic for unsupported or invalid input. Successful parses
+--- must make text, authority, host, port, and path mutually consistent and preserve
+--- absent versus empty query and fragment values.
 export interface UriTextProvider
+    --- Parses an absolute URI into shared components or returns nil and a message.
     readonly parse: function(text: string): (UriParts?, string?)
 end
 
+--- Canonical host.uri API 1 handle. Register or select before its facade loads.
 export const uri: services.Service<UriTextProvider> = services.define("host.uri", 1, nil, comptime do
     return shape(nupp.reflect(UriTextProvider))
 end)
 
+--- Canonical lowercase, hyphenated UUID generation.
+---
+--- Version 4 provides random UUIDs and version 7 provides time-ordered UUIDs.
+--- Version and variant bits must be correct; randomness failures must be reported.
 export interface UuidProvider
+    --- Generates a random version 4 UUID.
     readonly uuid4: function(): string
+
+    --- Generates a time-ordered version 7 UUID.
     readonly uuid7: function(): string
 end
 
+--- Canonical data.uuid API 1 handle. Register or select before its facade loads.
 export const uuid: services.Service<UuidProvider> = services.define("data.uuid", 1, nil, comptime do
     return shape(nupp.reflect(UuidProvider))
 end)
 
+--- Opaque linear-memory operations belonging to a storage implementation.
+---
+--- Allocation and pointer values must refer to that implementation's memory host.
+--- Offsets and copy lengths are bytes; pointer's index/stride pair locates an
+--- element in an allocation. Loads and stores use the scalar kind's width and
+--- encoding. Bounds and owner lifetimes must remain valid across every operation.
+--- This interface is supplied through CstorageProvider.host, not a separate SPI.
 export interface WasmProvider
+    --- Allocates the requested number of bytes in this memory host.
     readonly allocate: function(bytes: integer): any
+
+    --- Locates a zero-based element using index and byte stride.
     readonly pointer: function(allocation: any, index: integer, stride: integer): any
+
+    --- Offsets an existing pointer by count bytes.
     readonly offset: function(pointer: any, count: integer): any
+
+    --- Reads a scalar kind at a byte offset from the pointer.
     readonly load: function(pointer: any, byteOffset: integer, kind: string): any
+
+    --- Writes a scalar kind at a byte offset from the pointer.
     readonly store: function(pointer: any, byteOffset: integer, kind: string, value: any): nil
+
+    --- Copies bytes between regions belonging to this host.
     readonly copy: function(destination: any, source: any, bytes: integer): nil
+
+    --- Returns bounds and layout information for a host value.
     readonly descriptor: function(value: any): any
 end

@@ -1,4 +1,20 @@
+@!internal
+
 module nupp.runtime.provider.nativebuffer
+
+--[[
+LuaJIT `string.buffer` adapter for `text.buffer` API 1.
+
+The selected implementation constructs native FIFO buffers and exposes them
+through the single public Buffer type in [](nupp.text.buffer.types). Constructor
+arguments are passed to the host library, including its options-table form.
+Native-only pointer and serialization facilities remain on `string.buffer`.
+
+The [](nupp.text.buffer) facade loads this adapter once and retains `new`
+directly. Requiring the adapter needs the host buffer library but allocates no
+individual buffer. Each call constructs an independent buffer whose explicit
+`free` operation and garbage collection follow the host library's lifetime.
+]]
 
 local native = require("string.buffer")
 local {type Buffer} = require("nupp.text.buffer.types")

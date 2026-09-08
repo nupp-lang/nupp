@@ -1,4 +1,26 @@
+@!internal
+
 module nupp.runtime.provider.nativehttp
+
+--[[
+Native HTTP transport implementation of `host.http` API 1.
+
+This module assembles clients and responses over the native HTTP transport in
+[](nupp.io.http.internal.transport). It supports streaming request and response
+bodies, transport and connection policy, and observable protocol versions; its
+`capabilities` result advertises those guarantees.
+
+Clients, responses, and body readers implement the shared contracts in
+[](nupp.runtime.services.http). Pending transfers participate in
+[](nupp.suspension), and source registrations are retained while a client has
+work. Closing resources releases transfers and source registrations; request
+bodies remain borrowed for the send operation and response bodies retain their
+transport resources until released.
+
+The [](nupp.io.http) facade selects this module at require-time. Native transport
+support must be packaged for the target. Resource methods call the retained
+transport directly and do not revisit the service registry.
+]]
 
 local suspension = require("nupp.suspension")
 local tasks = require("nupp.tasks")

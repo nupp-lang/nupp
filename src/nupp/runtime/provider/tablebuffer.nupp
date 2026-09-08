@@ -1,15 +1,23 @@
+@!internal
+
 module nupp.runtime.provider.tablebuffer
 
 --[[
-A `text.buffer` provider for targets with no LuaJIT buffer.
+Portable FIFO buffer implementation for `text.buffer` API 1.
 
-Appends are collected in an array and joined once, which is the portable way to
-build a string without rebuilding it on every append: `..` in a loop copies
-everything written so far each time round, and this copies it once at the end.
+Appends collect pieces and materialize a string when needed. Length is maintained
+explicitly, and consuming a prefix advances through pieces without rebuilding
+all unread bytes. Buffer operations preserve the shared
+[](nupp.text.buffer.types) interface, including chaining and FIFO consumption.
 
-FIFO reads consume the same pieces. Length is constant-time; consuming a prefix
-never rebuilds the remaining byte sequence. Pointer/serializer operations still
-require their own native capabilities.
+This implementation requires no FFI or native buffer library. On Lua 5.1 it
+requires newproxy to preserve the Buffer length operation. Constructor hints do
+not reserve native memory. Pointer access and native serialization are outside
+this portable surface and remain facilities of the native buffer library.
+
+The [](nupp.text.buffer) facade retains `new` at load time. Each constructed
+buffer owns its Lua pieces; `free` clears the retained contents, and subsequent
+operations follow the buffer's ordinary reset semantics.
 ]]
 
 const buffer = {}

@@ -1,40 +1,26 @@
+@!internal
+
 module nupp.runtime.provider.suspension
 
 --[[
-Waiting, as an operation with an installable handler.
+LuaJIT suspension and readiness-source implementation.
 
-A library that must wait performs `suspend` and does not decide how waiting
-happens. Where a handler is installed, a scheduler or a game frame, the handler
-answers; where none is, the built-in one drives the registered sources.
+The `suspension` API 1 contract is declared in
+[](nupp.runtime.services.suspension). This provider maintains ordered readiness
+sources and coroutine-local handler installations. Without a handler, waiting
+drives the registered sources; with one, `suspend` delegates parking while its
+Context records which sources may make progress.
 
-```nupp
-local suspension = nupp.suspension
+Subscriptions can resume synchronously. Waiting settles once, removes resume
+callbacks, and runs subscription cleanup on completion or cancellation. Source
+release and Installed cleanup preserve their non-suspending signatures. Nested
+handler installations restore the captured outer handler.
 
-local function waitUntil(ready: function(): boolean): nil
-    suspension.suspend("example.wait", function(
-        resume: function(boolean),
-        context: suspension.Context
-    ): function()
-        const source = context:source("example.wait", 50, function(): integer
-            if ready() then
-                resume(true)
-
-                return 1
-            end
-
-            return 0
-        end)
-
-        return function(): nil
-            source:release()
-        end
-    end)
-end
-```
-
-See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a caller writes, and
-[0005-suspension.md](docs/neps/0005-suspension.md) for why waiting is an
-operation rather than a second API.
+All public Source, Context, Waiting, Handler, and Installed values use the shared
+contract declarations. Cancellation values come from
+[](nupp.runtime.services.cancellation), so tasks and worker lanes recognize the
+same cancellation identity within a state. [](nupp.suspension) resolves this
+implementation at require-time; scheduling operations retain it directly.
 ]]
 
 local contract = require("nupp.runtime.services.suspension")

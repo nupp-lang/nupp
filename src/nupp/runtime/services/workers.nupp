@@ -1,5 +1,34 @@
 module nupp.runtime.services.workers
 
+--[[
+Typed structured-worker contract for `host.workers` API 1.
+
+Import `service` to select an implementation before requiring [](nupp.workers).
+A provider owns its lane scheduler, but uses the canonical Scope, PublicScope,
+ScopeToken, Task, and submitted-signature types declared here. Generic spawn must
+preserve the exact argument and result packs of the sendable function.
+
+Arguments and results cross isolated Lua states as copies. Only explicitly
+supported engine-backed affine owners move; arbitrary closures, pointers,
+coroutines, and Lua-owned affine resources cannot be copied as task arguments.
+Runtime validation must also reject unsupported value graphs that static types
+cannot exclude. A task's result count preserves embedded and trailing nil values.
+`await` returns that exact pack or raises failure/cancellation; `isDone` reports
+terminal settlement, `status` reports scheduler state, and `cancel` reports
+whether it made the first cancellation request.
+
+Scope cleanup settles all children, including those never awaited, before
+propagating unobserved failure. Cancellation uses
+[](nupp.runtime.services.cancellation). Blocking waits cooperate with the selected
+suspension implementation and must not acquire a new service during settlement.
+
+Before loading child consumers, initialize each lane from the artifact catalog,
+replay catalog-backed named selections, and require setup modules registered with
+`nupp.services.setupWorkers`. Capture that configuration before workers become
+active. Instances and Lua closures are never transferred; runtime-only
+registrations require explicit setup in the destination state.
+]]
+
 local services = require("nupp.services")
 local workers = {}
 
@@ -257,13 +286,31 @@ interface workers.PublicScope is workers.ScopeToken
     readonly drop: function(takes self: workers.PublicScope): nil
 end
 
+--- Complete worker implementation protocol, including structured-task integration.
+--- Implement generic spawn and ownership guarantees through the shared scope types.
 interface workers.Provider
+    --- Creates an affine structured scope that settles children during cleanup.
     readonly scope: function(): affine(workers.PublicScope)
+
+    --- Creates canonical scope state for task integration, with an optional
+    --- monotonic deadline and observer.
     readonly openScope: function(deadline: number?, observer: any): workers.Scope
+
+    --- Waits for a task and returns status, packed values, exact count, and problem.
+    --- Status is done, failed, or cancelled; cancellation preserves its shared
+    --- identity.
     readonly settle: function(task: any): (string, {any}?, integer, any)
+
+    --- Reports the scheduler's available worker parallelism.
     readonly parallelism: function(): integer
+
+    --- Runs provider scheduler progress using its retained lane state.
     readonly runScheduler: function(): nil
+
+    --- Associates an executable function with its module/member identity.
     readonly defineSendable: function(moduleName: string, member: string, fn: any): nil
+
+    --- Describes a submitted function and captures for destination-lane execution.
     readonly describeSendable: function(fn: any, moduleName: string, member: string, ...: any): any
 end
 
@@ -292,7 +339,9 @@ local service: services.Service<workers.Provider> = services.define("host.worker
     return shape(nupp.reflect(workers.Provider))
 end)
 
+--- Canonical host.workers API 1 handle; select before the workers facade loads.
 workers.service = service
+
 workers.Scope = workers.Scope
 
 export = workers

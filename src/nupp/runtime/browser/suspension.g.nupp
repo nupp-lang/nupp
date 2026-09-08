@@ -1,8 +1,24 @@
+@!internal
+
 module nupp.runtime.browser.suspension
 
--- Stock Lua 5.1 cannot yield through pcall. This provider implements the same
--- suspension contract with a direct browser-effect park, leaving the native
--- provider's protected C-boundary behavior unchanged.
+--[[
+Browser-effect implementation of the `suspension` API 1 contract.
+
+Parking yields through the browser effect channel. Subscription and handler
+execution avoid yielding across stock Lua 5.1 protected-call boundaries. Source
+polling, nested handler restoration, and subscription cleanup implement the same
+canonical records declared by [](nupp.runtime.services.suspension).
+
+A bounded activation budget returns control to the browser event loop so queued
+callbacks and cancellation can make progress. Resume settles a wait once;
+release removes registrations without suspending. Tasks and worker lanes use
+[](nupp.runtime.services.cancellation) for cancellation identity.
+
+The browser host must install its effect transport before consumers load
+[](nupp.suspension). Handler, source, and waiting state stays local to each Lua
+state, and scheduling operations never resolve the service again.
+]]
 
 local effects = require("nupp.runtime.browser.effects")
 local contract = require("nupp.runtime.services.suspension")

@@ -1,6 +1,24 @@
+@!internal
+
 module nupp.runtime.provider.scalarsimd
 
---[[Sixteen-lane scalar implementation of the confined SIMD vocabulary.]]
+--[[
+Sixteen-lane scalar implementation of the confined SIMD vocabulary.
+
+Vectors, lane masks, and 64-bit masks are ordinary Lua values backed by private
+method tables. Byte arithmetic wraps modulo 256. Loads and tail masks supply the
+same logical lane behavior used by the SIMD conformance vectors, including
+cross-word mask carries, table lookup, and byte alignment.
+
+This is the fixed runtime body used by [](nupp.simd), not a selectable service.
+That module binds these functions directly. The compiler may lower supported
+operations to target instructions while preserving the declared public types.
+Only the bit-operations module is acquired during initialization.
+
+Scalar values must remain within their public SIMD scope and bounds. A provider
+record here is an implementation representation, not a public vector identity or
+permission to retain a borrowed source beyond its lifetime.
+]]
 
 local provider = {lanes = 16}
 local bits = require("nupp.runtime.bitops")

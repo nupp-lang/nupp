@@ -1,3 +1,18 @@
 @!internal
 
 module nupp.runtime.provider
+
+--[[
+Built-in implementations of Nupp runtime service contracts.
+
+Application code imports the public facades; setup code imports the handles in
+[](nupp.runtime.services.contracts) or the individual host contract modules.
+The artifact catalog registers these implementation modules without requiring
+them. A facade's top-level assembly loads the selected implementation once.
+
+These modules are internal implementation details. Third-party providers target
+the public contract interfaces and shared types rather than depending on these
+records, native handles, helper functions, or module names. Each implementation
+owns only the resources described by its contract and initializes independently
+in every Lua state.
+]]

@@ -1,15 +1,25 @@
+@!internal
+
 module nupp.runtime.provider.lunajson
 
 --[[
-The `data.json` contract over Nupp's vendored pure-Lua Lunajson codec.
+Portable implementation of `data.json` API 2 using vendored Lunajson.
 
-Lunajson owns JSON parsing, Unicode handling, number validation, string escaping and
-encoding. This checked adapter supplies Nupp's explicit empty-container identities,
-projection, verified fragments and streaming-writer surface.
+The independent decoder and encoder factories require neither FFI nor the `io`
+library. Lunajson handles JSON syntax, Unicode, numbers, and escaping; this
+adapter supplies Nupp's array/object markers, projection, verified fragments,
+and the writer backed by the shared [](nupp.text.buffer.types) contract.
+
+Import through [](nupp.codec.json). The facade retains this provider's functions
+and marker objects for the lifetime of the loaded module. Markers and verified
+fragments belong to this implementation; values from a separately loaded codec
+must not be assumed to carry the same marker identity. `asArray` and `asObject`
+return the original table and preserve its ownership.
+
+Native serde compilation hooks are optional and are not supplied here. Portable
+encoding and decoding remain available without a native parser artifact.
 ]]
 
--- The package root eagerly loads its optional file-backed SAX parser. Use the
--- independent codec factories so this adapter needs no `io` library.
 local newDecoder = require(
     "nupp.runtime.vendor.lunajson.decoder"
 ) as function(): function(string, integer?, any?, boolean?): any

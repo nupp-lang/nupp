@@ -1,7 +1,23 @@
+@!internal
+
 module nupp.runtime.provider.scalarbitops
 
--- Portable BitOp-compatible 32-bit words. This is the deliberately slow host
--- provider; generated LuaJIT keeps using the VM's native operations.
+--[[
+Portable implementation of the `numeric.bitops` API 1 contract.
+
+Arithmetic over Lua numbers implements the signed 32-bit BitOp result convention,
+variadic conjunction/disjunction/exclusive-or, rotates, shifts, byte swapping,
+and hexadecimal formatting. Input normalization rounds finite values with ties
+to even and wraps to 32 bits; shift and rotate counts use their low five bits.
+
+This module needs no FFI, native bit library, or other service. It is suitable for
+stock Lua 5.1 and supplies portable conformance behavior. Its bit-by-bit loops
+prioritize portability over native instruction throughput.
+
+[](nupp.runtime.bitops) loads it during default assembly when appropriate and
+retains its function table. Calls perform arithmetic directly without service
+resolution or mutable provider selection.
+]]
 
 local MODULUS = 4294967296
 local SIGN = 2147483648

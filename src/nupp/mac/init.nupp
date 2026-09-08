@@ -12,10 +12,15 @@ export type Mac = context.Digest
 
 --- Immutable MAC metadata and a keyed context factory.
 export record Algorithm
+    --- Canonical authentication algorithm name.
     readonly name: string
+
+    --- Fixed authentication output size in bytes.
     readonly digestSize: integer
+
     private implementation: provider.Algorithm
 
+    --- Creates independent owned state initialized with the raw-byte key.
     function create(self, key: string): Mac
         return context.wrap(self.implementation:create(key), self.name, self.digestSize)
     end

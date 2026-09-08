@@ -1,6 +1,24 @@
+@!internal
+
 module nupp.runtime.provider.tablestruct
 
---[[Portable table implementation of the complete struct-value contract.]]
+--[[
+Reference-valued struct implementation using Lua tables.
+
+Scalar descriptors normalize fixed-width integers and round float fields to
+binary32. `define` combines a compiler-supplied layout with its method table;
+`array` creates element storage and references with the struct-value behavior
+required by generated portable code.
+
+The module reports `referenceValued = true`. It supplies ordinary portable
+struct operations when [](nupp.runtime.representation) has no physical storage
+implementation. It is not independently selected through SPI and does not
+provide native pointers or a linear-memory ABI.
+
+Descriptor and row identities remain local to the module's Lua state. Public
+struct types are owned by their declarations; providers implement their storage
+without introducing competing nominal types.
+]]
 
 local provider = {}
 provider.referenceValued = true

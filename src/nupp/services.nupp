@@ -1,7 +1,46 @@
 module nupp.services
 
--- Named implementations of a typed contract, owned by one Lua state. Resolve
--- services during module initialization and retain their returned implementations.
+--[[
+Typed service definitions and named implementations within one Lua state.
+
+A declaration module owns one invariant Service<T> handle. Register checked
+loaders or discover them through static package metadata; neither action executes
+a provider. Setup selects names before requiring consuming facades. Each facade
+assembles its implementation during top-level initialization and retains its
+actual methods for direct calls.
+
+```nupp
+local services = require("nupp.services")
+interface Codec
+    readonly encode: function(value: string): string
+end
+local service: services.Service<Codec> = services.define("example.codec", 1)
+service:register("plain", function(): Codec
+    return {encode = function(value: string): string return value end}
+end)
+service:select("plain")
+local codec = service:require()
+assert(codec.encode("hello") == "hello")
+```
+
+The variable annotation supplies generic inference. Service<T> is invariant:
+register accepts T while lookup returns T, so a handle cannot be reassigned to a
+different provider interface. Import canonical handles rather than redefining an
+existing ID. Provider exports may have extra members, but their required members,
+generics, ownership, and suspension behavior must satisfy the declared contract.
+
+Successful named loads are cached by name. Unnamed resolution fixes the default
+selection, including optional absence. Failed loads are not cached as successful
+values; diagnostics include provider identity and dependency cycles. Named lookup
+does not itself select or freeze the default. All state is local to one Lua state.
+
+Use assembly only while requiring a facade, then call retained operations.
+Applications must not perform service lookups in hot calls or resource cleanup.
+Worker configuration carries catalog names and setup modules, never provider
+instances or captured closures. See
+[Service Providers](docs/learn/projects/service-providers.md) for packaging and
+setup module examples.
+]]
 
 const _DYNAMIC_PROVIDERS = "@requires-dynamically nupp.runtime.services.* @requires-dynamically nupp.runtime.provider.* @requires-dynamically nupp.runtime.browser.* @requires-dynamically nupp.codec.json.aot"
 local builtin = require("nupp.runtime.services.catalog")
@@ -20,6 +59,8 @@ local workerSetups: {string} = {}
 local workerSetupNames: {[string]: boolean} = {}
 local workerInitialization: string?
 
+--- Runtime field-shape entry derived from a canonical provider interface.
+--- Kinds use the reflected type vocabulary and may include nil for optional fields.
 export interface Member
     name: string
     kinds: {string}
@@ -59,10 +100,19 @@ local function validate(id: string, members: {Member}?, value: any): nil
     end
 end
 
---- A named, versioned module contract and its registered implementations.
+--- A named, versioned contract with checked lazy loaders and cached values.
+---
+--- Define this once in a declaration module. Registration and selection are setup
+--- operations; resolve during a facade's require-time initialization. The default
+--- freezes after successful resolution, while named implementations retain their
+--- independent cached identities.
 export record Service<T>
+    --- Stable service identity shared with catalog declarations.
     readonly id: string
+
+    --- Positive contract API version required of every registered catalog entry.
     readonly api: integer
+
     private loaders: {[string]: function(): T}
     private values: {[string]: T}
     private active: {[string]: boolean}
@@ -74,7 +124,11 @@ export record Service<T>
     private defaultLoader: (function(): T?)?
     private checkImplementation: (function(T): nil)?
 
-    --- Registers a provider without loading it.
+    --- Registers a checked loader without executing it.
+    ---
+    --- Names are unique within this handle. Registration does not select a default.
+    --- A successful named load runs the loader once and caches its result; a failed
+    --- load may be retried. Additional registration cannot change a frozen default.
     --- @raises when the name is empty or already registered
     function register(self: Service<T>, name: string, loader: function(): T): nil
         if name == "" then
@@ -86,7 +140,12 @@ export record Service<T>
         self.loaders[name] = loader
     end
 
-    --- Selects the implementation a module's unnamed lookup will resolve.
+    --- Chooses the name used by unnamed resolution.
+    ---
+    --- Selection may precede registration. An absent selected name fails when the
+    --- facade resolves; it does not fall back to a built-in default. Before
+    --- resolution, another select may replace the choice. Once resolution starts,
+    --- reselection is rejected, including from a provider's own loader.
     --- @raises when the service is already resolving or resolved
     function select(self: Service<T>, name: string): nil
         if self.resolved or self.resolving then
@@ -98,7 +157,10 @@ export record Service<T>
         self.selected = name
     end
 
-    --- Lists provider names without executing their loaders.
+    --- Returns a fresh, sorted list of registered provider names.
+    ---
+    --- Listing executes no loader and does not select or freeze the default.
+    --- The result includes catalog registrations even if none has been loaded.
     function list(self: Service<T>): {string}
         local names: {string} = {}
         for name in pairs(self.loaders) do
@@ -109,7 +171,16 @@ export record Service<T>
         return names
     end
 
-    --- Resolves a named provider or the default implementation.
+    --- Loads a named implementation or resolves the unnamed default.
+    ---
+    --- A missing explicit name returns nil without freezing the default. An
+    --- unnamed call uses the selected name or facade default, validates the value,
+    --- and freezes that outcome, including nil. A selected name that is absent is
+    --- an error. Cached successful values retain identity on subsequent lookups.
+    ---
+    --- Load and validation failures clear the in-progress state and may be retried.
+    --- Runtime shape validation complements static typing; it cannot prove a Lua
+    --- function's ownership, suspension, or behavioral guarantees.
     --- @raises when a selected provider is absent, cyclic, or fails to load
     function lookup(self: Service<T>, name: string?): T?
         if name ~= nil then
@@ -196,14 +267,23 @@ export record Service<T>
         return value
     end
 
-    --- Assembles a facade's default implementation unless setup selected a name.
+    --- Resolves a required facade with explicit selection taking precedence.
+    ---
+    --- Call once in module top-level code and retain the result. defaultLoader
+    --- performs ordinary host checks and method assembly. checkImplementation
+    --- validates representation or other semantic requirements before publication.
+    --- A previously resolved value is checked against a newly supplied validator.
     --- @raises when the service cannot resolve an implementation
     function assemble(self: Service<T>, defaultLoader: function(): T, checkImplementation: (function(T): nil)?): T
         self:assembleOptional(defaultLoader, checkImplementation)
         return self:require()
     end
 
-    --- Assembles an optional facade and freezes absence as well as presence.
+    --- Resolves an optional facade and freezes absence as well as presence.
+    ---
+    --- defaultLoader may return nil when this host has no implementation. Explicit
+    --- selection still requires that named provider to exist. Later registration
+    --- does not turn a successfully resolved absence into an implementation.
     function assembleOptional(
         self: Service<T>,
         defaultLoader: function(): T?,
@@ -219,7 +299,10 @@ export record Service<T>
         return self:lookup()
     end
 
-    --- Resolves an implementation that must be present.
+    --- Returns a cached or newly loaded implementation that must be present.
+    ---
+    --- Uses lookup's named/default rules, then rejects nil. Named require does not
+    --- choose the default. Retain the result at module load time for direct calls.
     --- @raises when no implementation is available or its loader fails
     function require(self: Service<T>, name: string?): T
         local value = self:lookup(name)
@@ -232,6 +315,15 @@ export record Service<T>
 end
 
 --- Defines the unique handle owned by a service's declaration module.
+---
+--- id is nonempty and api is a positive integer. T is inferred from the receiving
+--- Service<T> annotation or loader. defaultLoader is optional; a facade can supply
+--- assembly later. members describes runtime field kinds derived from the canonical
+--- interface. Extra provider members are permitted.
+---
+--- Matching catalog entries register loaders after checking service API and target
+--- compatibility. Loading one verifies that its contract module exports this exact
+--- handle. Definition itself never requires an implementation module.
 --- @raises when the identity or API version is invalid or already defined
 export function define<T>(id: string, api: integer, defaultLoader: (function(): T?)?, members: {Member}?): Service<T>
     if id == "" or api < 1 or api % 1 ~= 0 then
@@ -281,13 +373,20 @@ export function define<T>(id: string, api: integer, defaultLoader: (function(): 
     return service
 end
 
---- The artifact target fixes its runtime representations.
+--- Returns the artifact's fixed target dialect.
+---
+--- Facades may use this for ordinary default assembly and representation checks.
+--- Changing provider names cannot change the dialect or generated calling convention.
 export function dialect(): string
     return targetDialect
 end
 
---- Registers a module that initializes providers in each child worker state.
---- Include the setup module in the artifact's entry modules.
+--- Registers an ordinary setup module for every child worker state.
+---
+--- Include the module in the artifact's entry modules. It must register/select
+--- providers before requiring their consumers. Repeated names are deduplicated in
+--- registration order. Call before loading the workers facade, which captures and
+--- freezes initialization. Runtime-only registrations must be recreated by setup.
 --- @raises when the module name is invalid or worker initialization is fixed
 export function setupWorkers(moduleName: string): nil
     if workerInitialization ~= nil then
@@ -302,7 +401,14 @@ export function setupWorkers(moduleName: string): nil
     end
 end
 
---- Captures loadable setup modules and catalog-backed selections for child states.
+--- Captures child initialization as loadable setup and catalog selections.
+---
+--- This is the worker-provider integration point. The first call fixes the setup
+--- list, then emits setup requires followed by catalog-backed named selections in
+--- service-ID order. Each destination runs it before loading consumer modules.
+--- Repeated calls return the same configuration; no provider objects or closures
+--- cross the lane boundary. An explicit setup module must recreate runtime-only
+--- selections that the artifact catalog cannot name.
 --- @raises when a runtime-only selection has no explicit worker setup
 export function workerConfiguration(): string
     if workerInitialization ~= nil then

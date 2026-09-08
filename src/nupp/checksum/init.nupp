@@ -19,11 +19,22 @@ const provider = require("nupp.runtime.services.checksum")
 
 --- Owned incremental checksum state with non-consuming numeric reads.
 export affine interface Checksum is nupp.Closeable
+    --- Consumes this context and releases its provider state without suspension.
     terminal close: nosuspend function(takes self: Checksum): nil
+
+    --- Returns the canonical algorithm name.
     algorithm: function(self: Checksum): string
+
+    --- Returns the number of meaningful bits in each snapshot.
     width: function(self: Checksum): integer
+
+    --- Processes raw bytes while retaining no input views.
     update: function(exclusive self: Checksum, bytes: string): nil
+
+    --- Processes a borrowed byte view without retaining it.
     updateSpan: function(exclusive self: Checksum, borrows bytes: span.ByteSpan): nil
+
+    --- Returns an unsigned snapshot without consuming this context.
     value: function(self: Checksum): uint64
 end
 
@@ -60,10 +71,15 @@ end
 
 --- Checksum metadata and a factory for independent state.
 export record Algorithm
+    --- Canonical algorithm name.
     readonly name: string
+
+    --- Number of meaningful checksum bits, from one through 64.
     readonly width: integer
+
     private implementation: provider.Algorithm
 
+    --- Creates independent owned state for incremental updates and snapshots.
     function create(self): Checksum
         return new Context(state = self.implementation:create(), name = self.name, bits = self.width)
     end

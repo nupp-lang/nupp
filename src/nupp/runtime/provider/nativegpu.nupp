@@ -1,5 +1,25 @@
 @!internal
 module nupp.runtime.provider.nativegpu
+
+--[[
+Native resident-compute implementation of `host.gpu` API 1.
+
+`open` creates a device context through [](nupp.runtime.native). The artifact
+must carry the native GPU feature and a compatible host driver. Generated shader
+artifacts, layout facts, buffer counts, and binding offsets are checked before
+dispatch; this module does not choose the compiler's target representation.
+
+Context, buffer, kernel, and binding operations implement [](nupp.gpu.api).
+Provider records retain native handles privately while exported values preserve
+the canonical public identities and context borrows. The affine context uses the
+shared `destroyContext` cleanup contract; explicit release and context teardown
+must not leave dependent handles usable.
+
+Applications require [](nupp.gpu), which resolves the provider once and exports
+its `open` function directly. Uploads, dispatches, synchronization, and readback
+operate on the retained context without further service resolution.
+]]
+
 local native = require("nupp.runtime.native")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
 local span = require("nupp.mem.span")

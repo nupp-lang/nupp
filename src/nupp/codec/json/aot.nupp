@@ -2,10 +2,24 @@
 
 module nupp.codec.json.aot
 
--- The production JSON provider. Decoding is generated C from three SIMD parser
--- entries with compile-time eager, pull, and serde builder contracts; the
--- remaining API is authored Nupp and has no C++
--- boundary or simdjson dependency.
+--[[
+Native AOT implementation of the `data.json` API 2 contract.
+
+Eager, projected, and serde decoders use generated native parser entries. The
+remaining JSON surface is implemented here: markers, encoding, verified
+fragments, buffered writing, and schema preparation. This module requires the
+packaged native parser artifacts, native bit operations, and the shared buffer
+facade; portable payloads must select a compatible codec instead.
+
+Marker objects and schema state belong to this provider instance. `asArray` and
+`asObject` preserve table identity and ownership. Malformed input raises a
+byte-positioned diagnostic; serde entry points return the contract's value/error
+pair and honor their unknown-member policy.
+
+[](nupp.codec.json) resolves the codec at module initialization. Its public values
+and generic ownership signatures come from the canonical service declaration,
+and hot parser and writer calls do not query SPI.
+]]
 
 local eagerDecoder = require("nupp.codec.json.internal.decoder.eager")
 local pullDecoder = require("nupp.codec.json.internal.decode")

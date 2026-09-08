@@ -1,7 +1,22 @@
+@!internal
+
 module nupp.runtime.browser.time
 
--- Checked projection of Worker clocks and timers. Each operation crosses the
--- suspension boundary once; no clock probe occurs in ordinary compute code.
+--[[
+Browser Worker clocks and timers for `host.time` API 1.
+
+`now` returns monotonic milliseconds from the Worker time origin; `wallTime`
+returns Unix milliseconds. Clock reads and sleeps use the shared response channel
+and may suspend. Sleeps and deadlines reject non-finite or negative values.
+
+`wakeAt` submits an absolute monotonic deadline without suspending the subscriber.
+Its callback receives whether the host completed without an error, and its
+returned cancellation function cancels the outstanding request. `sleepUntil`
+computes the remaining interval using the same monotonic clock.
+
+[](nupp.time) binds these operations at require-time. Timer handles and callbacks
+belong to the current browser state and are not carried into worker lanes.
+]]
 
 local response = require("nupp.runtime.browser.response")
 local contracts = require("nupp.runtime.services.contracts")

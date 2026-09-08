@@ -1,6 +1,23 @@
+@!internal
+
 module nupp.runtime.provider.nativetime
 
---[[Monotonic clocks and timers supplied by the native host.]]
+--[[
+Native clocks and cancellable timers for `host.time` API 1.
+
+`now` reports monotonic milliseconds and `wallTime` reports Unix milliseconds.
+Relative sleeps and absolute deadlines must be finite and non-negative. Waiting
+uses the selected suspension implementation so an installed scheduler can park
+instead of blocking its Lua state.
+
+`wakeAt` registers a callback and returns a non-suspending cancellation function.
+The timer readiness source runs at priority 20, ahead of I/O. At most 4,096 timer
+registrations may be pending; cancellation releases a registration without
+waiting for its deadline. State and callbacks are local to one Lua state.
+
+The [](nupp.time) facade retains these functions during module loading. Native
+clock support and [](nupp.suspension) must be available before it resolves.
+]]
 
 local native = require("nupp.runtime.native")
 local suspension = require("nupp.suspension")

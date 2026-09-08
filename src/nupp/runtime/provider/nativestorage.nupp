@@ -1,7 +1,26 @@
 @!internal
 module nupp.runtime.provider.nativestorage
 
--- Native allocations and byte views use the target pointer representation.
+--[[
+LuaJIT FFI implementation of `representation.cstorage` API 1.
+
+Allocations, casts, scalar descriptors, and struct layouts use native pointers
+and the target ABI. The published representation is `native`; byte codecs use
+native scalar layout and byte order. This implementation cannot serve a target
+compiled for linear-memory offsets.
+
+The [](nupp.runtime.representation) facade validates the representation before
+publishing it. Borrowed string pointers and casts retain the source lifetime in
+the canonical signatures; a provider must not turn a borrowed view into an owner.
+Copies and fills operate on the caller's bounded regions and do not allocate a
+replacement destination.
+
+FFI owns allocated cdata. Raw pointer operations require valid extents from the
+caller; `boundedCount` preserves the requested count without discovering native
+pointer bounds. Applications use
+public memory and buffer APIs rather than depending on these FFI objects.
+]]
+
 export const representation = "native"
 local ffi = require("ffi")
 
