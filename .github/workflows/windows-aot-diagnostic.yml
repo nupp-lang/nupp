@@ -10,6 +10,10 @@ permissions:
   actions: read
 jobs:
   reproduce:
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [1, 2, 3, 4]
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -27,6 +31,7 @@ jobs:
       - name: Run the captured library
         shell: pwsh
         run: |
+          Get-CimInstance Win32_Processor | Select-Object Name
           $locations = @('C:\mingw64\bin', 'C:\msys64\ucrt64\bin', 'C:\msys64\mingw64\bin', 'C:\Program Files\Git\mingw64\bin')
           foreach ($location in $locations) {
             if (Test-Path $location) { $env:PATH = "$location;$env:PATH" }
@@ -43,7 +48,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: windows-aot-reproduction
+          name: windows-aot-reproduction-${{ matrix.replica }}
           path: |
             diagnostics/*.log
             diagnostics/*.txt
