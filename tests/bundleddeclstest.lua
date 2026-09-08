@@ -70,11 +70,36 @@ end
 
 local M = {}
 
+function M.projectedUuidUsesSelectedProviderWithoutNativeCompilerServices()
+    local backends = require("nupp.compiler.backends")
+    local descriptor = assert(backends.describe("browser-uuid", {["data.uuid"] = "nupp.runtime.browser.crypto",}))
+    local resolution = {modules = {descriptor}, seams = {}, byEffect = {}}
+    for _, seam in ipairs(descriptor.seams) do
+        resolution.seams[seam.name] = seam
+    end
+    local env = envMod.new(".", {
+        memoryOnly = true,
+        nativeCompilerServices = false,
+        backendResolution = resolution,
+        typeRoots = {},
+    })
+    local uuid = assert(env.resolveModule(env, "nupp.uuid"))
+    local provider = assert(env.resolveModule(env, "nupp.runtime.browser.crypto"))
+    assertEq(uuid.byname.v4, provider.byname.uuid4, "v4 uses the selected provider signature")
+    assertEq(uuid.byname.v7, provider.byname.uuid7, "v7 uses the selected provider signature")
+    assertEq(uuid.byname.randomBytes, nil, "unprojected provider members stay private")
+    local exports = assert(env.resolveModuleExports(env, "nupp.uuid"))
+    assertEq(exports.values.v4, uuid.byname.v4, "module and export resolution agree")
+    assertEq(rawget(env.bundled, "nupp.runtime.native"), nil, "the native implementation was not loaded")
+end
+
 -- What `pcall` hands back on failure is whatever was raised, so the error slot is
 -- `unknown`: an unguarded read of it cannot launder into a typed binding, while
 -- the correlated `ok` test still reveals the callee's own results.
 function M.pcallErrorSlotIsUnknown()
-    assertEq(diagsUnderPrelude([[
+    assertEq(
+        diagsUnderPrelude(
+            [[
 local function g(): integer
     error("boom")
 end
@@ -88,7 +113,10 @@ end
 local ok2, v2 = pcall(g)
 local m: integer = v2
 print(ok2, m)
-]]), "NUPP2001:12")
+]]
+        ),
+        "NUPP2001:12"
+    )
 end
 
 -- An iterator function answers nil once it runs out, and `string.gmatch`'s answers
@@ -96,14 +124,21 @@ end
 -- `for ... in` loop runs its body only while the first value is not nil, which is
 -- why the loop variables are exactly what an iteration holds.
 function M.manualIteratorCallsAreOptionalWhereLoopsAreNot()
-    assertEq(diagsUnderPrelude([[
+    assertEq(
+        diagsUnderPrelude(
+            [[
 local lines = io.lines("x")
 local line: string = lines()
 local matches = ("a=1"):gmatch("(%a+)=(%d+)")
 local key: string, value: string = matches()
 print(line, key, value)
-]]), "NUPP2001:2 NUPP2001:4 NUPP2001:4")
-    assertEq(diagsUnderPrelude([[
+]]
+        ),
+        "NUPP2001:2 NUPP2001:4 NUPP2001:4"
+    )
+    assertEq(
+        diagsUnderPrelude(
+            [[
 for line in io.lines("x") do
     local s: string = line
     print(s)
@@ -116,13 +151,18 @@ for key, value in ("a=1"):gmatch("(%a+)=(%d+)") do
     local k: string, v: string = key, value
     print(k, v)
 end
-]]), "")
+]]
+        ),
+        ""
+    )
 end
 
 -- A metatable the receiver declared nothing for still has the fields Lua reads:
 -- `__index` is a table or a function, and it may be absent.
 function M.aMetatableExposesItsIndexHandlers()
-    assertEq(diagsUnderPrelude([[
+    assertEq(
+        diagsUnderPrelude(
+            [[
 local t = setmetatable({}, {__metatable = "locked"})
 local mt = getmetatable(t)
 if mt then
@@ -133,18 +173,24 @@ if mt then
     local n: integer = mt.__index
     print(n)
 end
-]]), "NUPP2001:8")
+]]
+        ),
+        "NUPP2001:8"
+    )
 end
 
 -- A computed module name is a boundary nothing declared, so a strict file gets
 -- `unknown` back and has to narrow or cast before reading anything from it.
 function M.aDynamicRequireIsUnknownUnderStrict()
-    assertEq(diagsUnderPrelude([[
+    assertEq(
+        diagsUnderPrelude([[
 local name: string = "os"
 local m = require(name)
 local s: string = m.nothing
 print(s)
-]]), "NUPP2004:3")
+]]),
+        "NUPP2004:3"
+    )
 end
 
 function M.everyBundledDeclarationResolvesUnderStrict()
