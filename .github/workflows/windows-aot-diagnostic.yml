@@ -35,7 +35,7 @@ jobs:
           & $gcc --version
           foreach ($tier in @('baseline', 'avx2', 'avx512f')) {
             $source = "diagnostics/simd-tail-$tier.c"
-            $content = (Get-Content $source -Raw).Replace('__attribute__((optimize("O0")))', '__attribute__((optimize("O1", "no-tree-vectorize", "no-tree-slp-vectorize")))')
+            $content = (Get-Content $source -Raw).Replace('__attribute__((optimize("O0")))', '__attribute__((optimize("O0"), target("no-avx")))')
             $footer = "simd-tail-$tier.c"
             if ($content.EndsWith($footer)) { $content = $content.Substring(0, $content.Length - $footer.Length) }
             Set-Content $source $content
@@ -81,3 +81,4 @@ jobs:
             diagnostics/*.log
             diagnostics/*.txt
             diagnostics/*.dmp
+            diagnostics/patched_aot.dll
