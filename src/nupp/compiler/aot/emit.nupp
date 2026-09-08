@@ -1446,16 +1446,17 @@ function emit.includes(): {string}
         "#define KS_COLD",
         "#define KS_UNLIKELY(cond) (cond)",
         "#endif",
-        "/* The test-only scalar oracle must not be vectorized back into the thing",
-        " * it exists to be compared against. Clang spells that `optnone`; GCC has",
-        " * no such attribute and warns about the one it does not know, so it gets",
-        " * the equivalent it does have. */",
+        "/* Scalar oracles keep their arithmetic unoptimized. GCC x86 oracles",
+        " * exclude AVX instructions from aggregate copies so stack temporaries",
+        " * require only the alignment guaranteed by the platform ABI. */",
         "#if defined(__clang__)",
-        "#define KS_OPTNONE __attribute__((optnone))",
+        "#define KS_SCALAR_ORACLE __attribute__((optnone))",
+        "#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))",
+        "#define KS_SCALAR_ORACLE __attribute__((optimize(\"O0\"), target(\"no-avx\")))",
         "#elif defined(__GNUC__)",
-        "#define KS_OPTNONE __attribute__((optimize(\"O0\")))",
+        "#define KS_SCALAR_ORACLE __attribute__((optimize(\"O0\")))",
         "#else",
-        "#define KS_OPTNONE",
+        "#define KS_SCALAR_ORACLE",
         "#endif",
         "/* A count that came in as a uint32_t can only overflow the byte product",
         " * where size_t is no wider than it is. On a 64-bit size_t the comparison",
@@ -5930,7 +5931,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                     -- The block may declare locals before its first loop, so a
                     -- loop pragma cannot be placed at function entry. Keep this
                     -- test-only oracle wholly scalar instead.
-                    lines[#lines + 1] = "KS_OPTNONE"
+                    lines[#lines + 1] = "KS_SCALAR_ORACLE"
                 end
                 lines[#lines + 1] = "__attribute__((noinline))"
                 lines[#lines + 1] = "KS_API " .. cResult .. " " .. symbol .. "(" .. params .. ") {"

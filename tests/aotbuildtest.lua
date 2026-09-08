@@ -2495,10 +2495,16 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         return
     end
 
+    local artifacts = os.getenv("NUPP_TEST_AOT_ARTIFACTS")
     local function trace(phase)
         if os.getenv("NUPP_TEST_AOT_TRACE") then
             io.stderr:write("AOT packed bytes: " .. phase .. "\n")
             io.stderr:flush()
+            if artifacts then
+                local file = assert(io.open(artifacts .. "/simd-tail-phase.txt", "ab"))
+                file:write(phase, "\n")
+                file:close()
+            end
         end
     end
 
@@ -2510,11 +2516,11 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local out, code = build(dir)
     test.equal(code, 0, out)
 
-    local artifacts = os.getenv("NUPP_TEST_AOT_ARTIFACTS")
     if artifacts then
         local function save(name, bytes)
             local file = assert(io.open(artifacts .. "/" .. name, "wb"))
-            file:write(assert(bytes, name))
+            assert(bytes, name)
+            file:write(bytes)
             file:close()
         end
 
@@ -2564,6 +2570,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     )
     trace("tail comparisons")
     for count = 0, 40 do
+        trace("tail length " .. count)
         local source = ffi.new("uint8_t[?]", math.max(count, 1))
         local expected = 0
         for i = 0, count - 1 do
