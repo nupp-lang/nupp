@@ -517,6 +517,29 @@ function M.internalModulesEnforcePackageBoundaries()
     )
 end
 
+function M.targetOutputSourcesStayOutsideTheProjectIndex()
+    withProject(
+        {
+            ["main.nupp"] = "module main\nexport const value: integer = 1\n",
+            ["out/cache/runtime-source/generated.nupp"] = "export const value: integer = 2\n",
+        },
+        function(dir)
+            local config = {
+                include = {"."},
+                build = {default = "app", outDir = "common", targets = {app = {outDir = "out"}}},
+            }
+            local env = envMod.new(dir, {config = config})
+            assertEq(envMod.outDir(env), dir .. "/out", "the default target owns its output")
+            local files = envMod.listProjectFiles(env)
+            assertEq(#files, 1, "staged runtime sources are not project source")
+            assertEq(files[1], dir .. "/main.nupp")
+            config._target = {outDir = "selected"}
+            local selected = envMod.new(dir, {config = config})
+            assertEq(envMod.outDir(selected), dir .. "/selected", "an explicit target controls indexing")
+        end
+    )
+end
+
 function M.moduleWithChildrenRequiresInitSource()
     withProject(
         {

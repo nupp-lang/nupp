@@ -789,7 +789,7 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
         {
             "--- @namespace lib",
             "local lib: {",
-            "   codec: {",
+            "   data: {",
             "      --- Encodes a value.",
             "      encode: function(value: any): string",
             "   },",
