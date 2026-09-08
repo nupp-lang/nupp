@@ -37,6 +37,7 @@ local MODULES = {
     ["nupp.text.utf8"] = {kind = "common"},
     ["nupp.derive"] = facility("runtime", "runtime.text_buffer"),
     ["nupp.gpu"] = facility("runtime", "runtime.gpu"),
+    ["nupp.browser.gpu"] = facility("runtime", "runtime.browser_gpu"),
     ["nupp.gpu.internal"] = {kind = "common"},
     ["nupp.digest.internal.streaming"] = facility("runtime", "runtime.bitops"),
     ["nupp.gpu.layoutfacts"] = {kind = "common"},

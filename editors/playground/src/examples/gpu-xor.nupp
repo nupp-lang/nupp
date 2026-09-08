@@ -2,11 +2,10 @@
 -- Worker. Each input word becomes one invocation; the shader xors it with the
 -- mask, then the Worker copies the result back before `xorU32` returns.
 --
--- The first browser GPU profile uses uint32 values so its CPU and GPU meanings
--- agree bit-for-bit. It is deliberately a small runnable step toward the
--- compiler-emitted @aot(target = "gpu") backend.
+-- The browser operation uses uint32 values so its CPU and GPU meanings
+-- agree bit-for-bit.
 
-local gpu = require("nupp.gpu")
+local gpu = require("nupp.browser.gpu")
 
 local u32 = nupp.math.u32.wrap
 local input: {uint32} = {u32(0x00000000), u32(0x00ff00ff), u32(0x12345678), u32(0xffffffff),}

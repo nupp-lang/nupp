@@ -90,8 +90,8 @@ intrinsic namespaces and the declared modules:
 - [](nupp.mem.pool) leases cleared record instances from a free list, and
   [](nupp.mem.arena) leases zero-filled struct rows from pages that never move.
 - [](nupp.gpu) owns resident buffers, generated kernel dispatches, and
-  tensor views; its browser provider also supplies the bounded `xorU32`
-  convenience operation. [](nupp.gpu.layout) owns the checked layout algebra.
+  tensor views. [](nupp.gpu.layout) owns the checked layout algebra.
+  [](nupp.browser.gpu) supplies the bounded browser `xorU32` operation.
 - [](nupp.random) owns deterministic pseudo-random sequences with explicit,
   serializable state.
 - [](nupp.suspension), [](nupp.tasks), and [](nupp.workers) provide waiting,
