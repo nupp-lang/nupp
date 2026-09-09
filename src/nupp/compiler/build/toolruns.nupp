@@ -97,13 +97,20 @@ function toolruns.processors(): integer
 end
 
 --- The width to run `jobs` external compilations at.
+---
+--- `NUPP_AOT_JOBS` overrules it, which is what a machine sharing its processors
+--- with something else wants, and what a measurement of the bound needs.
 function toolruns.width(jobs: integer): integer
     if windows or jobs <= 1 then
         return 1
     end
-    local processors = toolruns.processors()
+    local asked = tonumber(os.getenv("NUPP_AOT_JOBS") or "")
+    local bound = asked ~= nil and math.floor(asked as number) or toolruns.processors()
+    if bound < 1 then
+        bound = 1
+    end
 
-    return jobs < processors and jobs or processors
+    return jobs < bound and jobs or bound as integer
 end
 
 local function readAll(path: string): string

@@ -262,3 +262,38 @@ without a higher-tier flag. Changing compilers relinks; rebuilding an unchanged
 project does not. The C itself is deliberately not keyed on the toolchain,
 because the C is the same C whoever compiles it. The library is validated the same
 way and is just as disposable, so deleting it costs one relink.
+
+## Object reuse
+
+Every object file carries a key of its own, over its translation unit's artifact
+key, its feature tier, what the C compiler said about itself, and every flag it
+was given. The library key says a link is owed; the object keys say which objects
+it is owed for. Editing one `@aot` body therefore compiles that body's objects --
+one per feature tier where a target has several -- and relinks, rather than
+compiling everything the library contains. Adding a project flag through
+`aotCflags` compiles all of them, because the flag is in every object's key even
+though it is in no artifact's.
+
+Objects are validated the way artifacts are: the key is compared and then the
+file it names has to still be there, so a deleted object is compiled again rather
+than believed. A Wasm policy keys its side modules the same way, over the
+generated source, the tier, Emscripten's identity and the flags, and compiles
+only the ones that moved.
+
+Objects that have to be compiled are compiled side by side, at most one per
+processor. `NUPP_AOT_JOBS` sets that bound directly, for a machine that is
+sharing its processors with something else. Order does not depend on the width:
+a build that refuses generated C reports the first unit in emission order that
+the compiler refused, whichever process happened to finish first.
+
+An unchanged build starts no external process at all -- not even to ask a
+compiler its version. The version text is what an object is keyed on, so a build
+records it beside the path and length of the executable that said it, and
+believes it again while those still describe what is there. A compiler replaced
+with an executable of a different length is seen. One replaced with an executable
+of exactly the same length, or reached through a launcher that dispatches
+elsewhere, is not: an unchanged project keeps the library it already has until
+something else about it changes, and the next change re-reads the version and
+recompiles every object under it. `build --json` reports what a build reused,
+what it compiled, and how many external processes its ahead-of-time policy
+started, so "no compiler ran" is a number rather than an absence.
