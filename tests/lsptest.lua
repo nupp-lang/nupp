@@ -377,16 +377,28 @@ function M.positionsAgreeWithAScanFromTheStart()
     )
 end
 
--- A session started against "." answered a document reached by its absolute path by
--- walking up from that path, finding the working directory's own manifest, and
--- building a second graph of the same project under the absolute spelling.
+-- A session started against a relative root answered a document reached by its
+-- absolute path by walking up from that path, finding the same manifest the
+-- root names, and building a second graph of the same project under the
+-- absolute spelling.
+--
+-- The relative root was "." -- this repository -- which meant enumerating a
+-- thousand sources to ask about one invented line, and made this the longest
+-- case left in the suite. A probe project of its own is the same shape: a
+-- relative root, a manifest reached by walking up from an absolute path, and a
+-- document sitting under the project directory but outside every include root
+-- it declares. It lives under `build`, which no other suite reads and `nupp
+-- clean` removes.
 function M.anAbsolutePathUnderARelativeRootReusesItsGraph()
     local pwd = assert(io.popen("pwd")):read("*l")
-    local dir = pwd .. "/tests/lsp-root-probe"
+    local relative = "build/lsp-root-probe"
+    local dir = pwd .. "/" .. relative
     os.execute("rm -rf '" .. dir .. "'")
+    writeInto(dir, "nupp.lua", 'return {include = {"src"}}\n')
+    writeInto(dir, "src/inside.nupp", "local inside = {}\n\nreturn inside\n")
     writeInto(dir, "probe.nupp", "local value = 1\nreturn value\n")
     local host = stubHost()
-    local client = inProcessSession(".", host)
+    local client = inProcessSession(relative, host)
     client.dispatch({jsonrpc = "2.0", id = 1, method = "initialize", params = {}})
     local uri = "file://" .. dir .. "/probe.nupp"
     client.dispatch({
@@ -405,7 +417,7 @@ function M.anAbsolutePathUnderARelativeRootReusesItsGraph()
     local answer = client.answer(2)
     os.execute("rm -rf '" .. dir .. "'")
     assert(
-        answer.result and answer.result.root == ".",
+        answer.result and answer.result.root == relative,
         "the relative root answers for its absolute paths: " .. json.encode(answer)
     )
 end
