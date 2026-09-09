@@ -1150,13 +1150,13 @@ end
 -- without a word — which then surfaced three steps later as an ownership error.
 --
 -- Four claims are made about that surface, and each of them used to stand up a
--- project of its own and pay again for compiling it: six `check` invocations
--- across four temporary projects, of which the two about workers alone cost more
--- than every other bundle case in this file put together. The surface is the
--- fixture, so it is prepared once. One project holds a file per claim, one strict
--- check of the whole project answers all of them at once, and each assertion
--- names the file it is about, so a failure still says which claim broke and which
--- project to look in.
+-- project of its own and pay again for compiling it: five checks and a run
+-- across four temporary projects, of which the two checks about workers alone
+-- cost more than every other bundle case in this file put together. The surface
+-- is the fixture, so it is prepared once. One project holds a file per claim,
+-- one strict check of the whole project answers all of them at once, and each
+-- assertion names the file it is about, so a failure still says which claim
+-- broke and which project to look in.
 local STD_MANIFEST = 'return {include = {"."}}\n'
 
 --- Whether the report says `code` about `file`.
