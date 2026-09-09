@@ -88,12 +88,18 @@ const server = createServer((req, res) => {
   }
 
   if (req.method === "POST" && req.url === "/early") {
-    // Answer before consuming the upload. Draining the readable side after ending
-    // the response lets the socket close with FIN instead of resetting and losing
-    // the response bytes the client already parsed.
+    // Answer before consuming the upload, and never consume it. Leaving the
+    // readable side paused is what makes this deterministic: the client's
+    // remaining body has nowhere to go once the kernel buffers fill, so it
+    // cannot outrun the response however the two are scheduled.
+    //
+    // The connection is deliberately left open. Ending it here would close a
+    // socket still holding unread request bytes, which resets rather than
+    // finishing and discards the response the client had already been sent.
+    // Draining first only narrowed that window; the client owns the close.
     req.on("error", () => {});
-    req.resume();
-    send(res, 413, undefined, { Connection: "close" });
+    req.pause();
+    send(res, 413);
     return;
   }
 

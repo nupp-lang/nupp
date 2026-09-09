@@ -428,9 +428,12 @@ end
 
 function M.anEarlyResponseStopsReadingTheRequestBody()
     local client = ready()
-    -- Larger than a loopback socket can buffer, so even a server scheduled late must
-    -- answer before the reader can be consumed in full.
-    local total, calls = 64 * 1024 * 1024, 0
+    -- /early answers without ever reading the upload, so what the client can send
+    -- is bounded by the kernel buffers between them rather than by which side the
+    -- scheduler ran first. A gibibyte is orders of magnitude past any buffer those
+    -- can grow to, so a run that consumed the reader consumed it because the
+    -- transport ignored the response, not because it was quick.
+    local total, calls = 1024 * 1024 * 1024, 0
     local reader = {
         readInto = function(_self, destination, offset, count)
             calls = calls + 1
@@ -456,7 +459,7 @@ function M.anEarlyResponseStopsReadingTheRequestBody()
     })
     assert(response, reason)
     test.equal(response.status, 413)
-    assert(calls * 4096 < total, "the reader stopped after the server answered")
+    assert(calls * 4096 < total, ("the reader kept going past the answer: %d of %d bytes"):format(calls * 4096, total))
     test.equal(response.body:read(1), "")
     response:close()
     client:close()
