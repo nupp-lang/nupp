@@ -2186,7 +2186,17 @@ function aot.apply(
     local reusedObjects: integer = #(emitted as {aot.Emitted})
     local compiledObjects: integer = 0
     local linked = false
-    if previousLibraryKey ~= key or not fs.exists(library) then
+    -- The objects the library was made from are recorded as this target's
+    -- outputs, so one that is gone is a build that would report producing a
+    -- file that is not there. Compiling it again costs one unit and a link,
+    -- which is what the same rule about the library itself costs.
+    local intact = true
+    for _, one in ipairs(emitted as {aot.Emitted}) do
+        if not fs.exists((one.output:gsub("%.c$", ".o"))) then
+            intact = false
+        end
+    end
+    if previousLibraryKey ~= key or not fs.exists(library) or not intact then
         local linkErr, outcome = aot.link(
             chain as aot.Toolchain,
             selected,
