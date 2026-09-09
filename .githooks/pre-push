@@ -52,6 +52,12 @@ done
 # away in a later commit of the same push is named by the earlier one.
 present=""
 for file in $(printf '%s' "$changed" | sort -u); do
+    # Corpus inputs are deliberately non-canonical. Their `.expected.nupp`
+    # goldens are canonical source and remain part of this check.
+    case "$file" in
+        tests/fmtcorpus/*.expected.nupp) ;;
+        tests/fmtcorpus/*.nupp) continue ;;
+    esac
     [ -n "$file" ] && [ -f "$file" ] && present="$present $file"
 done
 [ -n "$present" ] || exit 0
