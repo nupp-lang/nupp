@@ -63,6 +63,21 @@ local function templateDirectory(files)
    return dir
 end
 
+-- One store for every project this suite scaffolds.
+--
+-- A scaffold's `check`, `build` and `test` are one reuse story, and so are two
+-- scaffolds': what a generated project compiles is the compiler's own modules,
+-- and a store is keyed by their content rather than by which project asked for
+-- them. An empty store per scaffold made each of them pay for that surface
+-- again, which on the browser templates -- a rock dependency and a `lua51`
+-- target between them -- measured about a fifth of a build.
+--
+-- Private to this process rather than inherited from the shard: no result here
+-- depends on the unrelated temporary projects the runner packed beside it, and
+-- no two of this suite's own lanes take turns discarding each other's entries,
+-- which is what one store shared between processes would come to.
+local SCAFFOLD_STORE = (os.getenv("NUPP_CACHE_DIR") or tempDirectory()) .. "-templates"
+
 local M = {}
 
 -- Resolution ---------------------------------------------------------------
@@ -524,8 +539,7 @@ function M.aRemoteTemplateNeverCausesItsOwnManifestToBeLoaded()
    local into = tempDirectory()
    assert(template.write(assert(template.plan({kind = "directory", path = dir}, into))))
    assert(not exists(sentinel), "nothing has loaded the manifest yet")
-   template.step("check", into, NUPP,
-      {NUPP_CACHE_DIR = into .. "/build/test-cache"})
+   template.step("check", into, NUPP, {NUPP_CACHE_DIR = SCAFFOLD_STORE})
    assert(exists(sentinel),
       "the check step loads the scaffolded manifest, which is why a remote may not ask for it")
 
@@ -557,22 +571,23 @@ local function scaffoldAndVerify(name, project, expectedOutput, prepare)
    assert(template.write(plan))
    if prepare then prepare(into) end
 
-   -- A scaffold's check, build, and test are one reuse story. Let those
-   -- commands share with each other without making their result depend on the
-   -- unrelated temporary projects assigned to this worker's shard.
-   local quoted = "cd '" .. into .. "' && NUPP_CACHE_DIR='" .. into
-      .. "/build/test-cache' NUPP=" .. NUPP .. " "
+   -- Every command below is about this one scaffold, so each says which
+   -- template it scaffolded and where, rather than leaving a failure to be
+   -- traced back to a directory the message never named.
+   local scaffolded = name .. " scaffolded into " .. into
+   local quoted = "cd '" .. into .. "' && NUPP_CACHE_DIR='" .. SCAFFOLD_STORE
+      .. "' NUPP=" .. NUPP .. " "
    local ok, out = shell(quoted .. NUPP .. " check")
-   assert(ok, name .. " does not check:\n" .. out)
+   assert(ok, scaffolded .. " does not check:\n" .. out)
    ok, out = shell(quoted .. NUPP .. " build")
-   assert(ok, name .. " does not build:\n" .. out)
+   assert(ok, scaffolded .. " does not build:\n" .. out)
    ok, out = shell(quoted .. NUPP .. " test")
-   assert(ok, name .. " does not pass its own tests:\n" .. out)
+   assert(ok, scaffolded .. " does not pass its own tests:\n" .. out)
    if expectedOutput then
       ok, out = shell(quoted .. NUPP .. " run src/main.nupp")
-      assert(ok, name .. " does not run:\n" .. out)
+      assert(ok, scaffolded .. " does not run:\n" .. out)
       assert(out:find(expectedOutput, 1, true),
-         name .. " ran but printed " .. out .. " rather than " .. expectedOutput)
+         scaffolded .. " ran but printed " .. out .. " rather than " .. expectedOutput)
    end
    remove(into)
 end
@@ -616,7 +631,7 @@ function M.theBrowserSimdTemplateChecksBuildsAndTests()
       assertEq(config.build.targets.simd.aotFeatures, "simd128",
          "the fast package requires Wasm SIMD128")
 
-      local prefix = "NUPP_CACHE_DIR='" .. into .. "/build/test-cache' NUPP="
+      local prefix = "NUPP_CACHE_DIR='" .. SCAFFOLD_STORE .. "' NUPP="
          .. NUPP .. " " .. NUPP
          .. " aot --target wasm32-unknown-emscripten --features "
       local ok, out = shell(prefix .. "scalar '" .. into .. "/src/scalar.nupp'")

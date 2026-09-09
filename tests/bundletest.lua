@@ -1004,7 +1004,9 @@ function M.oneBundleTreeCarriesRunsRebuildsAndTravelsAlone()
 
    -- A resource staged beside the entry's directory rather than under it has no
    -- name a running program could ask for. It is left out and said out loud, so
-   -- the manifest is rewritten here to ask for one that cannot be named.
+   -- the manifest is rewritten here to ask for one that cannot be named, and the
+   -- output directory goes again: this report is one a build makes from nothing
+   -- rather than one an incremental build happened to keep.
    local reaching = MANIFEST:gsub('"src/app/data/%*%.txt"',
       '"src/app/data/*.txt", "extra/*.txt"')
    local rewritten = assert(io.open(dir .. "/nupp.lua", "wb"))
@@ -1014,6 +1016,7 @@ function M.oneBundleTreeCarriesRunsRebuildsAndTravelsAlone()
    local loose = assert(io.open(dir .. "/extra/loose.txt", "wb"))
    loose:write("not reachable\n")
    loose:close()
+   os.execute("rm -rf '" .. dir .. "/build'")
    local reported, reportedOk = run(dir, "'" .. NUPP .. "' build")
    assert(reportedOk,
       "the build still succeeds with an unreachable resource" .. where .. ": " .. reported)
@@ -1234,6 +1237,13 @@ return true
       "the ordinary owner receives automatic cleanup" .. where .. ": " .. report)
    assert(not diagnosed(report, "workersowned.nupp", "NUPP2603"),
       "a worker scope carries its automatic drain obligation" .. where .. ": " .. report)
+   -- And each of the two checks clean rather than merely escaping that one code,
+   -- which is what their own `check` exiting zero used to say before the files
+   -- were checked together with the ones that are meant to fail.
+   assert(not report:find("leak.nupp", 1, true),
+      "an ordinary owner is diagnosed for nothing at all" .. where .. ": " .. report)
+   assert(not report:find("workersowned.nupp", 1, true),
+      "an owned worker scope is diagnosed for nothing at all" .. where .. ": " .. report)
 
    -- The private cleanup has to link and run, not only check.
    local acquired, acquiredOk = run(dir, "'" .. NUPP .. "' run acquire.nupp")
