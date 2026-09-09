@@ -40,6 +40,7 @@ type process.Options = {
 type process.IsolatedProcess = {
     stdin: any,
     stdout: any,
+    stderr: any,
     backend: any,
     handle: any,
     isRunning: function(any): boolean,
@@ -336,6 +337,14 @@ end
 
 --- Starts the same bounded child used by `captureIsolated`, but leaves its framed
 --- stdin/stdout open for a session service. The caller owns and must close it.
+---
+--- Standard error gets its own pipe rather than joining standard output, which
+--- is what `captureIsolated` does. A session reads frames off stdout, so a line
+--- the child never framed -- a warning from a library it loaded, a message the
+--- operating system wrote for it -- would arrive where a response belongs and be
+--- read as one. Whether anything says such a thing depends on the machine, so
+--- merging them makes the protocol answer differently on different hosts. The
+--- caller must drain the second pipe; nothing else empties it.
 function process.startIsolated(argv: {string}, opts: process.Options?): (affine(process.IsolatedProcess?), string?)
     opts = (opts or {}) as process.Options
     local args = boundedArgs(argv, opts)
@@ -346,7 +355,7 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
         env = opts.env,
         stdin = "pipe",
         stdout = "pipe",
-        stderr = "stdout",
+        stderr = "pipe",
     }
 
     return new native.Process(nativeOptions), nil

@@ -34,6 +34,10 @@ end
 -- and a request carrying one is not a request this worker wrote.
 
 local MAX_PROTOCOL_BYTES = 2 * 1024 * 1024
+-- How much of what a worker said outside the protocol is kept for a diagnostic.
+-- Enough for a stack trace and the line that caused it; short enough that a
+-- worker stuck writing cannot grow the compiler's memory instead of failing.
+local MAX_SAID_BYTES = 8 * 1024
 -- The deadline covers starting and loading an isolated compiler as well as evaluating
 -- the request. Keep one bounded policy for ordinary and persistent workers, with
 -- enough headroom for a full compiler under normal parallel build contention.
@@ -497,10 +501,14 @@ end
 local service: any = nil
 local serviceExecutable: string? = nil
 local serviceBuffer = ""
+-- What the service said outside the protocol. Kept so a frame that will not
+-- decode can be reported beside whatever the worker was complaining about, and
+-- drained on every wait so the pipe holding it cannot fill and stop the worker.
+local serviceSaid = ""
 
 local function stopService(force: boolean?): nil
     local current = service
-    service, serviceExecutable, serviceBuffer = nil, nil, ""
+    service, serviceExecutable, serviceBuffer, serviceSaid = nil, nil, "", ""
     if not current then
         return
     end
@@ -527,10 +535,44 @@ local function startService(executable: string): any, worker.Failure?
     end
     child.stdin:setTimeout(WORKER_TIMEOUT_MS)
     child.stdout:setTimeout(5)
+    if child.stderr ~= nil then
+        child.stderr:setTimeout(5)
+    end
     service = unsafe release child
     serviceExecutable = executable
 
     return service, nil
+end
+
+--- Takes whatever the service wrote outside the protocol, so the pipe carrying it
+--- cannot fill and stop the worker mid-answer, and so a frame that will not decode
+--- can be reported beside the complaint that explains it.
+local function drainSaid(child: any): nil
+    local reader = child.stderr
+    if reader == nil then
+        return
+    end
+    while #serviceSaid < MAX_SAID_BYTES do
+        local chunk = reader:poll()
+        if chunk == nil or #chunk == 0 then
+            break
+        end
+        serviceSaid = serviceSaid .. chunk
+    end
+    if #serviceSaid > MAX_SAID_BYTES then
+        serviceSaid = serviceSaid:sub(1, MAX_SAID_BYTES)
+    end
+end
+
+--- The evidence for a frame that would not decode: the frame itself, bounded, and
+--- whatever the worker said outside the protocol while producing it.
+local function describe(line: string, said: string): string
+    local shown = #line > MAX_SAID_BYTES and (line:sub(1, MAX_SAID_BYTES) .. "...") or line
+    if said == "" then
+        return ("%q"):format(shown)
+    end
+
+    return ("%q (it also said: %s)"):format(shown, said)
 end
 
 local function requestService(request: any, executable: string, host: any?): any, worker.Failure?
@@ -562,11 +604,16 @@ local function requestService(request: any, executable: string, host: any?): any
             end
             local decoded, response = decodeProtocol(line)
             if not decoded then
+                local said = serviceSaid
                 stopService(true)
-                return nil, {code = "NUPP2412", message = "comptime worker service returned an invalid response"}
+                return nil, {
+                    code = "NUPP2412",
+                    message = "comptime worker service returned an invalid response: " .. describe(line, said),
+                }
             end
             return response, nil
         end
+        drainSaid(child)
         if host and host.pump then
             host.pump()
         end
@@ -590,10 +637,14 @@ local function requestService(request: any, executable: string, host: any?): any
                 return nil, {code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes"}
             end
         elseif not child:isRunning() or child.stdout:isEOF() then
+            drainSaid(child)
+            local said = serviceSaid
             stopService(true)
             return nil, {
                 code = "NUPP2412",
-                message = "the persistent comptime worker crashed: " .. tostring(readFailure or "unexpected EOF"),
+                message = "the persistent comptime worker crashed: " .. tostring(
+                    readFailure or "unexpected EOF"
+                ) .. (said ~= "" and (" (it also said: " .. said .. ")") or ""),
             }
         end
     end
