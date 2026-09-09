@@ -933,26 +933,107 @@ return {
    rejected("binary", "third-party-host")
 end
 
--- One file, runnable by an interpreter that has never heard of nupp.
-function M.aBundleRunsUnderAPlainInterpreter()
+-- One tree, one deliverable, and every claim about it. That a bundle runs under
+-- an interpreter that has never heard of nupp, that it carries its resources,
+-- that a second build of the same tree produces the same bytes, that it carries
+-- what the build compiled rather than what is lying around the output directory,
+-- that it says what it could not carry, and that it needs nothing from the tree
+-- it came from are six claims about one project -- and were five cases and six
+-- builds of the same three files.
+--
+-- The phases below run in the order they are written and each says what it
+-- changed, because two of them do change the tree: the identity phase throws the
+-- output directory away so the second build is cold, and the unreachable-resource
+-- phase rewrites the manifest. Every assertion names the project it is about, so
+-- a failure says which directory to open as well as which claim broke.
+function M.oneBundleTreeCarriesRunsRebuildsAndTravelsAlone()
    local dir = tempProject({
       ["nupp.lua"] = MANIFEST,
       ["src/app/main.g.nupp"] = MAIN,
       ["src/app/greet.g.nupp"] = GREET,
       ["src/app/data/note.txt"] = "carried along\n",
+      ["src/app/data/second.txt"] = "and another\n",
    })
-   local out, ok = run(dir, "'" .. NUPP .. "' build")
-   assert(ok, "the bundle target builds: " .. out)
-   local bundle = readFile(dir .. "/build/app.lua")
-   assert(bundle, "the bundle was written to build/app.lua")
+   local where = " (built in " .. dir .. ")"
 
+   local out, ok = run(dir, "'" .. NUPP .. "' build")
+   assert(ok, "the bundle target builds" .. where .. ": " .. out)
+   local first = readFile(dir .. "/build/app.lua")
+   assert(first, "the bundle was written to build/app.lua" .. where)
+
+   -- One file, runnable by an interpreter that has never heard of nupp.
    local ran, ranOk = run(dir, "luajit build/app.lua")
-   assert(ranOk, "the bundle runs on its own: " .. ran)
+   assert(ranOk, "the bundle runs on its own" .. where .. ": " .. ran)
    assert(ran:find("hello, world", 1, true),
-      "its modules are reachable through package.preload: " .. ran)
+      "its modules are reachable through package.preload" .. where .. ": " .. ran)
    assert(ran:find("carried along", 1, true),
-      "and its resources came with it: " .. ran)
+      "and its resources came with it" .. where .. ": " .. ran)
+
+   -- Taken now, run in the last phase with this project deleted out from under it.
+   local elsewhere = os.tmpname()
+   os.remove(elsewhere)
+   assert(os.execute("mkdir -p '" .. elsewhere .. "'") == 0)
+   assert(os.execute(("cp '%s/build/app.lua' '%s/alone.lua'"):format(dir, elsewhere)) == 0)
+
+   -- Byte-identical across builds. The packaging fixpoint rests on this, and a
+   -- bundle that embedded a timestamp or a hash order would fail it in a way that
+   -- reproduces once a week. The output directory goes first, so nothing is
+   -- reused: the ordering has to be decided by the bundler rather than by
+   -- whatever order the last build left behind.
+   os.execute("rm -rf '" .. dir .. "/build'")
+   local rebuilt, rebuiltOk = run(dir, "'" .. NUPP .. "' build")
+   assert(rebuiltOk, "the discarded output directory builds again" .. where .. ": " .. rebuilt)
+   assert(first == readFile(dir .. "/build/app.lua"),
+      "two cold builds produce the same bundle" .. where)
+
+   -- The output directory is also where native dependencies build, and their
+   -- trees are full of .lua that is examples, tests and scripts, some of which is
+   -- not a valid preload module -- so a bundle carries what the build compiled,
+   -- not what it finds. This one arrives after the fact, the way cargo's does.
+   assert(os.execute("mkdir -p '" .. dir .. "/build/native/examples'") == 0)
+   local intruder = assert(io.open(dir .. "/build/native/examples/tool.lua", "wb"))
+   intruder:write("#!/usr/bin/env lua\nprint('not a module')\n")
+   intruder:close()
+   local beside, besideOk = run(dir, "'" .. NUPP .. "' build")
+   assert(besideOk, "the build still succeeds beside a foreign tree" .. where .. ": " .. beside)
+   local bundle = readFile(dir .. "/build/app.lua")
+   assert(not bundle:find("not a module", 1, true),
+      "somebody else's script is not preloaded as a module" .. where)
+   local again, againOk = run(dir, "luajit build/app.lua")
+   assert(againOk, "and the bundle still parses and runs" .. where .. ": " .. again)
+
+   -- A resource staged beside the entry's directory rather than under it has no
+   -- name a running program could ask for. It is left out and said out loud, so
+   -- the manifest is rewritten here to ask for one that cannot be named.
+   local reaching = MANIFEST:gsub('"src/app/data/%*%.txt"',
+      '"src/app/data/*.txt", "extra/*.txt"')
+   local rewritten = assert(io.open(dir .. "/nupp.lua", "wb"))
+   rewritten:write(reaching)
+   rewritten:close()
+   assert(os.execute("mkdir -p '" .. dir .. "/extra'") == 0)
+   local loose = assert(io.open(dir .. "/extra/loose.txt", "wb"))
+   loose:write("not reachable\n")
+   loose:close()
+   local reported, reportedOk = run(dir, "'" .. NUPP .. "' build")
+   assert(reportedOk,
+      "the build still succeeds with an unreachable resource" .. where .. ": " .. reported)
+   assert(reported:find("could not be bundled", 1, true),
+      "and says what it could not carry" .. where .. ": " .. reported)
+   bundle = readFile(dir .. "/build/app.lua")
+   assert(not bundle:find("not reachable", 1, true),
+      "the unreachable resource is not embedded under a name nothing reads" .. where)
+   assert(bundle:find("carried along", 1, true), "the reachable one still is" .. where)
+
+   -- Nothing beside it. A bundle that still needed its build tree would be a
+   -- bundle in name only, and the failure would be somebody else's, later.
    os.execute("rm -rf '" .. dir .. "'")
+   local alone, aloneOk = run(elsewhere, "luajit alone.lua")
+   assert(aloneOk,
+      "the copy runs with its whole project deleted (copied to " .. elsewhere .. "): " .. alone)
+   assert(alone:find("hello, world", 1, true) and alone:find("carried along", 1, true),
+      "modules and resources both survived the move (copied to "
+      .. elsewhere .. "): " .. alone)
+   os.execute("rm -rf '" .. elsewhere .. "'")
 end
 
 function M.aCoroutineOnlyTaskBundleDoesNotAcquireWorkersOrTime()
@@ -975,105 +1056,6 @@ print(answer)
    assert(ok, "the coroutine-only task bundle builds without a native host: " .. out)
    local ran, ranOk = run(dir, "luajit build/app.lua")
    assert(ranOk and ran == "42\n", "the standalone task bundle runs: " .. ran)
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
--- Nothing beside it. A bundle that still needed its build tree would be a
--- bundle in name only, and the failure would be somebody else's, later.
-function M.aBundleNeedsNothingFromTheTreeItCameFrom()
-   local dir = tempProject({
-      ["nupp.lua"] = MANIFEST,
-      ["src/app/main.g.nupp"] = MAIN,
-      ["src/app/greet.g.nupp"] = GREET,
-      ["src/app/data/note.txt"] = "carried along\n",
-   })
-   assert(select(2, run(dir, "'" .. NUPP .. "' build")), "builds")
-
-   local elsewhere = os.tmpname()
-   os.remove(elsewhere)
-   assert(os.execute("mkdir -p '" .. elsewhere .. "'") == 0)
-   assert(os.execute(("cp '%s/build/app.lua' '%s/alone.lua'")
-      :format(dir, elsewhere)) == 0)
-   os.execute("rm -rf '" .. dir .. "'")
-
-   local ran, ok = run(elsewhere, "luajit alone.lua")
-   assert(ok, "the copy runs with its whole project deleted: " .. ran)
-   assert(ran:find("hello, world", 1, true) and ran:find("carried along", 1, true),
-      "modules and resources both survived the move: " .. ran)
-   os.execute("rm -rf '" .. elsewhere .. "'")
-end
-
--- Byte-identical across builds. The packaging fixpoint rests on this, and a
--- bundle that embedded a timestamp or a hash-order would fail it in a way that
--- reproduces once a week.
-function M.twoBuildsOfOneTreeProduceIdenticalBytes()
-   local dir = tempProject({
-      ["nupp.lua"] = MANIFEST,
-      ["src/app/main.g.nupp"] = MAIN,
-      ["src/app/greet.g.nupp"] = GREET,
-      ["src/app/data/note.txt"] = "carried along\n",
-      ["src/app/data/second.txt"] = "and another\n",
-   })
-   assert(select(2, run(dir, "'" .. NUPP .. "' build")), "first build")
-   local first = readFile(dir .. "/build/app.lua")
-   -- From scratch, so nothing is reused: the ordering has to be decided by the
-   -- bundler rather than by whatever order the last build left behind.
-   os.execute("rm -rf '" .. dir .. "/build'")
-   assert(select(2, run(dir, "'" .. NUPP .. "' build")), "second build")
-   local second = readFile(dir .. "/build/app.lua")
-   assert(first == second, "two cold builds produce the same bundle")
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
--- A resource staged beside the entry's directory rather than under it has no
--- name a running program could ask for. It is left out and said out loud.
-function M.resourcesThatCannotBeNamedAreReported()
-   local manifest = MANIFEST:gsub('"src/app/data/%*%.txt"',
-      '"src/app/data/*.txt", "extra/*.txt"')
-   local dir = tempProject({
-      ["nupp.lua"] = manifest,
-      ["src/app/main.g.nupp"] = MAIN,
-      ["src/app/greet.g.nupp"] = GREET,
-      ["src/app/data/note.txt"] = "carried along\n",
-      ["extra/loose.txt"] = "not reachable\n",
-   })
-   local out, ok = run(dir, "'" .. NUPP .. "' build")
-   assert(ok, "the build still succeeds: " .. out)
-   assert(out:find("could not be bundled", 1, true),
-      "and says what it could not carry: " .. out)
-   local bundle = readFile(dir .. "/build/app.lua")
-   assert(not bundle:find("not reachable", 1, true),
-      "the unreachable resource is not embedded under a name nothing reads")
-   assert(bundle:find("carried along", 1, true), "the reachable one still is")
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
--- The output directory is also where native dependencies build, and their trees
--- are full of .lua that is examples, tests and scripts, some of which are not
--- valid preload modules — so a bundle carries what the build compiled, not what
--- it finds.
-function M.aBundleCarriesWhatTheBuildCompiledNotWhatIsLyingAround()
-   local dir = tempProject({
-      ["nupp.lua"] = MANIFEST,
-      ["src/app/main.g.nupp"] = MAIN,
-      ["src/app/greet.g.nupp"] = GREET,
-      ["src/app/data/note.txt"] = "carried along\n",
-   })
-   assert(select(2, run(dir, "'" .. NUPP .. "' build")), "builds")
-   -- A native dependency's tree, arriving in the output directory after the
-   -- fact the way cargo's does.
-   assert(os.execute("mkdir -p '" .. dir .. "/build/native/examples'") == 0)
-   local intruder = assert(io.open(dir .. "/build/native/examples/tool.lua", "wb"))
-   intruder:write("#!/usr/bin/env lua\nprint('not a module')\n")
-   intruder:close()
-
-   local out, ok = run(dir, "'" .. NUPP .. "' build")
-   assert(ok, "the build still succeeds: " .. out)
-   local bundle = readFile(dir .. "/build/app.lua")
-   assert(not bundle:find("not a module", 1, true),
-      "somebody else's script is not preloaded as a module")
-   local ran, ranOk = run(dir, "luajit build/app.lua")
-   assert(ranOk, "and the bundle still parses and runs: " .. ran)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -1163,26 +1145,43 @@ end
 -- tree therefore types against exactly what was compiled into the binary it runs.
 -- Before this it resolved to nothing, and gradual typing turned that into `any`
 -- without a word — which then surfaced three steps later as an ownership error.
+--
+-- Four claims are made about that surface, and each of them used to stand up a
+-- project of its own and pay again for compiling it: six `check` invocations
+-- across four temporary projects, of which the two about workers alone cost more
+-- than every other bundle case in this file put together. The surface is the
+-- fixture, so it is prepared once. One project holds a file per claim, one strict
+-- check of the whole project answers all of them at once, and each assertion
+-- names the file it is about, so a failure still says which claim broke and which
+-- project to look in.
 local STD_MANIFEST = 'return {include = {"."}}\n'
 
-function M.theStandardLibraryIsTypedOutsideThisTree()
+--- Whether the report says `code` about `file`.
+---
+--- Attributed rather than searched: one report now carries every file's
+--- diagnostics, so "NUPP2001 is in there somewhere" would pass for the wrong
+--- reason as easily as for the right one.
+local function diagnosed(report, file, code)
+   local prefix = "^" .. file:gsub("%p", "%%%0") .. ":%d+:%d+:"
+   for line in report:gmatch("[^\n]+") do
+      if line:match(prefix) and line:find(code, 1, true) then
+         return true
+      end
+   end
+   return false
+end
+
+function M.theStandardLibrarySurfaceIsTypedAndOwnedOutsideThisTree()
    local dir = tempProject({
       ["nupp.lua"] = STD_MANIFEST,
+      ["input.txt"] = "hello\n",
+      -- The library is typed, not `any`.
       ["typed.nupp"] = [[
 local wrong: integer = io.open("x", "r")
 
 return wrong
 ]],
-   })
-   local out = run(dir, "'" .. NUPP .. "' check --strict typed.nupp")
-   assert(out:find("NUPP2001", 1, true),
-      "the std surface is typed, not any: " .. out)
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.theTypesNamespaceCarriesItsCheckedFunctionsOutsideThisTree()
-   local dir = tempProject({
-      ["nupp.lua"] = STD_MANIFEST,
+      -- `nupp.types`' checked functions travel with it.
       ["format.nupp"] = [[
 local function format<F is string>(
     value: F,
@@ -1193,18 +1192,8 @@ end
 
 print(format("%s=%d", "answer", 42))
 ]],
-   })
-   local out, ok = run(dir, "'" .. NUPP .. "' check --strict format.nupp")
-   assert(ok, "nupp.types checked functions are carried with the compiler: " .. out)
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
--- Typed is not enough on its own: the ownership contract has to cross too, or an
--- ordinary local cannot arrange automatic cleanup.
-function M.theStandardLibraryCarriesItsOwnershipOutsideThisTree()
-   local dir = tempProject({
-      ["nupp.lua"] = STD_MANIFEST,
-      ["input.txt"] = "hello\n",
+      -- Typed is not enough on its own: the ownership contract has to cross too,
+      -- or an ordinary local cannot arrange automatic cleanup.
       ["acquire.nupp"] = [[
 do
     local file = assert(io.open("input.txt", "r"))
@@ -1216,29 +1205,13 @@ local handle = assert(io.open("input.txt", "r"))
 
 return 1
 ]],
-   })
-   local acquired, acquiredOk = run(dir, "'" .. NUPP .. "' run acquire.nupp")
-   assert(acquiredOk and acquired == "hello\n\n",
-      "the standard-library private cleanup links and runs: " .. acquired)
-
-   -- The obligation crosses too, which is the other half of the contract being
-   -- real rather than erased at the boundary. An untouched ordinary owner is
-   -- now discharged by its lexical scope rather than diagnosed as forgotten.
-   local checked, checkOk = run(dir, "'" .. NUPP .. "' check --strict leak.nupp")
-   assert(checkOk and not checked:find("NUPP2603", 1, true),
-      "the ordinary owner receives automatic cleanup: " .. checked)
-   os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.theWorkersSurfaceIsTypedAndOwnedOutsideThisTree()
-   local dir = tempProject({
-      ["nupp.lua"] = STD_MANIFEST,
-      ["typed.nupp"] = [[
+      -- And the workers surface carries both halves.
+      ["workerstyped.nupp"] = [[
 local workers = require("nupp.workers")
 local wrong: integer = workers.scope
 return wrong
 ]],
-      ["owned.nupp"] = [[
+      ["workersowned.nupp"] = [[
 local workers = require("nupp.workers")
 with scope = workers.scope() do
     print(scope ~= nil)
@@ -1246,12 +1219,26 @@ end
 return true
 ]],
    })
-   local typed = run(dir, "'" .. NUPP .. "' check --strict typed.nupp")
-   assert(typed:find("NUPP2001", 1, true),
-      "the workers surface is typed rather than gradual: " .. typed)
-   local owned, ok = run(dir, "'" .. NUPP .. "' check --strict owned.nupp")
-   assert(ok and not owned:find("NUPP2603", 1, true),
-      "a worker scope carries its automatic drain obligation: " .. owned)
+   local where = " (checked in " .. dir .. ")"
+   local report = run(dir, "'" .. NUPP .. "' check --strict")
+
+   assert(diagnosed(report, "typed.nupp", "NUPP2001"),
+      "the std surface is typed, not any" .. where .. ": " .. report)
+   assert(not report:find("format.nupp", 1, true),
+      "nupp.types checked functions are carried with the compiler" .. where .. ": " .. report)
+   assert(diagnosed(report, "workerstyped.nupp", "NUPP2001"),
+      "the workers surface is typed rather than gradual" .. where .. ": " .. report)
+   -- An untouched ordinary owner is discharged by its lexical scope rather than
+   -- diagnosed as forgotten, and a worker scope carries the same obligation.
+   assert(not diagnosed(report, "leak.nupp", "NUPP2603"),
+      "the ordinary owner receives automatic cleanup" .. where .. ": " .. report)
+   assert(not diagnosed(report, "workersowned.nupp", "NUPP2603"),
+      "a worker scope carries its automatic drain obligation" .. where .. ": " .. report)
+
+   -- The private cleanup has to link and run, not only check.
+   local acquired, acquiredOk = run(dir, "'" .. NUPP .. "' run acquire.nupp")
+   assert(acquiredOk and acquired == "hello\n\n",
+      "the standard-library private cleanup links and runs" .. where .. ": " .. acquired)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
