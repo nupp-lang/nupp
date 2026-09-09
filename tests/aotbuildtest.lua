@@ -930,14 +930,6 @@ local function builtFixture(policy)
     return dir
 end
 
-local function freshBuiltFixture(policy)
-    local dir = project(policy)
-    local out, code = build(dir)
-    test.equal(code, 0, ("a fresh aot=%s fixture at %s builds: %s"):format(tostring(policy), dir, out))
-
-    return dir
-end
-
 --- A fixture of its own, with a store of its own, for a case about to assert
 --- what two builds of it did.
 local function isolatedBuiltFixture(policy)
@@ -1036,11 +1028,14 @@ end
 
 local M = {}
 
+-- Read from the shared linking fixture: what is being asked is what its build
+-- staged, and the cases that mutate it take its library away and put it back
+-- rather than touching the staged runtime source.
 function M.cpuOnlyAotDoesNotStageTheGpuRuntime()
-    local dir = freshBuiltFixture("require")
+    local dir = builtFixture("require")
     assert(
         read(dir .. "/build/native/cache/runtime-source/nupp/gpu/init.nupp") == nil,
-        "a CPU-only AOT target staged the WGPU runtime"
+        ("a CPU-only AOT target staged the WGPU runtime (require fixture at %s)"):format(dir)
     )
 end
 
@@ -1456,59 +1451,80 @@ local function modified(path)
     return nil
 end
 
-function M.anUnchangedArtifactIsNotRewritten()
-    local dir = freshBuiltFixture("emit-c")
+--- What a recorded artifact key is evidence about.
+---
+--- Four properties of one artifact and one key, each of which needs the state
+--- the phase before it left behind. They were four cases, and each paid for its
+--- own cold build of the same project to reach a state the one before it had
+--- already produced. Written as ordered phases rather than as four functions,
+--- because the order is real: the last one edits the source, and nothing after
+--- it would be asking about the artifact the first three were asking about.
+---
+--- The fixture keeps its own content store. A store shared with unrelated
+--- fixtures would make a reuse answer depend on whichever temporary project the
+--- worker built first.
+function M.aRecordedArtifactKeyIsEvidenceAboutBytesRatherThanABelief()
+    local dir = isolatedBuiltFixture("emit-c")
     local path = tieredC(dir, firstHostTier())
-    local first = assert(modified(path), "the artifact was written")
 
-    -- A second's granularity is all `stat` promises, so a rewrite has to land in
-    -- a later second to be visible. Waiting is what makes the assertion mean
-    -- something rather than pass on a coarse clock.
+    local function rebuild(phase)
+        local out, code = build(dir)
+        test.equal(code, 0, ("%s (emit-c fixture at %s): %s"):format(phase, dir, out))
+    end
+
+    -- Unchanged: a second's granularity is all `stat` promises, so a rewrite has
+    -- to land in a later second to be visible. Waiting is what makes the
+    -- assertion mean something rather than pass on a coarse clock.
+    local written = assert(modified(path), "the artifact was written, at " .. path)
     os.execute("sleep 1.1")
-    local out, code = build(dir)
-    test.equal(code, 0, out)
-    test.equal(modified(path), first, "an artifact whose key still matches is left alone rather than rewritten")
-end
+    rebuild("an unchanged project rebuilds")
+    test.equal(
+        modified(path),
+        written,
+        ("an artifact whose key still matches is left alone rather than rewritten (emit-c fixture at %s)"):format(dir)
+    )
 
-function M.aMissingArtifactIsWrittenAgain()
-    local dir = freshBuiltFixture("emit-c")
-    local path = tieredC(dir, firstHostTier())
+    -- Missing: the recorded key still matches, so a build that trusted it would
+    -- leave nothing behind. The key is evidence about bytes that have to be
+    -- there.
     local first = assert(read(path))
-    assert(key(dir), "the build recorded what it built the artifact under")
-
-    -- The recorded key still matches, so a build that trusted it would leave
-    -- nothing behind. The key is evidence about bytes that have to be there.
+    assert(key(dir), "the build recorded what it built the artifact under, at " .. dir)
     os.remove(path)
-    local out, code = build(dir)
-    test.equal(code, 0, out)
-    test.equal(read(path), first, "a deleted artifact comes back rather than being believed on a digest")
-end
+    rebuild("a project whose artifact was deleted rebuilds")
+    test.equal(
+        read(path),
+        first,
+        ("a deleted artifact comes back rather than being believed on a digest (emit-c fixture at %s)"):format(dir)
+    )
 
-function M.anEditedArtifactIsOverwritten()
-    local dir = freshBuiltFixture("emit-c")
-    local path = tieredC(dir, firstHostTier())
-    local first = assert(read(path))
-
+    -- Edited: the same rule read from the other side. The bytes disagree with
+    -- the key, and the bytes are what the key is about.
     local handle = assert(io.open(path, "wb"))
     handle:write("/* not what the compiler wrote */\n")
     handle:close()
+    rebuild("a project whose artifact was damaged rebuilds")
+    test.equal(
+        read(path),
+        first,
+        ("an artifact whose bytes disagree with its key is written again (emit-c fixture at %s)"):format(dir)
+    )
 
-    local out, code = build(dir)
-    test.equal(code, 0, out)
-    test.equal(read(path), first, "an artifact whose bytes disagree with its key is written again")
-end
-
-function M.theKeyIsOverTheIRRatherThanTheSource()
-    local dir = freshBuiltFixture("emit-c")
-    local before = assert(key(dir), "a key was recorded")
-
-    local handle = assert(io.open(dir .. "/src/kernel.nupp", "ab"))
-    handle:write("\n-- A comment, which changes no instruction.\n")
-    handle:close()
-
-    local out, code = build(dir)
-    test.equal(code, 0, out)
-    test.equal(key(dir), before, "two sources that lower to one program share one artifact: a comment is not a rebuild")
+    -- And the key is taken over the lowered program rather than over the text,
+    -- which is why a comment is not a rebuild. This edits the source, so it goes
+    -- last.
+    local before = assert(key(dir), "a key was recorded, at " .. dir)
+    local source = assert(io.open(dir .. "/src/kernel.nupp", "ab"))
+    source:write("\n-- A comment, which changes no instruction.\n")
+    source:close()
+    rebuild("a project whose source gained a comment rebuilds")
+    test.equal(
+        key(dir),
+        before,
+        (
+            "two sources that lower to one program share one artifact: a comment is not a rebuild "
+            .. "(emit-c fixture at %s)"
+        ):format(dir)
+    )
 end
 
 function M.anUnknownFeatureTierIsRejected()
@@ -2335,35 +2351,42 @@ function M.luaBuilderChoosesATieredRegistrarAtLoad()
     assert(generated:find("loadlib(path, ks_rows_builderRegistrar)", 1, true), generated)
 end
 
-function M.theLibraryIsNotRelinkedWhenNothingChanged()
+--- What a recorded library key is evidence about, in two ordered phases.
+---
+--- The same rule the emitted C follows, read on the linked object: an unchanged
+--- project relinks nothing, and a key still matching is not a reason to believe
+--- in a library that is not there. Both phases want the fixture relinked from a
+--- known state, and running them apart paid for that twice.
+function M.aRecordedLibraryKeyIsEvidenceAboutTheObjectRatherThanABelief()
     if not hasToolchain() then
         return
     end
 
     local dir = builtFixture("require")
-    local first = assert(modified(libraryPath(dir)))
+    local path = libraryPath(dir)
 
+    local linked = assert(modified(path), "the library was linked, at " .. path)
     os.execute("sleep 1.1")
     local out, code = build(dir)
-    test.equal(code, 0, out)
-    test.equal(modified(libraryPath(dir)), first, "a library whose key still matches is left alone")
-end
-
-function M.aMissingLibraryIsBuiltAgain()
-    if not hasToolchain() then
-        return
-    end
-
-    local dir = builtFixture("require")
-    local before = assert(libraryKey(dir))
+    test.equal(code, 0, ("an unchanged project rebuilds (require fixture at %s): %s"):format(dir, out))
+    test.equal(
+        modified(path),
+        linked,
+        ("a library whose key still matches is left alone (require fixture at %s)"):format(dir)
+    )
 
     -- Same rule the C follows: the key is evidence about something that has to
     -- be there, and here the something is what the loader would open.
-    os.remove(libraryPath(dir))
-    local out, code = build(dir)
-    test.equal(code, 0, out)
-    assert(read(libraryPath(dir)), "a deleted library comes back rather than being believed")
-    test.equal(libraryKey(dir), before, "under the same key, because nothing about it changed")
+    local before = assert(libraryKey(dir), "the build recorded what it linked under, at " .. dir)
+    os.remove(path)
+    out, code = build(dir)
+    test.equal(code, 0, ("a project whose library was deleted rebuilds (require fixture at %s): %s"):format(dir, out))
+    assert(read(path), ("a deleted library comes back rather than being believed (require fixture at %s)"):format(dir))
+    test.equal(
+        libraryKey(dir),
+        before,
+        ("under the same key, because nothing about it changed (require fixture at %s)"):format(dir)
+    )
 end
 
 function M.aProjectWithNoAotFunctionLinksNothing()
