@@ -55,11 +55,46 @@ local function runJson(path, args)
     return runRedirected(path, args, "2>/dev/null")
 end
 
-local function runWorkerHost(args)
-    local pipe = assert(io.popen(("cd %q && %q %s 2>&1"):format(ROOT, ROOT .. "/build/nupp-test", args)))
-    local output = pipe:read("*a")
+-- A nested runner that printed no summary is the case these invocations exist to
+-- catch, and it is also the case where the output alone says nothing. Which
+-- command ran, how it ended, and everything it did write are all evidence, and
+-- none of the three is recoverable after the fact.
+--
+-- The status has to travel back through the pipe. LuaJIT's `close` on a popened
+-- file answers `true` whatever the child exited with, so a run that died and a
+-- run that returned unexpected output are indistinguishable from the handle;
+-- the shell that ran the command is asked instead. Its answer is read back out
+-- of the output with a Lua pattern, so the marker is spelled without any of the
+-- characters that are magic in one.
+local EXIT = "@@nupp_test_exit:"
+
+local function capturedRun(command)
+    local pipe = assert(io.popen(("%s; printf '%s%%d@@\\n' $?"):format(command, EXIT)))
+    local output = pipe:read("*a") or ""
     pipe:close()
-    return output
+    local status = tonumber(output:match(EXIT .. "(%d+)@@"))
+    output = output:gsub(EXIT .. "%d+@@\n?", "")
+
+    return output, {command = command, output = output, status = status}
+end
+
+local function runWorkerHost(args)
+    return capturedRun(("cd %q && %q %s 2>&1"):format(ROOT, ROOT .. "/build/nupp-test", args))
+end
+
+-- What the named invocations did, whole. Summarising here would drop exactly the
+-- part a report that went missing is hiding in, and a byte count separates output
+-- that was never written from output that was written and lost in capture.
+local function evidence(...)
+    local parts = {}
+    for index = 1, select("#", ...) do
+        local invocation = select(index, ...)
+        local ending = invocation.status and tostring(invocation.status) or "with an unreported status"
+        local shape = "\n$ %s\nexited %s, wrote %d bytes:\n%s"
+        parts[#parts + 1] = shape:format(invocation.command, ending, #invocation.output, invocation.output)
+    end
+
+    return table.concat(parts)
 end
 
 function M.bundledRunnerWorksOutsideTheCompilerCheckout()
@@ -86,10 +121,8 @@ return M
     local command = (
         "cd %q && NUPP_TEST_BUILD=%q %q test-runner " .. "--jobs=1 --json 2>/dev/null"
     ):format(dir, dir .. "/build", NUPP)
-    local pipe = assert(io.popen(command))
-    local output = pipe:read("*a")
-    local ok = pipe:close()
-    assert(ok, "the bundled runner failed outside its checkout: " .. output)
+    local output, bundled = capturedRun(command)
+    test.equal(bundled.status, 0, "the bundled runner failed outside its checkout" .. evidence(bundled))
     local report = require("testjson").decode(output)
     test.equal(report.total, 2, "both external suites ran")
     test.equal(report.passed, 2, "both external suites passed")
@@ -101,7 +134,8 @@ return M
 end
 
 function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()
-    local ordinary = runWorkerHost("lexertest --timings=0")
+    local ordinary, ordinaryRun = runWorkerHost("lexertest --timings=0")
+    test.equal(ordinaryRun.status, 0, "the worker host run succeeded" .. evidence(ordinaryRun))
     test.matches(ordinary, "1 suites across 1 Nupp workers")
     test.matches(ordinary, "18 tests, 18 passed")
     test.equal(
@@ -110,7 +144,8 @@ function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()
         "parallel progress is one mark per suite slice, not one per case"
     )
 
-    local isolated = runWorkerHost("processnativetest --timings=0")
+    local isolated, isolatedRun = runWorkerHost("processnativetest --timings=0")
+    test.equal(isolatedRun.status, 0, "the isolated run succeeded" .. evidence(isolatedRun))
     test.equal(isolated:find("Nupp workers", 1, true), nil, "the native process suite stays off the mechanism it tests")
     test.matches(isolated, "11 tests, 11 passed")
 end
@@ -119,29 +154,35 @@ function M.namingSeveralSuitesRunsEveryOneOfThem()
     -- Each name used to overwrite the one before it, so `nupp test a b` ran only `b`
     -- and reported a count that looked like an answer. Summed from the single runs
     -- rather than written down, so this keeps meaning what it says as suites grow.
-    local first = runWorkerHost("lexertest --timings=0")
-    local second = runWorkerHost("uritest --timings=0")
-    local both = runWorkerHost("lexertest uritest --timings=0")
+    local first, firstRun = runWorkerHost("lexertest --timings=0")
+    local second, secondRun = runWorkerHost("uritest --timings=0")
+    local both, bothRun = runWorkerHost("lexertest uritest --timings=0")
     local a = tonumber(first:match("(%d+) tests,"))
     local b = tonumber(second:match("(%d+) tests,"))
     local together = tonumber(both:match("(%d+) tests,"))
-    test.assert(a and b and together, "each run reports a count")
-    test.equal(together, a + b, "naming two suites runs both of them")
+    local runs = evidence(firstRun, secondRun, bothRun)
+    test.assert(a and b and together, "each run reports a count" .. runs)
+    test.equal(together, a + b, "naming two suites runs both of them" .. runs)
 end
 
 function M.aNameMatchingNoSuiteIsAFailure()
     -- Discovering nothing and reporting it green is the shape of this that hurts:
     -- a typo in a suite name reads exactly like a suite that passed.
-    local out = runWorkerHost("nosuchsuitetest --timings=0")
+    local out, missing = runWorkerHost("nosuchsuitetest --timings=0")
     test.matches(out, "no tests were discovered")
+    test.equal(missing.status, 1, "discovering nothing exits unsuccessfully" .. evidence(missing))
 end
 
 function M.workerHostColorsOnlyWhenAskedDownAPipe()
-    local colored = runWorkerHost("lexertest --timings=0 --color=always")
-    test.assert(colored:find("\27[", 1, true), "--color=always paints runner output")
+    local colored, coloredRun = runWorkerHost("lexertest --timings=0 --color=always")
+    test.assert(colored:find("\27[", 1, true), "--color=always paints runner output" .. evidence(coloredRun))
 
-    local plain = runWorkerHost("lexertest --timings=0 --no-color")
-    test.equal(plain:find("\27[", 1, true), nil, "--no-color keeps redirected runner output plain")
+    local plain, plainRun = runWorkerHost("lexertest --timings=0 --no-color")
+    test.equal(
+        plain:find("\27[", 1, true),
+        nil,
+        "--no-color keeps redirected runner output plain" .. evidence(plainRun)
+    )
 end
 
 function M.embeddedWorkersDoNotPassTheirProgressDescriptorToNestedRunners()
