@@ -1784,6 +1784,47 @@ return {
     remove(dir)
 end
 
+-- Linking a compiler-carried service runtime needs its source closure before the
+-- checker sees it. A prior module record already names that closure; rediscovering it
+-- through a fresh query graph checks the module solely to confirm an otherwise usable
+-- cache entry, which made the shared contracts module dominate every warm command.
+function M.warmServiceCheckUsesRecordedRuntimeDependencies()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", entries = {"main"}, dialect = "lua51"},
+}
+]],
+        [
+            "src/main.nupp"
+        ] = [[
+local crypto = require("nupp.crypto")
+local storage = require("nupp.io.storage")
+local time = require("nupp.time")
+return crypto, storage, time
+]],
+    })
+
+    local cold = {}
+    assertEq(project.check(dir, {produced = cold, diagnostics = {}}), 0)
+    assert(cold.timing.compiledModules > 0, "the first check establishes the module records")
+
+    local warm = {}
+    assertEq(project.check(dir, {produced = warm, diagnostics = {}}), 0)
+    assertEq(warm.timing.compiledModules, 0, "the unchanged service closure is reused")
+    for _, span in ipairs(warm.timing.slowest) do
+        assert(
+            span.module ~= "nupp.runtime.services.contracts",
+            "a warm service check must not recheck the shared contracts module"
+        )
+    end
+
+    remove(dir)
+end
+
 -- Checking a named file is the project's own check started somewhere smaller,
 -- so it has to reuse like one, answer like one, and cost the whole-project
 -- check that follows it nothing.

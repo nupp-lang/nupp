@@ -855,6 +855,58 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local packagedRuntimeModules: {[string]: boolean} = {}
     local packagedCheckSources: {[string]: boolean} = {}
     local stagingPackagedChecks: {[string]: boolean} = {}
+    -- A check reuses on the same terms a build does. It used to be excluded, and had to
+    -- be: reuse produced no diagnostics, so the second `nupp check` over a project with
+    -- an error would have said nothing was wrong. Now a record carries what the file
+    -- had to say, so replaying it says the same thing the check would have.
+    local cacheCompatible = oldState.moduleCompilerHash == newState.moduleCompilerHash
+        and oldState.configHash == newState.configHash
+
+    --- What a module's record is keyed on: its substitute when it has one, and the
+    --- text this build checked otherwise. Hashing the file while compiling something
+    --- else would make a rebuild reuse an artifact built from different source.
+    ---
+    --- The text the check saw rather than the file as it now stands, because a build
+    --- reads a module twice: the checker takes its tree when whatever requires it is
+    --- checked, and the scan reaches it later on its own turn. A source edited between
+    --- the two was recorded at content this build never compiled -- and since the
+    --- artifact beside it then matched what the record said it wrote, every later build
+    --- reused it and the edit was never compiled at all. `fileText` is memoized for the
+    --- life of the build, so both reads answer with whichever content got there first
+    --- and the record describes the artifact it is stored next to.
+    local function sourceContentHash(path: string): string?
+        local text = substituted[path]
+        if text ~= nil then
+            -- Generated replacements may import implementation modules. Copying
+            -- those bytes into authored source must force an ordinary check.
+            return hash.digest("compiler-generated\0" .. text as string)
+        end
+        local checked = inc.fileText(path)
+        if checked ~= nil then
+            return hash.digest(checked as string)
+        end
+
+        -- Not a file the checker reads through this query: a dependency's declarations
+        -- are answered by another one, and a missing file has no text at all.
+
+        return hashFile(path)
+    end
+
+    -- Runtime linking needs the source closure before any newly checked module can
+    -- resolve it. An unchanged module already recorded that closure, so asking the
+    -- fresh query graph to rediscover it would check the module solely to confirm a
+    -- cache entry that is about to be reused.
+    local function moduleDependencies(name: string, path: string): {string}
+        local previous = oldState.modules[name]
+        if cacheCompatible and previous and previous.sourceHash == sourceContentHash(
+            path
+        ) and type(previous.dependencies) == "table" then
+            return previous.dependencies as {string}
+        end
+
+        return inc.moduleDependencies(path)
+    end
+
     -- Whether this target is a different one from the compiler's own build. A module
     -- the compiler carries is staged from that build for a `luajit` target, which is
     -- the same artifact it would compile; for `lua51` it is not, so those modules are
@@ -869,7 +921,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
         or target.kind == "component"
 
     local enqueueLinked: function(string): nil
-    local checkedProviders: {[string]: boolean} = {}
 
     local function compatibleProvider(name: string): boolean
         local found = false
@@ -918,19 +969,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
             return
         end
         linkingRuntimeSource[name] = true
-        if not checkedProviders[name] then
-            checkedProviders[name] = true
-            for _, provider in ipairs(serviceCatalog.entries) do
-                if provider.entry == name and serviceCatalog.supports(provider, target.dialect or "luajit") then
-                    local valid, problem = require(
-                        "nupp.compiler.build.services"
-                    ).check(opened, {provider}, root, outDir)
-                    if not valid then
-                        error(problem, 0)
-                    end
-                end
-            end
-        end
         local service = serviceCatalog.facades[name]
         if service ~= nil then
             for _, provider in ipairs(serviceCatalog.entries) do
@@ -945,7 +983,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             if enqueueLinked ~= nil then
                 enqueueLinked(name)
             end
-            for _, dependency in ipairs(inc.moduleDependencies(path)) do
+            for _, dependency in ipairs(moduleDependencies(name, path)) do
                 linkRuntimeSource(dependency)
             end
         end
@@ -969,7 +1007,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local path = stageBundled(name, true)
         if path ~= nil and not path:match("%.d%.nupp$") then
             packagedCheckSources[name] = true
-            for _, dependency in ipairs(inc.moduleDependencies(path)) do
+            for _, dependency in ipairs(moduleDependencies(name, path)) do
                 stagePackagedChecks(dependency)
             end
         end
@@ -1048,42 +1086,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
-    --- What a module's record is keyed on: its substitute when it has one, and the
-    --- text this build checked otherwise. Hashing the file while compiling something
-    --- else would make a rebuild reuse an artifact built from different source.
-    ---
-    --- The text the check saw rather than the file as it now stands, because a build
-    --- reads a module twice: the checker takes its tree when whatever requires it is
-    --- checked, and the scan reaches it later on its own turn. A source edited between
-    --- the two was recorded at content this build never compiled -- and since the
-    --- artifact beside it then matched what the record said it wrote, every later build
-    --- reused it and the edit was never compiled at all. `fileText` is memoized for the
-    --- life of the build, so both reads answer with whichever content got there first
-    --- and the record describes the artifact it is stored next to.
-    local function sourceContentHash(path: string): string?
-        local text = substituted[path]
-        if text ~= nil then
-            -- Generated replacements may import implementation modules. Copying
-            -- those bytes into authored source must force an ordinary check.
-            return hash.digest("compiler-generated\0" .. text as string)
-        end
-        local checked = inc.fileText(path)
-        if checked ~= nil then
-            return hash.digest(checked as string)
-        end
-
-        -- Not a file the checker reads through this query: a dependency's declarations
-        -- are answered by another one, and a missing file has no text at all.
-
-        return hashFile(path)
-    end
-
-    -- A check reuses on the same terms a build does. It used to be excluded, and had to
-    -- be: reuse produced no diagnostics, so the second `nupp check` over a project with
-    -- an error would have said nothing was wrong. Now a record carries what the file
-    -- had to say, so replaying it says the same thing the check would have.
-    local cacheCompatible = oldState.moduleCompilerHash == newState.moduleCompilerHash
-        and oldState.configHash == newState.configHash
     -- Everything the project is written in, not the closure of its entries.
     --
     -- A compiler compiles its source set. Deciding what to compile by walking require
@@ -1322,19 +1324,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
             return true
         end
         addingCarriedRuntime[name] = true
-        if not checkedProviders[name] then
-            checkedProviders[name] = true
-            for _, provider in ipairs(serviceCatalog.entries) do
-                if provider.entry == name and serviceCatalog.supports(provider, target.dialect or "luajit") then
-                    local valid, problem = require(
-                        "nupp.compiler.build.services"
-                    ).check(opened, {provider}, root, outDir)
-                    if not valid then
-                        error(problem, 0)
-                    end
-                end
-            end
-        end
         local required = runtimeImports(name, text)
         local carriedEffects = jsonArray({})
         if carriedRecord then
@@ -1721,7 +1710,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         if serviceCatalog.supports(
             provider,
             target.dialect or "luajit"
-        ) and (records[provider.entry] ~= nil or checkedProviders[provider.entry]) then
+        ) and (records[provider.entry] ~= nil or linkedRuntimeSource[provider.entry]) then
             artifactProviders[#artifactProviders + 1] = provider
         end
     end
