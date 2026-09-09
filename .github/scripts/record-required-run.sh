@@ -97,7 +97,16 @@ record = {
 # recorded rather than recomputed from a job list months later.
 minutes = [job["runnerMinutes"] for job in record["jobs"] if job["runnerMinutes"] is not None]
 record["runnerMinutes"] = round(sum(minutes), 1) if minutes else None
-record["conclusion"] = "failure" if failures else "success"
+
+# From the job conclusions rather than from the failed steps: a job can fail
+# without any step failing -- a cancellation, or a failure to provision the
+# runner at all -- and a row that called those runs green would be a row that
+# quietly answered the question this file exists to answer.
+record["conclusion"] = (
+    "failure"
+    if any(job.get("conclusion") not in (None, "success", "skipped") for job in jobs)
+    else "success"
+)
 
 with open(sys.argv[1], "w", encoding="utf-8") as handle:
     json.dump(record, handle, indent=2, sort_keys=True)
