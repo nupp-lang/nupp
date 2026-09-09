@@ -1382,16 +1382,28 @@ Usage:
   nupp test [args...]
 
 Options:
-  --json          Ask the test command for one JSON document instead of
-                  progress text
-  --verbose       Ask the test command to show output from passing tests
-  --color[=WHEN]  Color both compiler and test output: always, never, or auto
-  --no-color      Never color compiler or test output
-  --timings       Ask the test command for its whole timing report rather than
-                  the slowest few. `--timings=N` asks for N rows, and
-                  `--timings=0` for none
-  -h, --help      Show this help
-  --schema        Print the JSON Schema of --json output and exit
+  --json                Ask the test command for one JSON document instead of
+                        progress text
+  --verbose             Ask the test command to show output from passing tests
+  --color[=WHEN]        Color both compiler and test output: always, never, or
+                        auto
+  --no-color            Never color compiler or test output
+  --timings             Ask the test command for its whole timing report rather
+                        than the slowest few. `--timings=N` asks for N rows,
+                        and `--timings=0` for none
+  --group NAME          Run the suites a named group covers. Repeatable, and
+                        comma-separated. `--list-groups` names them
+  --exclude SUITE       Leave these suites out, which is how a later broad run
+                        stops repeating what an earlier focused one already ran
+  --exclude-group NAME  Leave every suite a named group covers out
+  --lane WHICH          Keep only one execution lane: `shared` is what a Nupp
+                        worker can run beside other suites in one process,
+                        `isolated` is what needs a process of its own
+  --list-suites         Print the suites this selection would run, and run none
+                        of them
+  --list-groups         Print every named group and the suites it covers
+  -h, --help            Show this help
+  --schema              Print the JSON Schema of --json output and exit
 
 Additional arguments are appended to the bundled runner or test.argv from
 nupp.lua. Use '--' before a test argument named --help.
@@ -1479,14 +1491,26 @@ Usage:
   nupp test-runner [suite...] [options]
 
 Options:
-  --json          Write one JSON test report instead of progress text
-  --verbose       Show output captured from passing tests
-  --jobs N        Use N parallel workers
-  --timings[=N]   Show every timing, or only the N slowest suites and cases
-  --color[=WHEN]  Color output: always, never, or auto
-  --no-color      Never color output
-  -h, --help      Show this help
-  --schema        Print the JSON Schema of --json output and exit
+  --json                Write one JSON test report instead of progress text
+  --verbose             Show output captured from passing tests
+  --jobs N              Use N parallel workers
+  --timings[=N]         Show every timing, or only the N slowest suites and
+                        cases
+  --color[=WHEN]        Color output: always, never, or auto
+  --no-color            Never color output
+  --group NAME          Run the suites a named group covers. Repeatable, and
+                        comma-separated. `--list-groups` names them
+  --exclude SUITE       Leave these suites out, which is how a later broad run
+                        stops repeating what an earlier focused one already ran
+  --exclude-group NAME  Leave every suite a named group covers out
+  --lane WHICH          Keep only one execution lane: `shared` is what a Nupp
+                        worker can run beside other suites in one process,
+                        `isolated` is what needs a process of its own
+  --list-suites         Print the suites this selection would run, and run none
+                        of them
+  --list-groups         Print every named group and the suites it covers
+  -h, --help            Show this help
+  --schema              Print the JSON Schema of --json output and exit
 
 Discovers tests/*test.lua and tests/*test.nupp. Each suite returns a
 table of test functions and may define beforeAll, afterAll, beforeEach, and

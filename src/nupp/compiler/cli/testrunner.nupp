@@ -21,6 +21,28 @@ local command = spec.command{
         },
         {name = "--color", value = "WHEN", form = "optional", help = "Color output: always, never, or auto"},
         {name = "--no-color", help = "Never color output"},
+        {
+            name = "--group",
+            value = "NAME",
+            help = "Run the suites a named group covers. Repeatable, and "
+            .. "comma-separated. `--list-groups` names them"
+        },
+        {
+            name = "--exclude",
+            value = "SUITE",
+            help = "Leave these suites out, which is how a later broad run "
+            .. "stops repeating what an earlier focused one already ran"
+        },
+        {name = "--exclude-group", value = "NAME", help = "Leave every suite a named group covers out"},
+        {
+            name = "--lane",
+            value = "WHICH",
+            help = "Keep only one execution lane: `shared` is what a Nupp "
+            .. "worker can run beside other suites in one process, `isolated` "
+            .. "is what needs a process of its own"
+        },
+        {name = "--list-suites", help = "Print the suites this selection would run, and run none of them"},
+        {name = "--list-groups", help = "Print every named group and the suites it covers"},
         spec.helpOption,
     },
     schema = require("nupp.compiler.cli.test").spec.schema,

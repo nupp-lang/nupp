@@ -45,6 +45,13 @@ local command = spec.command{
             .. "stops repeating what an earlier focused one already ran"
         },
         {name = "--exclude-group", value = "NAME", help = "Leave every suite a named group covers out"},
+        {
+            name = "--lane",
+            value = "WHICH",
+            help = "Keep only one execution lane: `shared` is what a Nupp "
+            .. "worker can run beside other suites in one process, `isolated` "
+            .. "is what needs a process of its own"
+        },
         {name = "--list-suites", help = "Print the suites this selection would run, and run none of them"},
         {name = "--list-groups", help = "Print every named group and the suites it covers"},
         spec.helpOption,
