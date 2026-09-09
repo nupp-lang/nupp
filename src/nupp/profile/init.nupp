@@ -476,6 +476,53 @@ end
 -- live.
 local sampling = false
 
+-- LuaJIT's POSIX sampler is SIGPROF plus an interval timer, and it arms the timer
+-- before it installs the handler, then at teardown disarms the timer before it
+-- puts the old handler back. SIGPROF's default action terminates the process, so
+-- a sample landing in either window kills the process outright rather than being
+-- recorded -- which is what a host reporting "Profiling timer expired" and a
+-- worker dead at signal 27 has just watched happen. At one millisecond a suite
+-- offers those windows a few thousand chances.
+--
+-- Neither window can be closed from here, but both can be made harmless: with
+-- the disposition already SIG_IGN, an early sample is ignored, and it is SIG_IGN
+-- that LuaJIT saves and restores around its own handler, so a late one is
+-- ignored too. Put the real disposition back afterwards, since leaving a process
+-- unable to be profiled by anything else is not this module's decision to make.
+local ignoredSignal, restoreSignal = nil, nil
+do
+    local loaded, ffi = pcall(require, "ffi")
+    if loaded and package.config:sub(1, 1) ~= "\\" then
+        -- Declared here rather than trusted to exist: another module may have
+        -- declared it already, which raises rather than answering.
+        pcall((ffi as any).cdef, "void (*signal(int, void (*)(int)))(int);")
+        local reachable, signal = pcall(function(): any
+            return (ffi as any).C.signal
+        end)
+        if reachable and signal ~= nil then
+            -- SIGPROF is 27 on every platform this runs a sampler on.
+            local SIGPROF, SIG_IGN = 27, (ffi as any).cast("void (*)(int)", 1)
+            -- Held with a flag of its own rather than tested for nil. The
+            -- disposition that has to be put back is usually the default, which
+            -- is a null function pointer, and a null pointer compares equal to
+            -- nil -- so a restore guarded on the pointer would skip exactly the
+            -- case it exists for and leave the process unable to be profiled.
+            local previous: any = nil
+            local captured = false
+            ignoredSignal = function(): nil
+                local ok, was = pcall(signal as any, SIGPROF, SIG_IGN)
+                previous, captured = was, ok
+            end
+            restoreSignal = function(): nil
+                if captured then
+                    pcall(signal as any, SIGPROF, previous)
+                    previous, captured = nil, false
+                end
+            end
+        end
+    end
+end
+
 --- Starts sampling.
 ---
 --- ```nupp
@@ -572,6 +619,9 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
     end
 
     zone.acquire()
+    if ignoredSignal ~= nil then
+        ignoredSignal()
+    end
     -- "l" keys the sampler on the source line, which is the finest thing it coalesces
     -- on: consecutive samples sharing a key arrive as one call carrying their count, so
     -- anything coarser would attribute a run of samples to whichever stack the last of
@@ -619,6 +669,9 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
     end
     self.stopped = true
     jitProfile.stop()
+    if restoreSignal ~= nil then
+        restoreSignal()
+    end
     sampling = false
     zone.release()
 
