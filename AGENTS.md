@@ -175,6 +175,11 @@ reports it is usually already testing somebody else's commit. `git push
   `./bin/nupp test doctest` finishes in seconds where the whole suite takes
   about nine minutes. `--json` reports a record per test — name, status,
   duration, and the failure's message, file and line.
+- `./bin/nupp test --list-groups` names the suite groups, and `--group=NAME`
+  runs one. `--lane=shared` is the hundred-odd suites that share a process and
+  finish in half a minute; `--exclude-group=NAME` is how a later broad run
+  covers what an earlier focused one did not. `--list-suites` prints what a
+  selection would run without running it.
 - Run the suites that cover what changed, not the whole suite. Documentation
   generation is `doctest`, and the same holds elsewhere: match the suites to
   the area. The full suite is for changes that reach broadly — the checker, the
@@ -186,6 +191,13 @@ reports it is usually already testing somebody else's commit. `git push
   affected generated site or assets instead.
 - `./bin/nupp fixpoint` verifies that the compiler rebuilds byte-identically,
   starting from the pinned stage zero.
+- What CI runs for a change is decided by `.github/scripts/classify-changes.lua`
+  from the paths it touches, and `required-ci` is the single status the trunk
+  requires. A path no rule classifies selects every job, which is the property
+  that makes the classifier safe to trust: adding a file in a new place cannot
+  quietly lose coverage. `tests/cichangeclassifiertest.lua` and
+  `.github/ci-coverage.json` hold the classifier, the workflow and the test
+  groups to one account of what is covered.
 
 ## Speed
 
