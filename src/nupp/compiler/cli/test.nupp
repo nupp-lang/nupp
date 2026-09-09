@@ -12,6 +12,24 @@ performs and the configured runner, so it is read here and still passed along.
 local spec = require("nupp.compiler.cli.spec")
 local ansi = require("nupp.compiler.ansi")
 
+--- What one phase of a parallel run was predicted to cost, which the report puts
+--- beside what its busiest lane actually cost. Written once and used for both
+--- phases: two copies of a shape are two chances for them to drift apart.
+local phasePrediction = {
+    type = "object",
+    properties = {
+        planned = {type = "number", description = "Predicted milliseconds of work in the phase."},
+        lanes = {type = "integer", description = "How many workers it was packed for."},
+        heaviest = {
+            type = "number",
+            description = "The single heaviest piece. A piece longer than the "
+            .. "fair share is the phase's floor however many lanes there are."
+        },
+        floor = {type = "number", description = "The larger of the fair share and the heaviest piece."},
+    },
+    required = {"planned", "lanes", "heaviest", "floor"},
+}
+
 local command = spec.command{
     name = "test",
     summary = "Build and run project tests",
@@ -176,6 +194,16 @@ local command = spec.command{
                     },
                     required = {"index", "durationMs"},
                 },
+            },
+            prediction = {
+                type = "object",
+                description = "What the packer said each phase could not finish "
+                .. "under, from the timings the last run recorded. Absent when "
+                .. "the run was serial. A phase whose busiest shard came out far "
+                .. "above its floor was packed from stale timings or starved a "
+                .. "lane; one that came out at its floor is as short as that much "
+                .. "work gets, and only less work shortens it.",
+                properties = {processIsolated = phasePrediction, shared = phasePrediction},
             },
         },
         required = {"ok", "total", "passed", "skipped", "failed", "tests"},

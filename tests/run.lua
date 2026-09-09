@@ -1272,12 +1272,26 @@ local function planWork(list, shards, timings)
         return a.spec < b.spec
     end)
 
-    local order = {}
+    local order, heaviest = {}, 0
     for _, item in ipairs(work) do
         order[#order + 1] = item.spec
+        if item.cost > heaviest then
+            heaviest = item.cost
+        end
     end
 
-    return order
+    -- What this plan says the phase cannot finish under, so the report can say
+    -- whether a slow run was packed badly or was simply that much work. A lane
+    -- takes the next piece when it is free, so the floor is the larger of the
+    -- fair share and the single heaviest piece: one piece longer than the share
+    -- is the whole phase's floor however many lanes there are.
+
+    return order, {
+        planned = planned,
+        lanes = shards,
+        heaviest = heaviest,
+        floor = math.max(shards > 0 and planned / shards or planned, heaviest),
+    }
 end
 
 -- A Nupp worker owns a Lua state, not the process around that state. Suites that
@@ -1362,6 +1376,10 @@ if listing == "suites" then
     os.exit(0)
 end
 
+-- What the packer said each phase could not finish under, kept so the report can
+-- put its prediction beside what the phase actually cost. A plan that is right
+-- and a run that is slow are different problems with different fixes.
+local predictions = {}
 local sharded = nil
 if #shard == 0 and #suites > 0 and (
     (workerHost and not processIsolated(only and byName[only])) or (#chosen ~= 1 and #suites > 1 and jobs ~= 1)
@@ -1692,7 +1710,8 @@ if #shard == 0 and #suites > 0 and (
                 return
             end
             local count = math.min(jobs or defaultJobs(), #list)
-            local order = planWork(list, count, recordedTimings())
+            local order, prediction = planWork(list, count, recordedTimings())
+            predictions[isolated and "alone" or "shared"] = prediction
             local ticket = os.tmpname():match("[^/\\]+$") or tostring(#order)
             local queue = shardCacheRoot .. "/queue-" .. ticket
             os.execute("rm -rf '" .. queue .. "' && mkdir -p '" .. queue .. "'")
@@ -2157,7 +2176,7 @@ local function timingReport()
         into[#into + 1] = entry
     end
 
-    local function phase(label, entries)
+    local function phase(label, entries, prediction)
         if #entries == 0 then
             return
         end
@@ -2175,10 +2194,24 @@ local function timingReport()
         headline = headline .. (
             "\n  %d %s: busiest %s, idlest %s, mean %s"
         ):format(#entries, label, seconds(busiest), seconds(idlest), seconds(spent / #entries))
+        -- The busiest lane is the phase's critical path. Beside it, what the
+        -- packer predicted from the last run's timings: close together means the
+        -- plan was right and the phase is as short as this much work gets, and
+        -- far apart means either the timings are stale or one lane was starved.
+        if prediction then
+            headline = headline .. (
+                ", predicted %s from %s over %d lanes, heaviest piece %s"
+            ):format(
+                seconds(prediction.floor),
+                seconds(prediction.planned),
+                prediction.lanes,
+                seconds(prediction.heaviest)
+            )
+        end
     end
 
-    phase("process-isolated workers", aloneShards)
-    phase("Nupp worker shards", shards)
+    phase("process-isolated workers", aloneShards, predictions.alone)
+    phase("Nupp worker shards", shards, predictions.shared)
     say(headline .. "\n")
 
     local shown = 0
@@ -2263,6 +2296,13 @@ elseif asJson then
             tests = json.asArray(results),
             suites = json.asArray(suiteRecords),
             shards = json.asArray(sharded and sharded.shards or {}),
+            -- What the packer said each phase could not finish under, beside
+            -- what it did. A phase far above its prediction was packed from
+            -- stale timings or starved a lane; one at its prediction is as
+            -- short as that much work gets, and only less work shortens it.
+            prediction = (
+                predictions.alone or predictions.shared
+            ) and {processIsolated = predictions.alone, shared = predictions.shared,} or nil,
             -- What this process took off a queue, which is how the parent tells work
             -- that ran from work whose worker died holding it. A run that was not
             -- handed a queue took nothing, and says nothing.
