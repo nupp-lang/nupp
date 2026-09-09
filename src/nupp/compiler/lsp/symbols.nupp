@@ -6,6 +6,7 @@ The outline of a file, and what folds.
 Both are read from the tree rather than from the checker: an outline has to be
 there while the code is being written, which is exactly when it does not check.
 ]]
+const {type Funcname} = require("nupp.compiler.cst")
 
 local wire = require("nupp.compiler.lsp.wire")
 local tree = require("nupp.compiler.lsp.tree")
@@ -158,7 +159,7 @@ function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.S
             elseif stat.kind == "funcStmt" then
                 local holder, member = tree.memberHolder(stat)
                 local fname = stat.name
-                local named = fname as nupp.compiler.cst.Funcname
+                local named = fname as Funcname
                 local nameTok = member or (fname and named.base)
                 local path = nil
                 if holder and member then

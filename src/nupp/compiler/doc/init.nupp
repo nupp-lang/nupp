@@ -10,6 +10,16 @@ checker would add work without improving the rendered API.
 A long comment at the very top of a file, this one included, is that file's module
 documentation, and is rendered as markdown.
 ]]
+const {type LexError} = require("nupp.compiler.lexer")
+const {type Module} = require("nupp.compiler.doc.extract")
+const {type Page as Page2} = require("nupp.compiler.doc.urls")
+const {type Param} = require("nupp.compiler.doc.extract")
+const {type Result} = require("nupp.compiler.doc.extract")
+const {type Member} = require("nupp.compiler.doc.extract")
+const {type Links} = require("nupp.compiler.doc.urls")
+const files = require("nupp.io.files")
+const {type Config as Config2} = require("nupp.compiler.build.manifest")
+const {type Target} = require("nupp.compiler.build.manifest")
 
 local stringsMod = require("nupp.compiler.doc.strings")
 local filesMod = require("nupp.compiler.doc.files")
@@ -27,7 +37,7 @@ local homeMod = require("nupp.compiler.doc.home")
 local frontmatterMod = require("nupp.compiler.doc.frontmatter")
 local diagnosticsMod = require("nupp.compiler.doc.diagnostics")
 local stdlibMod = require("nupp.compiler.doc.stdlib")
-local json = nupp.codec.json
+local json = require("nupp.codec.json")
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local escapeJs = stringsMod.escapeJs
@@ -155,7 +165,7 @@ function doc.extract(
     path: string?,
     name: string,
     opts: extractMod.Options?
-): extractMod.Module?, {nupp.compiler.lexer.LexError}?, {extractMod.Module}?
+): extractMod.Module?, {LexError}?, {extractMod.Module}?
     return extractMod.extract(source, path, name, opts)
 end
 
@@ -315,7 +325,7 @@ local function loadModules(root, config, settings, requested)
                     implied[extra] = true
                 end
             else
-                for _, err in ipairs(parseErrors as {nupp.compiler.lexer.LexError}) do
+                for _, err in ipairs(parseErrors as {LexError}) do
                     errors[#errors + 1] = err
                 end
             end
@@ -688,12 +698,8 @@ end
 --
 -- Every prose field is rewritten rather than only the leading text, because a `@param`
 -- description carries a link as readily as the sentence above it does.
-local function rewriteModuleDocLinks(
-    module: nupp.compiler.doc.extract.Module,
-    pages: {nupp.compiler.doc.urls.Page},
-    file: string
-): nil
-    local page: nupp.compiler.doc.urls.Page = {path = ""}
+local function rewriteModuleDocLinks(module: Module, pages: {Page2}, file: string): nil
+    local page: Page2 = {path = ""}
     local function rewrite(text: string?): string
         if not text or text == "" then
             return text or ""
@@ -702,10 +708,7 @@ local function rewriteModuleDocLinks(
         return rewriteConfiguredPageLinks(text, page, pages, file)
     end
 
-    local function rewriteParts(
-        params: {nupp.compiler.doc.extract.Param},
-        returns: {nupp.compiler.doc.extract.Result}
-    ): nil
+    local function rewriteParts(params: {Param}, returns: {Result}): nil
         for _, param in ipairs(params) do
             param.text = rewrite(param.text)
         end
@@ -714,7 +717,7 @@ local function rewriteModuleDocLinks(
         end
     end
 
-    local rewriteMembers: (function(members: {nupp.compiler.doc.extract.Member}?): nil)
+    local rewriteMembers: (function(members: {Member}?): nil)
     rewriteMembers = function(members)
         for _, member in ipairs(members or {}) do
             member.text = rewrite(member.text)
@@ -1143,7 +1146,7 @@ local function renderSite(root, outDir, modules, title, settings)
         end
     end
 
-    local generatedLinks: nupp.compiler.doc.urls.Links = {}
+    local generatedLinks: Links = {}
     for _, candidate in ipairs(pages) do
         for name, anchor in pairs(candidate.symbols or {}) do
             generatedLinks[name] = routeFile(candidate.path) .. "#" .. anchor
@@ -1406,7 +1409,7 @@ end
 -- produced it. Retry rather than believe the file survives on purpose.
 local function removeReplaced(path: string): nil
     for attempt = 1, 20 do
-        local removed = nupp.io.files.remove(path)
+        local removed = files.remove(path)
         if removed then
             return
         end
@@ -1444,10 +1447,7 @@ local function reconcileSiteFiles(output: string, written: {string}): boolean?, 
             -- directory that is not empty costs two seconds and removes nothing, and a
             -- build that renamed a hundred routes paid it a hundred times.
             local directory = dirname(path)
-            while directory ~= output and directory:sub(
-                1,
-                #output + 1
-            ) == output .. "/" and nupp.io.files.remove(directory) do
+            while directory ~= output and directory:sub(1, #output + 1) == output .. "/" and files.remove(directory) do
                 directory = dirname(directory)
             end
         end
@@ -1467,12 +1467,7 @@ end
 --- whatever it validated, and a docs target is an ordinary build target with the
 --- generator's keys on it. They arrive as those types and are read as the richer ones
 --- declared above, which describe the same tables in the detail this module needs.
-function doc.build(
-    root: string?,
-    config: nupp.compiler.build.manifest.Config,
-    settings: nupp.compiler.build.manifest.Target?,
-    opts: table?
-): integer, string?, string?
+function doc.build(root: string?, config: Config2, settings: Target?, opts: table?): integer, string?, string?
     root = root or "."
     local config = config as doc.Config
     local settings = (settings or {}) as doc.Settings

@@ -41,6 +41,9 @@ worker lanes. It is not persistent across processes. Resumption never sends
 application data before the handshake: TLS 1.3 early data is deliberately not
 enabled because accepting it requires an application-level replay policy.
 ]]
+const {type Reader} = require("nupp.io")
+const {type Writer} = require("nupp.io")
+const {type Buffer} = require("nupp.io")
 
 local net = require("nupp.io.net")
 local takeStreamHandle: function(takes source: net.Stream): any = require("nupp.io.net.internal").takeStreamHandle
@@ -140,7 +143,7 @@ end
 --- Owns the connection it encrypts over. Closing the session sends
 --- `close_notify`, drains it, and closes the socket.
 --- @export
-record tls.Session is nupp.io.Reader, nupp.io.Writer
+record tls.Session is Reader, Writer
     private _provider: contract.Provider
     private _session: any
 
@@ -343,12 +346,7 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
 
     --- Reads into a buffer. A zero answer is the end.
     --- @raises when count is not a positive integer
-    function readInto(
-        self,
-        exclusive destination: nupp.io.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
+    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "tls.Session readInto count", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -372,7 +370,7 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
     end
 
     --- Writes everything left to a writer.
-    function transferTo(self, exclusive destination: nupp.io.Writer): (integer?, string?)
+    function transferTo(self, exclusive destination: Writer): (integer?, string?)
         local moved: integer = 0
         while true do
             const chunk, why = self:read(READ_SIZE)

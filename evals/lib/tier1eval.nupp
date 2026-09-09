@@ -5,7 +5,7 @@ module tier1eval
 
 local files = require("nupp.io.files")
 local harness = require("harness")
-local json = nupp.codec.json
+local json = require("nupp.codec.json")
 
 local tier1 = {}
 

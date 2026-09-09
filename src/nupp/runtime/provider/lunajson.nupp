@@ -19,6 +19,7 @@ return the original table and preserve its ownership.
 Native serde compilation hooks are optional and are not supplied here. Portable
 encoding and decoding remain available without a native parser artifact.
 ]]
+const {type Buffer} = require("nupp.text.buffer")
 
 local newDecoder = require(
     "nupp.runtime.vendor.lunajson.decoder"
@@ -309,7 +310,7 @@ function json.verifiedString(text: string): any
     return verified
 end
 
-function json.writer(exclusive out: nupp.text.buffer.Buffer, nullValue: any?): any
+function json.writer(exclusive out: Buffer, nullValue: any?): any
     local parts, stack, root, closed = {}, {}, false, false
     local pending = 0
     local writer = {}

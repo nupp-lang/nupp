@@ -9,6 +9,17 @@ that is not already current, and copies the resources the target declared. What
 own text, the interfaces it imported, the compiler that would compile it -- so a
 change anywhere in that set rebuilds it and a change anywhere else does not.
 ]]
+const files = require("nupp.io.files")
+const {type Target as Target2} = require("nupp.compiler.build.manifest")
+const {type Inc} = require("nupp.compiler.incremental")
+const {type ConstTerm} = require("nupp.compiler.types")
+const {type Type} = require("nupp.compiler.types")
+const {type Pack} = require("nupp.compiler.types")
+const {type Resource} = require("nupp.compiler.build.manifest")
+const {type DependencyRecord} = require("nupp.compiler.build.cache")
+const {type Reporter} = require("nupp.compiler.build.progress")
+const {type Observer} = require("nupp.compiler.incremental")
+const {type Value} = require("nupp.compiler.build.store")
 
 local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")
@@ -64,7 +75,7 @@ local function selectedSourceFiles(root: string, target: Target): ({string}?, st
         end
         local candidates = {}
         for _, matched in ipairs(matches) do
-            local info = nupp.io.files.info(matched)
+            local info = files.info(matched)
             if info and info.kind == "directory" then
                 for _, path in ipairs(fs.listFiles(matched, hiddenDirectory)) do
                     candidates[#candidates + 1] = path
@@ -115,9 +126,9 @@ end
 
 -- Named by module path rather than required: what these say is wanted at compile time
 -- and nothing of them is at run time.
-local type Config = nupp.compiler.build.manifest.Config
-local type Target = nupp.compiler.build.manifest.Target
-local type State = nupp.compiler.build.cache.State
+const {type Config} = require("nupp.compiler.build.manifest")
+local type Target = Target2
+const {type State} = require("nupp.compiler.build.cache")
 
 --- What a build did, for a caller that would otherwise only be able to observe that
 --- something got faster.
@@ -170,7 +181,7 @@ type modules.Narrow = {
 --- every one of those imports again and answer it the same way.
 record modules.Session
     --- The graph.
-    inc: nupp.compiler.incremental.Inc
+    inc: Inc
 
     --- What each file's own check cost, by path, with the dependencies it pulled
     --- in charged to themselves. A module's check reaches its imports through
@@ -213,7 +224,7 @@ local function binderFingerprint(binder: any, binders: Binders, prefix: string):
     return prefix .. "#" .. at
 end
 
-local function constFingerprint(term: nupp.compiler.types.ConstTerm?, binders: Binders): string
+local function constFingerprint(term: ConstTerm?, binders: Binders): string
     if not term then
         return "nil"
     end
@@ -230,13 +241,9 @@ local function constFingerprint(term: nupp.compiler.types.ConstTerm?, binders: B
     return "constop(" .. term.operation .. ":" .. table.concat(operands, ",") .. ")"
 end
 
-local typeFingerprint: function(nupp.compiler.types.Type?, {[nupp.compiler.types.Type]: boolean}?, Binders?): string
+local typeFingerprint: function(Type?, {[Type]: boolean}?, Binders?): string
 
-local function packFingerprint(
-    pack: nupp.compiler.types.Pack,
-    active: {[nupp.compiler.types.Type]: boolean},
-    binders: Binders
-): string
+local function packFingerprint(pack: Pack, active: {[Type]: boolean}, binders: Binders): string
     if pack.alternatives then
         local alternatives = {}
         for j, alternative in ipairs(pack.alternatives) do
@@ -261,11 +268,7 @@ local function packFingerprint(
     return "pack(" .. table.concat(head, ",") .. ";" .. tailFingerprint .. ")"
 end
 
-typeFingerprint = function(
-    t: nupp.compiler.types.Type?,
-    active: {[nupp.compiler.types.Type]: boolean}?,
-    binders: Binders?
-): string
+typeFingerprint = function(t: Type?, active: {[Type]: boolean}?, binders: Binders?): string
     if not t then
         return "nil"
     end
@@ -442,9 +445,7 @@ typeFingerprint = function(
                 #templates + 1
             ] = type(
                 part
-            ) == "string" and "text(" .. stable(
-                part
-            ) .. ")" or typeFingerprint(part as nupp.compiler.types.Type, active, binders)
+            ) == "string" and "text(" .. stable(part) .. ")" or typeFingerprint(part as Type, active, binders)
         end
         for _, argument in ipairs(t.comptimeArguments or {}) do
             if argument.kind == "type" then
@@ -527,7 +528,7 @@ end
 ---
 --- The one function for it, so the build's records and the hot session's
 --- snapshots cannot disagree about what an interface change is.
-function modules.interfaceHash(moduleType: nupp.compiler.types.Type?, exports: any, externalSourceHash: string?): string
+function modules.interfaceHash(moduleType: Type?, exports: any, externalSourceHash: string?): string
     exports = exports or {}
 
     return hash.digest(
@@ -576,14 +577,9 @@ local function resourceRelative(config: Config, path: string, root: string): str
     return best
 end
 
-local function resourceOutput(
-    config: Config,
-    resource: string | nupp.compiler.build.manifest.Resource,
-    source: string,
-    root: string
-): string
+local function resourceOutput(config: Config, resource: string | Resource, source: string, root: string): string
     if type(resource) == "table" then
-        return normalize((resource as nupp.compiler.build.manifest.Resource).output)
+        return normalize((resource as Resource).output)
     end
 
     return resourceRelative(config, source, root)
@@ -638,9 +634,9 @@ local function openSession(
     outDir: string,
     config: Config,
     target: Target,
-    dependencies: {[string]: nupp.compiler.build.cache.DependencyRecord},
+    dependencies: {[string]: DependencyRecord},
     strict: boolean?,
-    reporter: nupp.compiler.build.progress.Reporter?
+    reporter: Reporter?
 ): modules.Session
     local report = reporter or progress.new("never")
     local envConfig = {}
@@ -672,7 +668,7 @@ local function openSession(
     -- What the build was doing when the outermost check began, to go back to when it
     -- ends.
     local resumeActivity = "scan"
-    local observer: nupp.compiler.incremental.Observer = {
+    local observer: Observer = {
         checking = function(path: string): nil
             -- Checking is charged wherever it happens rather than only where this file
             -- calls for it. Deciding a module can be reused reaches the checker too, so
@@ -737,7 +733,7 @@ local function openSession(
             return nil
         end
         if not stagedReady then
-            nupp.io.files.remove(stagedRoot, true)
+            files.remove(stagedRoot, true)
             assert(fs.mkdir(stagedRoot), "cannot create runtime source staging tree")
             inc.env.roots[#inc.env.roots + 1] = stagedRoot
             stagedReady = true
@@ -780,7 +776,7 @@ end
 
 local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, strict: boolean?, stats: modules.Stats?, diagnostics: {
     any
-}?, checkState: nupp.compiler.build.store.Value?,
+}?, checkState: Value?,
 
     --- Set when a check was asked about named files rather than about the project. Only
     --- a check narrows: a build compiles the whole source set, because a module nobody
@@ -790,7 +786,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     --- Where what this is doing, and what it costs, is said. A run given none still
     --- measures itself into a reporter that shows nothing, so there is one code path
     --- rather than a nil test at every step.
-    reporter: nupp.compiler.build.progress.Reporter?,
+    reporter: Reporter?,
 
     --- Source path -> the text to compile instead of what is on disk. How the
     --- ahead-of-time policy puts a wrapper in front of an `@aot` function: the
@@ -1927,7 +1923,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     for _, resource in ipairs(target.resources or {}) do
         local pattern: string
         if type(resource) == "table" then
-            pattern = (resource as nupp.compiler.build.manifest.Resource).source
+            pattern = (resource as Resource).source
         else
             pattern = resource as string
         end

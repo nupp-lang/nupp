@@ -13,6 +13,7 @@ Nothing is installed or constructed here. This is the shape the walk fills in
 and the passes read, so it says what a field is for rather than what to do with
 it. The walk itself is in nupp.compiler.check.
 ]]
+const {type AssociatedLookup} = require("nupp.compiler.types")
 
 local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.cst")
@@ -389,7 +390,7 @@ record state.Checker
 
     --- Reports a projection that names nothing, with the reason the associated query
     --- gave, so every caller of that query reports the same way.
-    projectionFailed: function(at: any, head: Type, name: string, found: nupp.compiler.types.AssociatedLookup): nil
+    projectionFailed: function(at: any, head: Type, name: string, found: AssociatedLookup): nil
 
     resolvePack: function(node: Node?): any
 

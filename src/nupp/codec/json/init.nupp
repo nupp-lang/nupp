@@ -131,6 +131,7 @@ type it was handed.
 - [](nupp.serde) for binary serialization
 :::
 ]==]
+const {type Buffer} = require("nupp.text.buffer")
 
 const native = require("nupp.codec.json.provider")
 
@@ -590,7 +591,7 @@ end
 --- @param nullValue an additional value treated as JSON null
 --- @return a new writer
 --- @export
-export function writer(exclusive out: nupp.text.buffer.Buffer, nullValue: any?): Writer
+export function writer(exclusive out: Buffer, nullValue: any?): Writer
     if nullValue == nil then
         return new WriterImpl(raw = native.writer(out))
     end

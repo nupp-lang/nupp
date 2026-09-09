@@ -31,6 +31,7 @@ the two paths compute their file sets differently, which is exactly what the
 test comparing them is supposed to be able to catch. A shallow clone has no
 untracked files for the two definitions to disagree about anyway.
 ]]
+const files2 = require("nupp.io.files")
 
 local bundled = require("nupp.compiler.bundledlist")
 local fs = require("nupp.compiler.fs")
@@ -312,7 +313,7 @@ local function walk(root: string): {string}?, string?
     local pending: {string} = {""}
     while #pending > 0 do
         local relative = table.remove(pending) as string
-        local entries, listErr = nupp.io.files.list(join(root, relative))
+        local entries, listErr = files2.list(join(root, relative))
         if not entries then
             return nil, "cannot read " .. join(root, relative) .. ": " .. tostring(listErr)
         end
@@ -727,7 +728,7 @@ end
 --- `mkdir g && cd g && git init && nupp init .` is how people start and
 --- refusing it teaches nothing.
 local function destinationIsFree(destination: string): boolean, string?
-    local entries = nupp.io.files.list(destination)
+    local entries = files2.list(destination)
     if not entries then
         return true
     end
@@ -900,7 +901,7 @@ function template.fetch(source: template.Source, into: string): template.Source?
     clone[#clone + 1] = checkout
     local code, output = process.capture(clone)
     if code ~= 0 and source.rev then
-        nupp.io.files.remove(checkout, true)
+        files2.remove(checkout, true)
         local fullCode, fullOutput = process.capture({
             "git",
             "-c",

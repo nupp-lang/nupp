@@ -30,6 +30,10 @@ query graph the module build then uses: a parse says how a parameter, a call
 target or an annotation was spelled, and only a check says what each resolved
 to.
 ]]
+const {type Session} = require("nupp.compiler.build.modules")
+const {type ParseResult} = require("nupp.compiler.parser")
+const {type Archive} = require("nupp.compiler.aot.binding")
+const json = require("nupp.codec.json")
 
 local bindingRules = require("nupp.compiler.aot.binding")
 local gpuBinding = require("nupp.compiler.aot.gpubinding")
@@ -443,10 +447,7 @@ local mentionsGpuTarget = aot.mentionsGpuTarget
 --- place of the rewritten source's.
 ---
 --- @return the checked tree, and what it said about bindings nothing reads
-local function checkedTree(
-    session: nupp.compiler.build.modules.Session,
-    source: string
-): (nupp.compiler.parser.ParseResult?, {any})
+local function checkedTree(session: Session, source: string): (ParseResult?, {any})
     local checked = session.inc.checkFile(source)
     if checked.missing == true or checked.syntax == true or checked.result == nil then
         return nil, {}
@@ -461,7 +462,7 @@ local function checkedTree(
         end
     end
 
-    return checked.result as nupp.compiler.parser.ParseResult, authored
+    return checked.result as ParseResult, authored
 end
 
 --- The Lua import library a Windows link needs, or nothing.
@@ -582,7 +583,7 @@ function aot.dispatch(
     tiers: {string}?,
     constFamilies: {any}?,
     browser: boolean?,
-    archive: nupp.compiler.aot.binding.Archive?
+    archive: Archive?
 ): string
     local rewritten = source
     local replacements: {any} = {}
@@ -997,7 +998,7 @@ function aot.emitC(
     outDir: string,
     roots: {string},
     previous: {[string]: string},
-    session: nupp.compiler.build.modules.Session,
+    session: Session,
     features: string?,
     triple: string?,
     staticLinkage: boolean?
@@ -1017,7 +1018,7 @@ function aot.emitC(
     local sources: {string} = {}
     local sourceText: {[string]: string} = {}
     local sourceDirectory: {[string]: string} = {}
-    local checkedBySource: {[string]: nupp.compiler.parser.ParseResult} = {}
+    local checkedBySource: {[string]: ParseResult} = {}
     local checkedModules: {any} = {}
     for _, directory in ipairs(roots) do
         for _, source in ipairs(fs.listFiles(fs.join(root, directory))) do
@@ -1054,7 +1055,7 @@ function aot.emitC(
         local checkedSource, unusedHere = checkedTree(session, source)
         if checkedSource ~= nil then
             checkedSources[#checkedSources + 1] = source
-            checkedBySource[source] = checkedSource as nupp.compiler.parser.ParseResult
+            checkedBySource[source] = checkedSource as ParseResult
             checkedModules[
                 #checkedModules + 1
             ] = {filename = source, module = envMod.moduleNameForPath(session.inc.env, source), result = checkedSource,}
@@ -1069,7 +1070,7 @@ function aot.emitC(
     local constSelection = {accepted = acceptedConst, declined = declinedConst, plans = constPlans,}
     for _, source in ipairs(sources) do
         local text = sourceText[source] as string
-        local tree = checkedBySource[source] as nupp.compiler.parser.ParseResult
+        local tree = checkedBySource[source] as ParseResult
         local directory = sourceDirectory[source] as string
         if mentionsAot(text) then
             for tierPosition, tierTarget in ipairs(selected as {targets.Target}) do
@@ -1281,7 +1282,7 @@ function aot.writeArchiveProbe(
     name: string,
     selected: targets.Target,
     emitted: {aot.Emitted}
-): (aot.Emitted?, nupp.compiler.aot.binding.Archive?, string?)
+): (aot.Emitted?, Archive?, string?)
     local symbol = "ks_aot_archive_" .. aot.archiveIdentity(name)
     local fingerprint = aot.archiveFingerprint(emitted)
     local unit = emitter.archiveProbe(symbol, fingerprint)
@@ -1322,7 +1323,7 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
         ] = {
             source = one.output:gsub("^" .. prefix:gsub("%p", "%%%0"), ""),
             tier = one.tier,
-            cflags = nupp.codec.json.asArray(flags),
+            cflags = json.asArray(flags),
             detector = one.role == "feature-detector",
             role = one.role,
             wasm = one.wasm and (one.wasm as string):gsub("^" .. prefix:gsub("%p", "%%%0"), "") or nil,
@@ -1330,11 +1331,7 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
             unit = one.unit,
         }
     end
-    local document = nupp.codec.json.encode({
-        schemaVersion = 3,
-        target = triple,
-        units = nupp.codec.json.asArray(units),
-    }) .. "\n"
+    local document = json.encode({schemaVersion = 3, target = triple, units = json.asArray(units),}) .. "\n"
     local output = outDir .. "/aot/units.json"
     if fs.readFile(output) ~= document then
         local ok, err = fs.writeFile(output, document)
@@ -1363,7 +1360,7 @@ function aot.writeLinkManifest(
     outDir: string,
     name: string,
     profile: profiles.Profile,
-    archive: nupp.compiler.aot.binding.Archive,
+    archive: Archive,
     library: string?,
     emitted: {aot.Emitted},
     produced: {[string]: compile.Artifacts},
@@ -1406,30 +1403,19 @@ function aot.writeLinkManifest(
     for _, key in ipairs(builderOrder) do
         builders[
             #builders + 1
-        ] = {
-            key = key,
-            entry = builderEntries[key],
-            symbols = nupp.codec.json.asArray(builderSymbols[key] as {string}),
-        }
+        ] = {key = key, entry = builderEntries[key], symbols = json.asArray(builderSymbols[key] as {string}),}
     end
-    local document = nupp.codec.json.encode({
+    local document = json.encode({
         schemaVersion = 1,
         component = name,
         target = profile.target,
         os = profile.os,
         archive = library ~= nil and (library as string):gsub("^" .. outDir:gsub("%p", "%%%0") .. "/", "") or nil,
         fingerprint = {symbol = archive.symbol, value = archive.fingerprint,},
-        symbols = {
-            probe = archive.symbol,
-            kernels = nupp.codec.json.asArray(kernels),
-            registrars = nupp.codec.json.asArray(registrars),
-        },
-        builders = nupp.codec.json.asArray(builders),
-        retain = {
-            forceLoad = nupp.codec.json.asArray(profile.forceLoad),
-            export = nupp.codec.json.asArray(profile.export),
-        },
-        tiers = nupp.codec.json.asArray(tiers),
+        symbols = {probe = archive.symbol, kernels = json.asArray(kernels), registrars = json.asArray(registrars),},
+        builders = json.asArray(builders),
+        retain = {forceLoad = json.asArray(profile.forceLoad), export = json.asArray(profile.export),},
+        tiers = json.asArray(tiers),
     }) .. "\n"
     local output = outDir .. "/aot/link.json"
     if fs.readFile(output) ~= document then
@@ -1460,7 +1446,7 @@ function aot.apply(
     name: string,
     previous: {[string]: string},
     previousLibraryKey: string?,
-    session: nupp.compiler.build.modules.Session,
+    session: Session,
     features: string?,
     triple: string?,
     cflags: {string}?,
@@ -1515,7 +1501,7 @@ function aot.apply(
     -- to have been described. Refusing here rather than at load keeps a build
     -- from producing an archive for a VM that cannot resolve a symbol out of
     -- one, which is a failure with no useful runtime symptom.
-    local archive: nupp.compiler.aot.binding.Archive? = nil
+    local archive: Archive? = nil
     local staticProfile: profiles.Profile? = nil
     if linkage == "static" then
         local profile, profileErr = require("nupp.compiler.build.compilerpacks").profile(selectedTriple)
@@ -1563,7 +1549,7 @@ function aot.apply(
             outDir,
             name,
             staticProfile as profiles.Profile,
-            archive as nupp.compiler.aot.binding.Archive,
+            archive as Archive,
             aot.libraryPath(outDir, name, ".a"),
             emitted as {aot.Emitted},
             produced,

@@ -6,6 +6,9 @@ The markdown rendering of a module.
 This is the format the site also writes beside every page as `llms.txt`, so it
 has to read as prose on its own rather than as a degraded version of the HTML.
 ]]
+const {type Links} = require("nupp.compiler.doc.urls")
+const {type Item} = require("nupp.compiler.doc.extract")
+const {type Module} = require("nupp.compiler.doc.extract")
 
 local stringsMod = require("nupp.compiler.doc.strings")
 local extractMod = require("nupp.compiler.doc.extract")
@@ -26,8 +29,8 @@ local markdown = {}
 -- what this document renders, which is what a fragment can reach; `known` holds
 -- everything the run documented, so a name this document does not carry is still told
 -- apart from one nothing documents at all.
-local anchors: nupp.compiler.doc.urls.Links? = nil
-local known: nupp.compiler.doc.urls.Links? = nil
+local anchors: Links? = nil
+local known: Links? = nil
 
 -- Prose an author wrote, as opposed to a signature the parser produced. Only prose is
 -- searched for references: a signature is code, and `handlers[name](value)` in one is
@@ -240,7 +243,7 @@ end
 --- @param level the heading depth of an item's name, 3 by default
 --- @param constructorPattern what names a constructor, for the kind beside the name
 --- @return the markdown, or the empty string when there is nothing to render
-function markdown.items(items: {nupp.compiler.doc.extract.Item}, level: integer?, constructorPattern: string?): string
+function markdown.items(items: {Item}, level: integer?, constructorPattern: string?): string
     local out = {}
     for _, item in ipairs(items) do
         renderMarkdownItem(out, item, constructorPattern, level or 3)
@@ -259,9 +262,9 @@ end
 --- `overview` is the handwritten prose a page opens with, which is why it only makes
 --- sense for a single module: it belongs to one page rather than to the set.
 function markdown.render(
-    modules: {nupp.compiler.doc.extract.Module},
+    modules: {Module},
     title: string?,
-    all: {nupp.compiler.doc.extract.Module}?,
+    all: {Module}?,
     overview: string?,
     constructorPattern: string?
 ): string

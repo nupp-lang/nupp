@@ -25,6 +25,7 @@ terminal, because a build's output has been quiet on success for as long as
 there have been build scripts reading it, and `--quiet` and `NUPP_PROGRESS` are
 there to overrule the guess in either direction.
 ]]
+const {type Style} = require("nupp.compiler.ansi")
 
 local ansi = require("nupp.compiler.ansi")
 
@@ -172,7 +173,7 @@ record progress.Reporter
     --- not take escapes, where each step is a line of its own instead.
     rewriting: boolean
 
-    style: nupp.compiler.ansi.Style
+    style: Style
 
     startedAt: number
 

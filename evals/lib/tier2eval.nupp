@@ -1,4 +1,5 @@
 module tier2eval
+const digest2 = require("nupp.digest")
 
 -- Tier 2: export a commit's parent without Git history, carry its tests forward,
 -- and grade whether an agent can rediscover the implementation without editing
@@ -153,7 +154,7 @@ function tier2.digests(at: string, paths: {string}): {[string]: string}
     for _, path in ipairs(paths) do
         local target = harness.join(at, path)
         if files.exists(target) then
-            digests[path] = nupp.digest.hexDigest("sha256", harness.read(target))
+            digests[path] = digest2.hexDigest("sha256", harness.read(target))
         end
     end
 

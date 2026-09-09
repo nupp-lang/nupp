@@ -7,6 +7,8 @@ The format is a word rather than an option, as in `nupp doc markdown`, because i
 names what is being produced rather than modifying how. Everything else the
 manifest already configured; the options here override it for one run.
 ]]
+const {type Config} = require("nupp.compiler.build.manifest")
+const {type Target} = require("nupp.compiler.build.manifest")
 
 local spec = require("nupp.compiler.cli.spec")
 
@@ -70,13 +72,7 @@ local function run(parsed: any): integer
     -- lunamark as a rock gets it installed here, so `nupp doc` on a fresh checkout
     -- renders rather than reporting a library nobody was told to install.
     local deps = require("nupp.compiler.build.deps")
-    local installed, depErr = deps.build(
-        ".",
-        settings.outDir or "build",
-        config as nupp.compiler.build.manifest.Config,
-        {},
-        settings as nupp.compiler.build.manifest.Target
-    )
+    local installed, depErr = deps.build(".", settings.outDir or "build", config as Config, {}, settings as Target)
     if not installed then
         io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
         return 1
@@ -104,12 +100,7 @@ local function run(parsed: any): integer
     if asJson then
         opts.written = written
     end
-    local code, output, resolved = doc.build(
-        ".",
-        config as nupp.compiler.build.manifest.Config,
-        settings as nupp.compiler.build.manifest.Target,
-        opts
-    )
+    local code, output, resolved = doc.build(".", config as Config, settings as Target, opts)
     if asJson then
         require("nupp.compiler.cli.report").write({
             ok = code == 0,

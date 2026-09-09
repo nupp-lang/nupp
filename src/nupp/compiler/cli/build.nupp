@@ -8,6 +8,7 @@ require; naming none builds the manifest's default target. The manifest options
 and the file options describe different jobs, so asking for both is refused
 rather than resolved.
 ]]
+const files = require("nupp.io.files")
 
 local spec = require("nupp.compiler.cli.spec")
 local optionsMod = require("nupp.compiler.cli.options")
@@ -267,7 +268,7 @@ local function run(parsed: any): integer
     -- rather than several steps later, where the manifest is out of reach and all that
     -- is left to report is that a directory did not read as a module.
     for _, path in ipairs(paths) do
-        if not nupp.io.files.isFile(path) and configuredTarget(path) then
+        if not files.isFile(path) and configuredTarget(path) then
             return command:usageError(
                 ("%s names a build target rather than a source file; build it with --target %s"):format(path, path)
             )

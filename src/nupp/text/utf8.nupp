@@ -93,6 +93,7 @@ string or a byte view.
 - [](nupp.codec.json) for JSON encoding and decoding
 :::
 ]]
+const {type ByteView} = require("nupp.io")
 
 -- `string.byte` by name rather than as a method. Written `source:byte(at)` the
 -- name is looked up on the string metatable before every call; a loop long enough
@@ -103,12 +104,12 @@ local stringByte = string.byte
 
 local REPLACEMENT: integer = 65533
 
-local function bytes(value: string | nupp.io.ByteView): string
+local function bytes(value: string | ByteView): string
     if type(value) == "string" then
         return value as string
     end
 
-    return (value as nupp.io.ByteView):getString()
+    return (value as ByteView):getString()
 end
 
 --- @raises when at is not an integer, or is outside the value
@@ -234,7 +235,7 @@ local utf8 = {}
 ---
 --- @param value the bytes to measure
 --- @return the codepoint count
-function utf8.length(value: string | nupp.io.ByteView): integer
+function utf8.length(value: string | ByteView): integer
     local source = bytes(value)
     local count: integer = 0
     local at: integer = 1
@@ -268,7 +269,7 @@ end
 --- @return the codepoint, or nil at the end of the value
 --- @return the byte the next codepoint starts at
 --- @raises when byteOffset is not an integer, or is outside the value
-function utf8.decodeAt(value: string | nupp.io.ByteView, byteOffset: integer): (integer?, integer)
+function utf8.decodeAt(value: string | ByteView, byteOffset: integer): (integer?, integer)
     local source = bytes(value)
 
     return decode(source, offset(source, byteOffset, true))
@@ -294,7 +295,7 @@ end
 --- @return the codepoint, or nil at the start of the value
 --- @return the byte that codepoint starts at
 --- @raises when byteOffset is not an integer, or is outside the value
-function utf8.decodeBefore(value: string | nupp.io.ByteView, byteOffset: integer): (integer?, integer)
+function utf8.decodeBefore(value: string | ByteView, byteOffset: integer): (integer?, integer)
     local source = bytes(value)
     local at = offset(source, byteOffset, true)
     if at == 1 then
@@ -367,7 +368,7 @@ end
 ---
 --- @param value the bytes to test
 --- @return whether every sequence is well formed
-function utf8.isValid(value: string | nupp.io.ByteView): boolean
+function utf8.isValid(value: string | ByteView): boolean
     local source = bytes(value)
 
     return scan(source, #source) == #source
@@ -386,7 +387,7 @@ end
 --- @param value the bytes to measure
 --- @param maxBytes the most bytes the prefix may use
 --- @return the prefix length, in bytes
-function utf8.validPrefixLength(value: string | nupp.io.ByteView, maxBytes: integer): integer
+function utf8.validPrefixLength(value: string | ByteView, maxBytes: integer): integer
     local source = bytes(value)
 
     return scan(source, math.max(0, math.min(#source, maxBytes)) as integer)

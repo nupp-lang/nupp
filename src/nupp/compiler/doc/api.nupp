@@ -5,6 +5,7 @@ One documented declaration, as HTML: its signature, its type parameters, its
 arguments and results, its members. The module summary above them is the same
 information as a table, for a reader deciding which declaration to scroll to.
 ]]
+const {type Links} = require("nupp.compiler.doc.urls")
 
 local stringsMod = require("nupp.compiler.doc.strings")
 local htmlMod = require("nupp.compiler.doc.html")
@@ -281,12 +282,7 @@ end
 -- table. A field gets the same heading a method does: the structure's signature links
 -- every entry it lists to the member's own anchor, so a row in a table is a link with
 -- nowhere to land.
-local function renderHtmlMembers(
-    out: {string},
-    members: {extractMod.Member}?,
-    links: nupp.compiler.doc.urls.Links?,
-    level: integer
-): nil
+local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, links: Links?, level: integer): nil
     local fields, methods, types = splitMembers(members)
     local hGroup, hName, hSub = htag(level), htag(level + 1), htag(level + 2)
     if #methods > 0 then
@@ -374,12 +370,7 @@ local function renderHtmlMembers(
     end
 end
 
-local function renderHtmlItem(
-    out: {string},
-    item: extractMod.Item,
-    links: nupp.compiler.doc.urls.Links?,
-    constructorPattern: string?
-): nil
+local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links?, constructorPattern: string?): nil
     local kind = displayKind(item, constructorPattern)
     out[
         #out + 1

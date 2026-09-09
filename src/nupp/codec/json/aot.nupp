@@ -20,6 +20,7 @@ pair and honor their unknown-member policy.
 and generic ownership signatures come from the canonical service declaration,
 and hot parser and writer calls do not query SPI.
 ]]
+const {type Buffer} = require("nupp.text.buffer")
 
 local eagerDecoder = require("nupp.codec.json.internal.decoder.eager")
 local pullDecoder = require("nupp.codec.json.internal.decode")
@@ -659,7 +660,7 @@ function json.decodeSerde(schema: any, text: string): (any?, string?)
     return value, nil
 end
 
-function json.decodeSerdeBuffer(schema: any, exclusive input: nupp.text.buffer.Buffer): (any?, string?)
+function json.decodeSerdeBuffer(schema: any, exclusive input: Buffer): (any?, string?)
     local value, code, position = serdeDecoder.decode(
         input,
         nil,
@@ -711,7 +712,7 @@ function json.verifiedString(text: string): any
     return result
 end
 
-function json.writer(exclusive out: nupp.text.buffer.Buffer, nullValue: any?): any
+function json.writer(exclusive out: Buffer, nullValue: any?): any
     local parts: {string} = {}
     local bytes: integer = 0
     local stack: {any} = {}

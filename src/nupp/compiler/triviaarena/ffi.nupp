@@ -1,6 +1,7 @@
 @!internal
 
 module nupp.compiler.triviaarena.ffi
+const {type Arena} = require("nupp.compiler.triviaarena")
 
 local ffi = require("ffi")
 local provider = {}
@@ -51,13 +52,13 @@ function FfiArena:record(index: integer): (integer, integer, integer, integer, i
     end
 end
 
-function provider.new(source: string): nupp.compiler.triviaarena.Arena
+function provider.new(source: string): Arena
     return new FfiArena(
         source = source,
         count = 0,
         capacity = 0,
         words = ffi.new("uint32_t[?]", 0) as uint32[?]
-    ) as nupp.compiler.triviaarena.Arena
+    ) as Arena
 end
 
 export = provider

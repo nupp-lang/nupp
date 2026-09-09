@@ -11,6 +11,7 @@ walked to turn offsets into positions.
 
 See `docs/reference/diagnostics.md` for what the fields mean.
 ]]
+const json = require("nupp.codec.json")
 
 local fs = require("nupp.compiler.fs")
 local explain = require("nupp.compiler.explain")
@@ -100,7 +101,7 @@ local function withArrayEmpties(value: unknown, seen: {[unknown]: any}?): unknow
         copied[key] = withArrayEmpties(item, seen)
     end
     if next(copied) == nil then
-        return nupp.codec.json.asArray(copied)
+        return json.asArray(copied)
     end
 
     return copied
@@ -110,7 +111,7 @@ end
 --- this reporting model is a list, so the copy marks those lists explicitly without
 --- mutating the compiler data it was handed.
 function report.encode(value: unknown): string
-    local encoder = nupp.codec.json
+    local encoder = require("nupp.codec.json")
     return encoder.encode(withArrayEmpties(value))
 end
 

@@ -30,6 +30,7 @@ and `lua [caption]` no longer matches `lua`.
 Headings are the other thing kept: the id is Nupp's own slug, and each carries
 the anchor link the site's stylesheet expects.
 ]]
+const {type Links} = require("nupp.compiler.doc.urls")
 
 local stringsMod = require("nupp.compiler.doc.strings")
 local highlightMod = require("nupp.compiler.doc.highlight")
@@ -87,7 +88,7 @@ local function markdownOutline(text: string?): {html.Heading}
 end
 
 local codeGroupIndex = 0
-local markdownHtml: (function(text: string?, links: nupp.compiler.doc.urls.Links?, headingShift: integer?): string)
+local markdownHtml: (function(text: string?, links: Links?, headingShift: integer?): string)
 
 local ADMONITION_TITLES = {
     note = "Note",
@@ -459,7 +460,7 @@ local function buildParser()
     return built
 end
 
-markdownHtml = function(text: string?, links: nupp.compiler.doc.urls.Links?, headingShift: integer?): string
+markdownHtml = function(text: string?, links: Links?, headingShift: integer?): string
     -- A Windows checkout hands the page to us with CRLF endings. The grammar is
     -- line-oriented, and the fenced-block pass rebuilds its input with LF, so
     -- normalize before either one sees a stray carriage return.
@@ -514,7 +515,7 @@ end
 -- The same renderer where a paragraph would be in the way: a summary in a table cell is
 -- a sentence, not a block. Only a document that is exactly one paragraph is unwrapped,
 -- so anything longer keeps its structure.
-local function inlineHtml(text: string?, links: nupp.compiler.doc.urls.Links?): string
+local function inlineHtml(text: string?, links: Links?): string
     local out = markdownHtml(text, links)
     local inner = out:match("^<p>(.*)</p>$")
     if inner and not inner:find("<p>", 1, true) then

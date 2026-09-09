@@ -5,6 +5,7 @@ The chrome around a page: the module tree in the sidebar, the outline on the
 right, the breadcrumbs, the previous and next links, the hero on the home page,
 and the shell that holds them. What goes in the middle is somebody else's answer.
 ]]
+const {type Module} = require("nupp.compiler.doc.extract")
 
 local stringsMod = require("nupp.compiler.doc.strings")
 local urlsMod = require("nupp.compiler.doc.urls")
@@ -65,7 +66,7 @@ type page.Hero = {
 --- A page in the site's navigation: where it lives, what it is called, and the module
 --- it documents when it documents one.
 type page.Nav = {
-    module: nupp.compiler.doc.extract.Module?,
+    module: Module?,
     path: string,
     title: string
 }
@@ -581,7 +582,7 @@ function page.render(
     title: string,
     siteTitle: string,
     body: string,
-    modules: {nupp.compiler.doc.extract.Module},
+    modules: {Module},
     current: string?,
     items: {page.Entry},
     file: string,

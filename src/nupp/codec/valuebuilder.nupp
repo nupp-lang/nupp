@@ -49,6 +49,7 @@ Under AOT a stream handle and a scratch buffer are local construction state.
 Neither can be returned, reassigned, stored in a table, or passed to an ordinary
 call; only the operations in this module admit them.
 ]]
+const utf8 = require("nupp.text.utf8")
 
 ----------------------------------------------------------------------------
 -- Reading encoded values
@@ -142,7 +143,7 @@ local function decodeString(borrows source: any, first: integer, length: integer
                 elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
                     error("unmatched value stream low surrogate", 0)
                 end
-                parts[#parts + 1] = nupp.text.utf8.encode(codepoint as integer)
+                parts[#parts + 1] = utf8.encode(codepoint as integer)
             else
                 error("unknown value stream escape", 0)
             end

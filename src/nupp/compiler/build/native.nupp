@@ -7,6 +7,8 @@ This consumes effects recorded by the checker.  It deliberately does not read
 the manifest: project dependencies and compiler-native features have different
 owners and must not be conflated.
 ]]
+const {type Config} = require("nupp.compiler.build.manifest")
+const {type Target} = require("nupp.compiler.build.manifest")
 
 local envMod = require("nupp.compiler.env")
 local native = require("nupp.compiler.native")
@@ -56,8 +58,8 @@ end
 --- Adds effects found in the Lua modules selected from rock dependencies.
 function stage.dependencyEffects(
     root: string,
-    config: nupp.compiler.build.manifest.Config,
-    target: nupp.compiler.build.manifest.Target?,
+    config: Config,
+    target: Target?,
     effects: {[string]: any}?
 ): {[string]: any}
     local resolved = {}
@@ -83,12 +85,7 @@ end
 
 --- Builds the compiler-owned binary host with exactly the host features in the resolved
 --- effect set. A path-valued third-party stub remains its owner's artifact.
-function stage.hostStub(
-    root: string,
-    outDir: string,
-    target: nupp.compiler.build.manifest.Target,
-    effects: {[string]: any}?
-): string?, string?
+function stage.hostStub(root: string, outDir: string, target: Target, effects: {[string]: any}?): string?, string?
     if target.stub ~= "nupp" then
         return target.stub
     end
@@ -123,7 +120,7 @@ end
 --- do not create ordinary undefined references for an archive linker to see.
 function stage.linkHost(
     root: string,
-    target: nupp.compiler.build.manifest.Target,
+    target: Target,
     effects: {[string]: any}?,
     output: string,
     archives: {string},

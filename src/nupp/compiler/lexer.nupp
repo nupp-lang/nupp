@@ -20,6 +20,7 @@ text is `&&`.
 The lexer never throws. Malformed input becomes `error` tokens that still round
 trip, which is what lets an editor keep working in a file that is mid-edit.
 ]]
+const {type Arena} = require("nupp.compiler.triviaarena")
 
 local lexer = {}
 local triviaarena = require("nupp.compiler.triviaarena")
@@ -49,7 +50,7 @@ const TRIVIA_KIND_NAMES = {"whitespace", "comment", "hashbang", "bom"}
 --- index outliving its arena would need a generation beside it to be caught, and one
 --- cannot, because there is no way to hold the index without holding a token that holds
 --- the arena.
-type lexer.TriviaArena = nupp.compiler.triviaarena.Arena
+type lexer.TriviaArena = Arena
 
 --- A file's trivia block, empty.
 function lexer.arena(source: string): lexer.TriviaArena

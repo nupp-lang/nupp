@@ -8,6 +8,12 @@ See [derives.md](docs/reference/derives.md) for what each standard derive writes
 [reflection.md](docs/learn/language/reflection.md) for the descriptors the JSON codec is memoized
 against.
 ]]
+const {type JSONEncodable} = require("nupp.codec.json")
+const {type Buffer} = require("nupp.text.buffer")
+const {type Writer} = require("nupp.codec.json")
+const {type EncodedString} = require("nupp.codec.json")
+const {type EncodedValue} = require("nupp.codec.json")
+const {type Serializable} = require("nupp.serde")
 
 local derive = {}
 
@@ -15,7 +21,7 @@ local derive = {}
 -- What a derived type carries
 ----------------------------------------------------------------------------
 
-interface derive.JSONContract is nupp.codec.json.JSONEncodable
+interface derive.JSONContract is JSONEncodable
 end
 
 --- One derived type, as the registry holds it.
@@ -59,8 +65,8 @@ local serdeRuntime: any = nil
 -- Writing JSON
 ----------------------------------------------------------------------------
 
-local function newBuffer(): nupp.text.buffer.Buffer
-    return bufferModule.new() as nupp.text.buffer.Buffer
+local function newBuffer(): Buffer
+    return bufferModule.new() as Buffer
 end
 
 --- Copies a field default so two instances never share one table.
@@ -117,14 +123,7 @@ local function leave(value: any, state: any): nil
 end
 
 -- Mutually recursive: a field's type may be a shape, and a shape's fields have types.
-local writeValue: function(
-    value: any,
-    spec: any,
-    exclusive out: nupp.codec.json.Writer,
-    json: any,
-    state: any,
-    path: string
-): nil
+local writeValue: function(value: any, spec: any, exclusive out: Writer, json: any, state: any, path: string): nil
 
 -- An object is written from the field list rather than from the value, so a field the
 -- schema does not name never reaches the document however the value came to hold it.
@@ -132,7 +131,7 @@ local function writeObject(
     value: any,
     fields: any,
     unknown: any,
-    exclusive out: nupp.codec.json.Writer,
+    exclusive out: Writer,
     json: any,
     state: any,
     path: string
@@ -153,7 +152,7 @@ local function writeObject(
                     encodedName = json.encodedString(name)
                     field.encodedName = encodedName
                 end
-                out:key(encodedName as nupp.codec.json.EncodedString)
+                out:key(encodedName as EncodedString)
                 writeValue(item, field.jsonType, out, json, state, path .. "." .. name)
             end
         end
@@ -165,14 +164,7 @@ end
 -- Every failure carries the path it happened at, because the value being encoded is
 -- often nested several containers deep and "expected finite number" alone does not say
 -- which field held the NaN.
-writeValue = function(
-    value: any,
-    spec: any,
-    exclusive out: nupp.codec.json.Writer,
-    json: any,
-    state: any,
-    path: string
-): nil
+writeValue = function(value: any, spec: any, exclusive out: Writer, json: any, state: any, path: string): nil
     local kind: any = spec and spec.kind
     if kind == "optional" then
         if value == nil then
@@ -222,7 +214,7 @@ writeValue = function(
             encoded = json.encoded(spec.value)
             spec.encoded = encoded
         end
-        out:write(encoded as nupp.codec.json.EncodedValue)
+        out:write(encoded as EncodedValue)
 
         return
     end
@@ -807,7 +799,7 @@ end
 --- @param value the record to encode
 --- @param entry the type's registry entry
 --- @param out the checked destination
-function derive.writeJSON<T is table>(value: T, entry: derive.Entry, exclusive out: nupp.codec.json.Writer): nil
+function derive.writeJSON<T is table>(value: T, entry: derive.Entry, exclusive out: Writer): nil
     derivedJSON(entry)
     writeObject(value, entry.schema.fields, entry.schema.unknown, out, entry.decoder, {active = {}, depth = 0}, "$")
 end
@@ -1292,7 +1284,7 @@ comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.
     }
 end
 
-comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.codec.json.JSONEncodable>
+comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<JSONEncodable>
     if info.kind ~= "record" then
         return nupp.derive.error("JSON can be derived only for records", info.reference, "NUPP2806")
     end
@@ -1377,7 +1369,7 @@ end
 ---
 --- Unlike `JSON`, this provider admits both records and fixed-layout structs and
 --- generates no per-format traversal methods.
-comptime function derive.Serde(info: nupp.derive.Info): nupp.derive.Result<nupp.serde.Serializable>
+comptime function derive.Serde(info: nupp.derive.Info): nupp.derive.Result<Serializable>
     if info.kind ~= "record" and info.kind ~= "struct" then
         return nupp.derive.error("Serde can be derived only for records or structs", info.reference, "NUPP2803")
     end

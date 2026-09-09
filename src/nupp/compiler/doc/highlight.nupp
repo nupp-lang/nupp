@@ -28,6 +28,8 @@ a path no filesystem has, and the `loadfile` those lexers are found through is
 this module's rather than Lua's, which is all Scintillua's loader needs, since
 it looks a lexer up by asking `loadfile` for it and reading the answer.
 ]]
+const {type Links} = require("nupp.compiler.doc.urls")
+const files = require("nupp.io.files")
 
 local lexer = require("nupp.compiler.lexer")
 local parser = require("nupp.compiler.parser")
@@ -326,11 +328,7 @@ local function highlightNuppLines(source, links, memberLinks)
     return out.lines
 end
 
-local function highlightNupp(
-    source: string,
-    links: nupp.compiler.doc.urls.Links?,
-    memberLinks: nupp.compiler.doc.urls.Links?
-): string
+local function highlightNupp(source: string, links: Links?, memberLinks: Links?): string
     return table.concat(highlightNuppLines(source, links, memberLinks), "\n")
 end
 
@@ -436,7 +434,7 @@ local function configureScintillua(root: string?, settings: highlight.Settings?)
         local custom = join(root, lexerDir)
         -- Opening a directory happens to succeed on Unix and fails on Windows;
         -- ask the filesystem the question that is actually being answered.
-        if nupp.io.files.isDirectory(custom) then
+        if files.isDirectory(custom) then
             searchPath = custom .. ";" .. base
         end
     end
@@ -579,7 +577,7 @@ local function highlightScintillua(source: string, language: string): string?
     return lines and table.concat(lines, "\n") or nil
 end
 
-local function codeLines(source: string, language: string?, links: nupp.compiler.doc.urls.Links?): {string}
+local function codeLines(source: string, language: string?, links: Links?): {string}
     if language == "nupp" then
         return highlightNuppLines(source, links)
     end
@@ -596,7 +594,7 @@ local function codeLines(source: string, language: string?, links: nupp.compiler
     return out.lines
 end
 
-local function codeHtml(source: string, language: string?, links: nupp.compiler.doc.urls.Links?): string
+local function codeHtml(source: string, language: string?, links: Links?): string
     return table.concat(codeLines(source, language, links), "\n")
 end
 

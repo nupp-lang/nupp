@@ -14,7 +14,7 @@ local platform = require("nupp.compiler.build.platform")
 local stubs = require("nupp.compiler.build.stubs")
 
 local release = {}
-local json = nupp.codec.json
+local json = require("nupp.codec.json")
 
 local HOST_FEATURES: {string} = {"lpeg", "native-files", "native-net", "native-process", "native-tls", "workers",}
 

@@ -1,6 +1,9 @@
 @!internal
 
 module nupp.io.process.types
+const {type Path} = require("nupp.io.path")
+const {type Buffer} = require("nupp.io")
+const {type ByteView} = require("nupp.io")
 
 local process = {}
 
@@ -14,7 +17,7 @@ type process.Options = {
     args: {string},
 
     --- The child's working directory, or nil to inherit this one.
-    cwd: (string | nupp.io.path.Path)?,
+    cwd: (string | Path)?,
 
     --- Variables overlaid on the inherited environment, or the whole environment
     --- when `clearEnv` is set.
@@ -41,7 +44,7 @@ type process.CommunicateOptions = {
     --- Complete standard input.
     ---
     --- Omitted input sends EOF immediately.
-    input: (string | nupp.io.Buffer | nupp.io.ByteView)?,
+    input: (string | Buffer | ByteView)?,
 
     --- Maximum stdout and stderr bytes together.
     ---

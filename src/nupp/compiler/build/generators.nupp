@@ -1,4 +1,5 @@
 module nupp.compiler.build.generators
+const files2 = require("nupp.io.files")
 
 local capabilities = require("nupp.compiler.build.capabilities")
 local cache = require("nupp.compiler.build.cache")
@@ -6,13 +7,13 @@ local deps = require("nupp.compiler.build.deps")
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.build.hash")
 local process = require("nupp.compiler.build.process")
-local json = nupp.codec.json
+local json = require("nupp.codec.json")
 
 local generators = {}
 
 local function removeTree(path)
     if fs.exists(path) then
-        nupp.io.files.remove(path, true)
+        files2.remove(path, true)
     end
 end
 

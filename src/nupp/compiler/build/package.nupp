@@ -9,6 +9,8 @@ with nothing beside it. A binary goes one step further: the bundle becomes a
 payload appended to a prebuilt host stub, found at run time by a magic trailer
 rather than by anything the filesystem has to be asked.
 ]]
+const {type ModuleRecord as ModuleRecord2} = require("nupp.compiler.build.cache")
+const {type Resource} = require("nupp.compiler.build.manifest")
 
 local hash = require("nupp.compiler.build.hash")
 local process = require("nupp.compiler.build.process")
@@ -45,9 +47,9 @@ end
 local hostAbiVersion = 1
 
 -- Named by module path rather than required: nothing of these is wanted at run time.
-local type Config = nupp.compiler.build.manifest.Config
-local type Target = nupp.compiler.build.manifest.Target
-local type ModuleRecord = nupp.compiler.build.cache.ModuleRecord
+const {type Config} = require("nupp.compiler.build.manifest")
+const {type Target} = require("nupp.compiler.build.manifest")
+const {type ModuleRecord} = require("nupp.compiler.build.cache")
 
 --- `text` as a Lua long string, at a bracket level the text itself does not use.
 ---
@@ -244,7 +246,7 @@ local function bundleText(
     end
     table.sort(names)
     for _, name in ipairs(names) do
-        local record = built[name] as nupp.compiler.build.cache.ModuleRecord
+        local record = built[name] as ModuleRecord2
         local path = record.output
         if path and (component or normalize(path) ~= normalize(mainPath)) then
             local text, readErr = readFile(path)
@@ -262,7 +264,7 @@ local function bundleText(
     if compilerArtifactBundle then
         chunks[#chunks + 1] = "rawset(_G, \"__nuppCompilerModuleArtifacts\", {\n"
         for _, name in ipairs(names) do
-            local record = built[name] as nupp.compiler.build.cache.ModuleRecord
+            local record = built[name] as ModuleRecord2
             if record.output and compilerArtifact(name) then
                 chunks[
                     #chunks + 1
@@ -301,7 +303,7 @@ local function bundleText(
     for _, resource in ipairs(target.resources or {}) do
         local pattern: string
         if type(resource) == "table" then
-            pattern = (resource as nupp.compiler.build.manifest.Resource).source
+            pattern = (resource as Resource).source
         else
             pattern = resource as string
         end

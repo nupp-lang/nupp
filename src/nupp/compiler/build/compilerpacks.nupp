@@ -9,6 +9,8 @@ runs one. `NUPP_COMPILER_PACK_DIR` points at the directory containing
 `<host>/<target>/pack.json`. A distribution may put the same tree beside its
 compiler and set that variable in its launcher.
 ]]
+const {type Profile} = require("nupp.compiler.targetprofile")
+const json = require("nupp.codec.json")
 
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.build.hash")
@@ -32,7 +34,7 @@ record packs.Pack
     --- descriptor. A pack without one leaves the built-in profile in place,
     --- which is what a pack that only supplies a toolchain for a public triple
     --- should do.
-    profile: nupp.compiler.targetprofile.Profile?
+    profile: Profile?
 end
 
 local function safeRelative(path: any): boolean
@@ -150,7 +152,7 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
     end
     local selectedRoot = root as string
     local selectedManifest = manifestPath as string
-    local ok, value = pcall(nupp.codec.json.decode, text, nupp.codec.json.NULL)
+    local ok, value = pcall(json.decode, text, json.NULL)
     if not ok or type(value) ~= "table" then
         return nil, "cannot decode compiler pack " .. selectedManifest .. ": " .. tostring(value)
     end
@@ -190,7 +192,7 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
     if not linkFlags then
         return nil, flagsErr
     end
-    local profile: nupp.compiler.targetprofile.Profile? = nil
+    local profile: Profile? = nil
     if value.profile ~= nil then
         local described, profileErr = profiles.fromDescriptor(target as string, value.profile, selectedManifest)
         if described == nil then
@@ -218,7 +220,7 @@ end
 --- A pack that carries a descriptor answers for its own target; every other
 --- target gets the built-in answer. The two are the same shape on purpose, so
 --- nothing downstream asks which one it got.
-function packs.profile(target: string?): (nupp.compiler.targetprofile.Profile?, string?)
+function packs.profile(target: string?): (Profile?, string?)
     if target == nil then
         return nil, "a target profile needs a target triple"
     end

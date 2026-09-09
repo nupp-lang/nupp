@@ -8,6 +8,7 @@ its own depth. The symbol index is what lets a name inside a highlighted code
 block become a link to its declaration; a name that two modules both export is
 dropped rather than guessed at.
 ]]
+const {type Module} = require("nupp.compiler.doc.extract")
 
 local filesMod = require("nupp.compiler.doc.files")
 
@@ -58,11 +59,7 @@ local function defaultTarget(module: string, path: string?): string
     return moduleFile(module) .. (path and "#" .. path or "")
 end
 
-local function symbolLinkIndex(
-    modules: {nupp.compiler.doc.extract.Module},
-    target: urls.Target?,
-    extra: urls.Links?
-): urls.Links
+local function symbolLinkIndex(modules: {Module}, target: urls.Target?, extra: urls.Links?): urls.Links
     local target = target or defaultTarget
     local links, ambiguous = {}, {}
     for _, module in ipairs(modules) do
@@ -160,7 +157,7 @@ local function rewriteSymbolLinks(markdown: string, resolve: function(string): s
     return table.concat(out)
 end
 
-local function symbolLinks(index: urls.Links, module: nupp.compiler.doc.extract.Module?, prefix: string): urls.Links
+local function symbolLinks(index: urls.Links, module: Module?, prefix: string): urls.Links
     local links = {}
     if module then
         for _, item in ipairs(module.items) do

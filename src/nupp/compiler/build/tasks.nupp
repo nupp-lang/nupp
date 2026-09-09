@@ -9,7 +9,7 @@ which is the default, and what does each one produce. Nothing here builds
 anything -- it answers about the manifest.
 ]]
 
-local json = nupp.codec.json
+local json = require("nupp.codec.json")
 local cache = require("nupp.compiler.build.cache")
 local manifest = require("nupp.compiler.build.manifest")
 local dialects = require("nupp.compiler.dialects")

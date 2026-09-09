@@ -21,6 +21,9 @@ A listener and a connection are owners. See
 [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
 out under.
 ]]
+const {type Reader} = require("nupp.io")
+const {type Writer} = require("nupp.io")
+const {type Buffer} = require("nupp.io")
 
 local suspension = require("nupp.suspension")
 local span = require("nupp.mem.span")
@@ -308,7 +311,7 @@ end
 --- The owner of the socket, and the only cleanup obligation: a direction view
 --- borrows this and ends a direction, while `close` here ends the connection.
 --- @export
-record net.Stream is nupp.io.Reader, nupp.io.Writer
+record net.Stream is Reader, Writer
     private _provider: contract.Provider
     private _handle: any
     private _closed: boolean
@@ -453,12 +456,7 @@ record net.Stream is nupp.io.Reader, nupp.io.Writer
     --- @return how many bytes were read, or nil when the connection is closed
     --- @return why it could not read, when unsuccessful
     --- @raises when count is not a positive integer
-    function readInto(
-        self,
-        exclusive destination: nupp.io.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
+    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "net.Stream readInto count", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -486,7 +484,7 @@ record net.Stream is nupp.io.Reader, nupp.io.Writer
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function transferTo(self, exclusive destination: nupp.io.Writer): (integer?, string?)
+    function transferTo(self, exclusive destination: Writer): (integer?, string?)
         local moved: integer = 0
         while true do
             const chunk, why = self:read(READ_SIZE)
@@ -609,7 +607,7 @@ end
 --- half-closes, and the reading view stops this side reading. Neither is the
 --- cleanup obligation, which stays with the connection.
 --- @export
-record net.DirectionView is nupp.io.Reader, nupp.io.Writer
+record net.DirectionView is Reader, Writer
     --- The same platform and handle the connection has. Not the connection
     --- itself: a view that held one would own it, and closing the view would
     --- release a socket somebody else is still using.
@@ -645,12 +643,7 @@ record net.DirectionView is nupp.io.Reader, nupp.io.Writer
     end
 
     --- @raises when count is not a positive integer
-    function readInto(
-        self,
-        exclusive destination: nupp.io.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
+    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "net.DirectionView readInto count", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -673,7 +666,7 @@ record net.DirectionView is nupp.io.Reader, nupp.io.Writer
         return landed
     end
 
-    function transferTo(self, exclusive destination: nupp.io.Writer): (integer?, string?)
+    function transferTo(self, exclusive destination: Writer): (integer?, string?)
         local moved: integer = 0
         while true do
             const chunk, why = self:read(READ_SIZE)
@@ -894,7 +887,7 @@ record net.Datagram is nupp.Closeable
     --- @return what the message was, or nil when the socket failed
     --- @return why there is none, when unsuccessful
     --- @raises when maximum is not a positive integer
-    function receiveFrom(self, exclusive destination: nupp.io.Buffer, maximum: integer): (net.Message?, string?)
+    function receiveFrom(self, exclusive destination: Buffer, maximum: integer): (net.Message?, string?)
         if self._closed then
             return nil, "the datagram socket is closed"
         end

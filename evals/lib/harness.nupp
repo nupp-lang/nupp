@@ -8,7 +8,7 @@ local files = require("nupp.io.files")
 local paths = require("nupp.io.path")
 local process = require("nupp.io.process")
 local time = require("nupp.time")
-local json = nupp.codec.json
+local json = require("nupp.codec.json")
 
 local harness = {}
 

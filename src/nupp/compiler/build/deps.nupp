@@ -13,7 +13,7 @@ any of it changed.
 
 local hash = require("nupp.compiler.build.hash")
 local importc = require("nupp.compiler.importc")
-local json = nupp.codec.json
+local json = require("nupp.codec.json")
 local process = require("nupp.compiler.build.process")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
@@ -37,9 +37,9 @@ local deps = {}
 -- Named by module path rather than required: the manifest's shape is all this needs
 -- from it, and a type costs nothing at run time where a require would have loaded the
 -- validator into every process that builds a dependency.
-local type Config = nupp.compiler.build.manifest.Config
-local type Target = nupp.compiler.build.manifest.Target
-local type Dependency = nupp.compiler.build.manifest.Dependency
+const {type Config} = require("nupp.compiler.build.manifest")
+const {type Target} = require("nupp.compiler.build.manifest")
+const {type Dependency} = require("nupp.compiler.build.manifest")
 
 --- Explicit dependency edges retain the target role throughout their closure.
 function deps.targetNames(config: Config, target: Target?): {string}

@@ -18,6 +18,8 @@ Reading and writing stay on `io.open`. A whole-file transfer settles on a worker
 thread, and a build reads thousands of small files, so the handoff would cost
 more than the read.
 ]]
+const files2 = require("nupp.io.files")
+const path2 = require("nupp.io.path")
 
 local fs = {}
 
@@ -59,7 +61,7 @@ end
 local function absolute(path: string): string
     path = normalize(path)
     if path:sub(1, 1) ~= "/" and not path:match("^[A-Za-z]:/") then
-        local cwd = nupp.io.files.currentDirectory()
+        local cwd = files2.currentDirectory()
         path = join(cwd or ".", path)
     end
     local prefix = path:match("^([A-Za-z]:)/") or (path:sub(1, 1) == "/" and "/" or "")
@@ -115,7 +117,7 @@ end
 local function canonical(path: string): string
     local fallback = absolute(path)
     local ok, resolved = pcall(function(): string?
-        local real = nupp.io.path.newPath(fallback):canonicalize()
+        local real = path2.newPath(fallback):canonicalize()
 
         return real and real:toString() or nil
     end)
@@ -137,7 +139,7 @@ local function readFile(path: string): string?, string?
         -- Either way, say what happened rather than the raw OS error: a caller that
         -- reports it printed a permissions complaint where the path belonged, saying
         -- neither what it tried to read nor the actual reason.
-        if nupp.io.files.isDirectory(path) then
+        if files2.isDirectory(path) then
             return nil, path .. " is a directory"
         end
 
@@ -146,7 +148,7 @@ local function readFile(path: string): string?, string?
     local text = f:read("*a")
     f:close()
     if not text then
-        if nupp.io.files.isDirectory(path) then
+        if files2.isDirectory(path) then
             return nil, path .. " is a directory"
         end
 
@@ -165,7 +167,7 @@ end
 --- had no `.git`, and a types root was missing -- three different reports of one
 --- answer.
 local function exists(path: string): boolean
-    return nupp.io.files.info(path) ~= nil
+    return files2.info(path) ~= nil
 end
 
 local function mkdir(path: string): boolean
@@ -173,7 +175,7 @@ local function mkdir(path: string): boolean
         return true
     end
 
-    return (nupp.io.files.createDirectory(path))
+    return (files2.createDirectory(path))
 end
 
 --- What distinguishes this process's staging files from another's.
@@ -299,11 +301,11 @@ local function listFiles(path: string, skipDirectory: (function(name: string): b
     local pending = {path}
     while #pending > 0 do
         local directory = table.remove(pending) as string
-        for _, entry in ipairs(nupp.io.files.list(directory) or {}) do
+        for _, entry in ipairs(files2.list(directory) or {}) do
             local child = join(directory, entry.name)
             local kind = entry.kind
             if kind == "symlink" then
-                local resolved = nupp.io.files.info(child)
+                local resolved = files2.info(child)
                 kind = resolved and resolved.kind or "other"
             end
             if kind == "directory" then

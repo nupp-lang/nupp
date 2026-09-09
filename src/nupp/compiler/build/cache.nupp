@@ -20,7 +20,7 @@ the digest.
 ]]
 
 local hash = require("nupp.compiler.build.hash")
-local json = nupp.codec.json
+local json = require("nupp.codec.json")
 local fs = require("nupp.compiler.fs")
 
 local join = fs.join

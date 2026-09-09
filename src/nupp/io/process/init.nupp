@@ -17,6 +17,9 @@ A child and its streams are owners. See
 out under, and [0005-suspension.md](docs/neps/0005-suspension.md) for why
 waiting is a suspension rather than a block.
 ]]
+const {type Reader as Reader2} = require("nupp.io")
+const {type Buffer} = require("nupp.io")
+const {type Writer as Writer2} = require("nupp.io")
 
 local suspension = require("nupp.suspension")
 local physical = require("nupp.runtime.storage")
@@ -105,7 +108,7 @@ local validateOptions: function(options: process.Options): nil
 ---
 --- Borrowing the record through `asReader` keeps a single owner and makes its lifetime
 --- a question about Nupp values, which the checker can answer.
-record process.Reader is nupp.io.Reader
+record process.Reader is Reader2
     private owner: any
     private handle: any
     private closed: boolean
@@ -281,12 +284,7 @@ record process.Reader is nupp.io.Reader
         return #chunk
     end
 
-    function readInto(
-        self,
-        exclusive destination: nupp.io.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
+    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = offset or 0
         if at < 0 or at ~= math.floor(at) then
             error("nupp: process reader destination offset must be a non-negative integer", 2)
@@ -313,7 +311,7 @@ record process.Reader is nupp.io.Reader
         return #chunk
     end
 
-    function transferTo(self, exclusive destination: nupp.io.Writer): (integer?, string?)
+    function transferTo(self, exclusive destination: Writer2): (integer?, string?)
         local total: integer = 0
         while true do
             local chunk, reason = self:read(READ_LIMIT)
@@ -342,7 +340,7 @@ end
 --- `poll`: the prelude's `nupp.io.Writer.write` writes the whole value, which a drain
 --- loop serving three pipes cannot afford to wait for. The completion-oriented `write`
 --- remains the ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
-record process.Writer is nupp.io.Writer
+record process.Writer is Writer2
     private owner: any
     private handle: any
     private closed: boolean
@@ -571,12 +569,12 @@ function process.Writer.release(self: process.Writer): nil
 end
 
 --- Borrows a process reader through the shared completion-oriented contract.
-function process.asReader(borrows source: process.Reader): nupp.io.Reader borrows (source)
+function process.asReader(borrows source: process.Reader): Reader2 borrows (source)
     return source
 end
 
 --- Borrows a process writer through the shared completion-oriented contract.
-function process.asWriter(borrows source: process.Writer): nupp.io.Writer borrows (source)
+function process.asWriter(borrows source: process.Writer): Writer2 borrows (source)
     return source
 end
 

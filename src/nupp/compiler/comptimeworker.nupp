@@ -9,7 +9,7 @@ one request rather than the compiler or language server, and no host object can 
 the boundary materialization will later use.
 ]]
 
-local json = nupp.codec.json
+local json = require("nupp.codec.json")
 local process = require("nupp.compiler.build.process")
 
 type worker.Failure = {

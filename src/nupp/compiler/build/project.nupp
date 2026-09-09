@@ -8,6 +8,7 @@ modules it reaches, compiles what has changed, copies the resources it declares,
 and writes the result. What counts as changed is answered by the content hashes
 in the build cache, not by timestamps.
 ]]
+const {type Stats} = require("nupp.compiler.build.modules")
 
 local envMod = require("nupp.compiler.env")
 local hash = require("nupp.compiler.build.hash")
@@ -79,7 +80,7 @@ type project.BuildOptions = {
     disabled: {[string]: boolean}?,
 
     --- How many modules were checked, generated and reused.
-    stats: nupp.compiler.build.modules.Stats?,
+    stats: Stats?,
 
     --- When to say what the build is doing and what it cost: "always", "never", or
     --- "auto", which means only when standard error is a terminal. Absent, the answer

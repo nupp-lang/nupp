@@ -1,6 +1,7 @@
 @!internal
 
 module nupp.compiler.triviaarena.table
+const {type Arena} = require("nupp.compiler.triviaarena")
 
 local provider = {}
 const STRIDE = 5
@@ -32,8 +33,8 @@ function TableArena:record(index: integer): (integer, integer, integer, integer,
     return self.words[at + 1], self.words[at + 2], self.words[at + 3], self.words[at + 4], self.words[at + 5]
 end
 
-function provider.new(source: string): nupp.compiler.triviaarena.Arena
-    return new TableArena(source = source, count = 0, words = {}) as nupp.compiler.triviaarena.Arena
+function provider.new(source: string): Arena
+    return new TableArena(source = source, count = 0, words = {}) as Arena
 end
 
 export = provider

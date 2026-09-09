@@ -19,6 +19,9 @@ the run through it.
 Diagnostics carry stable `NUPP2xxx` codes; `docs/reference/diagnostics.md` is the
 reference for their shape and their families.
 ]]
+const {type Target} = require("nupp.compiler.analysis")
+const {type Target as Target2} = require("nupp.compiler.tracesource")
+const {type Checker as Checker2} = require("nupp.compiler.tracesource")
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
@@ -3065,7 +3068,7 @@ function checkMod.check(
         end
     end
 
-    local analysisFacts = analysis.run(result as nupp.compiler.analysis.Target, c)
+    local analysisFacts = analysis.run(result as Target, c)
     -- The narrow direct case needs no protected call: the acquisition is the
     -- block's final statement, there is no live-interval body to raise, and every
     -- cleanup body is visible and proven non-raising by the same effect summaries
@@ -3081,12 +3084,7 @@ function checkMod.check(
         end
     end
     if needsTrace and effectQueries then
-        traceSource.run(
-            result as nupp.compiler.tracesource.Target,
-            c as nupp.compiler.tracesource.Checker,
-            analysisFacts,
-            effectQueries
-        )
+        traceSource.run(result as Target2, c as Checker2, analysisFacts, effectQueries)
     end
     local function cleanupNonRaising(cleanup): boolean
         if cleanup.kind == "field" then

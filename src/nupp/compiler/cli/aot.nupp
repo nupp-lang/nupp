@@ -35,6 +35,10 @@ and saying so is the point of being able to decline. A body that wanted lanes an
 did not get them is the failure, and it is reported with the construct that
 refused.
 ]]
+const {type Target} = require("nupp.compiler.aot.target")
+const {type Toolchain} = require("nupp.compiler.build.aot")
+const {type Claim} = require("nupp.compiler.aot.instructions")
+const {type Listing} = require("nupp.compiler.aot.instructions")
 
 local optionsMod = require("nupp.compiler.cli.options")
 local spec = require("nupp.compiler.cli.spec")
@@ -374,7 +378,7 @@ end
 ---
 --- @param wanted one function, named as the source or the symbol spells it
 --- @return the report, or nothing and what stopped it
-local function assembly(artifacts: any, selected: nupp.compiler.aot.target.Target, wanted: string?): (any?, string?)
+local function assembly(artifacts: any, selected: Target, wanted: string?): (any?, string?)
     local buildAot = require("nupp.compiler.build.aot")
     local instructionsMod = require("nupp.compiler.aot.instructions")
     local targets = require("nupp.compiler.aot.target")
@@ -388,7 +392,7 @@ local function assembly(artifacts: any, selected: nupp.compiler.aot.target.Targe
     if chain == nil then
         return nil, tostring(chainErr)
     end
-    local selectedChain = chain as nupp.compiler.build.aot.Toolchain
+    local selectedChain = chain as Toolchain
     local text, assembleErr = buildAot.assemble(selectedChain, selected, artifacts.c)
     if text == nil then
         return nil, tostring(assembleErr)
@@ -399,7 +403,7 @@ local function assembly(artifacts: any, selected: nupp.compiler.aot.target.Targe
     -- the forced-scalar twin the lane body is diffed against, and reading a
     -- listing without knowing which of the two is in front of you is how a
     -- vectorised kernel gets mistaken for one that was not.
-    local claims: {[string]: nupp.compiler.aot.instructions.Claim} = {}
+    local claims: {[string]: Claim} = {}
     for _, program in ipairs(artifacts.programs) do
         claims[program.symbol] = new instructionsMod.Claim(name = program.name, role = "kernel")
         claims[program.symbol .. "_forced_scalar"] = new instructionsMod.Claim(name = program.name, role = "oracle")
@@ -435,7 +439,7 @@ local function assembly(artifacts: any, selected: nupp.compiler.aot.target.Targe
 end
 
 --- One symbol's listing, for a person.
-local function writeListing(listing: nupp.compiler.aot.instructions.Listing): nil
+local function writeListing(listing: Listing): nil
     local counts = listing.counts
     io.write(
         (
