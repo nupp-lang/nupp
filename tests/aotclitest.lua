@@ -1462,11 +1462,11 @@ local COMPUTE_ASSERTED = replaceOnce(
 function M.assertGuardsReachTheSameKernel()
     local plain = project{["compute.nupp"] = COMPUTE}
     local asserted = project{["compute.nupp"] = COMPUTE_ASSERTED}
-    local wanted, wantedCode = run(plain, PINNED .. "--emit c compute.nupp")
-    local got, gotCode = run(asserted, PINNED .. "--emit c compute.nupp")
+    local wantedReport, wanted, wantedCode = lowered(plain, PINNED .. "--json compute.nupp")
+    local gotReport, got, gotCode = lowered(asserted, PINNED .. "--json compute.nupp")
     test.equal(wantedCode, 0, wanted)
     test.equal(gotCode, 0, "assert guards are admitted like error guards\n" .. got)
-    test.equal(got, wanted, "both spellings emit the same C")
+    test.equal(gotReport.c, wantedReport.c, "both spellings emit the same C")
 end
 
 function M.anAssertGuardStillHasToSayTheRightThing()
@@ -1555,13 +1555,23 @@ end
 -- written inline have to agree on. The scalar body cannot be compared directly: one
 -- spelling carries a `helper_call` and the other carries the expression, which is the
 -- difference the inline is supposed to erase by the time lanes are chosen.
-local function laneIr(dir, file, label)
-    local out, code = run(dir, PINNED .. "--emit ir " .. file)
+
+--- The lane body inside one pinned report's IR, and the report it came out of.
+---
+--- `--json` carries the IR beside everything else the run measured, so a case
+--- that wants both the lane body and what the optimizer did to it asks once.
+local function laneReport(dir, file, label)
+    local decoded, out, code = lowered(dir, PINNED .. "--json " .. file)
     test.equal(code, 0, label .. ": " .. out)
-    local lanes = out:match("\nsimd lanes%(.-\n(.*)$") and out:match("(\nsimd lanes.*)$")
+    local ir = decoded.ir
+    local lanes = ir:match("\nsimd lanes%(.-\n(.*)$") and ir:match("(\nsimd lanes.*)$")
     assert(lanes, label .. " ran one iteration at a time, so there is no lane body to compare:\n" .. out)
 
-    return lanes
+    return lanes, decoded
+end
+
+local function laneIr(dir, file, label)
+    return (laneReport(dir, file, label))
 end
 
 -- Both spellings of one kernel: the predicate behind a helper, and the same predicate
@@ -1617,11 +1627,11 @@ function M.aFourTripLoopLowersToTheSameLaneIrAsWritingItOut()
     )
     assert(written ~= FIXED_MIX, "the fixed loop was replaced by its control")
     local dir = project{["loop.nupp"] = FIXED_MIX, ["written.nupp"] = written}
-    test.equal(laneIr(dir, "loop.nupp", "the fixed loop"), laneIr(dir, "written.nupp", "the written body"))
+    local fixed, report = laneReport(dir, "loop.nupp", "the fixed loop")
+    test.equal(fixed, laneIr(dir, "written.nupp", "the written body"))
 
-    local out, code = run(dir, PINNED .. "--json loop.nupp")
-    test.equal(code, 0, out)
-    local optimization = require("testjson").decode(out).functions[1].optimization
+    -- The same report the lane body came out of also says what unrolled it.
+    local optimization = report.functions[1].optimization
     test.equal(optimization.unrolledLoops, 1)
     test.equal(optimization.unrolledIterations, 4)
 end
@@ -1710,8 +1720,10 @@ end
 
 function M.emitPrintsTheGeneratedC()
     local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, PINNED .. "--emit c compute.nupp")
-    test.equal(code, 0, out)
+    local decoded, raw, code = lowered(dir, PINNED .. "--json compute.nupp")
+    test.equal(code, 0, raw)
+
+    local out = decoded.c
     assert(out:find("void ks_escapes(", 1, true), "the exported symbol is defined: " .. out)
     assert(
         out:find("ks_escapes_forced_scalar", 1, true),
