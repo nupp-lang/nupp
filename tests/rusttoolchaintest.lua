@@ -389,8 +389,12 @@ function M.gpuConformanceIsValidPosixShell()
     assert(gemm:find("generated.now()", 1, true), "GPU conformance does not use its packaged benchmark clock")
 end
 
+-- Measurements live in their own workflow. A benchmark harness that does not
+-- compile is still a bug, and this is where it is caught; what it must not do
+-- is decide the result of an unrelated change, which is why these read
+-- `measurements.yml` rather than the gate.
 function M.gpuProviderMeasurementsCompareExactFeatureUnions()
-    local workflow = read(ROOT .. "/.github/workflows/compiler.yml")
+    local workflow = read(ROOT .. "/.github/workflows/measurements.yml")
     local measure = read(ROOT .. "/.github/scripts/measure-gpu-provider.sh")
 
     assert(measure:find("base,files,http,net,process,tls,uri,uuid", 1, true))
@@ -402,14 +406,24 @@ function M.gpuProviderMeasurementsCompareExactFeatureUnions()
     assert(measure:find("dynamic_bytes", 1, true), "dynamic provider size is not recorded")
     assert(measure:find("static_bytes", 1, true), "static provider size is not recorded")
     assert(measure:find("observations, not", 1, true), "hosted GPU timings look like acceptance thresholds")
-    assert(workflow:find("build/ci-gpu-provider vulkan", 1, true))
-    assert(workflow:find("build/ci-gpu-provider dx12", 1, true))
-    assert(workflow:find("gpu-provider-linux-vulkan-${{ github.sha }}", 1, true))
-    assert(workflow:find("gpu-provider-windows-dx12-${{ github.sha }}", 1, true))
+    assert(workflow:find("build/ci-gpu-provider ${{ matrix.backend }}", 1, true))
+    assert(workflow:find("backend: vulkan", 1, true), "the Vulkan provider is not measured")
+    assert(workflow:find("backend: dx12", 1, true), "the DX12 provider is not measured")
+    assert(workflow:find("gpu-provider-${{ matrix.artifact }}-${{ github.sha }}", 1, true))
+    assert(workflow:find("artifact: linux-vulkan", 1, true))
+    assert(workflow:find("artifact: windows-dx12", 1, true))
+    -- The conformance gate stays where merging depends on it. Only the sizes
+    -- and timings moved.
+    local gate = read(ROOT .. "/.github/workflows/compiler.yml")
+    assert(gate:find(".github/scripts/test-gpu-conformance.sh", 1, true), "Vulkan conformance left the merge gate")
+    assert(
+        gate:find(".github/scripts/test-gpu-conformance-windows.sh", 1, true),
+        "DX12 conformance left the merge gate"
+    )
 end
 
 function M.nativeRuntimeMeasurementsArePortableAndNonThresholded()
-    local workflow = read(ROOT .. "/.github/workflows/compiler.yml")
+    local workflow = read(ROOT .. "/.github/workflows/measurements.yml")
     local measure = read(ROOT .. "/.github/scripts/measure-native-runtime.sh")
     local benchmark = read(ROOT .. "/bench/native-runtime/src/main.nupp")
     local peer = read(ROOT .. "/bench/native-runtime/server.mjs")
@@ -421,8 +435,12 @@ function M.nativeRuntimeMeasurementsArePortableAndNonThresholded()
     assert(os.execute("sh -n " .. quote(ROOT .. "/bench/native-runtime/resource.sh")) == 0)
     assert(os.execute("sh -n " .. quote(ROOT .. "/bench/native-runtime/run.sh")) == 0)
     assert(os.execute("sh -n " .. quote(ROOT .. "/bench/native-runtime/peer.sh")) == 0)
-    assert(workflow:find("Native runtime measurements / ${{ matrix.name }}", 1, true))
+    assert(workflow:find("Native runtime / ${{ matrix.name }}", 1, true))
     assert(workflow:find("native-runtime-${{ matrix.artifact }}-${{ github.sha }}", 1, true))
+    assert(
+        not read(ROOT .. "/.github/workflows/compiler.yml"):find("measure-native-runtime.sh", 1, true),
+        "a measurement fixture can fail the merge gate again"
+    )
     assert(measure:find("./bin/nupp build", 1, true), "clean measurement runners do not stage root modules")
     assert(measure:find("bench/native-runtime/run.sh", 1, true))
     assert(measure:find("bench/native-runtime/resource.sh", 1, true))
@@ -704,9 +722,14 @@ function M.windowsCiInstallsMatchingRustToolchains()
     local packJob = assert(release:match("\n  build%-compiler%-pack%-windows:(.-)\n  catalog:"))
     local gnu = 'rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal'
     local gnullvm = 'rustup toolchain install "${channel}-x86_64-pc-windows-gnullvm" --profile minimal'
+    local measurements = read(ROOT .. "/.github/workflows/measurements.yml")
     local compilerInstalls = countOccurrences(compiler, gnu)
     local releaseInstalls = countOccurrences(release, gnu)
-    assert(compilerInstalls == 3, "the Windows compiler, DX12, and native measurement jobs do not provision GNU Rust")
+    assert(compilerInstalls == 2, "the Windows integration and DX12 conformance jobs do not provision GNU Rust")
+    assert(
+        countOccurrences(measurements, gnu) == 3,
+        "the Windows native runtime, reification, and GPU provider measurements do not provision GNU Rust"
+    )
     assert(releaseInstalls == 1, "the ordinary Windows release host does not provision GNU Rust")
     assert(countOccurrences(release, gnullvm) == 1, "the LLVM-MinGW compiler-pack job does not provision gnullvm Rust")
     assert(packJob:find(gnullvm, 1, true), "the compiler-pack job provisions gnullvm in a different Windows job")
