@@ -1103,20 +1103,30 @@ mod tests {
         let chunk = vec![b'f'; WRITE_LIMIT];
         let settle = Duration::from_secs(2);
         let deadline = Instant::now() + Duration::from_secs(30);
+        let mut accepted = 0_usize;
+        let mut refused = 0_usize;
         loop {
             match input.try_write(&chunk).unwrap() {
-                Write::Accepted(count) => assert_eq!(count, WRITE_LIMIT),
-                Write::WouldBlock => {}
+                Write::Accepted(count) => {
+                    assert_eq!(count, WRITE_LIMIT);
+                    accepted += count;
+                }
+                Write::WouldBlock => refused += 1,
                 Write::Gone => panic!("the child closed the input it never reads"),
             }
-            // A pump with pipe room left reports the stream writable again
-            // well inside this window; one parked on a full pipe never does.
+            // Not a measurement of how long the pump takes: a zero here is the
+            // pump reporting the stream unwritable at that instant, which is the
+            // state the assertions below are about. The window only decides how
+            // long to keep offering before concluding the pipe is not filling.
             if wait_ready(None, &[Arc::clone(input)], settle) == 0 {
                 break;
             }
             assert!(
                 Instant::now() < deadline,
-                "the input pipe never filled, so no write ever stayed in flight"
+                "the input pipe never filled, so no write ever stayed in flight: \
+                 {accepted} bytes accepted, {refused} writes refused, \
+                 writable = {}",
+                input.ready()
             );
         }
         assert_eq!(input.try_write(b"two").unwrap(), Write::WouldBlock);
