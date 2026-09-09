@@ -829,19 +829,57 @@ export = {
     return dir
 end
 
+--- One store every fixture that makes no reuse assertion shares.
+---
+--- `NUPP_CACHE_DIR` is what a run over many small projects has for this: the
+--- entries in it are keyed by what they were computed from and stamped with the
+--- code that computed them, so two fixtures can only hit each other's entries
+--- when the answer is the same answer. Every project here is a handful of files
+--- over the same standard library, and each one used to pay to rediscover the
+--- whole of it.
+local sharedCacheDir = nil
+
+local function sharedCache()
+    if not sharedCacheDir then
+        local dir = os.tmpname()
+        os.remove(dir)
+        assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+        sharedCacheDir = dir
+    end
+
+    return sharedCacheDir
+end
+
+--- Fixtures whose case asserts what two builds of *that project* did.
+---
+--- A shared content store would make such an assertion depend on whichever
+--- unrelated temporary project the worker built first. These keep reuse within
+--- the fixture and nowhere else: successive builds of the directory still share
+--- the cache whose behaviour the case is exercising, and nothing else reaches
+--- it. Say so at the fixture rather than leaving it to the order cases run in.
+local isolatedCaches = {}
+
+local function isolateCache(dir)
+    isolatedCaches[dir] = true
+
+    return dir
+end
+
+--- Where a build of this fixture keeps its content-addressed stores.
+local function cacheFor(dir)
+    if isolatedCaches[dir] then
+        return dir .. "/build/test-cache"
+    end
+
+    return sharedCache()
+end
+
 local function build(dir)
-    -- These cases assert what this project's artifacts and stamps did between
-    -- two builds. A shard-wide content cache is useful to most of the suite,
-    -- but it makes an artifact-reuse assertion depend on whichever unrelated
-    -- temporary project the worker ran first. Keep reuse within the fixture and
-    -- nowhere else: successive builds of this directory still share the cache
-    -- whose behaviour the case is exercising.
-    local cache = dir .. "/build/test-cache"
     local pipe = assert(
         io.popen(
             (
                 "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' build --target native 2>&1; echo \"__exit__:$?\""
-            ):format(dir, cache, NUPP)
+            ):format(dir, cacheFor(dir), NUPP)
         )
     )
     local out = pipe:read("*a")
@@ -852,10 +890,11 @@ local function build(dir)
 end
 
 local function check(dir)
-    local cache = dir .. "/build/test-cache"
     local pipe = assert(
         io.popen(
-            ("cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' check 2>&1; echo \"__exit__:$?\""):format(dir, cache, NUPP)
+            (
+                "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' check 2>&1; echo \"__exit__:$?\""
+            ):format(dir, cacheFor(dir), NUPP)
         )
     )
     local out = pipe:read("*a")
@@ -869,7 +908,11 @@ end
 -- assertions get a fixture of their own below: suite slicing can run several
 -- cases in one long-lived process, and a case that appends source or damages an
 -- artifact must not decide what a later case starts from.
+--
+-- `require` is the one whose two reuse cases assert about the fixture itself, so
+-- that policy's shared fixture keeps its own store.
 local builtFixtures = {}
+
 local function builtFixture(policy)
     local existing = builtFixtures[policy]
     if existing then
@@ -877,8 +920,11 @@ local function builtFixture(policy)
     end
 
     local dir = project(policy)
+    if policy == "require" then
+        isolateCache(dir)
+    end
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.equal(code, 0, ("the shared aot=%s fixture at %s builds: %s"):format(tostring(policy), dir, out))
     builtFixtures[policy] = dir
 
     return dir
@@ -887,9 +933,51 @@ end
 local function freshBuiltFixture(policy)
     local dir = project(policy)
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.equal(code, 0, ("a fresh aot=%s fixture at %s builds: %s"):format(tostring(policy), dir, out))
 
     return dir
+end
+
+--- A fixture of its own, with a store of its own, for a case about to assert
+--- what two builds of it did.
+local function isolatedBuiltFixture(policy)
+    local dir = isolateCache(project(policy))
+    local out, code = build(dir)
+    test.equal(code, 0, ("an isolated aot=%s fixture at %s builds: %s"):format(tostring(policy), dir, out))
+
+    return dir
+end
+
+--- The builder fixture, built once per policy, and a script run against it.
+---
+--- The cases below ask the same two projects -- one that links compiled code and
+--- one that does not -- a different question about what an entry answers at run
+--- time. The question travels in the script rather than in the source, so the
+--- build is the same build every time, and building it per question paid for a C
+--- compilation and a link per assertion. The directory comes back beside the
+--- answer, so a failure still names which of the two fixtures produced it.
+local builderFixtures = {}
+
+local function builderAnswer(policy, script)
+    local dir = builderFixtures[policy]
+    if not dir then
+        dir = builderProject(policy)
+        local out, code = build(dir)
+        test.equal(code, 0, ("the aot=%s builder fixture at %s builds: %s"):format(policy, dir, out))
+        builderFixtures[policy] = dir
+    end
+
+    local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
+    local text = pipe:read("*a")
+    pipe:close()
+
+    return (text:gsub("%s+$", "")), dir
+end
+
+--- How a builder answer reads in a failure: the fixture that produced it, and
+--- what it said.
+local function builderReport(label, policy, dir, answer)
+    return ("%s (aot=%s fixture at %s): %s"):format(label, policy, dir, answer)
 end
 
 local function read(path)
@@ -1860,12 +1948,8 @@ function M.aWrapIsModularOnBothRoutes()
         6442450941,
     }
 
-    local function answer(policy)
-        local dir = builderProject(policy)
-        local out, code = build(dir)
-        test.equal(code, 0, out)
-        local script = (
-            [[
+    local script = (
+        [[
          local builder = require("builder")
          local NULL = {}
          local out = {}
@@ -1875,17 +1959,17 @@ function M.aWrapIsModularOnBothRoutes()
          end
          print(table.concat(out, " "))
       ]]
-        ):format(table.concat(CASES, ","))
-        local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
-        local result = pipe:read("*a")
-        pipe:close()
+    ):format(table.concat(CASES, ","))
 
-        return result
-    end
-
-    local ordinary = answer("off")
-    local native = answer("require")
-    test.equal(native, ordinary, "a compiled wrap answers what the interpreted one does")
+    local ordinary, ordinaryDir = builderAnswer("off", script)
+    local native, nativeDir = builderAnswer("require", script)
+    test.equal(
+        native,
+        ordinary,
+        (
+            "a compiled wrap answers what the interpreted one does (aot=require at %s, aot=off at %s)"
+        ):format(nativeDir, ordinaryDir)
+    )
 
     -- And both answer what `bit` does, so neither route is agreeing on a wrong
     -- number. This is the case a saturating cast got wrong.
@@ -1894,7 +1978,10 @@ function M.aWrapIsModularOnBothRoutes()
         local signed = bit.tobit(value)
         expected[#expected + 1] = tostring(signed) .. "/" .. tostring(signed < 0 and signed + 4294967296 or signed)
     end
-    assert(native:find(table.concat(expected, " "), 1, true), native)
+    assert(
+        native:find(table.concat(expected, " "), 1, true),
+        builderReport("a compiled wrap answers what `bit` does", "require", nativeDir, native)
+    )
 end
 
 function M.binary16StorageConversionsAgreeInCompiledCode()
@@ -1989,11 +2076,10 @@ function M.aFixedScratchIsZeroedAndStillRefusesAnIndexOutsideIt()
     end
 
     local function answer(policy, probe)
-        local dir = builderProject(policy)
-        local out, code = build(dir)
-        test.equal(code, 0, out)
-        local script = (
-            [[
+        return builderAnswer(
+            policy,
+            (
+                [[
          local builder = require("builder")
          local ok, result = pcall(builder.fixedScratch, %d, {})
          if ok then
@@ -2002,30 +2088,46 @@ function M.aFixedScratchIsZeroedAndStillRefusesAnIndexOutsideIt()
             print("refused", (tostring(result):gsub(".*: ", "")))
          end
       ]]
-        ):format(probe)
-        local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
-        local text = pipe:read("*a")
-        pipe:close()
-
-        return (text:gsub("%s+$", ""))
+            ):format(probe)
+        )
     end
 
     -- Index 7 is the last word in an eight-word buffer: written nowhere, so
     -- zero, and read rather than refused.
-    local ordinaryInside, nativeInside = answer("off", 7), answer("require", 7)
-    test.equal(nativeInside, ordinaryInside, "a compiled fixed buffer reads what the interpreted one reads")
-    assert(nativeInside:find("ok\t77,0,0", 1, true), nativeInside)
+    local ordinaryInside, ordinaryDir = answer("off", 7)
+    local nativeInside, nativeDir = answer("require", 7)
+    test.equal(
+        nativeInside,
+        ordinaryInside,
+        (
+            "a compiled fixed buffer reads what the interpreted one reads at 7 " .. "(aot=require at %s, aot=off at %s)"
+        ):format(nativeDir, ordinaryDir)
+    )
+    assert(
+        nativeInside:find("ok\t77,0,0", 1, true),
+        builderReport("a fixed buffer is zero where nothing wrote it at 7", "require", nativeDir, nativeInside)
+    )
 
     -- Index 8 is one past it. Both routes refuse, and the compiled one still
     -- refuses even though every other access in that body had its check folded.
-    local ordinaryOutside, nativeOutside = answer("off", 8), answer("require", 8)
-    assert(ordinaryOutside:find("refused", 1, true), ordinaryOutside)
-    assert(nativeOutside:find("refused", 1, true), nativeOutside)
+    local ordinaryOutside = answer("off", 8)
+    local nativeOutside = answer("require", 8)
+    assert(
+        ordinaryOutside:find("refused", 1, true),
+        builderReport("index 8 is refused", "off", ordinaryDir, ordinaryOutside)
+    )
+    assert(
+        nativeOutside:find("refused", 1, true),
+        builderReport("index 8 is refused", "require", nativeDir, nativeOutside)
+    )
 
     -- And far outside, where a missing check would read somebody else's memory
     -- rather than the next word along.
     local nativeFar = answer("require", 4000000)
-    assert(nativeFar:find("refused", 1, true), nativeFar)
+    assert(
+        nativeFar:find("refused", 1, true),
+        builderReport("index 4000000 is refused", "require", nativeDir, nativeFar)
+    )
 end
 
 --- A fixed byte buffer is zero where nothing wrote it, takes a write at any
@@ -2041,33 +2143,51 @@ function M.aFixedByteScratchIsZeroedWritableInAnyOrderAndStillBounded()
     end
 
     local function answer(policy, probe)
-        local dir = builderProject(policy)
-        local out, code = build(dir)
-        test.equal(code, 0, out)
-        local script = (
-            [[
+        return builderAnswer(
+            policy,
+            (
+                [[
          local builder = require("builder")
          local ok, result = pcall(builder.fixedByteScratch, %d, {})
          print(ok and ("ok\t" .. table.concat(result, ",")) or ("refused\t" .. tostring(result)))
       ]]
-        ):format(probe)
-        local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
-        local text = pipe:read("*a")
-        pipe:close()
-
-        return (text:gsub("%s+$", ""))
+            ):format(probe)
+        )
     end
 
     -- Byte five was written with nothing below it; two and seven never were.
-    local ordinary, native = answer("off", 7), answer("require", 7)
-    test.equal(native, ordinary, "a compiled fixed byte buffer reads what the interpreted one reads")
-    assert(native:find("ok\t200,0,0", 1, true), native)
+    local ordinary, ordinaryDir = answer("off", 7)
+    local native, nativeDir = answer("require", 7)
+    test.equal(
+        native,
+        ordinary,
+        (
+            "a compiled fixed byte buffer reads what the interpreted one reads at 7 "
+            .. "(aot=require at %s, aot=off at %s)"
+        ):format(nativeDir, ordinaryDir)
+    )
+    assert(
+        native:find("ok\t200,0,0", 1, true),
+        builderReport("a fixed byte buffer is zero where nothing wrote it at 7", "require", nativeDir, native)
+    )
 
     -- Eight is one past it, and four thousand is far enough past that a missing
     -- check would read somebody else's memory rather than the next byte along.
-    assert(answer("off", 8):find("refused", 1, true), answer("off", 8))
-    assert(answer("require", 8):find("refused", 1, true), answer("require", 8))
-    assert(answer("require", 4000000):find("refused", 1, true), answer("require", 4000000))
+    local ordinaryOutside = answer("off", 8)
+    assert(
+        ordinaryOutside:find("refused", 1, true),
+        builderReport("byte 8 is refused", "off", ordinaryDir, ordinaryOutside)
+    )
+    local nativeOutside = answer("require", 8)
+    assert(
+        nativeOutside:find("refused", 1, true),
+        builderReport("byte 8 is refused", "require", nativeDir, nativeOutside)
+    )
+    local nativeFar = answer("require", 4000000)
+    assert(
+        nativeFar:find("refused", 1, true),
+        builderReport("byte 4000000 is refused", "require", nativeDir, nativeFar)
+    )
 end
 
 --- One name bound to a fixed buffer in one scope and an appending one in
@@ -2086,32 +2206,46 @@ function M.aReusedScratchNameDoesNotInheritAnEarlierBuffersBound()
     end
 
     local function answer(policy, probe)
-        local dir = builderProject(policy)
-        local out, code = build(dir)
-        test.equal(code, 0, out)
-        local script = (
-            [[
+        return builderAnswer(
+            policy,
+            (
+                [[
          local builder = require("builder")
          local ok, result = pcall(builder.reusedScratchName, %d, {})
          print(ok and ("ok\t" .. table.concat(result, ",")) or ("refused\t" .. tostring(result)))
       ]]
-        ):format(probe)
-        local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
-        local text = pipe:read("*a")
-        pipe:close()
-
-        return (text:gsub("%s+$", ""))
+            ):format(probe)
+        )
     end
 
     -- Word 0 is the one thing written, so both routes read it.
-    test.equal(answer("require", 0), answer("off", 0), "the written word reads the same on both routes")
-    assert(answer("require", 0):find("ok\t7", 1, true), answer("require", 0))
+    local nativeWritten, nativeDir = answer("require", 0)
+    local ordinaryWritten, ordinaryDir = answer("off", 0)
+    test.equal(
+        nativeWritten,
+        ordinaryWritten,
+        (
+            "the written word reads the same on both routes (aot=require at %s, aot=off at %s)"
+        ):format(nativeDir, ordinaryDir)
+    )
+    assert(
+        nativeWritten:find("ok\t7", 1, true),
+        builderReport("word 0 is the written word", "require", nativeDir, nativeWritten)
+    )
 
     -- Word 3 is inside the appending buffer's capacity but past its length, so
     -- both routes refuse. Inheriting the earlier buffer's 4096 would let the
     -- compiled one through.
-    assert(answer("off", 3):find("refused", 1, true), answer("off", 3))
-    assert(answer("require", 3):find("refused", 1, true), answer("require", 3))
+    local ordinaryPast = answer("off", 3)
+    assert(
+        ordinaryPast:find("refused", 1, true),
+        builderReport("word 3 is past the appending buffer's length", "off", ordinaryDir, ordinaryPast)
+    )
+    local nativePast = answer("require", 3)
+    assert(
+        nativePast:find("refused", 1, true),
+        builderReport("word 3 is past the appending buffer's length", "require", nativeDir, nativePast)
+    )
 end
 
 function M.luaBuilderRegistrationReturnsOrdinaryTables()
@@ -2119,11 +2253,7 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
         return
     end
 
-    local function answer(policy)
-        local dir = builderProject(policy)
-        local out, code = build(dir)
-        test.equal(code, 0, out)
-        local script = [[
+    local REGISTRATION = [[
          local builder = require("builder")
          local rows = builder.rows(4)
          local object = builder.object("nupp")
@@ -2132,15 +2262,9 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
          print(object.name, object.ready, table.concat(object.nested, ","))
          print(streamed.name, streamed.flag, byte, word)
       ]]
-        local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
-        local result = pipe:read("*a")
-        pipe:close()
 
-        return result, dir
-    end
-
-    local ordinary = answer("off")
-    local native, dir = answer("require")
+    local ordinary, ordinaryDir = builderAnswer("off", REGISTRATION)
+    local native, dir = builderAnswer("require", REGISTRATION)
 
     -- What goes wrong here is usually the search path rather than the answer,
     -- and the interpreter's own report names every path it tried except the one
@@ -2152,47 +2276,48 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
     end
     local context = ("\n(runtime searched at %s, present: %s)"):format(runtime, tostring(handle ~= nil))
 
-    test.equal(native, ordinary, "the VM-aware ABI preserves the ordinary source answer")
-    assert(native:find("2,4,6,8", 1, true), native .. context)
-    assert(native:find("nupp\ttrue\t1,2,3", 1, true), native .. context)
-    assert(native:find("42\ttrue\t52\t7", 1, true), native .. context)
-    local primitives = assert(
-        io.popen(
-            (
-                "cd %q && luajit -e %q 2>&1"
-            ):format(
-                dir,
-                searchPathPrelude()
-                .. 'local b=require("builder");local values,full,tail,classes=b.primitives(string.rep(string.char(7),40),{});print(table.concat(values,","),full+tail,classes)'
-            )
-        )
+    test.equal(
+        native,
+        ordinary,
+        (
+            "the VM-aware ABI preserves the ordinary source answer (aot=require at %s, aot=off at %s)"
+        ):format(dir, ordinaryDir)
     )
-    local primitiveText = primitives:read("*a")
-    primitives:close()
-    assert(primitiveText:find("10,12,44,100,2147483755,110,3\t40", 1, true), primitiveText)
+    assert(native:find("2,4,6,8", 1, true), builderReport("array rows", "require", dir, native) .. context)
+    assert(
+        native:find("nupp\ttrue\t1,2,3", 1, true),
+        builderReport("object members", "require", dir, native) .. context
+    )
+    assert(
+        native:find("42\ttrue\t52\t7", 1, true),
+        builderReport("streamed members", "require", dir, native) .. context
+    )
+    local primitiveText = builderAnswer(
+        "require",
+        'local b=require("builder");local values,full,tail,classes=b.primitives(string.rep(string.char(7),40),{});print(table.concat(values,","),full+tail,classes)'
+    )
+    assert(
+        primitiveText:find("10,12,44,100,2147483755,110,3\t40", 1, true),
+        builderReport("primitive values", "require", dir, primitiveText)
+    )
     local generated = assert(read(dir .. "/build/native/builder.lua"))
-    assert(generated:find("ks_register_", 1, true), generated)
+    assert(generated:find("ks_register_", 1, true), builderReport("generated wrapper", "require", dir, generated))
     assert(
         not generated:find("cdef function ks_object", 1, true),
-        "a builder loads a C closure rather than fabricating lua_State through FFI"
-    )
-    local failure = assert(
-        io.popen(
-            (
-                "cd %q && luajit -e %q 2>&1"
-            ):format(
-                dir,
-                searchPathPrelude()
-                .. 'local b=require("builder");'
-                .. 'local ok,why=pcall(b.rows,-1);print(ok,tostring(why))'
-            )
+        builderReport(
+            "a builder loads a C closure rather than fabricating lua_State through FFI",
+            "require",
+            dir,
+            generated
         )
     )
-    local failureText = failure:read("*a")
-    failure:close()
+    local failureText = builderAnswer(
+        "require",
+        'local b=require("builder");' .. 'local ok,why=pcall(b.rows,-1);print(ok,tostring(why))'
+    )
     assert(
         failureText:find("false", 1, true) and failureText:find("array capacity at 6:", 1, true),
-        "a modeled native failure is protected and source-attributed: " .. failureText
+        builderReport("a modeled native failure is protected and source-attributed", "require", dir, failureText)
     )
 end
 
@@ -2426,6 +2551,7 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
         ):format(corrected, forced)
     )
     local holder = ffi.new("union { float f; uint32_t u; }[1]")
+
     local function fromBits(value)
         holder[0].u = value
         return tonumber(holder[0].f)
@@ -2496,6 +2622,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     end
 
     local artifacts = os.getenv("NUPP_TEST_AOT_ARTIFACTS")
+
     local function trace(phase)
         if os.getenv("NUPP_TEST_AOT_TRACE") then
             io.stderr:write("AOT packed bytes: " .. phase .. "\n")
