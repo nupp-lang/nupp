@@ -419,7 +419,18 @@ end
 
 function M.untypedVarargsCannotEraseOwners()
     assertEq(
-        codes(RESOURCE .. table.concat({"", "local value = resource_new()", "print(value)", "drop(value)",}, "\n")),
+        codes(
+            RESOURCE .. table.concat(
+                {
+                    "",
+                    "local function keep(...: any): nil end",
+                    "local value = resource_new()",
+                    "keep(value)",
+                    "drop(value)",
+                },
+                "\n"
+            )
+        ),
         "NUPP2611"
     )
 end
@@ -6747,14 +6758,54 @@ function M.aBorrowMayReachThePreludesNonRetainingHelpers()
                 "local function probe(borrows r: ClosureResource): string",
                 "   local same = rawequal(r, r)",
                 "   local n = rawlen({})",
+                "   print(r)",
                 "   return type(r) .. tostring(r) .. tostring(same) .. tostring(n)",
                 "end",
                 "local r = openClosureResource(1)",
+                "print(r)",
                 "print(probe(r))",
                 "drop(r)",
             },
             "\n"
         )
+    )
+end
+
+-- A shared call may read through the live exclusive view that supplies its value.
+-- The exclusive loan blocks a competing read through the owner, not a reborrow of
+-- that same view while evaluating a non-retaining argument.
+function M.aSharedArgumentMayReadThroughItsExclusiveView()
+    assertClean(
+        table.concat(
+            {
+                "local spans = require('nupp.mem.span')",
+                "local storage = ffi.new<int32[4]>()",
+                "local writable = spans.writeCarray(storage, 4)",
+                "do",
+                "   local pointer, count = writable:ref()",
+                "   print(pointer ~= nil, count)",
+                "end",
+                "drop writable",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "local spans = require('nupp.mem.span')",
+                    "local storage = ffi.new<int32[4]>()",
+                    "local writable = spans.writeCarray(storage, 4)",
+                    "local pointer = writable:ref()",
+                    "print(writable ~= nil)",
+                    "print(pointer ~= nil)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2607",
+        "the exclusive view does not authorize a competing read through its owner"
     )
 end
 

@@ -34,7 +34,7 @@ because the `DateFields` it answers with belongs there too.
 --- tabs and followed by a newline.
 ---
 --- @param ... the values to write
-local print: nosuspend function(...: any)
+local print: nosuspend function(borrows ...: any)
 
 --- Returns the type name of a value: "nil", "boolean", "number", "string", "table",
 --- "function", "thread" or "userdata", plus "cdata" for FFI values.

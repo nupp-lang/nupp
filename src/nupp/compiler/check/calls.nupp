@@ -488,6 +488,70 @@ function calls.install(c: state.Checker): calls.Ops
         return {related = related and {related} or nil, help = "compare the call with the declared parameter list"}
     end
 
+    --- Whether every use of one root inside an argument goes through a live
+    --- exclusive view of that root. Lending that view to a shared parameter is a
+    --- reborrow: the exclusive loan excludes competing aliases, not reads made
+    --- through the loan itself. Composite expressions need the same authorization
+    --- as the direct name they evaluate through.
+    local function reborrowsExclusiveView(expr, root): boolean
+        local found, valid = false, true
+        local function visit(node)
+            while node and (node.kind == "paren" or node.kind == "castExpr" or node.kind == "newExpr") do
+                node = node.kind == "newExpr" and node.call or node.expr
+            end
+            if not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "name" then
+                local entry = c.ownershipState((c.ownershipEntry(node)))
+                if entry and c.borrowRoot(entry) == root then
+                    found = true
+                    local facts = c.own.capabilityFacts(entry, nil, false)
+                    if not facts.exclusive or (entry.activeBorrows or 0) > 0 then
+                        valid = false
+                    end
+                end
+                return
+            elseif node.kind == "dotIndex"
+                or node.kind == "safeIndex"
+                or node.kind == "bracketIndex"
+                or node.kind == "safeBracket"
+            then
+                visit(node.obj)
+                return
+            elseif node.kind == "binop" then
+                visit(node.lhs)
+                visit(node.rhs)
+                return
+            elseif node.kind == "tableExpr" then
+                for _, field in ipairs(node.fields or {}) do
+                    visit(field.value)
+                end
+                return
+            elseif node.kind == "call" and node.recordConstruct then
+                for _, binding in ipairs(node.recordFields or {}) do
+                    visit(binding.node)
+                end
+                return
+            end
+
+            local facts = c.own.capabilityFacts(node, nil, false)
+            for _, owner in ipairs(facts.roots or {}) do
+                if c.borrowRoot(owner) == root then
+                    found = true
+                    local origin = c.ownershipState(facts.origin)
+                    if not facts.exclusive or origin and (origin.activeBorrows or 0) > 0 then
+                        valid = false
+                    end
+                end
+            end
+        end
+
+        visit(expr)
+
+        return found and valid
+    end
+
     --- Turning an initializer table into the argument list it should have been.
     ---
     --- A named field and a named argument are written the same way, so the rewrite is
@@ -2568,7 +2632,10 @@ function calls.install(c: state.Checker): calls.Ops
                     local roots = entry and {entry} or c.own.provenanceOwners(argNodes[j])
                     local base = entry or c.own.pathBase(argNodes[j])
                     for _, root in ipairs(roots) do
-                        if c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, true) then
+                        if not reborrowsExclusiveView(
+                            argNodes[j],
+                            c.borrowRoot(root)
+                        ) and c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, true) then
                             c.diag(
                                 "NUPP2607",
                                 nameNode or argNodes[j] or node,
