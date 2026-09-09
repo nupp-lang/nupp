@@ -12,7 +12,7 @@ local function assertContains(haystack, needle, label)
     end
 end
 
--- A workspace with nothing in it.
+-- The workspace a session opens when it does not name one.
 --
 -- Most sessions here open a document that does not exist on disk and ask about
 -- what is inside it. The workspace they open decides how much the server has to
@@ -22,15 +22,25 @@ end
 -- parameter took a hundred and ten seconds, and the same rename in an empty
 -- project takes one and a half, with the same answer.
 --
--- So a case that asks a project-wide question about a document of its own opens
--- one of these instead. A case that is actually about this repository's files
--- still passes ROOT and means it.
+-- The cost is worse than that per-question figure suggests, because the first
+-- session in a slice that opens this repository also builds its project graph
+-- from a cold shard cache. Whichever case happened to be first paid for it, and
+-- so the suite's longest case moved around the file between runs: 152 seconds
+-- on `workspaceFolderChangesAreAppliedToTheOpenSession` in one, 129 on
+-- `aDidChangeBurstAppliesTheLastFullText` in the next, for tests that answer in
+-- under a second on their own. No case here reads a file of this repository --
+-- every document is invented and never written -- so nothing was bought with
+-- it, and the default root is this scratch workspace instead. A case that
+-- wants this repository passes ROOT and means it.
 --
 -- Made once per process and left behind, like the projects `explaintest` keeps:
 -- removing it would need an `afterAll`, and a suite carrying lifecycle hooks is
 -- never sliced across shards, which this one -- the longest in the run -- needs
--- to be.
+-- to be. Every session sharing it is the point: one workspace, initialized as
+-- many times as there are cases, answering about documents that cannot collide
+-- because each case names its own.
 local scratch = nil
+
 local function scratchRoot()
     if scratch then
         return scratch
@@ -63,7 +73,9 @@ local function runSession(messages, rootDir)
     f:write(table.concat(input))
     f:close()
     local exit = os.execute(
-        ("'%s/bin/nupp' lsp serve '%s' < '%s' > '%s' 2>'%s'"):format(ROOT, rootDir or ROOT, infile, outfile, errfile)
+        (
+            "'%s/bin/nupp' lsp serve '%s' < '%s' > '%s' 2>'%s'"
+        ):format(ROOT, rootDir or scratchRoot(), infile, outfile, errfile)
     )
     local out = assert(io.open(outfile, "rb")):read("*a")
     local errors = assert(io.open(errfile, "rb")):read("*a")
@@ -104,7 +116,7 @@ local function runLiveSession(steps, rootDir)
         os.execute(
             (
                 "'%s/bin/nupp' lsp serve '%s' < '%s' > '%s' 2>'%s/err' &"
-            ):format(ROOT, rootDir or ROOT, inPath, outPath, dir)
+            ):format(ROOT, rootDir or scratchRoot(), inPath, outPath, dir)
         ) == 0
     )
 
@@ -141,6 +153,7 @@ local function runLiveSession(steps, rootDir)
     end
 
     local syncId = 90000
+
     local function sync()
         syncId = syncId + 1
         input:write(frame({jsonrpc = "2.0", id = syncId, method = "$/nupp.testSync"}))
@@ -324,6 +337,7 @@ local M = {}
 function M.positionsAgreeWithAScanFromTheStart()
     local text = require("nupp.compiler.lsp.text")
     local source = "local a = 1\n-- \195\169t\195\169 \240\159\152\128 wide\n\nreturn a\n"
+
     local function scanned(offset)
         local line, character, pos = 0, 0, 1
         while pos < offset and pos <= #source do
@@ -963,15 +977,17 @@ function M.jsonRoundtrip()
 end
 
 function M.diagnosticsLifecycle()
+    local root = scratchRoot()
+    local uri = "file://" .. root .. "/lifecycle-demo.nupp"
     local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {rootUri = "file://" .. ROOT, capabilities = {}}},
+        {jsonrpc = "2.0", id = 1, method = "initialize", params = {rootUri = "file://" .. root, capabilities = {}}},
         {jsonrpc = "2.0", method = "initialized", params = {}},
         {
             jsonrpc = "2.0",
             method = "textDocument/didOpen",
             params = {
                 textDocument = {
-                    uri = "file:///tmp/demo.nupp",
+                    uri = uri,
                     languageId = "nupp",
                     version = 1,
                     text = "local x: number = 'oops'\nreturn x\n",
@@ -982,7 +998,7 @@ function M.diagnosticsLifecycle()
             jsonrpc = "2.0",
             method = "textDocument/didChange",
             params = {
-                textDocument = {uri = "file:///tmp/demo.nupp", version = 2},
+                textDocument = {uri = uri, version = 2},
                 contentChanges = {{text = "local x: number = 42\nreturn x\n"}}
             }
         },
@@ -998,7 +1014,7 @@ function M.diagnosticsLifecycle()
 end
 
 function M.syntaxErrorsPublished()
-    local uri = "file:///tmp/broken.nupp"
+    local uri = "file://" .. scratchRoot() .. "/broken.nupp"
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
         {
@@ -1014,6 +1030,51 @@ function M.syntaxErrorsPublished()
     local published = diagnosticsFor(out, uri)
     local diagnostic = published[1] and published[1][1]
     assert(diagnostic and diagnostic.code:match("^NUPP100%d$"), "syntax diagnostic has a stable code")
+end
+
+-- Every other case here opens a document inside the workspace it named, which
+-- is what an editor usually does. A scratch buffer saved somewhere else is not
+-- that, and it used to be covered only by accident -- by cases that opened
+-- `/tmp/demo.nupp` against a session rooted at this repository, and paid for
+-- the repository to say so. The contract is worth keeping and the price is not,
+-- so it is asserted here on purpose against two small directories.
+function M.aDocumentOutsideTheWorkspaceIsStillChecked()
+    local outside = makeDir()
+    local uri = "file://" .. outside .. "/stray.nupp"
+    local out = runSession({
+        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+        {
+            jsonrpc = "2.0",
+            method = "textDocument/didOpen",
+            params = {
+                textDocument = {
+                    uri = uri,
+                    languageId = "nupp",
+                    version = 1,
+                    text = "local x: number = 'oops'\nreturn x\n",
+                }
+            }
+        },
+        {
+            jsonrpc = "2.0",
+            method = "textDocument/didChange",
+            params = {
+                textDocument = {uri = uri, version = 2},
+                contentChanges = {{text = "local x: number = 42\nreturn x\n"}}
+            }
+        },
+        {jsonrpc = "2.0", id = 2, method = "shutdown"},
+        {jsonrpc = "2.0", method = "exit"},
+    })
+    os.execute("rm -rf '" .. outside .. "'")
+
+    local published = diagnosticsFor(out, uri)
+    assert(#published >= 2, "a document outside the workspace is published at all: " .. tostring(#published))
+    assert(
+        #published[1] == 1 and published[1][1].code == "NUPP2001",
+        "and checked, not merely parsed: " .. json.encode(published[1])
+    )
+    assert(#published[#published] == 0, "and rechecked when it changes")
 end
 
 function M.crossFileDiagnosticsPublishRelatedInformation()
@@ -1052,7 +1113,7 @@ function M.crossFileDiagnosticsPublishRelatedInformation()
 end
 
 function M.definitionLocations()
-    local uri = "file://" .. ROOT .. "/definition-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/definition-demo.nupp"
     local source = table.concat(
         {
             "local record Point",
@@ -1364,7 +1425,7 @@ function M.languageFeaturesAndCdefTooling()
 end
 
 function M.contractSyntaxSemanticTokens()
-    local uri = "file:///tmp/contracts.nupp"
+    local uri = "file://" .. scratchRoot() .. "/contracts.nupp"
     local source = table.concat(
         {
             "@!internal",
@@ -1414,7 +1475,7 @@ function M.contractSyntaxSemanticTokens()
 end
 
 function M.unsafeAndNosuspendAreSemanticKeywords()
-    local uri = "file:///tmp/safety-keywords.nupp"
+    local uri = "file://" .. scratchRoot() .. "/safety-keywords.nupp"
     local source = table.concat(
         {
             "unsafe do end",
@@ -1451,7 +1512,7 @@ function M.unsafeAndNosuspendAreSemanticKeywords()
 end
 
 function M.embeddedStringSyntaxLeavesTheLiteralToTheTextMateGrammar()
-    local uri = "file:///tmp/embedded-string.nupp"
+    local uri = "file://" .. scratchRoot() .. "/embedded-string.nupp"
     local source = table.concat({'@syntax("json")', "local config = dedent [[", "{\"enabled\": true}", "]]",}, "\n")
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -1547,7 +1608,7 @@ function M.packBindersHaveTypeParameterEditorSemantics()
 end
 
 function M.utf16Positions()
-    local uri = "file://" .. ROOT .. "/utf16-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/utf16-demo.nupp"
     local source = "local emoji = '😀'; local value = emoji\n"
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -1571,7 +1632,7 @@ function M.utf16Positions()
 end
 
 function M.constEditorSemantics()
-    local uri = "file://" .. ROOT .. "/const-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/const-demo.nupp"
     local source = "const answer: integer = 42\nlocal copy = answer\n"
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -1615,7 +1676,7 @@ function M.constEditorSemantics()
 end
 
 function M.deprecatedApisReachHoverCompletionAndSemanticTokens()
-    local uri = "file://" .. ROOT .. "/deprecated-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/deprecated-demo.nupp"
     local source = table.concat(
         {
             '@deprecated(reason = "kept for compatibility", replacement = "current")',
@@ -1680,7 +1741,7 @@ end
 -- to, so hover falls back to a one-line blurb and a link to where it is
 -- actually documented, and go-to-definition finds nothing to fabricate.
 function M.builtinAnnotationHoverLinksToDocsWithNoFabricatedDefinition()
-    local uri = "file://" .. ROOT .. "/aot-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/aot-demo.nupp"
     local source = table.concat(
         {"@aot", "local function double(x: integer): integer", "    return x * 2", "end", "return double",},
         "\n"
@@ -1727,7 +1788,7 @@ end
 -- Same stand-in, one level down: a built-in annotation's own member
 -- (`vectorize` on `@aot`) has no field declaration either.
 function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
-    local uri = "file://" .. ROOT .. "/aot-vectorize-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/aot-vectorize-demo.nupp"
     local source = table.concat(
         {
             "@aot(vectorize = true)",
@@ -1775,7 +1836,7 @@ function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
 end
 
 function M.borrowReturnIsAKeyword()
-    local uri = "file://" .. ROOT .. "/borrow-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/borrow-demo.nupp"
     -- column 40 is the `borrows` of the return annotation; column 20 is the
     -- parameter mode, which was already a keyword
     local source = table.concat(
@@ -1814,7 +1875,7 @@ function M.borrowReturnIsAKeyword()
 end
 
 function M.predicateReturnIsAKeyword()
-    local uri = "file://" .. ROOT .. "/predicate-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/predicate-demo.nupp"
     local source = table.concat(
         {
             "local type Value = string | number",
@@ -1851,7 +1912,7 @@ function M.predicateReturnIsAKeyword()
 end
 
 function M.docCommentsDeferToTextMateScopes()
-    local uri = "file://" .. ROOT .. "/doc-comment-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/doc-comment-demo.nupp"
     local source = table.concat(
         {
             "-- ordinary comment",
@@ -1896,7 +1957,7 @@ function M.docCommentsDeferToTextMateScopes()
 end
 
 function M.annotationTypeReferencesHaveDefinitions()
-    local uri = "file://" .. ROOT .. "/annotation-ref-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/annotation-ref-demo.nupp"
     local source = table.concat(
         {
             '@annotation(targets = {"record"})',
@@ -1937,7 +1998,7 @@ function M.annotationTypeReferencesHaveDefinitions()
 end
 
 function M.namedTerminalsHaveDefinitions()
-    local uri = "file://" .. ROOT .. "/own-ref-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/own-ref-demo.nupp"
     local source = table.concat(
         {
             "cdef function free(takes value: voidptr)",
@@ -2139,6 +2200,7 @@ function M.renamesAcrossFilesTheEditorHasNotOpened()
     os.remove(projectDir)
     assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
     local declaration = "global record Point\n   x: number\nend\n"
+
     local function writeFile(name, text)
         local file = assert(io.open(projectDir .. "/" .. name, "wb"))
         file:write(text)
@@ -3266,6 +3328,7 @@ end
 -- rechecked against it rather than against the text the server first saw.
 function M.watchedFileChangeRechecksOpenDependents()
     local rootDir = makeDir()
+
     local function writeModel(typeName)
         writeInto(
             rootDir,
@@ -3983,6 +4046,7 @@ return restored, why, codec, shown
 ]]
     writeFile(projectDir .. "/model.nupp", source)
     local uri = "file://" .. projectDir .. "/model.nupp"
+
     local function at(needle, advance)
         local position = positionOf(source, needle)
         position.character = position.character + (advance or 0)
@@ -4829,7 +4893,7 @@ end
 -- Full-document sync applies changes in order, so when one didChange carries
 -- several, the document is the last full text in the list.
 function M.aDidChangeBurstAppliesTheLastFullText()
-    local uri = "file:///tmp/burst.nupp"
+    local uri = "file://" .. scratchRoot() .. "/burst.nupp"
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
         {
