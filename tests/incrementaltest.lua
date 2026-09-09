@@ -202,6 +202,7 @@ function M.changingADeriveProviderReplansItsClaim()
     os.execute("mkdir -p '" .. dir .. "'")
     local modelPath = dir .. "/model.nupp"
     local mainPath = dir .. "/main.nupp"
+
     local function write(path, source)
         local file = assert(io.open(path, "wb"))
         file:write(source)
@@ -245,6 +246,7 @@ function M.countedPointerLogicalSignaturesCrossModuleSummaries()
     os.execute("mkdir -p '" .. dir .. "'")
     local depPath = dir .. "/native.nupp"
     local mainPath = dir .. "/main.nupp"
+
     local function write(path, source)
         local file = assert(io.open(path, "wb"))
         file:write(source)
@@ -303,6 +305,7 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
     os.execute("mkdir -p '" .. dir .. "'")
     local depPath = dir .. "/dep.nupp"
     local mainPath = dir .. "/main.nupp"
+
     local function write(path, source)
         local file = assert(io.open(path, "wb"))
         file:write(source)
@@ -363,6 +366,7 @@ function M.fieldDefaultChangesInvalidateModuleConsumers()
     os.execute("mkdir -p '" .. dir .. "'")
     local depPath = dir .. "/dep.nupp"
     local mainPath = dir .. "/main.nupp"
+
     local function write(path, source)
         local file = assert(io.open(path, "wb"))
         file:write(source)
@@ -424,6 +428,7 @@ function M.publicPackChangesInvalidateTypeDependents()
     os.execute("mkdir -p '" .. dir .. "'")
     local depPath = dir .. "/dep.nupp"
     local mainPath = dir .. "/main.nupp"
+
     local function write(path, source)
         local file = assert(io.open(path, "wb"))
         file:write(source)
@@ -492,6 +497,7 @@ function M.aSessionReadsAFileOnce()
     os.remove(dir)
     os.execute("mkdir -p '" .. dir .. "'")
     local path = dir .. "/m.nupp"
+
     local function write(text)
         local f = assert(io.open(path, "wb"))
         f:write(text)
@@ -521,6 +527,7 @@ function M.diskWatcherChangesInvalidateQueriesAndProjectFiles()
     os.execute("mkdir -p '" .. dir .. "'")
     local mainPath = dir .. "/main.nupp"
     local globalsPath = dir .. "/globals.nupp"
+
     local function write(path, text)
         local f = assert(io.open(path, "wb"))
         f:write(text)
@@ -550,6 +557,7 @@ function M.diskWatcherPreservesOpenOverlay()
     os.remove(dir)
     os.execute("mkdir -p '" .. dir .. "'")
     local path = dir .. "/main.nupp"
+
     local function write(text)
         local f = assert(io.open(path, "wb"))
         f:write(text)
@@ -625,6 +633,7 @@ function M.reflectionDependsOnlyOnTheExportedTypeItReads()
     local reflectedPath = dir .. "/reflected.nupp"
     local unrelatedPath = dir .. "/unrelated.nupp"
     local mainPath = dir .. "/main.nupp"
+
     local function write(path, source)
         local file = assert(io.open(path, "wb"))
         file:write(source)
@@ -791,6 +800,95 @@ function M.bundledModulesAreLoadedWhenSomethingAsksForThem()
     if not ok then
         error(err, 0)
     end
+end
+
+--- Staging a generated module, checking it and dropping it again is what catalog
+--- validation does once per service provider, and what an editor does with any
+--- scratch buffer. It changes the project's file set, which changes the project
+--- index -- but it changes nothing about any other module, so nothing else should
+--- be checked again. Counted rather than timed: before the index was read one
+--- module name at a time, every checked module depended on the whole index, and
+--- each of these rounds rechecked all of them.
+function M.stagingAGeneratedModuleRechecksNothingElse()
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute("mkdir -p '" .. dir .. "'")
+
+    local function write(path, text)
+        local f = assert(io.open(path, "wb"))
+        f:write(text)
+        f:close()
+    end
+
+    local depPath = dir .. "/dep.nupp"
+    local mainPath = dir .. "/main.nupp"
+    write(
+        depPath,
+        table.concat(
+            {"module dep", "", "export function scale(n: number): number", "    return n * 2", "end", "",},
+            "\n"
+        )
+    )
+    write(
+        mainPath,
+        table.concat(
+            {"module main", "", "local dep = require(\"dep\")", "", "export const doubled = dep.scale(21)", "",},
+            "\n"
+        )
+    )
+
+    local inc = incremental.new(dir)
+    assertEq(#inc.checkFile(mainPath).diags, 0, "cold check clean")
+    local settled = inc.q.stats.checkModule
+    assertEq(settled, 2, "main + dep checked cold")
+
+    local rounds = 4
+    for i = 1, rounds do
+        local staged = dir .. "/staged" .. i .. ".nupp"
+        inc.openGeneratedDocument(staged, "module staged" .. i .. "\n\nexport const value = " .. i .. "\n")
+        assertEq(#inc.checkFile(staged).diags, 0, "the staged module checks clean")
+        inc.closeDocument(staged)
+        assertEq(#inc.checkFile(mainPath).diags, 0, "and the project still checks clean")
+    end
+
+    assertEq(
+        inc.q.stats.checkModule,
+        settled + rounds,
+        "only the staged modules were checked; no project module was rechecked"
+    )
+
+    -- The narrowed answers still say what they always said. A second file
+    -- declaring `dep` is a registration conflict, and both files have to report it.
+    local rivalPath = dir .. "/rival.nupp"
+    inc.openDocument(rivalPath, "module dep\n\nexport const other = 1\n")
+    local rival = inc.checkFile(rivalPath)
+    assertEq(rival.diags[1] and rival.diags[1].code, "NUPP1002", "a duplicate module declaration is still reported")
+    inc.closeDocument(rivalPath)
+    assertEq(#inc.checkFile(depPath).diags, 0, "and stops being reported once the rival is gone")
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+--- Validating a memo brings each of its dependencies up to date, and a `require`
+--- cycle makes one of those lead back to the entry being validated. The re-entrant
+--- edge has to report what that entry last changed at rather than validating it
+--- again; without that, validation recurses until the stack runs out.
+function M.validationTerminatesOnADependencyCycle()
+    local q = query.new()
+    q:setInput("text", "a", 1)
+    q:setInput("text", "b", 1)
+    -- The cyclic edge is read before the input, so validating one entry reaches the
+    -- other before it reaches anything that could tell it it is stale.
+    q:define("checked", function(self, key)
+        self:get("checked", key == "a" and "b" or "a")
+
+        return self:get("text", key)
+    end)
+    assertEq(q:get("checked", "a"), 1)
+    assertEq(q:get("checked", "b"), 1)
+    q:setInput("text", "b", 2)
+    assertEq(q:get("checked", "a"), 1, "the cycle revalidates rather than recursing forever")
+    assertEq(q:get("checked", "b"), 2, "and the change on the far side of it is still seen")
 end
 
 return M
