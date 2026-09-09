@@ -602,6 +602,27 @@ function control.install(c: state.Checker): state.StatHandlers
             return
         end
         local annotatedPack = c.retPackStack[#c.retPackStack]
+        local constructor = c.constructorFieldStack[#c.constructorFieldStack]
+        if constructor then
+            local expr = stat.exprs and stat.exprs[1]
+            local valid = #(stat.exprs or {}) == 0
+            local token = expr and expr.kind == "name" and expr.token or nil
+            if expr and token and #stat.exprs == 1 and token.text == "self" then
+                c.infer(expr)
+                local body = c.functionBodies[#c.functionBodies]
+                local receiver = body and body.params and body.params[1] and body.params[1].name
+                valid = receiver ~= nil and token.definition == receiver.definition
+            end
+            if not valid then
+                c.diag("NUPP2208", stat, "a constructor returns the instance it builds", nil, {
+                    help = "use a bare return after initializing the required fields"
+                })
+            end
+            stat.constructorReturn = true
+            -- The construction site introduces the result policy. This body fills
+            -- the already allocated receiver and does not transfer a result slot.
+            annotatedPack = nil
+        end
         for index, returned in ipairs(stat.exprs or {}) do
             local expected = annotatedPack and T.packAt(annotatedPack, index) or nil
             local rawExpected = expected and rawType(expected) or nil
@@ -611,7 +632,7 @@ function control.install(c: state.Checker): state.StatHandlers
             end
         end
         local wasReturning = c.loops.setReturning(true)
-        local returnedPack = c.inferListPack(stat.exprs)
+        local returnedPack = constructor and T.pack({}) or c.inferListPack(stat.exprs)
         local ts = returnedPack.head
         c.loops.setReturning(wasReturning)
         local observed = c.observedReturnStack[#c.observedReturnStack]

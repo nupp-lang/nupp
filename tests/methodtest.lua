@@ -2157,4 +2157,130 @@ function M.aConstructorMustFillARecordTypedField()
     )
 end
 
+function M.constructorsInitializeFieldsOnEveryReturningPath()
+    local function source(body)
+        return "local record R\n    x: integer\n    constructor(self, flag: boolean)\n" .. body .. "\n    end\nend"
+    end
+
+    for _, body in ipairs({
+        "if flag then self.x = 1 end",
+        "if flag then return end; self.x = 1",
+        "if flag then self.x = 1; return end",
+        "while flag do self.x = 1 end",
+        "for i = 1, (flag and 0 or 2) do self.x = i end",
+        "repeat if flag then break end; self.x = 1 until true",
+        "repeat if flag then continue end; self.x = 1 until true",
+        "local function later() self.x = 1 end",
+        "local self: any = {}; self.x = 1",
+        "self = {} as any; self.x = 1",
+        "goto done; self.x = 1; ::done::",
+        "if flag then return end; while true do end",
+    }) do
+        assertEq(diagsOf(source(body)), "NUPP2208:3", body)
+    end
+    for _, body in ipairs({
+        "if flag then self.x = 1 else self.x = 2 end",
+        "if flag then self.x = 1; return end; self.x = 2",
+        "if flag then error('stop') end; self.x = 1",
+        "if flag then error('stop') else self.x = 1 end",
+        "repeat self.x = 1 until flag",
+        "repeat self.x = 1; if flag then break end until flag",
+        "while true do self.x = 1; break end",
+        "while true do end",
+        "error('stop')",
+        "do self.x = 1 end",
+        "goto fill; ::fill:: self.x = 1",
+        "if flag then self.x = 1 elseif not flag then self.x = 2 else error('stop') end",
+    }) do
+        assertClean(source(body))
+    end
+end
+
+function M.constructorDefaultsAndOptionalFieldsNeedNoFlowAssignment()
+    assertClean(
+        [[
+local record R
+    x: integer = 1
+    y: string?
+    constructor(self, flag: boolean)
+        if flag then return end
+    end
+end
+]]
+    )
+end
+
+function M.earlyConstructorReturnsProduceTheInitializedInstance()
+    assertEq(
+        run(
+            [[
+local record R
+    x: integer
+    constructor(self, early: boolean)
+        self.x = 1
+        if early then return end
+        self.x = 2
+        return self
+    end
+end
+return (new R(true)).x + (new R(false)).x
+]]
+        ),
+        3
+    )
+    assertEq(
+        run(
+            [[
+local record R
+    x: integer = 3
+    constructor(self)
+        local self: any = {}
+        return
+    end
+end
+return (new R()).x
+]]
+        ),
+        3
+    )
+end
+
+function M.earlyConstructorReturnsRunTheirCleanups()
+    assertEq(
+        run(
+            [[
+local closed = 0
+local record Guard
+    constructor(self): affine(Guard, Guard.destroy) end
+    function destroy(takes self): nil
+        closed = closed + 1
+    end
+end
+local record R
+    x: integer
+    constructor(self, early: boolean): R
+        with guard = new Guard() do
+            self.x = 1
+            if early then return end
+        end
+    end
+end
+local r = new R(true)
+return r.x + closed
+]]
+        ),
+        2
+    )
+end
+
+function M.constructorsCannotReturnAnotherValue()
+    assertEq(diagsOf([[
+local record R
+    constructor(self)
+        return 1
+    end
+end
+]]), "NUPP2208:3")
+end
+
 return M

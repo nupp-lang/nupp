@@ -989,7 +989,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.varargPackStack[#c.varargPackStack + 1] = vararg and T.pack({}, paramPack.tail) or false
         c.yieldPackStack[#c.yieldPackStack + 1] = yieldPack or false
         c.resumePackStack[#c.resumePackStack + 1] = resumePack or false
-        local protocolContext = {yieldPacks = {}}
+        local protocolContext = {yieldPacks = {}, resumePacks = {}}
         c.protocolStack[#c.protocolStack + 1] = protocolContext
         c.ownReturnStack[#c.ownReturnStack + 1] = ownsAResult and ownedReturns or false
         local declaredBorrow, declaredBorrowResult = nil, nil
@@ -1222,7 +1222,62 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         if not yieldPack and #protocolContext.yieldPacks > 0 then
             yieldPack = T.packUnion(protocolContext.yieldPacks)
+        end
+        if not resumePack and yieldPack then
             resumePack = T.pack({}, {kind = "unknown", type = T.any})
+            -- Resumption is an input: it must satisfy every suspended callee,
+            -- whereas yielded outputs are the union of what any callee produces.
+            for _, required in ipairs(protocolContext.resumePacks) do
+                local alternatives = {}
+                for _, left in ipairs(resumePack.alternatives or {resumePack}) do
+                    for _, right in ipairs(required.alternatives or {required}) do
+                        local symbolic = left.tail
+                            and left.tail.kind ~= "unknown"
+                            and left.tail.kind ~= "homogeneous"
+                            or right.tail
+                            and right.tail.kind ~= "unknown"
+                            and right.tail.kind ~= "homogeneous"
+                        local leftOpen = #left.head == 0 and left.tail and left.tail.kind == "unknown"
+                        local rightOpen = #right.head == 0 and right.tail and right.tail.kind == "unknown"
+                        local sameGeneric = left.tail
+                            and right.tail
+                            and left.tail.kind == "generic"
+                            and right.tail.kind == "generic"
+                            and left.tail.var == right.tail.var
+                            and #left.head == #right.head
+                        -- Independent symbolic tails cannot be represented by a
+                        -- single pack. Keep only combinations whose tail is known
+                        -- to meet both contracts; concrete slots meet by type
+                        -- intersection without needing to distribute their unions.
+                        if not symbolic or left.id == right.id or leftOpen or rightOpen or sameGeneric then
+                            local head = {}
+                            for j = 1, math.max(#left.head, #right.head) do
+                                head[j] = T.intersection({T.packAt(left, j) or T.any, T.packAt(right, j) or T.any})
+                            end
+                            local tail = left.tail or right.tail
+                            if left.tail
+                                and right.tail
+                                and left.tail.kind == "homogeneous"
+                                and right.tail.kind == "homogeneous"
+                            then
+                                tail = {kind = "homogeneous", type = T.intersection({left.tail.type, right.tail.type})}
+                            elseif right.tail and (not left.tail or left.tail.kind == "unknown") then
+                                tail = right.tail
+                            elseif left.tail and left.tail.kind == "unknown" then
+                                tail = right.tail
+                            end
+                            alternatives[#alternatives + 1] = T.pack(head, tail)
+                        end
+                    end
+                end
+                if #alternatives == 0 then
+                    c.diag("NUPP2010", body, "cannot infer resume values accepted by every callee", nil, {
+                        help = "give the callees a common resume pack and declare it on the wrapper"
+                    })
+                    break
+                end
+                resumePack = T.packUnion(alternatives)
+            end
         end
         -- A body that only ever raises never comes back, whether or not its return type
         -- says so; inferring it is what lets a guard clause written as a helper narrow

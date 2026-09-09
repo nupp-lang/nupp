@@ -154,7 +154,13 @@ A required record field without a default must be supplied at construction
 (`NUPP2208`). A field whose type admits `nil` may be omitted. To build a record
 in stages, declare fields that are initially absent as optional, or use a
 constructor that fills every required field before returning. Required affine
-fields follow the same rule.
+fields follow the same rule. Every path that returns an instance must initialize
+each required field, including early returns. Assigning on only one branch or in
+a loop that may not run is insufficient. A deferred function's assignments do
+not initialize its enclosing constructor. Paths that raise or never return do
+not produce an instance and need no completed fields. A bare `return` or
+`return self` returns the allocated instance and runs any enclosing cleanup;
+a constructor cannot return a replacement value.
 
 A constructor begins with the same defaults already installed, then its body
 runs. The body can read, refine, or replace them, and a defaulted required field

@@ -1107,6 +1107,9 @@ record cst.ReturnStmt is cst.Hints
 
     --- The returned expressions, empty for a bare return.
     exprs: {cst.Node}
+
+    --- A constructor returns its allocated instance, including on an early exit.
+    constructorReturn: boolean?
 end
 
 --- `yield value` inside a block switch arm. This is distinct from

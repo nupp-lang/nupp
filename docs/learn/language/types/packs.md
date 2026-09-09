@@ -247,6 +247,17 @@ local function worker(start: number): string yields(number, string) resumes(bool
 end
 ```
 
+Ordinary calls carry the callee's known protocol through the caller. An
+unannotated wrapper infers the union of its callees' yielded packs; its resume
+inputs must satisfy every suspended callee. Explicit `yields` and `resumes`
+annotations check these calls as well as direct `coroutine.yield` expressions.
+Calls through a protocol-erased function type cannot recover those packs; declare
+the protocol on callback contracts and forward signatures that need to carry it.
+Independent generic resume packs need a common declared contract; inference
+reports incompatible requirements instead of dropping one.
+Creating or resuming a separate coroutine does not yield its values from the
+current coroutine.
+
 The handle carries four packs, in the order start arguments, resume arguments,
 yielded values, and final returns:
 

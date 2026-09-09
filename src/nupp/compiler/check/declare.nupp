@@ -1128,36 +1128,174 @@ function declare.install(
     -- Constructors
     ---------------------------------------------------------------------
 
-    --- Every field the body assigns through `self`, anywhere inside it.
-    ---
-    --- Anywhere is deliberate. A field set in one arm of an `if` and not the other
-    --- counts as assigned, which under-reports rather than refusing a constructor that
-    --- is in fact correct, the same direction the unassigned binding check takes, and
-    --- for the same reason.
-    local function assignedFields(node: any, out: any): any
-        out = out or {}
-        if not node or cst.isToken(node) then
-            return out
+    --- Fields initialized on every path that returns an instance. The small graph
+    --- keeps normal exits separate from raises and nonterminating paths, and joins
+    --- by intersection. Nested functions are declarations, not constructor steps.
+    local function assignedFields(body: any): any, boolean
+        local nodes, labels, jumps = {}, {}, {}
+        local receiver = body.params and body.params[1] and body.params[1].name
+        local function point(successors: any, field: any): any
+            local node = {successors = successors or {}, field = field}
+            nodes[#nodes + 1] = node
+            return node
         end
-        if node.kind == "assignStmt" then
-            for _, target in ipairs(node.targets or {}) do
-                local base = target.obj
-                if target.kind == "dotIndex"
-                    and base
-                    and base.kind == "name"
-                    and base.token
-                    and base.token.text == "self"
-                    and target.name
-                then
-                    out[target.name.text] = true
+
+        local finish = point({}, nil)
+        local buildBlock, buildStatement
+        buildBlock = function(block, nextNode, breakNode, continueNode)
+            local entry = nextNode
+            local stats = block and block.stats or {}
+            for j = #stats, 1, -1 do
+                entry = buildStatement(stats[j], entry, breakNode, continueNode)
+            end
+
+            return entry
+        end
+        buildStatement = function(stat, nextNode, breakNode, continueNode)
+            local kind = stat.kind
+            if kind == "returnStmt" then
+                return finish
+            elseif kind == "breakStmt" then
+                return breakNode or finish
+            elseif kind == "continueStmt" then
+                return continueNode or finish
+            elseif kind == "gotoStmt" then
+                local jump = point({}, nil)
+                jumps[#jumps + 1] = {node = jump, key = stat.name.definition or stat.name.text}
+                return jump
+            elseif kind == "labelStmt" then
+                local label = point({nextNode}, nil)
+                labels[stat.name.definition or stat.name.text] = label
+                return label
+            elseif kind == "pragmaStmt" then
+                return buildStatement(stat.stat, nextNode, breakNode, continueNode)
+            elseif kind == "ifStmt" then
+                local otherwise = stat.elseClause and buildBlock(
+                    stat.elseClause.body,
+                    nextNode,
+                    breakNode,
+                    continueNode
+                ) or stat.exhaustiveDispatch and point({}, nil) or nextNode
+                for j = #stat.clauses, 1, -1 do
+                    local clause = stat.clauses[j]
+                    local arm = buildBlock(clause.body, nextNode, breakNode, continueNode)
+                    local cond = clause.cond
+                    if cond and cond.kind == "trueExpr" then
+                        otherwise = arm
+                    elseif not (cond and cond.kind == "falseExpr") then
+                        otherwise = point({arm, otherwise}, nil)
+                    end
+                end
+                return otherwise
+            elseif kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" then
+                local condition = point({}, nil)
+                local loop = buildBlock(stat.body, condition, nextNode, condition)
+                local cond = stat.cond
+                if not (cond and cond.kind == "falseExpr") then
+                    condition.successors[#condition.successors + 1] = loop
+                end
+                if not (cond and cond.kind == "trueExpr") then
+                    condition.successors[#condition.successors + 1] = nextNode
+                end
+                return condition
+            elseif kind == "repeatStmt" then
+                local condition = point({}, nil)
+                local loop = buildBlock(stat.body, condition, nextNode, condition)
+                local cond = stat.cond
+                if not (cond and cond.kind == "falseExpr") then
+                    condition.successors[#condition.successors + 1] = nextNode
+                end
+                if not (cond and cond.kind == "trueExpr") then
+                    condition.successors[#condition.successors + 1] = loop
+                end
+                return loop
+            elseif kind == "doStmt"
+                or kind == "unsafeStmt"
+                or kind == "noSuspendStmt"
+                or kind == "effectRegionStmt"
+                or kind == "withStmt"
+                or kind == "handleStmt"
+            then
+                return buildBlock(stat.body, nextNode, breakNode, continueNode)
+            elseif kind == "callStmt" and c.alwaysRaises({kind = "block", stats = {stat}} as any) then
+                return point({}, nil)
+            elseif kind == "assignStmt" then
+                local entry = nextNode
+                for _, target in ipairs(stat.targets or {}) do
+                    if target.kind == "name"
+                        and target.token
+                        and receiver
+                        and target.token.definition == receiver.definition
+                    then
+                        local reassignment = point({entry}, nil)
+                        reassignment.rebindsReceiver = true
+                        entry = reassignment
+                    end
+                    local base = target.obj
+                    if base
+                        and base.kind == "name"
+                        and base.token
+                        and base.token.text == "self"
+                        and receiver
+                        and base.token.definition == receiver.definition
+                    then
+                        local field = target.kind == "dotIndex" and target.name and target.name.text or nil
+                        if field then
+                            entry = point({entry}, field)
+                        end
+                    end
+                end
+                return entry
+            end
+
+            return nextNode
+        end
+        local entry = buildBlock(body.body, finish, nil, nil)
+        for _, jump in ipairs(jumps) do
+            jump.node.successors = {labels[jump.key] or finish}
+        end
+        entry.assigned = {}
+        if receiver then
+            entry.assigned[receiver] = true
+        end
+        local pending = {entry}
+        local index: integer = 1
+        while index <= #pending do
+            local node = pending[index]
+            index = index + 1
+            local out = {}
+            for field in pairs(node.assigned) do
+                out[field] = true
+            end
+            if node.rebindsReceiver then
+                out[receiver] = nil
+            end
+            if node.field and receiver and out[receiver] then
+                out[node.field] = true
+            end
+            for _, successor in ipairs(node.successors) do
+                local changed = false
+                if not successor.assigned then
+                    successor.assigned = {}
+                    for field in pairs(out) do
+                        successor.assigned[field] = true
+                    end
+                    changed = true
+                else
+                    for field in pairs(successor.assigned) do
+                        if not out[field] then
+                            successor.assigned[field] = nil
+                            changed = true
+                        end
+                    end
+                end
+                if changed then
+                    pending[#pending + 1] = successor
                 end
             end
         end
-        for _, child in ipairs(node) do
-            assignedFields(child, out)
-        end
 
-        return out
+        return finish.assigned or {}, finish.assigned ~= nil
     end
 
     --- Whether a constructor body lets `self` out, or moves an owned parameter in.
@@ -1334,7 +1472,7 @@ function declare.install(
 
         -- Every declared field that cannot hold nil has to be filled, or the value the
         -- constructor hands back does not match its own declaration.
-        local assigned = assignedFields(e.body)
+        local assigned, returnsInstance = assignedFields(e.body)
         -- Everything the declaration has, not only what it wrote: a field it takes from
         -- an interface is as much a part of the value it hands back as one declared
         -- here, and leaving that one out is the same nil.
@@ -1363,7 +1501,7 @@ function declare.install(
             local method = n.overloadedMethods and n.overloadedMethods[
                 name
             ] or ft2 and ft2.tag == "func" and relations.hasReceiver(ft2, n)
-            if ft2 and not method and ft2.tag ~= "typeobject" and not nested[
+            if returnsInstance and ft2 and not method and ft2.tag ~= "typeobject" and not nested[
                 name
             ] and not assigned[
                 name
@@ -1373,7 +1511,7 @@ function declare.install(
                 missing[#missing + 1] = name
             end
         end
-        if #missing > 0 then
+        if #missing > 0 and receiver and receiver.name and receiver.name.text == "self" then
             c.diag(
                 "NUPP2208",
                 e,

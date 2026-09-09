@@ -35,6 +35,38 @@ local runtimeSurface = require("nupp.compiler.runtimesurface")
 
 local isA = relations.isA
 local packIsA = relations.packIsA
+
+-- Protocol outputs preserve arity, unlike ordinary Lua returns which a caller
+-- may truncate. Check each alternative without losing correlations between slots.
+local function protocolPackFits(have: T.Pack, want: T.Pack): boolean, string?
+    if have.alternatives then
+        for _, arm in ipairs(have.alternatives) do
+            local ok, why = protocolPackFits(arm, want)
+            if not ok then
+                return false, why
+            end
+        end
+        return true, nil
+    end
+    if want.alternatives then
+        for _, arm in ipairs(want.alternatives) do
+            if protocolPackFits(have, arm) then
+                return true, nil
+            end
+        end
+        return false, "coroutine pack fits no declared alternative"
+    end
+    local ok, why = packIsA(have, want)
+    if not ok then
+        return false, why
+    end
+    if not want.tail and (have.tail or #have.head ~= #want.head) then
+        return false, ("coroutine pack has %d values, expected %d"):format(#have.head, #want.head)
+    end
+
+    return true, nil
+end
+
 local rawType = T.unwrapOwnership
 local dropSelf = generics.dropSelf
 local specializeSelf = generics.specializeSelf
@@ -325,6 +357,44 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     local inferFfiIntrinsic = ffiMod.install(c)
 
     local handlers = {}
+
+    local function forwardProtocol(node: any)
+        -- A call runs on its caller's coroutine. Its yielded values leave through
+        -- the caller, and every value the caller promises to accept on resumption
+        -- must be accepted by the suspended callee as well.
+        local protocol = c.protocolStack[#c.protocolStack]
+        local signature = node.signatureType
+        if protocol and signature and signature.tag == "func" and signature.yieldPack then
+            local expected = c.yieldPackStack[#c.yieldPackStack]
+            local resumed = c.resumePackStack[#c.resumePackStack]
+            if expected then
+                local ok, why = protocolPackFits(signature.yieldPack, expected)
+                if not ok then
+                    c.diag(
+                        "NUPP2010",
+                        node,
+                        "callee yields values outside the caller's protocol: " .. (why or "incompatible packs")
+                    )
+                end
+            else
+                protocol.yieldPacks[#protocol.yieldPacks + 1] = signature.yieldPack
+            end
+            if signature.resumePack then
+                if resumed then
+                    local ok, why = packIsA(resumed, signature.resumePack)
+                    if not ok then
+                        c.diag(
+                            "NUPP2010",
+                            node,
+                            "callee cannot accept the caller's resume values: " .. (why or "incompatible packs")
+                        )
+                    end
+                else
+                    protocol.resumePacks[#protocol.resumePacks + 1] = signature.resumePack
+                end
+            end
+        end
+    end
 
     local lpegEmpty = T.array(T.never)
     local lpegUnknown = T.array(T.any)
@@ -1427,6 +1497,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             c.checkMetatableLiteral(argExprs[2], nil, T.metatable(T.any))
         end
         local first, rets, pack = c.inferCall(node, calleeT, node.args, knownAts)
+        forwardProtocol(node)
         local globalsForAssert = c.env and c.env.globals
         local stableAssert = calleeName == "assert" and globalsForAssert and c.lookupEntry(
             "assert"
@@ -1579,8 +1650,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local tableEntry = baseName ~= "" and c.env and c.env.globals and c.env.globals[baseName] or nil
         local baseEntry = baseName ~= "" and c.lookupEntry(baseName) or nil
         local stableMember = tableEntry and baseEntry and tableEntry.definition == baseEntry.definition
-        if stableMember and baseName == "coroutine" then
-            node.coroutineIntrinsic = memberName
+        if stableMember and baseName == "coroutine" or isCoroutine then
+            local intrinsic = isCoroutine and "yield" or memberName
+            node.coroutineIntrinsic = intrinsic
             local actual = node.argumentPack or T.pack({})
             local function unknownPack()
                 return T.pack({}, {kind = "unknown", type = T.any})
@@ -1606,7 +1678,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
 
-            if memberName == "create" then
+            if intrinsic == "create" then
                 local bodyType = T.packAt(actual, 1)
                 if bodyType and bodyType.tag == "func" then
                     first = T.protocolThread(
@@ -1617,7 +1689,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     )
                     pack, rets = T.pack({first}), {first}
                 end
-            elseif memberName == "resume" then
+            elseif intrinsic == "resume" then
                 local threadType = T.packAt(actual, 1)
                 if threadType and threadType.tag == "protocolThread" then
                     local threadArg = argExprs[1]
@@ -1686,7 +1758,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     })
                     first, rets = T.packAt(pack, 1) or T.boolean, pack.head
                 end
-            elseif memberName == "yield" then
+            elseif intrinsic == "yield" then
                 local expected = c.yieldPackStack[#c.yieldPackStack]
                 local resumed = c.resumePackStack[#c.resumePackStack]
                 if expected then
@@ -1700,7 +1772,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     pack, rets = resumed, resumed.head
                     first = T.packAt(resumed, 1) or T.nil_
                 end
-            elseif memberName == "status" then
+            elseif intrinsic == "status" then
                 local threadArg = argExprs[1]
                 local threadEntry = threadArg and threadArg.kind == "name" and threadArg.token and c.lookupEntry(
                     threadArg.token.text
@@ -1726,7 +1798,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
                 first = T.union(statuses)
                 pack, rets = T.pack({first}), {first}
-            elseif memberName == "wrap" then
+            elseif intrinsic == "wrap" then
                 local bodyType = T.packAt(actual, 1)
                 if bodyType and bodyType.tag == "func" then
                     local wrappedReturns = T.packUnion({bodyType.yieldPack or unknownPack(), bodyType.retPack})
@@ -1934,6 +2006,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 {help = ("call it with `%s.%s(...)`"):format(owner.name, member.text)}
             )
             local first, rets, pack = c.inferCall(node, static, node.args)
+            forwardProtocol(node)
             c.nosuspend.call(node)
             c.lastCallRets = rets
             node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
@@ -2050,6 +2123,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 rotatedNode.trailingCallableMember = member.text
             end
             local first, rets, pack = c.inferCall(node, callable and dropSelf(methodType) or methodType, callArgs)
+            forwardProtocol(node)
             if rotated and originalExprs then
                 (callArgs as cst.Args).exprs = originalExprs
             end

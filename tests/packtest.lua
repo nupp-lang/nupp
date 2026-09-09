@@ -750,4 +750,220 @@ function M.typedVarargModesParticipateInFunctionCompatibility()
     )
 end
 
+function M.coroutineProtocolsPropagateThroughNestedCalls()
+    local declaration = [[
+local function leaf(): nil yields(number) resumes(boolean)
+    local again: boolean = coroutine.yield(1)
+end
+local alias = leaf
+local function middle(): nil
+    alias()
+end
+local function outer(): nil
+    middle()
+end
+]]
+    clean(
+        declaration
+        .. [[
+local co: thread<(), (boolean), (number), (nil)> = coroutine.create(outer)
+coroutine.resume(co)
+coroutine.resume(co, true)
+]]
+    )
+    assertEq(
+        codes(declaration .. [[
+local co = coroutine.create(outer)
+coroutine.resume(co)
+coroutine.resume(co, 1)
+]]),
+        "NUPP2010"
+    )
+    assertEq(
+        codes(declaration .. [[
+local function wrong(): nil yields(string) resumes(boolean)
+    outer()
+end
+]]),
+        "NUPP2010"
+    )
+    assertEq(
+        codes(declaration .. [[
+local function wrong(): nil yields(number) resumes(string)
+    outer()
+end
+]]),
+        "NUPP2010"
+    )
+end
+
+function M.coroutineResumeInferenceSatisfiesEveryCallee()
+    local declaration = [[
+local function a(): nil yields(number) resumes(boolean | string)
+    coroutine.yield(1)
+end
+local function b(): nil yields(string) resumes(boolean | number)
+    coroutine.yield('x')
+end
+local function both(): nil
+    a()
+    b()
+end
+local co = coroutine.create(both)
+coroutine.resume(co)
+]]
+    clean(declaration .. "coroutine.resume(co, true)")
+    assertEq(codes(declaration .. "coroutine.resume(co, 'x')"), "NUPP2010")
+    assertEq(codes(declaration .. "coroutine.resume(co, 1)"), "NUPP2010")
+end
+
+function M.coroutineProtocolsFollowGenericAndCallbackCalls()
+    clean(
+        [[
+local function leaf<T>(value: T): nil yields(T) resumes(boolean)
+    coroutine.yield(value)
+end
+local function worker(): nil yields(number) resumes(boolean)
+    leaf(1)
+end
+local function via(callback: function(): nil yields(number) resumes(boolean)): nil
+    callback()
+end
+local function outer(): nil
+    via(worker)
+end
+local co: thread<(), (boolean), (number), (nil)> = coroutine.create(outer)
+]]
+    )
+end
+
+function M.resumingAnotherCoroutineDoesNotForwardItsProtocol()
+    clean(
+        [[
+local function leaf(): nil yields(number) resumes(boolean)
+    coroutine.yield(1)
+end
+local function driver(): nil yields(string) resumes(number)
+    local co = coroutine.create(leaf)
+    coroutine.resume(co)
+    coroutine.yield('ready')
+end
+]]
+    )
+end
+
+function M.forwardedYieldPacksKeepArityAndCorrelation()
+    assertEq(
+        codes(
+            [[
+local function leaf(): nil yields(number, string) resumes(boolean)
+    coroutine.yield(1, 'x')
+end
+local function wrong(): nil yields(number) resumes(boolean)
+    leaf()
+end
+]]
+        ),
+        "NUPP2010"
+    )
+    clean(
+        [[
+local function a(): nil yields(number, string) resumes(boolean)
+    coroutine.yield(1, 'x')
+end
+local function b(): nil yields(string, number) resumes(boolean)
+    coroutine.yield('x', 1)
+end
+local function worker(flag: boolean): nil yields((number, string) | (string, number)) resumes(boolean)
+    if flag then a() else b() end
+end
+]]
+    )
+end
+
+function M.methodsForwardTheirDeclaredCoroutineProtocols()
+    clean(
+        [[
+local record R
+    function outer(self): nil
+        self:leaf()
+    end
+    function leaf(self): nil yields(number) resumes(boolean)
+        coroutine.yield(1)
+    end
+end
+local r = new R()
+local function worker(): nil
+    r:outer()
+end
+local co: thread<(), (boolean), (number), (nil)> = coroutine.create(worker)
+]]
+    )
+end
+
+function M.yieldAliasesCheckAndForwardTheirValuePacks()
+    assertEq(
+        codes(
+            [[
+local pause = coroutine.yield
+local function leaf(): nil yields(number) resumes(boolean)
+    local again: boolean = pause('wrong')
+end
+]]
+        ),
+        "NUPP2010"
+    )
+    clean(
+        [[
+local coLibrary = coroutine
+local pause = coLibrary.yield
+local function leaf(): nil yields(number) resumes(boolean)
+    local again: boolean = pause(1)
+end
+local function worker(): nil
+    leaf()
+end
+local co: thread<(), (boolean), (number), (nil)> = coroutine.create(worker)
+]]
+    )
+end
+
+function M.inferredResumePacksCannotDropIndependentGenericRequirements()
+    assertEq(
+        codes(
+            [[
+local function forward<A..., B...>(left: function(): nil yields(number) resumes(A...), right: function(): nil yields(number) resumes(B...)): nil
+    left()
+    right()
+end
+]]
+        ),
+        "NUPP2010"
+    )
+    clean(
+        [[
+local function forward<A...>(left: function(): nil yields(number) resumes(A...), right: function(): nil yields(number) resumes(A...)): nil
+    left()
+    right()
+end
+]]
+    )
+end
+
+function M.unsafeYieldAliasesKeepTheirValueProtocol()
+    assertEq(
+        codes(
+            [[
+local pause = coroutine.yield
+local function leaf(): nil yields(number) resumes(boolean)
+    unsafe do
+        pause('wrong')
+    end
+end
+]]
+        ),
+        "NUPP2010"
+    )
+end
+
 return M

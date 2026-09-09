@@ -863,6 +863,7 @@ function gen.generate(
         portableLoops = {},
         captureFrames = {},
         captureFrameStack = {},
+        constructorReturnName = nil as string?,
     }
     local coverageOn = coverage == true or type(coverage) == "table"
     local coveragePath = coverageOn and (
@@ -4016,6 +4017,13 @@ function gen.generate(
     ---------------------------------------------------------------------
 
     local function emitPackedReturn(ctx, x)
+        if x.constructorReturn then
+            e(
+                ("do return \"return\",%s(%s) end"):format(cleanupPackName, emitDepth.constructorReturnName),
+                sourceLine(x)
+            )
+            return
+        end
         local actives, seen = {}, {}
         for _, expr in ipairs(x.exprs or {}) do
             local move = ownershipMoveOf(expr)
@@ -6600,6 +6608,10 @@ function gen.generate(
             if body.varargParam then
                 e(("const %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
             end
+            local priorConstructorReturnName = emitDepth.constructorReturnName
+            local instanceName = nextTemp()
+            emitDepth.constructorReturnName = instanceName
+            e((" local %s=self;"):format(instanceName))
             emitDepth.fn = emitDepth.fn + 1
             emitDepth.beginActivation()
             if body.body then
@@ -6607,6 +6619,7 @@ function gen.generate(
             end
             emitDepth.endActivation()
             emitDepth.fn = emitDepth.fn - 1
+            emitDepth.constructorReturnName = priorConstructorReturnName
             local endTok = pluck.endToken(body)
             if split then
                 local allocation = x.structAllocator and (
@@ -6614,8 +6627,9 @@ function gen.generate(
                 ) or ("setmetatable({}, " .. owner .. ")")
                 e(
                     (
-                        "return self end function %s.%s(%s) return %s.%s(%s%s) end"
+                        "return %s end function %s.%s(%s) return %s.%s(%s%s) end"
                     ):format(
+                        instanceName,
                         owner,
                         constructorMember(x.constructorIndex),
                         table.concat(names, ", "),
@@ -6627,7 +6641,7 @@ function gen.generate(
                     endTok and endTok.line or nil
                 )
             else
-                e("return self end", endTok and endTok.line or nil)
+                e("return " .. instanceName .. " end", endTok and endTok.line or nil)
             end
             return
 
@@ -7397,6 +7411,9 @@ function gen.generate(
 
         elseif kind == "returnStmt" and pluck.currentRegion() then
             emitPackedReturn(pluck.currentRegion(), x)
+
+        elseif kind == "returnStmt" and x.constructorReturn then
+            e("do return " .. assert(emitDepth.constructorReturnName) .. " end", sourceLine(x))
 
         elseif (
             kind == "breakStmt" or kind == "continueStmt"
