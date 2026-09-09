@@ -43,7 +43,10 @@ the annotations and what they annotate.
 
 The safety invariant is that the output must re-lex to the identical token
 sequence, in kind and in text, as the input; if it does not, `format` returns the
-input untouched along with a diagnostic. Three rewrites are exempted, each proven
+input untouched along with a diagnostic. Import binding first replaces only
+checker-resolved module and type paths, then reparses the edited source. The
+layout invariant applies to that canonical import spelling. Three further
+rewrites are exempted, each proven
 safe rather than merely whitespace: annotation shorthand drops a redundant
 `member =` once the checker has shown the two spellings equivalent; a trailing
 separator in a type shape is unnecessary; and method parenthesization inserts
@@ -62,7 +65,11 @@ local cst = require("nupp.compiler.cst")
 local displayWidth = require("nupp.compiler.fmt.displaywidth").displayWidth
 local docSyntax = require("nupp.compiler.doc.syntax")
 
+local imports = require("nupp.compiler.fmt.imports")
+
 local fmt = {}
+
+fmt.importsKey = imports.key
 
 local INDENT = "    "
 local WIDTH: integer = 120
@@ -1635,9 +1642,14 @@ local function parenthesizeMethodCalls(result, opts)
 end
 
 --- What the formatter was asked for. The two annotation entries are how a caller lends
---- the formatter a project: it has to know an annotation's declared members before it
---- can label a single value, and it resolves nothing itself.
+--- the formatter its annotation schemas. The environment supplies module and
+--- type resolution for canonical imports.
 type fmt.Options = {
+    --- Project resolution for module and type imports.
+    readonly environment: any?,
+
+    --- False for isolated syntax fragments that have no file to import into.
+    readonly bindImports: boolean?,
     readonly annotations: any?,
     readonly resolveAnnotation: (function(name: string): any)?,
     readonly methodParens: boolean?,
@@ -1650,6 +1662,7 @@ type fmt.Options = {
 --- Options resolved once, so a caller formatting many files does that resolution once
 --- rather than per file. `fmt.new` builds one; `:format` runs it over a file.
 record fmt.Formatter
+    imports: any
     width: integer
     methodParens: boolean?
     annotations: any?
@@ -1660,6 +1673,7 @@ end
 --- columns and parenthesized method calls.
 function fmt.new(opts: fmt.Options?): fmt.Formatter
     return new fmt.Formatter(
+        imports = imports.new(opts and opts.environment, opts and opts.bindImports),
         width = (opts and opts.width) or WIDTH,
         methodParens = opts and opts.methodParens,
         annotations = opts and opts.annotations,
@@ -1676,6 +1690,13 @@ function fmt.Formatter:format(source: string, filename: string?): string, {any}
     end
     if result.root.formatDisabled then
         return source, {}
+    end
+    local rewritten = self.imports.rewrite(source, filename, result)
+    if rewritten ~= source then
+        result = parser.parse(rewritten, filename)
+        if #result.errors > 0 then
+            return source, result.errors
+        end
     end
     canonicalizeSingleValueAnnotations(result, self)
     parenthesizeMethodCalls(result, self)

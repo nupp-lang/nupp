@@ -7,6 +7,7 @@ Every question this asks is answered by the parse alone: what a declaration is
 called, what it is spelled like, which `---` run belongs to it. That is why
 documentation never invokes the checker.
 ]]
+const {type LexError} = require("nupp.compiler.lexer")
 
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
@@ -381,7 +382,7 @@ local function structureSignature(node, includePrivate)
 
     walk(node)
     local source = trim(table.concat(parts))
-    local formatted, errors = formatter.format(source, "documentation-signature.nupp")
+    local formatted, errors = formatter.format(source, "documentation-signature.nupp", {bindImports = false})
     if #errors > 0 then
         return withoutHiddenTerminals(source)
     end
@@ -1400,7 +1401,7 @@ function extract.extract(
     path: string?,
     name: string,
     opts: extract.Options?
-): extract.Module?, {nupp.compiler.lexer.LexError}, {extract.Module}?
+): extract.Module?, {LexError}, {extract.Module}?
     opts = opts or {} as extract.Options
     local parsed = parser.parse(source, path)
     if #parsed.errors > 0 then

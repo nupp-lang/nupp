@@ -3605,6 +3605,39 @@ end
 
 -- Format-on-save uses the same formatter as `nupp fmt`, so a manifest that
 -- turns method-call parenthesization off reaches the editor too.
+function M.rangeFormattingKeepsQualifiedReferencesBound()
+    local projectDir = makeDir()
+    local uri = "file://" .. projectDir .. "/imports.nupp"
+    local source = '-- imports stay outside the selection\n\nreturn nupp.io.files.read(  "a"  )\n'
+    local out = runSession(
+        {
+            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
+            },
+            {
+                jsonrpc = "2.0",
+                id = 10,
+                method = "textDocument/rangeFormatting",
+                params = {
+                    textDocument = {uri = uri},
+                    options = {},
+                    range = {start = {line = 2, character = 0}, ["end"] = {line = 2, character = 40}}
+                }
+            },
+            {jsonrpc = "2.0", id = 2, method = "shutdown"},
+            {jsonrpc = "2.0", method = "exit"},
+        },
+        projectDir
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+    local edits = responseWithId(out, 10).result
+    assert(#edits == 1, "range receives its layout edit")
+    assert(edits[1].newText == 'return nupp.io.files.read("a")\n', "reference keeps its module path")
+end
+
 function M.formattingHonorsAManifestThatTurnsMethodParensOff()
     local projectDir = makeDir()
     writeInto(projectDir, "nupp.lua", 'return { fmt = { methodParens = false } }\n')

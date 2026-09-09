@@ -76,6 +76,12 @@ the list; the exit status is 1 if it is not empty.]],
     detail = [[--json always reports the list, whichever form was asked for, and separates a
 file that could not be formatted from one that merely is not.
 
+Absolute references to declared modules and their types become explicit local
+imports. Module operations use a module binding; type-only references use an
+erased selection. Declarations used in both positions receive value and type bindings.
+Name collisions receive a numeric suffix. Compiler intrinsics and explicit require
+calls keep their spelling and placement.
+
 A method call left in its sugar form, obj:m{...} or obj:m"...", is given its
 parentheses back, obj:m({...}) and obj:m("..."). --no-method-parens leaves it
 as written, and so does a manifest with fmt = { methodParens = false }; the
@@ -118,6 +124,7 @@ local function run(parsed: any): integer
     -- whichever file is being formatted right now.
     local currentPath = ""
     local formatter = fmt.new({
+        environment = env,
         annotations = env.annotations,
         resolveAnnotation = function(name: string): any
             return env.resolveProjectAnnotation(env, currentPath, name)
@@ -176,7 +183,11 @@ local function run(parsed: any): integer
     local optionsKey = nil
     local function verdictKey(path: string, source: string): string
         if not optionsKey then
-            optionsKey = digest(tostring(methodParens) .. "\0" .. tostring(width) .. "\0" .. envMod.annotationKey(env))
+            optionsKey = digest(
+                tostring(
+                    methodParens
+                ) .. "\0" .. tostring(width) .. "\0" .. envMod.annotationKey(env) .. "\0" .. fmt.importsKey(env)
+            )
         end
 
         return digest(optionsKey .. "\0" .. path .. "\0" .. source)

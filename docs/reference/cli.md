@@ -730,6 +730,12 @@ Options:
 --json always reports the list, whichever form was asked for, and separates a
 file that could not be formatted from one that merely is not.
 
+Absolute references to declared modules and their types become explicit local
+imports. Module operations use a module binding; type-only references use an
+erased selection. Declarations used in both positions receive value and type bindings.
+Name collisions receive a numeric suffix. Compiler intrinsics and explicit require
+calls keep their spelling and placement.
+
 A method call left in its sugar form, obj:m{...} or obj:m"...", is given its
 parentheses back, obj:m({...}) and obj:m("..."). --no-method-parens leaves it
 as written, and so does a manifest with fmt = { methodParens = false }; the

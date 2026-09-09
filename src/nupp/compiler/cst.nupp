@@ -204,6 +204,11 @@ interface cst.Hints
 
     qualifiedMembers: {string}?
 
+    --- The module and exported type selected by a checked qualified type name.
+    qualifiedTypeModule: string?
+
+    qualifiedTypeName: string?
+
     --- A runtime feature required if this node reaches generated Lua. The checker
     --- records source-level effects separately for diagnostics and packaging; codegen
     --- consumes this hint only after deciding that it will emit the node.

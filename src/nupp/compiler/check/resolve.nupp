@@ -1141,10 +1141,12 @@ function resolve.install(c: state.Checker): nil
                 -- nupp.compiler.types, so resolve through what the name holds rather
                 -- than
                 -- assuming the local was named for its module.
+                local explicitModuleBinding = false
                 if #names == 1 then
                     local holder = c.lookupEntry(names[1])
                     if holder and holder.requiredModule then
                         moduleName = holder.requiredModule
+                        explicitModuleBinding = true
                     end
                 end
                 local access = c.env and c.env.moduleAccess and c.env.moduleAccess(
@@ -1162,6 +1164,10 @@ function resolve.install(c: state.Checker): nil
                 end
                 c.markToken(lastTok, def, t, def and def.kind or "type")
                 if t then
+                    if not explicitModuleBinding then
+                        node.qualifiedTypeModule = resolvedModule
+                        node.qualifiedTypeName = typeName
+                    end
                     if not compilerOnlyAliasAvailable(def, node, moduleName .. "." .. typeName) then
                         return T.any
                     end

@@ -180,10 +180,15 @@ const {
 ```
 
 A statement containing only `type` selections emits no runtime `require`.
-Selecting a record without `type` binds both its type and runtime declaration
-value. An erased alias must be selected with `type`.
+Selecting a record without `type` binds its runtime declaration value. Select
+its type separately with `type` when both are needed; the two bindings may use
+the same name. An erased alias must be selected with `type`.
 
 ## Qualified module paths
+
+The [formatter](../tooling/formatter.md#module-and-type-imports) turns absolute
+module and type references into explicit local imports by default. Qualified
+paths remain valid source syntax with the resolution rules below.
 
 A registered package root lets an unshadowed dotted path name a declared module
 directly:

@@ -1,0 +1,535 @@
+module nupp.compiler.fmt.imports
+
+-- Import spelling is a semantic rewrite. The checker identifies module paths;
+-- this pass never guesses that a dotted table access is an import. Edits apply
+-- only to authored name tokens, then the ordinary formatter reparses the result
+-- and verifies its layout against that new token stream.
+
+local parser = require("nupp.compiler.parser")
+local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
+local envMod = require("nupp.compiler.env")
+local check = require("nupp.compiler.check")
+local hash = require("nupp.compiler.build.hash")
+
+local imports = {}
+local defaultEnvironment: any = nil
+local defaultKey: string? = nil
+
+local function walk(node: any, visit: function(any): nil): nil
+    if not node or cst.isToken(node) then
+        return
+    end
+    visit(node)
+    for _, child in ipairs(node) do
+        walk(child, visit)
+    end
+end
+
+local function names(node: any): {any}
+    local out = {}
+    local function add(value: any): nil
+        if value.kind == "dotIndex" then
+            add(value.obj)
+            out[#out + 1] = value.name
+        elseif value.kind == "name" then
+            out[#out + 1] = value.token
+        elseif value.kind == "tname" then
+            for _, child in ipairs(value) do
+                if cst.isToken(child) and child.kind == "name" then
+                    out[#out + 1] = child
+                elseif cst.isToken(child) and child.kind ~= "." then
+                    break
+                elseif not cst.isToken(child) then
+                    break
+                end
+            end
+        end
+    end
+
+    add(node)
+
+    return out
+end
+
+local function spelling(tokens: {any}, count: integer?): string
+    local parts = {}
+    for index = 1, count or #tokens do
+        parts[#parts + 1] = tokens[index].text
+    end
+
+    return table.concat(parts, ".")
+end
+
+local function typeImport(moduleName: string, member: string, alias: string, runtime: boolean?): string
+    local selection = (runtime and "" or "type ") .. member
+    if alias ~= member then
+        selection = selection .. " as " .. alias
+    end
+
+    return "const {" .. selection .. "} = require(" .. string.format("%q", moduleName) .. ")"
+end
+
+-- The verdict depends on module interfaces as well as the file's own bytes.
+-- Full source digests also cover exports whose types depend on checked bodies.
+function imports.key(env: any): string
+    local parts = {}
+    for _, path in ipairs(envMod.listProjectFiles(env)) do
+        local source = require("nupp.compiler.fs").readFile(path)
+        if source then
+            parts[#parts + 1] = path .. "\0" .. hash.digest(source)
+        end
+    end
+    table.sort(parts)
+
+    return hash.digest(table.concat(parts, "\0"))
+end
+
+function imports.new(environment: any?, enabled: boolean?): any
+    local env = environment
+    local session = {}
+
+    function session.rewrite(source: string, filename: string?, parsed: any): string
+        -- Signatures embedded in documentation have no file to import into.
+        -- Plain Lua has no qualified-module syntax or erased type selections.
+        if enabled == false or filename and filename:match("%.lua$") then
+            return source
+        end
+        local candidates = {}
+        walk(parsed.root, function(node: any): nil
+            if node.kind == "dotIndex" or node.kind == "tname" then
+                local path = names(node)
+                if #path > 1 then
+                    candidates[#candidates + 1] = spelling(path)
+                end
+            end
+        end)
+        if #candidates == 0 then
+            return source
+        end
+        if not env then
+            local candidate = defaultEnvironment or envMod.new(".")
+            local key = imports.key(candidate)
+            if defaultEnvironment and key ~= defaultKey then
+                candidate = envMod.new(".")
+            end
+            defaultEnvironment, defaultKey = candidate, key
+            env = candidate
+        end
+        local registry = env.ensureProjectIndex(env)
+        local possible = false
+        for _, path in ipairs(candidates) do
+            local prefix = path
+            while prefix do
+                local shipped = env.bundled and env.bundled[prefix]
+                if registry.declaredModules[prefix] or shipped and shipped.declared then
+                    possible = true
+                    break
+                end
+                prefix = prefix:match("^(.*)%.[^.]+$")
+            end
+            if possible then
+                break
+            end
+        end
+        if not possible then
+            return source
+        end
+
+        -- Checking owns and annotates a separate tree. Generated declarations and
+        -- synthetic lowering nodes must never become the formatter's input.
+        local checked = parser.parse(source, filename)
+        check.check(checked, filename or "format.g.nupp", env)
+        local uses = {}
+        local covered = {}
+        local shadowedRequire = false
+        for _, token in ipairs(checked.tokens) do
+            if token.text == "require" and token.definition and token.definition.lexical then
+                shadowedRequire = true
+            end
+        end
+        walk(checked.root, function(node: any): nil
+            -- A written module binding already has its name and placement.
+            if not shadowedRequire
+                and node.kind == "localStmt"
+                and not node.pattern
+                and #node.names == 1
+                and node.exprs
+                and #node.exprs == 1
+            then
+                local value = node.exprs[1]
+                if value.qualifiedModule and #(value.qualifiedMembers or {}) == 0 then
+                    local first, last = cst.firstToken(value), cst.lastToken(value)
+                    local moduleName = value.qualifiedModule
+                    if first
+                        and last
+                        and source:sub(first.offset, last.offset + #last.text - 1):gsub("%s", "") == moduleName then
+                        covered[first.offset] = true
+                        uses[
+                            #uses + 1
+                        ] = {
+                            moduleName = moduleName,
+                            first = first.offset,
+                            last = last.offset + #last.text - 1,
+                            text = "require(" .. string.format("%q", moduleName) .. ")",
+                        }
+                        return
+                    end
+                end
+            end
+            -- A simple local type alias is already a binding. Keep its name,
+            -- position and documentation and express the import directly.
+            if node.kind == "typeAlias"
+                and not shadowedRequire
+                and node.visibility == "local"
+                and not node.generics
+                and not node.comptimeOnly
+                and not node.annotations
+            then
+                local value = node.value
+                if value and value.kind == "tname" and value.qualifiedTypeModule and not value.typeArgs then
+                    local path = names(value)
+                    local first, last = cst.firstToken(node), cst.lastToken(node)
+                    if not first or not last then
+                        return
+                    end
+                    local member = value.qualifiedTypeName
+                    local moduleName = value.qualifiedTypeModule
+                    local valueFirst, valueLast = path[1], path[#path]
+                    local written = source:sub(valueFirst.offset, valueLast.offset + #valueLast.text - 1)
+                    local safe = spelling(
+                        path
+                    ) == moduleName .. "." .. member and written:gsub("%s", "") == spelling(path)
+                    if safe then
+                        for _, token in ipairs(parsed.tokens) do
+                            if token.offset >= first.offset then
+                                break
+                            end
+                            if token.text == node.name.text then
+                                safe = false
+                                break
+                            end
+                        end
+                    end
+                    if safe and not source:sub(first.offset, last.offset + #last.text - 1):find("--", 1, true) then
+                        covered[path[1].offset] = true
+                        uses[
+                            #uses + 1
+                        ] = {
+                            first = first.offset,
+                            last = last.offset + #last.text - 1,
+                            text = typeImport(moduleName, member, node.name.text),
+                        }
+                        return
+                    end
+                end
+            end
+            local moduleName, member, count
+            local runtime = false
+            local path = names(node)
+            if node.qualifiedModule then
+                moduleName = node.qualifiedModule
+                local suffix = node.qualifiedMembers or {}
+                count = #path - #suffix
+                if suffix[1] then
+                    local exports = env.resolveModuleExports(env, moduleName)
+                    local value = exports and exports.values and exports.values[suffix[1]]
+                    local declared = exports and exports.types and exports.types[suffix[1]]
+                    if value and (
+                        value.tag == "typeobject"
+                        or value == declared
+                        and value.tag == "nominal"
+                        and value.declKind == "struct"
+                    ) then
+                        member = suffix[1]
+                        count = count + 1
+                        runtime = true
+                    end
+                end
+            elseif node.qualifiedTypeModule then
+                moduleName = node.qualifiedTypeModule
+                member = node.qualifiedTypeName
+                count = #path
+                -- Existing lexical module/type aliases already name their imports.
+                if spelling(path) ~= moduleName .. "." .. member then
+                    return
+                end
+            end
+            if not moduleName or not count or count < 1 or not path[count] then
+                return
+            end
+            local first, last = path[1], path[count]
+            if covered[first.offset] then
+                return
+            end
+            -- A comment between name components belongs to the authored path.
+            -- Leave it where it was written rather than deleting or relocating it.
+            local segment = source:sub(first.offset, last.offset + #last.text - 1)
+            if segment:find("--", 1, true) or segment:gsub("%s", "") ~= spelling(path, count) then
+                return
+            end
+            covered[first.offset] = true
+            uses[
+                #uses + 1
+            ] = {
+                moduleName = moduleName,
+                member = member,
+                runtime = runtime,
+                first = first.offset,
+                last = last.offset + #last.text - 1,
+            }
+        end)
+        if #uses == 0 then
+            return source
+        end
+        table.sort(uses, function(a: any, b: any): boolean
+            return a.first < b.first
+        end)
+
+        -- A fresh import must not capture any authored bare name, including a
+        -- name in an inner scope, an unresolved global, or a generic parameter.
+        local occupied = {}
+        local previous = nil
+        local useIndex = 1
+        for _, token in ipairs(parsed.tokens) do
+            while uses[useIndex] and uses[useIndex].last < token.offset do
+                useIndex = useIndex + 1
+            end
+            local replaced = uses[useIndex] and token.offset >= uses[useIndex].first
+            if not replaced and token.kind == "name" and (not previous or previous.kind ~= ".") then
+                occupied[token.text] = true
+            end
+            previous = token
+        end
+        for name in pairs(env.globals or {}) do
+            occupied[name] = true
+        end
+        for name in pairs(env.globalTypes or {}) do
+            occupied[name] = true
+        end
+        -- A qualified declaration also binds its leaf name within its body.
+        -- Importing Reader must not make `record process.Reader is Reader`
+        -- resolve its contract to the record being declared.
+        walk(parsed.root, function(node: any): nil
+            if (node.kind == "recordDecl" or node.kind == "typeAlias" or node.kind == "cdefStruct") and node.name then
+                occupied[node.name.text] = true
+            end
+        end)
+        -- `require` must still mean the builtin at the insertion point. A local
+        -- declared later is fine; an assignment to the global is not rewritten.
+        local unsafeRequire = false
+        walk(checked.root, function(node: any): nil
+            if node.kind == "assignStmt" then
+                for _, lhs in ipairs(node.targets or {}) do
+                    if lhs.kind == "name" and lhs.token.text == "require" then
+                        unsafeRequire = true
+                    end
+                end
+            end
+        end)
+        if unsafeRequire then
+            return source
+        end
+
+        local function allocate(preferred: string): string
+            local base = preferred:gsub("[^%w_]", "_")
+            local tokens = lexer.lex(base)
+            if not tokens[1] or tokens[1].kind ~= "name" then
+                base = base .. "Module"
+            end
+            local name = base
+            local suffix = 2
+            while occupied[name] do
+                name = base .. tostring(suffix)
+                suffix = suffix + 1
+            end
+            occupied[name] = true
+
+            return name
+        end
+
+        -- Reuse a top-level module binding only if it is already initialized at
+        -- every use, is never assigned, and its name has no competing definition.
+        local existing, assigned, definitions = {}, {}, {}
+        for _, token in ipairs(checked.tokens) do
+            local definition = token.definition
+            if definition and definition.lexical then
+                local set = definitions[token.text] or {}
+                set[definition] = true
+                definitions[token.text] = set
+            end
+        end
+        walk(checked.root, function(node: any): nil
+            local targets = node.kind == "assignStmt" and node.targets or node.kind == "compoundAssign" and {
+                node.target
+            } or {}
+            for _, target in ipairs(targets) do
+                if target.kind == "name" then
+                    assigned[target.token.text] = true
+                end
+            end
+        end)
+        for _, block in ipairs(checked.root.blocks) do
+            for _, stat in ipairs(block.stats or {}) do
+                local value = stat.kind == "localStmt" and stat.exprs and #stat.exprs == 1 and stat.exprs[1]
+                local token = stat.kind == "localStmt" and #stat.names == 1 and stat.names[1]
+                local moduleName = value and (
+                    value.requiredModule or not shadowedRequire and #(
+                        value.qualifiedMembers or {}
+                    ) == 0 and value.qualifiedModule
+                )
+                if stat.kind == "localStmt" and not stat.pattern and moduleName and token then
+                    local count = 0
+                    for _ in pairs(definitions[token.text] or {}) do
+                        count = count + 1
+                    end
+                    local last = cst.lastToken(stat)
+                    local ready = last ~= nil
+                    for _, use in ipairs(uses) do
+                        if not use.text and use.moduleName == moduleName and last and last.offset >= use.first then
+                            ready = false
+                        end
+                    end
+                    if count == 1 and not assigned[token.text] and ready then
+                        existing[moduleName] = token.text
+                    end
+                end
+            end
+        end
+
+        local runtimeMembers, typeMembers = {}, {}
+        for _, use in ipairs(uses) do
+            if use.runtime then
+                runtimeMembers[use.moduleName .. ":" .. use.member] = true
+            elseif use.member then
+                typeMembers[use.moduleName .. ":" .. use.member] = true
+            end
+        end
+        local bindings, declarations = {}, {}
+        for _, use in ipairs(uses) do
+            if not use.text then
+                local key = use.moduleName .. (use.member and ":" .. use.member or "")
+                if not bindings[key] and not use.member and existing[use.moduleName] then
+                    bindings[key] = existing[use.moduleName]
+                end
+                if not bindings[key] then
+                    local preferred = use.member or use.moduleName:match("([^.]+)$")
+                    local alias = allocate(preferred)
+                    bindings[key] = alias
+                    local declaration
+                    if use.member then
+                        declaration = typeImport(use.moduleName, use.member, alias, runtimeMembers[key])
+                    else
+                        declaration = "const " .. alias .. " = require(" .. string.format("%q", use.moduleName) .. ")"
+                    end
+                    declarations[#declarations + 1] = declaration
+                    if use.member and runtimeMembers[key] and typeMembers[key] then
+                        declarations[#declarations + 1] = typeImport(use.moduleName, use.member, alias)
+                    end
+                end
+                use.text = bindings[key]
+            end
+        end
+
+        -- After the module header (and its trailing comment), before executable
+        -- statements, matching the compiler's hidden qualified imports. A leading
+        -- hashbang/BOM stays first. Declaration docblocks stay with declarations.
+        local function afterHeader(token: any): integer
+            local ending = token.offset + #token.text
+            local newline = source:find("\n", ending, true) or #source + 1
+            for _, nextToken in ipairs(parsed.tokens) do
+                if nextToken.offset >= ending and nextToken.kind ~= "eof" then
+                    if nextToken.offset < newline then
+                        return math.floor(ending)
+                    end
+                    break
+                end
+            end
+
+            return math.min(newline + 1, #source + 1)
+        end
+
+        local insertion = 1
+        local _, moduleNode = cst.declaredModule(parsed.root)
+        if moduleNode then
+            local last = cst.lastToken(moduleNode)
+            if not last then
+                return source
+            end
+            insertion = afterHeader(last)
+            -- A leading long comment after `module` is the module's public
+            -- documentation. Keep it ahead of imports so it stays a header.
+            for _, token in ipairs(parsed.tokens) do
+                if token.offset >= insertion then
+                    for index = 1, token.triviaCount do
+                        local trivia = lexer.triviaRecord(token, index)
+                        if trivia.offset >= insertion and trivia.kind == "comment" then
+                            if trivia.text:match("^%-%-%[=*%[") then
+                                insertion = trivia.offset + #trivia.text
+                                if source:sub(insertion, insertion) == "\n" then
+                                    insertion = insertion + 1
+                                end
+                            end
+                            break
+                        end
+                    end
+                    break
+                end
+            end
+        else
+            local first = parsed.tokens[1]
+            for index = 1, first.triviaCount do
+                local trivia = lexer.triviaRecord(first, index)
+                if trivia.kind == "comment" and trivia.text:sub(1, 3) == "---" then
+                    break
+                end
+                if trivia.kind == "hashbang" or trivia.kind == "bom" or trivia.kind == "comment" then
+                    insertion = trivia.offset + #trivia.text
+                    if source:sub(insertion, insertion) == "\n" then
+                        insertion = insertion + 1
+                    end
+                end
+            end
+        end
+        -- Inner annotations are consumed before the chunk's ordered children.
+        local index = 1
+        while parsed.tokens[
+            index
+        ] and parsed.tokens[
+            index
+        ].text == "@" and parsed.tokens[
+            index + 1
+        ] and parsed.tokens[
+            index + 1
+        ].text == "!" and parsed.tokens[
+            index + 2
+        ] and (parsed.tokens[index + 2].text == "internal" or parsed.tokens[index + 2].text == "nofmt") do
+            local token = parsed.tokens[index + 2]
+            insertion = math.max(insertion, afterHeader(token))
+            index = index + 3
+        end
+        if #declarations == 0 then
+            insertion = 1
+        end
+        local out = {source:sub(1, insertion - 1)}
+        if insertion > 1 and source:sub(insertion - 1, insertion - 1) ~= "\n" then
+            out[#out + 1] = "\n"
+        end
+        if #declarations > 0 then
+            out[#out + 1] = table.concat(declarations, "\n") .. "\n\n"
+        end
+        local cursor = insertion
+        for _, use in ipairs(uses) do
+            out[#out + 1] = source:sub(cursor, use.first - 1)
+            out[#out + 1] = use.text
+            cursor = use.last + 1
+        end
+        out[#out + 1] = source:sub(cursor)
+
+        return table.concat(out)
+    end
+
+    return session
+end
+
+export = imports

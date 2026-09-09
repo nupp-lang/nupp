@@ -4,7 +4,8 @@ order: 530
 
 # Formatter
 
-`nupp fmt` rewrites Nupp source into one canonical layout. The style is fixed:
+`nupp fmt` rewrites Nupp source into one canonical layout with explicit module
+and type imports. The style is fixed:
 there is no configuration file and no editor setting, and only `--width` and
 `--no-method-parens` change what the output looks like.
 
@@ -44,6 +45,49 @@ Three measurements are fixed:
 - Indentation is 4 spaces.
 - Code breaks at 120 columns, which `--width` moves.
 - Docblock text wraps at 88 columns, which nothing moves.
+
+### Module and type imports
+
+Absolute references to declared modules become local bindings. Calls use a short
+module name; types used only in annotations use an erased selection:
+
+::: code-group
+```nupp [Written]
+local function count(values: nupp.mem.span.Span<uint8>): integer
+    return #values
+end
+
+return nupp.io.files.read("notes.txt"), count
+```
+
+```nupp [Formatted]
+const {type Span} = require("nupp.mem.span")
+const files = require("nupp.io.files")
+
+local function count(values: Span<uint8>): integer
+    return #values
+end
+
+return files.read("notes.txt"), count
+```
+:::
+
+Imports follow the `module` header and its module documentation when present.
+Repeated references share
+one binding. Existing module bindings are reused when they are initialized,
+unmodified and unshadowed. A simple local type alias becomes a type selection
+with the same name and position. A name already used in the file gets a numeric
+suffix, including when the conflicting name lives in an inner scope. Type-only selections remain
+erased and do not introduce a runtime dependency. A record or struct used as a
+value, including construction and static methods, uses a value selection.
+When annotations also use that declaration, a separate erased type selection
+shares its local name.
+
+The checker resolves the reference before the formatter shortens it. Ordinary
+table fields, shadowed package roots, unresolved references and compiler
+intrinsics keep their spelling. Strings and comments are preserved; a comment
+inside a dotted path keeps that path intact. Explicit `require` calls keep
+their written placement. Plain Lua files receive layout changes only.
 
 ### Breaking a line
 
@@ -240,9 +284,10 @@ It must be the file's first annotation and has no region form.
 
 ## Limits
 
-The formatter guarantees that its output re-lexes to a token sequence identical
-in kind and text to the input. When a rewrite would break that, it returns the
-input untouched and reports the rewrite it refused.
+After resolving and rewriting imports, the formatter checks layout against the
+rewritten token sequence. Its output must re-lex to the same kinds and text,
+apart from the canonicalizations below. When layout would break that invariant,
+it returns the input untouched and reports the rewrite it refused.
 
 That invariant is why it cannot change a quote style, add or remove a table
 constructor's trailing comma, or rewrite a numeric literal. Those change the
@@ -284,7 +329,8 @@ The language server implements `textDocument/formatting` and
   whole-document replacement, which preserves cursors and folds.
 
 Range formatting formats the whole document and then keeps the edits that fall
-inside the requested range.
+inside the requested range. It leaves import spelling alone so a selection
+cannot shorten a reference without inserting its binding.
 
 ::: seealso
 - [lsp.md](language-server.md#lsp-features) for the rest of what the language server answers
