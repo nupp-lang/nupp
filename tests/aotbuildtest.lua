@@ -1085,6 +1085,11 @@ end
 
 export const kernel = convert
 ]]
+    -- Two environments, deliberately. Checking the generated overlay in the one
+    -- that already checked the source it was generated from would let it resolve
+    -- a name the authored module declared and the generated text does not, which
+    -- is the whole thing being asked about. Each `envMod.new` re-checks the
+    -- standard library the module names, and that is what this case costs.
     local environment = envMod.new(HERE .. "/..")
     local tree = parser.parse(source, "gpuoverlay.nupp")
     local checked = compilerCheck.check(tree, "gpuoverlay.nupp", environment)
@@ -1577,13 +1582,16 @@ end
 
 function M.theFeatureTierReachesTheBackend()
     local tier, widens = widestTier()
-    local dir = project("emit-c")
-    local out, code = build(dir)
-    test.equal(code, 0, out)
-    local beforeTiers = buildTiers(nil, nil)
-    local baseline = assert(read(tieredC(dir, beforeTiers[1].tier)))
-    local before = assert(read(tieredC(dir, beforeTiers[#beforeTiers].tier)))
 
+    -- What this host emits when nothing names a tier is what the shared emit-c
+    -- fixture already holds. Building a second copy of the same project to read
+    -- it again bought nothing.
+    local unnamed = builtFixture("emit-c")
+    local beforeTiers = buildTiers(nil, nil)
+    local baseline = assert(read(tieredC(unnamed, beforeTiers[1].tier)))
+    local before = assert(read(tieredC(unnamed, beforeTiers[#beforeTiers].tier)))
+
+    local dir = project("emit-c")
     local manifest = assert(io.open(dir .. "/nupp.lua", "rb"))
     local text = manifest:read("*a")
     manifest:close()
@@ -1591,8 +1599,8 @@ function M.theFeatureTierReachesTheBackend()
     manifest:write((text:gsub('aot = "emit%-c",', 'aot = "emit-c", aotFeatures = "' .. tier .. '",')))
     manifest:close()
 
-    out, code = build(dir)
-    test.equal(code, 0, "the manifest key is accepted\n" .. out)
+    local out, code = build(dir)
+    test.equal(code, 0, ("the manifest key is accepted (emit-c fixture at %s)\n%s"):format(dir, out))
     local after = assert(read(tieredC(dir, tier)))
     assert(
         after:find(widens and "vector_size(64)" or "vector_size(32)", 1, true),
@@ -1678,10 +1686,9 @@ function M.aTierIsCheckedAgainstTheTargetItAppliesTo()
 end
 
 function M.crossCompilingEmitsThatTargetsCode()
-    local dir = project("emit-c")
-    local out, code = build(dir)
-    test.equal(code, 0, out)
-    local host = assert(read(tieredC(dir, firstHostTier())))
+    -- What this host emits is what the shared emit-c fixture already holds; the
+    -- cross build is the one this case has to run for itself.
+    local host = assert(read(tieredC(builtFixture("emit-c"), firstHostTier())))
 
     -- A target this machine is not, whichever machine it is. Naming one
     -- architecture outright would be naming the host on half of them, and a
@@ -1691,9 +1698,10 @@ function M.crossCompilingEmitsThatTargetsCode()
     local targets = require("nupp.compiler.aot.target")
     local here = assert(targets.select(nil, nil))
     local elsewhere = here.architecture == "x86_64" and "aarch64-unknown-linux-gnu" or "x86_64-unknown-linux-gnu"
+    local dir = project("emit-c")
     withKeys(dir, ('aotTarget = "%s",'):format(elsewhere))
-    out, code = build(dir)
-    test.equal(code, 0, "a target this machine is not still emits\n" .. out)
+    local out, code = build(dir)
+    test.equal(code, 0, ("a target this machine is not still emits (fixture at %s)\n%s"):format(dir, out))
     local crossTiers = buildTiers(elsewhere, nil)
     local cross = assert(read(tieredC(dir, crossTiers[1].tier)))
     assert(cross:find("vector_size(", 1, true), "which is that target's code: " .. cross:sub(1, 200))
