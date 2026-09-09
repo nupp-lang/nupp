@@ -74,24 +74,80 @@ The guards are not decoration: the length guard is what proves the two spans can
 share one index, and the range guard is what lets the generated loop read its
 bounds without re-checking them every element.
 
-The backend does not compile either one. It matches them, reads the facts out of
-them, and spends the facts on the loop, so each is written in one admitted form
-rather than any equivalent condition. Within a form the wording is fixed:
-comparisons join with `and` and compare counts with `==`, and the range guard is
-matched against the exact text quoted in its diagnostic. Reordering the
-comparisons or writing an equivalent inequality is refused, because a guard the
-backend only approximately understood would not be a check.
-
-Swapping the range guard's first two comparisons is one such equivalent
-condition:
+The backend does not compile them. It reads facts out of them and spends the
+facts on the loop, so what it asks is whether the facts imply the bounds -- not
+whether a guard used one particular source form. Each of these says what the range
+guard above says, and each compiles to the same kernel, byte for byte:
 
 ```nupp
 assert(last <= #escapes and first >= 1 and first <= last + 1, "range out of bounds")
+assert(first > 0 and last <= #escapes and first - 1 <= last, "range out of bounds")
+assert(1 <= first and #escapes >= last and last + 1 >= first, "range out of bounds")
+assert(first >= 1 and last <= #points and first <= last + 1, "range out of bounds")
 ```
 
-```text
-bench/kernel-subset-spike/mandelbrot.nupp:44:12: aot: range guard must be `first >= 1 and last <= #output and first <= last + 1`
+The last bounds `last` by the span the length guard proved equal rather than by
+the output itself, which follows because it is a fact the backend holds and not
+a name it matched.
+
+There may be any number of guards, and one may say several things. What has to
+hold is that every statement before the loop is a guard:
+
+```nupp
+assert(#escapes == #points and first >= 1, "length and lower bound")
+assert(last <= #escapes, "upper bound")
+assert(first <= last + 1, "an empty range is allowed")
 ```
+
+### What a guard may say
+
+A comparison of integer parameters, integer literals and span lengths, either
+side offset by a literal. `<`, `<=`, `>`, `>=` and `==` all read. On the integers
+`a < b` is `a <= b - 1`, which is the rewrite the whole thing rests on and the
+reason a `number` parameter is not admitted as a bound.
+
+Clauses join with `and` in an `assert` and with `or` in the refusing form below.
+The other pairing states nothing: knowing `a or b` holds is not knowing either
+does, so `assert(first == 1 or last == 2, "…")` is a clause the backend cannot
+read.
+
+A clause it cannot read is refused rather than skipped, because skipping it would
+compile a wrapper that never checks it:
+
+```text
+bench/kernel-subset-spike/mandelbrot.nupp:43:12: aot: `first * 2 >= 1` cannot be read as a guard: a guard compares integer parameters, integer literals and span lengths, offset by a literal
+```
+
+### What is proved, and what is checked
+
+The loop names the range and the guards name nothing: `for i = first, last` over
+`escapes` is what obliges `1 <= first`, `last <= #escapes` and `first <= last +
+1`, and a loop over the whole of a span obliges nothing. A bound the guards do
+not imply says what was missing and what was read, rather than a form to copy:
+
+```text
+bench/kernel-subset-spike/mandelbrot.nupp:45:5: aot: the loop range is not proved: needed `last <= #escapes`, understood `#escapes <= #points` (42:12), `#points <= #escapes` (42:12), `1 <= first` (43:12), `first <= last + 1` (43:27)
+```
+
+Length agreements go the other way: they are read out of the facts rather than
+required of them, so `#a == #b and #b == #escapes` proves both spans agree with
+the output. A span no agreement covers is still admitted -- a matrix product
+reads dimensions no equality can express -- and what replaces the proof is
+per-access, where a span the body touches at the loop counter must be the output
+or proved equal to it, while a cursor access carries its own bound check into
+either backend.
+
+The generated wrapper checks the relations the source wrote, once per call. That
+is what makes reasoning about implication enough: a guard stronger than the loop
+needs is carried rather than refused, and stays stronger.
+
+```nupp
+assert(first >= 2 and last <= #escapes and first <= last + 1, "range out of bounds")
+```
+
+compiles, and the wrapper it generates refuses `first == 1` exactly as this
+source does. Moving a function from interpreted to native never widens the calls
+it accepts.
 
 ## Asserting and refusing
 
@@ -109,8 +165,14 @@ end
 
 Refusing is worth the extra lines when the caller should be blamed for the bad
 argument: `error(message, 2)` reports at the call site, and `assert` reports at
-the guard. Its comparisons join with `or` and compare counts with `~=`, the
-inverse of the asserted form. The message is optional either way.
+the guard. The condition is read knowing it is false where the loop runs, which
+is why its clauses join with `or` where the asserted form joins with `and`, and
+why it compares counts with `~=` where the asserted form compares with `==`.
+Messages and error levels must be literals: consuming the guard must not discard
+an expression that would otherwise have been evaluated.
+
+The branch has to be one that cannot fall through -- a single `error` call and no
+`else` -- because that is what makes the condition's polarity below it known.
 
 ## Backend report
 

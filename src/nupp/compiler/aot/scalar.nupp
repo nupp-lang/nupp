@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 26
+const scalarIR.VERSION = 27
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -1148,6 +1148,34 @@ record scalarIR.Layout
     source: scalarIR.Source?
 end
 
+--- One atom a guard relation is stated about.
+---
+--- An atom and nothing else: every constant a source comparison wrote is folded
+--- into the relation's offset instead, so two source forms of one fact normalize to
+--- one relation rather than to two that differ in where the constant sits.
+---
+--- `zero` is the origin every literal is measured from, `uniform` names an
+--- integer parameter, and `count` names a span whose length the term is.
+record scalarIR.Term
+    kind: 'zero' | 'uniform' | 'count'
+
+    --- The parameter or span named, absent for `zero`.
+    name: string?
+end
+
+--- One normalized relation the source guards established, `left <= right + offset`.
+---
+--- Every admitted comparison becomes one of these, or two for an equality. The
+--- wrapper checks exactly this list and nothing else about bounds, which is what
+--- makes a guard stronger than the loop needs stay stronger: the relation the
+--- source wrote is the relation the caller is held to.
+record scalarIR.Relation
+    left: scalarIR.Term
+    right: scalarIR.Term
+    offset: integer
+    source: scalarIR.Source?
+end
+
 --- A range the source guarded, proved in bounds before lowering.
 ---
 --- The generated loop reads it rather than checking it again, which is only
@@ -1369,6 +1397,14 @@ record scalarIR.Program
     layouts: {scalarIR.Layout}?
     regions: {scalarIR.Region}
     aliasFacts: {scalarIR.AliasFact}
+
+    --- The facts the source guards stated, normalized, in a canonical order.
+    ---
+    --- The wrapper's contract. `guards` and `rangeGuard` below are claims proved
+    --- from these, so a claim that does not follow from this list fails
+    --- verification rather than reaching a backend.
+    relations: {scalarIR.Relation}?
+
     guards: {scalarIR.Guard}
     helpers: {scalarIR.Helper}?
 

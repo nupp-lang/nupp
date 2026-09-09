@@ -1440,7 +1440,7 @@ return {quotes = quotes}
 
 -- The same kernel with its two preconditions written as asserts. `assert(ok, m)` and
 -- `if not ok then error(m) end` state one fact in opposite polarity, so the backend
--- reads either spelling and has to reach the same kernel from both.
+-- reads either form and has to reach the same kernel from both.
 local function replaceOnce(text, from, to)
     local at = assert(text:find(from, 1, true), "fixture text not found:\n" .. from)
     return text:sub(1, at - 1) .. to .. text:sub(at + #from)
@@ -1474,32 +1474,391 @@ function M.assertGuardsReachTheSameKernel()
     test.equal(
         gotReport.c,
         wantedReport.c,
-        ("both spellings emit the same C (%s versus %s)"):format(gotWhere, wantedWhere)
+        ("both guard forms emit the same C (%s versus %s)"):format(gotWhere, wantedWhere)
     )
 end
 
-function M.anAssertGuardStillHasToSayTheRightThing()
+-- `assert(a ~= b)` states that two lengths differ, which bounds neither of them
+-- in either direction. Nothing is read out of it, and because dropping it would
+-- give the wrapper a precondition it does not check, the clause is named rather
+-- than skipped.
+function M.aGuardThatBoundsNothingNamesItsClause()
     local dir = project{
         ["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED, "assert(#out == #points", "assert(#out ~= #points")
     }
     local out, code = run(dir, PINNED .. "compute.nupp")
     test.equal(code, 1, "a guard that proves nothing is refused\n" .. out)
+    assert(out:find("`#out ~= #points` cannot be read as a guard", 1, true), "the clause is named: " .. out)
+end
+
+-- Every one of these says what the admitted form says, and the backend is asked
+-- whether the facts imply the loop's bounds rather than whether the text matches.
+-- Byte-identical C is the claim: a source form that reaches a different artifact
+-- would be one the backend understood differently.
+function M.equivalentGuardFormsReachTheSameKernel()
+    local wanted, wantedCode = run(project{["compute.nupp"] = COMPUTE}, PINNED .. "--emit c compute.nupp")
+    test.equal(wantedCode, 0, wanted)
+    local forms = {
+        reordered = {
+            "first >= 1 and last <= #out and first <= last + 1",
+            "last <= #out and first >= 1 and first <= last + 1"
+        },
+        strict = {"first >= 1 and last <= #out", "first > 0 and last <= #out"},
+        reversed = {"first >= 1 and last <= #out", "1 <= first and #out >= last"},
+        offset = {"first <= last + 1", "first - 1 <= last"},
+        throughTheGuardedSpan = {"last <= #out and", "last <= #points and"},
+        split = {
+            [[    assert(first >= 1 and last <= #out and first <= last + 1, "range out of bounds")]],
+            [[    assert(first >= 1, "low")
+    assert(last <= #out and first <= last + 1, "high")]],
+        },
+    }
+    for name, pair in pairs(forms) do
+        local source = replaceOnce(COMPUTE_ASSERTED, pair[1], pair[2])
+        local got, code = run(project{["compute.nupp"] = source}, PINNED .. "--emit c compute.nupp")
+        test.equal(code, 0, name .. " is admitted\n" .. got)
+        test.equal(got, wanted, name .. " emits the same C as the reference form")
+    end
+end
+
+-- The wrapper enforces the relations the source wrote, so a precondition
+-- stronger than the loop needs stays stronger. Moving this function from
+-- interpreted to native must not widen the calls it accepts.
+function M.aStrongerRangeGuardIsAdmittedAndEnforced()
+    local dir = project{
+        ["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED, "first >= 1 and last <= #out", "first >= 2 and last <= #out")
+    }
+    local out, code = run(dir, PINNED .. "--emit binding compute.nupp")
+    test.equal(code, 0, "a guard the loop does not need is carried, not refused\n" .. out)
+    assert(out:find("first < 2", 1, true), "the wrapper refuses what the source refuses: " .. out)
+    assert(not out:find("first < 1", 1, true), "the loop's own weaker bound is not what is checked: " .. out)
+end
+
+function M.constantAndNegativeGuardFactsReachValidWrapperSource()
+    local source = replaceOnce(
+        COMPUTE_ASSERTED,
+        [[    assert(first >= 1 and last <= #out and first <= last + 1, "range out of bounds")]],
+        [[    assert(1 <= 2, "constant truth")
+    assert(first >= -1, "negative literal")
+    assert(first >= 1 and last <= #out and first <= last + 1, "range out of bounds")]]
+    )
+    local out, code = run(project{["compute.nupp"] = source}, PINNED .. "--emit binding compute.nupp")
+    test.equal(code, 0, "bounded integer literals are admitted\n" .. out)
+    assert(out:find("first < -1", 1, true), "the negative relation is preserved: " .. out)
+    assert(not out:find("nil <", 1, true), "the constant tautology emits no origin-to-origin check: " .. out)
+end
+
+function M.aStrictGuardBeyondTheRelationOffsetLimitNamesItsClause()
+    local source = replaceOnce(
+        COMPUTE_ASSERTED,
+        [[    assert(first >= 1 and last <= #out and first <= last + 1, "range out of bounds")]],
+        [[    assert(1048576 < first, "large strict offset")
+    assert(first >= 1 and last <= #out and first <= last + 1, "range out of bounds")]]
+    )
+    local out, code = run(project{["compute.nupp"] = source}, PINNED .. "compute.nupp")
+    test.equal(code, 1, "an adjusted offset outside the bounded solver is refused\n" .. out)
+    assert(out:find("`1048576 < first` cannot be read as a guard", 1, true), "the clause is named: " .. out)
     assert(
-        out:find("compare span counts with ==", 1, true),
-        "the comparison the asserted spelling wants is named: " .. out
+        not out:find("guard relation offsets further", 1, true),
+        "the invalid IR never reaches verification: " .. out
     )
 end
 
-function M.anAssertRangeGuardIsMatchedAgainstItsWrittenForm()
+-- A precondition about something the loop's bounds do not involve at all. It is
+-- still a fact the source stated, so the wrapper carries it.
+function M.anUnrelatedPreconditionIsCarriedIntoTheWrapper()
     local dir = project{
-        ["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED, "first >= 1 and last <= #out", "first > 1 and last <= #out")
+        [
+            "compute.nupp"
+        ] = replaceOnce(
+            COMPUTE_ASSERTED,
+            [[    assert(first >= 1 and last <= #out and first <= last + 1, "range out of bounds")]],
+            [[    assert(first >= 1 and last <= #out and first <= last + 1, "range out of bounds")
+    assert(last <= 4096, "too many rows")]]
+        )
+    }
+    local out, code = run(dir, PINNED .. "--emit binding compute.nupp")
+    test.equal(code, 0, "an extra precondition does not cost the map shape\n" .. out)
+    assert(out:find("last > 4096", 1, true), "the wrapper checks it: " .. out)
+end
+
+-- The C has no use for a parameter only a guard mentioned, and `-Werror` would
+-- refuse the generated translation unit for declaring one. `KS_UNUSED` says the
+-- parameter may go unread without saying that it does, so a read the emitter
+-- drops is still caught.
+function M.aUniformUsedOnlyByAGuardIsMarkedUnusedInC()
+    local dir = project{
+        [
+            "compute.nupp"
+        ] = replaceOnce(
+            replaceOnce(COMPUTE_ASSERTED, [[    limit: int32
+): nil]], [[    limit: int32,
+    guardOnly: int32
+): nil]]),
+            [["range out of bounds")]],
+            [["range out of bounds")
+    assert(guardOnly >= 1, "guard-only value")]]
+        )
+    }
+    local out, code = run(dir, PINNED .. "--emit c compute.nupp")
+    test.equal(code, 0, "the precondition is admitted\n" .. out)
+    assert(out:find("p_guardOnly KS_UNUSED", 1, true), "the generated C does not read the wrapper-only value: " .. out)
+    assert(not out:find("p_limit KS_UNUSED", 1, true), "the loop still reads its limit: " .. out)
+end
+
+-- A range over spans no equality relates. The length guard used to be what the
+-- backend read the range out of, so a kernel whose spans differ in length could
+-- not have one at all.
+function M.aRangeGuardDoesNotNeedALengthGuard()
+    local dir = project{
+        [
+            "rows.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function rowSums(
+    exclusive sums: span.WriteSpan<number>,
+    borrows matrix: span.Span<number>,
+    first: integer,
+    last: integer,
+    width: integer
+): nil
+    assert(first >= 1 and last <= #sums and first <= last + 1, "range out of bounds")
+
+    for row = first, last do
+        sums[row] = sums[row] + width
+    end
+end
+
+return {rowSums = rowSums}
+]],
+    }
+    local out, code = run(dir, PINNED .. "--emit binding rows.nupp")
+    test.equal(code, 0, "a range alone is a guard prefix\n" .. out)
+    assert(out:find("first < 1", 1, true), "the range is still checked: " .. out)
+    assert(not out:find("incompatible lengths", 1, true), "no agreement is claimed: " .. out)
+end
+
+function M.transitiveLengthAndRangeFactsReachLowering()
+    local dir = project{
+        [
+            "transitive.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function copy(
+    exclusive out: span.WriteSpan<number>,
+    borrows input: span.Span<number>,
+    borrows bridge: span.Span<number>
+): nil
+    assert(#input == #bridge and #bridge == #out, "lengths")
+    for i = 1, #out do
+        out[i] = input[i]
+    end
+end
+
+@aot
+local function fill(
+    exclusive out: span.WriteSpan<number>,
+    borrows input: span.Span<number>,
+    first: integer,
+    last: integer,
+    middle: integer
+): nil
+    assert(#out == #input, "lengths")
+    assert(first >= 1 and last <= middle and middle <= #out and first <= last + 1, "range")
+    for i = first, last do
+        out[i] = input[i]
+    end
+end
+
+return {copy = copy, fill = fill}
+]],
+    }
+    local out, code = run(dir, PINNED .. "--emit binding transitive.nupp")
+    test.equal(code, 0, "lowering consumes transitive closure facts\n" .. out)
+    assert(out:find("#input ~= #out", 1, true), "the transitive length equality becomes a body claim: " .. out)
+    assert(out:find("last > middle", 1, true), "the first range edge is preserved: " .. out)
+    assert(out:find("middle > #out", 1, true), "the second range edge is preserved: " .. out)
+end
+
+-- A clause that cannot be read is not one the backend may skip: skipping it
+-- would compile a wrapper that never checks it.
+function M.anUnreadableClauseRefusesTheKernel()
+    local dir = project{
+        [
+            "compute.nupp"
+        ] = replaceOnce(
+            COMPUTE_ASSERTED,
+            [["range out of bounds")]],
+            [["range out of bounds")
+    assert(first == 1 or last == 2, "either")]]
+        )
     }
     local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 1, "a range guard that is not the admitted one is refused\n" .. out)
-    assert(
-        out:find("first >= 1 and last <= #output and first <= last + 1", 1, true),
-        "the asserted spelling is quoted back: " .. out
-    )
+    test.equal(code, 1, "a known-true `or` states no fact about either side\n" .. out)
+    assert(out:find("cannot be read as a guard", 1, true), "the clause is named: " .. out)
+end
+
+function M.aGuardCannotDiscardAnEvaluatedArgument()
+    local source = [[
+local span = require("nupp.mem.span")
+local function message(): string return "length mismatch" end
+@aot
+local function copy(
+    exclusive out: span.WriteSpan<number>,
+    borrows input: span.Span<number>
+): nil
+    assert(#out == #input, message())
+    for i = 1, #out do
+        out[i] = input[i]
+    end
+end
+return {copy = copy}
+]]
+    local out, code = run(project{["copy.nupp"] = source}, PINNED .. "copy.nupp")
+    test.equal(code, 1, "an eager message call is not dropped from the wrapper\n" .. out)
+    assert(out:find("`message()` cannot be discarded from a guard", 1, true), "the discarded call is named: " .. out)
+end
+
+function M.aShadowedGuardNameEstablishesNoAotFact()
+    local source = [[
+local span = require("nupp.mem.span")
+local function assert(ok: boolean, message: string): boolean return true end
+@aot
+local function copy(
+    exclusive out: span.WriteSpan<number>,
+    borrows input: span.Span<number>
+): nil
+    assert(#out == #input, "ignored")
+    for i = 1, #out do
+        out[i] = input[i]
+    end
+end
+return {copy = copy}
+]]
+    local out, code = run(project{["copy.nupp"] = source}, PINNED .. "copy.nupp")
+    test.equal(code, 1, "the local function is not consumed as a prelude guard\n" .. out)
+    assert(not out:find("compiled copy", 1, true), "no invented length relation reaches an artifact: " .. out)
+end
+
+-- Everything follows from a contradiction, the loop's bounds included, so a
+-- kernel whose guards can never pass is not one to compile.
+function M.contradictoryGuardsRefuseTheKernel()
+    local dir = project{
+        [
+            "compute.nupp"
+        ] = replaceOnce(
+            COMPUTE_ASSERTED,
+            [["range out of bounds")]],
+            [["range out of bounds")
+    assert(last >= 3 and last <= 2, "impossible")]]
+        )
+    }
+    local out, code = run(dir, PINNED .. "compute.nupp")
+    test.equal(code, 1, "a contradiction is refused\n" .. out)
+    assert(out:find("cannot all hold at once", 1, true), "it says why: " .. out)
+end
+
+-- The bound exists so the closure is provably cheap, not because a kernel is
+-- expected to reach it. Overrunning it declines a kernel; it never admits one.
+function M.aGuardPoolBeyondTheBudgetRefusesTheKernel()
+    local extra = {}
+    for value = 1, 130 do
+        extra[#extra + 1] = ('    assert(last <= %d, "cap %d")'):format(100000 + value, value)
+    end
+    local dir = project{
+        [
+            "compute.nupp"
+        ] = replaceOnce(
+            COMPUTE_ASSERTED,
+            [["range out of bounds")]],
+            [["range out of bounds")
+]] .. table.concat(extra, "\n")
+        )
+    }
+    local out, code = run(dir, PINNED .. "compute.nupp")
+    test.equal(code, 1, "the budget is enforced\n" .. out)
+    assert(out:find("at most 128 relations", 1, true), "the budget is named: " .. out)
+end
+
+-- A dispatch has no wrapper to check a relation in, so a GPU kernel may only
+-- state facts its host binding already carries: one count per span.
+function M.aGpuKernelMayOnlyRelateSpanLengths()
+    local dir = project{
+        [
+            "compute.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+local struct Cell value: float end
+
+@aot(target = "gpu")
+local function convert(
+    exclusive out: span.WriteSpan<Cell>,
+    borrows input: span.Span<Cell>,
+    rounds: int32
+): nil
+    assert(#out == #input, "length mismatch")
+    assert(rounds >= 1, "at least one round")
+
+    for i = 1, #out do
+        out[i].value = input[i].value * 2.0
+    end
+end
+
+return {convert = convert}
+]],
+    }
+    local out, code = run(dir, PINNED .. "compute.nupp")
+    test.equal(code, 1, "a precondition no dispatch checks is refused\n" .. out)
+    assert(out:find("only relate span lengths", 1, true), "it says why: " .. out)
+end
+
+function M.aGpuBindingChecksEveryWrittenSpanRelation()
+    local dir = project{
+        [
+            "compute.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function fill(
+    exclusive out: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>
+): nil
+    assert(#out <= #input, "input capacity")
+    for i = 1, #out do
+        out[i] = 1
+    end
+end
+
+return {fill = fill}
+]],
+    }
+    local out, code = run(dir, PINNED .. "--emit binding compute.nupp")
+    test.equal(code, 0, "a one-way count relation is admitted\n" .. out)
+    assert(out:find("out.count > input.count", 1, true), "the generated binding enforces the relation: " .. out)
+    assert(out:find("GPU precondition failed", 1, true), "the relation has a binding failure: " .. out)
+end
+
+-- Says what was needed and what was read, rather than a form to copy.
+function M.anUnprovedRangeSaysWhatWasMissing()
+    local dir = project{
+        [
+            "compute.nupp"
+        ] = replaceOnce(
+            COMPUTE_ASSERTED,
+            "first >= 1 and last <= #out and first <= last + 1",
+            "first >= 1 and first <= last + 1"
+        )
+    }
+    local out, code = run(dir, PINNED .. "compute.nupp")
+    test.equal(code, 1, "a range missing its upper bound is refused\n" .. out)
+    assert(out:find("needed `last <= #out`", 1, true), "the missing bound is named: " .. out)
+    assert(out:find("understood ", 1, true) and out:find("`1 <= first`", 1, true), "so is what was read: " .. out)
 end
 
 function M.anAssertGuardTakesAConditionAndAMessage()

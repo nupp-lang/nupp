@@ -82,6 +82,62 @@ end
 return {decode = decode}
 ]]
 
+local MAP = [[
+local span = require("nupp.mem.span")
+@aot
+local function copy(
+    exclusive out: span.WriteSpan<number>,
+    borrows input: span.Span<number>,
+    borrows other: span.Span<number>,
+    first: integer,
+    last: integer
+): nil
+    assert(#out == #input, "length mismatch")
+    assert(first >= 1 and last <= #out and first <= last + 1, "range")
+    for i = first, last do
+        out[i] = input[i]
+    end
+end
+return {copy = copy}
+]]
+
+function M.mapBoundsAndLengthClaimsAreReprovedFromRelations()
+    local program = lowered(MAP, "map.nupp")
+    verify.program(program)
+
+    local written = program.relations
+    program.relations = {}
+    refuses(program, "unproved loop lower bound")
+    program.relations = written
+
+    program.guards[#program.guards + 1] = {op = "equal_count", left = "out", right = "other", source = program.source,}
+    refuses(program, "an IR guard the relations do not prove")
+end
+
+function M.gpuRelationsAreReverifiedAsSpanFacts()
+    local source = [[
+local span = require("nupp.mem.span")
+@aot(target = "gpu")
+local function copy(
+    exclusive out: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>,
+    limit: uint32
+): nil
+    assert(#out == #input, "length mismatch")
+    for i = 1, #out do
+        out[i] = input[i]
+    end
+end
+return {copy = copy}
+]]
+    local program = lowered(source, "gpu-map.nupp")
+    verify.program(program)
+    program.relations[
+        #program.relations + 1
+    ] = {left = {kind = "uniform", name = "limit"}, right = {kind = "count", name = "out"}, offset = 0,}
+    refuses(program, "a GPU guard relation is not over span lengths")
+end
+
 function M.aLengthAliasIsProvedByItsBindingRatherThanItsMetadata()
     -- `n` proves `cursor < n` bounds the read only because its `let` was the
     -- string's length. A `Name` also carries that fact as metadata, and a

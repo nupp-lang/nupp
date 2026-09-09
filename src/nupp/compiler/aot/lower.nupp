@@ -18,6 +18,7 @@ local admit = require("nupp.compiler.aot.admit")
 local fold = require("nupp.compiler.aot.fold")
 local lexer = require("nupp.compiler.lexer")
 local cst = require("nupp.compiler.cst")
+local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local visit = require("nupp.compiler.aot.visit")
 local switchplan = require("nupp.compiler.switchplan")
@@ -702,10 +703,13 @@ end
 ---
 --- `if not ok then error(m) end` states what must not happen; `assert(ok, m)`
 --- states what must hold. They carry the same fact, so lowering reads either
---- and remembers which spelling it saw to know how to match the condition.
+--- and remembers which form it saw to know how to match the condition.
 record lower.GuardForm
     cond: cst.Node?
     asserted: boolean
+
+    --- A non-literal argument consumption would discard, when one was written.
+    discarded: cst.Node?
 end
 
 --- What lowering one kernel's body needs to know.
@@ -4999,9 +5003,9 @@ end
 
 --- The one clause of a guard that does nothing but call `error`.
 ---
---- Both guards have this shape, and it is the shape that makes them checkable:
---- a guard whose body did something else would be a guard whose failure the
---- backend could not reason about.
+--- Both source forms have this shape, and it is the shape that makes a guard
+--- readable: the polarity its condition holds in on fallthrough is only known
+--- because the branch that does not fall through cannot return.
 function lower.isGuardStatement(stat: cst.Node?): boolean
     if stat == nil then
         return false
@@ -5011,210 +5015,696 @@ function lower.isGuardStatement(stat: cst.Node?): boolean
     end
     local called = stat.kind == "callStmt" and (stat as cst.CallStmt).expr or nil
 
-    return called ~= nil and called.kind == "call" and lower.nameOf((called as cst.Call).obj) == "assert"
+    return called ~= nil and called.kind == "call" and (called as cst.Call).aotGuardBuiltin == "assert"
 end
 
---- One precondition, in either spelling.
-function lower.guardClause(stat: cst.Node?, shapeWhy: string, bodyWhy: string, context: lower.Context): lower.GuardForm
-    local asserted = stat ~= nil and stat.kind == "callStmt" and (stat as cst.CallStmt).expr or nil
-    if asserted ~= nil and asserted.kind == "call" and lower.nameOf((asserted as cst.Call).obj) == "assert" then
+--- Whether dropping one already-evaluated guard argument changes no behavior.
+local function inertGuardArgument(node: cst.Node?): boolean
+    if node == nil then
+        return true
+    end
+    if node.kind == "paren" then
+        return inertGuardArgument((node as cst.Paren).expr)
+    end
+
+    return node.kind == "string"
+        or node.kind == "number"
+        or node.kind == "nilExpr"
+        or node.kind == "trueExpr"
+        or node.kind == "falseExpr"
+end
+
+--- One precondition and the polarity it was written in, or nothing.
+---
+--- Nothing rather than a refusal. A statement that is not a guard is how a
+--- function says it is not a map kernel, and lowering answers that by compiling
+--- it as an ordinary block, which compiles the statement rather than consuming
+--- it as a fact. Only a kernel that commits to the map shape is refused.
+function lower.guardForm(stat: cst.Node?): lower.GuardForm?
+    if stat == nil then
+        return nil
+    end
+    local asserted = stat.kind == "callStmt" and (stat as cst.CallStmt).expr or nil
+    if asserted ~= nil and asserted.kind == "call" and (asserted as cst.Call).aotGuardBuiltin == "assert" then
         local args = (asserted as cst.Call).args
         local exprs = args ~= nil and args.kind == "args" and ((args as cst.Args).exprs or {}) or {}
-        if #exprs < 1 or #exprs > 2 then
-            context.reject(lower.site(stat), "an assert guard takes its condition and an optional message")
+        if #exprs < 1 or #exprs > 2 or exprs[1] == nil then
+            return nil
         end
 
-        return new lower.GuardForm(cond = exprs[1], asserted = true)
+        return new lower.GuardForm(
+            cond = exprs[1],
+            asserted = true,
+            discarded = exprs[2] ~= nil and not inertGuardArgument(exprs[2]) and exprs[2] or nil
+        )
+    end
+    if stat.kind ~= "ifStmt" then
+        return nil
     end
 
     local branch = stat as cst.IfStmt
-    if stat == nil or stat.kind ~= "ifStmt" or #(branch.clauses or {}) ~= 1 or branch.elseClause ~= nil then
-        context.reject(lower.site(stat), shapeWhy)
+    if #(branch.clauses or {}) ~= 1 or branch.elseClause ~= nil then
+        return nil
     end
 
     local clause = (branch.clauses as {cst.IfClause})[1]
     local body = clause.body ~= nil and (clause.body as cst.Block).stats or {}
     local first = body[1]
     local call = first ~= nil and first.kind == "callStmt" and (first as cst.CallStmt).expr or nil
-    if #body ~= 1 or call == nil or call.kind ~= "call" or lower.nameOf((call as cst.Call).obj) ~= "error" then
-        context.reject(lower.site(stat), bodyWhy)
+    if #body ~= 1 or call == nil or call.kind ~= "call" or (
+        call as cst.Call
+    ).aotGuardBuiltin ~= "error" or clause.cond == nil then
+        return nil
     end
 
-    return new lower.GuardForm(cond = clause.cond, asserted = false)
+    local args = (call as cst.Call).args
+    local exprs = args ~= nil and args.kind == "args" and ((args as cst.Args).exprs or {}) or {}
+    local discarded: cst.Node? = nil
+    for _, argument in ipairs(exprs) do
+        if not inertGuardArgument(argument) then
+            discarded = argument
+            break
+        end
+    end
+
+    return new lower.GuardForm(cond = clause.cond, asserted = false, discarded = discarded)
 end
 
---- The length agreements one guard proves.
----
---- The guard may leave a span out: a span reached only through proved cursors
---- needs no equality the algorithm may be unable to state, and one the loop
---- index does address is checked at that access against the spans the guard
---- did name, so the omission cannot widen what the kernel may touch on either
---- execution target.
-function lower.lengthGuards(
-    stat: cst.Node,
-    form: lower.GuardForm,
-    signature: lower.Signature,
-    context: lower.Context
-): {scalarIR.Guard}
-    local primary = signature.writes[1]
-    local guarded: {[string]: scalarIR.Source} = {}
-    local joiner = form.asserted and "and" or "or"
-    local comparison = form.asserted and "==" or "~="
+--- One written clause as a diagnostic quotes it: on one line, spaced as it was.
+local function quoted(node: cst.Node?): string
+    if node == nil then
+        return ""
+    end
+    local collapsed = cst.textOf(node as cst.Child):gsub("%s+", " ")
 
-    --- One comparison, or a chain of them joined by the spelling's connective.
-    local function collect(expr: cst.Node?): nil
-        local operator = expr as cst.Binop
-        if expr ~= nil and expr.kind == "binop" and operator.op ~= nil and (
-            operator.op as lexer.Token
-        ).text == joiner then
-            collect(operator.lhs)
-            collect(operator.rhs)
+    return (collapsed:match("^%s*(.-)%s*$") or collapsed) as string
+end
 
-            return
+--- One integer literal, as a guard may offset a term by it.
+local function guardLiteral(node: cst.Node?): integer?
+    if node == nil then
+        return nil
+    end
+    if node.kind == "unop" then
+        local unary = node as cst.Unop
+        local operator = unary.op ~= nil and (unary.op as lexer.Token).text or ""
+        if operator ~= "-" then
+            return nil
         end
-        if expr == nil or expr.kind ~= "binop" or operator.op == nil or (
-            operator.op as lexer.Token
-        ).text ~= comparison then
-            context.reject(lower.site(expr or stat), "the guard may only compare span counts with " .. comparison)
-        end
-
-        local left, right = lower.dotCount(operator.lhs), lower.dotCount(operator.rhs)
-        local other: string? = nil
-        if left == primary.name then
-            other = right
-        elseif right == primary.name then
-            other = left
-        end
-
-        local named = other ~= nil and signature.byName[other as string] or nil
-        if named == nil or named.region == nil or other == primary.name then
-            context.reject(lower.site(expr), "each guard comparison must compare the primary output with another span")
-        end
-        if guarded[other as string] ~= nil then
-            context.reject(lower.site(expr), "duplicate length guard for " .. (other as string))
-        end
-        guarded[other as string] = lower.site(expr)
+        local magnitude = guardLiteral(unary.operand)
+        return magnitude ~= nil and -(magnitude as integer) or nil
+    end
+    if node.kind ~= "number" then
+        return nil
+    end
+    local token = (node as cst.NumberLit).token
+    local text = token ~= nil and (token as lexer.Token).text or ""
+    if text:match("^%d[%d_]*$") == nil and text:match("^0[xX][%da-fA-F_]+$") == nil then
+        return nil
+    end
+    local value = tonumber((text:gsub("_", "")))
+    if value == nil or (value as number) > relations.MAX_OFFSET then
+        return nil
     end
 
-    collect(form.cond)
+    return (value as number) as integer
+end
 
+--- The atom and constant one guard operand is, or nothing when it is not one.
+---
+--- Total over what it admits and silent about everything else. A field path, a
+--- call, a product of two names -- each returns nothing here, and the caller
+--- names the clause it came from rather than reading it as a weaker fact.
+function lower.guardTerm(node: cst.Node?, signature: lower.Signature): (scalarIR.Term?, integer)
+    if node == nil then
+        return nil, 0
+    end
+    if node.kind == "paren" then
+        return lower.guardTerm((node as cst.Paren).expr, signature)
+    end
+
+    local literal = guardLiteral(node)
+    if literal ~= nil then
+        return relations.zero(), literal as integer
+    end
+    if node.kind == "name" then
+        local name = lower.nameOf(node)
+        local param = name ~= nil and signature.byName[name as string] or nil
+        if param == nil or (param as scalarIR.Param).kind ~= "uniform" then
+            return nil, 0
+        end
+        -- Every rewrite below turns a strict comparison into a non-strict one by
+        -- moving one, which is true on the integers and false on `number`. That
+        -- is why the domain is the integral parameters and nothing else.
+        local sourceType = (param as scalarIR.Param).sourceType
+        if sourceType ~= "integer" and sourceType ~= "int32" and sourceType ~= "uint32" then
+            return nil, 0
+        end
+
+        return relations.uniform(name as string), 0
+    end
+
+    local counted = lower.dotCount(node)
+    if counted ~= nil then
+        local param = signature.byName[counted as string]
+        if param == nil or (param as scalarIR.Param).region == nil then
+            return nil, 0
+        end
+
+        return relations.count(counted as string), 0
+    end
+    if node.kind ~= "binop" then
+        return nil, 0
+    end
+
+    local operator = node as cst.Binop
+    local text = operator.op ~= nil and (operator.op as lexer.Token).text or ""
+    if text ~= "+" and text ~= "-" then
+        return nil, 0
+    end
+
+    local leftTerm, leftConstant = lower.guardTerm(operator.lhs, signature)
+    local rightTerm, rightConstant = lower.guardTerm(operator.rhs, signature)
+    if leftTerm == nil or rightTerm == nil then
+        return nil, 0
+    end
+    local signed = text == "+" and rightConstant or -rightConstant
+    if (rightTerm as scalarIR.Term).kind == "zero" then
+        return leftTerm, leftConstant + signed
+    end
+    if (leftTerm as scalarIR.Term).kind == "zero" and text == "+" then
+        return rightTerm, leftConstant + rightConstant
+    end
+
+    return nil, 0
+end
+
+--- What one comparison means once the polarity it sits under is applied.
+local NEGATED: {
+    [string]: string
+} = {["<="] = ">", ["<"] = ">=", [">="] = "<", [">"] = "<=", ["=="] = "~=", ["~="] = "=="}
+
+--- The relations one admitted comparison states, or nothing.
+---
+--- On integers `a < b` is `a <= b - 1` and `a > b` is `b <= a - 1`, so every
+--- admitted operator normalizes without weakening. `~=` states no bound in
+--- either direction and is therefore not admitted.
+local function guardComparison(
+    node: cst.Node,
+    polarity: boolean,
+    signature: lower.Signature,
+    out: {scalarIR.Relation}
+): boolean
+    local operator = node as cst.Binop
+    local written = operator.op ~= nil and (operator.op as lexer.Token).text or ""
+    local text = polarity and written or NEGATED[written] or ""
+    if text == "" or text == "~=" then
+        return false
+    end
+
+    local leftTerm, leftConstant = lower.guardTerm(operator.lhs, signature)
+    local rightTerm, rightConstant = lower.guardTerm(operator.rhs, signature)
+    if leftTerm == nil or rightTerm == nil then
+        return false
+    end
+    local left, right = leftTerm as scalarIR.Term, rightTerm as scalarIR.Term
+    local source = lower.site(node)
+    local forward = rightConstant - leftConstant
+    local backward = leftConstant - rightConstant
+    local firstOffset: integer
+    local secondOffset: integer? = nil
+    if text == "<=" then
+        firstOffset = forward
+    elseif text == "<" then
+        firstOffset = forward - 1
+    elseif text == ">=" then
+        firstOffset = backward
+        left, right = right, left
+    elseif text == ">" then
+        firstOffset = backward - 1
+        left, right = right, left
+    elseif text == "==" then
+        firstOffset = forward
+        secondOffset = backward
+    else
+        return false
+    end
+    if firstOffset > relations.MAX_OFFSET or firstOffset < -relations.MAX_OFFSET then
+        return false
+    end
+    if secondOffset ~= nil and (
+        (secondOffset as integer) > relations.MAX_OFFSET or (secondOffset as integer) < -relations.MAX_OFFSET
+    ) then
+        return false
+    end
+    out[#out + 1] = relations.relation(left, right, firstOffset, source)
+    if secondOffset ~= nil then
+        out[#out + 1] = relations.relation(right, left, secondOffset as integer, source)
+    end
+
+    return true
+end
+
+--- Every fact one condition states, under the polarity it is known in.
+---
+--- Total or nothing: the clause that cannot be read is returned, and the caller
+--- answers that rather than admitting a kernel whose wrapper would silently drop
+--- the precondition that clause was.
+function lower.guardFacts(
+    node: cst.Node?,
+    polarity: boolean,
+    signature: lower.Signature,
+    out: {scalarIR.Relation}
+): cst.Node?
+    if node == nil then
+        return node
+    end
+    if node.kind == "paren" then
+        return lower.guardFacts((node as cst.Paren).expr, polarity, signature, out)
+    end
+    if node.kind == "unop" then
+        local unary = node as cst.Unop
+        if unary.op ~= nil and (unary.op as lexer.Token).text == "not" then
+            return lower.guardFacts(unary.operand, not polarity, signature, out)
+        end
+
+        return node
+    end
+    if node.kind == "binop" then
+        local operator = node as cst.Binop
+        local text = operator.op ~= nil and (operator.op as lexer.Token).text or ""
+        -- A known-true `and` says both sides hold and a known-false `or` says
+        -- neither does. The other two say only that one side did, which is not a
+        -- fact about either, so a clause in that position is one that cannot be
+        -- read rather than one that may be skipped.
+        if text == (polarity and "and" or "or") then
+            return lower.guardFacts(
+                operator.lhs,
+                polarity,
+                signature,
+                out
+            ) or lower.guardFacts(operator.rhs, polarity, signature, out)
+        end
+        if NEGATED[text] ~= nil then
+            if guardComparison(node, polarity, signature, out) then
+                return nil
+            end
+
+            return node
+        end
+    end
+
+    return node
+end
+
+--- What reading a kernel's guard prefix produced.
+record lower.GuardReading
+    --- The facts, canonical and deduplicated, when every clause was read.
+    relations: {scalarIR.Relation}
+
+    --- Why the prefix could not be read as facts, when it could not be.
+    reason: string?
+
+    --- Where that was, when it was one clause rather than the whole prefix.
+    at: scalarIR.Source?
+
+    --- Whether the body had committed to being a map kernel by the time the
+    --- reading stopped.
+    ---
+    --- A statement that is not a guard at all says the body is something else,
+    --- and lowering answers that by compiling it as a block. A guard whose
+    --- clause cannot be read says the body meant to be a map kernel and its
+    --- precondition would be dropped, and the block path admits neither
+    --- `assert` nor `error` -- so there is nothing to fall back to, and the
+    --- refusal that names the clause is the useful answer.
+    committed: boolean = false
+end
+
+--- The facts a kernel's leading guard statements state.
+function lower.readGuards(statements: {cst.Node}, upTo: integer, signature: lower.Signature): lower.GuardReading
+    local pool: {scalarIR.Relation} = {}
+    local committed = false
+    for position = 1, upTo do
+        local form = lower.guardForm(statements[position])
+        if form == nil then
+            return new lower.GuardReading(
+                relations = {},
+                reason = "a guard must be `assert(...)` or `if ... then error(...) end`",
+                at = lower.site(statements[position])
+            )
+        end
+        committed = true
+        if (form as lower.GuardForm).discarded ~= nil then
+            local discarded = (form as lower.GuardForm).discarded
+            return new lower.GuardReading(
+                relations = {},
+                reason = "`" .. quoted(
+                    discarded
+                ) .. "` cannot be discarded from a guard; its message and level arguments must be literals",
+                at = lower.site(discarded),
+                committed = true
+            )
+        end
+        local failed = lower.guardFacts(
+            (form as lower.GuardForm).cond,
+            (form as lower.GuardForm).asserted,
+            signature,
+            pool
+        )
+        if failed ~= nil then
+            return new lower.GuardReading(
+                relations = {},
+                reason = "`" .. quoted(
+                    failed
+                )
+                .. "` cannot be read as a guard: a guard compares integer parameters, integer literals and span lengths, offset by a literal",
+                at = lower.site(failed),
+                committed = true
+            )
+        end
+        if #pool > relations.BUDGET then
+            return new lower.GuardReading(
+                relations = {},
+                reason = "a kernel's guards may state at most " .. tostring(relations.BUDGET) .. " relations",
+                at = lower.site(statements[position]),
+                committed = true
+            )
+        end
+    end
+
+    return new lower.GuardReading(relations = relations.canonical(pool), committed = committed)
+end
+
+--- Every term a kernel's signature can state a relation about.
+function lower.guardTerms(signature: lower.Signature): {scalarIR.Term}
+    local terms: {scalarIR.Term} = {relations.zero()}
+    for _, param in ipairs(signature.params) do
+        if param.region ~= nil then
+            terms[#terms + 1] = relations.count(param.name)
+        elseif param.kind == "uniform" then
+            terms[#terms + 1] = relations.uniform(param.name)
+        end
+    end
+
+    return terms
+end
+
+--- The shape of an admitted map loop, before anything about it is proved.
+record lower.LoopShape
+    index: string
+
+    --- The uniform it starts at, or nothing when it starts at `1`.
+    first: string?
+
+    --- The uniform it stops at, or nothing when it stops at a span's length.
+    last: string?
+
+    --- The span whose length it stops at, when it stops at one.
+    stopSpan: string?
+end
+
+--- The loop one map kernel is, if the final statement is one.
+---
+--- Two admitted forms: the whole of a span, and a range named by two uniforms.
+--- Anything else -- a step, a mixed pair of bounds, a bound that is neither --
+--- is not this shape, which is a fact about the loop rather than a failed proof
+--- and so declines the map path rather than refusing the kernel.
+function lower.loopShape(loop: cst.Node?, signature: lower.Signature): lower.LoopShape?
+    if loop == nil or loop.kind ~= "fornumStmt" then
+        return nil
+    end
+    local counted = loop as cst.FornumStmt
+    if counted.step ~= nil or counted.var == nil then
+        return nil
+    end
+
+    local index = (counted.var as lexer.Token).text
+    local startName = lower.nameOf(counted.start)
+    local startLiteral = guardLiteral(counted.start)
+    local stopName = lower.nameOf(counted.stop)
+    local stopSpan = lower.dotCount(counted.stop)
+    if startLiteral == 1 and stopSpan ~= nil then
+        local param = signature.byName[stopSpan as string]
+        if param == nil or (param as scalarIR.Param).region == nil then
+            return nil
+        end
+
+        return new lower.LoopShape(index = index, stopSpan = stopSpan)
+    end
+    if startName == nil or stopName == nil then
+        return nil
+    end
+    -- The IR carries these two as names the emitted C reads directly, and the
+    -- verifier holds them to `integer`, so a narrower integral uniform may state
+    -- a relation without being admitted as a bound.
+    local from = signature.byName[startName as string]
+    local to = signature.byName[stopName as string]
+    if from == nil or to == nil or (
+        from as scalarIR.Param
+    ).kind ~= "uniform" or (
+        to as scalarIR.Param
+    ).kind ~= "uniform" or (
+        from as scalarIR.Param
+    ).sourceType ~= "integer" or (to as scalarIR.Param).sourceType ~= "integer" then
+        return nil
+    end
+
+    return new lower.LoopShape(index = index, first = startName, last = stopName)
+end
+
+--- One bound a map loop needs, and the relation that would establish it.
+record lower.Obligation
+    --- What the diagnostic calls it, in the source's own terms.
+    needed: string
+
+    left: scalarIR.Term
+    right: scalarIR.Term
+    offset: integer
+end
+
+--- What a loop over `primary` obliges its guards to have proved.
+---
+--- The loop names the range; the guards name nothing. Asking which two of a
+--- pool of facts are the bounds has no answer the loop does not already give,
+--- so the obligations come from here and the facts are only asked whether they
+--- imply them.
+function lower.loopObligations(shape: lower.LoopShape, primary: string): {lower.Obligation}
+    local count = relations.count(primary)
+    if shape.first == nil then
+        local span = shape.stopSpan as string
+        if span == primary then
+            return {}
+        end
+        local other = relations.count(span)
+
+        return {
+            new lower.Obligation(needed = "#" .. span .. " <= #" .. primary, left = other, right = count, offset = 0),
+            new lower.Obligation(needed = "#" .. primary .. " <= #" .. span, left = count, right = other, offset = 0),
+        }
+    end
+
+    local first = relations.uniform(shape.first as string)
+    local last = relations.uniform(shape.last as string)
+
+    return {
+        new lower.Obligation(
+            needed = "1 <= " .. tostring(shape.first),
+            left = relations.zero(),
+            right = first,
+            offset = -1
+        ),
+        new lower.Obligation(
+            needed = tostring(shape.last) .. " <= #" .. primary,
+            left = last,
+            right = count,
+            offset = 0
+        ),
+        new lower.Obligation(
+            needed = tostring(shape.first) .. " <= " .. tostring(shape.last) .. " + 1",
+            left = first,
+            right = last,
+            offset = 1
+        ),
+    }
+end
+
+--- Whether one body is a map kernel, and everything deciding it took.
+---
+--- Three outcomes, and the difference between the last two is the whole of the
+--- admission policy. Admitted: the facts imply the loop's bounds. Declined: the
+--- body is not this shape, or states something that cannot be read as a fact,
+--- so it compiles as an ordinary block -- which compiles the guards rather than
+--- consuming them, and is therefore sound whatever they said. Refused: the body
+--- committed to the range form and the facts do not imply its bounds, which is
+--- the one case where the programmer wrote a map kernel and it does not hold.
+record lower.MapAdmission
+    --- The loop, when the body was admitted.
+    shape: lower.LoopShape?
+
+    --- The facts the guard prefix stated, which the wrapper will enforce.
+    relations: {scalarIR.Relation}
+
+    --- The length agreements those facts prove against the primary output.
+    guards: {scalarIR.Guard}
+
+    --- The range the loop named, when it named one.
+    rangeGuard: scalarIR.RangeGuard?
+
+    --- Why the map shape was declined, when it was.
+    declined: string?
+
+    declinedAt: scalarIR.Source?
+
+    --- Whether the body had committed to the map shape when it was declined,
+    --- which is what decides between compiling it as a block and refusing it.
+    committed: boolean = false
+
+    --- The bound the facts did not imply, when the kernel committed and one was
+    --- not proved.
+    unproved: lower.Obligation?
+
+    --- What was read out of the guards, for the diagnostic that has to say what
+    --- it did understand as well as what it needed.
+    understood: {scalarIR.Relation}
+end
+
+--- The span names a signature declares, in order.
+local function spanNames(signature: lower.Signature): {string}
+    local names: {string} = {}
+    for _, span in ipairs(signature.spans) do
+        names[#names + 1] = span.name
+    end
+
+    return names
+end
+
+function lower.admitMap(statements: {cst.Node}, signature: lower.Signature): lower.MapAdmission
+    local primary = signature.writes[1]
+    local shape = lower.loopShape(statements[#statements], signature)
+    if shape == nil then
+        return new lower.MapAdmission(
+            relations = {},
+            guards = {},
+            understood = {},
+            declined = "a map kernel is a guard prefix and one counted loop over a span or a uniform range",
+            declinedAt = lower.site(statements[#statements])
+        )
+    end
+
+    local reading = lower.readGuards(statements, #statements - 1, signature)
+    if reading.reason ~= nil then
+        return new lower.MapAdmission(
+            relations = {},
+            guards = {},
+            understood = {},
+            declined = reading.reason,
+            declinedAt = reading.at,
+            committed = reading.committed
+        )
+    end
+
+    local closure = relations.solve(reading.relations, spanNames(signature), lower.guardTerms(signature))
+    if closure.contradiction ~= nil then
+        -- Everything follows from a contradiction, including the loop's bounds,
+        -- so admitting one would admit a kernel whose guards can never pass.
+        return new lower.MapAdmission(
+            relations = {},
+            guards = {},
+            understood = reading.relations,
+            declined = "these guards cannot all hold at once, so nothing follows from them",
+            declinedAt = lower.site(statements[1]),
+            committed = reading.committed
+        )
+    end
+
+    local loop = shape as lower.LoopShape
+    for _, obligation in ipairs(lower.loopObligations(loop, primary.name)) do
+        if relations.proves(closure, obligation.left, obligation.right, obligation.offset) == nil then
+            if loop.first == nil then
+                -- A loop over a span nothing relates to the primary output is
+                -- not a map over that output. A fact about the loop rather than
+                -- a failed proof, so it declines rather than refusing.
+                return new lower.MapAdmission(
+                    relations = {},
+                    guards = {},
+                    understood = reading.relations,
+                    declined = "the loop does not run over the primary output's length",
+                    declinedAt = lower.site(statements[#statements]),
+                    committed = reading.committed
+                )
+            end
+
+            return new lower.MapAdmission(
+                relations = reading.relations,
+                guards = {},
+                understood = reading.relations,
+                unproved = obligation
+            )
+        end
+    end
+
+    -- Discovered rather than obliged. The set of spans the body may index at the
+    -- loop counter is seeded from these, so the required set cannot be known
+    -- before the guards are read -- deriving it from lowering and then checking
+    -- the guards against it would be circular. Building the closure first and
+    -- reading the agreements out of it is not.
     local guards: {scalarIR.Guard} = {}
     for _, span in ipairs(signature.spans) do
-        if span.name ~= primary.name and guarded[span.name] ~= nil then
+        if span.name ~= primary.name and relations.equalCounts(closure, primary.name, span.name) then
+            local proof = relations.proves(closure, relations.count(span.name), relations.count(primary.name), 0)
+            local contributing = proof ~= nil and proof as {scalarIR.Relation} or {}
             guards[
                 #guards + 1
             ] = new scalarIR.Guard(
                 op = "equal_count",
                 left = primary.name,
                 right = span.name,
-                source = guarded[span.name]
+                source = #contributing > 0 and contributing[1].source or nil
             )
         end
     end
 
-    return guards
-end
-
---- The range one optional second guard proves.
----
---- Matched against its exact written form rather than interpreted. The generated
---- loop reads these bounds without comparing them, so what makes that sound is
---- that this guard was checked -- and a guard the backend only approximately
---- understood would not be a check.
-function lower.rangeGuard(
-    stat: cst.Node,
-    form: lower.GuardForm,
-    signature: lower.Signature,
-    context: lower.Context
-): scalarIR.RangeGuard
-    local primary = signature.writes[1]
-    local written = lower.compactType(form.cond)
-    local pattern = form.asserted
-        and "^([%a_][%w_]*)>=1and([%a_][%w_]*)<=#([%a_][%w_]*)and"
-        or "^([%a_][%w_]*)<1or([%a_][%w_]*)>#([%a_][%w_]*)or"
-    local firstName, lastName, countName = written:match(pattern)
-    local expected = ""
-    if firstName ~= nil then
-        if form.asserted then
-            expected = tostring(
-                firstName
-            ) .. ">=1and" .. tostring(
-                lastName
-            ) .. "<=#" .. primary.name .. "and" .. tostring(firstName) .. "<=" .. tostring(lastName) .. "+1"
-        else
-            expected = tostring(
-                firstName
-            ) .. "<1or" .. tostring(
-                lastName
-            ) .. ">#" .. primary.name .. "or" .. tostring(firstName) .. ">" .. tostring(lastName) .. "+1"
-        end
-    end
-    if written ~= expected or countName ~= primary.name then
-        context.reject(
-            lower.site(form.cond),
-            form.asserted
-            and "range guard must be `first >= 1 and last <= #output and first <= last + 1`"
-            or "range guard must be `first < 1 or last > #output or first > last + 1`"
+    local rangeGuard: scalarIR.RangeGuard? = nil
+    if loop.first ~= nil then
+        rangeGuard = new scalarIR.RangeGuard(
+            first = loop.first as string,
+            last = loop.last as string,
+            count = primary.name,
+            source = lower.site(statements[#statements])
         )
     end
 
-    local first = signature.byName[tostring(firstName)]
-    local last = signature.byName[tostring(lastName)]
-    if first == nil
-        or last == nil
-        or first.kind ~= "uniform"
-        or last.kind ~= "uniform"
-        or first.sourceType ~= "integer"
-        or last.sourceType ~= "integer"
-    then
-        context.reject(lower.site(form.cond), "range bounds must be uniform integer parameters")
-    end
-
-    return new scalarIR.RangeGuard(
-        first = tostring(firstName),
-        last = tostring(lastName),
-        count = primary.name,
-        source = lower.site(stat)
+    return new lower.MapAdmission(
+        shape = shape,
+        relations = reading.relations,
+        guards = guards,
+        rangeGuard = rangeGuard,
+        understood = reading.relations
     )
 end
 
---- Admits the outer loop, and answers what it counts with.
+--- The refusal a committed map kernel whose bounds are not proved reports.
 ---
---- Its bounds have to be the ones a guard proved, written the same way. The IR
---- carries them and the verifier checks them, which is what lets the generated
---- loop read them rather than checking them again per element.
-function lower.loopIndex(
-    loop: cst.Node,
-    rangeGuard: scalarIR.RangeGuard?,
-    signature: lower.Signature,
-    context: lower.Context
-): string
-    local primary = signature.writes[1]
-    if loop.kind ~= "fornumStmt" then
-        context.reject(lower.site(loop), "the final statement must be a numeric for loop")
+--- Says what was needed and what was read, rather than a form to copy: the two
+--- together are the gap in the argument, and a fixed source form would not be.
+function lower.unprovedMessage(admission: lower.MapAdmission): string
+    local understood: {string} = {}
+    for _, relation in ipairs(admission.understood) do
+        local at = relation.source
+        understood[
+            #understood + 1
+        ] = "`" .. relations.text(
+            relation
+        ) .. "`" .. (
+            at ~= nil and (
+                " (" .. tostring((at as scalarIR.Source).line) .. ":" .. tostring((at as scalarIR.Source).column) .. ")"
+            ) or ""
+        )
     end
 
-    local counted = loop as cst.FornumStmt
-    local start = counted.start
-    local literal = start ~= nil and start.kind == "number" and (start as cst.NumberLit).token or nil
-    local first = lower.nameOf(start) or (literal ~= nil and (literal as lexer.Token).text or nil)
-    if first ~= (rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).first or "1") then
-        context.reject(lower.site(start or loop), "kernel loop start must match its verified range")
-    end
-    if counted.step ~= nil then
-        context.reject(lower.site(counted.step), "the first subset does not admit an explicit loop step")
-    end
-
-    local stop = lower.nameOf(counted.stop) or lower.dotCount(counted.stop)
-    local wanted = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).last or primary.name
-    if stop ~= wanted then
-        context.reject(lower.site(counted.stop or loop), "the loop bound must match its verified range")
-    end
-    if counted.var == nil then
-        context.reject(lower.site(loop), "the kernel loop needs an index variable")
-    end
-
-    return (counted.var as lexer.Token).text
+    return "the loop range is not proved: needed `" .. (
+        admission.unproved as lower.Obligation
+    ).needed .. "`, understood " .. (#understood > 0 and table.concat(understood, ", ") or "nothing")
 end
 
 ----------------------------------------------------------------------------
@@ -5840,26 +6330,56 @@ function lower.program(
         )
     end
 
-    local mapShape = #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0 and (
-        #statements == 2 or #statements == 3
-    ) and lower.isGuardStatement(statements[1]) and statements[#statements].kind == "fornumStmt"
-    -- A map may relate spans of different lengths -- a matrix product reads
-    -- dimensions no equality guard can spell -- so its length guard is
-    -- optional. What replaces the proof is per-access: a span the body touches
-    -- at the loop index must still be the primary or guarded equal to it, while
-    -- a cursor access carries its dominating bound check into either backend.
-    local guardlessLoop = #statements == 1 and statements[
-        1
-    ].kind == "fornumStmt" and statements[1] as cst.FornumStmt or nil
-    if #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0 and guardlessLoop ~= nil and lower.dotCount(
-        (guardlessLoop as cst.FornumStmt).stop
-    ) == signature.writes[1].name then
-        mapShape = true
+    -- A map kernel is a guard prefix and then one counted loop. The guards state facts,
+    -- the loop states obligations, and admission is whether the first imply the second
+    -- -- so a precondition stronger than the loop needs is carried rather than refused,
+    -- and one the loop does need is proved from any equivalent source form. A map may
+    -- still relate spans of different lengths, because a length agreement is discovered
+    -- from the facts rather than required of them: what replaces the proof is
+    -- per-access, where a span the body touches at the loop counter must be the primary
+    -- or proved equal to it, while a cursor access carries its dominating bound check
+    -- into either backend.
+    local candidate = #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0 and #statements > 0
+    local admission = candidate and lower.admitMap(
+        statements,
+        signature
+    ) or new lower.MapAdmission(
+        relations = {},
+        guards = {},
+        understood = {},
+        declined = "a map kernel writes a span and reads one, and returns nothing",
+        declinedAt = lower.site(body)
+    )
+    if admission.unproved ~= nil then
+        context.reject(lower.site(statements[#statements]), lower.unprovedMessage(admission))
     end
+    if admission.declined ~= nil and admission.committed then
+        context.reject(admission.declinedAt, tostring(admission.declined))
+    end
+    if contract.target == "gpu" then
+        -- The host binding can enforce relations among the span counts it owns,
+        -- but a dispatch has no wrapper for relations involving scalar uniforms.
+        -- Anything else would be a precondition the source wrote and this target
+        -- silently dropped.
+        for _, relation in ipairs(admission.relations) do
+            if relation.left.kind ~= "count" or relation.right.kind ~= "count" then
+                context.reject(
+                    relation.source,
+                    "a GPU kernel's guards may only relate span lengths, and nothing enforces `" .. relations.text(
+                        relation
+                    ) .. "` on a dispatch"
+                )
+            end
+        end
+    end
+    local mapShape = admission.shape ~= nil
 
     if not mapShape then
         if contract.vectorizeRequest == "prefer" then
-            context.reject(lower.site(body), "required scalar-source lanes need the admitted map-loop shape")
+            context.reject(
+                admission.declinedAt or lower.site(body),
+                "required scalar-source lanes need the admitted map-loop shape: " .. tostring(admission.declined)
+            )
         end
 
         local kernel = newKernel(signature, declarations, layouts, symbol, context, {
@@ -5924,38 +6444,10 @@ function lower.program(
 
     local primary = signature.writes[1]
 
-    local guards: {scalarIR.Guard} = {}
-    if #statements > 1 then
-        guards = lower.lengthGuards(
-            statements[1],
-            lower.guardClause(
-                statements[1],
-                "the first statement must be a single length-mismatch guard",
-                "a length guard must call error or assert directly",
-                context
-            ),
-            signature,
-            context
-        )
-    end
-
-    local rangeGuard: scalarIR.RangeGuard? = nil
-    if #statements == 3 then
-        rangeGuard = lower.rangeGuard(
-            statements[2],
-            lower.guardClause(
-                statements[2],
-                "the optional second statement must be a range guard",
-                "a range guard must call error or assert directly",
-                context
-            ),
-            signature,
-            context
-        )
-    end
-
+    local guards = admission.guards
+    local rangeGuard = admission.rangeGuard
     local loop = statements[#statements]
-    local index = lower.loopIndex(loop, rangeGuard, signature, context)
+    local index = (admission.shape as lower.LoopShape).index
     local kernel = newKernel(signature, declarations, layouts, symbol, context, {
         loopSource = lower.site(loop),
         index = index,
@@ -6006,6 +6498,7 @@ function lower.program(
         layouts = layouts.ordered,
         regions = regions,
         aliasFacts = aliasFacts,
+        relations = admission.relations,
         guards = guards,
         rangeGuard = rangeGuard,
         helpers = kernel.helperOrder,

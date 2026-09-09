@@ -102,6 +102,7 @@ local function sourceDeclarations()
     local parsed = parser.parse(source, "src/nupp/compiler/aot/scalar.nupp")
     assert(#parsed.errors == 0)
     local records, aliases = {}, {}
+
     local function walk(node)
         if not node or cst.isToken(node) then
             return
@@ -193,6 +194,7 @@ function M.mapperAndEffectVocabulariesMatchTheScalarDeclarations()
         local expected = {}
         local active = {}
         local makeRecord, makeValue
+
         local function sentinel(path)
             expected[path] = true
             return {op = "constant", value = "0.0", type = "f64", _auditPath = path}
@@ -342,6 +344,35 @@ function M.pointerSpansSeeLoadsBeneathWideArithmetic()
     }
     local used = emit.pointerSpans(program)
     assert(used.values == true, "a span read beneath 64-bit arithmetic must count as used")
+end
+
+-- A guard may state a precondition about a parameter the body never reads, so
+-- the emitter has to know which uniforms the C actually uses. The loop's own
+-- bounds are read by the loop header rather than by any IR node, which is why
+-- they are added by hand rather than found by the walk.
+function M.pointerSpansSeeUniformReadsAndLoopBounds()
+    local emit = require("nupp.compiler.aot.emit")
+    local program = {
+        rangeGuard = {first = "first", last = "last", count = "out"},
+        loop = {
+            index = "i",
+            first = "first",
+            last = "last",
+            count = "out",
+            statements = {
+                {
+                    op = "store",
+                    span = "out",
+                    index = "i",
+                    value = {op = "uniform", name = "scale", cName = "scale", type = "f64"},
+                }
+            },
+        },
+    }
+    local used = emit.pointerSpans(program)
+    assert(used.scale == true, "a uniform the body reads is used")
+    assert(used.first == true and used.last == true, "so are the bounds the loop header reads")
+    assert(used.rounds == nil, "a uniform only a guard mentioned is not")
 end
 
 function M.laneWalkReachesAUniformMultipleBinding()

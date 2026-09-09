@@ -2,6 +2,7 @@ module nupp.compiler.aot.wasmbinding
 
 --[[Checked source wrappers for Lua functions registered by a Wasm AOT side module.]]
 
+local binding = require("nupp.compiler.aot.binding")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
 local wasmbinding = {}
@@ -128,6 +129,13 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string): strin
     local results = program.resultSourceTypes or {}
     local result = #results == 0 and "nil" or #results == 1 and results[1] or "(" .. table.concat(results, ", ") .. ")"
     lines[#lines + 1] = "): " .. result
+    -- The same relation list the native wrapper enforces. Until this the Wasm
+    -- boundary checked span lengths and nothing else, so a map entry over a
+    -- guarded sub-range reached the module with its range unchecked.
+    for _, line in ipairs(binding.relations(program)) do
+        lines[#lines + 1] = line
+    end
+
     local arguments: {string} = {}
     local counts: {string} = {}
     local physicalParams: {string} = {}
@@ -139,7 +147,10 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string): strin
             lines[#lines + 1] = "    local " .. token .. ", " .. count .. " = " .. param.name .. ":ref()"
             if primary == nil then
                 primary = count
-            elseif program.body == nil then
+            elseif program.body == nil and program.loop == nil then
+                -- A phased workgroup entry states no relations, so the one thing
+                -- keeping its spans in step is still this comparison. A map
+                -- entry's are checked above, from what its guards actually said.
                 lines[
                     #lines + 1
                 ] = "    if " .. count .. " ~= " .. tostring(

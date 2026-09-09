@@ -1542,6 +1542,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local globalEntry = calleeName ~= "" and c.env and c.env.globals and c.env.globals[calleeName] or nil
         local stableGlobal = globalEntry and calleeEntry and globalEntry.definition == calleeEntry.definition
+        if stableGlobal and (calleeName == "assert" or calleeName == "error") then
+            node.aotGuardBuiltin = calleeName
+        end
         if stableGlobal and calleeName == "select" and node.argumentPack then
             local source = node.argumentPack
             local selector = argExprs[1]

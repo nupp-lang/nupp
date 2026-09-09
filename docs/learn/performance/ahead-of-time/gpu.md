@@ -28,6 +28,13 @@ The ordinary function body remains the CPU definition. The GPU backend accepts
 only operations whose storage access, control flow, and arithmetic it can
 verify against that definition.
 
+Its guards may only relate span lengths. The generated binding checks every
+such relation when the resident buffers are bound. A dispatch has no wrapper
+for a relation involving its scalar uniforms, and a GPU entry always covers a
+whole span, so a fact of any other shape is refused rather than silently
+dropped on the way to the device. The same kernel targeting the CPU may state
+it.
+
 ## Resident buffers
 
 A native `aot = "require"` target replaces the declaration with a kernel

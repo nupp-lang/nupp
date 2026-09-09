@@ -163,8 +163,8 @@ end
 cdef function ks_scale(exclusive samples: voidptr, borrows source: voidptr, ...) from"..."
 
 local function scale(exclusive samples: span.WriteSpan<Sample>, ...): nil
-    if first < 1 or last > #samples or first > last + 1 then
-        error("native range out of bounds", 2)
+    if first < 1 or first > last + 1 or last > #samples then
+        error("native precondition failed", 2)
     end
     local native_samples, native_samplesCount = samples:ref()
     ...
@@ -175,8 +175,10 @@ end
 ```
 
 Because it is Nupp rather than generated Lua, it goes through the checker like
-anything else: the ownership annotations, the range guard and the
-one-statement-wide `unsafe do` are all checked, not trusted. A substitution
+anything else: the ownership annotations, the precondition checks and the
+one-statement-wide `unsafe do` are all checked, not trusted. Those checks are
+the relations the source's own guards stated, so the wrapper holds a caller to
+what the function was written to require and not to a weaker restatement of it. A substitution
 cannot smuggle in something the language would refuse.
 
 It is written where the declaration was, which is necessarily after the struct

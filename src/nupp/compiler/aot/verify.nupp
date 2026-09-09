@@ -33,6 +33,7 @@ from entering a 32-bit gang that would change its answers.
 local admit = require("nupp.compiler.aot.admit")
 local effects = require("nupp.compiler.aot.effects")
 local lane = require("nupp.compiler.aot.lane")
+local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local visit = require("nupp.compiler.aot.visit")
 
@@ -2631,16 +2632,80 @@ local function regions(program: scalarIR.Program, byRegion: {[string]: scalarIR.
     holds(#program.aliasFacts == count * (count - 1) / 2, "incomplete alias matrix")
 end
 
+--- The universe of terms one signature can state a relation about, and the
+--- spans among them.
+local function termUniverse(params: {scalarIR.Param}): ({scalarIR.Term}, {string})
+    local terms: {scalarIR.Term} = {relations.zero()}
+    local spans: {string} = {}
+    for _, param in ipairs(params) do
+        if param.region ~= nil then
+            terms[#terms + 1] = relations.count(param.name)
+            spans[#spans + 1] = param.name
+        elseif param.kind == "uniform" then
+            terms[#terms + 1] = relations.uniform(param.name)
+        end
+    end
+
+    return terms, spans
+end
+
+--- Whether one term names something this signature actually declares.
+local function namedTerm(term: scalarIR.Term, byName: {[string]: scalarIR.Param}): boolean
+    local isOrigin = term.kind == "zero"
+    local isCount = term.kind == "count"
+    if isOrigin then
+        return term.name == nil
+    end
+    local param = term.name ~= nil and byName[term.name as string] or nil
+    if param == nil then
+        return false
+    elseif isCount then
+        return (param as scalarIR.Param).region ~= nil
+    else
+        return (param as scalarIR.Param).kind == "uniform"
+    end
+end
+
 --- The loop's bounds, and the length agreements that make them cover every
 --- span rather than only the one they were written against.
+---
+--- Both are claims, and both are re-proved here from `program.relations` rather
+--- than trusted. That list is what the generated wrapper enforces, so a claim
+--- that does not follow from it is a claim nothing checks -- and this is where
+--- a fabricated one, or a relation quietly dropped from the list it was proved
+--- against, stops being an artifact and becomes a build failure.
 local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Param}, primary: scalarIR.Param?): nil
+    local pool = program.relations or {}
     if program.loop == nil then
         holds(program.rangeGuard == nil and #program.guards == 0, "a block kernel carried map-loop bounds")
+        holds(#pool == 0, "a block kernel carried guard relations")
+
         return
     end
     local loop = program.loop as scalarIR.Loop
     holds(primary ~= nil, "a map loop has no primary output")
     local primary_ = primary as scalarIR.Param
+
+    holds(#pool <= relations.BUDGET, "more guard relations than the budget admits")
+    for _, relation in ipairs(pool) do
+        holds(namedTerm(relation.left, byName), "a guard relation names an undeclared term")
+        holds(namedTerm(relation.right, byName), "a guard relation names an undeclared term")
+        if program.executionTarget == "gpu" then
+            holds(
+                relation.left.kind == "count" and relation.right.kind == "count",
+                "a GPU guard relation is not over span lengths"
+            )
+        end
+        holds(
+            relation.offset >= -relations.MAX_OFFSET and relation.offset <= relations.MAX_OFFSET,
+            "a guard relation offsets further than the budget admits"
+        )
+    end
+    local terms, spans = termUniverse(program.params)
+    local closure = relations.solve(pool, spans, terms)
+    holds(closure.contradiction == nil, "guard relations that cannot all hold")
+
+    local count = relations.count(primary_.name)
     local rangeGuard = program.rangeGuard
     if rangeGuard ~= nil then
         local guard = rangeGuard as scalarIR.RangeGuard
@@ -2658,6 +2723,10 @@ local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Par
             ] ~= nil and (byName[guard.last] as scalarIR.Param).sourceType == "integer",
             "range proof does not use integer uniforms"
         )
+        local first, last = relations.uniform(guard.first), relations.uniform(guard.last)
+        holds(relations.proves(closure, relations.zero(), first, -1) ~= nil, "unproved loop lower bound")
+        holds(relations.proves(closure, last, count, 0) ~= nil, "unproved loop upper bound")
+        holds(relations.proves(closure, first, last, 1) ~= nil, "unproved empty loop range")
     else
         holds(loop.first == 1 and loop.last == primary_.name, "invalid full-span loop")
     end
@@ -2667,9 +2736,10 @@ local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Par
         holds(guard.op == "equal_count" and guard.left == primary_.name, "invalid IR guard")
         holds(byName[guard.right] ~= nil and (byName[guard.right] as scalarIR.Param).region ~= nil, "guarded non-span")
         holds(guarded[guard.right] == nil, "duplicate IR guard")
+        holds(relations.equalCounts(closure, guard.left, guard.right), "an IR guard the relations do not prove")
         guarded[guard.right] = true
     end
-    -- A map kernel may relate spans no equality can spell, so a span may go
+    -- A map kernel may relate spans no equality can express, so a span may go
     -- unguarded. What keeps that sound is the access rule: the body walk accepts
     -- the loop index only against `indexSpans`, so an unguarded span is
     -- reachable through proved cursors alone.

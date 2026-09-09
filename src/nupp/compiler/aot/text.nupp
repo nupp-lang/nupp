@@ -16,6 +16,7 @@ reader wants the operation and not the record it happens to share.
 ]]
 
 local lane = require("nupp.compiler.aot.lane")
+local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
 local text = {}
@@ -591,6 +592,11 @@ local function preamble(program: scalarIR.Program): {string}
         lines[
             #lines + 1
         ] = ("  %s -> %s %s"):format(helper.name, table.concat(helper.resultTypes, ","), at(helper.source))
+    end
+
+    lines[#lines + 1] = "relations"
+    for _, relation in ipairs(program.relations or {}) do
+        lines[#lines + 1] = ("  %s %s"):format(relations.text(relation), at(relation.source))
     end
 
     lines[#lines + 1] = "guards"

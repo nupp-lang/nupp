@@ -1241,13 +1241,26 @@ end
 --- optimizer runs in between and may be what removed the last read. A count is
 --- not a dereference, so `span_count` is the one node naming a span that does
 --- not put it in this set.
+---
+--- Uniforms are here for the same reason and one more: a guard may state a
+--- precondition about a parameter the body never reads, which is a fact the
+--- generated wrapper checks and the generated C has no use for. The loop's own
+--- bounds are read by the loop header rather than by any IR node, so they are
+--- put in by hand.
 function emit.pointerSpans(program: scalarIR.Program): {[string]: boolean}
     local found: {[string]: boolean} = {}
+    local rangeGuard = program.rangeGuard
+    if rangeGuard ~= nil then
+        found[(rangeGuard as scalarIR.RangeGuard).first] = true
+        found[(rangeGuard as scalarIR.RangeGuard).last] = true
+    end
     visit.program(
         program,
         new visit.Visitor(
             scalarExpression = function(node: scalarIR.Expr): nil
-                if node.op == "load" or node.op == "element_ref" then
+                if node.op == "uniform" then
+                    found[(node as scalarIR.Name).name] = true
+                elseif node.op == "load" or node.op == "element_ref" then
                     found[node.span] = true
                 elseif node.op == "simd_load_u8" or node.op == "simd_block64_load_u8" then
                     local span = (node as scalarIR.Simd).span
@@ -1283,15 +1296,16 @@ end
 --- matrix the checker proved, stated where the C compiler can use it. Nothing
 --- infers it from the pointer types.
 ---
---- `used` names the spans the body actually reads or writes through. One left
---- out is marked `KS_UNUSED`, which says the parameter may go unread rather
---- than that it does, so a pointer the IR still uses and the emitter drops is
---- caught by the same `-Werror` as before.
+--- `used` names the spans and uniforms the body actually reads. One left out is
+--- marked `KS_UNUSED`, which says the parameter may go unread rather than that
+--- it does, so a pointer the IR still uses and the emitter drops is caught by
+--- the same `-Werror` as before.
 function emit.parameters(params: {any}, independentCounts: boolean?, used: {[string]: boolean}?): string
     local parts: {string} = {}
     for position, param in ipairs(params) do
         local spanned = param.kind == "write_span" or param.kind == "read_span"
-        local unused = spanned and used ~= nil and not (used as {[string]: boolean})[param.name]
+        local named = spanned or param.kind == "uniform"
+        local unused = named and used ~= nil and not (used as {[string]: boolean})[param.name]
         local name = "p_" .. param.name .. (unused and " KS_UNUSED" or "")
         if param.kind == "write_span" then
             local layout = param.type:match("^struct:(.+)$")

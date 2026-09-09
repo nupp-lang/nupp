@@ -1,0 +1,389 @@
+module nupp.compiler.aot.relations
+
+--[[Difference constraints over the facts a kernel's guards state.
+
+Every admitted guard comparison normalizes to `left <= right + offset` over
+atoms, which is a weighted edge `right -> left`. All-pairs shortest paths over
+those edges is the closure, and a bound is proved exactly when a path weighs no
+more than the bound allows. That is what lets admission be implication rather
+than a match on the guard's source form: the source states facts, the loop
+states obligations, and this decides whether the first imply the second.
+
+A proof is the list of source relations on the path, so a bound established
+through an intermediate names every comparison that contributed to it.]]
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local relations = {}
+
+--- The largest path weight that means anything.
+---
+--- Not a limit on the arithmetic: a weight at or past it represents "no path",
+--- and one at or past its negation is how an established
+--- contradiction stops accumulating. Both ends saturate rather than wrap, so a
+--- closure over a contradictory pool still terminates with an answer.
+const relations.INFINITE = 1073741824
+
+--- The largest constant one comparison may offset a term by.
+---
+--- Every path weight is a sum of at most as many offsets as there are terms, so
+--- bounding the offset bounds the sum well inside what a double represents
+--- exactly. A comparison against a larger literal is not a bound worth proving.
+const relations.MAX_OFFSET = 1048576
+
+--- How many relations one kernel's guards may state.
+---
+--- Beyond any signature in the tree by a wide margin. The bound exists so the
+--- closure is provably cheap rather than because a kernel is expected to reach
+--- it, and overrunning it declines a kernel -- it never admits one.
+const relations.BUDGET = 128
+
+--- The closure of one relation pool, and what it took to build.
+record relations.Closure
+    --- Every term the closure is over, which is the whole universe it was
+    --- given rather than only the terms the pool mentioned.
+    terms: {scalarIR.Term}
+
+    --- Each term's position, by key.
+    indexOf: {[string]: integer}
+
+    --- The relations the edges came from, in pool order.
+    pool: {scalarIR.Relation}
+
+    --- `dist[i][j]` is the least weight of a path from term `i` to term `j`,
+    --- which is the least `c` for which `terms[j] <= terms[i] + c` follows.
+    dist: {{integer}}
+
+    --- The pool index of the single relation a least path is, or `0` when the
+    --- path is empty or goes through an intermediate.
+    edge: {{integer}}
+
+    --- The intermediate term a least path goes through, or `0` when it does
+    --- not. Together with `edge` this reconstructs the contributing relations.
+    mid: {{integer}}
+
+    --- A term the pool proves strictly less than itself, if there is one.
+    --- Everything follows from that, so a kernel carrying one is not admitted.
+    contradiction: scalarIR.Term?
+end
+
+----------------------------------------------------------------------------
+-- Terms
+----------------------------------------------------------------------------
+
+--- The key two source forms of one atom share.
+function relations.key(term: scalarIR.Term): string
+    if term.kind == "zero" then
+        return "0"
+    elseif term.kind == "count" then
+        return "#" .. tostring(term.name)
+    else
+        return "u:" .. tostring(term.name)
+    end
+end
+
+--- One atom as a diagnostic spells it.
+function relations.termText(term: scalarIR.Term): string
+    if term.kind == "zero" then
+        return "0"
+    elseif term.kind == "count" then
+        return "#" .. tostring(term.name)
+    else
+        return tostring(term.name)
+    end
+end
+
+--- The origin every literal is measured from.
+function relations.zero(): scalarIR.Term
+    return new scalarIR.Term(kind = "zero")
+end
+
+--- The term one integer parameter is.
+function relations.uniform(name: string): scalarIR.Term
+    return new scalarIR.Term(kind = "uniform", name = name)
+end
+
+--- The term one span's length is.
+function relations.count(name: string): scalarIR.Term
+    return new scalarIR.Term(kind = "count", name = name)
+end
+
+--- `left <= right + offset`, which is what every admitted comparison becomes.
+function relations.relation(
+    left: scalarIR.Term,
+    right: scalarIR.Term,
+    offset: integer,
+    source: scalarIR.Source?
+): scalarIR.Relation
+    return new scalarIR.Relation(left = left, right = right, offset = offset, source = source)
+end
+
+--- One relation as a diagnostic spells it.
+function relations.text(relation: scalarIR.Relation): string
+    local left = relations.termText(relation.left)
+    local right = relations.termText(relation.right)
+    if relation.left.kind == "zero" then
+        -- `0 <= first - 1` is what the solver holds and `1 <= first` is what
+        -- the source wrote, so the constant moves back to the side it came from
+        -- rather than being reported where normalizing happened to put it.
+        return tostring(-relation.offset) .. " <= " .. right
+    elseif relation.offset == 0 then
+        return left .. " <= " .. right
+    end
+    if relation.offset > 0 then
+        return left .. " <= " .. right .. " + " .. tostring(relation.offset)
+    end
+
+    return left .. " <= " .. right .. " - " .. tostring(-relation.offset)
+end
+
+----------------------------------------------------------------------------
+-- Canonical order
+----------------------------------------------------------------------------
+
+--- One relation with its ordering keys already worked out.
+---
+--- Separate from the sort because a comparator runs inside `table.sort`, which
+--- is a C call nothing may yield across, and deriving a key is a call.
+record relations.Keyed
+    left: string
+    right: string
+    offset: integer
+    relation: scalarIR.Relation
+end
+
+--- The pool in one order, with exact repetitions dropped.
+---
+--- Two guards that normalize alike produce one relation and therefore one IR,
+--- which is what lets a reordered or restated precondition compile to the same
+--- artifact as the form it restates.
+function relations.canonical(pool: {scalarIR.Relation}): {scalarIR.Relation}
+    local keyed: {relations.Keyed} = {}
+    for _, relation in ipairs(pool) do
+        keyed[
+            #keyed + 1
+        ] = new relations.Keyed(
+            left = relations.key(relation.left),
+            right = relations.key(relation.right),
+            offset = relation.offset,
+            relation = relation
+        )
+    end
+    table.sort(keyed, function(a: relations.Keyed, b: relations.Keyed): boolean
+        if a.left ~= b.left then
+            return a.left < b.left
+        end
+        if a.right ~= b.right then
+            return a.right < b.right
+        end
+
+        return a.offset < b.offset
+    end)
+
+    local unique: {scalarIR.Relation} = {}
+    local seen: {[string]: boolean} = {}
+    for _, entry in ipairs(keyed) do
+        local key = entry.left .. "|" .. entry.right .. "|" .. tostring(entry.offset)
+        -- A term is always no greater than itself plus a non-negative offset.
+        -- Keeping that fact would make the wrapper try to check a condition
+        -- whose two terms may both be the origin (`assert(1 <= 2)`), while it
+        -- contributes nothing to any proof. A negative self-edge stays: it is
+        -- exactly how a contradictory constant guard is detected.
+        local tautology = entry.left == entry.right and entry.offset >= 0
+        if not tautology and seen[key] == nil then
+            seen[key] = true
+            unique[#unique + 1] = entry.relation
+        end
+    end
+
+    return unique
+end
+
+----------------------------------------------------------------------------
+-- The closure
+----------------------------------------------------------------------------
+
+--- Two path weights added, saturating rather than wrapping at either end.
+function relations.add(a: integer, b: integer): integer
+    if a >= relations.INFINITE or b >= relations.INFINITE then
+        return relations.INFINITE
+    end
+    local sum = a + b
+    if sum >= relations.INFINITE then
+        return relations.INFINITE
+    end
+    if sum <= -relations.INFINITE then
+        return -relations.INFINITE
+    end
+
+    return sum
+end
+
+--- All-pairs shortest paths over the pool, across a fixed universe of terms.
+---
+--- The universe is the signature's, not the pool's, so a term no guard
+--- mentioned is still a term an obligation may be stated about -- and answered
+--- with "no path" rather than with a lookup failure.
+function relations.closure(pool: {scalarIR.Relation}, terms: {scalarIR.Term}): relations.Closure
+    local indexOf: {[string]: integer} = {}
+    for position, term in ipairs(terms) do
+        indexOf[relations.key(term)] = position
+    end
+
+    local count = #terms
+    local dist: {{integer}} = {}
+    local edge: {{integer}} = {}
+    local mid: {{integer}} = {}
+    for i = 1, count do
+        local row: {integer} = {}
+        local edgeRow: {integer} = {}
+        local midRow: {integer} = {}
+        for j = 1, count do
+            row[j] = i == j and 0 or relations.INFINITE
+            edgeRow[j] = 0
+            midRow[j] = 0
+        end
+        dist[i] = row
+        edge[i] = edgeRow
+        mid[i] = midRow
+    end
+
+    for position, relation in ipairs(pool) do
+        local from = indexOf[relations.key(relation.right)]
+        local to = indexOf[relations.key(relation.left)]
+        if from ~= nil and to ~= nil then
+            local i, j = from as integer, to as integer
+            if relation.offset < dist[i][j] then
+                dist[i][j] = relation.offset
+                edge[i][j] = position
+                mid[i][j] = 0
+            end
+        end
+    end
+
+    for k = 1, count do
+        for i = 1, count do
+            local throughLeft = dist[i][k]
+            if throughLeft < relations.INFINITE then
+                for j = 1, count do
+                    local through = relations.add(throughLeft, dist[k][j])
+                    if through < dist[i][j] then
+                        dist[i][j] = through
+                        edge[i][j] = 0
+                        mid[i][j] = k
+                    end
+                end
+            end
+        end
+    end
+
+    local contradiction: scalarIR.Term? = nil
+    for i = 1, count do
+        if dist[i][i] < 0 then
+            contradiction = terms[i]
+            break
+        end
+    end
+
+    return new relations.Closure(
+        terms = terms,
+        indexOf = indexOf,
+        pool = pool,
+        dist = dist,
+        edge = edge,
+        mid = mid,
+        contradiction = contradiction
+    )
+end
+
+--- The facts about a signature that no source has to write.
+---
+--- A span's length is never negative. A full-span loop's empty-range obligation
+--- rests on it and nothing else does, so it is stated here rather than expected
+--- of a programmer who would reasonably think it went without saying.
+---
+--- Kept out of the written pool deliberately: the wrapper checks what the source
+--- wrote, and `#span >= 0` is not something a caller can fail.
+function relations.axioms(spans: {string}): {scalarIR.Relation}
+    local pool: {scalarIR.Relation} = {}
+    for _, name in ipairs(spans) do
+        pool[#pool + 1] = relations.relation(relations.zero(), relations.count(name), 0, nil)
+    end
+
+    return pool
+end
+
+--- The closure of the written facts together with the axioms they sit on.
+function relations.solve(written: {scalarIR.Relation}, spans: {string}, terms: {scalarIR.Term}): relations.Closure
+    local pool: {scalarIR.Relation} = {}
+    for _, relation in ipairs(written) do
+        pool[#pool + 1] = relation
+    end
+    for _, relation in ipairs(relations.axioms(spans)) do
+        pool[#pool + 1] = relation
+    end
+
+    return relations.closure(pool, terms)
+end
+
+----------------------------------------------------------------------------
+-- Proving
+----------------------------------------------------------------------------
+
+--- The pool indices a least path is made of, innermost first.
+local function contributing(closure: relations.Closure, i: integer, j: integer, out: {integer}): nil
+    local through = closure.mid[i][j]
+    if through ~= 0 then
+        contributing(closure, i, through, out)
+        contributing(closure, through, j, out)
+
+        return
+    end
+    local used = closure.edge[i][j]
+    if used ~= 0 then
+        out[#out + 1] = used
+    end
+end
+
+--- Whether `left <= right + offset` follows, and from which source relations.
+---
+--- The empty list is a proof: a term is no greater than itself, which is what
+--- makes a full-span loop oblige nothing rather than oblige something trivial.
+function relations.proves(
+    closure: relations.Closure,
+    left: scalarIR.Term,
+    right: scalarIR.Term,
+    offset: integer
+): {scalarIR.Relation}?
+    local from = closure.indexOf[relations.key(right)]
+    local to = closure.indexOf[relations.key(left)]
+    if from == nil or to == nil then
+        return nil
+    end
+    local i, j = from as integer, to as integer
+    if closure.dist[i][j] > offset then
+        return nil
+    end
+
+    local indices: {integer} = {}
+    contributing(closure, i, j, indices)
+    local used: {scalarIR.Relation} = {}
+    local seen: {[integer]: boolean} = {}
+    for _, position in ipairs(indices) do
+        if seen[position] == nil then
+            seen[position] = true
+            used[#used + 1] = closure.pool[position]
+        end
+    end
+
+    return used
+end
+
+--- Whether the closure proves the two spans have the same length.
+function relations.equalCounts(closure: relations.Closure, left: string, right: string): boolean
+    local a, b = relations.count(left), relations.count(right)
+
+    return relations.proves(closure, a, b, 0) ~= nil and relations.proves(closure, b, a, 0) ~= nil
+end
+
+export = relations

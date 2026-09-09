@@ -31,6 +31,37 @@ local function append(lines: {string}, value: string): nil
     lines[#lines + 1] = value
 end
 
+--- The failed form of one span-count relation in generated binding source.
+local function relationRefusal(relation: scalarIR.Relation): string
+    assert(relation.left.kind == "count" and relation.right.kind == "count", "GPU binding relation is not over counts")
+    local left = tostring(relation.left.name) .. ".count"
+    local right = tostring(relation.right.name) .. ".count"
+    if relation.offset == 0 then
+        return left .. " > " .. right
+    elseif relation.offset > 0 then
+        return left .. " > " .. right .. " + " .. tostring(relation.offset)
+    else
+        return left .. " > " .. right .. " - " .. tostring(-relation.offset)
+    end
+end
+
+--- Checks every authored count relation when the resident buffers are bound.
+local function relationChecks(program: scalarIR.Program): {string}
+    local conditions: {string} = {}
+    for _, relation in ipairs(program.relations or {}) do
+        conditions[#conditions + 1] = relationRefusal(relation)
+    end
+    if #conditions == 0 then
+        return {}
+    end
+
+    return {
+        "    if " .. table.concat(conditions, " or ") .. " then",
+        "        error(\"GPU precondition failed\", 2)",
+        "    end",
+    }
+end
+
 --- What stands in for one authored `@aot(target = "gpu")` declaration.
 function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact.Artifact, browser: boolean?): string
     local runtime = scalarIR.cIdentifier("gpuRuntime", program.symbol)
@@ -166,6 +197,9 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         append(lines, "    " .. param .. (position < #bindParams and "," or ""))
     end
     append(lines, "): " .. bindingType .. " borrows (self)")
+    for _, line in ipairs(relationChecks(program)) do
+        append(lines, line)
+    end
     append(
         lines,
         "    local raw = "
