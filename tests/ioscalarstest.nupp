@@ -136,9 +136,7 @@ function M.bridgesAStringBufferIntoTheReaderContract(): nil
 
     local destination = nupp.io.newBuffer()
     local reader = nupp.io.newQueueReader(queue)
-    local writer = destination:newWriter()
-    assert(reader:transferTo(writer) == 7)
-    drop writer
+    assert(reader:transferTo(destination:newWriter()) == 7)
     assert(destination:getString() == "payload")
     assert(reader:read(8) == "")
 end

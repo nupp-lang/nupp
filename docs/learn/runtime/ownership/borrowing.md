@@ -212,10 +212,15 @@ reported. An owner handed out by a `for … in` iterator is a local of the loop
 body: it is destroyed at the end of each iteration, and on every exit from the
 body.
 
-An owned temporary — a call result nothing binds, such as `use(open())` into a
-`borrows` parameter, `open().id`, or `if open() then` — has no scope to be
-destroyed at, so it is reported (NUPP2603); bind it to a local, or pass it to a
-`takes` parameter.
+An owned temporary loaned to a `borrows` or `exclusive` parameter lives through
+the full statement and is then destroyed. The callee cannot retain that loan, so
+the hidden statement lifetime is enough for natural spellings such as
+`use(open())`. Several such temporaries are destroyed in reverse acquisition
+order, including when the rest of the statement raises or returns.
+
+Other uses still have no sound place to discharge an unbound owner. Reading
+`open().id` or testing `if open() then` is reported (NUPP2603); bind the result to
+a local, or pass it to a `takes` parameter.
 
 Assigning to a name that still holds a live owner is refused (NUPP2602), since
 nothing would run the old value's terminal: `drop` it first, or move it out.

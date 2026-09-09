@@ -6137,20 +6137,85 @@ function M.terminalDefinitionsAreTheEndpointOfTheirParameter()
     )
 end
 
--- An owned temporary lives until the end of the full expression that made it, and
--- nothing runs its terminal then. Only a bare call statement and a discarded pack
--- were caught; a temporary handed to a borrowing parameter, indexed, or tested
--- was silently leaked.
-function M.anOwnedTemporaryUsedWithoutBeingBoundIsReported()
+-- A non-retaining parameter keeps an owned temporary alive for the full statement,
+-- after which the generator can run its terminal. Other uses still have no sound
+-- place to discharge the temporary and remain diagnostics.
+function M.anOwnedTemporaryLoanedForOneStatementIsAccepted()
+    local header = CONSUMABLE .. "\n" .. table.concat(
+        {
+            "local function use(borrows r: Res): nil print(r.id) end",
+            "local function edit(exclusive r: Res): nil r.id = r.id end",
+            "local function pass(takes r: Res): Res return r end",
+        },
+        "\n"
+    ) .. "\n"
+    assertClean(header .. "use(open(1))")
+    assertClean(header .. "edit(open(2))")
+    assertClean(header .. "open(3):flush()")
+    assertClean(header .. "use(new Res(id = 4))")
+    assertClean(header .. "use(pass(open(5)))")
+    assertClean(header .. "local flag = true\nuse(switch flag do case true -> open(6) else -> open(7) end)")
+end
+
+function M.statementOwnedTemporariesRunTheirTerminalsAtCompletion()
+    local source = table.concat(
+        {
+            "local calls = ''",
+            "local record Res is nupp.Closeable",
+            "   name: string",
+            "   function flush(exclusive self): nil end",
+            "   function close(takes self): nil calls = calls .. self.name end",
+            "end",
+            "local function open(name: string): Res return new Res(name = name) end",
+            "local function openPair(name: string): (Res, string) return new Res(name = name), 'p' end",
+            "local function inspect(borrows first: Res, exclusive second: Res): nil",
+            "   calls = calls .. 'u' .. first.name .. second.name",
+            "end",
+            "local function inspectPair(borrows value: Res, label: string): nil calls = calls .. label end",
+            "local function view(borrows value: Res): string",
+            "   calls = calls .. 'v'",
+            "   return value.name",
+            "end",
+            "local function inspectLabel(borrows value: Res, label: string): nil",
+            "   calls = calls .. value.name .. label",
+            "end",
+            "local function returning(): string return view(open('r')) end",
+            "local function raising(): nil inspectLabel(open('e'), error('boom')) end",
+            "inspect(open('a'), open('b'))",
+            "inspectPair(openPair('q'))",
+            "open('m'):flush()",
+            "local answer = returning()",
+            "local ok = pcall(raising)",
+            "return answer, ok, calls",
+        },
+        "\n"
+    )
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, genDiags = gen.generate(result, "statement-owned-temporaries")
+    assertEq(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
+    local chunk, loadErr = loadstring(code, "@statement-owned-temporaries")
+    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local answer, ok, calls = chunk()
+    assertEq(answer, "r")
+    assertEq(ok, false)
+    assertEq(calls, "uabbapqmvre")
+end
+
+function M.anOwnedTemporaryWithoutANonRetainingLoanIsReported()
     local header = CONSUMABLE .. "\nlocal function use(borrows r: Res): nil print(r.id) end\n"
-    assertEq(codes(header .. "use(open(1))"), "NUPP2603")
     assertEq(codes(header .. "print(open(2).id)"), "NUPP2603")
     assertEq(codes(header .. "if open(3) then print('made') end"), "NUPP2603")
-    assertEq(codes(header .. "use(new Res(id = 4))"), "NUPP2603")
-    assertEq(codes(header .. "local function pass(takes r: Res): Res return r end\nuse(pass(open(5)))"), "NUPP2603")
+end
+
+function M.aBorrowFromAStatementOwnedTemporaryCannotEscapeTheStatement()
     assertEq(
-        codes(header .. "local flag = true\nuse(switch flag do case true -> open(6) else -> open(7) end)"),
-        "NUPP2603"
+        codes(
+            CONSUMABLE
+            .. "\nlocal function view(borrows value: Res): Res borrows(value) return value end"
+            .. "\nlocal dangling = view(open(1))\nprint(dangling.id)"
+        ),
+        "NUPP2619"
     )
 end
 

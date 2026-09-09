@@ -2500,6 +2500,9 @@ function calls.install(c: state.Checker): calls.Ops
                     c.diag("NUPP2602", argNodes[j] or node, "a scoped parameter requires a callback value")
                 end
             elseif mode == "exclusive" then
+                if c.ownershipKind(ats[j]) == "affine" then
+                    c.own.expireTemporaryAfterStatement(argNodes[j])
+                end
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
                 local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
@@ -2590,6 +2593,9 @@ function calls.install(c: state.Checker): calls.Ops
                     )
                 end
             elseif mode == "borrows" then
+                if c.ownershipKind(ats[j]) == "affine" then
+                    c.own.expireTemporaryAfterStatement(argNodes[j])
+                end
                 -- Reborrowing is valid and does not alter either lifetime, but a
                 -- shared use of the source itself cannot overlap a dependent writer.
                 local entry, nameNode = c.ownershipEntry(argNodes[j])

@@ -3031,10 +3031,7 @@ for i = 1, count do
     one.weight = i * 0.25
 end
 
-local writable = span.writeCarray(target, count)
-local readable = span.fromCarray(source, count)
-kernel.scale(writable, readable, 1, count, 3.0)
-drop writable
+kernel.scale(span.writeCarray(target, count), span.fromCarray(source, count), 1, count, 3.0)
 print("VALUE " .. tostring(target[6].value))
 ]]
     )

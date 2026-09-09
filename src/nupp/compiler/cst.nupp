@@ -89,6 +89,12 @@ interface cst.Hints
     automaticOwnerMoves: any
     automaticOwnerReinit: any
 
+    --- Owned expression results retained through one full statement for cleanup.
+    statementCleanupOwners: any
+
+    statementCleanupActive: boolean?
+    statementOwner: any
+
     --- Synthetic read of a value moved into an affine closure factory.
     captureValue: boolean?
 

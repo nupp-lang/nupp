@@ -71,6 +71,9 @@ type ownership.Ops = {
     --- Registers an expression that produced an owner nothing has yet claimed.
     temporaryProduced: function(node: any): nil,
 
+    --- Lets a non-retaining call keep a produced owner through its full statement.
+    expireTemporaryAfterStatement: function(node: any): nil,
+
     --- Records that an owned temporary was moved, bound, returned, or reported.
     markTemporaryConsumed: function(node: any): nil,
 
@@ -1035,7 +1038,16 @@ function ownership.install(c: state.Checker): ownership.Ops
         -- run is cleared before this run's consumer records its own.
         node.temporaryConsumed = nil
         node.temporaryReported = nil
+        node.temporaryStatementCleanup = nil
+        node.statementOwner = nil
         open[#open + 1] = node
+    end
+
+    function own.expireTemporaryAfterStatement(node)
+        node = temporaryNode(node)
+        if node then
+            node.temporaryStatementCleanup = true
+        end
     end
 
     function own.markTemporaryConsumed(node)

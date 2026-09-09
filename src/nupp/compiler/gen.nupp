@@ -3801,6 +3801,67 @@ function gen.generate(
         return nil
     end
 
+    -- A statement-owned temporary is captured at the expression that creates it, but
+    -- the state holding it belongs to the surrounding cleanup region. The table is a
+    -- region parameter, so a cached region remains reusable inside a hot loop.
+    function pluck.statementOwnerState(owner)
+        for index = #cleanupStack, 1, -1 do
+            local ctx = cleanupStack[index]
+            if ctx.functionDepth == emitDepth.fn and ctx.statementOwnerMap then
+                local found = ctx.statementOwnerMap[owner]
+                if found then
+                    return found
+                end
+            end
+        end
+
+        return nil
+    end
+
+    function pluck.statementOwnerCapture(): string
+        return declareHelper(
+            "__nuppStatementOwner",
+            "__nuppState,__nuppIndex,...",
+            "local __nuppValue=...;__nuppState[__nuppIndex]=__nuppValue;" .. "__nuppState[-__nuppIndex]=true;return ..."
+        )
+    end
+
+    function pluck.emitStatementCleanup(stat): nil
+        local first = cst.firstToken(stat)
+        local last = cst.lastToken(stat)
+        local stateName = nextTemp()
+        local definition = {}
+        local binding: any = {
+            kind = "cleanupBinding",
+            name = {
+                kind = "name",
+                text = stateName,
+                line = first and first.line or sourceLine(stat),
+                offset = first and first.offset or 0,
+                definition = definition,
+            },
+            expr = {kind = "statementCleanupStateExpr", line = first and first.line or sourceLine(stat)},
+            ownerCleanups = {},
+            statementOwners = stat.statementCleanupOwners,
+        }
+        local body: any = {kind = "block", stats = {stat}}
+        body[1] = stat
+        local region: any = {
+            kind = "cleanupRegion",
+            startTok = first,
+            doTok = first,
+            endTok = last,
+            bindings = {binding},
+            body = body,
+            statementCleanup = true,
+        }
+        region.enclosingCaptures = automaticCaptures(body, region.bindings)
+        region.capturesEnclosing = #region.enclosingCaptures > 0
+        stat.statementCleanupActive = true
+        emit(region)
+        stat.statementCleanupActive = nil
+    end
+
     -- The active flag of the owner `move` takes, or nil when no region of this
     -- function tracks that owner. Only a move is looked up: a lookup without one
     -- has no flag to answer with, and a lookup that once fell back to the region
@@ -4018,6 +4079,22 @@ function gen.generate(
         end
 
         local kind = x.kind
+        if x.statementCleanupOwners and not x.statementCleanupActive then
+            pluck.emitStatementCleanup(x)
+            return
+        end
+        if x.statementOwner then
+            local state = pluck.statementOwnerState(x.statementOwner)
+            if state then
+                local owner = x.statementOwner
+                x.statementOwner = nil
+                e(("%s(%s,%d,"):format(pluck.statementOwnerCapture(), state.name, state.index), sourceLine(x))
+                emit(x)
+                e(")")
+                x.statementOwner = owner
+                return
+            end
+        end
         if x.sendableCaptures and outliningSendable ~= x and (kind == "funcExpr" or kind == "shortfn") then
             local workersName = compilerModuleName("nupp.workers")
             e(workersName .. ".__sendable(", sourceLine(x))
@@ -4077,6 +4154,9 @@ function gen.generate(
             else
                 e("nil", sourceLine(x))
             end
+            return
+        elseif kind == "statementCleanupStateExpr" then
+            e("{}", sourceLine(x))
             return
         end
         if pluck.portable and kind == "assignStmt" and #(
@@ -6741,6 +6821,7 @@ function gen.generate(
             local fieldActive = {}
             local fieldActiveOrder = {}
             local automaticMap = {}
+            local statementOwnerMap = {}
             local captureMoves = {}
             local function collectCaptureMoves(node): nil
                 if not node or cst.isToken(node) then
@@ -6774,6 +6855,9 @@ function gen.generate(
             for j = 1, #(x.bindings or {}) do
                 owners[j] = nextTemp()
                 local binding = x.bindings[j]
+                for ownerIndex, owner in ipairs(binding.statementOwners or {}) do
+                    statementOwnerMap[owner] = {name = binding.name.text, index = ownerIndex,}
+                end
                 local automatic = binding.automaticOwner
                 if automatic and (
                     automatic.conditional or automatic.moved or automatic.movedFields or captureMoves[
@@ -6807,6 +6891,7 @@ function gen.generate(
                 labels = labelsIn(x.body),
                 gotos = {},
                 automaticMap = automaticMap,
+                statementOwnerMap = statementOwnerMap,
             }
             -- A body with no per-execution captures uses the module cache. Captures
             -- whose declarations remain stable for this function invocation use its
@@ -7131,24 +7216,14 @@ function gen.generate(
             e(("const %s={}; local %s=0;"):format(cleanupError, hasCleanupError), x.endTok and x.endTok.line or nil)
             for j = #(x.bindings or {}), 1, -1 do
                 local binding = x.bindings[j]
-                local present = binding.automaticOwner and binding.automaticOwner.optional
-                if active[j] then
-                    e(
-                        (
-                            "if %s>=%d and %s%s then "
-                        ):format(count, j, active[j], present and (" and " .. owners[j] .. "~=nil") or "")
-                    )
-                else
-                    e(("if %s>=%d%s then "):format(count, j, present and (" and " .. owners[j] .. "~=nil") or ""))
-                end
-                for _, cleanup in ipairs(binding.ownerCleanups or {}) do
-                    local fieldName = cleanup.kind == "field" and fieldActive[
+                local function emitProtected(cleanup, value, fieldName): nil
+                    local resolvedField = cleanup.kind == "field" and fieldActive[
                         j
-                    ] and fieldActive[j][cleanup.field] or nil
-                    if fieldName then
-                        e(("if %s then "):format(fieldName))
+                    ] and fieldActive[j][cleanup.field] or fieldName
+                    if resolvedField then
+                        e(("if %s then "):format(resolvedField))
                     end
-                    local call = protectedCleanupCall(cleanup, owners[j], cleanupGlobals.pcall)
+                    local call = protectedCleanupCall(cleanup, value, cleanupGlobals.pcall)
                     if call then
                         local cok, cerr = nextTemp(), nextTemp()
                         e(("const %s,%s=%s;"):format(cok, cerr, call))
@@ -7158,11 +7233,43 @@ function gen.generate(
                             ):format(cok, hasCleanupError, hasCleanupError, cleanupError, hasCleanupError, cerr)
                         )
                     end
-                    if fieldName then
+                    if resolvedField then
                         e("end;")
                     end
                 end
-                e("end;")
+
+                if binding.statementOwners then
+                    e(("if %s>=%d then "):format(count, j))
+                    for ownerIndex = #binding.statementOwners, 1, -1 do
+                        local owner = binding.statementOwners[ownerIndex]
+                        local value = ("%s[%d]"):format(owners[j], ownerIndex)
+                        e(
+                            (
+                                "if %s[-%d]%s then "
+                            ):format(owners[j], ownerIndex, owner.optional and (" and " .. value .. "~=nil") or "")
+                        )
+                        for _, cleanup in ipairs(owner.cleanups or {}) do
+                            emitProtected(cleanup, value)
+                        end
+                        e("end;")
+                    end
+                    e("end;")
+                else
+                    local present = binding.automaticOwner and binding.automaticOwner.optional
+                    if active[j] then
+                        e(
+                            (
+                                "if %s>=%d and %s%s then "
+                            ):format(count, j, active[j], present and (" and " .. owners[j] .. "~=nil") or "")
+                        )
+                    else
+                        e(("if %s>=%d%s then "):format(count, j, present and (" and " .. owners[j] .. "~=nil") or ""))
+                    end
+                    for _, cleanup in ipairs(binding.ownerCleanups or {}) do
+                        emitProtected(cleanup, owners[j])
+                    end
+                    e("end;")
+                end
             end
             e(
                 (

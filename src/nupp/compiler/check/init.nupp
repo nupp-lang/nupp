@@ -2582,11 +2582,12 @@ function checkMod.check(
 
     local function checkStat(stat: Node)
         local handle = statHandlers[stat.kind]
-        -- An owned temporary lives until the end of the full expression that made
-        -- it, and nothing runs its terminal then. One a statement never moved,
-        -- bound, or returned is therefore a leak, reported at the statement's end
-        -- rather than at each borrowing position it could have appeared in.
+        -- An owned temporary lives until the end of the full statement that made it.
+        -- A non-retaining loan gives the generator that statement as its hidden
+        -- cleanup extent; one never loaned, moved, bound, or returned is a leak,
+        -- reported here rather than at each position it could have appeared in.
         local temporaries = {}
+        stat.statementCleanupOwners = nil
         c.temporaryOwners[#c.temporaryOwners + 1] = temporaries
         if handle then
             handle(stat)
@@ -2594,17 +2595,26 @@ function checkMod.check(
         c.temporaryOwners[#c.temporaryOwners] = nil
         for _, node in ipairs(temporaries) do
             if not node.temporaryConsumed and not node.temporaryReported then
-                node.temporaryReported = true
-                c.diag(
-                    "NUPP2603",
-                    node,
-                    "owned temporary is neither bound to a name nor consumed, so its terminal never runs",
-                    nil,
-                    {
-                        help = "bind it to a local, which drops it when the scope ends, "
-                        .. "or pass it to a takes parameter"
-                    }
-                )
+                local inferred = node.inferredType
+                local cleanups = inferred and inferred.cleanups or {}
+                if node.temporaryStatementCleanup and c.ownershipKind(inferred) == "affine" and #cleanups > 0 then
+                    local owner = {node = node, cleanups = cleanups, optional = c.own.optionalOwned(inferred),}
+                    node.statementOwner = owner
+                    stat.statementCleanupOwners = stat.statementCleanupOwners or {}
+                    stat.statementCleanupOwners[#stat.statementCleanupOwners + 1] = owner
+                else
+                    node.temporaryReported = true
+                    c.diag(
+                        "NUPP2603",
+                        node,
+                        "owned temporary is neither bound to a name nor consumed, so its terminal never runs",
+                        nil,
+                        {
+                            help = "bind it to a local, which drops it when the scope ends, "
+                            .. "or pass it to a takes parameter"
+                        }
+                    )
+                end
             end
         end
     end
