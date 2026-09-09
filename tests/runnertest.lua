@@ -466,6 +466,60 @@ return M
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- The queue hands one process several suites in turn, so what a piece leaves
+-- behind is what the next piece starts from. Every shape of leak that has
+-- actually cost a run is listed here: a module identity swapped for a decoy
+-- (which is how the runner's own report decoder was once replaced), a module
+-- loaded for the first time, a global invented, a global overwritten, and a
+-- loader injected. Deterministic by construction -- the order file fixes which
+-- piece runs first -- so this either holds or it does not, whatever the machine
+-- is doing.
+function M.processQueueLeavesNoPieceStateForTheNextOne()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/queue")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(dir .. "/tests/lanevictim.lua", "return {loadedBy = \"the first piece\"}\n")
+    write(
+        dir .. "/tests/adirtiestest.lua",
+        [[
+local M = {}
+function M.leavesEveryShapeOfStateBehind()
+    _G.laneLeakedGlobal = "left behind"
+    _G._VERSION = "contaminated"
+    package.preload["lane.injected"] = function() return {} end
+    package.loaded["lane.hijacked"] = {"a decoy nothing ever loaded"}
+    assert(require("lanevictim").loadedBy == "the first piece")
+end
+return M
+]]
+    )
+    write(
+        dir .. "/tests/bcleantest.lua",
+        [[
+local M = {}
+function M.startsFromTheProcessTheRunnerBeganWith()
+    assert(rawget(_G, "laneLeakedGlobal") == nil, "a global the previous piece invented")
+    assert(_VERSION ~= "contaminated", "a global the previous piece overwrote")
+    assert(package.preload["lane.injected"] == nil, "a loader the previous piece injected")
+    assert(package.loaded["lane.hijacked"] == nil, "a module table the previous piece invented")
+    assert(package.loaded["lanevictim"] == nil, "a module the previous piece loaded")
+end
+return M
+]]
+    )
+    write(dir .. "/queue/order", "adirtiestest\nbcleantest\n")
+    write(dir .. "/queue/piece-1", "adirtiestest\n")
+    write(dir .. "/queue/piece-2", "bcleantest\n")
+    local output = runJson(dir .. "/tests/run.lua", "--json --queue=" .. dir .. "/queue")
+    local report = require("testjson").decode(output)
+    test.equal(report.total, 2, "both queue pieces ran" .. "\n" .. output)
+    test.equal(report.passed, 2, output)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.embeddedWorkersDiscoverFromTheParentCatalogWithoutPopen()
     local dir = os.tmpname()
     os.remove(dir)

@@ -1111,8 +1111,13 @@ function M.theUtf8ModuleNeedsNoNativeModule()
         assert(codepoint == 8364 and nextAt == 5, "decodes the second codepoint")
         assert(utf8.truncate("A\226\130\172", 3) == "A", "never cuts through a codepoint")
     end)
-    package.loaded["lua-utf8"] = package.loaded["lua-utf8"] or loadedRock
-    package.loaded["nupp.text.utf8"] = package.loaded["nupp.text.utf8"] or loadedModule
+    -- Put back what was there, not whichever instance the proof happened to
+    -- make. Preferring the new one hands the rest of the process a second copy
+    -- of a module its callers already captured a first copy of, and nothing
+    -- between queue pieces can undo that: `package.loaded` is restored by key,
+    -- and the key would be pointing at the replacement.
+    package.loaded["lua-utf8"] = loadedRock
+    package.loaded["nupp.text.utf8"] = loadedModule
     assert(ok, problem)
 end
 
@@ -1171,8 +1176,11 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
             "a verified key must be a JSON string"
         )
     end)
-    package.loaded[JSON_PROVIDER] = package.loaded[JSON_PROVIDER] or loadedProvider
-    package.loaded["nupp.codec.json"] = package.loaded["nupp.codec.json"] or loadedModule
+    -- The identity the rest of the process holds, restored rather than replaced:
+    -- see `theUtf8ModuleNeedsNoNativeModule`. This one matters more, because the
+    -- test runner decodes every worker's report through this module.
+    package.loaded[JSON_PROVIDER] = loadedProvider
+    package.loaded["nupp.codec.json"] = loadedModule
     assert(ok, problem)
 end
 
