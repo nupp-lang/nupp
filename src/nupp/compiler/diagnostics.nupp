@@ -98,6 +98,7 @@ function diagnostics.report(values: {any}): boolean
     local failed = false
     local sources = {}
     local out: {string} = {}
+
     local function sourceFor(path)
         if not path then
             return nil

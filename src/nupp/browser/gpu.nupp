@@ -1,4 +1,5 @@
 module nupp.browser.gpu
+
 local response = require("nupp.runtime.browser.response")
 local json = require("nupp.codec.json.provider")
 local gpu = {}

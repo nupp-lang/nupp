@@ -398,6 +398,7 @@ record process.Writer is Writer2
         end
         local sent = 0
         local before = 0
+
         local function interest(): shared.Interest
             -- Room in this pipe, and the child: a child that exits makes every
             -- remaining write impossible, which is an answer too.
@@ -755,6 +756,7 @@ record process.Process
             local sent = 0
             local out, err = {}, {}
             local outputBytes = 0
+
             local function inputDone(): boolean
                 -- Gone counts as done: there is nobody to deliver the rest to.
                 return stdin == nil or stdin.closed or stdin.gone
@@ -940,6 +942,7 @@ record process.Process
         -- turns its status into one at its own edge, and the reap is judged below
         -- rather than through this, because it alone has release state worth reading.
         local firstError: any = nil
+
         local function attempt(step: function(): nil): nil
             local ok, raised = pcall(step)
             if not ok and firstError == nil then
@@ -1222,6 +1225,7 @@ await = function(
         return true
     end
     ensurePump(self)
+
     -- Built once rather than per pass: this is already the slow path.
     local function subscribe(resume: function(boolean), context: any): function()?
         local source = context:source("nupp.io.process.wait", 50, function(): integer

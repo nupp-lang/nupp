@@ -151,6 +151,7 @@ end
 local function slotBinders(signature: T.Func): {[any]: boolean}
     local found: {[any]: boolean} = {}
     local walk
+
     local function walkPack(pack: T.Pack?, inSlot: any)
         if not pack then
             return
@@ -495,6 +496,7 @@ function calls.install(c: state.Checker): calls.Ops
     --- as the direct name they evaluate through.
     local function reborrowsExclusiveView(expr, root): boolean
         local found, valid = false, true
+
         local function visit(node)
             while node and (node.kind == "paren" or node.kind == "castExpr" or node.kind == "newExpr") do
                 node = node.kind == "newExpr" and node.call or node.expr
@@ -1401,6 +1403,7 @@ function calls.install(c: state.Checker): calls.Ops
             -- a field took carries its roots onto the record, which is then a view of
             -- the same owners and leaves the scope on the same terms they do.
             local aggregateRoots, rootSeen = {}, {}
+
             local function rootedIn(value: any)
                 for _, root in ipairs(c.own.provenanceOwners(value)) do
                     if not rootSeen[root] then
@@ -1421,6 +1424,7 @@ function calls.install(c: state.Checker): calls.Ops
             end
 
             local bindings, bound = {}, {}
+
             local function bindField(fname: string?, value: any, site: any, label: string)
                 if not fname then
                     c.infer(value)
@@ -2319,6 +2323,7 @@ function calls.install(c: state.Checker): calls.Ops
         end
 
         local jitBody = c.functionBodies[#c.functionBodies]
+
         local function jitHazard(code, at, message, help, disabledDefinition, disabledBody)
             c.jitHazards[
                 #c.jitHazards + 1

@@ -314,6 +314,7 @@ function json.writer(exclusive out: Buffer, nullValue: any?): any
     local parts, stack, root, closed = {}, {}, false, false
     local pending = 0
     local writer = {}
+
     local function add(text: string): nil
         parts[#parts + 1] = text
         pending = pending + #text

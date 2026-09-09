@@ -288,6 +288,7 @@ local function run(parsed: any): integer
     local progressMode = values.progress or (asJson and "never" or nil)
     local materializations: {any} = {}
     local derives: {any} = {}
+
     -- Ends the command with what the build produced, in the shape the project build
     -- fills in; the file shape fills in the fields it has and leaves the rest absent.
     local function finish(code: integer, produced: {[string]: any}): integer
@@ -356,6 +357,7 @@ local function run(parsed: any): integer
     local runtimeDone: {[string]: boolean} = {}
     local gen = require("nupp.compiler.gen")
     local carried = require("nupp.compiler.bundled")
+
     -- Positionals arrive spelled however the caller typed them, while `env.loaded`
     -- records paths the environment has normalized. `written` is keyed on the
     -- normalized spelling so `./lib.nupp` on the command line and `lib.nupp` in the

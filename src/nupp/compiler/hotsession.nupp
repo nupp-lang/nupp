@@ -235,6 +235,7 @@ end
 --- remains patchable while every declaration change is conservatively restart-only.
 local function cdefFingerprint(parsed)
     local parts = {}
+
     local function wrapsCdef(node)
         while type(node) == "table" and node.kind == "pragmaStmt" do
             node = node.stat
@@ -290,6 +291,7 @@ end
 --- operation falls back to the old module digest.
 local function cDeclarations(parsed)
     local declarations = {}
+
     local function visit(node, functionDepth)
         if type(node) ~= "table" or cst.isToken(node) then
             return
@@ -584,6 +586,7 @@ end
 
 local function nativeUses(parsed)
     local uses = {}
+
     local function add(name, dynamic, node)
         local first = node and node[1]
         local line = first and cst.isToken(first) and first.line or 1

@@ -318,6 +318,7 @@ end
 function cabi.header(aggregates: {any}, functions: {any}, guard: string?): string?, string?
     local descriptions, byType = {}, {}
     local visiting, visited = {}, {}
+
     local function visit(t: any): string?
         if visited[t] then
             return nil

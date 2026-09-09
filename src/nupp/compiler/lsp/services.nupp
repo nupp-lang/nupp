@@ -49,6 +49,7 @@ local function entries(inc: any): {any}
     end
     local config = require("nupp.compiler.build.manifest").load(inc.env.rootDir)
     local build = config and config.build or {}
+
     local function addOutput(directory: string): nil
         paths[#paths + 1] = fs.join(inc.env.rootDir, directory .. "/generated/nupp/runtime/services/artifact.g.nupp")
     end
@@ -153,6 +154,7 @@ function services.implementations(inc: any, member: any, token: any): {any}
     end
     local id = member and catalog.facades[member.moduleName]
     local definition = member and services.definition(inc, member.moduleName, name) or token and token.definition
+
     local function add(path: string, at: any): nil
         if at == nil then
             return

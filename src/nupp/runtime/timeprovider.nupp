@@ -1,4 +1,5 @@
 module nupp.runtime.timeprovider
+
 local contracts = require("nupp.runtime.services.contracts")
 export const provider = contracts.time:assembleOptional(function(): contracts.TimeProvider?
     local native = contracts.time:lookup("nupp.native")

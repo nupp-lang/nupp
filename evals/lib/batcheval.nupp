@@ -28,6 +28,7 @@ local function parallel(
     local answers: {any} = {}
     local nextIndex: integer = 1
     local doneCount: integer = 0
+
     local function worker(): nil
         while true do
             local index = nextIndex

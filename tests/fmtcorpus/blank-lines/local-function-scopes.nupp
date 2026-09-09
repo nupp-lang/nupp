@@ -1,0 +1,15 @@
+do
+local function first()
+end
+first()
+local function later()
+end
+end
+if ready then
+local function first()
+end
+else
+work()
+local function later()
+end
+end

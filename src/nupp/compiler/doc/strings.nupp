@@ -9,6 +9,7 @@ literally.
 ]]
 
 local strings = {}
+
 local function trim(text: string): string
     return (text:gsub("^%s+", ""):gsub("%s+$", ""))
 end

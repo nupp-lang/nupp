@@ -72,6 +72,7 @@ function effectregions.install(c: state.Checker): effectregions.Ops
 
     local function firstEffectCall(queries, body, effect)
         local found = nil
+
         local function walk(node)
             if not node or found or cst.isToken(node) then
                 return
@@ -259,6 +260,7 @@ function effectregions.install(c: state.Checker): effectregions.Ops
 
     function ops.sweep(queries)
         local diagnosed = {}
+
         -- Written once per sweep and told which region it is walking, rather than
         -- declared inside the loop over the regions: a function built in a loop is one
         -- LuaJIT never compiles, and this walk is the whole of the sweep's work.

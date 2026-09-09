@@ -301,6 +301,7 @@ end
 -- named `_x` without that saying anything about what a reader may see.
 local function hiddenNodes(node, includePrivate)
     local dropped = {}
+
     local function mark(current)
         if cst.isToken(current) then
             return
@@ -339,6 +340,7 @@ local function structureSignature(node, includePrivate)
     -- structure declared there would otherwise carry the whole header into its code
     -- block, where the page has already rendered it as the module's prose.
     local leading = true
+
     local function walk(child)
         if cst.isToken(child) then
             local triviaParts: {string} = {}
@@ -1073,6 +1075,7 @@ end
 -- published binding from plumbing a module happens to call C for.
 local function returnedNames(root): {[string]: boolean}
     local names: {[string]: boolean} = {}
+
     local function record(value)
         if value and value.kind == "name" and value.token then
             names[value.token.text] = true

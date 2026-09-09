@@ -141,6 +141,7 @@ rewriteExpression = function(
 
     local fuel = 16
     local history: {string} = {}
+
     local function refoldChild(child: scalarIR.Expr): scalarIR.Expr
         return rewriteExpression(child, nil, FOLD_REWRITE, state)
     end
@@ -543,6 +544,7 @@ propagateBlock = function(
     state: optimize.State
 ): nil
     local constants = inheritConstants(inherited)
+
     local function rewrite(child: scalarIR.Expr): scalarIR.Expr
         return rewriteExpression(child, constants, BODY_REWRITE, state)
     end

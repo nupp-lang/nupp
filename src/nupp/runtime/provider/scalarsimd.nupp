@@ -41,6 +41,7 @@ local vectorMethods, maskMethods, mask64Methods = {}, {}, {}
 local vectorMt = {__index = vectorMethods}
 local maskMt = {__index = maskMethods}
 local mask64Mt = {__index = mask64Methods}
+
 local function vector(lanes: {number}): any
     return setmetatable({lanes = lanes}, vectorMt)
 end

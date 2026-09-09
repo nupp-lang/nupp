@@ -590,6 +590,7 @@ function resolve.install(c: state.Checker): nil
         local found = associated.lookup(head, name)
         local out: {any} = {}
         local seen: {[any]: boolean} = {}
+
         local function take(definition: any)
             if definition and not seen[definition] then
                 seen[definition] = true

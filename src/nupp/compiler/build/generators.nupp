@@ -1,4 +1,5 @@
 module nupp.compiler.build.generators
+
 const files2 = require("nupp.io.files")
 
 local capabilities = require("nupp.compiler.build.capabilities")

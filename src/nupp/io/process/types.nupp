@@ -1,6 +1,7 @@
 @!internal
 
 module nupp.io.process.types
+
 const {type Path} = require("nupp.io.path")
 const {type Buffer} = require("nupp.io")
 const {type ByteView} = require("nupp.io")

@@ -139,6 +139,7 @@ function home.features(text: string): {pageMod.Feature}
     -- Split on headings rather than scanning line by line, so a `##` inside a fenced
     -- sample cannot open a card. The fences are stripped first for exactly that reason.
     local fences: {string} = {}
+
     local function hold(fence: string): string
         fences[#fences + 1] = fence
 

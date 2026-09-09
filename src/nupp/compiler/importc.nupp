@@ -622,6 +622,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
             #details.dispositions + 1
         ] = {kind = "skipped", reason = "parse-failure", detail = reject.reason,}
     end
+
     local function emit(line)
         out[#out + 1] = line
     end
@@ -745,6 +746,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
 
     local bridgeLines = {}
     local bridgeAliases = {}
+
     local function bridgePreamble()
         if #bridgeLines > 0 then
             return
@@ -905,6 +907,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
     -- constants
     local constLines = {}
     local taken = {}
+
     local function constant(name, typeName, expr)
         if not identifier(name) or taken[name] then
             return

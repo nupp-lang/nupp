@@ -293,6 +293,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
 
         local returns = {}
+
         local function walk(node)
             if not node or cst.isToken(node) then
                 return
@@ -431,6 +432,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 tokenByName[p.name.text] = p.name
             end
         end
+
         -- An invocation from inside a nested function is not an invocation during
         -- the call: the closure may be stored, returned, or handed on, and run after
         -- the call has returned, so any mention there is an escape.
@@ -482,6 +484,7 @@ function functions.install(c: state.Checker): state.StatHandlers
     --- the nested body does with the name.
     local function mentionedInNestedFunction(body, name)
         local found = false
+
         local function walk(node, nested)
             if found or not node then
                 return
@@ -1122,6 +1125,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         if paramPackTail and paramPackTail.kind == "generic" then
             local uses, transfers = 0, 0
             local transferred = {}
+
             local function isVararg(node)
                 return node and not cst.isToken(node) and node.kind == "vararg"
             end

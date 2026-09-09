@@ -1,4 +1,5 @@
 module re
+
 local tonumber, type, error = tonumber, type, error
 local setmetatable = setmetatable
 local m = require("lpeg")
@@ -9,6 +10,7 @@ local Predef = {nl = m.P"\n"}
 local mem;
 local fmem;
 local gmem
+
 local function updatelocale()
     mm.locale(Predef)
     Predef.a = Predef.alpha;
@@ -41,6 +43,7 @@ local function updatelocale()
 end
 
 updatelocale()
+
 local function patt_error(s, i)
     local msg = (#s < i + 20) and s:sub(i) or s:sub(i, i + 20) .. "...";
     error(("pattern error near '%s'"):format(msg), 2)
@@ -77,6 +80,7 @@ local arrow = S * "<-"
 local seq_follow = m.P"/" + ")" + "}" + ":}" + "~}" + "|}" + (name * arrow) + -1
 name = m.C(name)
 local Def = name * m.Carg(1)
+
 local function getdef(id, defs)
     local c = defs and defs[id];
     if not c then
@@ -105,6 +109,7 @@ local item = (defined + Range + m.C(any)) / m.P
 local Class = "[" * (m.C(m.P"^" ^ -1)) * (item * ((item % mt.__add) - "]") ^ 0) / function(c, p)
     return c == "^" and any - p or p
 end * "]"
+
 local function adddef(t, k, exp)
     if t[k] then
         error("'" .. k .. "' already defined as a rule")
@@ -163,6 +168,7 @@ local exp = m.P{
     Grammar = (m.Cg as any)(m.Cc(true), "G") * ((m.V"Definition" / firstdef) * (m.V"Definition" % adddef) ^ 0) / mm.P
 }
 local pattern = S * (m.Cg as any)(m.Cc(false), "G") * exp / mm.P * (-any + patt_error)
+
 local function compile(p, defs): any
     if mm.type(p) == "pattern" then
         return p

@@ -202,6 +202,7 @@ end
 -- two of them.
 local function unionFind()
     local parent = {}
+
     local function find(value)
         if not value then
             return nil
@@ -290,6 +291,7 @@ end
 
 local function collectFunctions(root)
     local functions, byDefinition = {}, {}
+
     local function walk(node)
         if not node or cst.isToken(node) then
             return
@@ -1041,6 +1043,7 @@ function queries.body(body: any, byDefinition: any): any
         end
         local callees = {}
         local declared = {}
+
         local function collect(node: any)
             if not node or cst.isToken(node) then
                 return
@@ -1062,6 +1065,7 @@ function queries.body(body: any, byDefinition: any): any
 
         local mentions: integer = 0
         local only = true
+
         local function walk(node: any)
             if not node then
                 return
@@ -1103,6 +1107,7 @@ function queries.body(body: any, byDefinition: any): any
     --- @return true, or false with a reason and the node to point at
     function facts.shapeStable(region: any, class: any, instead: any): boolean, string?, any
         local stable, reason, related = true, nil, nil
+
         local function inspect(value: any)
             if not value or cst.isToken(value) or not stable then
                 return

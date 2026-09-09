@@ -21,6 +21,7 @@ correct, so every failure here has the same answer.
 ]]
 
 local loaded, nativeBuffer = pcall(require, "string.buffer")
+
 local function unavailable(): never
     error("binary cache serialization is unavailable on this host")
 end
@@ -199,6 +200,7 @@ function store.openValue(path: string?, stamp: string): store.Value
             end
         end
     end
+
     local function set(value: any)
         assert(self).value = value
         dirty = true

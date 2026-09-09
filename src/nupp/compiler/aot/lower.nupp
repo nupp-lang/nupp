@@ -2819,6 +2819,7 @@ function lower.expression(
                 context.reject(lower.site(node), "workgroup scratch is read only inside phases:run")
             end
             local index = lower.expression(indexed.expr as cst.Node, environment, activeIndex, kernel)
+
             local function indexRange(value: scalarIR.Expr): (number?, number?)
                 local op = value.op
                 if op == "constant" or op == "constant_i32" then
@@ -3238,6 +3239,7 @@ local function scratchLengthSource(value: scalarIR.Expr, kernel: lower.Kernel): 
         return kernel.scratchLengthBounds[(value as scalarIR.Name).name]
     elseif value.op == "u32_and" then
         local pair = value as scalarIR.Fixed
+
         local function mask(other: scalarIR.Expr): boolean
             return other.op == "constant_i32" and tonumber((other as scalarIR.IntConstant).value) == 0x7fffffff
         end
@@ -3620,6 +3622,7 @@ end
 --- than being silently assigned accumulator semantics.
 function lower.stringAccumulators(statements: {cst.Node}): {[string]: boolean}
     local declared, appended, returned, invalid = {}, {}, {}, {}
+
     local function walk(node: cst.Node?): nil
         if node == nil then
             return
@@ -4448,6 +4451,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                         type = "u32",
                         source = lower.site(method)
                     )
+
                     local function store(value: scalarIR.Expr): scalarIR.SharedStore
                         return new scalarIR.SharedStore(
                             op = "shared_store",
@@ -5764,6 +5768,7 @@ function lower.program(
             lowered[#lowered + 1] = statement
         end
         local phaseCount = 0
+
         local function countPhases(block: {scalarIR.Statement}): nil
             for _, statement in ipairs(block) do
                 if statement.op == "phase" then

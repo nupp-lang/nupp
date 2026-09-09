@@ -577,6 +577,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             removed[path] = true
         end
         local next_, seen = {}, {}
+
         local function keep(path)
             if removed[path] or seen[path] then
                 return
@@ -1285,6 +1286,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             wanted[kind] = true
         end
         local offers = wire.array({})
+
         local function offer(kind, title, edits, diagnostic)
             if wanted and not wanted[kind] then
                 return
@@ -1722,6 +1724,7 @@ end
 
 function lsp.run(rootDir: string?): integer
     io.stdout:setvbuf("no")
+
     local function send(msg)
         local body = json.encode(msg)
         io.stdout:write("Content-Length: " .. #body .. "\r\n\r\n" .. body)

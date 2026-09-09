@@ -97,6 +97,7 @@ local function run(parsed: any): integer
         local check = require("nupp.compiler.check")
         local diagnostics = require("nupp.compiler.diagnostics")
         local env = require("nupp.compiler.env").new(".")
+
         -- One failure stops the writing, not the reporting: every plan after it is
         -- still listed, as untouched, so a reader sees what was asked for and not
         -- only what was reached before the stop.

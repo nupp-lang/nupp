@@ -471,6 +471,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     q:define("materializeDerives", function(_, fingerprint)
         return fingerprint
     end)
+
     local function internDeriveRecipe(self, plan)
         local executions = q.stats.materializeDerives or 0
         q:get("materializeDerives", plan.fingerprint)
@@ -930,6 +931,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     local function projectDependencyPaths(name, key)
         local value = q:get(name, key)
         local paths, seen = {}, {}
+
         local function add(path)
             if type(path) == "string" and not seen[path] then
                 seen[path] = true

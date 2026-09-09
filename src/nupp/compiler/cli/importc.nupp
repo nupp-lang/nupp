@@ -77,6 +77,7 @@ local function run(parsed: any): integer
         lib = parsed.values.lib,
         bridge = parsed.values.bridgeOut ~= nil,
     })
+
     local function fail(): integer
         if asJson then
             reportMod.write({ok = false, warnings = warnings})
@@ -127,6 +128,7 @@ local function run(parsed: any): integer
     -- the warnings above; routing a failure through fail() would print them all
     -- again, restyled as errors.
     local fs = require("nupp.compiler.fs")
+
     local function write(path: string, content: string): integer?
         local wrote, writeErr = fs.writeFile(path, content)
         if wrote then

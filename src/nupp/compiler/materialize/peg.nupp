@@ -126,6 +126,7 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
         if options and (options.actions ~= nil or options.definitions ~= nil) then
             return nil, failure("NUPP2417", "comptime PEG actions are supplied to the materialized matcher factory")
         end
+
         local function simpleTableCapture(pattern, seen)
             local entry = patternEntry(state, pattern)
             if not entry then
@@ -540,6 +541,7 @@ local function finalizeGraph(state, rootHandle, backend)
     end
     local definitions, startName = {}, nil
     local grammarHandle
+
     local function discoverGrammar(handle, seen)
         if seen[handle] then
             return true
@@ -870,6 +872,7 @@ local function packOfResult(result): T.Pack?
     if result == "any" then
         return T.pack({}, {kind = "unknown", type = T.any})
     end
+
     local function concatenate(left: T.Pack, right: T.Pack): T.Pack?
         local products = {}
         for _, leftArm in ipairs(left.alternatives or {left}) do
@@ -957,6 +960,7 @@ function peg.inferSourceResult(source: string, actions: T.Type?): T.Pack?, peg.F
     if cached then
         return cached.result, cached.failure
     end
+
     local function finish(result, why)
         sourceResultCache[cacheKey] = {result = result, failure = why}
 
@@ -965,6 +969,7 @@ function peg.inferSourceResult(source: string, actions: T.Type?): T.Pack?, peg.F
 
     local state = {opaque = {}, intrinsics = {}}
     local scratch = {}
+
     local function newOpaque(provider, family, payload, at)
         local handle = {}
         state.opaque[handle] = {provider = provider, family = family, payload = payload, provenance = at,}
@@ -1127,6 +1132,7 @@ local function searchPlan(validated)
             bytes[#bytes + 1] = byte
         end
     end
+
     local function classPattern(value)
         local pattern = {"["}
         for offset = 1, #value do
@@ -1285,6 +1291,7 @@ local function compilePlan(validated)
     end
 
     local nodes, sets, setIndices = validated.nodes, {}, {}
+
     local function class(bytes)
         if #bytes == 1 then
             return nil, bytes:byte(1)
@@ -1385,6 +1392,7 @@ local function compilePlan(validated)
             1
         ] == "literal" and separator[2] ~= "" and (repetition[1] == "zeroOrMore" or repetition[1] == "oneOrMore") then
             local prefixes, prefixFree, maximum = {}, true, 0
+
             local function collectPrefixes(index)
                 local candidate = nodes[index]
                 if candidate[1] == "choice" then

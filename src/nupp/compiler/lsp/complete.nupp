@@ -424,6 +424,7 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
         local comptimeBindings = {}
         local scopeFrom = comptimeFrom or 1
         local scopeTo = comptimeTo or 0
+
         local function inComptimeScope(def): boolean
             local at = def.token and def.token.offset
             return def.comptimeFunction == true or at ~= nil and at >= scopeFrom and at <= scopeTo
@@ -439,6 +440,7 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
                 end
             end
         end
+
         local function callableSnippet(label, kind, t): string
             local ft = t
             if type(ft) == "table" then

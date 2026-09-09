@@ -95,6 +95,7 @@ end
 
 local function packFlags(flags: {string}, root: string): {string}
     local expanded = {}
+
     local function packRoot(): string
         return root
     end

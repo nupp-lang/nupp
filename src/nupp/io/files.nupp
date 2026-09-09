@@ -1752,6 +1752,7 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
     local into = ffi.new<uint8[?]>(READ_SIZE)
     local held = ""
     local finished = false
+
     local function trimmed(line: string): string
         if line:sub(-1) == "\r" then
             return line:sub(1, -2)

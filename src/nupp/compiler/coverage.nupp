@@ -319,6 +319,7 @@ local function treeHtml(files, currentPage, currentPath)
         end
         node.files[#node.files + 1] = file
     end
+
     local function render(node, prefix, depth)
         local out, names = {"<ul>"}, {}
         for name in pairs(node.dirs) do

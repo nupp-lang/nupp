@@ -409,6 +409,7 @@ function compile.constSpecializations(
 
     local specializationLines: {integer} = {}
     local specializationSites: {any} = {}
+
     local function walk(node: any): nil
         if node == nil or cst.isToken(node) then
             return

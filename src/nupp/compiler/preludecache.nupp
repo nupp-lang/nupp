@@ -508,6 +508,7 @@ function preludecache.decode(image: any): any?
     end
 
     local at: integer = 1
+
     local function readCell(): any
         local tag = tags[at]
         local cell = cells[at]

@@ -218,6 +218,7 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
     -- the edge has to be re-found rather than read off.
     local function firstSuspendingCall(queries, body, flag)
         local found = nil
+
         local function walk(node)
             if not node or found or cst.isToken(node) then
                 return

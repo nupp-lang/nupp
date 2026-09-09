@@ -28,6 +28,7 @@ end
 
 local function names(node: any): {any}
     local out = {}
+
     local function add(value: any): nil
         if value.kind == "dotIndex" then
             add(value.obj)

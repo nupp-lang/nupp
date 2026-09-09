@@ -1,4 +1,5 @@
 local m = {}
+
 local function head(): integer
     return 1
 end

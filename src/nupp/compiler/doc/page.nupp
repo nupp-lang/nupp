@@ -108,6 +108,7 @@ local function moduleTree(modules)
         end
         node.module = module
     end
+
     local function sort(node)
         table.sort(node.order)
         for _, name in ipairs(node.order) do

@@ -36,6 +36,7 @@ local ROOT_NAMES = {
 function image.new(): any
     local data = assert(bundled.source("/preludeimage.bin"), "portable prelude image is absent")
     local cursor: integer = 1
+
     local function line(): string
         local ending = assert(data:find("\n", cursor, true), "portable prelude image is truncated")
         local value = data:sub(cursor, ending - 1)

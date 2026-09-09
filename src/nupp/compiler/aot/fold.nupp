@@ -583,6 +583,7 @@ local function reassociate(node: scalarIR.Expr, context: fold.Context): scalarIR
     local valueType = node.type
     local operands: {scalarIR.Expr} = {}
     local constants: {number} = {}
+
     local function flatten(value: scalarIR.Expr): nil
         if value.op == node.op and value.type == valueType then
             local binary = value as scalarIR.Fixed

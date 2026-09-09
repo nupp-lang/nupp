@@ -28,6 +28,7 @@ function runtime.install(
     local loaders = package.loaders
     assert(loaders, "this Lua runtime does not expose package loaders")
     assert(type(compile) == "function", "compile callback must be a function")
+
     local function pack(...)
         return {n = select("#", ...), ...}
     end

@@ -136,11 +136,13 @@ function wgslemit.program(
     end
 
     local lines: {string} = {}
+
     local function line(depth: integer, value: string): nil
         lines[#lines + 1] = string.rep("    ", depth) .. value
     end
 
     local mutable: {[string]: boolean} = {}
+
     local function findAssignments(values: {any}): nil
         for _, statement in ipairs(values) do
             if statement.op == "assign" then

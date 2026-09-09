@@ -182,6 +182,7 @@ local function detachSelf(fn: hotreload.Implementation, selfName: string?): nil
         return
     end
     local value = fn
+
     local function anchor(): any
         return value
     end

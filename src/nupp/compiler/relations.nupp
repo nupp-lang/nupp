@@ -42,6 +42,7 @@ end
 -- table indexed by one finds nothing. (Real cdata coercion rules land with
 -- reification; this is the checking approximation.)
 local WIDENS: {[string]: {[string]: boolean}} = {}
+
 local function widen(from: string, toList: {string})
     local into = WIDENS[from] or {}
     WIDENS[from] = into
@@ -431,6 +432,7 @@ local function memberIsA(have: Type, want: Type, haveOwner: Type?, wantOwner: Ty
         for j = 2, #want.params do
             wn[#wn + 1] = want.paramNames and want.paramNames[j] or ""
         end
+
         local function shiftedPreserves(ft)
             local shifted = {}
             for result = 1, #ft.rets do

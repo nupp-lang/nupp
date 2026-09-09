@@ -51,6 +51,7 @@ local turnHost: any = nil
 
 type suspension.Source = contract.Source
 suspension.Source = contract.Source
+
 local function sourcerelease(self: contract.Source): nil
     if self.released then
         return
@@ -67,6 +68,7 @@ end
 
 type suspension.Context = contract.Context
 suspension.Context = contract.Context
+
 local function contextsource(
     self: contract.Context,
     name: string,
@@ -91,6 +93,7 @@ end
 
 type suspension.Waiting = contract.Waiting
 suspension.Waiting = contract.Waiting
+
 local function waitingready(self: contract.Waiting): boolean
     return self.state.ready
 end
@@ -104,6 +107,7 @@ suspension.Handler = contract.Handler
 
 type suspension.Installed = contract.Installed
 suspension.Installed = contract.Installed
+
 local function installedrelease(self: contract.Installed): nil
     if self.released then
         return
@@ -327,6 +331,7 @@ function suspension.suspend<T>(
 ): T
     local current = handler()
     local state: any = {ready = false, value = nil, wake = nil,}
+
     local function resume(value: T): nil
         if state.ready then
             error("nupp: " .. operation .. " was resumed twice", 0)

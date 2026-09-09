@@ -53,6 +53,7 @@ local gen = {}
 function gen.runtimeModules(code: string): {string}
     local parsed = parser.parse(code, "=generated")
     local found: {[string]: boolean} = {}
+
     local function visit(node: any): nil
         if type(node) ~= "table" then
             return
@@ -279,6 +280,7 @@ local LOWERED_COMPOUND = {["//="] = true, ["??="] = true}
 -- word remain byte-for-byte intact.
 local function lowerPortableConst(code: string): string
     local out, at, count = {}, 1, #code
+
     local function copyThrough(last: number)
         out[#out + 1] = code:sub(at, last)
         at = last + 1
@@ -653,6 +655,7 @@ function gen.generate(
     for effect in pairs(forcedEffects or {}) do
         emittedFeatureEffects[effect] = true
     end
+
     local function needRuntimeEffect(effect: string?, moduleName: string?): nil
         if effect ~= nil then
             emittedFeatureEffects[effect] = true
@@ -671,6 +674,7 @@ function gen.generate(
             usedNames[tok.text] = true
         end
     end
+
     local function nextTemp()
         local name
         repeat
@@ -705,6 +709,7 @@ function gen.generate(
     -- program without a forward or self reference generates exactly what it did.
     local function planStructTags()
         local structs, indexOf = {}, {}
+
         local function collect(node)
             if not node or cst.isToken(node) then
                 return
@@ -729,6 +734,7 @@ function gen.generate(
         -- whenever the layout does. Two identical declarations sharing a tag is
         -- correct: same body, same layout.
         local moduleTag = (result.moduleName or filename or ""):gsub("[^%w]", "_")
+
         -- FNV-1a over 32 bits. The prime 16777619 is 2^24 + 2^8 + 0x93 and is
         -- multiplied in those pieces: each product fits a double's mantissa, where the
         -- direct multiply can exceed it and lose exactly the low bits the fold keeps.
@@ -971,6 +977,7 @@ function gen.generate(
             return false
         end
         local found = false
+
         local function walk(child)
             if found or not child or cst.isToken(child) then
                 return
@@ -996,6 +1003,7 @@ function gen.generate(
         local firstOffset = first and first.offset or 0
         local lastOffset = last and last.offset or firstOffset
         local own = node.kind == "localFuncStmt" and node.name and node.name.definition or nil
+
         local function walk(child)
             if not child or cst.isToken(child) then
                 return
@@ -1029,6 +1037,7 @@ function gen.generate(
     --- one deliberately selects the module-wide fallback in the session.
     local function hotCUses(node): ({string}, boolean)
         local used, unknown = {}, false
+
         local function walk(child)
             if not child or cst.isToken(child) then
                 return
@@ -1115,6 +1124,7 @@ function gen.generate(
         if not hotState then
             return
         end
+
         local function rootStatement(node)
             if node and node.kind == "pragmaStmt" then
                 node = node.stat
@@ -1671,6 +1681,7 @@ function gen.generate(
 
     local emit
     local outliningSendable: any = nil
+
     local function sourceLine(node)
         if not node then
             return nil
@@ -2712,6 +2723,7 @@ function gen.generate(
 
     pluck.constSpecialize.unrollableBody = function(node): boolean
         local admitted = true
+
         local function walkConst(child)
             if not admitted or child == nil or cst.isToken(child) then
                 return
@@ -3042,6 +3054,7 @@ function gen.generate(
     local function switchMap(node, plan, selectorName, resultName): nil
         local facts = plan.facts
         local sentinel = facts.nilResult and declareConstant("__nuppSwitchNil", "{}") or nil
+
         local function renderedResult(value): string
             if value.kind == "nil" then
                 return sentinel or "nil"
@@ -3270,6 +3283,7 @@ function gen.generate(
 
     local function labelsIn(block)
         local labels = {}
+
         local function walk(n)
             if not n or cst.isToken(n) then
                 return
@@ -3301,6 +3315,7 @@ function gen.generate(
             return false
         end
         local found = false
+
         local function walk(node)
             if found or not node or cst.isToken(node) then
                 return
@@ -3363,6 +3378,7 @@ function gen.generate(
     -- own `...`.
     local function usesVararg(block)
         local found = false
+
         local function walk(n)
             if found or not n or cst.isToken(n) then
                 return
@@ -3397,9 +3413,11 @@ function gen.generate(
     -- Computed on the first region rather than up front: a module with no owned
     -- binding never walks its own root for this.
     local chunkLocals: {[any]: boolean}?
+
     local function isChunkLocal(definition): boolean
         if not chunkLocals then
             local found = {}
+
             local function declare(stat)
                 if cst.isToken(stat) then
                     return
@@ -3443,6 +3461,7 @@ function gen.generate(
     -- function, a declaration sharing a loop with the region is fresh on a later
     -- iteration and cannot be retained by that cache.
     local definitionLoops = setmetatable({}, {__mode = "k"})
+
     local function planDefinitionLoops()
         local function walk(node, loops)
             if not node then
@@ -3515,6 +3534,7 @@ function gen.generate(
         -- region takes the activation cache, whose lifetime is exactly the
         -- receiver's.
         local implicitReceiver
+
         local function walk(node)
             if not node or cst.isToken(node) then
                 return
@@ -3585,6 +3605,7 @@ function gen.generate(
         for _, definition in ipairs(captures or {}) do
             wanted[definition] = true
         end
+
         local function markName(node, into)
             local definition = node and node.kind == "name" and node.token and node.token.definition or nil
             if definition and wanted[definition] then
@@ -5198,6 +5219,7 @@ function gen.generate(
                 local storage = path and "" or x.visibility == "global" and "" or "local "
                 local mt = "__nuppMt_" .. x.name.text
                 local fields = {}
+
                 local function fixedType(t: any): string?
                     if t.kind == "topt" then
                         t = t.inner
@@ -5794,6 +5816,7 @@ function gen.generate(
             end
             local target = x.target
             local line = sourceLine(target)
+
             -- Writes the assignment for a target already reduced to a slot expression
             -- that is cheap and safe to name twice. A `?.` slot suppresses both the
             -- read and the write on a nil receiver, which is what the operator
@@ -6837,6 +6860,7 @@ function gen.generate(
             local automaticMap = {}
             local statementOwnerMap = {}
             local captureMoves = {}
+
             local function collectCaptureMoves(node): nil
                 if not node or cst.isToken(node) then
                     return
@@ -7038,6 +7062,7 @@ function gen.generate(
                     pluck.reasons.region
                 )
                 cleanupStack[#cleanupStack + 1] = ctx
+
                 -- Emits the acquisition and hands back the flag its move clears, if it
                 -- has
                 -- one. Every caller is finishing a statement, so the clear can be one
@@ -7230,6 +7255,7 @@ function gen.generate(
             e(("const %s={}; local %s=0;"):format(cleanupError, hasCleanupError), x.endTok and x.endTok.line or nil)
             for j = #(x.bindings or {}), 1, -1 do
                 local binding = x.bindings[j]
+
                 local function emitProtected(cleanup, value, fieldName): nil
                     local resolvedField = cleanup.kind == "field" and fieldActive[
                         j
@@ -8086,6 +8112,7 @@ function gen.generate(
         end
         table.sort(exportedFunctions)
         local exportedRecords = {}
+
         local function collectExportedRecords(record, path)
             if record.isAnnotationDefinition then
                 return
@@ -8139,6 +8166,7 @@ function gen.generate(
                 "local %s;%s[%q]=function(...) return %s(...) end;"
             ):format(name, emitDepth.exportTableName, name, name)
         end
+
         local function primitiveWorkerTransfer(resolved): string?
             if resolved and (resolved.tag == "number" or resolved.tag == "integer") then
                 return "number"
@@ -8341,6 +8369,7 @@ function gen.generate(
         end
         local consumesService = false
         local visitedServices = {}
+
         local function inspectServices(node: any): nil
             if type(node) ~= "table" or visitedServices[node] or cst.isToken(node) then
                 return

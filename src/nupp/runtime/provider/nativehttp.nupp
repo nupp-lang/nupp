@@ -131,6 +131,7 @@ end
 
 local function mergedHeaders(first: any, second: any, contentType: string?): (any, any, {any})
     local byLower, merged = {}, {}
+
     local function add(headers: any): nil
         for name, value in pairs(headers or {}) do
             if type(
@@ -226,6 +227,7 @@ local function appendWaiter(client: BodyClient, transfer: NativeTransfer, which:
         local active = true
         client:_retainSource(context)
         local forget: any
+
         local function finish(): nil
             if not active then
                 return
@@ -267,6 +269,7 @@ local function waitAdmission(client: BodyClient): nil
         local active = true
         client:_retainSource(context)
         local forget: any
+
         local function finish(): nil
             if not active then
                 return
@@ -994,6 +997,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
     if reader ~= nil then
         local scratch = io.newBuffer(UPLOAD_SIZE)
         local uploadTransfer = transfer
+
         local function uploadAndWait(): any takes (scratch)
             local transferred: integer = 0
             while true do

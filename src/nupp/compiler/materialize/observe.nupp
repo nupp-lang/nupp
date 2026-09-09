@@ -29,6 +29,7 @@ end
 --- retain canonical blueprints and rendered backend outputs for the manifest cache.
 function observe.collect(root: any, filename: string?): {any}
     local found = {}
+
     local function walk(node)
         if not node or cst.isToken(node) then
             return

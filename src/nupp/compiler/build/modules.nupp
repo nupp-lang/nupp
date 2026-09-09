@@ -870,6 +870,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local enqueueLinked: function(string): nil
     local checkedProviders: {[string]: boolean} = {}
+
     local function compatibleProvider(name: string): boolean
         local found = false
         for _, provider in ipairs(serviceCatalog.entries) do
@@ -1283,6 +1284,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local addingCarriedRuntime: {[string]: boolean} = {}
     local carriedRuntime: {[string]: boolean} = {}
     local runtimeSourceRoot = join(root, join(outDir, "cache/runtime-source"))
+
     local function addCarriedRuntime(name: string): boolean
         if portableTarget then
             return false

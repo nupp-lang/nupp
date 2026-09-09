@@ -1,4 +1,5 @@
 module nupp.runtime.workersprovider
+
 local contracts = require("nupp.runtime.services.workers")
 export const provider = contracts.service:assembleOptional(function(): contracts.Provider?
     if package.preload["nupp.workers.native"] ~= nil or package.loaded["nupp.workers.native"] ~= nil then

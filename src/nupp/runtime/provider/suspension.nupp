@@ -597,6 +597,7 @@ end
 type suspension.Installed = contract.Installed
 
 suspension.Installed = contract.Installed
+
 local function installedrelease(self: suspension.Installed): nil
     if self.released then
         return
@@ -620,6 +621,7 @@ local function installedrelease(self: suspension.Installed): nil
     -- which is what this exists to prevent; swallowing them all would close the
     -- scope on a lie.
     local firstError = nil
+
     local function attempt(fn: any, argument: any): nil
         local ok, err = pcall(fn, argument)
         if not ok and firstError == nil then

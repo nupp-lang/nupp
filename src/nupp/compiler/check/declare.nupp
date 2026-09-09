@@ -305,6 +305,7 @@ function declare.install(
     --- @return the name of a declaration on the cycle, or nil
     local function containedByValue(t: any, target: any): string?
         local seen = {}
+
         local function reaches(current: any): string?
             if not current or current.tag ~= "nominal" or current.declKind ~= "struct" then
                 return nil
@@ -942,6 +943,7 @@ function declare.install(
     --- field could hold cannot be installed later either.
     local function checkDeclaredConformance(stat: any, n: any, localMembers: {[string]: any}): nil
         local reported: {[string]: boolean} = {}
+
         local function conflict(name: string, at: any, message: string, help: string?): nil
             if reported[name] then
                 return
@@ -1134,6 +1136,7 @@ function declare.install(
     local function assignedFields(body: any): any, boolean
         local nodes, labels, jumps = {}, {}, {}
         local receiver = body.params and body.params[1] and body.params[1].name
+
         local function point(successors: any, field: any): any
             local node = {successors = successors or {}, field = field}
             nodes[#nodes + 1] = node
@@ -1974,6 +1977,7 @@ function declare.install(
                 n.staticWriteByname[name] = combined
                 n.overloadedStatics[name] = #signatures > 1
             end
+
             -- Publish each inline definition on its nominal before any member body is
             -- checked, so a type-position const-function argument may resolve a later
             -- `R.destroy` as its affine terminal. The name still denotes an ordinary

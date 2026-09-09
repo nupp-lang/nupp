@@ -263,6 +263,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     -- and `optional(T)` are one handle, as are `optional(A | B)` and `A | B | nil`.
     local function setLikeHandle(at, kind, origin, members)
         local byKey = {}
+
         local function add(member)
             local found = entry(state, member, "Type")
             if found.payload.kind == kind then
@@ -741,6 +742,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         if not entry(state, args[1], "Type") or not entry(state, args[2], "Type") then
             return nil, failure("NUPP2415", "nupp.types.sameNominal needs two type handles")
         end
+
         local function nominal(value)
             local found = entry(state, value, "Type")
             while found and (
@@ -893,6 +895,7 @@ function typeprovider.importDescriptor(
         return nil, failure("NUPP2415", "the type provider is not installed")
     end
     local import
+
     local function list(indices, label)
         if type(indices) ~= "table" or #indices > typeprovider.MAX_MEMBERS then
             return nil, failure("NUPP2415", label .. " has an invalid member list")

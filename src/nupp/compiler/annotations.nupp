@@ -558,6 +558,7 @@ function annotations.bindBuiltinDeclarations(
         event = "nupp.derive.EventOptions",
         deprecated = "nupp.__DeprecatedAnnotation",
     }
+
     local function resolve(path)
         local segments = {}
         for segment in path:gmatch("[^.]+") do

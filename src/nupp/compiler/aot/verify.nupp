@@ -365,6 +365,7 @@ local function scratchLengthSource(value: scalarIR.Expr, values: {[string]: stri
         return values[SCRATCH_LENGTH .. (value as scalarIR.Name).name]
     elseif value.op == "u32_and" then
         local pair = value as scalarIR.Fixed
+
         local function mask(other: scalarIR.Expr): boolean
             return other.op == "constant_i32" and tonumber((other as scalarIR.IntConstant).value) == 0x7fffffff
         end
@@ -595,6 +596,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             "invalid workgroup scratch read"
         )
         holds(load.index.type == "u32", "workgroup scratch index is not uint32")
+
         local function indexRange(value: scalarIR.Expr): (number?, number?)
             local operation = value.op
             if operation == "constant" or operation == "constant_i32" then

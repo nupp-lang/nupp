@@ -164,6 +164,7 @@ local function identity(root: any, name: string): any?, any?
     end
     local expression = expressions[name]
     local args = expression and expression.kind == "call" and expression.args and expression.args.exprs or {}
+
     local function value(node: any): any
         return literal(node) or (node and node.kind == "name" and literal(expressions[node.token.text]) or nil)
     end
@@ -173,6 +174,7 @@ end
 
 local function shape(provider: any): {any}
     local members = {}
+
     local function kinds(t: any, out: {[string]: boolean}): nil
         if t.tag == "union" then
             for _, arm in ipairs(t.members) do

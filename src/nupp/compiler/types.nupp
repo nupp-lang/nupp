@@ -2220,6 +2220,7 @@ local function preservedPath(t: types.Type, target: types.Type, seen: {[any]: bo
     end
     seen[t] = true
     local found: {string}? = nil
+
     local function consider(name: string, child: types.Type)
         local suffix = preservedPath(child, target, seen)
         if suffix then

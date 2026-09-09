@@ -444,6 +444,7 @@ end
 local function fold(ctx: Context, call: any, callee: mutation.Summary): boolean
     local summary = ctx.summary
     local changed = false
+
     local function through(root: string?, prefix: string, paths: Paths)
         if not root then
             return
@@ -1063,6 +1064,7 @@ function mutation.eachWrite(
     if not callee then
         return false
     end
+
     local function each(root: string?, prefix: string, paths: Paths)
         if not root then
             return
@@ -1132,6 +1134,7 @@ end
 function mutation.writtenRoots(summaries: mutation.Summaries, block: any): {[string]: boolean}, {[string]: boolean}
     local whole: {[string]: boolean} = {}
     local below: {[string]: boolean} = {}
+
     local function note(key: string, under: boolean)
         if under then
             below[key] = true
@@ -1141,6 +1144,7 @@ function mutation.writtenRoots(summaries: mutation.Summaries, block: any): {[str
     end
 
     local integers: {[string]: boolean} = {}
+
     local function direct(target: any)
         local root, suffix = splitPath(target, integers)
         if not root then

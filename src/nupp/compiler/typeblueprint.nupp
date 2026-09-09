@@ -88,6 +88,7 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
 
     local built, active = {}, {}
     local build
+
     local function edge(index, label)
         if type(index) ~= "number" or index ~= math.floor(index) or index < 1 or index > #nodes then
             return nil, label .. " has an invalid type edge"

@@ -1,4 +1,5 @@
 module nupp.simd
+
 const {type Span} = require("nupp.mem.span")
 
 -- Packed operations use the target's AOT instructions inside compiled entries.

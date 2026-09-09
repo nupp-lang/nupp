@@ -1,5 +1,6 @@
 @!internal
 module nupp.gpu.operations
+
 local api = require("nupp.gpu.api")
 local types = require("nupp.gpu.types")
 local tensorlayout = require("nupp.gpu.layout")
@@ -14,6 +15,7 @@ type gpu.Phases = types.Phases
 gpu.Phases = types.Phases
 type gpu.Context = api.Context
 gpu.PORTABLE_WORKGROUP_THREADS = types.PORTABLE_WORKGROUP_THREADS
+
 local function denseShape(shape: {integer}): (integer, {integer})
     if #shape < 1 or #shape > 4 then
         error("nupp: GPU tensors take one through four dimensions", 3)

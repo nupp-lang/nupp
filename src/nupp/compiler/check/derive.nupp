@@ -55,6 +55,7 @@ end
 
 local function providerFilePaths(program)
     local paths, seen = {}, {}
+
     local function stringLiteral(token)
         if not token then
             return nil
@@ -83,6 +84,7 @@ local function providerFilePaths(program)
     end
 
     local dynamic
+
     local function visit(node)
         if type(node) ~= "table" or cst.isToken(node) then
             return
@@ -397,6 +399,7 @@ function derive.install(c: state.Checker): derive.Ops
             reference = "owner",
         }
         local permittedReferences = {}
+
         local function permit(edge, prefix)
             local descriptor = edge and edge.descriptor or edge
             for index, node in ipairs(descriptor and descriptor.types or {}) do
@@ -705,6 +708,7 @@ function derive.install(c: state.Checker): derive.Ops
             )
             return
         end
+
         local function validateForwards(recipes, isStatic)
             local requirements = contract and (isStatic and contract.staticByname or contract.byname) or nil
             local generated = isStatic and n.derivedStaticDefinitions or n.derivedDefinitions
@@ -721,6 +725,7 @@ function derive.install(c: state.Checker): derive.Ops
                 methodNames[#methodNames + 1] = methodName
             end
             table.sort(methodNames)
+
             -- What one forwarding argument's type is, and whether the recipe naming it
             -- holds up. Declared outside the loop over the members rather than in it,
             -- because a function built inside a loop is one LuaJIT never compiles; what
@@ -1394,6 +1399,7 @@ function derive.install(c: state.Checker): derive.Ops
             abortAll()
             return
         end
+
         local function serializationProbe(): boolean
             return probe(recipeLimitAt)
         end
@@ -1474,6 +1480,7 @@ function derive.install(c: state.Checker): derive.Ops
         -- Publish the derive contract explicitly. Consumers compare this envelope;
         -- they do not infer behavior from mutable nominal member maps.
         local interface = {}
+
         local function memberLess(a, b)
             return a.namespace < b.namespace or a.namespace == b.namespace and a.name < b.name
         end

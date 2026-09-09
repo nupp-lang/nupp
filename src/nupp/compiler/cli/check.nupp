@@ -106,6 +106,7 @@ local function run(parsed: any): integer
     local reportMod = require("nupp.compiler.cli.report")
     local diagnostics: {any} = {}
     local effectiveDialect = assert(require("nupp.compiler.dialects").resolve(values.dialect))
+
     local function writeJson(ok: boolean): nil
         reportMod.write({ok = ok, diagnostics = reportMod.diagnosticValues(diagnostics), dialect = effectiveDialect,})
     end

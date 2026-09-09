@@ -478,6 +478,7 @@ function narrow.install(c: state.Checker): narrow.Ops
         facts.summaries()
         local first = cst.firstToken(body)
         local offset = first and first.offset or 0
+
         local function writtenLater(entry, path): boolean
             local token = entry and entry.definition and entry.definition.token or nil
             return token ~= nil and mutation.writtenAfter(token, offset, path)

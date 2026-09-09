@@ -747,6 +747,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind == "<" then
                 add(n, advance()).generic = true
                 local packArgs = n.base and n.base.text == "thread"
+
                 local function argument()
                     return parseTypeArgument(packArgs)
                 end
@@ -824,6 +825,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(mapped, expect("}", "to close mapped shape"))
                 return mapped
             end
+
             local function shapeMember(): Node
                 local capability = nil
                 if cur().kind == "name" and (
@@ -1094,6 +1096,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A type intersection. `&` binds more tightly than `|`.
     local function parseIntersection(stopAtFunctionMember: boolean?): Node
         local t = parsePosttype()
+
         local function nextIsFunctionMember(): boolean
             return tokens[
                 i + 1
@@ -1175,6 +1178,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return n
         end
         local n = new cst.Tpack(kind = "tpack", types = {})
+
         -- A parenthesized pack's punctuation is type material, and it is marked as such
         -- here because this is the only place that still knows. A caller may splice
         -- these children into the declaration that carries the annotation, and once
@@ -2484,6 +2488,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if affineTok and which ~= "interface" then
             errAt(affineTok, "'affine' may modify only an interface", "NUPP1002")
         end
+
         -- Records where the declaration begins in source. A visibility fix writes
         -- `local`/`global` before the introducer or deletes a modifier that is already
         -- there, and neither is findable from the name alone.
@@ -2688,6 +2693,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif startsWith(i) then
             local n = new cst.WithStmt(bindings = {}, kind = "withStmt")
             n.withTok = add(n, advance())
+
             local function binding()
                 local b = new cst.WithBinding(kind = "withBinding")
                 b.name = add(b, expectName("in 'with' binding"))
@@ -2916,6 +2922,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, advance())
             end
             n.targets[1] = add(n, parseSuffixedexp())
+
             local function plainFieldPath(target)
                 if target.kind ~= "dotIndex" then
                     return false
@@ -3047,6 +3054,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 end
                 return n
             end
+
             local function bind()
                 n.names[#n.names + 1] = add(n, expectName(isConst and "after 'const'" or "after 'local'"))
                 if cur().kind == ":" then

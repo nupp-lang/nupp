@@ -258,6 +258,7 @@ local function readFence(lines: {string}, index: integer): (any?, integer)
     end
     local language, options = syntax.fenceInfo:match(rest or "")
     options = trim(options or "")
+
     local function closes(line)
         local _, closer, closerRest = syntax.markdownFence:match(line)
         return syntax.closes(fence, closer, closerRest)
@@ -313,6 +314,7 @@ end
 local function extractBlocks(text, links, rendered)
     local lines, out = syntax.lines:match(text) or {}, {}
     local index: integer = 1
+
     local function placeholder(markup)
         rendered[#rendered + 1] = markup
         out[#out + 1] = ""

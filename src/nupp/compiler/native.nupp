@@ -669,6 +669,7 @@ end
 --- effect at the require or at the qualified path that selects it.
 function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: string}}
     local effects = {}
+
     local function decorate(owner: any, member: string, effect: string): nil
         if owner then
             effects[owner] = effects[owner] or {}

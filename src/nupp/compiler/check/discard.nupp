@@ -123,6 +123,7 @@ end
 -- these writes a slot that dies with the call; assigning to anything else does not.
 local function ownBindings(body: any): any
     local own = {}
+
     local function remember(tok: any)
         if tok and tok.definition then
             own[tok.definition] = true
@@ -165,6 +166,7 @@ end
 local function writesOutward(body: any): boolean
     local own = ownBindings(body)
     local found = false
+
     local function judge(target: any)
         if not target then
             return

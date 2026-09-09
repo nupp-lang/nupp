@@ -247,6 +247,7 @@ function spirv.program(
     local declarations: {integer} = {}
     local functions: {integer} = {}
     local nextId: integer = 1
+
     local function id(): integer
         local answer: integer = nextId
         nextId = nextId + 1
@@ -291,6 +292,7 @@ function spirv.program(
     instruction(capabilities, OP.MemoryModel, {0, 1}) -- Logical, GLSL450
 
     local types: {[string]: integer} = {}
+
     local function scalarType(key: string): integer
         local cached = types[key]
         if cached then
@@ -352,6 +354,7 @@ function spirv.program(
     end
 
     local constants: {[string]: integer} = {}
+
     local function constant(typeId: integer, word: integer): integer
         local key = tostring(typeId) .. ":" .. tostring(word)
         local cached = constants[key]
@@ -369,6 +372,7 @@ function spirv.program(
     local oneU = constant(u32Type, 1)
     local zeroF = constant(f32Type, 0)
     local canonicalNanBits = constant(u32Type, 2143289344)
+
     local function canonicalNan(): integer
         local value = id()
         instruction(functions, OP.Bitcast, {f32Type, value, canonicalNanBits})
@@ -454,6 +458,7 @@ function spirv.program(
     local bufferVars: {[string]: integer} = {}
     local bufferElement: {[string]: integer} = {}
     local bufferPhysical: {[string]: string} = {}
+
     local function declareBuffer(param: scalarIR.Param, set: integer, binding: integer, readonlyBuffer: boolean): nil
         local key, size = physical(param.type, param.sourceType)
         local element = layoutTypes[param.type:match("^struct:(.+)$") or ""] or scalarType(key)
@@ -874,6 +879,7 @@ function spirv.program(
 
     local uniformValues: {[string]: integer} = {}
     local uniformTypes: {[string]: integer} = {}
+
     local function uniform(name_: string, typeId: integer): integer
         local existing = uniformValues[name_]
         if existing ~= nil then
@@ -924,6 +930,7 @@ function spirv.program(
     local currentContinue: {integer} = {}
     local terminated = false
     local expression: function(any): (integer, integer)
+
     local function bufferPointer(value: any): (integer, integer)
         local indexId = dispatch
         if value.cursor ~= nil then

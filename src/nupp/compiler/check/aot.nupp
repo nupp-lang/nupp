@@ -122,6 +122,7 @@ function aot.install(c: state.Checker): aot.Ops
             end
         end
         (node as any).aotMapLoop = loops == 1
+
         local function exactCall(current: cst.Call): any?
             local callee = current.obj
             local exact = callee ~= nil and (callee as any).exactCallExport or nil

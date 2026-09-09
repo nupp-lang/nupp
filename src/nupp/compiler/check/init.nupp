@@ -324,6 +324,7 @@ local function provenNonYielding(node: cst.Node?, body: cst.Node?): boolean
         -- contracts use: every reached call is either ownership syntax or carries the
         -- public `nosuspend` guarantee. Nested functions are separate definitions.
         local visited: {[cst.Node]: boolean} = {}
+
         local function callsAreNonYielding(current: cst.Node?): boolean
             if not current or cst.isToken(current) then
                 return true
@@ -563,6 +564,7 @@ end
 -- Complete summaries stay on bodies in this file and never enter a function type.
 local function finalizeCallGuarantees(c: state.Checker, queries: any)
     local published = {}
+
     local function localSummary(value)
         if not value or cst.isToken(value) then
             return nil
@@ -762,6 +764,7 @@ local function finalizeNominalEffects(c: state.Checker)
     -- interface observes the same mutated object. Snapshot both semantic surfaces as
     -- immutable text for the incremental cutoff and persistent build interface hash.
     local parts, seen = {}, {}
+
     local function effect(t, method: boolean): string?
         if not t then
             return nil
@@ -793,6 +796,7 @@ local function finalizeNominalEffects(c: state.Checker)
             return
         end
         seen[nominal] = true
+
         local function record(which: string, members: {[string]: Type}, method: boolean)
             local names = {}
             for name, member in pairs(members) do
@@ -2380,6 +2384,7 @@ function checkMod.check(
         statHandlers.gotoStmt = refuseJump
         statHandlers.labelStmt = refuseJump
     end
+
     local function checkTypeDeclaration(stat)
         if declaredModuleName and stat.visibility == "global" then
             c.diag("NUPP1002", stat.modifier or stat, "'global' is not allowed in a declared module; use 'export'")
@@ -2399,6 +2404,7 @@ function checkMod.check(
     -- assignment is conventionally the last statement and the exports come first.
     local moduleValueAssignment: any = nil
     local scannedModuleValue = false
+
     local function exportAssignment(): any
         if not scannedModuleValue then
             scannedModuleValue = true
@@ -2910,6 +2916,7 @@ function checkMod.check(
         if block and block.kind == "block" and #(c.scope.automaticOwners or {}) > 0 then
             block.automaticOwners = c.scope.automaticOwners
             local boundary = cst.lastToken(block)
+
             local function cleanupName(cleanup)
                 if cleanup.kind == "function" then
                     return cleanup.name or cleanup.id
@@ -2953,6 +2960,7 @@ function checkMod.check(
     -- may not enter one and bypass acquisition.
     local function auditWithGotos(block)
         local labels, gotos = {}, {}
+
         local function walk(node, regions)
             if not node or cst.isToken(node) then
                 return
@@ -3092,6 +3100,7 @@ function checkMod.check(
     if needsTrace and effectQueries then
         traceSource.run(result as Target2, c as Checker2, analysisFacts, effectQueries)
     end
+
     local function cleanupNonRaising(cleanup): boolean
         if cleanup.kind == "field" then
             return cleanupNonRaising(cleanup.cleanup)
@@ -3131,6 +3140,7 @@ function checkMod.check(
     -- the general lowering until a dedicated CFG rewrite can preserve those rules.
     local function straightforwardWithBody(body): boolean
         local straightforward = true
+
         local function walk(node, root)
             if not node or not straightforward or cst.isToken(node) then
                 return

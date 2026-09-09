@@ -131,6 +131,7 @@ local function declarationSignature(stat, declaration): string
     local skippedBody = declaration and (
         declaration.kind == "localFuncStmt" or declaration.kind == "funcStmt"
     ) and declaration.body and declaration.body.body or nil
+
     local function walk(value)
         if value == skippedBody then
             return
@@ -193,6 +194,7 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
     ) or cst.returnedLocal(parsed.root)
     produced.moduleLocal = moduleLocal
     local dependencySet = {}
+
     local function dependencies(node)
         if not node or cst.isToken(node) then
             return

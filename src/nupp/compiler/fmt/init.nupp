@@ -9,6 +9,9 @@ Fixed, with two knobs:
 - 120 columns for code by default, `opts.width` overrides it; 88 for
   docblock text, unaffected by `opts.width`;
 - ordinary line breaks are soft, so short expressions and groups join;
+- a declared module header is followed by a blank line;
+- a local function that follows another statement in the same scope has a
+  blank line before it;
 - an over-long line is broken, one element per group;
 - an over-long chain of method calls is broken between its steps, one call
   per line, before anything inside a call is broken;
@@ -335,6 +338,32 @@ local function markFunctionEnd(n)
     end
 end
 
+local function isLocalFunctionStatement(n)
+    while n and n.kind == "pragmaStmt" do
+        n = n.stat
+    end
+
+    return n and n.kind == "localFuncStmt"
+end
+
+-- A local function at the start of a scope needs no leading space. After another
+-- statement, the separation belongs after that whole statement so comments and
+-- annotations leading the function stay with it.
+local function markLocalFunctionSeparation(stats)
+    local previous = nil
+    for _, stat in ipairs(stats or {}) do
+        if stat.kind ~= "emptyStmt" then
+            if previous and isLocalFunctionStatement(stat) then
+                local close = lastToken(previous)
+                if close then
+                    close.blankAfter = true
+                end
+            end
+            previous = stat
+        end
+    end
+end
+
 -- Walks the tree assigning block depth, bracket-group membership, spacing hints, and
 -- statement spans.
 local function annotate(root)
@@ -415,6 +444,11 @@ local function annotate(root)
         elseif kind == "funcbody" then
             markFinalFunctionReturn(n)
             breakFunctionBody(n)
+        elseif kind == "moduleStmt" then
+            local close = lastToken(n)
+            if close then
+                close.blankAfter = true
+            end
         elseif kind == "funcStmt" or kind == "localFuncStmt" or kind == "inlineMethod" then
             markFunctionEnd(n)
         end
@@ -523,6 +557,7 @@ local function annotate(root)
                     markStart = false
                 end
             elseif child.kind == "block" then
+                markLocalFunctionSeparation(child.stats)
                 for _, stat in ipairs(child.stats or {}) do
                     -- A bare `;` is a statement the grammar allows and nobody writes on
                     -- purpose. It terminates the statement before it, so it stays on
@@ -570,6 +605,7 @@ local function annotate(root)
         if cst.isToken(child) then
             child.blockDepth = 0
         elseif child.kind == "block" then
+            markLocalFunctionSeparation(child.stats)
             for _, stat in ipairs(child.stats or {}) do
                 markStart = stat.kind ~= "emptyStmt"
                 walk(stat, 0, nil)
@@ -856,6 +892,7 @@ end
 local function collectItems(tokens)
     local items = {}
     local pending = 0
+
     local function push(item)
         item.nl = pending
         pending = 0
@@ -941,6 +978,16 @@ local function lineFirstToken(line)
     end
 
     return nil
+end
+
+local function lineHasBlankAfter(line)
+    for _, item in ipairs(line.items) do
+        if item.kind == "token" and item.token.blankAfter then
+            return true
+        end
+    end
+
+    return false
 end
 
 local function renderItems(items)
@@ -1081,6 +1128,7 @@ end
 -- nothing can be split.
 local function splitLine(line)
     local out = {}
+
     local function emit(items, indent)
         if #items > 0 then
             out[#out + 1] = {items = items, indent = indent}
@@ -1224,6 +1272,7 @@ end
 -- closer before looking for another width-driven split.
 local function splitForcedLines(lines)
     local out, changed = {}, false
+
     -- Written once per call and told which line it is cutting, rather than once per
     -- line: a function built inside a loop is one LuaJIT never compiles, and this loop
     -- runs over every line of every file formatted.
@@ -1266,6 +1315,7 @@ end
 -- arguments after it would read as a continuation of its body rather than as arguments.
 local function spreadListGroups(lines, width)
     local changed = false
+
     local function mark(tok)
         if tok and not tok.forceBreak then
             tok.forceBreak = true
@@ -1391,6 +1441,7 @@ end
 local function render(lines)
     local out = {}
     local prevIndent = 0
+
     local function push(text)
         out[#out + 1] = text
     end
@@ -1432,9 +1483,8 @@ local function render(lines)
         end
         -- blank line after a documented declaration, unless the scope closes right
         -- after it (no blank line before `end`)
-        local last = line.items[#line.items]
         local next_ = lines[idx + 1]
-        if last and last.kind == "token" and last.token.blankAfter and next_ and next_.indent >= line.indent then
+        if lineHasBlankAfter(line) and next_ and next_.indent >= line.indent then
             push("")
         end
         prevIndent = line.indent
@@ -1487,6 +1537,7 @@ local function canonicalizeSingleValueAnnotations(result, opts)
     end
 
     local applications = {}
+
     local function walk(node)
         if not node or cst.isToken(node) then
             return
@@ -1581,6 +1632,7 @@ local function parenthesizeMethodCalls(result, opts)
         return
     end
     local before, after = {}, {}
+
     local function walk(node)
         if not node or cst.isToken(node) then
             return

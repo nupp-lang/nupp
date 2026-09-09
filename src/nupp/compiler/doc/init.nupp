@@ -226,6 +226,7 @@ function doc.json(modules: {extractMod.Module}): string
             annotations = annotations(value.annotations),
         }
     end
+
     local function item(value)
         local info = value.doc
 
@@ -392,6 +393,7 @@ local function loadModules(root, config, settings, requested)
     for _, module in ipairs(modules) do
         byName[module.name] = byName[module.name] or module
     end
+
     -- Resolve exported type aliases before filtering implementation modules. A public
     -- alias owns its documentation name, while the declaring file owns the contract.
     -- Only explicit aliases project members; exporting an entire provider table does
@@ -508,6 +510,7 @@ local function loadModules(root, config, settings, requested)
             internalTrees[#internalTrees + 1] = module.name
         end
     end
+
     local function hiddenModule(module: any): boolean
         if settings.includePrivate then
             return false
@@ -700,6 +703,7 @@ end
 -- description carries a link as readily as the sentence above it does.
 local function rewriteModuleDocLinks(module: Module, pages: {Page2}, file: string): nil
     local page: Page2 = {path = ""}
+
     local function rewrite(text: string?): string
         if not text or text == "" then
             return text or ""
@@ -900,6 +904,7 @@ local function configuredPages(root, settings, title)
             published[candidate.source] = true
         end
     end
+
     -- A generated page is one the compiler writes rather than one the manifest spells
     -- out. The diagnostic codes and the standard library declarations are both the
     -- compiler's own, so a manifest carrying either would be a copy that goes stale the

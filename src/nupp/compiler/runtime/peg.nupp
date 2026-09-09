@@ -168,6 +168,7 @@ export function matcher(
 ): any
     local Matcher: any = {}
     Matcher.__index = Matcher
+
     local function findAt(subject: string, init: integer): (integer?, integer?,...any)
         if generatedFind ~= nil then
             return generatedFind(subject, init)
@@ -262,6 +263,7 @@ export function matcher(
         end
         error("nupp: PEG replacement must be a string or function", 2)
     end
+
     -- Every match from `at` on, each replaced by what `produce` answers for it. An
     -- empty match cannot be allowed to stand still: the cursor steps past one byte
     -- and that byte is copied through, which is what keeps `a*` from looping forever
@@ -367,6 +369,7 @@ export function graphPattern(program: any, definitions: any): lpeg.Pattern<{any}
     local nodes = program.graph.nodes
     local memo: any = {}
     local targets: any = {}
+
     -- A back reference matches what the named capture captured, which LPeg expresses as
     -- a match-time capture over the captured text rather than as a pattern.
     -- False rather than nil is the failure: LPeg reads either, and the declared
@@ -502,6 +505,7 @@ export function fromPattern(pattern: any): any
 
     local resultValues: any = nil
     local execution = (pattern as lpeg.Pattern<any>) * lpeg.Cp()
+
     local function run(subject: string, position: integer): integer?
         local values = pack(lpeg.match(execution, subject, position))
         local nextPosition = values[values.n]

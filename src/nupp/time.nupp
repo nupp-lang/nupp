@@ -1,2 +1,3 @@
 module nupp.time
+
 export = assert(require("nupp.runtime.timeprovider").provider, "nupp.time: no clock provider is available")

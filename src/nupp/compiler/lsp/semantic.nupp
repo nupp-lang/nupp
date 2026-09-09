@@ -125,6 +125,7 @@ semantic.TYPE_WORDS = {
 function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
     local kinds = {}
     local keywordType = semantic.keywordType
+
     local function mark(tok, kind)
         if tok and cst.isToken(tok) then
             kinds[tok] = kind

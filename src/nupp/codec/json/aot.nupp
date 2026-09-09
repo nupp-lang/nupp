@@ -718,6 +718,7 @@ function json.writer(exclusive out: Buffer, nullValue: any?): any
     local stack: {any} = {}
     local root, closed = false, false
     local writer = {}
+
     local function publish(): nil
         if #parts > 0 then
             out:put(table.concat(parts));

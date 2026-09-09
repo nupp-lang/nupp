@@ -98,6 +98,7 @@ end
 
 local function callsIn(info, queries, checker): {any}, {any}
     local edges, unknown = {}, {}
+
     local function walk(node)
         if not node or cst.isToken(node) then
             return
@@ -211,6 +212,7 @@ function source.run(
         end
         info.traceFindings = {}
         local seen = {}
+
         local function visit(current, path, firstCall)
             if seen[current] then
                 return

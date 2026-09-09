@@ -42,6 +42,7 @@ symbols.SYMBOL_KINDS = {
 --- The members a declaration body holds, as outline children.
 local function declarationChildren(stat, source)
     local children = {}
+
     local function child(nameTok, kind, node)
         if not nameTok then
             return
@@ -112,6 +113,7 @@ end
 --- name a reader searches for.
 function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.Symbol}
     local found = wire.array({})
+
     local function emit(stat, nameTok, kind, path)
         if not nameTok then
             return

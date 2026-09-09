@@ -73,6 +73,7 @@ local function writesName(body: cst.Node?, name: string): boolean
     if not body or cst.isToken(body) or body.kind == "funcbody" or body.kind == "shortfn" then
         return false
     end
+
     local function isName(node: cst.Node?): boolean
         if not node or node.kind ~= "name" or not node.token then
             return false
@@ -470,6 +471,7 @@ function control.install(c: state.Checker): state.StatHandlers
         if not name or not start then
             return nil
         end
+
         local function jumpsBack(node: any): boolean
             if not node or cst.isToken(node) then
                 return false
@@ -639,6 +641,7 @@ function control.install(c: state.Checker): state.StatHandlers
         if observed and not annotatedPack then
             observed[#observed + 1] = returnedPack
         end
+
         local function returnedExpression(result: integer)
             local exprs = stat.exprs or {}
             if result <= #exprs then
@@ -1326,6 +1329,7 @@ function control.install(c: state.Checker): state.StatHandlers
         -- invent the lexical state before the label. Refuse that edge explicitly
         -- instead of emitting Lua with an inaccessible label.
         local inside, labels = {}, {}
+
         local function collect(node: any)
             if not node or cst.isToken(node) then
                 return
@@ -1350,6 +1354,7 @@ function control.install(c: state.Checker): state.StatHandlers
         collect(stat.body)
         if next(labels) then
             local targetFunction = nil
+
             local function locate(node: any, currentFunction: any)
                 if not node or cst.isToken(node) then
                     return false
@@ -1376,6 +1381,7 @@ function control.install(c: state.Checker): state.StatHandlers
             end
 
             locate(c.result.root, nil)
+
             local function refuse(node: any, currentFunction: any)
                 if not node or cst.isToken(node) then
                     return
@@ -1464,6 +1470,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.pushScope()
         c.scope.completionScope = stat.body
         c.bindVar(var.text, (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
+
         -- A range witness dominates this loop only when both bounds name the same
         -- const range and the loop uses the ordinary ascending unit step.
         local function rangeField(node, field)
@@ -1601,6 +1608,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.pushScope()
         c.scope.completionScope = stat.body
         local iteratorRoots, seenRoots = {}, {}
+
         local function addIteratorRoot(root)
             root = root and borrowRoot(root) or nil
             if root and not seenRoots[root] then

@@ -1,5 +1,6 @@
 local m = {}
 local first = 1
+
 local function total(): integer
     return first
 end

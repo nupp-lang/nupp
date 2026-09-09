@@ -2074,6 +2074,7 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
     elseif tag == "nominal" then
         if arg.tag == "nominal" then
             local po = param.origin or param
+
             local function view(candidate: T.Nominal, seen: {[T.Type]: boolean}): T.Nominal?
                 if seen[candidate] then
                     return nil

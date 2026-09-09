@@ -1,6 +1,7 @@
 @!internal
 
 module nupp.compiler.triviaarena.table
+
 const {type Arena} = require("nupp.compiler.triviaarena")
 
 local provider = {}

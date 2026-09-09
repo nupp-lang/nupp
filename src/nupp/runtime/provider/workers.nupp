@@ -1212,6 +1212,7 @@ local function waitFor(value: Scheduler, lane: Lane, id: integer): nil
 
         return
     end
+
     local function subscribe(resume: function(boolean), context: suspension.Context): function()
         context:uses(schedulerSource(value))
         local waiting = lane.waiters[id]

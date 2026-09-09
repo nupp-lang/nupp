@@ -44,6 +44,7 @@ const {type Dependency} = require("nupp.compiler.build.manifest")
 --- Explicit dependency edges retain the target role throughout their closure.
 function deps.targetNames(config: Config, target: Target?): {string}
     local selected: {[string]: boolean} = {}
+
     local function visit(name: string): nil
         if selected[name] then
             return
@@ -338,6 +339,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         ) then
             return nil, "prebuilt C dependency " .. name .. " cannot generate a bridge; build it from sources"
         end
+
         local function stageArtifact(kind: string, record: any, destination: string): string?, string?
             if type(record) ~= "table" then
                 return nil, "prebuilt C dependency " .. name .. " has no " .. kind .. " artifact for " .. tostring(
@@ -565,6 +567,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
             local objectStem = sharedOutput or staticOutput as string
             local objects = {}
             local osName = (jit and jit.os or ""):lower()
+
             local function removeIntermediates()
                 for _, object in ipairs(objects) do
                     os.remove(object)
@@ -1309,6 +1312,7 @@ local function buildDependencies(
     local results: {[string]: cache.DependencyRecord} = {}
     local visiting = {}
     local targetPlatform = target and target.layoutTarget or require("nupp.compiler.targetlayout").hostKey()
+
     local function buildOne(name, usage)
         local recordKey = scopeKey(name, usage)
         if results[recordKey] then

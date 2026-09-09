@@ -101,6 +101,7 @@ local function run(parsed: any): integer
     local parser = require("nupp.compiler.parser")
     local checker = require("nupp.compiler.check")
     local allDiagnostics, types, functions, sites = {}, {}, {}, {}
+
     local function collectCdefFunction(node: any, moduleName: string?): nil
         if node.kind == "cdefFunc" and node.name and node.cAbiSignature then
             local qualified = (moduleName and moduleName .. "." or "") .. node.name.text
@@ -144,6 +145,7 @@ local function run(parsed: any): integer
     local cabi = require("nupp.compiler.cabi")
     local aggregateDescriptions, functionSignatures = {}, {}
     local described = {}
+
     local function describe(t: any, selection: string): boolean
         if described[t] then
             return true

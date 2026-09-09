@@ -652,6 +652,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             -- never sees them. The loans the use is made under -- the entry itself
             -- and every borrow it derives from -- authorize it rather than conflict.
             local held = {}
+
             local function hold(candidate)
                 candidate = own.ownershipState(candidate)
                 if not candidate or held[candidate] then
@@ -816,6 +817,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         if not expr or cst.isToken(expr) then
             return out
         end
+
         -- A root that was moved is not one: an owner preserved through a call moved
         -- into the result and was recorded as its root, and a root moved out from
         -- under a live borrow is refused at the move.

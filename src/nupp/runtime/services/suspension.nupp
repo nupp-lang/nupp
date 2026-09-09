@@ -23,6 +23,7 @@ not copied into worker lanes.
 ]]
 
 local services = require("nupp.services")
+
 local comptime function shape(info: nupp.reflect.Info): any
     local result = {}
     for _, field in ipairs(info.fields) do

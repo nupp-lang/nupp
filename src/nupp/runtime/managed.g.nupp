@@ -18,6 +18,7 @@ export function install(__nupp: any, runtime: any): nil
         __nuppManagedOwner.__index = __nuppManagedOwner;
         local __nuppManagedAlias = {};
         __nuppManagedAlias.__index = __nuppManagedAlias
+
         local function __nuppManagedError(code, message)
             return {code = code, message = message}
         end

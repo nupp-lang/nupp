@@ -613,6 +613,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 p = scanDigits(p, isDigit)
             end
         end
+
         -- LuaJIT cdata literal suffixes: LL, ULL (any case), imaginary i/I.
         local function suffix(word: string): integer?
             local at = p

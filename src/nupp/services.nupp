@@ -198,6 +198,7 @@ export record Service<T>
             end
             self.active[name] = true
             loading[#loading + 1] = identity
+
             local function load(): T
                 local value = loader()
                 if value == nil then
@@ -225,6 +226,7 @@ export record Service<T>
         end
         self.resolving = true
         loading[#loading + 1] = self.id
+
         local function choose(): T?
             local selected = self.selected
             if selected ~= nil then
@@ -341,6 +343,7 @@ export function define<T>(id: string, api: integer, defaultLoader: (function(): 
         defaultLoader = defaultLoader,
         members = members
     )
+
     local function add(entry: any): nil
         if entry.service ~= id or not builtin.supports(entry, targetDialect) then
             return

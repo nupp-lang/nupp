@@ -30,6 +30,7 @@ local WORK = {
 local function worthwhile(node): boolean
     local found = false
     local valid = true
+
     local function walk(value)
         if not valid or not value or cst.isToken(value) then
             return

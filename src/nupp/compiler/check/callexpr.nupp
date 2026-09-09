@@ -1654,6 +1654,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local intrinsic = isCoroutine and "yield" or memberName
             node.coroutineIntrinsic = intrinsic
             local actual = node.argumentPack or T.pack({})
+
             local function unknownPack()
                 return T.pack({}, {kind = "unknown", type = T.any})
             end
@@ -1739,6 +1740,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     if threadEntry then
                         threadEntry.threadPhase = "started"
                     end
+
                     local function successful(values)
                         local head = {T.literal(true, T.boolean)}
                         for _, value in ipairs(values.head) do
@@ -2396,6 +2398,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     named = rawType(ot)
                 end
             end
+
             local function cannotHaveMethods(t: Type): boolean
                 t = rawType(t)
                 if t.tag == "literal" then

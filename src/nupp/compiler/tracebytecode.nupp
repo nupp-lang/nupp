@@ -80,6 +80,7 @@ local function controlFlow(instructions: {any}): any
     for pc = 0, count - 1 do
         successors[pc], predecessors[pc] = {}, {}
     end
+
     local function edge(from, to)
         if to and to >= 0 and to < count then
             addUnique(successors[from], to)

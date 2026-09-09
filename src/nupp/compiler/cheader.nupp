@@ -205,6 +205,7 @@ end
 
 -- Only meaningful when the preprocessor runs, but cheap to record always.
 local toolchainCache = {}
+
 local function toolchainTag(opts)
     if not opts.preprocess then
         return "-"
@@ -353,6 +354,7 @@ end
 -- declaration: built once and shared, so two mentions of the same tag are the same
 -- type.
 local adopted = {}
+
 local function adoptingResolver(resolver)
     return function(tag)
         if resolver then

@@ -113,6 +113,7 @@ function compile.module(
     sourceOverride: string?
 ): string?, string?
     local collected = settings.diagnostics
+
     -- Says each diagnostic, or puts it by for the caller to say later, and either way
     -- answers whether an error was among them.
     local function say(values: {any}): boolean

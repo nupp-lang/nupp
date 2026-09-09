@@ -492,6 +492,7 @@ end
 function instructions.names(listings: {instructions.Listing}): {string}
     local named: {string} = {}
     local seen: {[string]: boolean} = {}
+
     local function add(spelling: string): nil
         if not seen[spelling] then
             seen[spelling] = true

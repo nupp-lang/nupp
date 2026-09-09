@@ -20,6 +20,7 @@ The facade exports the retained open function directly.
 ]]
 local services = require("nupp.services")
 local types = require("nupp.gpu.api")
+
 local comptime function shape(info: nupp.reflect.Info): any
     local result = {}
     for _, field in ipairs(info.fields) do

@@ -98,7 +98,10 @@ function M.importsFollowModuleHeaderAndPreserveDocblocks()
     local output = formatted(
         'module app.reader -- module comment\n\n--- Read a file.\nexport function read(): string?\nreturn nupp.io.files.read("a")\nend\n'
     )
-    assert(output:find('module app.reader -- module comment\nconst files = require("nupp.io.files")', 1, true), output)
+    assert(
+        output:find('module app.reader -- module comment\n\nconst files = require("nupp.io.files")', 1, true),
+        output
+    )
     assert(output:find('--- Read a file.\nexport function read', 1, true), output)
 end
 

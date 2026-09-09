@@ -422,6 +422,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 node.unsafeOwnershipOperation = "raw pointer dereference"
             end
         end
+
         -- A required module's exported records and structs are values as well as types:
         -- `geom.Point` both names the type and stamps instances. A declaration is not a
         -- field of the module's table, so it is never among the members its surface

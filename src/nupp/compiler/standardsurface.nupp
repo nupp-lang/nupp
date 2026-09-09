@@ -1,6 +1,7 @@
 module nupp.compiler.standardsurface
 
 local surface = {}
+
 local function facility(kind: string, effect: string, allDialects: boolean?, accelerators: {string}?): any
     return {kind = kind, effect = effect, allDialects = allDialects, accelerators = accelerators}
 end

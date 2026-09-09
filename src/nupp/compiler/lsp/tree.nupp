@@ -253,6 +253,7 @@ end
 
 function tree.nodeBounds(node: cst.Child): integer?, integer?
     local first, last
+
     local function walk(value)
         if cst.isToken(value) then
             if value.text ~= "" then
@@ -356,6 +357,7 @@ function tree.functionSignature(stat: cst.FuncStmt): string
     -- says which production that node is.
     local block = stat.body and (stat.body as cst.Funcbody).body
     local parts, first, done = {}, true, false
+
     local function walk(node)
         if done then
             return
@@ -473,6 +475,7 @@ end
 --- expands through.
 function tree.enclosingChain(result: tree.Parse, offset: number): {tree.Span}
     local chain = {}
+
     local function walk(node)
         if cst.isToken(node) then
             return

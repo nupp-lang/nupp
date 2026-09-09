@@ -292,6 +292,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 })
                 return T.any
             end
+
             -- The fingerprint expands a nested struct rather than naming it. Naming it
             -- misses a change that keeps the size: swapping `Inner`'s floats for int32s
             -- leaves every size identical, so `inner:Inner,w:float|12` would match
@@ -369,6 +370,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 return T.any
             end
             local args = argExprs
+
             local function literal(e)
                 if e and e.kind == "string" then
                     local t = e.token.text

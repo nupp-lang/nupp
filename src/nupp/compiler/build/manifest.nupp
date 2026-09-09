@@ -1296,6 +1296,7 @@ local function validateManifest(config: manifest.Config): boolean?, string?
     end
 
     local visiting, visited = {}, {}
+
     local function visit(name)
         if visiting[name] then
             return nil, "dependency cycle involving " .. name

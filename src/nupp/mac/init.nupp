@@ -27,6 +27,7 @@ export record Algorithm
 end
 
 local standard = provider.service:require("nupp.builtin")
+
 local function validate(selected: provider.Provider): nil
     for name, implementation in pairs(selected.algorithms) do
         if type(

@@ -1,6 +1,7 @@
 @!internal
 
 module nupp.compiler.triviaarena.ffi
+
 const {type Arena} = require("nupp.compiler.triviaarena")
 
 local ffi = require("ffi")

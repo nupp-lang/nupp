@@ -91,6 +91,7 @@ local function makeClock(): function(): number
     -- timeval *` first, and a void pointer converts to whichever it turns out to be.
     -- Cast once, since it is the same buffer every time.
     local buffer = ffi.cast("void *", holder)
+
     local function read(): number
         -- Handing C a pointer is what this is; there is nothing for the checker to
         -- prove about a two-word buffer the platform fills in.

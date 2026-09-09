@@ -691,6 +691,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             local stubPath, hostErr
             if target.standalone then
                 local archives, flags, seenArchives, seenFlags = {}, {}, {}, {}
+
                 local function addUnique(into, seen, value)
                     if not seen[value] then
                         seen[value] = true

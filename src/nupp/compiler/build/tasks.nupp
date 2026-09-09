@@ -183,6 +183,7 @@ local function configuredTasks(config: manifest.Config, buildOnly: boolean?): {t
         local task = assert(taskDescription(config, name, name == defaultName))
         tasks[#tasks + 1], used[name] = task, true
     end
+
     local function actionName(name)
         while used[name] do
             name = "command:" .. name

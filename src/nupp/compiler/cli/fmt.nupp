@@ -139,6 +139,7 @@ local function run(parsed: any): integer
     -- for JSON is asking for the answer, so it reports whatever it was given.
     local reporting = asking or wholeProject or asJson
     local failures: {any} = {}
+
     local function finish(code: integer, unformatted: {string}): integer
         if asJson then
             reportMod.write({
@@ -181,6 +182,7 @@ local function run(parsed: any): integer
         and env.compilerServices.hash.digest
         or hashMod.digest
     local optionsKey = nil
+
     local function verdictKey(path: string, source: string): string
         if not optionsKey then
             optionsKey = digest(
@@ -195,6 +197,7 @@ local function run(parsed: any): integer
 
     local failed = false
     local unformatted: {string} = {}
+
     -- A file that could not be read or written is a failure of its own, listed under
     -- its path with the one diagnostic that says so.
     local function fileFailure(path: string, err: string?, help: string): nil

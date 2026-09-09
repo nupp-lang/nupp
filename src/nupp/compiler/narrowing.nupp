@@ -46,6 +46,7 @@ function narrowing.subtract(t: Type, rem: Type): Type
         local inner = narrowing.subtract(t.inner, rem)
         return inner == t.inner and t or T.pinned(inner)
     end
+
     local function without(m: Type): Type?
         if m.tag == "typevar" then
             return m

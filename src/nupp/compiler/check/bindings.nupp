@@ -825,6 +825,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
         if not roots[1] and not regionRoot then
             return
         end
+
         -- The first owner along the chain of roots that is destroyed before `state`
         -- is: every owner on the way is one the value depends on, where a borrow on
         -- the way holds nothing of its own and a plain value is kept by the collector.

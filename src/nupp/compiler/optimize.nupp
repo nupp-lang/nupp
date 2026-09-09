@@ -376,6 +376,7 @@ local NESTED_FUNCTION = {localFuncStmt = true, funcStmt = true, inlineMethod = t
 -- here, beside the decision it serves.
 local function denseLiteralLengths(body)
     local lengths = {}
+
     local function collect(node)
         if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
             return
@@ -420,6 +421,7 @@ end
 local function numericIpairsBody(body, facts, remarks)
     local asked = facts.body(body)
     local lengths = denseLiteralLengths(body)
+
     local function walk(node)
         if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
             return
@@ -528,6 +530,7 @@ end
 -- the loop -- means the value is observed mid-build and the rewrite is off.
 local function soleAccumulation(loop, definition, asked)
     local found, other = nil, false
+
     local function walk(node)
         if not node or isToken(node) or other then
             return
@@ -1242,6 +1245,7 @@ local function foldStatement(stat, current)
         if stat.step then
             by = foldExpr(stat.step, current)
         end
+
         -- A numeric loop whose three constant bounds do not admit a first iteration is
         -- the `while false` case wearing different syntax. A zero step is left alone
         -- rather than reasoned about: that loop does not terminate, and deleting a
@@ -1378,6 +1382,7 @@ local function staticCallableWalk(root, remarks)
     local usedNames = {}
     collectNames(root, usedNames)
     local nextAlias = 0
+
     local function aliasName()
         repeat
             nextAlias = nextAlias + 1
@@ -1459,6 +1464,7 @@ local function indexedRangeWalk(result, remarks)
     for _, body in ipairs(result.analysis and result.analysis.bodies or {}) do
         local loops, ordered = {}, {}
         local loopDepth = 0
+
         local function collect(node, parent)
             if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
                 return
@@ -1805,6 +1811,7 @@ end
 
 local function declineRecursiveViewTransports(functions, ordered)
     local state, stack, position = {}, {}, {}
+
     local function visit(definition)
         local plan = functions[definition]
         if not plan or state[definition] == 2 then
@@ -1881,6 +1888,7 @@ end
 -- anchor, offset and count scalars only to these statically resolved calls.
 local function indexedViewReturnTransportWalk(result, remarks)
     local functions, ordered = {}, {}
+
     local function collect(node)
         if not node or isToken(node) then
             return
@@ -1946,6 +1954,7 @@ end
 local function indexedViewParameterTransportPlan(result, remarks)
     local bindings = {}
     local functions, ordered = {}, {}
+
     local function collect(node)
         if not node or isToken(node) then
             return
@@ -2012,6 +2021,7 @@ local function indexedViewParameterTransportPlan(result, remarks)
         for _, paramPlan in pairs(plan.params) do
             parameterDefinitions[paramPlan.param.name.definition] = true
         end
+
         local function validateUses(node, parent)
             if not node or isToken(node) or node ~= plan.node and NESTED_FUNCTION[node.kind] then
                 return
@@ -2649,6 +2659,7 @@ local function constMonomorphizeWalk(result, remarks, selection: any?, selectedF
             end
         end
     end
+
     local function byConstKey(a, b): boolean
         return a.key < b.key
     end
@@ -2766,6 +2777,7 @@ end
 --- disappear along with their code.
 function optimize.liveEffects(result: optimize.Checked): {[string]: boolean}
     local effects = {}
+
     local function visit(node)
         if not node or isToken(node) then
             return

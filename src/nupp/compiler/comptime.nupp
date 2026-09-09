@@ -63,6 +63,7 @@ local MAX_RESULT_ITEMS = 10000
 local function canonicalNode(node): string
     local tokens = node and node as {any} or {}
     local parts = {}
+
     local function visit(value)
         if cst.isToken(value) then
             parts[#parts + 1] = value.kind .. ":" .. tostring(#value.text) .. ":" .. value.text
@@ -86,12 +87,14 @@ function comptime.typeFunctionProgram(helper: any, helpers: any): any
         return helper
     end
     local reachable, visiting = {}, {}
+
     local function collect(current)
         if not current or visiting[current] then
             return
         end
         visiting[current] = true
         local names = {}
+
         local function scan(value)
             if type(value) ~= "table" or cst.isToken(value) then
                 return
@@ -135,6 +138,7 @@ function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, de
     local program = comptime.typeFunctionProgram(helper, helpers)
     local mainName = helper and (helper.comptimeName or helper.name and helper.name.text) or ""
     local serialized = {}
+
     local function add(name, node)
         local token = node and node.name
         if token then
@@ -1733,6 +1737,7 @@ end
 --- wording its diagnostics use.
 local function unsealProgram(helper, chunkPrefix, code, loadMessage, entryMessage)
     local parsedHelpers = {}
+
     local function findLocalFunction(value)
         if type(value) ~= "table" then
             return nil
@@ -1970,6 +1975,7 @@ function comptime.evaluateDeriveProviderDirect(
     local state = call.state
     state.deriveHelpers = runtimeHelpers or {}
     state.deriveProviderModule = providerModule
+
     local function importType(edge, label)
         if not edge then
             return nil

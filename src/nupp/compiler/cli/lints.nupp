@@ -116,6 +116,7 @@ local function run(parsed: any): integer
     -- Padded before styling, since an escape code has width in bytes and none on
     -- screen, and one write at the end rather than one per row.
     local out: {string} = {}
+
     local function pad(text: string, width: integer): string
         return text .. (" "):rep(width - #text)
     end
