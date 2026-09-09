@@ -102,9 +102,6 @@ record http.Response is contracts.Response
     end
 
     function close(takes self): nil
-        if self._closed then
-            return
-        end
         self._closed = true
         self.body:close()
     end

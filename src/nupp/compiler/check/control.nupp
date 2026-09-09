@@ -834,6 +834,32 @@ function control.install(c: state.Checker): state.StatHandlers
                 }
             )
         end
+        -- An aggregate consuming parameter holds one obligation per owned field.
+        -- Returning the whole moves all of them; otherwise every field still has to
+        -- have been moved on this path, or narrowed to a value carrying no owner.
+        local consumingFields = c.consumingFieldStack[#c.consumingFieldStack]
+        local fieldState = consumingFields and ownershipState(c.lookupEntry(consumingFields.root)) or nil
+        if consumingFields and fieldState and not fieldState.moved then
+            local declared = fieldState.definition and fieldState.definition.token or nil
+            for field in pairs(consumingFields.allowed) do
+                local narrowed = c.lookupNarrowed(consumingFields.root .. "." .. field)
+                local moved = fieldState.movedFields and fieldState.movedFields[field]
+                if not moved and not (narrowed and ownershipKind(narrowed) == nil) then
+                    c.diag(
+                        "NUPP2603",
+                        stat,
+                        (
+                            "owned field %q of consuming parameter %q is still live at this return"
+                        ):format(field, consumingFields.root),
+                        nil,
+                        {
+                            help = "drop, move, or return the field or its whole parameter before leaving",
+                            related = declared and {c.related(declared, "the parameter is declared here")} or nil,
+                        }
+                    )
+                end
+            end
+        end
         if #c.retStack == 0 and not c.moduleType then
             c.moduleType = ts[1] -- top-level return: the module's type
             -- The expression itself, so boundary finalization can qualify a module

@@ -6270,6 +6270,70 @@ function M.aFieldMovedOnSomePathsOfAConsumingParameterIsReported()
     )
 end
 
+function M.anOwnedFieldLeftLiveAtAReturnFromATerminalIsReported()
+    assertEq(
+        codes(
+            CONSUMABLE .. "\n" .. table.concat(
+                {
+                    "local record Guarded",
+                    "   resource: Res",
+                    "   closed: boolean",
+                    "   function close(takes self): nil",
+                    "      if self.closed then return end",
+                    "      self.closed = true",
+                    "      self.resource:close()",
+                    "   end",
+                    "end",
+                    "local guarded = new Guarded(resource = open(1), closed = false)",
+                    "guarded:close()",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603"
+    )
+end
+
+function M.aFieldDischargedBeforeAReturnFromAConsumingParameterIsAccepted()
+    assertClean(
+        PAIR .. "\n" .. table.concat(
+            {
+                "local function sink(takes p: Pair): nil",
+                "   drop p.left",
+                "   drop p.right",
+                "   return",
+                "end",
+                "local function pass(takes p: Pair): Pair",
+                "   return p",
+                "end",
+                "sink(pair())",
+                "drop pass(pair())",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.anOwnedFieldNarrowedToNilAtAReturnNeedsNoDischarge()
+    assertClean(
+        CONSUMABLE .. "\n" .. table.concat(
+            {
+                "local record MaybePair",
+                "   left: Res?",
+                "   right: Res",
+                "end",
+                "local function sink(takes p: MaybePair): nil",
+                "   drop p.right",
+                "   if p.left == nil then return end",
+                "   drop p.left",
+                "end",
+                "sink(new MaybePair(left = open(1), right = open(2)))",
+            },
+            "\n"
+        )
+    )
+end
+
 -- An optional consuming parameter that an arm narrows to nil holds nothing on
 -- that arm, so discharging it on the other arm only is not a partial discharge.
 function M.anOptionalConsumingParameterNarrowedToNilIsDischarged()

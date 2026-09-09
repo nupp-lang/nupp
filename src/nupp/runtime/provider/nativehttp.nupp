@@ -686,9 +686,6 @@ record http.Response is contracts.Response
     --- @return true
     --- @return nothing
     function close(takes self): nil
-        if self._closed then
-            return
-        end
         self._closed = true
         local body = self.body
         body:close()
