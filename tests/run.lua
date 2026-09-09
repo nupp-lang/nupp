@@ -1363,6 +1363,16 @@ local processCalls = {
     "require('nupp.profile')",
     'require("nupp.workers")',
     "require('nupp.workers')",
+    -- Reaching into the loader is process-shaped whether or not a process is
+    -- started. A suite that clears a module to prove it loads lazily, injects a
+    -- loader, or writes a global through `rawset` is mutating what every other
+    -- suite in that state sees. None of these move a suite today -- every suite
+    -- that does one of them already shells out as well -- and that is exactly
+    -- why they belong here: the next one to be written might not.
+    "package.loaded",
+    "package.preload",
+    "package.loadlib",
+    "rawset(_G,",
 }
 
 local function processIsolated(suiteInfo)
@@ -1945,13 +1955,29 @@ local function runSuite(suiteInfo, slices)
     }
 end
 
--- Process lanes restore shallow module tables and global bindings between queue
--- pieces. Lua module() namespaces must be restored with package.loaded so a
--- freshly loaded submodule cannot collide with an earlier exported function.
--- Nupp lanes retain their warm compiler state; suites that mutate process-shaped
--- tables run in the process-isolated phase.
+-- What a queue piece is allowed to leave behind for the next one, which is
+-- nothing it can be seen to have changed.
+--
+-- Both kinds of lane restore now. They restore `package.loaded` differently,
+-- and the difference is the whole reason a Nupp lane could not restore before:
+--
+--   * A process lane is a plain Lua state whose warm content is worth nothing
+--     to the next piece, so it is put back exactly -- a module loaded during a
+--     piece is removed.
+--   * A Nupp lane's warm content is a compiled compiler, which is most of what
+--     the lane exists to reuse, so it is repaired rather than reset: an entry
+--     that was there when the lane started and is no longer the same value is
+--     put back, and an entry that was not there is left alone. That catches the
+--     contamination a piece can actually cause -- a module cleared to prove it
+--     loads lazily, then "restored" as a fresh instance every earlier caller's
+--     captured identity no longer matches -- without discarding the compiler
+--     between every piece.
+--
+-- `package.path` and `package.cpath` are in the baseline because a suite that
+-- points the loader somewhere and does not put it back changes where the next
+-- piece's modules come from, which is the same defect wearing a different hat.
 local laneBaseline = nil
-if queueDir and not embedded then
+if queueDir then
     local function copyTable(value)
         local copied = {}
         for key, item in pairs(value) do
@@ -1961,7 +1987,13 @@ if queueDir and not embedded then
         return copied
     end
 
-    laneBaseline = {globals = copyTable(_G), loaded = copyTable(package.loaded), preload = copyTable(package.preload)}
+    laneBaseline = {
+        globals = copyTable(_G),
+        loaded = copyTable(package.loaded),
+        preload = copyTable(package.preload),
+        path = package.path,
+        cpath = package.cpath,
+    }
 end
 
 restoreLane = function()
@@ -1980,14 +2012,23 @@ restoreLane = function()
         end
     end
 
-    for name, value in pairs(package.loaded) do
-        if name:match("^nupp%.runtime%.services%.") then
-            laneBaseline.loaded[name] = value
+    --- Puts back what changed and leaves what was added.
+    local function repair(value, baseline)
+        for key, item in pairs(baseline) do
+            if value[key] ~= item then
+                value[key] = item
+            end
         end
     end
-    restore(package.loaded, laneBaseline.loaded)
+
+    if embedded then
+        repair(package.loaded, laneBaseline.loaded)
+    else
+        restore(package.loaded, laneBaseline.loaded)
+    end
     restore(package.preload, laneBaseline.preload)
     restore(_G, laneBaseline.globals)
+    package.path, package.cpath = laneBaseline.path, laneBaseline.cpath
 end
 
 --- What this process took off the queue, so the parent can tell work that was
