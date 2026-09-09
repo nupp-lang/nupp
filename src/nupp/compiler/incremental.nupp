@@ -449,6 +449,29 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         sameEntryLists
     )
 
+    -- Registration diagnostics, narrowed to the file that has to report them.
+    --
+    -- Read as `projectIndex.registrationDiagnostics`, this would make every checked
+    -- module depend on the whole index, and the index changes whenever a file joins
+    -- or leaves the project -- which staging one generated module does, twice. Every
+    -- module checked so far would then be checked again, for an answer that is
+    -- almost always the same empty list. Keyed by path with an equal-value cutoff, a
+    -- file that gained no registration conflict is not rechecked.
+    q:define(
+        "projectRegistrations",
+        function(self, path)
+            local mine = {}
+            for _, diagnostic in ipairs(self:get("projectIndex", "root").registrationDiagnostics or {}) do
+                if diagnostic.path == path then
+                    mine[#mine + 1] = diagnostic
+                end
+            end
+
+            return mine
+        end,
+        sameStable
+    )
+
     -- Environment lookup helpers call this function, including from inside a check
     -- query. q:get records the project-index dependency in that case.
 
@@ -587,23 +610,21 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         activeModules[path] = nil
 
         if result.declaredModuleName then
-            for _, diagnostic in ipairs(self:get("projectIndex", "root").registrationDiagnostics or {}) do
-                if diagnostic.path == path then
-                    local token = diagnostic.token or {}
-                    diags[
-                        #diags + 1
-                    ] = {
-                        code = "NUPP1002",
-                        msg = diagnostic.msg,
-                        filename = path,
-                        severity = "error",
-                        line = token.line or 0,
-                        col = token.col or 0,
-                        offset = token.offset or 0,
-                        length = token.text and #token.text or 0,
-                        related = diagnostic.related,
-                    }
-                end
+            for _, diagnostic in ipairs(self:get("projectRegistrations", path)) do
+                local token = diagnostic.token or {}
+                diags[
+                    #diags + 1
+                ] = {
+                    code = "NUPP1002",
+                    msg = diagnostic.msg,
+                    filename = path,
+                    severity = "error",
+                    line = token.line or 0,
+                    col = token.col or 0,
+                    offset = token.offset or 0,
+                    length = token.text and #token.text or 0,
+                    related = diagnostic.related,
+                }
             end
         end
 
