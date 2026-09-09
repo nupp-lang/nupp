@@ -72,18 +72,21 @@ local function runSession(messages, rootDir)
     local f = assert(io.open(infile, "wb"))
     f:write(table.concat(input))
     f:close()
+    local served = rootDir or scratchRoot()
     local exit = os.execute(
-        (
-            "'%s/bin/nupp' lsp serve '%s' < '%s' > '%s' 2>'%s'"
-        ):format(ROOT, rootDir or scratchRoot(), infile, outfile, errfile)
+        ("'%s/bin/nupp' lsp serve '%s' < '%s' > '%s' 2>'%s'"):format(ROOT, served, infile, outfile, errfile)
     )
     local out = assert(io.open(outfile, "rb")):read("*a")
     local errors = assert(io.open(errfile, "rb")):read("*a")
     os.remove(infile)
     os.remove(outfile)
     os.remove(errfile)
-    if #out == 0 and #errors > 0 then
-        out = errors
+    -- A session that said nothing is the one case where the output a failure
+    -- prints identifies nothing, and the workspace it served is what most cases
+    -- share, so name it here rather than leaving it to be worked out from which
+    -- test failed.
+    if #out == 0 then
+        out = ("(the server answered nothing over the workspace %s)\n%s"):format(served, errors)
     end
 
     return out, exit
@@ -4929,7 +4932,12 @@ function M.aDidChangeBurstAppliesTheLastFullText()
     })
     local published = diagnosticsFor(out, uri)
     local last = published[#published]
-    assert(last and #last == 0, "the last full text is the document, and it is clean")
+    assert(
+        last and #last == 0,
+        (
+            "the last full text is the document, and it is clean: %s published for %s"
+        ):format(json.encode(last or json.NULL), uri)
+    )
 end
 
 return M
