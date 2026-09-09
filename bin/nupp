@@ -444,18 +444,12 @@ case "${1:-}" in
     *)      rebuild=yes ;;
 esac
 
-# Help never reads a source file, so it must keep working in a tree that has the
-# tracked bootstrap and nothing else. Everything else reaches the provider the
-# moment it lists a directory, and saying so beats an ffi.load traceback.
+# The compiler resolves its path service while constructing the command table,
+# before it knows whether this invocation will read source. That includes main
+# and subcommand help, so every invocation needs the provider staged before the
+# compiler starts. Saying so here beats the ffi.load traceback a cold checkout
+# otherwise gets from the fetched stage zero.
 needs_native=yes
-case "${1:-}" in
-    ""|-h|--help|help) needs_native=no ;;
-esac
-for argument in "$@"; do
-    case "$argument" in
-        -h|--help) needs_native=no ;;
-    esac
-done
 
 # The same rule the compiler gets: a source newer than the artifact means the
 # artifact has not seen that edit. Without this an edit to the provider was

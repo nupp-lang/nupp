@@ -90,6 +90,17 @@ function M.launcherFallsBackToTheFetchedStageZero()
     -- machine has none, and now fetches the compiler through the same script, so a
     -- tree carrying one without the others is not a tree anybody has.
     assert(os.execute(("cp -R '%s/scripts' '%s/scripts'"):format(ROOT, dir)) == 0)
+    -- The compiler resolves its path provider before printing help. A fresh
+    -- checkout has the Rust workspace needed to stage that provider, while this
+    -- deliberately small tree has to copy it explicitly. Reuse the checkout's
+    -- content-addressed outputs: the suite itself already runs through the same
+    -- broad development provider, so this remains a cache hit rather than a
+    -- second native build.
+    assert(os.execute(("cp -R '%s/native' '%s/native'"):format(ROOT, dir)) == 0)
+    assert(os.execute(("cp -R '%s/.cargo' '%s/.cargo'"):format(ROOT, dir)) == 0)
+    for _, name in ipairs({"Cargo.toml", "Cargo.lock", "rust-toolchain.toml",}) do
+        assert(os.execute(("cp '%s/%s' '%s/%s'"):format(ROOT, name, dir, name)) == 0)
+    end
 
     -- This checkout's toolchain cache, named outright because the copied tree has
     -- no git directory to work it out from. Without it the case reaches the
@@ -97,7 +108,11 @@ function M.launcherFallsBackToTheFetchedStageZero()
     local cache = capture(("'%s/scripts/toolchain' --prefix"):format(ROOT))
     cache = assert(cache:match("^%s*(.-)/[^/]+%s*$"), "the toolchain named no prefix")
 
-    local out = capture(("NUPP_TOOLCHAIN_DIR='%s' '%s/bin/nupp' --help 2>&1"):format(cache, dir))
+    local out = capture(
+        (
+            "NUPP_TOOLCHAIN_DIR='%s' NUPP_RUST_BUILD_DIR='%s/build/rust' " .. "'%s/bin/nupp' --help 2>&1"
+        ):format(cache, ROOT, dir)
+    )
     assert(out:find("Usage:\n  nupp", 1, true), "launcher did not start the stage-zero compiler: " .. out)
 
     os.execute("rm -rf '" .. dir .. "'")
