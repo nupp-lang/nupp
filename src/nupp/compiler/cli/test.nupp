@@ -32,6 +32,21 @@ local command = spec.command{
             help = "Ask the test command for its whole timing report rather than "
             .. "the slowest few. `--timings=N` asks for N rows, and `--timings=0` for none"
         },
+        {
+            name = "--group",
+            value = "NAME",
+            help = "Run the suites a named group covers. Repeatable, and "
+            .. "comma-separated. `--list-groups` names them"
+        },
+        {
+            name = "--exclude",
+            value = "SUITE",
+            help = "Leave these suites out, which is how a later broad run "
+            .. "stops repeating what an earlier focused one already ran"
+        },
+        {name = "--exclude-group", value = "NAME", help = "Leave every suite a named group covers out"},
+        {name = "--list-suites", help = "Print the suites this selection would run, and run none of them"},
+        {name = "--list-groups", help = "Print every named group and the suites it covers"},
         spec.helpOption,
     },
     schema = {

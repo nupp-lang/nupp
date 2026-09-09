@@ -258,6 +258,20 @@ local chosenSet = nil
 -- Suites this process is to run, when a parent has split them up. Empty means "decide
 -- for yourself", which is what the run a person starts does.
 local shard = {}
+-- Named coverage a workflow asked for, and coverage it asked to be left out.
+-- A group expands to suite names once the suites have been discovered, because
+-- a group may be a glob and a glob has nothing to expand against until then.
+local chosenGroups = {}
+local excludedNames = {}
+local excludedGroups = {}
+-- Which execution lane to keep: `shared` is what a Nupp worker can run beside
+-- other suites in one process, `isolated` is what needs a process of its own.
+-- The fast gate wants the first, which is a hundred-odd suites in about half a
+-- minute, and the platform jobs want both.
+local lane = nil
+-- `--list-suites` and `--list-groups` answer what a run would cover without
+-- running it, which is what a workflow author and its review need.
+local listing = nil
 -- Where the work this process is to take from lives, when a parent handed out a
 -- queue rather than a list. Empty means "decide for yourself" the same way an
 -- empty shard does.
@@ -307,6 +321,28 @@ for _, argument in ipairs(arg) do
         for name in argument:sub(#"--shard=" + 1):gmatch("[^,]+") do
             shard[#shard + 1] = name
         end
+    elseif argument:match("^%-%-group=") then
+        for name in argument:sub(#"--group=" + 1):gmatch("[^,]+") do
+            chosenGroups[#chosenGroups + 1] = name
+        end
+    elseif argument:match("^%-%-exclude=") then
+        for name in argument:sub(#"--exclude=" + 1):gmatch("[^,]+") do
+            excludedNames[#excludedNames + 1] = name
+        end
+    elseif argument:match("^%-%-exclude%-group=") then
+        for name in argument:sub(#"--exclude-group=" + 1):gmatch("[^,]+") do
+            excludedGroups[#excludedGroups + 1] = name
+        end
+    elseif argument:match("^%-%-lane=") then
+        lane = argument:sub(#"--lane=" + 1)
+        if lane ~= "shared" and lane ~= "isolated" then
+            io.stderr:write("nupp: --lane must be shared or isolated\n")
+            os.exit(2)
+        end
+    elseif argument == "--list-suites" then
+        listing = "suites"
+    elseif argument == "--list-groups" then
+        listing = "groups"
     elseif argument:sub(1, 1) ~= "-" then
         chosen[#chosen + 1] = argument
         only = #chosen == 1 and argument or nil
@@ -612,6 +648,7 @@ local suites = {}
 -- A process working from a queue does not know what it will run until it claims
 -- it, so it cannot filter the listing the way one handed a list can.
 local byName = {}
+local discovered = {}
 local suiteCatalog = {}
 do
     local function found(f)
@@ -619,10 +656,8 @@ do
         if name and (extension == "lua" or extension == "nupp") then
             local info = {name = name, extension = extension}
             byName[name] = info
+            discovered[#discovered + 1] = info
             suiteCatalog[#suiteCatalog + 1] = f
-            if (not chosenSet or chosenSet[name]) and (not wanted or wanted[name]) and not queueDir then
-                suites[#suites + 1] = info
-            end
         end
     end
 
@@ -641,9 +676,117 @@ do
 end
 table.sort(suiteCatalog)
 suiteCatalog = table.concat(suiteCatalog, "\n")
+
+--- The named groups, or an empty set when the file a checkout carries is absent.
+--- Absent is only reachable from a runner copied out of the repository, which is
+--- how the runner's own suite exercises it; a copy that names no group needs no
+--- group definitions.
+local function groupDefinitions()
+    local loaded, definitions = pcall(dofile, dir .. "/groups.lua")
+    if not loaded or type(definitions) ~= "table" then
+        return {}
+    end
+
+    return definitions
+end
+
+--- Every suite a group names, by name. A member is a suite name or a `*` glob
+--- over suite names. A member matching nothing is an error: a group that
+--- silently covers less than it says is the failure this file exists to end.
+local function expandGroup(name, definitions)
+    local members = definitions[name]
+    if not members then
+        local known = {}
+        for group in pairs(definitions) do
+            known[#known + 1] = group
+        end
+        table.sort(known)
+        io.stderr:write(("nupp: no test group named %s (have %s)\n"):format(name, table.concat(known, ", ")))
+        os.exit(2)
+    end
+
+    local matched = {}
+    for _, member in ipairs(members) do
+        local hits = 0
+        if member:find("*", 1, true) then
+            local pattern = "^" .. member:gsub("[%^%$%(%)%%%.%[%]%+%-%?]", "%%%0"):gsub("%*", ".*") .. "$"
+            for _, info in ipairs(discovered) do
+                if info.name:match(pattern) then
+                    matched[info.name], hits = true, hits + 1
+                end
+            end
+        elseif byName[member] then
+            matched[member], hits = true, 1
+        end
+        if hits == 0 then
+            io.stderr:write(("nupp: test group %s names %s, which matches no suite\n"):format(name, member))
+            os.exit(2)
+        end
+    end
+
+    return matched
+end
+
+do
+    local definitions = nil
+    local function definitionsOnce()
+        definitions = definitions or groupDefinitions()
+        return definitions
+    end
+
+    for _, name in ipairs(chosenGroups) do
+        chosenSet = chosenSet or {}
+        for suite in pairs(expandGroup(name, definitionsOnce())) do
+            chosenSet[suite] = true
+        end
+    end
+
+    -- Exclusion answers "run everything this workflow has not already run",
+    -- which is how a focused early gate stops being repeated verbatim inside
+    -- the later broad one.
+    local removed = {}
+    for _, name in ipairs(excludedNames) do
+        if not byName[name] then
+            io.stderr:write(("nupp: no test suite named %s to exclude\n"):format(name))
+            os.exit(2)
+        end
+        removed[name] = true
+    end
+    for _, name in ipairs(excludedGroups) do
+        for suite in pairs(expandGroup(name, definitionsOnce())) do
+            removed[suite] = true
+        end
+    end
+
+    if listing == "groups" then
+        local names = {}
+        for name in pairs(definitionsOnce()) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            local members = {}
+            for suite in pairs(expandGroup(name, definitionsOnce())) do
+                members[#members + 1] = suite
+            end
+            table.sort(members)
+            io.stdout:write(("%s: %s\n"):format(name, table.concat(members, " ")))
+        end
+        os.exit(0)
+    end
+
+    for _, info in ipairs(discovered) do
+        local name = info.name
+        if not removed[name] and (not chosenSet or chosenSet[name]) and (not wanted or wanted[name]) and not queueDir then
+            suites[#suites + 1] = info
+        end
+    end
+end
+
 table.sort(suites, function(a, b)
     return a.name .. "." .. a.extension < b.name .. "." .. b.extension
 end)
+
 
 local function loadSuite(suite)
     local path = dir .. "/" .. suite.name .. "." .. suite.extension
@@ -1194,6 +1337,23 @@ local function processIsolated(suiteInfo)
     end
 
     return false
+end
+
+if lane then
+    local kept = {}
+    for _, suiteInfo in ipairs(suites) do
+        if (lane == "isolated") == processIsolated(suiteInfo) then
+            kept[#kept + 1] = suiteInfo
+        end
+    end
+    suites = kept
+end
+
+if listing == "suites" then
+    for _, info in ipairs(suites) do
+        io.stdout:write(info.name .. "\n")
+    end
+    os.exit(0)
 end
 
 local sharded = nil
