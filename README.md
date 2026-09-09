@@ -53,7 +53,7 @@ nupp task start
 See [Getting started](docs/getting-started/index.md) for the daily loop
 and the browser, library, SIMD, and LÖVE templates. Building Nupp itself from a
 source checkout is documented separately in
-[Contributing to Nupp](docs/contributing.md).
+[Contributing to Nupp](CONTRIBUTING.md).
 
 ## Language and runtime
 
