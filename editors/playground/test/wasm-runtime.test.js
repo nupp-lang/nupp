@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import test from "node:test";
@@ -65,6 +65,33 @@ test("runs the native differential corpus through the Wasm host", async () => {
   });
   assert.match(luajit.code, /2ULL/);
   assert.ok(!luajit.diagnostics.some((diagnostic) => diagnostic.code === "NUPP3005"));
+});
+
+test("compiles every homepage example", async () => {
+  const host = await createCompilerHost({
+    moduleUrl,
+    wasmUrl,
+    compilerUrl,
+    expectedDigest: manifest.compilerSha256,
+    wasmBinary,
+    fetchImpl: fileFetch,
+  });
+  const examples = path.join(root, "src/examples");
+  const filenames = readdirSync(examples)
+    .filter((name) => name.endsWith(".nupp"))
+    .sort();
+
+  for (const filename of filenames) {
+    const compiled = host.request({
+      kind: "compile",
+      source: readFileSync(path.join(examples, filename), "utf8"),
+      filename,
+      options: {strict: true, optimize: true, dialect: "lua51"},
+    });
+    const errors = compiled.diagnostics.filter(({severity}) => severity === "error");
+    assert.deepEqual(errors, [], `${filename} does not compile`);
+    assert.equal(typeof compiled.code, "string", `${filename} returned no Lua`);
+  }
 });
 
 test("rejects a compiler asset whose bytes do not match the host", async () => {

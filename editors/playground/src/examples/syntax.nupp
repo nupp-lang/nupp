@@ -5,7 +5,7 @@
 local function map<V, W>(xs: {V}, f: function(V): W): {W}
     local out: {W} = {}
     for _, x in ipairs(xs) do
-        table.insert(out, f(x))
+        out[#out + 1] = f(x)
     end
 
     return out
@@ -52,7 +52,9 @@ local city = intake.site?.city ?? "elsewhere" -- safe navigation
 -- codebase. @allow says this statement means it.
 local function isEmpty(counts: {number}): boolean
     @allow("customary-operator")
-    return #counts == 0 || counts[1] == nil
+    local empty = #counts == 0 || counts[1] == nil
+
+    return empty
 end
 
 const settings = {retries = 3} -- an immutable binding

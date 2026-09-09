@@ -18,7 +18,7 @@ end
 local function map<V, W>(xs: {V}, f: function(V): W): {W}
     local out: {W} = {}
     for _, x in ipairs(xs) do
-        table.insert(out, f(x))
+        out[#out + 1] = f(x)
     end
 
     return out

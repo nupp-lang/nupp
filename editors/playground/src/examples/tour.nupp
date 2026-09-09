@@ -10,7 +10,7 @@ local function filter<V>(xs: {V}, keep: function(V): boolean): {V}
     local out: {V} = {}
     for _, x in ipairs(xs) do
         if keep(x) then
-            table.insert(out, x)
+            out[#out + 1] = x
         end
     end
 
