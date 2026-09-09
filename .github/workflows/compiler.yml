@@ -124,6 +124,19 @@ jobs:
           SELECTED_WINDOWS: ${{ steps.classify.outputs.windows-integration }}
         run: luajit .github/scripts/compose-integration-matrix.lua
 
+      # Only on a cold cache, where this job has just built LuaJIT from source
+      # and every job behind it is about to do the same. `fast-checks` saves the
+      # same key, so whichever arrives second warns and keeps the first entry.
+      - name: Save the provisioned toolchain
+        if: always()
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+
   # Formatting, the checker, and every suite a Nupp worker can share a process
   # with: about a hundred suites in well under a minute. Placed ahead of the
   # platform jobs so the failures that need no platform are reported before any
