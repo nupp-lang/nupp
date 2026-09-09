@@ -16,7 +16,36 @@ local NUPP = HERE .. "/../bin/nupp"
 
 local M = {}
 
+--- The file set this project is, as one string, so two cases asking for the
+--- same sources get the same answer rather than the same work twice.
+local function projectKey(files)
+    local names = {}
+    for name in pairs(files) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    local pieces = {}
+    for _, name in ipairs(names) do
+        pieces[#pieces + 1] = name .. "\0" .. files[name]
+    end
+
+    return table.concat(pieces, "\1")
+end
+
+-- One directory per distinct file set. `nupp aot` reports what a file compiles
+-- to and writes nothing, so a project is an input rather than a place a case
+-- leaves state: two cases that ask about the same sources are asking about the
+-- same project, and building it twice bought nothing. A case that wants a
+-- different project writes different sources, which is a different key.
+local projects = {}
+
 local function project(files)
+    local key = projectKey(files)
+    local existing = projects[key]
+    if existing then
+        return existing
+    end
+
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
@@ -32,6 +61,7 @@ local function project(files)
         handle:write(source)
         handle:close()
     end
+    projects[key] = dir
 
     return dir
 end
@@ -40,7 +70,13 @@ end
 -- and a Windows text-mode pipe can translate it or treat Ctrl-Z as the end before a
 -- sentinel appended to that same stream. The artifact is always read in binary mode;
 -- failed commands still put their ordinary diagnostic in the same file.
-local function run(dir, argv)
+-- What one command over one project answered, kept for whoever asks again.
+-- `nupp aot` is a report over a file: the same project and the same arguments
+-- are the same answer, and the invocation behind it is a compiler start and a
+-- check of the standard library the file names.
+local answers = {}
+
+local function runOnce(dir, argv)
     local outputPath = dir .. "/.nupp-aot-output"
     local statusPath = dir .. "/.nupp-aot-status"
     os.remove(outputPath)
@@ -60,6 +96,33 @@ local function run(dir, argv)
     os.remove(statusPath)
 
     return out, code
+end
+
+local function run(dir, argv)
+    local key = dir .. "\0" .. argv
+    local kept = answers[key]
+    if not kept then
+        local out, code = runOnce(dir, argv)
+        kept = {out, code}
+        answers[key] = kept
+    end
+
+    return kept[1], kept[2]
+end
+
+--- Every artifact one file lowers to, out of one command.
+---
+--- `--emit` prints one artifact and nothing else, so a case that wants two of
+--- them used to start the compiler twice over the same file. `--json` without
+--- `--emit` carries the IR, the C and the binding together, and the C in it is
+--- byte for byte the C `--emit c` prints. The exit status comes back beside
+--- them, which is what `--check` is asked for.
+local function lowered(dir, argv)
+    local out, code = run(dir, argv)
+    local body = out:match("^(%b{})")
+    assert(body, ("`nupp aot %s` did not answer JSON, in %s: %s"):format(argv, dir, out))
+
+    return require("testjson").decode(body), out, code
 end
 
 local function spirvWord(module, offset)
@@ -465,13 +528,13 @@ return {nativeExp = nativeExp, nativeExpCpu = nativeExpCpu}
     test.equal(module:sub(1, 4), "\3\2#\7")
     assert(spirvHasExtendedInstruction(module, 27), "native exponential did not emit GLSL.std.450 Exp")
 
-    local c, cCode = run(dir, "--emit c native-exp.nupp")
-    test.equal(cCode, 0, c)
-    assert(c:find("expf(", 1, true), c)
-
-    local ir, irCode = run(dir, "--emit ir native-exp.nupp")
-    test.equal(irCode, 0, ir)
-    assert(ir:find("contract fp-transcendentals(native)", 1, true), ir)
+    local decoded, raw, code = lowered(dir, "--json native-exp.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.c:find("expf(", 1, true), "the CPU body calls the native exponential: " .. decoded.c)
+    assert(
+        decoded.ir:find("contract fp-transcendentals(native)", 1, true),
+        "and the IR records the contract that granted it: " .. decoded.ir
+    )
 end
 
 function M.gpuTargetLoadsAndStoresBinary16Bits()
@@ -1688,14 +1751,16 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
             "\n"
         ),
     }
-    local binding, bindingCode = run(dir, "--emit binding counter.nupp")
-    test.equal(bindingCode, 0, binding)
+    -- `--check` so the exit status is still the one that says nothing wanted
+    -- lanes and missed them, and `--json` so the binding it also carries needs
+    -- no second command.
+    local decoded, raw, code = lowered(dir, "--check --json counter.nupp")
+    test.equal(code, 0, raw)
     assert(
-        binding:find("nupp.math.u32.wrap(native1 as integer)", 1, true),
-        "the single result is established rather than returned as any: " .. binding
+        decoded.binding:find("nupp.math.u32.wrap(native1 as integer)", 1, true),
+        "the single result is established rather than returned as any: " .. decoded.binding
     )
-    local checked, checkedCode = run(dir, "--check --emit ir counter.nupp")
-    test.equal(checkedCode, 0, checked)
+    assert(decoded.ir, "and the checked run still reports the IR it judged: " .. raw)
 end
 
 -- Whether the instructions can be read on this machine at all. The condition is
@@ -1800,13 +1865,14 @@ end
 
 function M.emitPrintsTheIrAndTheBinding()
     local dir = project{["compute.nupp"] = COMPUTE}
-    local ir, irCode = run(dir, PINNED .. "--emit ir compute.nupp")
-    test.equal(irCode, 0, ir)
+    local decoded, raw, code = lowered(dir, PINNED .. "--json compute.nupp")
+    test.equal(code, 0, raw)
+
+    local ir = decoded.ir
     assert(ir:find("simd lanes(4)", 1, true), "the lane body is in the IR beside the scalar one: " .. ir)
     assert(ir:find("disjoint r0 r1", 1, true), "the alias matrix is in the IR: " .. ir)
 
-    local binding, bindingCode = run(dir, "--emit binding compute.nupp")
-    test.equal(bindingCode, 0, binding)
+    local binding = decoded.binding
     assert(
         binding:find("layoutof(Escape)", 1, true),
         "the wrapper checks the struct layout rather than trusting it: " .. binding
@@ -1817,8 +1883,12 @@ end
 function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
     local dir = project{["bytes.nupp"] = BYTE_CLASSIFIER}
 
-    local ir, irCode = run(dir, PINNED .. "--check --emit ir bytes.nupp")
-    test.equal(irCode, 0, ir)
+    -- One pinned command for both artifacts, and `--check` so the exit status is
+    -- still the one that says the loop got its lanes.
+    local decoded, raw, code = lowered(dir, PINNED .. "--check --json bytes.nupp")
+    test.equal(code, 0, raw)
+
+    local ir = decoded.ir
     assert(
         ir:find("flags:u32 source(uint8)", 1, true),
         "the IR distinguishes storage from its established value: " .. ir
@@ -1826,8 +1896,7 @@ function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
     assert(ir:find("vspan:i32x8 bytes[i..i+7]", 1, true), "a byte load is widened into the gang: " .. ir)
     assert(ir:find("vset flags[i..i+7]", 1, true), "a scalar span store is scattered from the gang: " .. ir)
 
-    local c, cCode = run(dir, PINNED .. "--emit c bytes.nupp")
-    test.equal(cCode, 0, c)
+    local c = decoded.c
     assert(c:find("uint8_t *restrict p_flags", 1, true), "the output pointer retains byte storage: " .. c)
     assert(c:find("const uint8_t *p_bytes", 1, true), "the input pointer retains const byte storage: " .. c)
     assert(c:find("p_flags[i + 7] = (uint8_t)lanes[7]", 1, true), "lane values narrow only when stored: " .. c)
@@ -1894,8 +1963,10 @@ export = publishing
 function M.onlySinglePublishEntriesReuseAByteScratch()
     local dir = project{["publishing.nupp"] = ONE_PUBLISH}
 
-    local ir, irCode = run(dir, "--emit ir publishing.nupp")
-    test.equal(irCode, 0, ir)
+    local decoded, raw, code = lowered(dir, "--json publishing.nupp")
+    test.equal(code, 0, raw)
+
+    local ir = decoded.ir
     local once = ir:match("function once.-\nfunction ") or ir:match("function once.*")
     local twice = ir:match("function twice.-\nfunction ") or ir:match("function twice.*")
     assert(
@@ -1908,8 +1979,7 @@ function M.onlySinglePublishEntriesReuseAByteScratch()
     )
 
     -- And that the emitter acts on the proof rather than deciding again.
-    local c, code = run(dir, "--emit c publishing.nupp")
-    test.equal(code, 0, c)
+    local c = decoded.c
     local _, cached = c:gsub("ks_lua_scratch_u8_cached%(L,", "")
     local _, plain = c:gsub("= ks_lua_scratch_u8%(L,", "")
     test.equal(cached, 1, "one entry takes the cached buffer: " .. c)
@@ -1918,13 +1988,15 @@ end
 
 function M.blockKernelsAppendUnderDominatingCapacityChecks()
     local dir = project{["delimiters.nupp"] = DELIMITERS}
-    local c, code = run(dir, "--emit c delimiters.nupp")
-    test.equal(code, 0, c)
+    local decoded, raw, code = lowered(dir, "--json delimiters.nupp")
+    test.equal(code, 0, raw)
+
+    local c = decoded.c
     assert(c:find("uint32_t ks_delimiters(", 1, true), "the scalar result crosses the native ABI: " .. c)
     assert(c:find("size_t count_source, size_t count_offsets", 1, true), "the two spans keep independent counts: " .. c)
     assert(c:find("p_offsets[((size_t)v", 1, true), "the proved zero-based cursor directly indexes the output: " .. c)
 
-    local ir = select(1, run(dir, "--emit ir delimiters.nupp"))
+    local ir = decoded.ir
     assert(ir:find("store offsets[written+1]", 1, true), "inspection preserves the checked append relationship: " .. ir)
 end
 
@@ -1940,8 +2012,10 @@ function M.aCountedLoopIndexReachesAnEntryConversion()
             "positions.nupp"
         ] = replaceOnce(DELIMITERS, "offsets[written + 1] = written", "offsets[written + 1] = nupp.math.u32.wrap(i)")
     }
-    local ir, code = run(dir, "--emit ir positions.nupp")
-    test.equal(code, 0, ir)
+    local decoded, raw, code = lowered(dir, "--json positions.nupp")
+    test.equal(code, 0, raw)
+
+    local ir = decoded.ir
     assert(
         ir:find("store offsets[written+1] = numeric_cast(int_to_f64(local:i32 i))", 1, true),
         "the promotion is written into the IR rather than left to the emitter: " .. ir
@@ -1952,7 +2026,7 @@ function M.aCountedLoopIndexReachesAnEntryConversion()
     -- otherwise carries -- `wrap` is modular, and a C cast is not -- has
     -- nothing to reduce here, so paying for it would be undoing the promotion's
     -- own work.
-    local c = select(1, run(dir, "--emit c positions.nupp"))
+    local c = decoded.c
     assert(c:find("((uint32_t)v", 1, true), "and the C narrows the index directly: " .. c)
     assert(not c:find("((uint32_t)((double)v", 1, true), "without a round trip through binary64: " .. c)
     assert(not c:find("nupp_wrap_u32(((double)v", 1, true), "and without reducing what cannot need it: " .. c)
@@ -2254,9 +2328,8 @@ return {scale = scale, brighten = brighten, Sample = Sample,}
 
 function M.everyAotFunctionInAFileIsCompiled()
     local dir = project{["two.nupp"] = TWO}
-    local out, code = run(dir, PINNED .. "--json two.nupp")
+    local decoded, out, code = lowered(dir, PINNED .. "--json two.nupp")
     test.equal(code, 0, out)
-    local decoded = require("testjson").decode(out)
     test.equal(#decoded.functions, 2, "both functions are reported")
     test.equal(decoded.functions[1].name, "scale", "in source order")
     test.equal(decoded.functions[2].name, "brighten")
@@ -2265,9 +2338,7 @@ function M.everyAotFunctionInAFileIsCompiled()
 
     -- One struct declared once, both gangs present, and each function bringing
     -- its own pair of bodies.
-    local _, ccode = run(dir, PINNED .. "--emit c two.nupp")
-    test.equal(ccode, 0)
-    local c = select(1, run(dir, PINNED .. "--emit c two.nupp"))
+    local c = decoded.c
     test.equal(select(2, c:gsub("} KsSample;", "")), 1, "the shared struct is declared once")
     assert(
         c:find("ks_any_m64x4", 1, true) and c:find("ks_any_m32x8", 1, true),
@@ -2282,7 +2353,7 @@ function M.everyAotFunctionInAFileIsCompiled()
         assert(c:find("void " .. symbol .. "(", 1, true), symbol .. " is defined")
     end
 
-    local binding = select(1, run(dir, PINNED .. "--emit binding two.nupp"))
+    local binding = decoded.binding
     assert(
         binding:find("scale = scale", 1, true) and binding:find("brighten = brighten", 1, true),
         "the generated module exports both wrappers: " .. binding:sub(-200)
@@ -2295,9 +2366,10 @@ end
 -- only runs there.
 function M.theBaselineX86TierGetsTheNarrowGang()
     local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu compute.nupp")
-    test.equal(code, 0, "plain x86-64 vectorises rather than refusing\n" .. out)
-    local decoded = require("testjson").decode(out)
+    -- `--check` in the same command, so the exit status that says it lowered is
+    -- the status of the run whose report is being read.
+    local decoded, out, code = lowered(dir, "--check --json --target x86_64-unknown-linux-gnu compute.nupp")
+    test.equal(code, 0, "plain x86-64 vectorises rather than refusing, and --check agrees\n" .. out)
     test.equal(decoded.target.tier, "baseline", "and did not quietly promise instructions nobody asked for")
     test.equal(decoded.functions[1].lanes.shape, "mixed2")
     test.equal(
@@ -2305,9 +2377,6 @@ function M.theBaselineX86TierGetsTheNarrowGang()
         2,
         "half the lanes of AVX, which is the point: a smaller win, not no win"
     )
-
-    local checkOut, checkCode = run(dir, "--check --target x86_64-unknown-linux-gnu compute.nupp")
-    test.equal(checkCode, 0, "and --check agrees it lowered\n" .. checkOut)
 end
 
 function M.aWiderTierGetsTheWiderGang()
