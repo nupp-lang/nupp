@@ -188,6 +188,17 @@ jobs:
         shell: bash
         run: ./bin/nupp build
 
+      # The Wasm acceptance workflow is path-filtered, but a checker or
+      # optimizer change anywhere in the compiler can invalidate source shown
+      # on the homepage. Keep the menu corpus on this unfiltered job, using the
+      # same strict, optimized Lua 5.1 settings as the playground Worker.
+      - name: Compile every homepage playground example
+        shell: bash
+        run: >-
+          ./bin/nupp build --strict --dialect lua51 -O1
+          -o build/ci-playground-examples
+          editors/playground/src/examples/*.nupp
+
       - name: Run the portable compiler in the six-library host
         shell: bash
         run: .github/scripts/test-portable-compiler.sh
