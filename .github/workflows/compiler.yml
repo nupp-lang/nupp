@@ -49,6 +49,7 @@ jobs:
       macos-integration: ${{ steps.classify.outputs.macos-integration }}
       windows-integration: ${{ steps.classify.outputs.windows-integration }}
       portable-compiler: ${{ steps.classify.outputs.portable-compiler }}
+      browser-wasm: ${{ steps.classify.outputs.browser-wasm }}
       gpu-linux: ${{ steps.classify.outputs.gpu-linux }}
       gpu-windows: ${{ steps.classify.outputs.gpu-windows }}
       fixpoint: ${{ steps.classify.outputs.fixpoint }}
@@ -827,6 +828,20 @@ jobs:
       - name: Regenerate and verify the documentation
         run: ./bin/nupp test --group=docs
 
+  # Emscripten, a Node parity run, the Lua 5.1 Wasm AOT fixtures, the browser
+  # templates in Chromium, and the generated Pages artifact. Called rather than
+  # path-filtered: the sixty-line list of paths that used to bring it into a
+  # pull request was maintained by hand, and a new source file reaching the
+  # playground was simply not on it.
+  browser-wasm:
+    name: Browser and Wasm
+    needs: [classify, fast-checks]
+    if: >-
+      !cancelled() && needs.classify.result == 'success'
+      && needs.fast-checks.result == 'success'
+      && needs.classify.outputs.browser-wasm == 'true'
+    uses: ./.github/workflows/wasm-playground.yml
+
   gpu-conformance:
     name: GPU conformance / CI Lavapipe Vulkan
     needs: classify
@@ -942,6 +957,7 @@ jobs:
       - integration
       - fixpoint
       - portable-compiler
+      - browser-wasm
       - docs-site
       - gpu-conformance
       - gpu-conformance-windows

@@ -77,6 +77,7 @@ classifier.jobs = {
     "macos-integration",
     "windows-integration",
     "portable-compiler",
+    "browser-wasm",
     "gpu-linux",
     "gpu-windows",
     "fixpoint",
@@ -164,6 +165,14 @@ function classifier.classify(paths)
     end
     if surfaces.compiler or surfaces.browser or surfaces.library then
         select(jobs, "portable-compiler", "the portable compiler's inputs changed", reasons)
+    end
+    -- Emscripten, a Chromium run and a page build: half an hour, and the only
+    -- job here whose cost makes narrowing it worth the risk. The browser
+    -- surface selects it; a compiler change anywhere is covered more cheaply by
+    -- `portable-compiler`, which compiles every homepage example under the
+    -- Worker's exact settings, and by the nightly backstop.
+    if surfaces.browser then
+        select(jobs, "browser-wasm", "browser or Wasm delivery changed", reasons)
     end
     if surfaces.gpu or surfaces.compiler or surfaces.native then
         local why = "GPU sources or a stage beneath them changed"

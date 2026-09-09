@@ -175,6 +175,17 @@
         }
       ]
     },
+    "browser-wasm": {
+      "platforms": ["linux"],
+      "selectedBy": "browser-wasm",
+      "callsWorkflow": ".github/workflows/wasm-playground.yml",
+      "steps": [],
+      "guarantees": [
+        "the portable compiler runs in Lua 5.1 compiled to Wasm",
+        "browser applications and templates run in Chromium",
+        "the generated Pages artifact builds"
+      ]
+    },
     "gpu-conformance": {
       "platforms": ["linux"],
       "selectedBy": "gpu-linux",

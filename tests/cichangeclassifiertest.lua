@@ -59,8 +59,17 @@ function M.runtimeChangeSelectsBrowserAndNativeCoverage()
     selects("src/nupp/runtime/tasks.nupp", {"fast-checks", "linux-integration", "portable-compiler", "fixpoint"})
 end
 
-function M.browserChangeSelectsThePortableCompiler()
-    selects("runtime/wasm/loader.js", {"fast-checks", "linux-integration", "portable-compiler"})
+function M.browserChangeSelectsThePortableCompilerAndTheWasmJob()
+    selects("runtime/wasm/loader.js", {"fast-checks", "linux-integration", "portable-compiler", "browser-wasm"})
+    selects("editors/playground/src/worker.ts", {"browser-wasm"})
+    selects("templates/browser/nupp.lua", {"browser-wasm"})
+end
+
+-- The one job narrow enough to be worth narrowing, so the boundary is worth an
+-- assertion: a compiler change is covered by `portable-compiler` compiling every
+-- homepage example under the Worker's settings, and by the nightly backstop.
+function M.anOrdinaryCompilerChangeDoesNotPayForEmscripten()
+    doesNotSelect("src/nupp/compiler/check/callexpr.nupp", {"browser-wasm"})
 end
 
 function M.gpuChangeSelectsBothAdapters()
@@ -130,6 +139,7 @@ function M.documentationOnlyChangesProvisionNoPlatform()
             "gpu-windows",
             "fixpoint",
             "portable-compiler",
+            "browser-wasm",
         })
     end
 end
