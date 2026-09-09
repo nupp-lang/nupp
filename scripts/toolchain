@@ -524,6 +524,11 @@ take_lock() {
 select_rust_tools() {
     CARGO=${NUPP_CARGO:-cargo}
     RUSTC=${NUPP_RUSTC:-rustc}
+    # Asked for before reading it, so a tree without one is reported by the line
+    # below rather than by `sed` naming a path on standard error. Every caller
+    # here captures only standard output, so that stray line arrives wherever
+    # the caller's own output was going.
+    [ -f "$ROOT/rust-toolchain.toml" ] || die "rust-toolchain.toml is missing; nothing pins the Rust toolchain"
     expected=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' "$ROOT/rust-toolchain.toml")
     [ -n "$expected" ] || die "rust-toolchain.toml names no exact channel"
     rustup_toolchain=$expected

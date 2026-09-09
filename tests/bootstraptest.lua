@@ -35,6 +35,7 @@ end
 -- Cached after the first ask, because every case here wants the same one and the
 -- toolchain digests twelve megabytes to answer.
 local stage0Path, stage0Asked
+
 local function stage0()
     if not stage0Asked then
         stage0Asked = true
@@ -143,6 +144,7 @@ local function plantedTree(stage0Body)
     )
     assert(os.execute(("cp '%s/bin/nupp' '%s/bin/nupp'"):format(ROOT, dir)) == 0)
     assert(os.execute(("cp -R '%s/scripts' '%s/scripts'"):format(ROOT, dir)) == 0)
+
     local function plant(path, text)
         local file = assert(io.open(dir .. "/" .. path, "wb"))
         file:write(text)
@@ -274,7 +276,14 @@ function M.aBuildWaitsForTheBuildAlreadyRunning()
     ):format(dir, env)
     local out = capture(script .. " 2>&1")
 
-    assert(out:find("while held: []", 1, true), "a build ran while another held the lock: " .. out)
+    -- What the lock decides is whether the compiler ran, and "BUILT" is the
+    -- planted compiler saying it did. Asserting no bytes at all asserted
+    -- something else as well: the launcher stages a provider before it reaches
+    -- the lock, and in a tree planted without a Rust toolchain that stage has
+    -- something to say -- so a run that held the lock correctly still reported
+    -- it as broken.
+    local held = out:match("while held: %[(.-)%]\n") or "<no line>"
+    assert(not held:find("BUILT", 1, true), "a build ran while another held the lock: " .. out)
     assert(out:find("after: [BUILT]", 1, true), "and did not run once the lock was free: " .. out)
 
     os.execute("rm -rf '" .. dir .. "'")

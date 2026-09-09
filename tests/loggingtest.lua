@@ -368,6 +368,14 @@ end
 function M.theTimestampIsCachedToTheSecond()
     local log = runtime()
     log.timestampFormat("%Y-%m-%d %H:%M:%S ")
+    -- Take the pair just after the clock ticks, so the two reads have a whole
+    -- second ahead of them rather than whatever is left of the one they landed
+    -- in. Asked at an arbitrary instant they straddle a tick sooner or later,
+    -- and a run that did answered two different strings for the right reason --
+    -- which is the cache working, reported as the cache broken.
+    local tick = os.time()
+    while os.time() == tick do
+    end
     local first = log.timestamp()
     assertEq(log.timestamp(), first, "two reads in one second answer one string")
     assertTrue(#first > 0, "and it is not empty")
