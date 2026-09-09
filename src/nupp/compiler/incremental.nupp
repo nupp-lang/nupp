@@ -472,6 +472,28 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         sameStable
     )
 
+    -- What one module name is, asked one name at a time.
+    --
+    -- The same reasoning as `projectRegistrations`: an answer taken off the whole
+    -- index makes its reader depend on the whole index. Whether a name is declared,
+    -- where it is declared, whether it is internal and whether it heads an internal
+    -- tree all come from that module's own header, so one keyed query answers all
+    -- four and holds still while other files come and go.
+    q:define(
+        "projectModuleDeclaration",
+        function(self, name)
+            local index = self:get("projectIndex", "root")
+
+            return {
+                definition = index.moduleDefinitions[name] or false,
+                declared = index.declaredModules[name] == true,
+                internal = index.internalModules[name] == true,
+                internalTree = index.internalTrees[name] == true,
+            }
+        end,
+        sameStable
+    )
+
     -- Environment lookup helpers call this function, including from inside a check
     -- query. q:get records the project-index dependency in that case.
 
@@ -479,8 +501,38 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- Module resolution
     ---------------------------------------------------------------------
 
+    -- The project index as a reader that wants one name should see it: the four
+    -- name-keyed maps answer through the query above, and every other field falls
+    -- back to the whole index and depends on it exactly as before.
+    local function keyedIndexView(field: string): any
+        local view: any = {}
+
+        return setmetatable(view, {
+            __index = function(_: any, name: any): any
+                if type(name) ~= "string" then
+                    return nil
+                end
+                local value = q:get("projectModuleDeclaration", name)[field]
+
+                return value ~= false and value or nil
+            end
+        })
+    end
+
+    local indexView: any = {
+        declaredModules = keyedIndexView("declared"),
+        moduleDefinitions = keyedIndexView("definition"),
+        internalModules = keyedIndexView("internal"),
+        internalTrees = keyedIndexView("internalTree"),
+    }
+    setmetatable(indexView, {
+        __index = function(_: any, field: any): any
+            return q:get("projectIndex", "root")[field]
+        end
+    })
+
     env.ensureProjectIndex = function()
-        return q:get("projectIndex", "root")
+        return indexView
     end
 
     --- Where a module name resolves to, preferring project files.
@@ -571,9 +623,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 end,
                 projectAnnotations = function(_, name)
                     return self:get("projectAnnotations", name)
-                end,
-                ensureProjectIndex = function()
-                    return self:get("projectIndex", "root")
                 end,
                 externalFile = function(_, externalPath)
                     return self:get("externalFile", externalPath)

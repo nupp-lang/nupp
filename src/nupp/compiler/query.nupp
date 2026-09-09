@@ -196,7 +196,15 @@ function query.Q:get(name: string, key: any): any
         -- of dependencies its caller read directly. A discard frame keeps validation
         -- reads from leaking into an outer computation while preserving the real
         -- dependency frames of any query that has to recompute underneath it.
+        --
+        -- Marked active for the same reason a computation is: validating a query
+        -- brings each of its dependencies up to date, and a `require` cycle makes
+        -- one of those lead back here. Without the mark, that edge validates this
+        -- entry again, and again, until the stack runs out. With it, the re-entrant
+        -- edge reports what this entry last changed at, which is the same rule the
+        -- computation path resolves a cycle by.
         self.stack[#self.stack + 1] = {deps = {}}
+        self.active[activeKey] = true
         local validated, clean = pcall(function(): boolean
             for _, d in ipairs(entry.deps) do
                 if depChangedAt(self, d.name, d.key) > entry.verifiedAt then
@@ -206,6 +214,7 @@ function query.Q:get(name: string, key: any): any
 
             return true
         end)
+        self.active[activeKey] = nil
         self.stack[#self.stack] = nil
         if not validated then
             error(clean, 0)
