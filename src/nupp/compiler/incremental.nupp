@@ -494,8 +494,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         sameStable
     )
 
-    -- Environment lookup helpers call this function, including from inside a check
-    -- query. q:get records the project-index dependency in that case.
+    -- Environment lookup helpers reach the index from inside a check query, and
+    -- whichever query they read is recorded as that check's dependency. Which one
+    -- they read is the whole question: a name-keyed answer holds still while other
+    -- files come and go, and the index as a whole does not.
 
     ---------------------------------------------------------------------
     -- Module resolution
