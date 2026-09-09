@@ -1591,6 +1591,56 @@ function calls.install(c: state.Checker): calls.Ops
                     bound[field] = true
                 end
             end
+            if isRecord and not sealedConstruction then
+                local requiredOrder, seen = {}, {}
+                for _, field in ipairs(order) do
+                    requiredOrder[#requiredOrder + 1], seen[field] = field, true
+                end
+                local inherited = {}
+                for field in pairs(calleeT.byname) do
+                    if not seen[field] then
+                        inherited[#inherited + 1], seen[field] = field, true
+                    end
+                end
+                for field in pairs(calleeT.writeByname) do
+                    if not seen[field] then
+                        inherited[#inherited + 1] = field
+                    end
+                end
+                table.sort(inherited)
+                for _, field in ipairs(inherited) do
+                    requiredOrder[#requiredOrder + 1] = field
+                end
+                local missing = {}
+                for _, field in ipairs(requiredOrder) do
+                    local fieldType = calleeT.byname[field] or calleeT.writeByname[field]
+                    if genericMap and fieldType then
+                        fieldType = generics.rebind(fieldType, genericMap)
+                    end
+                    local method = calleeT.overloadedMethods and calleeT.overloadedMethods[
+                        field
+                    ] or fieldType and fieldType.tag == "func" and relations.hasReceiver(fieldType, calleeT)
+                    local nested = calleeT.nestedTypes and calleeT.nestedTypes[field]
+                    if not bound[
+                        field
+                    ] and fieldType and not method and not nested and fieldType.tag ~= "typeobject" and (
+                        not isA(T.nil_, fieldType) or relations.typevarMismatch(T.nil_, fieldType)
+                    ) then
+                        missing[#missing + 1] = field
+                    end
+                end
+                if #missing > 0 then
+                    c.diag(
+                        "NUPP2208",
+                        node,
+                        (
+                            "construction of %s leaves required fields unset: %s"
+                        ):format(declared, table.concat(missing, ", ")),
+                        nil,
+                        {help = "supply each required field, give it a default, or declare it optional"}
+                    )
+                end
+            end
             node.recordFields = bindings
             if not isRecord then
                 node.structConstruct = declared

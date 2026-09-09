@@ -252,13 +252,12 @@ An application that exposes no members of its own is opaque, and its arguments
 compare covariantly, since nothing can be written through it.
 
 ::: deepdive
-Arrays keep a deliberately gradual covariance that generic applications do not
-get: an array is used far more often for reading, and the sound alternatives, a
-variance annotation on every parameter or invariance everywhere, make ordinary
-Lua-shaped code fail to type-check. A generic declaration states each member's
-capability, so the variance falls out of the members rather than needing an
-annotation. See [Type system](index.md#deliberate-unsoundness) for the places
-the gradual trade is made.
+Mutable arrays likewise preserve their element type: `{integer}` does not fit a
+mutable `{number}`, which could write a fractional value into it. A
+`const {number}` parameter accepts the integer array for reading. A fresh array
+literal takes its context's element type because no earlier alias observes a
+narrower type. A generic declaration states each member's capability, so its
+variance falls out of the members rather than needing an annotation.
 :::
 
 ## `self`

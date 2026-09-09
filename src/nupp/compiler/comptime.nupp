@@ -1632,7 +1632,7 @@ local function typeOf(value)
     if #named > 0 and #elements == 0 then
         return T.shape(named, nil, true)
     elseif #elements > 0 and #named == 0 then
-        return T.array(T.union(elements))
+        return T.array(T.union(elements), elements)
     elseif #elements == 0 and #named == 0 then
         return T.table_
     end

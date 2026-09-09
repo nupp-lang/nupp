@@ -193,32 +193,24 @@ type](primitives.md#unknown-the-top-type) for more information.
 
 ## Deliberate unsoundness
 
-Four rules are unsound on purpose, because the sound version rejects too much
-ordinary Lua:
+Some boundaries deliberately trust gradual or externally supplied information:
 
 ```nupp
 local ints: {integer} = {1, 2}
-local nums: {number} = ints -- accepted: arrays are covariant
-nums[1] = 1.5
+local nums: const {number} = ints -- a read-only view may widen
+local writable: {number} = ints -- NUPP2001: a wider writer could corrupt ints
 ```
 
-That last line stores a non-integer into a `{integer}`, and nothing reports it.
+Mutable arrays and tuples preserve their element types through aliases. A fresh
+array literal may take the type of its context; an existing array widens only
+through a read-only view.
 
-- **Arrays are covariant.** `{integer}` is accepted where `{number}` is wanted,
-  and a tuple is accepted where an array of a wider element is. Arrays of
-  functions are invariant, because covariance there could erase a `nosuspend`
-  effect guarantee. A tuple wanted as another tuple is held exactly, position by
-  position, the way a generic application's members are; a `const` tuple, which
-  nothing writes through, reads covariantly.
 - **`table` is gradual in both directions.** Every table-shaped type is a
   `table`, and a `table` may be used where any of them is wanted. It is closer
   to "`any`, for tables" than to a top type.
 - **A declared `is` edge is trusted rather than proved.** If a record says
   `is nupp.Closeable`, it satisfies `nupp.Closeable` even before a runtime registrar has
   filled the members in.
-- **Record construction has no definite-initialization proof.** A required field
-  may be omitted so staged constructors and registrars can fill it later; reading
-  it first observes Lua's `nil` despite the declared field type.
 
 Each is a place where the checker chose compatibility over proof. See [`is` is
 a claim, not a proof](interfaces.md#is-is-a-claim-not-a-proof) for what a

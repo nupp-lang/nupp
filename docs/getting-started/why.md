@@ -206,7 +206,7 @@ rewrites, and how to turn one off to bisect a miscompile.
 :::
 
 The type system has deliberate holes, and they are written down rather than
-implied: arrays are covariant, `as` is unchecked, `table` is gradual in both
+implied: `as` is unchecked, `table` is gradual in both
 directions, and a declared `is` edge is trusted instead of proved. Each buys
 compatibility with how Lua is actually written. See [deliberate
 unsoundness](../learn/language/types/index.md#deliberate-unsoundness) for what each

@@ -42,10 +42,10 @@ record lower.Context
     --- the emitter writes these at file scope: two entries numbering their own
     --- tables from zero give one translation unit two different `konst_0`. One
     --- table used by two entries is named once here and emitted once there.
-    constantNames: {[string]: string}
+    constantNames: {[string]: string} = {}
 
     --- Those tables in the order they were first reached, for numbering.
-    constantValues: {string}
+    constantValues: {string} = {}
 end
 
 ----------------------------------------------------------------------------

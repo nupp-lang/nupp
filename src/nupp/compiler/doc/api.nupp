@@ -112,7 +112,9 @@ end
 -- values). Items are alphabetized inside a group just as they are on a Tealdoc page.
 local function itemGroups(items: {extractMod.Item}, constructorPattern: string?): {api.ItemGroup}
     local pattern = constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN
-    local groups = {
+    local groups: {
+        api.ItemGroup
+    } = {
         {title = "Constructors", path = "constructors", kinds = false, items = {}},
         {title = "Types", path = "types", kinds = true, items = {}},
         {title = "Functions", path = "functions", kinds = true, items = {}},

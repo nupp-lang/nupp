@@ -411,7 +411,7 @@ local function declarationSource(
             warnings[#warnings + 1] = warning(tag, filename, "cannot read annotated Lua base class; base ignored")
         end
     end
-    local indexers = 0
+    local indexers: integer = 0
     for _, field in ipairs(following) do
         if field.name == "field" then
             field.used = true

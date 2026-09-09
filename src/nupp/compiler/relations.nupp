@@ -324,7 +324,7 @@ local surfaceOwner: {[Type]: Type} = setmetatable({}, {__mode = "k"}) as {[Type]
 --- typed as the declaration that owns the member (which is what a bare `self` in a
 --- field type resolves to), as an application of the same generic, or, for the
 --- composed surface of an intersection, as one of its members.
-local function hasReceiver(ft: T.Func, owner: Type?): boolean
+function relations.hasReceiver(ft: T.Func, owner: Type?): boolean
     if #ft.params < 1 then
         return false
     end
@@ -391,7 +391,10 @@ end
 --- method slot receives the table as its first argument, and a method behind a
 --- plain slot is called with whatever that slot's first parameter admits.
 local function memberIsA(have: Type, want: Type, haveOwner: Type?, wantOwner: Type?): boolean
-    if have.tag == "func" and want.tag == "func" and hasReceiver(have, haveOwner) and hasReceiver(want, wantOwner) then
+    if have.tag == "func" and want.tag == "func" and relations.hasReceiver(
+        have,
+        haveOwner
+    ) and relations.hasReceiver(want, wantOwner) then
         local haveReceiverMode = have.paramModes and have.paramModes[1] or "plain"
         local wantReceiverMode = want.paramModes and want.paramModes[1] or "plain"
         if (haveReceiverMode == "takes") ~= (wantReceiverMode == "takes") then
@@ -1044,6 +1047,9 @@ local function check(a: Type, b: Type): boolean, string?
         if source.tag == "tuple" and (inner.tag == "tuple" or inner.tag == "array") then
             return tupleReadsAs(source.elems, inner)
         end
+        if source.tag == "array" and inner.tag == "array" then
+            return isA(source.elem, inner.elem)
+        end
         return isA(source, inner)
     end
     if atag == "const" then
@@ -1190,11 +1196,11 @@ local function check(a: Type, b: Type): boolean, string?
     end
 
     if atag == "array" and btag == "array" then
-        -- Ordinary arrays retain Lua's deliberately gradual covariance. Function
-        -- effects are a hard guarantee, though: a covariant alias must not admit a
-        -- may-suspend callable into storage promised to contain only nosuspend ones.
+        -- A mutable alias may write every value its element type admits. A fresh
+        -- literal takes its context's type; an existing array must keep both its
+        -- read and write contract. Const views above need only the read contract.
         local ok = isA(a.elem, b.elem)
-        if ok and (a.elem.tag == "func" or b.elem.tag == "func") then
+        if ok and not a.fresh then
             ok = isA(b.elem, a.elem)
         end
         if ok then
@@ -1225,12 +1231,11 @@ local function check(a: Type, b: Type): boolean, string?
         return true
     end
 
-    -- A homogeneous-enough tuple fits an array, with the same deliberately gradual
-    -- covariance an array has toward a wider array: the two are one latitude, and
-    -- `unpack(pair)` or `table.concat(pair)` is the ordinary way a tuple is used.
+    -- An array alias can write any position of a tuple, so every position must
+    -- accept the array's writes as well as satisfy its reads.
     if atag == "tuple" and btag == "array" then
         for _, e in ipairs(a.elems) do
-            if not isA(e, b.elem) then
+            if not isA(e, b.elem) or not isA(b.elem, e) then
                 return fail(a, b)
             end
         end

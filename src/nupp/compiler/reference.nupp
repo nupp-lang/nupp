@@ -638,7 +638,9 @@ A stored field may be written `name: T = value`, where the value is a closed
 scalar or table constant fitting `T`. Omitted construction fields and
 constructor instances receive the default, and mutable tables are fresh each
 time. Defaults satisfy constructor completeness. Types have no implicit zero
-default, and interfaces reject field defaults.
+default, and interfaces reject field defaults. Direct record construction also
+requires every stored field whose type does not admit nil to be supplied or
+defaulted (`NUPP2208`); prototype methods do not need per-instance values.
 
 The declaration name is its visible `Type<Point>` witness rather than a `Point`
 instance, so a function that wants the declaration takes `Type<P>`. It may

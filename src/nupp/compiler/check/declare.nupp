@@ -1359,10 +1359,17 @@ function declare.install(
         local nested = n.nestedTypes or {}
         local missing = {}
         for _, name in ipairs(order) do
-            local ft2 = n.byname[name]
-            if ft2 and ft2.tag ~= "func" and ft2.tag ~= "typeobject" and not nested[
+            local ft2 = n.byname[name] or n.writeByname[name]
+            local method = n.overloadedMethods and n.overloadedMethods[
                 name
-            ] and not assigned[name] and not (n.fieldDefaults and n.fieldDefaults[name]) and not isA(T.nil_, ft2) then
+            ] or ft2 and ft2.tag == "func" and relations.hasReceiver(ft2, n)
+            if ft2 and not method and ft2.tag ~= "typeobject" and not nested[
+                name
+            ] and not assigned[
+                name
+            ] and not (
+                n.fieldDefaults and n.fieldDefaults[name]
+            ) and (not isA(T.nil_, ft2) or relations.typevarMismatch(T.nil_, ft2)) then
                 missing[#missing + 1] = name
             end
         end

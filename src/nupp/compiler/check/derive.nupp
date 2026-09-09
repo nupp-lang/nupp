@@ -132,7 +132,6 @@ function derive.install(c: state.Checker): derive.Ops
     c.result.deriveObservations = nil
     c.result.deriveInterface = nil
     local pending = {}
-    local ops = new derive.Ops()
     local recipeLimitAt = nil
     local keyOccurrences = {}
     local aborted, abortReason = false, nil
@@ -219,7 +218,7 @@ function derive.install(c: state.Checker): derive.Ops
         return nil, moduleName, path
     end
 
-    function ops.claim(stat, n)
+    local function claim(stat, n)
         local function publish(): nil
             local seen = {}
             n.supertypes = n.supertypes or {}
@@ -326,7 +325,7 @@ function derive.install(c: state.Checker): derive.Ops
                 members[#members + 1] = valueType(child)
             end
             local element = #members == 0 and T.unknown or #members == 1 and members[1] or T.union(members)
-            return T.array(element)
+            return T.array(element, members)
         else
             return T.unknown
         end
@@ -488,7 +487,7 @@ function derive.install(c: state.Checker): derive.Ops
             -- first half, and the loop below feeds the second.
             local claimSource = fieldType and fieldType.tag == "nominal" and (fieldType.origin or fieldType) or nil
             if claimSource and claimSource.deriveDeclaration and not claimSource.deriveClaimsComplete then
-                ops.claim(claimSource.deriveDeclaration, claimSource)
+                claim(claimSource.deriveDeclaration, claimSource)
             end
             local claims = {}
             for claimIndex, claim in ipairs(claimSource and claimSource.supertypes or {}) do
@@ -775,7 +774,8 @@ function derive.install(c: state.Checker): derive.Ops
                     end
 
                     return T.array(
-                        #children == 0 and T.unknown or #children == 1 and children[1] or T.union(children)
+                        #children == 0 and T.unknown or #children == 1 and children[1] or T.union(children),
+                        children
                     ), ok
                 end
 
@@ -1278,7 +1278,7 @@ function derive.install(c: state.Checker): derive.Ops
         c.result.deriveAborted = abortReason
     end
 
-    function ops.merge(stat, n)
+    local function merge(stat, n)
         if not probe(stat) then
             return
         end
@@ -1389,7 +1389,7 @@ function derive.install(c: state.Checker): derive.Ops
         relations.invalidate()
     end
 
-    function ops.finalize()
+    local function finalize()
         if aborted or not probe(pending[1] and pending[1].stat or nil) then
             abortAll()
             return
@@ -1569,7 +1569,7 @@ function derive.install(c: state.Checker): derive.Ops
         c.result.deriveObservations = observations
     end
 
-    return ops
+    return new derive.Ops(claim = claim, merge = merge, finalize = finalize)
 end
 
 export = derive

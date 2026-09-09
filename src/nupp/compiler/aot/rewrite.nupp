@@ -851,14 +851,14 @@ record rewrite.BlockState
 
     --- Reports which names a suffix of a block reads, so the loop rewrite knows
     --- what is observable after it.
-    readsAfter: function({any}, integer): {[string]: boolean}
+    readsAfter: (function({any}, integer): {[string]: boolean})?
 
     --- Whether a block contains a `continue`, which stops a retired lane being
     --- allowed to compute dead state.
-    containsContinue: function({any}): boolean
+    containsContinue: (function({any}): boolean)?
 
     --- Records that a name is bound to one element of a span.
-    bindRef: function(string, scalarIR.Expr): nil
+    bindRef: (function(string, scalarIR.Expr): nil)?
 end
 
 --- A fresh mask binding, named so two never collide.

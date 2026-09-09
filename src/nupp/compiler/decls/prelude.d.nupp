@@ -270,7 +270,7 @@ local nupp: {
         readonly carray: comptime function(element: type, count: integer?): type,
         readonly indexer: comptime function(readKey: type?, readValue: type?, writeKey: type?, writeValue: type?): type,
         readonly map: comptime function(readKey: type, readValue: type, writeKey: type?, writeValue: type?): type,
-        readonly shape: comptime function(fields: {{
+        readonly shape: comptime function(fields: const{{
             readonly name: string,
             readonly read: type?,
             readonly write: type?

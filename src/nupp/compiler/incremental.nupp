@@ -191,7 +191,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     local dialect = assert(require("nupp.compiler.dialects").resolve(opts.dialect))
     local traceInspection = opts.traceInspection == true
     local q = query.new()
-    local inc = new incremental.Inc(env = env, q = q)
     local activeModules = {}
 
     ---------------------------------------------------------------------
@@ -215,7 +214,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- `envMod.ensureProjectIndex` rather than through this graph, and both want the
     -- same answers out of the same file.
     local headerStore = envMod.headerStore(env) or storeMod.open(nil, "")
-    inc.headerStore = headerStore
 
     -- Where a session gets a word in edgewise.
     --
@@ -565,7 +563,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 openTypeFunctionStore = function()
                     -- Query-local environment overlays must share the session's store.
                     -- If the lazy store were attached to this short-lived proxy,
-                    -- `inc.persist()` would never see or save the results it
+                    -- `apiPersist()` would never see or save the results it
                     -- accumulated.
                     return envMod.typeFunctionStore(env)
                 end,
@@ -806,7 +804,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- The document surface
     ---------------------------------------------------------------------
 
-    function inc.openDocument(path: string, text: string)
+    local function apiOpenDocument(path: string, text: string)
         q:setInput("generatedSource", path, false)
         local wasOpen = openPaths[path]
         if envMod.moduleNameForPath(env, path) then
@@ -818,13 +816,12 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         q:setInput("fileText", path, text)
     end
 
-    function inc.openGeneratedDocument(path: string, text: string)
-        inc.openDocument(path, text)
+    local function apiOpenGeneratedDocument(path: string, text: string)
+        apiOpenDocument(path, text)
         q:setInput("generatedSource", path, true)
     end
 
-    inc.changeDocument = inc.openDocument
-    function inc.closeDocument(path: string)
+    local function apiCloseDocument(path: string)
         q:clearInput("generatedSource", path)
         q:clearInput("fileText", path)
         if openPaths[path] then
@@ -838,7 +835,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- Invalidate the disk fallback after an editor/file-watcher event. Open document
     -- overlays remain authoritative until didClose, but creates and deletes still
     -- update project membership underneath the overlay.
-    function inc.diskChanged(path: string, changeType: integer)
+    local function apiDiskChanged(path: string, changeType: integer)
         local existed = diskPaths[path] and true or false
         if changeType == 3 then
             diskPaths[path] = nil
@@ -855,15 +852,15 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     end
 
     -- Full result for a file: parse + check diagnostics, parse result.
-    function inc.checkFile(path: string): incremental.CheckResult
+    local function apiCheckFile(path: string): incremental.CheckResult
         return q:get("checkModule", path)
     end
 
-    function inc.projectIndex(): any
+    local function apiProjectIndex(): any
         return q:get("projectIndex", "root")
     end
 
-    function inc.projectFiles(): {string}
+    local function apiProjectFiles(): {string}
         return q:get("projectFiles", "root")
     end
 
@@ -871,26 +868,26 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- otherwise disk. A caller mapping token offsets back to positions has to measure
     -- against this text and not re-read the file, or a change since the check would
     -- shift every offset it computes.
-    function inc.fileText(path: string): string?
+    local function apiFileText(path: string): string?
         return q:get("fileText", path)
     end
 
-    function inc.externalFile(path: string): string?
+    local function apiExternalFile(path: string): string?
         return q:get("externalFile", path)
     end
 
-    function inc.projectHeader(path: string): incremental.Header?
+    local function apiProjectHeader(path: string): incremental.Header?
         return q:get("projectHeader", path)
     end
 
     -- Build-system graph access. Checking a module records direct moduleInterface
     -- queries in its memo entry; expose those edges without making the build planner
     -- depend on query's internal table layout.
-    function inc.modulePath(name: string): string?
+    local function apiModulePath(name: string): string?
         return modulePath(q, name)
     end
 
-    function inc.moduleDependencies(path: string): {string}
+    local function apiModuleDependencies(path: string): {string}
         q:get("checkModule", path)
         local byPath = q.memo.checkModule
         local memo = byPath and byPath[path]
@@ -964,7 +961,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return paths
     end
 
-    function inc.projectDependencies(path: string): {any}
+    local function apiProjectDependencies(path: string): {any}
         q:get("checkModule", path)
         local byPath = q.memo.checkModule
         local memo = byPath and byPath[path]
@@ -987,26 +984,26 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return dependencies
     end
 
-    function inc.projectDependencyFingerprint(name: string, key: string): string?
+    local function apiProjectDependencyFingerprint(name: string, key: string): string?
         if not PROJECT_QUERY[name] then
             return nil
         end
         return projectFingerprint(name, key)
     end
 
-    function inc.projectDependencyPaths(name: string, key: string): {string}
+    local function apiProjectDependencyPaths(name: string, key: string): {string}
         if not PROJECT_QUERY[name] then
             return {}
         end
         return projectDependencyPaths(name, key)
     end
 
-    function inc.persist()
+    local function apiPersist()
         envMod.persist(env)
         headerStore.save()
     end
 
-    function inc.deriveStats(): any
+    local function apiDeriveStats(): any
         return {
             executions = q.stats.materializeDerives or 0,
             cacheHits = q.hits.materializeDerives or 0,
@@ -1015,7 +1012,29 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         }
     end
 
-    return inc
+    return new incremental.Inc(
+        env = env,
+        q = q,
+        headerStore = headerStore,
+        changeDocument = apiOpenDocument,
+        openDocument = apiOpenDocument,
+        openGeneratedDocument = apiOpenGeneratedDocument,
+        closeDocument = apiCloseDocument,
+        diskChanged = apiDiskChanged,
+        checkFile = apiCheckFile,
+        projectIndex = apiProjectIndex,
+        projectFiles = apiProjectFiles,
+        fileText = apiFileText,
+        externalFile = apiExternalFile,
+        projectHeader = apiProjectHeader,
+        modulePath = apiModulePath,
+        moduleDependencies = apiModuleDependencies,
+        projectDependencies = apiProjectDependencies,
+        projectDependencyFingerprint = apiProjectDependencyFingerprint,
+        projectDependencyPaths = apiProjectDependencyPaths,
+        persist = apiPersist,
+        deriveStats = apiDeriveStats
+    )
 end
 
 export = incremental

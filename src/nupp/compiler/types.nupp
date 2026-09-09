@@ -28,7 +28,8 @@ local types = {}
 ---
 --- Structural types are interned, so `id` doubles as identity: two types with the same
 --- `id` are the same Lua object. Nominal types get a fresh `id` per declaration, which
---- is what makes them nominal.
+--- is what makes them nominal. The empty initial id stays private to the factory;
+--- interning or nominal allocation replaces it before publishing the type.
 
 --- Which primitive: the tags that carry no parts.
 type types.PrimTag = 'any'
@@ -61,13 +62,13 @@ type types.PrimTag = 'any'
 
 --- A type with no parts: the primitives and the C-boundary scalars.
 record types.Prim
-    id: string
+    id: string = ""
     tag: types.PrimTag
 end
 
 --- A Lua array: one-based and dense.
 record types.Array
-    id: string
+    id: string = ""
     tag: 'array'
     elem: types.Type
 
@@ -82,7 +83,7 @@ end
 
 --- A table from one type to another.
 record types.Map
-    id: string
+    id: string = ""
     tag: 'map'
     key: types.Type
     value: types.Type
@@ -99,14 +100,14 @@ end
 
 --- A fixed sequence, one type per position.
 record types.Tuple
-    id: string
+    id: string = ""
     tag: 'tuple'
     elems: {types.Type}
 end
 
 --- A table known by the fields it has.
 record types.Shape
-    id: string
+    id: string = ""
     tag: 'shape'
 
     --- In canonical (name) order, so one shape has one identity.
@@ -128,7 +129,7 @@ end
 
 --- Any one of several types.
 record types.Union
-    id: string
+    id: string = ""
     tag: 'union'
 
     --- Deduplicated and sorted by id.
@@ -141,7 +142,7 @@ end
 
 --- Values satisfying every member type.
 record types.Intersection
-    id: string
+    id: string = ""
     tag: 'intersection'
 
     --- Deduplicated and sorted by id.
@@ -150,14 +151,14 @@ end
 
 --- A pointer to a value in C memory.
 record types.Ptr
-    id: string
+    id: string = ""
     tag: 'ptr'
     elem: types.Type
 end
 
 --- A contiguous C array; `count` is nil for a variable-length one.
 record types.CArray
-    id: string
+    id: string = ""
     tag: 'carray'
     elem: types.Type
     count: integer?
@@ -166,7 +167,7 @@ end
 
 --- One value admitted in a closed const domain.
 record types.ConstLiteral
-    id: string
+    id: string = ""
     tag: 'constLiteral'
     domain: string
     value: string | boolean | integer
@@ -174,7 +175,7 @@ end
 
 --- A compile-time value binder.
 record types.ConstVar
-    id: string
+    id: string = ""
     tag: 'constVar'
     name: string
     domain: string
@@ -182,7 +183,7 @@ end
 
 --- One operation in the deliberately closed const expression grammar.
 record types.ConstOp
-    id: string
+    id: string = ""
     tag: 'constOp'
     operation: string
     operands: {types.ConstTerm}
@@ -213,7 +214,7 @@ type types.TemplatePart = string | types.Type
 --- binding resolved where the contract was declared; the other forms reach through
 --- the owned value itself and therefore need no module linkage.
 record types.Cleanup
-    id: string
+    id: string = ""
     kind: 'function' | 'closure' | 'method' | 'field' | 'dropfield'
     key: string?
     name: string?
@@ -231,7 +232,7 @@ end
 
 --- An owned value: affine, and released by its cleanups.
 record types.Affine
-    id: string
+    id: string = ""
     tag: 'affine'
     inner: types.Type
     cleanups: {types.Cleanup}
@@ -246,14 +247,14 @@ end
 
 --- A borrowed value, which may not escape its lexical owner.
 record types.Borrowed
-    id: string
+    id: string = ""
     tag: 'borrowed'
     inner: types.Type
 end
 
 --- A pinned pointer, paired with a strong Lua anchor at run time.
 record types.Pinned
-    id: string
+    id: string = ""
     tag: 'pinned'
     inner: types.Type
 end
@@ -318,7 +319,7 @@ end
 --- runtime wrapper. Wrapper types remain only as the allocation-free encoding from
 --- which the type-level part of this record is derived.
 record types.Capability
-    id: string
+    id: string = ""
     obligation: types.Obligation?
     loans: {types.Loan}
     anchors: {types.PinnedAnchor}
@@ -333,21 +334,21 @@ end
 
 --- A read-only view.
 record types.Const
-    id: string
+    id: string = ""
     tag: 'const'
     inner: types.Type
 end
 
 --- The runtime ctype object standing for a type.
 record types.CType
-    id: string
+    id: string = ""
     tag: 'ctype'
     of: types.Type
 end
 
 --- A generic binder standing for zero or more heterogeneous values.
 record types.PackVar
-    id: string
+    id: string = ""
     tag: 'packvar'
     name: string
 end
@@ -365,7 +366,7 @@ type types.PackTail = {
 
 --- A Lua value sequence. `tail` is homogeneous, generic, symbolic or unknown.
 record types.Pack
-    id: string
+    id: string = ""
     tag: 'pack'
     head: {types.Type}
     modes: {string}
@@ -379,7 +380,7 @@ end
 
 --- A coroutine protocol. Bare `thread` remains its gradual erased supertype.
 record types.ProtocolThread
-    id: string
+    id: string = ""
     tag: 'protocolThread'
     startPack: types.Pack
     resumePack: types.Pack
@@ -389,7 +390,7 @@ end
 
 --- A structural generic alias awaiting explicit type and pack arguments.
 record types.GenericAlias
-    id: string
+    id: string = ""
     tag: 'genericAlias'
     name: string
     body: types.Type
@@ -403,7 +404,7 @@ end
 
 --- A function.
 record types.Func
-    id: string
+    id: string = ""
     tag: 'func'
 
     --- Whether this callable has no runtime representation and may only be reached
@@ -525,7 +526,7 @@ end
 
 --- The type containing exactly one value.
 record types.Literal
-    id: string
+    id: string = ""
     tag: 'literal'
 
     --- The value it admits.
@@ -537,7 +538,7 @@ end
 
 --- A generic parameter, gradual until it is substituted.
 record types.TypeVar
-    id: string
+    id: string = ""
     tag: 'typevar'
     name: string
 
@@ -552,14 +553,14 @@ end
 
 --- A compiler-only type handle carrying the facts an open generated result promises.
 record types.TypeHandle
-    id: string
+    id: string = ""
     tag: 'typeHandle'
     bound: types.Type
 end
 
 --- A generated pack carried through a type position until `unpackof` consumes it.
 record types.PackResult
-    id: string
+    id: string = ""
     tag: 'packResult'
     pack: types.Pack
 end
@@ -567,7 +568,7 @@ end
 --- A type-level operation blocked on an unresolved binder.  All operations share one
 --- type tag; `op` is reducer-owned and never dispatched by runtime code generation.
 record types.Neutral
-    id: string
+    id: string = ""
     tag: 'neutral'
     op: string
     capability: string?
@@ -591,7 +592,7 @@ end
 --- Reaching a member through it reaches the receiver's. It erases to an ordinary Lua
 --- table.
 record types.Metatable
-    id: string
+    id: string = ""
     tag: 'metatable'
     of: types.Type
 end
@@ -600,7 +601,7 @@ end
 --- table at runtime, but its source type is deliberately distinct from both an
 --- instance and `metatable<T>`.
 record types.TypeObject
-    id: string
+    id: string = ""
     tag: 'typeobject'
     of: types.Type
 end
@@ -615,7 +616,7 @@ end
 --- Its identity embeds the head's, so two spellings of one projection are one type and
 --- two binders that share a name are not.
 record types.Projection
-    id: string
+    id: string = ""
     tag: 'projection'
 
     --- What it is reached through.
@@ -734,7 +735,7 @@ end
 --- A declared type: record, interface or struct. One identity per declaration, never
 --- shared with another declaration of the same shape.
 record types.Nominal
-    id: string
+    id: string = ""
     tag: 'nominal'
     name: string
     declKind: string
@@ -1251,7 +1252,7 @@ types.builtins = builtins
 ---
 --- @param elems the type at each position of a positional literal, which marks the
 --- array fresh
-function types.array(elem: types.Type, elems: {types.Type}?): types.Type
+function types.array(elem: types.Type, elems: {types.Type}?, fresh: boolean?): types.Type
     local internKey = "{" .. elem.id .. "}"
     if elems then
         local ids: {string} = {}
@@ -1259,6 +1260,8 @@ function types.array(elem: types.Type, elems: {types.Type}?): types.Type
             ids[j] = e.id
         end
         internKey = internKey .. "!fresh(" .. table.concat(ids, ",") .. ")"
+    elseif fresh then
+        internKey = internKey .. "!fresh"
     end
 
     local existing = interned(internKey)
@@ -1266,7 +1269,10 @@ function types.array(elem: types.Type, elems: {types.Type}?): types.Type
         return existing
     end
 
-    return intern(internKey, new types.Array(tag = "array", elem = elem, fresh = elems and true or nil, elems = elems))
+    return intern(
+        internKey,
+        new types.Array(tag = "array", elem = elem, fresh = (elems or fresh) and true or nil, elems = elems)
+    )
 end
 
 --- A table from `key` to `value`. Reading one yields an optional, since an absent key
@@ -1394,25 +1400,39 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
     )
 end
 
---- The same shape once its literal has been bound: what a fresh literal may still
---- be checked as, a stored value may not, so the marker comes off with the binding.
+--- Once a literal is stored, neither it nor a nested literal is a new allocation
+--- at a later use. Clear their contextual conversion privilege together, so reading
+--- an inner array cannot widen a writable alias to an already stored value.
 function types.settled(t: types.Type): types.Type
     if t.tag == "array" and t.fresh then
-        return types.array(t.elem)
+        return types.array(types.settled(t.elem))
+    elseif t.tag == "union" then
+        local members, changed = {}, false
+        for j, member in ipairs(t.members) do
+            members[j] = types.settled(member)
+            changed = changed or members[j] ~= member
+        end
+        return changed and types.union(members) or t
     end
     if t.tag ~= "shape" or not t.fresh then
         return t
     end
     local fields: {types.Field} = {}
     for j, f in ipairs(t.fields) do
-        fields[j] = f
+        fields[
+            j
+        ] = {
+            name = f.name,
+            read = f.read and types.settled(f.read) or nil,
+            write = f.write and types.settled(f.write) or nil,
+        }
     end
 
     return types.shape(fields, {
         readKey = t.indexReadKey,
-        readValue = t.indexReadValue,
+        readValue = t.indexReadValue and types.settled(t.indexReadValue) or nil,
         writeKey = t.indexWriteKey,
-        writeValue = t.indexWriteValue,
+        writeValue = t.indexWriteValue and types.settled(t.indexWriteValue) or nil,
     })
 end
 

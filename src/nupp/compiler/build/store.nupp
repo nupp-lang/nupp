@@ -82,7 +82,6 @@ function store.open(path: string?, stamp: string): store.Store
     local live: {[string]: boolean} = {}
     local dirty = false
     local stats: {[string]: integer} = {gets = 0, hits = 0, puts = 0}
-    local self = new store.Store(path = path, stamp = stamp, stats = stats)
 
     if path then
         local text = fs.readFile(path)
@@ -106,7 +105,7 @@ function store.open(path: string?, stamp: string): store.Store
         end
     end
 
-    function self.get(key: string): any
+    local function get(key: string): any
         stats.gets = (stats.gets or 0) + 1
         local value = entries[key]
         if value == nil then
@@ -118,7 +117,7 @@ function store.open(path: string?, stamp: string): store.Store
         return value
     end
 
-    function self.put(key: string, value: any)
+    local function put(key: string, value: any)
         stats.puts = (stats.puts or 0) + 1
         if entries[key] == nil then
             order[#order + 1] = key
@@ -128,7 +127,7 @@ function store.open(path: string?, stamp: string): store.Store
         dirty = true
     end
 
-    function self.save()
+    local function save()
         if not path or not dirty then
             return
         end
@@ -167,7 +166,7 @@ function store.open(path: string?, stamp: string): store.Store
         dirty = false
     end
 
-    return self
+    return new store.Store(path = path, stamp = stamp, stats = stats, get = get, put = put, save = save)
 end
 
 --- One value, kept in a file, under the same guards as a keyed store.
@@ -188,32 +187,35 @@ end
 
 --- Opens the single-value store at `path`, or an empty one.
 function store.openValue(path: string?, stamp: string): store.Value
-    local self = new store.Value()
+    local self: store.Value?
+    local initial: any
     local dirty = false
     if path then
         local text = fs.readFile(path)
         if text then
             local ok, decoded = pcall(buffer.decode, text)
             if ok and type(decoded) == "table" and decoded.format == FORMAT and decoded.stamp == stamp then
-                self.value = decoded.value
+                initial = decoded.value
             end
         end
     end
-    function self.set(value: any)
-        self.value = value
+    local function set(value: any)
+        assert(self).value = value
         dirty = true
     end
 
-    function self.save()
+    local function save()
         if not path or not dirty then
             return
         end
-        local ok, text = pcall(buffer.encode, {format = FORMAT, stamp = stamp, value = self.value})
+        local ok, text = pcall(buffer.encode, {format = FORMAT, stamp = stamp, value = assert(self).value})
         if ok then
             pcall(fs.writeFile, path, text)
         end
         dirty = false
     end
+
+    self = new store.Value(value = initial, set = set, save = save)
 
     return self
 end

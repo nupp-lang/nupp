@@ -2059,7 +2059,7 @@ record cst.TableExpr is cst.Hints
     kind: 'tableExpr'
 
     --- Its entries, in source order.
-    fields: {cst.FieldItem | cst.FieldNamed | cst.FieldBracket}
+    fields: {cst.FieldItem | cst.FieldNamed | cst.FieldBracket | cst.ErrorExpr}
 end
 
 --- `[k] = v` in a table constructor.

@@ -2,7 +2,7 @@ local random = require("nupp.random")
 
 local M = {}
 
-local function assertSame(left: {number}, right: {number}): nil
+local function assertSame(left: const{number}, right: const{number}): nil
     assert(#left == #right)
     for index = 1, #left do
         assert(left[index] == right[index], "values differ at " .. tostring(index))

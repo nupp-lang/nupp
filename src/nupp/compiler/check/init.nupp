@@ -894,102 +894,108 @@ function checkMod.check(
 
     -- One run's whole state, so the passes below reach it through `c` rather than by
     -- being lexically inside one function. See nupp.compiler.check.state.
-    local c = new state.Checker(
-        result = result,
-        filename = filename,
-        env = env,
-        opts = opts,
-        reducerMemo = {},
-        comptimeDepth = 0,
-        comptimeFunctionDepth = 0,
-        comptimeFunctions = {},
-        typeFunctionMemo = {},
-        -- A declaration file describes an interface it does not own, so its bare
-        -- declarations are that interface and have no table of the file's own to attach
-        -- to. Bundled declarations are checked under their module name rather than a
-        -- path, so they say so directly.
-        declarationFile = (
-            opts and (opts.declarationFile or opts.declareGlobals)
-        ) and true or (filename and filename:match("%.d%.nupp$")) and true or false,
-        -- The table qualified declarations attach to, so `record M.Point` in a file
-        -- that returns M exports Point while `record Other.Point` does not.
-        moduleLocal = declaredModuleName and (
-            cst.exportedLocal(result.root) or "__nuppExports"
-        ) or cst.returnedLocal(result.root) or result.foreignModuleLocal,
-        annotationRegistry = registry,
-        annotationDefinitions = {},
-        lintConfig = opts and opts.lints or env and env.config and env.config.lints or nil,
-        -- Fixes and the missing-require advice read the parse and the project index
-        -- rather than anything the walk builds, so they are made once here and asked.
-        -- See nupp.compiler.check.fixits.
-        edits = fixits.new(result, env),
-        diags = {},
-        moduleType = nil,
-        moduleExports = opts and opts.initialExports or {
-            types = {},
-            typeDefs = {},
-            values = {},
-            valueDefs = {},
+    -- Checker installers tie mutually recursive callbacks onto this private object
+    -- before traversal begins. This assertion is the explicit initialization
+    -- boundary; ordinary record construction requires every stored field.
+    local c = setmetatable(
+        {
+            result = result,
+            filename = filename,
+            env = env,
+            opts = opts,
+            reducerMemo = {},
+            comptimeDepth = 0,
+            comptimeFunctionDepth = 0,
             comptimeFunctions = {},
-            callGuarantees = {},
+            typeFunctionMemo = {},
+            -- A declaration file describes an interface it does not own, so its bare
+            -- declarations are that interface and have no table of the file's own to
+            -- attach to. Bundled declarations are checked under their module name
+            -- rather than a path, so they say so directly.
+            declarationFile = (
+                opts and (opts.declarationFile or opts.declareGlobals)
+            ) and true or (filename and filename:match("%.d%.nupp$")) and true or false,
+            -- The table qualified declarations attach to, so `record M.Point` in a file
+            -- that returns M exports Point while `record Other.Point` does not.
+            moduleLocal = declaredModuleName and (
+                cst.exportedLocal(result.root) or "__nuppExports"
+            ) or cst.returnedLocal(result.root) or result.foreignModuleLocal,
+            annotationRegistry = registry,
+            annotationDefinitions = {},
+            lintConfig = opts and opts.lints or env and env.config and env.config.lints or nil,
+            -- Fixes and the missing-require advice read the parse and the project index
+            -- rather than anything the walk builds, so they are made once here and
+            -- asked. See nupp.compiler.check.fixits.
+            edits = fixits.new(result, env),
+            diags = {},
+            moduleType = nil,
+            moduleExports = opts and opts.initialExports or {
+                types = {},
+                typeDefs = {},
+                values = {},
+                valueDefs = {},
+                comptimeFunctions = {},
+                callGuarantees = {},
+            },
+            seenDefinitions = {},
+            scope = {
+                vars = {},
+                types = {},
+                packTypes = {},
+                typeDefs = {},
+                pending = {},
+                automaticOwners = {},
+                depth = 0,
+                completionScope = result.root,
+                parent = nil
+            },
+            retStack = {},
+            retPackStack = {},
+            observedReturnStack = {},
+            ownReturnStack = {},
+            borrowReturnStack = {},
+            varargPackStack = {},
+            yieldPackStack = {},
+            switchYieldStack = {},
+            resumePackStack = {},
+            protocolStack = {},
+            consumingFieldStack = {},
+            constructorFieldStack = {},
+            validatedCleanupContracts = {},
+            unsafeDepth = 0,
+            noSuspendDepth = 0,
+            cleanupBindings = {},
+            effectRegionDepths = {allocates = 0, raises = 0},
+            handledDepth = 0,
+            functionDepth = 0,
+            functionBodies = {},
+            temporaryOwners = {},
+            jitHazards = {},
+            scopedCaptureDepth = 0,
+            closureCaptureStack = {},
+            captureWatches = {},
+            allowed = {},
+            nextStat = nil,
+            hoisting = false,
+            -- Set while a hoisted alias is being resolved, so an alias that names
+            -- itself reports rather than recurses forever.
+            resolvingAlias = {},
+            lastCallRets = nil,
+            moduleFields = {},
+            moduleFieldTokens = {},
+            moduleFieldDefs = {},
+            qualifiedFunctionEntries = {},
+            moduleFunctionDeclarations = {},
+            moduleFieldConst = {},
+            moduleFieldValues = {},
+            nominalEffectOwners = {},
+            nominalEffectEntries = {},
+            conformanceEffects = {},
+            constModulePaths = {},
+            moduleLocalAnnotated = false
         },
-        seenDefinitions = {},
-        scope = {
-            vars = {},
-            types = {},
-            packTypes = {},
-            typeDefs = {},
-            pending = {},
-            automaticOwners = {},
-            depth = 0,
-            completionScope = result.root,
-            parent = nil
-        },
-        retStack = {},
-        retPackStack = {},
-        observedReturnStack = {},
-        ownReturnStack = {},
-        borrowReturnStack = {},
-        varargPackStack = {},
-        yieldPackStack = {},
-        switchYieldStack = {},
-        resumePackStack = {},
-        protocolStack = {},
-        consumingFieldStack = {},
-        constructorFieldStack = {},
-        validatedCleanupContracts = {},
-        unsafeDepth = 0,
-        noSuspendDepth = 0,
-        cleanupBindings = {},
-        effectRegionDepths = {allocates = 0, raises = 0},
-        handledDepth = 0,
-        functionDepth = 0,
-        functionBodies = {},
-        temporaryOwners = {},
-        jitHazards = {},
-        scopedCaptureDepth = 0,
-        closureCaptureStack = {},
-        captureWatches = {},
-        allowed = {},
-        nextStat = nil,
-        hoisting = false,
-        -- Set while a hoisted alias is being resolved, so an alias that names itself
-        -- reports rather than recurses forever.
-        resolvingAlias = {},
-        lastCallRets = nil,
-        moduleFields = {},
-        moduleFieldTokens = {},
-        moduleFieldDefs = {},
-        qualifiedFunctionEntries = {},
-        moduleFunctionDeclarations = {},
-        moduleFieldConst = {},
-        moduleFieldValues = {},
-        nominalEffectOwners = {},
-        nominalEffectEntries = {},
-        conformanceEffects = {},
-        constModulePaths = {},
-        moduleLocalAnnotated = false
-    )
+        state.Checker as any
+    ) as state.Checker
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
     c.moduleExports.comptimeFunctions = c.moduleExports.comptimeFunctions or {}

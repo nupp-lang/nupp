@@ -1922,6 +1922,31 @@ local function unifyInvariant(param: Type, arg: Type, map: Bindings)
     invariantDepth = invariantDepth - 1
 end
 
+--- The element a mutable sequence already promises, including a record's array
+--- part and unions of such records. Inferring only from the value being inserted
+--- would forget the container's contract.
+local function sequenceElement(t: Type): Type?
+    if t.tag == "array" then
+        return t.elem
+    elseif t.tag == "nominal" then
+        return t.arrayOf
+    elseif t.tag == "tuple" then
+        return T.union(t.elems)
+    elseif t.tag == "union" then
+        local elements = {}
+        for _, member in ipairs(t.members) do
+            local element = sequenceElement(member)
+            if not element then
+                return nil
+            end
+            elements[#elements + 1] = element
+        end
+        return T.union(elements)
+    end
+
+    return nil
+end
+
 function generics.unify(param: Type, arg: Type, map: Bindings): nil
     param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
     if not T.hasTypevar(param) then
@@ -1962,12 +1987,9 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
             end
         end
     elseif tag == "array" then
-        if arg.tag == "array" then
-            unifyInvariant(param.elem, arg.elem, map)
-        elseif arg.tag == "tuple" then
-            for _, e in ipairs(arg.elems) do
-                generics.unify(param.elem, e, map)
-            end
+        local element = sequenceElement(arg)
+        if element then
+            unifyInvariant(param.elem, element, map)
         end
     elseif tag == "metatable" then
         -- `metatable<T>` is how a registrar asks for a declaration's own table, so the

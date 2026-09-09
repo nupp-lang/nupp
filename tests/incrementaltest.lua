@@ -188,7 +188,7 @@ function M.recursiveDerivedGraphRechecksAcrossThreeModules()
     assertEq(#inc.checkFile(mainPath).diags, 0, "recursive derive survives a dependency body edit")
     assertEq(inc.q.stats.checkModule, coldChecks + 1, "unchanged derived interface cuts off the two consumers")
 
-    inc.changeDocument(modelPath, model:gsub("   children: {Node}", "   children: {Node}\n   tag: string"))
+    inc.changeDocument(modelPath, model:gsub("   children: {Node}", "   children: {Node}\n   tag: string?"))
     local changed = inc.checkFile(mainPath)
     assertEq(inc.q.stats.checkModule, coldChecks + 4, "a derived record interface change rechecks all three modules")
     assertEq(#changed.diags, 0, "the recursive derive remains coherent after all three modules recheck")
