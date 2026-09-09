@@ -110,9 +110,11 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
             -- Isolated so the deadline and the address-space ceiling hold: `run`
             -- would start the worker with neither, and a generator that hangs
             -- would hang the build with it.
+            local budgetMs: integer = 120000
+            local startedAt = os.time()
             local code, captured = process.captureIsolated(
                 {executable, "__generator-worker", requestPath, resultPath},
-                {cwd = root, timeoutMs = 120000, memoryMb = 512}
+                {cwd = root, timeoutMs = budgetMs, memoryMb = 512}
             )
             local responseText = fs.readFile(resultPath)
             local responseOk, response = false, nil
@@ -133,8 +135,22 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
                     end
                 end
                 local reason = response and response.error
-                if not reason then
-                    reason = code == 124 and "worker timed out" or "worker failed"
+                if not reason and code == 124 then
+                    -- What a deadline that fired has to say, since by definition
+                    -- nothing else did: how long it was given, how long the wait
+                    -- really lasted, whether the worker got as far as writing a
+                    -- result, and whether it said anything at all. A worker
+                    -- starved by other work reads differently from one that hung.
+                    reason = (
+                        "worker timed out after %ds of a %dms budget; it wrote %s and said %s"
+                    ):format(
+                        os.time() - startedAt,
+                        budgetMs,
+                        responseText and (tostring(#responseText) .. " bytes of result") or "no result",
+                        captured ~= "" and (tostring(#captured) .. " bytes") or "nothing"
+                    )
+                elseif not reason then
+                    reason = "worker failed"
                 end
                 return nil, "generator " .. name .. " failed: " .. tostring(reason)
             end

@@ -436,7 +436,14 @@ hold_build_lock=no
 wait_for_build=no
 case "${1:-}" in
     ""|-h|--help|help) rebuild=no ;;
-    __comptime-worker|__comptime-worker-service) rebuild=no ;;
+    # A worker one of this toolchain's own commands started runs the compiler
+    # that started it. Deciding to build a different one first is wrong twice
+    # over: the parent is waiting on a deadline for an answer, and the compiler's
+    # digest keys every artifact, so an answer from a compiler the parent does
+    # not recognize is not the answer it asked for. It is also how a generator
+    # worker came to be queued behind the build lock its own parent was holding,
+    # and to be reported as a worker that timed out.
+    __comptime-worker|__comptime-worker-service|__generator-worker|__lsp-reader) rebuild=no ;;
     build)  rebuild=no
             if in_this_tree; then hold_build_lock=yes; else wait_for_build=yes; fi ;;
     clean)  rebuild=no
