@@ -1164,8 +1164,33 @@ local function rememberTimings(records, cases)
         byCase[suite] = into
         into[tostring(record.name)] = tonumber(record.durationMs) or 0
     end
+    -- Merged over what was already recorded rather than written in place of it.
+    -- A run that covered part of the selection -- one lane, one group, one named
+    -- suite -- knows nothing about the rest, and replacing the file with only
+    -- what it measured left the next run packing the other half blind. Entries
+    -- for suites that no longer exist are dropped, so the file tracks the tree
+    -- instead of accumulating every suite there has ever been.
+    local previous = recorded()
+    local suiteTimings, caseTimings = {}, {}
+    for suite, ms in pairs(previous.suites or {}) do
+        if byName[suite] then
+            suiteTimings[suite] = ms
+        end
+    end
+    for suite, cases in pairs(previous.cases or {}) do
+        if byName[suite] then
+            caseTimings[suite] = cases
+        end
+    end
+    for suite, ms in pairs(per) do
+        suiteTimings[suite] = ms
+    end
+    for suite, cases in pairs(byCase) do
+        caseTimings[suite] = cases
+    end
+
     local json = testJson
-    local encoded, text = pcall(json.encode, {suites = per, cases = byCase})
+    local encoded, text = pcall(json.encode, {suites = suiteTimings, cases = caseTimings})
     if not encoded then
         return
     end
@@ -2084,9 +2109,11 @@ end
 
 -- Recorded by the parent after both lanes are collected, so the next run packs
 -- from every suite rather than whichever queue one worker happened to claim.
--- Only a run that decided the whole selection has anything to say: a shard was
--- handed its share, and a single named suite says nothing about the rest.
-if #shard == 0 and #chosen == 0 and not queueDir then
+-- A shard was handed its share and a slice ran part of a suite, so neither has
+-- anything to say about what a whole suite costs. Any other run does, however
+-- narrow its selection was, because what it measured is merged over what was
+-- there rather than written in place of it.
+if #shard == 0 and not queueDir then
     rememberTimings(suiteRecords, results)
 end
 
