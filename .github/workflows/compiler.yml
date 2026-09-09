@@ -589,7 +589,8 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then
             lane="--lane=isolated"
           fi
-          ./bin/nupp test $lane --exclude-group=external-corpus
+          ./bin/nupp test $lane \
+            --exclude-group=external-corpus,rust-native-gate
 
       # A worker killed by a signal says which suite it was in, and on Linux it
       # is killed by SIGSEGV in a different set of suites every run -- so the
@@ -646,7 +647,7 @@ jobs:
           NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
           NUPP_TEST_SH=$(cygpath -w "$sh_path") \
           ./bin/nupp test \
-            --exclude-group=external-corpus,windows-preflight
+            --exclude-group=external-corpus,windows-preflight,rust-native-gate
 
       - name: Report Windows worker crashes
         if: failure() && runner.os == 'Windows'

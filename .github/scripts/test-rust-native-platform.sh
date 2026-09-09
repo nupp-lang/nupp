@@ -83,4 +83,7 @@ assert(require("lpeg").P("rust-native-gate"):match("rust-native-gate") == 17)
 LUA
 "$host" "$TEMP/host.lua"
 
-./bin/nupp test --jobs=1 hostembeddingtest
+# Named as a group so the broad suite in the same job can leave out what this
+# gate already ran against these exact artifacts, rather than building them
+# again twenty minutes later to reach the same answer.
+./bin/nupp test --jobs=1 --group=rust-native-gate

@@ -81,6 +81,7 @@
         },
         {
           "name": "Gate the Rust-native platform artifacts",
+          "groups": ["rust-native-gate"],
           "guarantees": [
             "resource owner stress and cancellation",
             "the aggregate C ABI",
@@ -128,7 +129,7 @@
         {
           "name": "Run the compiler suite",
           "excludes": {
-            "groups": ["external-corpus", "windows-preflight"],
+            "groups": ["external-corpus", "windows-preflight", "rust-native-gate"],
             "lanes": ["shared"]
           },
           "guarantees": ["every suite an earlier step in this job did not run"]

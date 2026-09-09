@@ -41,6 +41,12 @@ return {
         "tlstest",
     },
 
+    -- What `.github/scripts/test-rust-native-platform.sh` runs after it has
+    -- built the executable host and both embedding SDKs. Named so the broad
+    -- suite can leave it out rather than run it a second time against the same
+    -- artifacts, and so that what the script runs is visible from here.
+    ["rust-native-gate"] = {"hostembeddingtest"},
+
     -- Everything that reads or regenerates published documentation, including
     -- the diagnostic reference a `docs` anchor points at.
     [
