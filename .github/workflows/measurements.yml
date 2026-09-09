@@ -1,0 +1,258 @@
+name: Measurements
+
+# Numbers, not verdicts.
+#
+# Cold-build times, latency, throughput, resident memory, artifact size and the
+# reification benchmarks used to run inside the required matrix, where a broken
+# measurement fixture failed two jobs across nine consecutive trunk revisions and
+# every one of those failures was reported as "this change is broken". A
+# benchmark harness that does not compile is still a bug -- it fails here, is
+# owned here, and blocks a release here -- but it is not an answer about an
+# unrelated documentation or compiler change.
+#
+# Hosted-runner timings are measurements, never absolute acceptance thresholds.
+# Correctness failures inside these scripts still fail the job; variation in a
+# valid latency, throughput, RSS, build-time or size result does not.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *"
+  push:
+    tags:
+      - "*"
+  # The harnesses themselves are source, and source that does not compile is a
+  # defect wherever it lives. Only their own inputs bring this workflow into a
+  # pull request; nothing else waits on a measurement.
+  pull_request:
+    paths:
+      - ".github/scripts/measure-gpu-provider.sh"
+      - ".github/scripts/measure-native-runtime.sh"
+      - ".github/workflows/measurements.yml"
+      - "bench/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  native-runtime:
+    name: Native runtime / ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+            timeout: 30
+            artifact: linux-x64
+          - name: Windows x64
+            os: windows-2022
+            timeout: 45
+            artifact: windows-x64
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      # Cache pinned source archives and host tools, but not the task-local
+      # Cargo target whose empty first build is one of the measurements. A
+      # deliberate cold build belongs in an empty task-local cache and must
+      # never be served from the caches ordinary correctness runs fill.
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-native-measure-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-native-measure-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the ABI-compatible Windows Rust toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      - name: Provision the pinned toolchain
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Measure public native runtime and exact-feature artifacts
+        shell: bash
+        run: .github/scripts/measure-native-runtime.sh build/ci-native-runtime
+
+      - name: Upload native runtime measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-runtime-${{ matrix.artifact }}-${{ github.sha }}
+          path: build/ci-native-runtime
+          if-no-files-found: warn
+          retention-days: 90
+
+  reification:
+    name: Reification and array-of-structs / ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+            timeout: 45
+            artifact: linux-x64-luajit-2.1
+          - name: macOS arm64
+            os: macos-15
+            timeout: 60
+            artifact: macos-arm64-luajit-2.1
+          - name: Windows x64
+            os: windows-2022
+            timeout: 60
+            artifact: windows-x64-luajit-2.1
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the pinned build tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the ABI-compatible Windows Rust toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      - name: Provision the pinned toolchain
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Put the pinned LuaJIT on the path
+        shell: bash
+        run: echo "$(./scripts/toolchain luajit)/bin" >> "$GITHUB_PATH"
+
+      - name: Bootstrap the compiler
+        shell: bash
+        run: ./bin/nupp build
+
+      # One immutable, platform-qualified artifact per commit keeps the
+      # reification speedup bisectable without pretending hosted runner timing
+      # is stable enough for an absolute wall-clock gate.
+      - name: Measure reification performance
+        shell: bash
+        run: |
+          set -euo pipefail
+          results=build/ci-benchmarks
+          mkdir -p "$results"
+          {
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'runner=%s/%s\n' "$RUNNER_OS" "$RUNNER_ARCH"
+            luajit -e 'print(jit.version .. " " .. jit.os .. "/" .. jit.arch)'
+          } > "$results/metadata.txt"
+          luajit bench/reification.lua | tee "$results/reification.txt"
+          ./bin/nupp run bench/aos.nupp | tee "$results/aos.txt"
+
+      - name: Upload reification measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reification-${{ matrix.artifact }}-${{ github.sha }}
+          path: build/ci-benchmarks
+          if-no-files-found: warn
+          retention-days: 90
+
+  gpu-provider:
+    name: GPU provider artifacts / ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux Vulkan
+            os: ubuntu-24.04
+            timeout: 40
+            backend: vulkan
+            artifact: linux-vulkan
+          - name: Windows DX12
+            os: windows-2022
+            timeout: 50
+            backend: dx12
+            artifact: windows-dx12
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            .nupp-cache/toolchain
+            build/rust
+          key: >-
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
+            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
+            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
+          restore-keys: |
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the software Vulkan adapter
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+          icd=$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -type f | head -n 1)
+          test -n "$icd"
+          printf 'NUPP_GPU_ICD=%s\n' "$icd" >> "$GITHUB_ENV"
+
+      - name: Install the ABI-compatible Windows Rust toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      - name: Provision the pinned toolchain
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Measure exact-feature provider artifacts
+        shell: bash
+        run: >-
+          .github/scripts/measure-gpu-provider.sh
+          build/ci-gpu-provider ${{ matrix.backend }}
+
+      - name: Upload provider measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-provider-${{ matrix.artifact }}-${{ github.sha }}
+          path: build/ci-gpu-provider
+          if-no-files-found: warn
+          retention-days: 90

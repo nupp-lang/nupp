@@ -1,0 +1,213 @@
+{
+  "comment": [
+    "What each job and each of its named steps actually covers.",
+    "",
+    "This exists because the answer used to be spread across a thousand lines of",
+    "YAML, and nothing compared two steps that named overlapping suites. A suite",
+    "listed twice for one platform is duplicate execution; a guarantee listed",
+    "nowhere is a guarantee no job is holding. `validate-ci-coverage.lua` checks",
+    "this file against the workflow and against tests/groups.lua on every run,",
+    "before anything expensive is provisioned, so it cannot go quietly stale.",
+    "",
+    "`suites` and `groups` name what a step runs. `guarantees` name what it is",
+    "for, in the words the plan and the release notes use."
+  ],
+  "workflow": ".github/workflows/compiler.yml",
+  "jobs": {
+    "classify": {
+      "platforms": ["linux"],
+      "selectedBy": "always",
+      "steps": [
+        {
+          "name": "Classify the affected surfaces",
+          "guarantees": ["every change selects the jobs that can observe it"]
+        },
+        {
+          "name": "Validate the workflow against the classifier",
+          "guarantees": ["the classifier, this map and the workflow name the same jobs"]
+        }
+      ]
+    },
+    "fast-checks": {
+      "platforms": ["linux"],
+      "selectedBy": "fast-checks",
+      "steps": [
+        {
+          "name": "Check the formatting",
+          "guarantees": ["committed source is what nupp fmt --write produces"]
+        },
+        {
+          "name": "Check the compiler",
+          "compilerModes": ["strict"],
+          "guarantees": ["the compiler type-checks its own sources"]
+        },
+        {
+          "name": "Run the shared-process suites",
+          "lane": "shared",
+          "guarantees": ["every suite a Nupp worker can share a process with"]
+        }
+      ]
+    },
+    "integration": {
+      "platforms": ["linux", "macos", "windows"],
+      "selectedBy": "linux-integration, macos-integration, windows-integration",
+      "steps": [
+        {
+          "name": "Run the portable generated-output corpus",
+          "platforms": ["linux"],
+          "compilerModes": ["lua51", "lua52", "lua53", "lua54", "luajit"],
+          "guarantees": ["generated output runs on every supported Lua"]
+        },
+        {
+          "name": "Build the same library for LuaJIT and Lua 5.1",
+          "platforms": ["linux"],
+          "compilerModes": ["luajit", "lua51"],
+          "guarantees": ["one library builds for two dialects"]
+        },
+        {
+          "name": "Check the compiler",
+          "platforms": ["macos", "windows"],
+          "compilerModes": ["strict"],
+          "guarantees": ["the checker's answer is not platform-dependent"]
+        },
+        {
+          "name": "Run the Windows native and launcher preflight",
+          "platforms": ["windows"],
+          "groups": ["windows-preflight"],
+          "guarantees": [
+            "the Windows Rust host ABI contract",
+            "a Windows loader failure names its last case"
+          ]
+        },
+        {
+          "name": "Gate the Rust-native platform artifacts",
+          "guarantees": [
+            "resource owner stress and cancellation",
+            "the aggregate C ABI",
+            "C consumers of the executable and both embedding SDKs"
+          ]
+        },
+        {
+          "name": "Run the tl.lua oracle and import-c fixtures",
+          "groups": ["external-corpus"],
+          "guarantees": ["the external parser oracle and the C importer"]
+        },
+        {
+          "name": "Compare the AOT lane and scalar bodies",
+          "guarantees": ["vector lowering matches the scalar body on this architecture"]
+        },
+        {
+          "name": "Compare them again at the full v3 feature tier",
+          "platforms": ["linux"],
+          "guarantees": ["vector lowering at x86-64-v3"]
+        },
+        {
+          "name": "Compare them at the x86-64 baseline",
+          "platforms": ["linux"],
+          "guarantees": ["vector lowering at the SSE2 baseline"]
+        },
+        {
+          "name": "Compile the eight-lane mixed gang at AVX-512",
+          "platforms": ["linux"],
+          "guarantees": ["the 64-byte vector ABI compiles warning-clean"]
+        },
+        {
+          "name": "Compare them again through GCC",
+          "platforms": ["linux"],
+          "guarantees": ["generated C is accepted by GCC as well as Clang"]
+        },
+        {
+          "name": "Build and load an aot = \"require\" project through GCC",
+          "platforms": ["linux"],
+          "suites": ["aotbuildtest"],
+          "compilerModes": ["gcc"],
+          "guarantees": [
+            "the AOT build's own command line under the other C compiler"
+          ]
+        },
+        {
+          "name": "Run the compiler suite",
+          "excludes": {
+            "groups": ["external-corpus", "windows-preflight"],
+            "lanes": ["shared"]
+          },
+          "guarantees": ["every suite an earlier step in this job did not run"]
+        }
+      ]
+    },
+    "fixpoint": {
+      "platforms": ["linux"],
+      "selectedBy": "fixpoint",
+      "steps": [
+        {
+          "name": "Verify the self-hosting fixpoint",
+          "guarantees": ["the compiler rebuilds itself byte-identically from stage zero"]
+        }
+      ]
+    },
+    "portable-compiler": {
+      "platforms": ["linux"],
+      "selectedBy": "portable-compiler",
+      "steps": [
+        {
+          "name": "Compile every homepage playground example",
+          "compilerModes": ["lua51", "strict", "O1"],
+          "guarantees": ["every homepage example still compiles under the Worker's settings"]
+        },
+        {
+          "name": "Run the portable compiler in the six-library host",
+          "compilerModes": ["lua51"],
+          "guarantees": ["the compiler runs on official Lua 5.1.5 with six libraries"]
+        }
+      ]
+    },
+    "docs-site": {
+      "platforms": ["linux"],
+      "selectedBy": "docs-site",
+      "steps": [
+        {
+          "name": "Regenerate and verify the documentation",
+          "groups": ["docs"],
+          "guarantees": [
+            "generated documentation matches its sources",
+            "every diagnostic code has a reference section"
+          ]
+        }
+      ]
+    },
+    "gpu-conformance": {
+      "platforms": ["linux"],
+      "selectedBy": "gpu-linux",
+      "steps": [
+        {
+          "name": "Run exact GPU dispatch and readback",
+          "guarantees": ["exact Vulkan dispatch and readback on a software adapter"]
+        }
+      ]
+    },
+    "gpu-conformance-windows": {
+      "platforms": ["windows"],
+      "selectedBy": "gpu-windows",
+      "steps": [
+        {
+          "name": "Run exact DX12 dispatch and readback",
+          "guarantees": ["exact DX12 dispatch and readback"]
+        }
+      ]
+    },
+    "required-ci": {
+      "platforms": ["linux"],
+      "selectedBy": "always",
+      "steps": [
+        {
+          "name": "Require every selected job to have succeeded",
+          "guarantees": ["one stable status whose meaning survives job reorganization"]
+        },
+        {
+          "name": "Record the run",
+          "guarantees": ["queue time, execution time, conclusion and revision are retained"]
+        }
+      ]
+    }
+  }
+}

@@ -11,154 +11,133 @@ on:
     tags:
       - "*"
   pull_request:
+  merge_group:
+  workflow_dispatch:
+  # The affected-surface classifier is deliberately conservative, but it is a
+  # judgement all the same. Run the whole matrix nightly whatever changed, so a
+  # gap in the classification is found by this backstop rather than by a user.
+  # A failure here is a bug and blocks the next release; it is not a warning.
+  schedule:
+    - cron: "0 7 * * *"
 
 permissions:
   contents: read
 
-# A pull request is only ever asked about its tip, so a superseded run is work
-# nobody is waiting on. The trunk is not cancelled: every commit that lands
-# there keeps its own answer, which is what makes a later bisection possible.
+# A pull request and a merge-queue entry are only ever asked about their tip, so
+# a superseded run is work nobody is waiting on. The trunk is grouped per commit
+# rather than per branch: the previous shape kept one pending run, so a newer
+# push discarded an older push's answer, and the commit in between then had no
+# result at all -- which is the opposite of what a retained trunk history is for.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name == 'push'
+    && github.event.after || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
-  gpu-conformance:
-    name: GPU conformance / CI Lavapipe Vulkan
+  # Everything a run can decide before it provisions anything. This is the job
+  # that must stay cheap: the platform matrices wait on it, so a minute here is
+  # a minute added to every path through the graph.
+  classify:
+    name: Classify the change
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      docs-site: ${{ steps.classify.outputs.docs-site }}
+      fast-checks: ${{ steps.classify.outputs.fast-checks }}
+      linux-integration: ${{ steps.classify.outputs.linux-integration }}
+      macos-integration: ${{ steps.classify.outputs.macos-integration }}
+      windows-integration: ${{ steps.classify.outputs.windows-integration }}
+      portable-compiler: ${{ steps.classify.outputs.portable-compiler }}
+      gpu-linux: ${{ steps.classify.outputs.gpu-linux }}
+      gpu-windows: ${{ steps.classify.outputs.gpu-windows }}
+      fixpoint: ${{ steps.classify.outputs.fixpoint }}
+      integration-matrix: ${{ steps.matrix.outputs.integration }}
+      selection: ${{ steps.classify.outputs.selection }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      # The classifier is plain Lua so that the suite can assert on it. This is
+      # the only thing this job provisions, and on a cache hit it is a second.
+      - name: Provide a Lua interpreter
+        run: echo "$(./scripts/toolchain luajit)/bin" >> "$GITHUB_PATH"
+
+      - name: Name the changed paths
+        id: changed
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          MERGE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          base=""
+          case "$EVENT" in
+            pull_request) base=$PR_BASE ;;
+            merge_group) base=$MERGE_BASE ;;
+            push) base=$PUSH_BEFORE ;;
+          esac
+          # A tag, a schedule, a manual dispatch, and the first push to a new
+          # branch all have no diff to narrow. An empty list means "everything",
+          # which the classifier decides rather than this shell.
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] \
+              || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            : > changed-paths.txt
+          else
+            git diff --name-only "$base" "${{ github.sha }}" > changed-paths.txt
+          fi
+          echo "--- changed paths ---"
+          cat changed-paths.txt
+
+      - name: Classify the affected surfaces
+        id: classify
+        run: luajit .github/scripts/classify-changes.lua < changed-paths.txt
+
+      # The classifier and the workflow have to agree about which jobs exist.
+      # They are two files, so the only thing that keeps them agreeing is this
+      # check, which runs before anything expensive is provisioned.
+      - name: Validate the workflow against the classifier
+        run: luajit .github/scripts/validate-ci-coverage.lua
+
+      # Composing the platform matrix here rather than putting three `if`s on
+      # three near-identical jobs keeps one copy of a two-hundred-line job and
+      # makes the selection itself reviewable as data.
+      - name: Compose the integration matrix
+        id: matrix
+        env:
+          SELECTED_LINUX: ${{ steps.classify.outputs.linux-integration }}
+          SELECTED_MACOS: ${{ steps.classify.outputs.macos-integration }}
+          SELECTED_WINDOWS: ${{ steps.classify.outputs.windows-integration }}
+        run: luajit .github/scripts/compose-integration-matrix.lua
+
+  # Formatting, the checker, and every suite a Nupp worker can share a process
+  # with: about a hundred suites in well under a minute. Placed ahead of the
+  # platform jobs so the failures that need no platform are reported before any
+  # platform is provisioned.
+  fast-checks:
+    name: Fast checks
+    needs: classify
+    if: needs.classify.outputs.fast-checks == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
-
-      - name: Restore the provisioned toolchain
-        uses: actions/cache@v4
         with:
-          path: |
-            .nupp-cache/toolchain
-            build/rust
-          key: >-
-            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
-            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
-            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
-          restore-keys: |
-            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Install the software Vulkan adapter
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
-          icd=$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -type f | head -n 1)
-          test -n "$icd"
-          printf 'NUPP_GPU_ICD=%s\n' "$icd" >> "$GITHUB_ENV"
-
-      - name: Provision the compiler
-        run: ./scripts/toolchain --all
-
-      - name: Run exact GPU dispatch and readback
-        id: gpu_conformance
-        continue-on-error: true
-        run: .github/scripts/test-gpu-conformance.sh
-
-      - name: Measure exact-feature Vulkan provider artifacts
-        if: steps.gpu_conformance.outcome == 'success'
-        run: >-
-          .github/scripts/measure-gpu-provider.sh
-          build/ci-gpu-provider vulkan
-
-      - name: Upload Vulkan provider measurements
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gpu-provider-linux-vulkan-${{ github.sha }}
-          path: build/ci-gpu-provider
-          if-no-files-found: warn
-          retention-days: 90
-
-      # A failed conformance step would otherwise skip actions/cache's post
-      # save the toolchain for every diagnostic commit. Preserve the expensive
-      # compiler build before turning the captured outcome back
-      # into the job's verdict.
-      - name: Save a failed conformance toolchain
-        if: steps.gpu_conformance.outcome == 'failure'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            .nupp-cache/toolchain
-            build/rust
-          key: >-
-            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
-            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
-            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
-
-      - name: Report GPU conformance failure
-        if: steps.gpu_conformance.outcome == 'failure'
-        run: exit 1
-
-  gpu-conformance-windows:
-    name: GPU conformance / Windows DX12
-    runs-on: windows-2022
-    timeout-minutes: 45
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v5
-
-      - name: Restore the provisioned GPU toolchain
-        uses: actions/cache@v4
-        with:
-          path: |
-            .nupp-cache/toolchain
-            build/rust
-          key: >-
-            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
-            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
-            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
-          restore-keys: |
-            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Install the ABI-compatible Windows Rust toolchain
-        shell: bash
-        run: |
-          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
-
-      - name: Provision the pinned toolchain
-        shell: bash
-        run: ./scripts/toolchain --all
-
-      # Adapter absence is a failure: Vulkan cannot silently substitute for
-      # the retained Windows DX12 contract.
-      - name: Run exact DX12 dispatch and readback
-        id: gpu_conformance
-        shell: bash
-        run: .github/scripts/test-gpu-conformance-windows.sh
-
-      - name: Measure exact-feature DX12 provider artifacts
-        if: steps.gpu_conformance.outcome == 'success'
-        shell: bash
-        run: >-
-          .github/scripts/measure-gpu-provider.sh
-          build/ci-gpu-provider dx12
-
-      - name: Upload DX12 provider measurements
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gpu-provider-windows-dx12-${{ github.sha }}
-          path: build/ci-gpu-provider
-          if-no-files-found: warn
-          retention-days: 90
-
-  portable-compiler:
-    name: Portable compiler on official Lua 5.1.5
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v5
+          fetch-depth: 0
 
       - name: Restore the pinned build tools
         uses: actions/cache@v4
@@ -180,91 +159,66 @@ jobs:
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Restore the content-validated compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/cache
+          key: >-
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
+          restore-keys: |
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Provision the pinned toolchain
-        shell: bash
         run: ./scripts/toolchain --all
 
       - name: Bootstrap the compiler
-        shell: bash
         run: ./bin/nupp build
 
-      # The Wasm acceptance workflow is path-filtered, but a checker or
-      # optimizer change anywhere in the compiler can invalidate source shown
-      # on the homepage. Keep the menu corpus on this unfiltered job, using the
-      # same strict, optimized Lua 5.1 settings as the playground Worker.
-      - name: Compile every homepage playground example
-        shell: bash
-        run: >-
-          ./bin/nupp build --strict --dialect lua51 -O1
-          -o build/ci-playground-examples
-          editors/playground/src/examples/*.nupp
-
-      - name: Run the portable compiler in the six-library host
-        shell: bash
-        run: .github/scripts/test-portable-compiler.sh
-
-  native-runtime-measurements:
-    name: Native runtime measurements / ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.timeout }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Linux x64
-            os: ubuntu-24.04
-            timeout: 30
-            artifact: linux-x64
-          - name: Windows x64
-            os: windows-2022
-            timeout: 45
-            artifact: windows-x64
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v5
-
-      # Cache pinned source archives and host tools, but not the task-local
-      # Cargo target whose empty first build is one of the measurements.
-      - name: Restore the provisioned toolchain
-        uses: actions/cache@v4
-        with:
-          path: .nupp-cache/toolchain
-          key: >-
-            nupp-native-measure-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
-          restore-keys: |
-            nupp-native-measure-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Install the ABI-compatible Windows Rust toolchain
-        if: runner.os == 'Windows'
-        shell: bash
+      - name: Install the development rocks
         run: |
-          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+          ./bin/nupp build --target bootstrapCompiler
+          ./bin/nupp build --target docs
 
-      - name: Provision the pinned toolchain
-        shell: bash
-        run: ./scripts/toolchain --all
+      # The pre-push hook asks the same question of the files a push changes.
+      # Ask it of the whole tree here, because a rewrite landed by a `--no-verify`
+      # push is otherwise found by whichever unrelated change comes next.
+      - name: Check the formatting
+        run: |
+          ./bin/nupp fmt --write
+          if ! git diff --quiet; then
+            echo "nupp fmt --write rewrote committed source:"
+            git --no-pager diff --stat
+            git --no-pager diff
+            exit 1
+          fi
 
-      # Hosted-runner timings are measurements, never absolute acceptance
-      # thresholds. Correctness failures still fail the script; variation in a
-      # valid latency, throughput, RSS, build-time, or size result does not.
-      - name: Measure public native runtime and exact-feature artifacts
-        shell: bash
-        run: .github/scripts/measure-native-runtime.sh build/ci-native-runtime
+      - name: Check the compiler
+        run: ./bin/nupp check
 
-      - name: Upload native runtime measurements
+      - name: Run the shared-process suites
+        run: ./bin/nupp test --lane=shared
+
+      # Saved explicitly rather than through the action's post step, so a run
+      # that fails a suite still keeps the compiler build the next run would
+      # otherwise redo. The entries validate their own content, so a stale one
+      # is a miss and cannot change an answer.
+      - name: Save the content-validated compiler cache
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/cache/save@v4
         with:
-          name: >-
-            native-runtime-${{ matrix.artifact }}-${{ github.sha }}
-          path: build/ci-native-runtime
-          if-no-files-found: warn
-          retention-days: 90
+          path: build/cache
+          key: >-
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
 
-  compiler:
-    name: ${{ matrix.name }} / LuaJIT ${{ matrix.luajit }}
+  integration:
+    name: ${{ matrix.name }} / LuaJIT 2.1 rolling
+    needs: [classify, fast-checks]
+    if: >-
+      !cancelled() && needs.classify.result == 'success'
+      && needs.fast-checks.result == 'success'
+      && needs.classify.outputs.integration-matrix != '[]'
     runs-on: ${{ matrix.os }}
     # A timeout is here to end a hang, so it has to sit above the work rather
     # than across it. The Rust-native artifact gate precedes the broad suite;
@@ -274,22 +228,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Linux x64
-            os: ubuntu-24.04
-            timeout: 85
-            luajit: 2.1 rolling
-            benchmark_artifact: linux-x64-luajit-2.1
-          - name: macOS arm64
-            os: macos-15
-            timeout: 110
-            luajit: 2.1 rolling
-            benchmark_artifact: macos-arm64-luajit-2.1
-          - name: Windows x64
-            os: windows-2022
-            timeout: 95
-            luajit: 2.1 rolling
-            benchmark_artifact: windows-x64-luajit-2.1
+        include: ${{ fromJSON(needs.classify.outputs.integration-matrix) }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -337,6 +276,29 @@ jobs:
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Restore the content-validated compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/cache
+          key: >-
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
+          restore-keys: |
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
+
+      # Suite durations are what the process lanes are packed from. A clean
+      # runner without them packs blind and the busiest shard decides the wall
+      # clock, so this is a scheduling input, not a correctness one: an
+      # approximate match is exactly as useful as an exact one.
+      - name: Restore the recorded suite timings
+        uses: actions/cache/restore@v4
+        with:
+          path: build/.nupp-test-times.json
+          key: >-
+            nupp-test-times-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            nupp-test-times-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install the ABI-compatible Windows Rust toolchain
         if: runner.os == 'Windows'
         shell: bash
@@ -345,12 +307,6 @@ jobs:
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
 
       - name: Provision the pinned toolchain
-        if: runner.os != 'Windows'
-        shell: bash
-        run: ./scripts/toolchain --all
-
-      - name: Provision the pinned toolchain
-        if: runner.os == 'Windows'
         shell: bash
         run: ./scripts/toolchain --all
 
@@ -413,7 +369,11 @@ jobs:
           ./bin/nupp build --target bootstrapCompiler
           ./bin/nupp build --target docs
 
+      # Already answered on Linux by the fast gate, which every path through
+      # this graph passes through before reaching here. The other platforms are
+      # asked because a checker answer is not promised to be platform-free.
       - name: Check the compiler
+        if: runner.os != 'Linux'
         shell: bash
         run: ./bin/nupp check
 
@@ -421,9 +381,18 @@ jobs:
       # Rust provider, application host, and embedding SDK. Exercise that
       # contract before the expensive native and full-suite gates so a test
       # fixture cannot accidentally model Windows as an invented Unix host.
-      - name: Check the Windows Rust toolchain contract
+      #
+      # Fail close to provisioning, and name the last case if the Windows
+      # loader or native networking layer terminates the test process. Exercise
+      # the nested launcher fixtures here too: in the full suite that process is
+      # one long-lived shard, so a failure otherwise appears twenty minutes later
+      # as many unrelated unrun suites. The broad suite below leaves this group
+      # out rather than running it a second time unchanged.
+      - name: Run the Windows native and launcher preflight
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          NUPP_TEST_TRACE_CASES: 1
         run: |
           set -euo pipefail
           bash_path=$(command -v bash)
@@ -431,7 +400,7 @@ jobs:
           test -f "$sh_path"
           NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
           NUPP_TEST_SH=$(cygpath -w "$sh_path") \
-          ./bin/nupp test --jobs=1 rusttoolchaintest toolchaintest
+          ./bin/nupp test --jobs=1 --group=windows-preflight
 
       # Name the Rust-native release boundary before the broad suite. This runs
       # each resource owner's stress/cancellation tests, the aggregate C ABI
@@ -441,31 +410,10 @@ jobs:
         shell: bash
         run: .github/scripts/test-rust-native-platform.sh
 
-      # Fail close to provisioning, and name the last case if the Windows
-      # loader or native networking layer terminates the test process. Exercise
-      # the nested launcher fixtures here too: in the full suite that process is
-      # one long-lived shard, so a failure otherwise appears twenty minutes later
-      # as many unrelated unrun suites.
-      - name: Run the Windows native and launcher preflight
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash_path=$(command -v bash)
-          sh_path=$(dirname "$bash_path")/sh.exe
-          test -f "$sh_path"
-          NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
-          NUPP_TEST_SH=$(cygpath -w "$sh_path") \
-          NUPP_TEST_TRACE_CASES=1 \
-          ./bin/nupp test --jobs=1 netnativetest
-          NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
-          NUPP_TEST_SH=$(cygpath -w "$sh_path") \
-          ./bin/nupp test --jobs=1 runnertest soatest worktreetest
-
-      # Keep the external corpus and the C importer explicit. The full suite
-      # below reaches both too, but a configured corpus used to be absent and
-      # silently skipped, while an import-c failure could be buried among
-      # thousands of unrelated cases.
+      # Keep the external corpus and the C importer explicit. A configured
+      # corpus used to be absent and silently skipped, while an import-c failure
+      # could be buried among thousands of unrelated cases. The broad suite
+      # below excludes this group rather than repeating it.
       - name: Run the tl.lua oracle and import-c fixtures
         shell: bash
         run: |
@@ -491,35 +439,7 @@ jobs:
             NUPP_TEST_SH=$(cygpath -w "$sh_path")
           fi
           ./bin/nupp build --target testRunner
-          ./tests/run --jobs=1 corpustest importctest
-
-      # These are measurements rather than a noisy shared-runner pass/fail
-      # threshold. One immutable, platform-qualified artifact per commit keeps
-      # the reification speedup bisectable without pretending hosted runner
-      # timing is stable enough for an absolute wall-clock gate.
-      - name: Measure reification performance
-        shell: bash
-        run: |
-          set -euo pipefail
-          results=build/ci-benchmarks
-          mkdir -p "$results"
-          {
-            printf 'commit=%s\n' "$GITHUB_SHA"
-            printf 'runner=%s/%s\n' "$RUNNER_OS" "$RUNNER_ARCH"
-            luajit -e 'print(jit.version .. " " .. jit.os .. "/" .. jit.arch)'
-          } > "$results/metadata.txt"
-          luajit bench/reification.lua | tee "$results/reification.txt"
-          ./bin/nupp run bench/aos.nupp | tee "$results/aos.txt"
-
-      - name: Upload reification measurements
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: >-
-            reification-${{ matrix.benchmark_artifact }}-${{ github.sha }}
-          path: build/ci-benchmarks
-          if-no-files-found: warn
-          retention-days: 90
+          ./tests/run --jobs=1 --group=external-corpus
 
       # The AOT lane body is written in compiler vector extensions, and what a
       # select, a mask lane and a horizontal test lower to is completely
@@ -605,8 +525,8 @@ jobs:
       # The suite's own `aot = "require"` tests take whichever compiler the
       # runner offers first, which is Clang. Running them again under GCC checks
       # the version parsing, the dialect flags and `-Werror` against the other
-      # compiler a user is likely to have. The spike above exercises none of
-      # that, because it builds its own command line rather than the build's.
+      # compiler a user is likely to have. This is the one repetition that is
+      # not repetition: the compiler being different is the thing under test.
       - name: Build and load an aot = "require" project through GCC
         if: runner.os == 'Linux'
         shell: bash
@@ -620,6 +540,10 @@ jobs:
       # attempt at this showed `coveragetest` and `aotbuildtest` racing whatever
       # else was building -- which the runner now runs alone. The runner
       # defaults to two shards per core.
+      #
+      # `--exclude-group` names what earlier steps in this job already ran. The
+      # shared lane is excluded on Linux only, where the fast gate this job
+      # depends on has already run it against the same revision.
       - name: Run the compiler suite
         if: runner.os != 'Windows'
         shell: bash
@@ -628,8 +552,13 @@ jobs:
         # still says "core dumped". Raising it here is what makes the step
         # below able to ask a crashed worker anything at all.
         run: |
+          set -euo pipefail
           ulimit -c unlimited || true
-          ./bin/nupp test
+          lane=""
+          if [ "$RUNNER_OS" = Linux ]; then
+            lane="--lane=isolated"
+          fi
+          ./bin/nupp test $lane --exclude-group=external-corpus
 
       # A worker killed by a signal says which suite it was in, and on Linux it
       # is killed by SIGSEGV in a different set of suites every run -- so the
@@ -685,7 +614,8 @@ jobs:
           test -f "$sh_path"
           NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
           NUPP_TEST_SH=$(cygpath -w "$sh_path") \
-          ./bin/nupp test
+          ./bin/nupp test \
+            --exclude-group=external-corpus,windows-preflight
 
       - name: Report Windows worker crashes
         if: failure() && runner.os == 'Windows'
@@ -726,6 +656,327 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # Saved whatever the suite concluded. A failing run still measured every
+      # suite that ran, and the next run's shard packing is better for having
+      # it than for relearning it from nothing.
+      - name: Save the recorded suite timings
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: build/.nupp-test-times.json
+          key: >-
+            nupp-test-times-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+
+      # Linux has already saved this key from the fast gate, where the same
+      # revision built the same compiler; that save warns and keeps the first
+      # entry, which is the right outcome. macOS and Windows have their own
+      # key and this is the only job that fills it.
+      - name: Save the content-validated compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: build/cache
+          key: >-
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
+
+  # Byte-identical self-hosting, which is about the compiler's own sources and
+  # not about a platform. It was the last step of every matrix entry, where it
+  # only ever ran if everything before it was green -- so the one check that
+  # says the compiler reproduces itself was the one most often not reached.
+  fixpoint:
+    name: Self-hosting fixpoint
+    needs: [classify, fast-checks]
+    if: >-
+      !cancelled() && needs.classify.result == 'success'
+      && needs.fast-checks.result == 'success'
+      && needs.classify.outputs.fixpoint == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the pinned build tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Provision the pinned toolchain
+        run: ./scripts/toolchain --all
+
       - name: Verify the self-hosting fixpoint
-        shell: bash
         run: ./bin/nupp fixpoint
+
+  portable-compiler:
+    name: Portable compiler on official Lua 5.1.5
+    needs: [classify, fast-checks]
+    if: >-
+      !cancelled() && needs.classify.result == 'success'
+      && needs.fast-checks.result == 'success'
+      && needs.classify.outputs.portable-compiler == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the pinned build tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Provision the pinned toolchain
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Bootstrap the compiler
+        shell: bash
+        run: ./bin/nupp build
+
+      # The Wasm acceptance workflow is path-filtered, but a checker or
+      # optimizer change anywhere in the compiler can invalidate source shown
+      # on the homepage. Keep the menu corpus here, using the same strict,
+      # optimized Lua 5.1 settings as the playground Worker.
+      - name: Compile every homepage playground example
+        shell: bash
+        run: >-
+          ./bin/nupp build --strict --dialect lua51 -O1
+          -o build/ci-playground-examples
+          editors/playground/src/examples/*.nupp
+
+      - name: Run the portable compiler in the six-library host
+        shell: bash
+        run: .github/scripts/test-portable-compiler.sh
+
+  # Documentation generation, its links, and the generated assets a site build
+  # produces. This is the whole obligation of a documentation-only change: it
+  # provisions no platform matrix, no native toolchain and no GPU adapter.
+  docs-site:
+    name: Documentation and site
+    needs: classify
+    if: needs.classify.outputs.docs-site == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the pinned build tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Provision the pinned toolchain
+        run: ./scripts/toolchain --all
+
+      - name: Bootstrap the compiler
+        run: ./bin/nupp build
+
+      - name: Install the development rocks
+        run: |
+          ./bin/nupp build --target bootstrapCompiler
+          ./bin/nupp build --target docs
+
+      - name: Regenerate and verify the documentation
+        run: ./bin/nupp test --group=docs
+
+  gpu-conformance:
+    name: GPU conformance / CI Lavapipe Vulkan
+    needs: classify
+    if: needs.classify.outputs.gpu-linux == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            .nupp-cache/toolchain
+            build/rust
+          key: >-
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
+            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
+            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
+          restore-keys: |
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the software Vulkan adapter
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+          icd=$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -type f | head -n 1)
+          test -n "$icd"
+          printf 'NUPP_GPU_ICD=%s\n' "$icd" >> "$GITHUB_ENV"
+
+      - name: Provision the compiler
+        run: ./scripts/toolchain --all
+
+      - name: Run exact GPU dispatch and readback
+        id: gpu_conformance
+        continue-on-error: true
+        run: .github/scripts/test-gpu-conformance.sh
+
+      # A failed conformance step would otherwise skip actions/cache's post
+      # save the toolchain for every diagnostic commit. Preserve the expensive
+      # compiler build before turning the captured outcome back
+      # into the job's verdict.
+      - name: Save a failed conformance toolchain
+        if: steps.gpu_conformance.outcome == 'failure'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .nupp-cache/toolchain
+            build/rust
+          key: >-
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
+            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
+            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
+
+      - name: Report GPU conformance failure
+        if: steps.gpu_conformance.outcome == 'failure'
+        run: exit 1
+
+  gpu-conformance-windows:
+    name: GPU conformance / Windows DX12
+    needs: classify
+    if: needs.classify.outputs.gpu-windows == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the provisioned GPU toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            .nupp-cache/toolchain
+            build/rust
+          key: >-
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
+            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
+            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
+          restore-keys: |
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the ABI-compatible Windows Rust toolchain
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      - name: Provision the pinned toolchain
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      # Adapter absence is a failure: Vulkan cannot silently substitute for
+      # the retained Windows DX12 contract.
+      - name: Run exact DX12 dispatch and readback
+        id: gpu_conformance
+        shell: bash
+        run: .github/scripts/test-gpu-conformance-windows.sh
+
+  # The one status a ruleset should require. Its meaning does not change when
+  # the jobs above are reorganized, renamed, or split, and it cannot pass by a
+  # job being skipped: a job the classifier selected and that did not succeed
+  # fails this, and so does a classification that failed to happen at all.
+  required-ci:
+    name: required-ci
+    if: always()
+    needs:
+      - classify
+      - fast-checks
+      - integration
+      - fixpoint
+      - portable-compiler
+      - docs-site
+      - gpu-conformance
+      - gpu-conformance-windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # The run's queue delay and its per-job durations are only on the API, and
+    # a workflow cannot read its own run without being told it may.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Require every selected job to have succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          SELECTION: ${{ needs.classify.outputs.selection }}
+        run: .github/scripts/require-selected-jobs.py
+
+      # One row per required run, so queue delay, execution time and the failed
+      # step are answerable from retained data rather than from whichever run
+      # somebody happens to still have open.
+      - name: Record the run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTION: ${{ needs.classify.outputs.selection }}
+        run: .github/scripts/record-required-run.sh
+
+      - name: Upload the run record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: required-ci-record-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/ci-record
+          if-no-files-found: warn
+          retention-days: 90
