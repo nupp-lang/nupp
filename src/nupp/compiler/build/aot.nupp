@@ -1424,6 +1424,11 @@ function aot.emitC(
         end
     end
     local checkedSources: {string} = {}
+    -- Checking asked for here is the policy's own: it reads every source the
+    -- project could build, looking for the ones that carry an `@aot` body, and
+    -- a module the build would have checked anyway is answered from the same
+    -- graph either way. Charged to the policy while it is what is asking.
+    local resumeChecking = report:charging("aot:check")
     report:at("aot:check")
     for _, source in ipairs(sources) do
         local checkedSource, unusedHere = checkedTree(session, source)
@@ -1439,6 +1444,7 @@ function aot.emitC(
         end
     end
     sources = checkedSources
+    report:charging(resumeChecking)
     local constPlans = constspecialize.collectGraph(checkedModules)
     local acceptedConst, declinedConst = constspecialize.selectGraph(constPlans)
     local constSelection = {accepted = acceptedConst, declined = declinedConst, plans = constPlans,}

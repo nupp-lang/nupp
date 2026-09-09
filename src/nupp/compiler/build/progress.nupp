@@ -223,6 +223,12 @@ record progress.Reporter
     --- What the ahead-of-time policy did, when a build ran one.
     aotFacts: progress.AotFacts?
 
+    --- Which bucket checking is charged to at the moment. Checking is charged
+    --- wherever it happens rather than where it was asked for, so a build that
+    --- compiles nothing does not report its whole runtime as bookkeeping -- but
+    --- what asked for it is still worth telling apart, and only what asked knows.
+    checking: string
+
     --- When the step line was last painted, and whether one is on screen now.
     paintedAt: number
 
@@ -316,6 +322,15 @@ record progress.Reporter
     --- What the ahead-of-time policy did, once it has finished doing it.
     function aotCounted(self, facts: progress.AotFacts?): nil
         self.aotFacts = facts
+    end
+
+    --- Charges checking to `name` until told otherwise, and answers what it was
+    --- charged to before, for the caller to put back.
+    function charging(self, name: string): string
+        local previous = self.checking
+        self.checking = name
+
+        return previous
     end
 
     --- What the run cost, in the shape `build --json` publishes.
@@ -448,6 +463,7 @@ function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
         reused = 0,
         specialized = 0,
         aotFacts = nil,
+        checking = "check",
         paintedAt = 0,
         onScreen = false,
         columns = width()

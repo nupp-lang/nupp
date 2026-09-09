@@ -259,6 +259,46 @@ function M.rebuildsOnlyWhatChanged()
     test.equal(settled.timing.aot.externalCommands, 0, "the repaired project settles again")
 end
 
+--- The policy accounts for its own time under names a reader can act on.
+---
+--- The timeline is one activity at a time, so these are parts of the whole
+--- rather than a separate measurement, and a name that is not one of these is a
+--- bucket nothing documents.
+function M.theTimelineNamesTheAheadOfTimePhases()
+    local known = {
+        ["aot"] = true,
+        ["aot:check"] = true,
+        ["aot:lower"] = true,
+        ["aot:optimize"] = true,
+        ["aot:emit"] = true,
+        ["aot:reuse"] = true,
+        ["aot:compile"] = true,
+        ["aot:link"] = true,
+    }
+    local dir = project()
+    local cold = build(dir)
+    local seen = {}
+    for _, span in ipairs(cold.timing.phases) do
+        if span.name:sub(1, 3) == "aot" then
+            assert(known[span.name], "undocumented phase " .. span.name)
+            seen[span.name] = true
+        end
+    end
+    -- The three a cold build always spends measurable time in: finding the
+    -- bodies, compiling what it emitted, and linking it.
+    assert(seen["aot:check"], "checking the policy's own sources is named")
+    assert(seen["aot:compile"], "running the C compiler is named")
+    assert(seen["aot:link"], "linking is named")
+
+    -- And an unchanged build spends none of it on the external compiler, which
+    -- is the same claim the counts make, read off the timeline instead.
+    local unchanged = build(dir)
+    for _, span in ipairs(unchanged.timing.phases) do
+        assert(span.name ~= "aot:compile", "an unchanged build has no external compilation to report")
+        assert(span.name ~= "aot:link", "and nothing to link")
+    end
+end
+
 --- A project flag the last build did not use recompiles every object.
 ---
 --- Flags are not in the unit key, because the C does not change when they do.
