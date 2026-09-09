@@ -285,7 +285,9 @@ finish() -- moves `file` into the invocation frame
 Calling it moves captures into its invocation frame; dropping it destroys
 captures without running the body. Borrowed captures use `borrows (source)` and
 remain tied to their roots, and a `scoped` callback parameter proves that
-borrowed captures do not escape the call.
+borrowed captures do not escape the call. An affine closure can only be handed
+to a `takes` callback parameter: `scoped` and `borrows` parameters are
+repeatable and therefore cannot borrow a single-shot closure.
 
 ## Borrowing and pinning
 

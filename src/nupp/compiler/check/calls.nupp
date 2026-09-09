@@ -2418,7 +2418,16 @@ function calls.install(c: state.Checker): calls.Ops
             elseif mode == "scoped" then
                 local callback = rawType(ats[j])
                 local callbackArray = callback.tag == "array" and rawType(callback.elem).tag == "func"
-                if callback ~= T.any
+                local kind = c.ownershipKind(ats[j])
+                if kind == "affine" or kind == "pinned" then
+                    c.diag(
+                        "NUPP2602",
+                        argNodes[j] or node,
+                        "a scoped parameter cannot borrow an affine value as a repeatable callback",
+                        nil,
+                        {help = "use a takes parameter when the callback must be consumed"}
+                    )
+                elseif callback ~= T.any
                     and callback ~= T.unknown
                     and callback.tag ~= "func"
                     and callback.tag ~= "intersection"
@@ -2522,7 +2531,15 @@ function calls.install(c: state.Checker): calls.Ops
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
                 local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
-                if entry and entry.movedFields and next(entry.movedFields) then
+                if c.ownershipKind(ats[j]) == "affine" and rawType(ats[j]).tag == "func" then
+                    c.diag(
+                        "NUPP2602",
+                        nameNode or argNodes[j] or node,
+                        "an affine closure cannot be passed to a borrows parameter",
+                        nil,
+                        {help = "use a takes parameter when the callback must be consumed"}
+                    )
+                elseif entry and entry.movedFields and next(entry.movedFields) then
                     -- The callee sees the whole record and may read the field that
                     -- is gone, the same way a whole move or consumption is refused.
                     c.diag(

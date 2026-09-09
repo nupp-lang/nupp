@@ -5094,6 +5094,70 @@ function M.pcallConsumesATakingClosure()
     assertEq(calls, 1, "pcall's invoked closure releases its capture")
 end
 
+function M.aRepeatableParameterCannotReceiveATakingClosure()
+    local declarations = CLOSURE_RESOURCE .. table.concat(
+        {
+            "",
+            "local function twice(scoped callback: function(): nil): nil",
+            "   callback()",
+            "   callback()",
+            "end",
+            "local function viaBorrow(borrows callback: function(): nil): nil",
+            "   callback()",
+            "end",
+        },
+        "\n"
+    )
+    local taking = {
+        "local resource = openClosureResource(7)",
+        "local callback = function(): nil takes (resource)",
+        "   drop(resource)",
+        "end",
+    }
+    assertEq(
+        codes(declarations .. "\n" .. table.concat(taking, "\n") .. "\ntwice(callback)"),
+        "NUPP2602",
+        "a named closure passed to scoped"
+    )
+    assertEq(
+        codes(
+            declarations .. table.concat(
+                {
+                    "",
+                    "local resource = openClosureResource(7)",
+                    "twice(function(): nil takes (resource)",
+                    "   drop(resource)",
+                    "end)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602",
+        "a literal closure passed to scoped"
+    )
+    assertEq(
+        codes(declarations .. "\n" .. table.concat(taking, "\n") .. "\nviaBorrow(callback)\nviaBorrow(callback)"),
+        "NUPP2602 NUPP2602",
+        "a named closure passed to borrows"
+    )
+    assertEq(
+        codes(
+            declarations .. table.concat(
+                {
+                    "",
+                    "local resource = openClosureResource(7)",
+                    "viaBorrow(function(): nil takes (resource)",
+                    "   drop(resource)",
+                    "end)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602",
+        "a literal closure passed to borrows"
+    )
+end
+
 -- A closure captured from an enclosing function is seen through a borrow, and the
 -- call path let a borrowed function through, so a nested closure invoked a taking
 -- closure as often as it was itself invoked while the owner still held it.
