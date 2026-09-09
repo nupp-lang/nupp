@@ -70,12 +70,6 @@ end
 -- and a Windows text-mode pipe can translate it or treat Ctrl-Z as the end before a
 -- sentinel appended to that same stream. The artifact is always read in binary mode;
 -- failed commands still put their ordinary diagnostic in the same file.
--- What one command over one project answered, kept for whoever asks again.
--- `nupp aot` is a report over a file: the same project and the same arguments
--- are the same answer, and the invocation behind it is a compiler start and a
--- check of the standard library the file names.
-local answers = {}
-
 local function runOnce(dir, argv)
     local outputPath = dir .. "/.nupp-aot-output"
     local statusPath = dir .. "/.nupp-aot-status"
@@ -98,6 +92,12 @@ local function runOnce(dir, argv)
     return out, code
 end
 
+-- What one command over one project answered, kept for whoever asks again.
+-- `nupp aot` is a report over a file: the same project and the same arguments
+-- are the same answer, and the invocation behind it is a compiler start and a
+-- check of the standard library the file names.
+local answers = {}
+
 local function run(dir, argv)
     local key = dir .. "\0" .. argv
     local kept = answers[key]
@@ -117,12 +117,17 @@ end
 --- `--emit` carries the IR, the C and the binding together, and the C in it is
 --- byte for byte the C `--emit c` prints. The exit status comes back beside
 --- them, which is what `--check` is asked for.
+---
+--- The command and the directory it ran in come back last, because a project is
+--- now shared between the cases that ask about the same sources and a failure
+--- has to say which report it is reading.
 local function lowered(dir, argv)
     local out, code = run(dir, argv)
+    local where = ("`nupp aot %s` in %s"):format(argv, dir)
     local body = out:match("^(%b{})")
-    assert(body, ("`nupp aot %s` did not answer JSON, in %s: %s"):format(argv, dir, out))
+    assert(body, where .. " did not answer JSON: " .. out)
 
-    return require("testjson").decode(body), out, code
+    return require("testjson").decode(body), out, code, where
 end
 
 local function spirvWord(module, offset)
@@ -528,12 +533,12 @@ return {nativeExp = nativeExp, nativeExpCpu = nativeExpCpu}
     test.equal(module:sub(1, 4), "\3\2#\7")
     assert(spirvHasExtendedInstruction(module, 27), "native exponential did not emit GLSL.std.450 Exp")
 
-    local decoded, raw, code = lowered(dir, "--json native-exp.nupp")
+    local decoded, raw, code, where = lowered(dir, "--json native-exp.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.c:find("expf(", 1, true), "the CPU body calls the native exponential: " .. decoded.c)
+    assert(decoded.c:find("expf(", 1, true), where .. ": the CPU body calls the native exponential: " .. decoded.c)
     assert(
         decoded.ir:find("contract fp-transcendentals(native)", 1, true),
-        "and the IR records the contract that granted it: " .. decoded.ir
+        where .. ": and the IR records the contract that granted it: " .. decoded.ir
     )
 end
 
@@ -1462,11 +1467,15 @@ local COMPUTE_ASSERTED = replaceOnce(
 function M.assertGuardsReachTheSameKernel()
     local plain = project{["compute.nupp"] = COMPUTE}
     local asserted = project{["compute.nupp"] = COMPUTE_ASSERTED}
-    local wantedReport, wanted, wantedCode = lowered(plain, PINNED .. "--json compute.nupp")
-    local gotReport, got, gotCode = lowered(asserted, PINNED .. "--json compute.nupp")
+    local wantedReport, wanted, wantedCode, wantedWhere = lowered(plain, PINNED .. "--json compute.nupp")
+    local gotReport, got, gotCode, gotWhere = lowered(asserted, PINNED .. "--json compute.nupp")
     test.equal(wantedCode, 0, wanted)
     test.equal(gotCode, 0, "assert guards are admitted like error guards\n" .. got)
-    test.equal(gotReport.c, wantedReport.c, "both spellings emit the same C")
+    test.equal(
+        gotReport.c,
+        wantedReport.c,
+        ("both spellings emit the same C (%s versus %s)"):format(gotWhere, wantedWhere)
+    )
 end
 
 function M.anAssertGuardStillHasToSayTheRightThing()
@@ -1561,11 +1570,14 @@ end
 --- `--json` carries the IR beside everything else the run measured, so a case
 --- that wants both the lane body and what the optimizer did to it asks once.
 local function laneReport(dir, file, label)
-    local decoded, out, code = lowered(dir, PINNED .. "--json " .. file)
-    test.equal(code, 0, label .. ": " .. out)
+    local decoded, out, code, where = lowered(dir, PINNED .. "--json " .. file)
+    test.equal(code, 0, label .. " (" .. where .. "): " .. out)
     local ir = decoded.ir
     local lanes = ir:match("\nsimd lanes%(.-\n(.*)$") and ir:match("(\nsimd lanes.*)$")
-    assert(lanes, label .. " ran one iteration at a time, so there is no lane body to compare:\n" .. out)
+    assert(
+        lanes,
+        label .. " ran one iteration at a time, so there is no lane body to compare (" .. where .. "):\n" .. out
+    )
 
     return lanes, decoded
 end
@@ -1720,17 +1732,23 @@ end
 
 function M.emitPrintsTheGeneratedC()
     local dir = project{["compute.nupp"] = COMPUTE}
-    local decoded, raw, code = lowered(dir, PINNED .. "--json compute.nupp")
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json compute.nupp")
     test.equal(code, 0, raw)
 
     local out = decoded.c
-    assert(out:find("void ks_escapes(", 1, true), "the exported symbol is defined: " .. out)
+    assert(out:find("void ks_escapes(", 1, true), where .. ": the exported symbol is defined: " .. out)
     assert(
         out:find("ks_escapes_forced_scalar", 1, true),
-        "the oracle the lane body is diffed against comes out too: " .. out
+        where .. ": the oracle the lane body is diffed against comes out too: " .. out
     )
-    assert(out:find("*restrict", 1, true), "the writable span carries the disjointness ownership proved: " .. out)
-    assert(out:find("ks_sel_f64x4", 1, true), "the conditional became a select rather than a branch: " .. out)
+    assert(
+        out:find("*restrict", 1, true),
+        where .. ": the writable span carries the disjointness ownership proved: " .. out
+    )
+    assert(
+        out:find("ks_sel_f64x4", 1, true),
+        where .. ": the conditional became a select rather than a branch: " .. out
+    )
 end
 
 -- A result the wrapper has to establish. `loadlib` hands back `any`, so a
@@ -1766,13 +1784,13 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
     -- `--check` so the exit status is still the one that says nothing wanted
     -- lanes and missed them, and `--json` so the binding it also carries needs
     -- no second command.
-    local decoded, raw, code = lowered(dir, "--check --json counter.nupp")
+    local decoded, raw, code, where = lowered(dir, "--check --json counter.nupp")
     test.equal(code, 0, raw)
     assert(
         decoded.binding:find("nupp.math.u32.wrap(native1 as integer)", 1, true),
-        "the single result is established rather than returned as any: " .. decoded.binding
+        where .. ": the single result is established rather than returned as any: " .. decoded.binding
     )
-    assert(decoded.ir, "and the checked run still reports the IR it judged: " .. raw)
+    assert(decoded.ir, where .. ": and the checked run still reports the IR it judged: " .. raw)
 end
 
 -- Whether the instructions can be read on this machine at all. The condition is
@@ -1877,19 +1895,19 @@ end
 
 function M.emitPrintsTheIrAndTheBinding()
     local dir = project{["compute.nupp"] = COMPUTE}
-    local decoded, raw, code = lowered(dir, PINNED .. "--json compute.nupp")
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json compute.nupp")
     test.equal(code, 0, raw)
 
     local ir = decoded.ir
-    assert(ir:find("simd lanes(4)", 1, true), "the lane body is in the IR beside the scalar one: " .. ir)
-    assert(ir:find("disjoint r0 r1", 1, true), "the alias matrix is in the IR: " .. ir)
+    assert(ir:find("simd lanes(4)", 1, true), where .. ": the lane body is in the IR beside the scalar one: " .. ir)
+    assert(ir:find("disjoint r0 r1", 1, true), where .. ": the alias matrix is in the IR: " .. ir)
 
     local binding = decoded.binding
     assert(
         binding:find("layoutof(Escape)", 1, true),
-        "the wrapper checks the struct layout rather than trusting it: " .. binding
+        where .. ": the wrapper checks the struct layout rather than trusting it: " .. binding
     )
-    assert(binding:find("unsafe do", 1, true), "the foreign call is the only unsafe part: " .. binding)
+    assert(binding:find("unsafe do", 1, true), where .. ": the foreign call is the only unsafe part: " .. binding)
 end
 
 function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
@@ -1897,21 +1915,24 @@ function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
 
     -- One pinned command for both artifacts, and `--check` so the exit status is
     -- still the one that says the loop got its lanes.
-    local decoded, raw, code = lowered(dir, PINNED .. "--check --json bytes.nupp")
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--check --json bytes.nupp")
     test.equal(code, 0, raw)
 
     local ir = decoded.ir
     assert(
         ir:find("flags:u32 source(uint8)", 1, true),
-        "the IR distinguishes storage from its established value: " .. ir
+        where .. ": the IR distinguishes storage from its established value: " .. ir
     )
-    assert(ir:find("vspan:i32x8 bytes[i..i+7]", 1, true), "a byte load is widened into the gang: " .. ir)
-    assert(ir:find("vset flags[i..i+7]", 1, true), "a scalar span store is scattered from the gang: " .. ir)
+    assert(ir:find("vspan:i32x8 bytes[i..i+7]", 1, true), where .. ": a byte load is widened into the gang: " .. ir)
+    assert(ir:find("vset flags[i..i+7]", 1, true), where .. ": a scalar span store is scattered from the gang: " .. ir)
 
     local c = decoded.c
-    assert(c:find("uint8_t *restrict p_flags", 1, true), "the output pointer retains byte storage: " .. c)
-    assert(c:find("const uint8_t *p_bytes", 1, true), "the input pointer retains const byte storage: " .. c)
-    assert(c:find("p_flags[i + 7] = (uint8_t)lanes[7]", 1, true), "lane values narrow only when stored: " .. c)
+    assert(c:find("uint8_t *restrict p_flags", 1, true), where .. ": the output pointer retains byte storage: " .. c)
+    assert(c:find("const uint8_t *p_bytes", 1, true), where .. ": the input pointer retains const byte storage: " .. c)
+    assert(
+        c:find("p_flags[i + 7] = (uint8_t)lanes[7]", 1, true),
+        where .. ": lane values narrow only when stored: " .. c
+    )
 
     local binding, bindingCode = run(dir, "--emit binding bytes.nupp")
     test.equal(bindingCode, 0, binding)
@@ -2380,14 +2401,14 @@ function M.theBaselineX86TierGetsTheNarrowGang()
     local dir = project{["compute.nupp"] = COMPUTE}
     -- `--check` in the same command, so the exit status that says it lowered is
     -- the status of the run whose report is being read.
-    local decoded, out, code = lowered(dir, "--check --json --target x86_64-unknown-linux-gnu compute.nupp")
+    local decoded, out, code, where = lowered(dir, "--check --json --target x86_64-unknown-linux-gnu compute.nupp")
     test.equal(code, 0, "plain x86-64 vectorises rather than refusing, and --check agrees\n" .. out)
-    test.equal(decoded.target.tier, "baseline", "and did not quietly promise instructions nobody asked for")
-    test.equal(decoded.functions[1].lanes.shape, "mixed2")
+    test.equal(decoded.target.tier, "baseline", where .. ": and did not quietly promise instructions nobody asked for")
+    test.equal(decoded.functions[1].lanes.shape, "mixed2", where)
     test.equal(
         decoded.functions[1].lanes.lanes,
         2,
-        "half the lanes of AVX, which is the point: a smaller win, not no win"
+        where .. ": half the lanes of AVX, which is the point: a smaller win, not no win"
     )
 end
 
