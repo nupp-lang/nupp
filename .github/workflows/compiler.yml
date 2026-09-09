@@ -277,6 +277,23 @@ jobs:
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
+      # One identity for the Rust artifacts, shared by every job that builds
+      # them: the lock file, the toolchain file and the native sources. The
+      # feature sets differ between the GPU jobs and the platform gate, and the
+      # store is content-addressed, so a job that asked for a different set
+      # rebuilds what it needs and reuses the rest rather than starting empty.
+      - name: Restore the Rust build outputs
+        uses: actions/cache@v4
+        with:
+          path: build/rust
+          key: >-
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
+            'native/**/Cargo.toml', 'native/**/*.rs', 'native/**/*.c',
+            'native/**/*.h') }}
+          restore-keys: |
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Restore the content-validated compiler cache
         uses: actions/cache/restore@v4
         with:
@@ -855,16 +872,29 @@ jobs:
       - name: Restore the provisioned toolchain
         uses: actions/cache@v4
         with:
-          path: |
-            .nupp-cache/toolchain
-            build/rust
+          path: .nupp-cache/toolchain
           key: >-
-            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
-            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
-            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
           restore-keys: |
-            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      # One identity for the Rust artifacts, shared by every job that builds
+      # them: the lock file, the toolchain file and the native sources. The
+      # feature sets differ between the GPU jobs and the platform gate, and the
+      # store is content-addressed, so a job that asked for a different set
+      # rebuilds what it needs and reuses the rest rather than starting empty.
+      - name: Restore the Rust build outputs
+        uses: actions/cache@v4
+        with:
+          path: build/rust
+          key: >-
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
+            'native/**/Cargo.toml', 'native/**/*.rs', 'native/**/*.c',
+            'native/**/*.h') }}
+          restore-keys: |
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install the software Vulkan adapter
         run: |
@@ -886,18 +916,17 @@ jobs:
       # save the toolchain for every diagnostic commit. Preserve the expensive
       # compiler build before turning the captured outcome back
       # into the job's verdict.
-      - name: Save a failed conformance toolchain
+      - name: Save a failed conformance build
         if: steps.gpu_conformance.outcome == 'failure'
         uses: actions/cache/save@v4
+        continue-on-error: true
         with:
-          path: |
-            .nupp-cache/toolchain
-            build/rust
+          path: build/rust
           key: >-
-            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
-            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
-            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
+            'native/**/Cargo.toml', 'native/**/*.rs', 'native/**/*.c',
+            'native/**/*.h') }}
 
       - name: Report GPU conformance failure
         if: steps.gpu_conformance.outcome == 'failure'
@@ -913,19 +942,32 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v5
 
-      - name: Restore the provisioned GPU toolchain
+      - name: Restore the provisioned toolchain
         uses: actions/cache@v4
         with:
-          path: |
-            .nupp-cache/toolchain
-            build/rust
+          path: .nupp-cache/toolchain
           key: >-
-            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
-            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
-            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
           restore-keys: |
-            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      # One identity for the Rust artifacts, shared by every job that builds
+      # them: the lock file, the toolchain file and the native sources. The
+      # feature sets differ between the GPU jobs and the platform gate, and the
+      # store is content-addressed, so a job that asked for a different set
+      # rebuilds what it needs and reuses the rest rather than starting empty.
+      - name: Restore the Rust build outputs
+        uses: actions/cache@v4
+        with:
+          path: build/rust
+          key: >-
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
+            'native/**/Cargo.toml', 'native/**/*.rs', 'native/**/*.c',
+            'native/**/*.h') }}
+          restore-keys: |
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install the ABI-compatible Windows Rust toolchain
         shell: bash
