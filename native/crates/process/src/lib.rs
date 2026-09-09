@@ -1056,13 +1056,28 @@ mod tests {
     }
 
     #[test]
-    fn input_backpressure_allows_only_one_write_at_a_time() {
+    fn input_reaches_a_child_that_reads_it() {
         let _guard = child_test_guard();
         let spawned = shell(COPY_INPUT_SCRIPT);
         let input = spawned.streams[0].as_ref().unwrap();
+        let output = spawned.streams[1].as_ref().unwrap();
         assert_eq!(input.try_write(b"one").unwrap(), Write::Accepted(3));
-        assert_eq!(input.try_write(b"two").unwrap(), Write::WouldBlock);
         input.close();
+        let mut bytes = Vec::new();
+        let mut scratch = [0_u8; 64];
+        loop {
+            match output.try_read(&mut scratch).unwrap() {
+                Read::Data(count) => bytes.extend_from_slice(&scratch[..count]),
+                Read::WouldBlock => {
+                    assert_eq!(
+                        wait_ready(None, &[Arc::clone(output)], Duration::from_secs(2)),
+                        1
+                    )
+                }
+                Read::Gone => break,
+            }
+        }
+        assert!(bytes.starts_with(b"one"), "the child echoed {bytes:?}");
         assert_eq!(
             wait_for_exit(&spawned.child),
             Exit {
@@ -1070,6 +1085,48 @@ mod tests {
                 killed: false
             }
         );
+        spawned.child.reap().unwrap();
+    }
+
+    // Only one write is in flight at a time, so the property is observable
+    // only while a write cannot finish. Against a child that reads its input
+    // the pump drains the queued bytes into an emptying pipe, and whether it
+    // does so between two calls is the scheduler's decision rather than the
+    // provider's. This child never reads, so once the loop below has filled
+    // its pipe the write in flight stays in flight for as long as the child
+    // lives, and every later write is refused.
+    #[test]
+    fn input_backpressure_allows_only_one_write_at_a_time() {
+        let _guard = child_test_guard();
+        let spawned = shell(LONG_RUNNING_SCRIPT);
+        let input = spawned.streams[0].as_ref().unwrap();
+        let chunk = vec![b'f'; WRITE_LIMIT];
+        let settle = Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            match input.try_write(&chunk).unwrap() {
+                Write::Accepted(count) => assert_eq!(count, WRITE_LIMIT),
+                Write::WouldBlock => {}
+                Write::Gone => panic!("the child closed the input it never reads"),
+            }
+            // A pump with pipe room left reports the stream writable again
+            // well inside this window; one parked on a full pipe never does.
+            if wait_ready(None, &[Arc::clone(input)], settle) == 0 {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the input pipe never filled, so no write ever stayed in flight"
+            );
+        }
+        assert_eq!(input.try_write(b"two").unwrap(), Write::WouldBlock);
+        assert_eq!(wait_ready(None, &[Arc::clone(input)], settle), 0);
+        assert_eq!(input.try_write(b"two").unwrap(), Write::WouldBlock);
+        spawned.child.kill(true).unwrap();
+        assert!(wait_for_exit(&spawned.child).killed);
+        for stream in spawned.streams.iter().flatten() {
+            stream.close();
+        }
         spawned.child.reap().unwrap();
     }
 
