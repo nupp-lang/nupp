@@ -485,7 +485,13 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             target.aotFeatures as string?,
             target.aotTarget as string?,
             target.aotCflags as {string}?,
-            aotLinkage
+            aotLinkage,
+            new aotPolicy.Carried(
+                objects = oldState.aotObjects,
+                modules = oldState.aotModules,
+                toolchain = oldState.aotToolchain
+            ),
+            report
         )
         report:clear()
         if produced == nil then
@@ -529,6 +535,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         if (produced as any).libraryKey ~= nil then
             newState.aotLibrary = (produced as any).libraryKey
         end
+        newState.aotObjects = (produced as any).objects
+        newState.aotModules = (produced as any).modules
+        newState.aotToolchain = (produced as any).remembered
+        report:aotCounted((produced as any).facts)
         aotOverlays = (produced as any).dispatch as {[string]: string}?
         aotAuthoredUnused = (produced as any).authoredUnused as {[string]: {any}}?
         aotGpu = (produced as any).gpu == true

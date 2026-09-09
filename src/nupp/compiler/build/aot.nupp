@@ -33,6 +33,7 @@ to.
 const {type Session} = require("nupp.compiler.build.modules")
 const {type ParseResult} = require("nupp.compiler.parser")
 const {type Archive} = require("nupp.compiler.aot.binding")
+const {type Reporter} = require("nupp.compiler.build.progress")
 const json = require("nupp.codec.json")
 
 local bindingRules = require("nupp.compiler.aot.binding")
@@ -48,6 +49,8 @@ local envMod = require("nupp.compiler.env")
 local cache = require("nupp.compiler.build.cache")
 local hash = require("nupp.compiler.build.hash")
 local process = require("nupp.compiler.build.process")
+local progress = require("nupp.compiler.build.progress")
+local toolruns = require("nupp.compiler.build.toolruns")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local targets = require("nupp.compiler.aot.target")
 local profiles = require("nupp.compiler.targetprofile")
@@ -352,6 +355,114 @@ function aot.identify(text: string): (string?, integer?)
     return nil, nil
 end
 
+--- What a build remembered about the compiler it used last time.
+---
+--- Enough to go on without running anything: which command it was, what that
+--- command looked like from outside, and what it said about itself.
+record aot.Remembered
+    command: string
+
+    --- `aot.toolSignature` of `command`, as it read when the version below was
+    --- taken.
+    signature: string
+
+    version: string
+    dialect: string
+end
+
+--- Where a bare command name is found, without asking a shell to find it.
+---
+--- A command with a separator in it names a file. Anything else is looked up
+--- the way the shell about to run it will look it up, entry by entry, taking
+--- the first that opens.
+local function resolveCommand(command: string): string?
+    if command:find("[/\\]") ~= nil then
+        return fs.exists(command) and command or nil
+    end
+    local search = os.getenv("PATH") or ""
+    local separator = package.config:sub(1, 1) == "\\" and ";" or ":"
+    for entry in search:gmatch("[^" .. separator .. "]+") do
+        local candidate = entry .. "/" .. command
+        if fs.exists(candidate) then
+            return candidate
+        end
+        if separator == ";" and fs.exists(candidate .. ".exe") then
+            return candidate .. ".exe"
+        end
+    end
+
+    return nil
+end
+
+--- What a compiler looks like from outside: the file it resolves to and how
+--- long that file is.
+---
+--- The point of it is that reading it starts nothing. `--version` is the honest
+--- answer to "which compiler is this", and it is also a process -- so a build
+--- that has nothing to compile would still run the compiler once to find out
+--- that it has nothing to compile, which is most of what an unchanged build
+--- would then cost.
+---
+--- So the identity an artifact is keyed on stays the version text, and this
+--- decides only whether the recorded version text may be believed without
+--- asking again. A compiler replaced at the same path with a file of a
+--- different length is seen. One replaced with a file of exactly the same
+--- length, or reached through a launcher that dispatches elsewhere -- which is
+--- what `/usr/bin/clang` on macOS is -- is not, and an unchanged project keeps
+--- the library it already has until something else about it changes. The first
+--- edit after that re-reads the version, and every object is keyed on it, so
+--- the answer converges rather than persisting.
+---
+--- Newline-separated because no path on any supported platform contains one,
+--- and this is carried through JSON.
+function aot.toolSignature(command: string): string
+    local resolved = resolveCommand(command)
+    if resolved == nil then
+        return command .. "\n\n"
+    end
+    local handle = io.open(resolved as string, "rb")
+    if handle == nil then
+        return command .. "\n" .. (resolved as string) .. "\n"
+    end
+    local size = (handle as LuaFile):seek("end");
+    (handle as LuaFile):close()
+
+    return command .. "\n" .. (resolved as string) .. "\n" .. tostring(size or "")
+end
+
+--- The command a remembered signature was taken for.
+function aot.signatureCommand(signature: string?): string?
+    if signature == nil then
+        return nil
+    end
+
+    return (signature as string):match("^([^\n]*)")
+end
+
+--- Whether a remembered compiler is still the one this build would choose.
+---
+--- The first candidate that resolves to a file is the one the probe would reach
+--- first, so agreeing with the memo about that -- and about what the file looks
+--- like -- is agreeing about which compiler is about to be used. A candidate
+--- that resolves and was nonetheless refused leaves the memo describing a later
+--- one, which does not match and is asked again.
+local function rememberedCommand(candidates: {string}, memo: aot.Remembered?): boolean
+    if memo == nil then
+        return false
+    end
+    local known = memo as aot.Remembered
+    if known.command == "" or known.version == "" or known.dialect == "" then
+        return false
+    end
+    for _, command in ipairs(candidates) do
+        if resolveCommand(command) ~= nil then
+            return command == known.command and aot.toolSignature(command) == known.signature
+        end
+    end
+
+    return false
+end
+
 --- Finds a C compiler that can build the generated C.
 ---
 --- `NUPP_NATIVE_CC` names one outright, and naming one that cannot build this C
@@ -359,8 +470,10 @@ end
 --- used a different compiler than it was told to would produce an artifact
 --- nobody could account for.
 ---
+--- @param memo what the last build recorded about the compiler it used, which
+---   is believed when the machine still looks the way it did
 --- @return the toolchain, or nothing and why there is none
-function aot.toolchain(targetTriple: string?): (aot.Toolchain?, string?)
+function aot.toolchain(targetTriple: string?, memo: aot.Remembered?): (aot.Toolchain?, string?)
     local named = os.getenv("NUPP_NATIVE_CC")
     local pack, packErr = require("nupp.compiler.build.compilerpacks").resolve(targetTriple or targets.hostTriple())
     if packErr ~= nil and named == nil then
@@ -369,9 +482,24 @@ function aot.toolchain(targetTriple: string?): (aot.Toolchain?, string?)
     local onWindows = (jit and jit.os or ""):lower() == "windows"
     local preferred = onWindows and aot.WINDOWS_CANDIDATES or aot.CANDIDATES
     local candidates = named ~= nil and {named as string} or pack ~= nil and {(pack as any).cc} or preferred
+    -- The pack's own contribution is read from the pack either way; only what
+    -- the compiler said about itself is taken from the memo, because only that
+    -- costs a process to learn.
+    if rememberedCommand(candidates, memo) then
+        local known = memo as aot.Remembered
+
+        return new aot.Toolchain(
+            command = known.command,
+            version = known.version,
+            dialect = known.dialect,
+            archiver = pack and (pack as any).ar or nil,
+            packCompileFlags = pack and (pack as any).compileFlags or nil,
+            packLinkFlags = pack and (pack as any).linkFlags or nil
+        ), nil
+    end
     local refusals: {string} = {}
     for _, command in ipairs(candidates) do
-        local code, text = process.capture({command, "--version"})
+        local code, text = toolruns.capture({command, "--version"})
         if code ~= 0 then
             refusals[#refusals + 1] = command .. " could not be run"
         else
@@ -656,10 +784,24 @@ function aot.wasmDispatch(
     return rewritten
 end
 
+--- The command that runs Emscripten's driver.
+function aot.wasmCommand(): string
+    return os.getenv("NUPP_WASM_CC") or "emcc"
+end
+
 --- Locates the pinned Emscripten compiler used for side modules.
-function aot.wasmToolchain(): (string?, string?)
-    local command = os.getenv("NUPP_WASM_CC") or "emcc"
-    local code, printed = process.capture({command, "--version"})
+function aot.wasmToolchain(memo: aot.Remembered?): (string?, string?)
+    local command = aot.wasmCommand()
+    -- Emscripten's driver is a Python program, so asking it its version costs
+    -- most of a second -- more than everything else an unchanged Wasm build
+    -- does. The same memo rule the C compiler uses applies, and `emcc` is a
+    -- script rather than a launcher, so its length moves when it is upgraded.
+    if rememberedCommand({command}, memo) then
+        local known = memo as aot.Remembered
+
+        return known.command, known.version
+    end
+    local code, printed = toolruns.capture({command, "--version"})
     if code ~= 0 then
         return nil, "Wasm AOT needs Emscripten emcc; name it with NUPP_WASM_CC"
     end
@@ -675,30 +817,103 @@ function aot.wasmToolchain(): (string?, string?)
     return command, first
 end
 
+--- One Wasm side module a previous build produced.
+record aot.WasmModule
+    --- What it was compiled from and by, which decides whether it is reused.
+    key: string
+
+    --- Where the compiled module landed, which is content-addressed and so
+    --- moves whenever the bytes do.
+    output: string
+
+    --- The digest of the compiled module, which the policy's own key is over.
+    digest: string
+end
+
+--- Everything compiling a policy's Wasm side modules produced.
+record aot.WasmOutcome
+    --- Generated sources and compiled modules, in source order, for the build
+    --- to record as its own outputs.
+    outputs: {string}
+
+    --- The key the whole set was produced under, compared next time.
+    key: string
+
+    --- What Emscripten said about itself.
+    toolchain: string
+
+    --- Per-unit records the next build reuses.
+    modules: {[string]: aot.WasmModule}
+
+    reused: integer
+    compiled: integer
+end
+
+--- The key one Wasm side module was compiled under.
+---
+--- The generated source rather than the IR it came from, because the registrar
+--- appended to it is part of what Emscripten reads; the compiler that reads it;
+--- the tier that chose its instructions; and the project flags handed to it.
+function aot.wasmModuleKey(source: string, version: string, tier: string, extra: {string}?): string
+    return hash.digest(
+        cache.stable({
+            c = source,
+            toolchain = version,
+            tier = tier,
+            flags = extra or {},
+            backend = aot.BACKEND,
+        })
+    )
+end
+
 --- Compiles each emitted source as one independently cacheable side module.
+---
+--- A module whose generated source, compiler, tier and flags are the ones its
+--- recorded artifact was built from is not compiled again, and a set in which
+--- none of them changed starts no Emscripten process at all. The rest are
+--- compiled side by side, since nothing one of them produces is read by
+--- another.
+---
+--- @param previous what the last build recorded, per unit
+--- @param memo what the last build recorded about Emscripten itself
 function aot.compileWasm(
     emitted: {aot.Emitted},
     produced: {[string]: compile.Artifacts},
-    extra: {string}?
-): ({string}?, string?, string?, string?)
-    local command, version = aot.wasmToolchain()
+    extra: {string}?,
+    previous: {[string]: aot.WasmModule}?,
+    memo: aot.Remembered?,
+    reporter: Reporter?
+): (aot.WasmOutcome?, string?)
+    local report = reporter or progress.new("never")
+    local command, version = aot.wasmToolchain(memo)
     if command == nil then
-        return nil, version, nil, nil
+        return nil, version
     end
+    local known = previous or {}
     local outputs: {string} = {}
     local keys: {string} = {version as string}
+    local modules: {[string]: aot.WasmModule} = {}
+    local units: {aot.Emitted} = {}
+    local sources: {string} = {}
+    local moduleKeys: {string} = {}
+    local dirty: {integer} = {}
+    local argvs: {{string}} = {}
+    local staged: {string} = {}
+    local digests: {string} = {}
+    local reused: integer = 0
+
+    report:at("aot:emit")
     for _, one in ipairs(emitted) do
         if one.detector ~= true then
             local artifacts = produced[one.cacheKey]
             if artifacts == nil then
-                return nil, "missing Wasm AOT artifacts for " .. one.source, nil, nil
+                return nil, "missing Wasm AOT artifacts for " .. one.source
             end
             local validation = wasmEmitter.validate((artifacts as compile.Artifacts).programs)
             if validation ~= nil then
-                return nil, validation, nil, nil
+                return nil, validation
             end
             local unit = "u" .. one.key:sub(1, 16)
-            local registrar = "nupp_wasm_register_" .. unit
             local source = one.output:gsub("%.c$", ".side.c")
             local bytes = (
                 artifacts as compile.Artifacts
@@ -706,14 +921,37 @@ function aot.compileWasm(
             if fs.readFile(source) ~= bytes then
                 local wrote, writeErr = fs.writeFile(source, bytes)
                 if not wrote then
-                    return nil, tostring(writeErr), nil, nil
+                    return nil, tostring(writeErr)
                 end
             end
+            one.wasmSource = source
+            one.registrar = "nupp_wasm_register_" .. unit
+            one.unit = unit
+            units[#units + 1] = one
+            sources[#sources + 1] = source
+            moduleKeys[#moduleKeys + 1] = aot.wasmModuleKey(bytes, version as string, one.tier, extra)
+        end
+    end
+
+    report:at("aot:reuse")
+    for position, one in ipairs(units) do
+        local record = known[one.cacheKey]
+        local moduleKey = moduleKeys[position] as string
+        -- The record is evidence, not authority: the module it names still has
+        -- to be on disk, and its name carries the digest of what it contains.
+        if record ~= nil and (
+            record as aot.WasmModule
+        ).key == moduleKey and fs.exists((record as aot.WasmModule).output) then
+            reused = reused + 1
+            one.wasm = (record as aot.WasmModule).output
+            digests[position] = (record as aot.WasmModule).digest
+        else
+            dirty[#dirty + 1] = position
             local argv: {
                 string
             } = {
                 command as string,
-                source,
+                sources[position] as string,
                 "-std=c11",
                 "-O3",
                 "-ffp-contract=off",
@@ -732,40 +970,76 @@ function aot.compileWasm(
             for _, flag in ipairs(extra or {}) do
                 argv[#argv + 1] = flag
             end
-            local staged = one.output:gsub("%.c$", ".wasm.tmp")
+            local stagedPath = one.output:gsub("%.c$", ".wasm.tmp")
             argv[#argv + 1] = "-o"
-            argv[#argv + 1] = staged
-            os.remove(staged)
-            local code, printed = process.capture(argv)
-            if code ~= 0 then
-                os.remove(staged)
-                return nil, "compiling Wasm AOT side module failed:\n" .. printed, nil, nil
+            argv[#argv + 1] = stagedPath
+            os.remove(stagedPath)
+            argvs[#argvs + 1] = argv
+            staged[#staged + 1] = stagedPath
+        end
+    end
+
+    if #argvs > 0 then
+        report:at("aot:compile")
+        local runs = toolruns.captureAll(argvs, toolruns.width(#argvs))
+        local failure: string? = nil
+        for position, run in ipairs(runs) do
+            if run.code ~= 0 and failure == nil then
+                failure = "compiling Wasm AOT side module failed:\n" .. run.output
             end
-            local wasm, readErr = fs.readFile(staged)
-            os.remove(staged)
+            if run.code ~= 0 then
+                os.remove(staged[position] as string)
+            end
+        end
+        if failure ~= nil then
+            for _, path in ipairs(staged) do
+                os.remove(path)
+            end
+
+            return nil, failure
+        end
+        report:at("aot:emit")
+        for position, index in ipairs(dirty) do
+            local one = units[index] as aot.Emitted
+            local stagedPath = staged[position] as string
+            local wasm, readErr = fs.readFile(stagedPath)
+            os.remove(stagedPath)
             if wasm == nil then
-                return nil, tostring(readErr), nil, nil
+                return nil, tostring(readErr)
             end
             local wasmDigest = hash.digest(wasm as string)
             local output = one.output:gsub("%.c$", "." .. wasmDigest:sub(1, 16) .. ".wasm")
             if fs.readFile(output) ~= wasm then
                 local wrote, writeErr = fs.writeFile(output, wasm as string)
                 if not wrote then
-                    return nil, tostring(writeErr), nil, nil
+                    return nil, tostring(writeErr)
                 end
             end
-            one.wasmSource = source
             one.wasm = output
-            one.registrar = registrar
-            one.unit = unit
-            outputs[#outputs + 1] = source
-            outputs[#outputs + 1] = output
-            keys[#keys + 1] = one.key
-            keys[#keys + 1] = wasmDigest
+            digests[index] = wasmDigest
         end
     end
 
-    return outputs, nil, hash.digest(table.concat(keys, "\0")), version
+    for position, one in ipairs(units) do
+        local output = one.wasm as string
+        local digest = digests[position] as string
+        modules[
+            one.cacheKey
+        ] = new aot.WasmModule(key = moduleKeys[position] as string, output = output, digest = digest)
+        outputs[#outputs + 1] = sources[position] as string
+        outputs[#outputs + 1] = output
+        keys[#keys + 1] = one.key
+        keys[#keys + 1] = digest
+    end
+
+    return new aot.WasmOutcome(
+        outputs = outputs,
+        key = hash.digest(table.concat(keys, "\0")),
+        toolchain = version as string,
+        modules = modules,
+        reused = reused,
+        compiled = #argvs
+    ), nil
 end
 
 --- What the compiled library is called, without saying where it is.
@@ -799,11 +1073,53 @@ function aot.libraryReference(name: string, suffix: string): string
     return "@lib/" .. aot.libraryFile(name, suffix)
 end
 
+--- What one build of a target's native objects and library produced.
+record aot.LinkOutcome
+    --- Unit identity -> the key its object file was compiled under.
+    objects: {[string]: string}
+
+    reused: integer
+    compiled: integer
+
+    --- Whether an archiver or a linker ran.
+    linked: boolean
+end
+
+--- The key one object file was compiled under.
+---
+--- Everything that decides its bytes and nothing that does not: the unit key,
+--- which already carries the IR, the target and the compiler that lowered it;
+--- the feature tier, which chooses the instructions; the C compiler that reads
+--- the unit; and every flag it is given, in the order it is given them.
+---
+--- Deliberately separate from `aot.libraryKey`. One unit changing must recompile
+--- one object, and a key that covered the whole set could only say that
+--- something changed.
+function aot.objectKey(unitKey: string, tier: string, chain: aot.Toolchain, flags: {string}): string
+    return hash.digest(
+        cache.stable({
+            unit = unitKey,
+            tier = tier,
+            toolchain = chain.version,
+            flags = flags,
+            backend = aot.BACKEND,
+        })
+    )
+end
+
 --- Compiles the emitted C into one shared library.
 ---
 --- One library for the project rather than one per source, because the loader
 --- opens it once and the wrappers all name the same object. Sources are sorted
 --- so two builds of one project produce the same command line.
+---
+--- Objects are kept. An object whose key matches the one recorded for it and
+--- whose file is still there is not compiled again, so editing one `@aot` body
+--- in a project with several -- or with several target tiers, which are several
+--- objects from one body -- recompiles that body's objects and relinks, rather
+--- than recompiling everything the library contains. The ones that do have to be
+--- compiled are compiled side by side: nothing one translation unit produces is
+--- read by another, and the link that follows reads all of them.
 ---
 --- Written through a staged path and installed only after the compiler
 --- succeeded, so a failed link leaves the previous library in place rather than
@@ -811,7 +1127,8 @@ end
 ---
 --- @param emitted the tiered C translation units the emitter wrote
 --- @param output where the library goes
---- @return nothing, or what went wrong
+--- @param previous the object keys the last build recorded
+--- @return nothing, or what went wrong, and what this build produced
 function aot.link(
     chain: aot.Toolchain,
     selected: targets.Target,
@@ -819,76 +1136,122 @@ function aot.link(
     output: string,
     extra: {string}?,
     needsLua: boolean?,
-    static: boolean?
-): string?
+    static: boolean?,
+    previous: {[string]: string}?,
+    reporter: Reporter?
+): (string?, aot.LinkOutcome?)
+    local report = reporter or progress.new("never")
     if not fs.mkdir(fs.dirname(output)) then
-        return "could not create " .. fs.dirname(output)
+        return "could not create " .. fs.dirname(output), nil
     end
 
+    local known = previous or {}
     local objects: {string} = {}
-    for _, one in ipairs(emitted) do
+    local objectKeys: {[string]: string} = {}
+    local dirty: {integer} = {}
+    local argvs: {{string}} = {}
+    local staged: {string} = {}
+    local reused: integer = 0
+
+    report:at("aot:reuse")
+    for index, one in ipairs(emitted) do
         local tierTarget, tierErr = targets.select(selected.triple, one.tier)
         if tierTarget == nil then
-            return tostring(tierErr)
+            return tostring(tierErr), nil
         end
         local object = one.output:gsub("%.c$", ".o")
-        local stagedObject = object .. ".tmp"
-        local argv: {string} = {chain.command}
-        for _, flag in ipairs(aot.compileFlags(tierTarget as targets.Target, chain, extra)) do
-            argv[#argv + 1] = flag
-        end
-        argv[#argv + 1] = "-c"
-        argv[#argv + 1] = one.output
-        argv[#argv + 1] = "-o"
-        argv[#argv + 1] = stagedObject
-        os.remove(stagedObject)
-        local code, text = process.capture(argv)
-        if code ~= 0 then
-            os.remove(stagedObject)
-            local hint = ""
-            if selected.triple ~= targets.hostTriple() then
-                hint = (
-                    "\ncompiling for %s on %s needs that target's headers and libraries: "
-                ):format(
-                    selected.triple,
-                    tostring(targets.hostTriple())
-                ) .. "give the sysroot through aotCflags, or select aot = \"emit-c\" and build the C where it runs"
-            end
-
-            return "compiling the generated " .. one.tier .. " C failed:\n" .. text .. hint
-        end
-        local installed, installErr = fs.installStaged(stagedObject, object)
-        if not installed then
-            return tostring(installErr)
-        end
+        local flags = aot.compileFlags(tierTarget as targets.Target, chain, extra)
+        local objectKey = aot.objectKey(one.key, one.tier, chain, flags)
+        objectKeys[one.cacheKey] = objectKey
         one.object = object
         objects[#objects + 1] = object
+        -- Same rule the library follows: the key is compared, and then the file
+        -- it describes has to still be there. A stale object linked because a
+        -- digest agreed is a wrong answer, where recompiling one costs a second.
+        if known[one.cacheKey] == objectKey and fs.exists(object) then
+            reused = reused + 1
+        else
+            dirty[#dirty + 1] = index
+            local stagedObject = object .. ".tmp"
+            local argv: {string} = {chain.command}
+            for _, flag in ipairs(flags) do
+                argv[#argv + 1] = flag
+            end
+            argv[#argv + 1] = "-c"
+            argv[#argv + 1] = one.output
+            argv[#argv + 1] = "-o"
+            argv[#argv + 1] = stagedObject
+            os.remove(stagedObject)
+            argvs[#argvs + 1] = argv
+            staged[#staged + 1] = stagedObject
+        end
+    end
+
+    if #argvs > 0 then
+        report:at("aot:compile")
+        local runs = toolruns.captureAll(argvs, toolruns.width(#argvs))
+        -- The first failing unit in emission order rather than the first to
+        -- report, so what a build says about broken generated C does not depend
+        -- on how many processors ran it.
+        local failure: string? = nil
+        for position, run in ipairs(runs) do
+            if run.code ~= 0 and failure == nil then
+                local one = emitted[dirty[position] as integer] as aot.Emitted
+                local hint = ""
+                if selected.triple ~= targets.hostTriple() then
+                    hint = (
+                        "\ncompiling for %s on %s needs that target's headers and libraries: "
+                    ):format(
+                        selected.triple,
+                        tostring(targets.hostTriple())
+                    ) .. "give the sysroot through aotCflags, or select aot = \"emit-c\" and build the C where it runs"
+                end
+                failure = "compiling the generated " .. one.tier .. " C failed:\n" .. run.output .. hint
+            end
+        end
+        if failure ~= nil then
+            for _, path in ipairs(staged) do
+                os.remove(path)
+            end
+
+            return failure, nil
+        end
+        for position, index in ipairs(dirty) do
+            local one = emitted[index] as aot.Emitted
+            local installed, installErr = fs.installStaged(staged[position] as string, one.object as string)
+            if not installed then
+                return tostring(installErr), nil
+            end
+        end
     end
     table.sort(objects)
 
+    local outcome = new aot.LinkOutcome(objects = objectKeys, reused = reused, compiled = #argvs, linked = true)
+    report:at("aot:link")
     if static then
-        local probeCode, probed = process.capture({chain.command, "-print-prog-name=ar"})
+        local probeCode, probed = toolruns.capture({chain.command, "-print-prog-name=ar"})
         local archiver = chain.archiver or (probeCode == 0 and probed:match("^%s*(.-)%s*$") or nil)
         if archiver == nil or archiver == "" then
             archiver = "ar"
         end
-        local staged = output .. ".tmp"
-        os.remove(staged)
-        local argv: {string} = {archiver as string, "rcs", staged}
+        local stagedArchive = output .. ".tmp"
+        os.remove(stagedArchive)
+        local argv: {string} = {archiver as string, "rcs", stagedArchive}
         for _, object in ipairs(objects) do
             argv[#argv + 1] = object
         end
-        local code, text = process.capture(argv)
+        local code, text = toolruns.capture(argv)
         if code ~= 0 then
-            os.remove(staged)
-            return "archiving the generated C failed:\n" .. text
+            os.remove(stagedArchive)
+
+            return "archiving the generated C failed:\n" .. text, nil
         end
-        local installed, installErr = fs.installStaged(staged, output)
+        local installed, installErr = fs.installStaged(stagedArchive, output)
         if not installed then
-            return tostring(installErr)
+            return tostring(installErr), nil
         end
 
-        return nil
+        return nil, outcome
     end
 
     local shared, _, trailing = aot.linkage(selected, needsLua)
@@ -900,18 +1263,18 @@ function aot.link(
         argv[#argv + 1] = flag
     end
     argv[#argv + 1] = "-o"
-    local staged = output .. ".tmp"
-    argv[#argv + 1] = staged
+    local stagedLibrary = output .. ".tmp"
+    argv[#argv + 1] = stagedLibrary
     for _, object in ipairs(objects) do
         argv[#argv + 1] = object
     end
     if trailing ~= nil then
         argv[#argv + 1] = trailing as string
     end
-    os.remove(staged)
-    local code, text = process.capture(argv)
+    os.remove(stagedLibrary)
+    local code, text = toolruns.capture(argv)
     if code ~= 0 then
-        os.remove(staged)
+        os.remove(stagedLibrary)
         local hint = ""
         if needsLua and targets.system(selected.triple) == "windows" and aot.luaImportLibrary() == nil then
             hint = "\nthis entry drives the Lua VM, and a Windows library resolves every "
@@ -919,15 +1282,15 @@ function aot.link(
                 .. "NUPP_LUA_LIB, or put the `luajit` this will run under on PATH"
         end
 
-        return "linking the generated C failed:\n" .. text .. hint
+        return "linking the generated C failed:\n" .. text .. hint, nil
     end
 
-    local installed, installErr = fs.installStaged(staged, output)
+    local installed, installErr = fs.installStaged(stagedLibrary, output)
     if not installed then
-        return tostring(installErr)
+        return tostring(installErr), nil
     end
 
-    return nil
+    return nil, outcome
 end
 
 --- The assembly one generated translation unit compiles to.
@@ -1001,8 +1364,18 @@ function aot.emitC(
     session: Session,
     features: string?,
     triple: string?,
-    staticLinkage: boolean?
+    staticLinkage: boolean?,
+    reporter: Reporter?
 ): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}}, any?, {string})
+    local report = reporter or progress.new("never")
+
+    -- Named for the timeline rather than for the function, so `build --json`
+    -- reports lowering, optimization and emission as three activities that add
+    -- up to what the policy cost rather than as one that does not break down.
+    local function at(step: string): nil
+        report:at("aot:" .. step)
+    end
+
     local produced: {[string]: compile.Artifacts} = {}
     local gpuSources: {string} = {}
     -- Kept for every source read here, and used only for the ones that end up
@@ -1051,6 +1424,7 @@ function aot.emitC(
         end
     end
     local checkedSources: {string} = {}
+    report:at("aot:check")
     for _, source in ipairs(sources) do
         local checkedSource, unusedHere = checkedTree(session, source)
         if checkedSource ~= nil then
@@ -1082,7 +1456,8 @@ function aot.emitC(
                     tierTarget,
                     tierTarget.tier,
                     constPlans,
-                    staticLinkage
+                    staticLinkage,
+                    at
                 )
                 if artifacts == nil then
                     -- A file that only mentioned the annotation is not
@@ -1146,7 +1521,9 @@ function aot.emitC(
 
                     -- The state is evidence, not authority: the bytes
                     -- still have to be the ones this compiler emitted.
+                    report:at("aot:reuse")
                     local reused = previous[cacheKey] == key and fs.readFile(output) == artifacts.c
+                    report:at("aot:emit")
                     if not reused then
                         local ok, err = fs.writeFile(output, artifacts.c)
                         if not ok then
@@ -1244,6 +1621,49 @@ record aot.Result
 
     --- Sources with authored GPU kernels, for generated runtime-effect selection.
     gpuSources: {string}?
+
+    --- Unit identity -> the key its native object was compiled under, for the
+    --- next build to reuse the objects nothing changed.
+    objects: {[string]: string}?
+
+    --- Unit identity -> the Wasm side module it produced, for the same reason.
+    modules: {[string]: aot.WasmModule}?
+
+    --- What the external toolchain said about itself, so the next build need not
+    --- start it to find out.
+    remembered: aot.Remembered?
+
+    --- What this run of the policy did, for `build --json`.
+    facts: aot.Facts?
+end
+
+--- What one run of the ahead-of-time policy did, in numbers a report can carry.
+---
+--- `externalCommands` is the one that answers a question nothing else can:
+--- whether a build that reused everything started a compiler anyway. It counts
+--- every external toolchain process the policy started, version probes
+--- included, so an unchanged build asserts a zero rather than the absence of
+--- something invisible.
+record aot.Facts
+    units: integer
+    reusedObjects: integer
+    compiledObjects: integer
+    reusedModules: integer
+    compiledModules: integer
+    linked: boolean
+    externalCommands: integer
+end
+
+--- What a previous build of this target's policy left for this one.
+record aot.Carried
+    --- Unit identity -> the key its native object was compiled under.
+    objects: {[string]: string}?
+
+    --- Unit identity -> the Wasm side module it produced.
+    modules: {[string]: aot.WasmModule}?
+
+    --- What the external toolchain said about itself last time.
+    toolchain: aot.Remembered?
 end
 
 --- The component identity every symbol in a static archive carries.
@@ -1450,8 +1870,13 @@ function aot.apply(
     features: string?,
     triple: string?,
     cflags: {string}?,
-    linkage: string?
+    linkage: string?,
+    carried: aot.Carried?,
+    reporter: Reporter?
 ): (aot.Result?, string?)
+    local report = reporter or progress.new("never")
+    local held = carried or new aot.Carried()
+    toolruns.reset()
     local wasmPolicy = aot.linksWasm(policy)
     if wasmPolicy then
         triple = "wasm32-unknown-emscripten"
@@ -1465,7 +1890,8 @@ function aot.apply(
         session,
         features,
         triple,
-        linkage == "static"
+        linkage == "static",
+        report
     )
     if emitted == nil then
         return nil, emitErr
@@ -1560,10 +1986,19 @@ function aot.apply(
         end
     end
     if wasmPolicy then
-        local wasmModules, wasmErr, wasmKey, wasmToolchain = aot.compileWasm(emitted as {aot.Emitted}, produced, cflags)
-        if wasmModules == nil then
+        local wasm, wasmErr = aot.compileWasm(
+            emitted as {aot.Emitted},
+            produced,
+            cflags,
+            held.modules,
+            held.toolchain,
+            report
+        )
+        if wasm == nil then
             return nil, wasmErr
         end
+        local sideModules = wasm as aot.WasmOutcome
+        report:at("aot")
         manifest, manifestErr = aot.writeUnitsManifest(
             outDir,
             (selectedForManifest as {targets.Target})[1].triple,
@@ -1609,16 +2044,32 @@ function aot.apply(
         end
         return new aot.Result(
             emitted = emitted as {aot.Emitted},
-            libraryKey = wasmKey,
-            toolchain = wasmToolchain,
+            libraryKey = sideModules.key,
+            toolchain = sideModules.toolchain,
             manifest = manifest,
             dispatch = dispatch,
             authoredUnused = authoredUnused,
-            wasmModules = wasmModules,
+            wasmModules = sideModules.outputs,
             gpu = #gpuSources > 0,
             gpuSources = gpuSources,
             specializedBodies = specializedBodies,
-            constSelection = constSelection
+            constSelection = constSelection,
+            modules = sideModules.modules,
+            remembered = new aot.Remembered(
+                command = aot.wasmCommand(),
+                signature = aot.toolSignature(aot.wasmCommand()),
+                version = sideModules.toolchain,
+                dialect = "emscripten"
+            ),
+            facts = new aot.Facts(
+                units = #(emitted as {aot.Emitted}),
+                reusedObjects = 0,
+                compiledObjects = 0,
+                reusedModules = sideModules.reused,
+                compiledModules = sideModules.compiled,
+                linked = false,
+                externalCommands = toolruns.count()
+            )
         ), nil
     end
     if not aot.linksNative(policy) then
@@ -1629,7 +2080,16 @@ function aot.apply(
             gpu = #gpuSources > 0,
             gpuSources = gpuSources,
             specializedBodies = specializedBodies,
-            constSelection = constSelection
+            constSelection = constSelection,
+            facts = new aot.Facts(
+                units = #(emitted as {aot.Emitted}),
+                reusedObjects = 0,
+                compiledObjects = 0,
+                reusedModules = 0,
+                compiledModules = 0,
+                linked = false,
+                externalCommands = toolruns.count()
+            )
         ), nil
     end
     if #(emitted as {aot.Emitted}) == 0 then
@@ -1660,12 +2120,22 @@ function aot.apply(
             gpu = #gpuSources > 0,
             gpuSources = gpuSources,
             specializedBodies = specializedBodies,
-            constSelection = constSelection
+            constSelection = constSelection,
+            facts = new aot.Facts(
+                units = 0,
+                reusedObjects = 0,
+                compiledObjects = 0,
+                reusedModules = 0,
+                compiledModules = 0,
+                linked = false,
+                externalCommands = toolruns.count()
+            )
         ), nil
     end
 
     local selected = (selectedForManifest as {targets.Target})[1]
-    local chain, chainErr = aot.toolchain(selected.triple)
+    report:at("aot:reuse")
+    local chain, chainErr = aot.toolchain(selected.triple, held.toolchain)
     if chain == nil then
         return nil, tostring(chainErr)
     end
@@ -1706,20 +2176,43 @@ function aot.apply(
     -- Same rule the C artifacts follow: the key is compared, and then the
     -- library it describes has to still be there. A relink costs seconds; a
     -- stale library loaded because a digest agreed costs a wrong answer.
+    --
+    -- The library key is over every unit key, the compiler, its flags and the
+    -- linkage, so it moves exactly when the selected object set or the way they
+    -- are put together does -- which is when a link is owed. What it cannot say
+    -- is which unit moved, so the objects carry their own keys and `aot.link`
+    -- compiles only the ones that did.
+    local objects: {[string]: string} = held.objects or {}
+    local reusedObjects: integer = #(emitted as {aot.Emitted})
+    local compiledObjects: integer = 0
+    local linked = false
     if previousLibraryKey ~= key or not fs.exists(library) then
-        local linkErr = aot.link(
+        local linkErr, outcome = aot.link(
             chain as aot.Toolchain,
             selected,
             emitted as {aot.Emitted},
             library,
             cflags,
             needsLua,
-            static
+            static,
+            held.objects,
+            report
         )
         if linkErr ~= nil then
             return nil, tostring(linkErr)
         end
+        local done = outcome as aot.LinkOutcome
+        objects = done.objects
+        reusedObjects, compiledObjects, linked = done.reused, done.compiled, done.linked
+    else
+        -- Nothing was linked, so nothing named the objects either. They are
+        -- still what the library was made from, so the record carries forward
+        -- unchanged rather than being forgotten and recompiled next time.
+        for _, one in ipairs(emitted as {aot.Emitted}) do
+            one.object = one.output:gsub("%.c$", ".o")
+        end
     end
+    report:at("aot")
 
     -- Written after the library exists rather than before, so a build that
     -- failed to link never leaves modules rewritten to call an object that is
@@ -1771,7 +2264,23 @@ function aot.apply(
         gpu = #gpuSources > 0,
         gpuSources = gpuSources,
         specializedBodies = specializedBodies,
-        constSelection = constSelection
+        constSelection = constSelection,
+        objects = objects,
+        remembered = new aot.Remembered(
+            command = (chain as aot.Toolchain).command,
+            signature = aot.toolSignature((chain as aot.Toolchain).command),
+            version = (chain as aot.Toolchain).version,
+            dialect = (chain as aot.Toolchain).dialect
+        ),
+        facts = new aot.Facts(
+            units = #(emitted as {aot.Emitted}),
+            reusedObjects = reusedObjects,
+            compiledObjects = compiledObjects,
+            reusedModules = 0,
+            compiledModules = 0,
+            linked = linked,
+            externalCommands = toolruns.count()
+        )
     ), nil
 end
 

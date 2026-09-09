@@ -190,7 +190,33 @@ type cache.State = {
 
     --- The key the linked ahead-of-time library was built under, when a target
     --- asked for one. Validated the same way and just as disposable.
-    aotLibrary: string?
+    aotLibrary: string?,
+
+    --- `(source, tier)` identity -> the key its native object file was compiled
+    --- under. This is what lets a project with several `@aot` units recompile
+    --- only the one that changed: the library key says a link is owed, and these
+    --- say which objects it is owed for. Disposable in exactly the same way --
+    --- a missing or different key recompiles that object and nothing else.
+    aotObjects: {[string]: string}?,
+
+    --- `(source, tier)` identity -> the Wasm side module it produced, and the
+    --- key that module was compiled under.
+    aotModules: {[string]: {
+        key: string,
+        output: string,
+        digest: string
+    }}?,
+
+    --- What the external toolchain said about itself, and what its executable
+    --- looked like when it said it. Believed while the executable still looks
+    --- that way, which is what keeps an unchanged build from starting a
+    --- compiler to ask a question whose answer it already has.
+    aotToolchain: {
+        command: string,
+        signature: string,
+        version: string,
+        dialect: string
+    }?
 }
 
 local function jsonArray<T>(takes items: {T}): {T} preserves items

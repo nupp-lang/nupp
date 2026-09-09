@@ -1,0 +1,177 @@
+module nupp.compiler.build.toolruns
+
+--[[
+Running the external toolchain, counted and several at a time.
+
+Two things the ahead-of-time backend needs that `process` does not owe it.
+
+The first is a count. "An unchanged build starts no compiler" is a claim about
+process creation, and a claim about process creation is worth exactly what can
+be observed about it -- so every external toolchain command the backend runs
+goes through here and is counted, and the count is published in `build --json`.
+A test then asserts a number rather than asserting the absence of something it
+cannot see.
+
+The second is width. Translation units are independent: nothing one C
+compilation produces is read by another, and the link that follows reads all of
+them. Compiling them one after another leaves a machine with sixteen cores
+running one compiler, which is most of what a cold multiversion build costs.
+
+Width is bounded by the processor count rather than by the job count, because
+the constraint is the machine and not the work. Waves rather than a pool: the
+units are generated C of comparable size, so the tail of a wave is short, and a
+wave is something POSIX `sh` can express in four lines that cannot deadlock.
+Windows has no `wait`, so it stays serial there -- a slower answer, never a
+different one.
+
+Order is preserved whatever the width. Results come back indexed by the job they
+came from, so the first failure a caller reports is the first failing job rather
+than whichever process happened to exit first.
+]]
+
+local process = require("nupp.compiler.build.process")
+
+local toolruns = {}
+
+--- What one external command produced.
+type toolruns.Run = {
+    code: integer,
+    output: string
+}
+
+local windows = package.config:sub(1, 1) == "\\"
+
+-- Every external toolchain process this build has started, whatever it was
+-- for. Module state because the backend that starts them is reached from
+-- several places and a count threaded through all of them would be a
+-- parameter nothing else needed.
+local counted: integer = 0
+
+--- Forgets the count, for a build about to make its own claim about it.
+function toolruns.reset(): nil
+    counted = 0
+end
+
+--- How many external toolchain processes have been started since the reset.
+function toolruns.count(): integer
+    return counted
+end
+
+--- Runs one external toolchain command, counting it.
+function toolruns.capture(argv: {string}): (integer, string)
+    counted = counted + 1
+
+    return process.capture(argv)
+end
+
+local processorMemo: integer? = nil
+
+--- How many external compilations this machine should run at once.
+---
+--- One per processor. The generated C is compiled with `-O3` and every unit is
+--- a fresh process reading its own translation unit, so the work is CPU-bound
+--- and oversubscribing it only lengthens the wave that everything waits on.
+---
+--- Asked for only when there is dirty work, because asking runs a program.
+function toolruns.processors(): integer
+    if processorMemo ~= nil then
+        return processorMemo as integer
+    end
+    local found: integer? = nil
+    if windows then
+        found = tonumber(os.getenv("NUMBER_OF_PROCESSORS") or "") as integer?
+    else
+        local handle = io.popen("getconf _NPROCESSORS_ONLN 2>/dev/null")
+        if handle ~= nil then
+            local line = (handle as LuaFile):read("*l");
+            (handle as LuaFile):close()
+            found = tonumber(line or "") as integer?
+        end
+    end
+    if found == nil or (found as integer) < 1 then
+        found = 4
+    end
+    processorMemo = math.floor(found as integer) as integer
+
+    return processorMemo as integer
+end
+
+--- The width to run `jobs` external compilations at.
+function toolruns.width(jobs: integer): integer
+    if windows or jobs <= 1 then
+        return 1
+    end
+    local processors = toolruns.processors()
+
+    return jobs < processors and jobs or processors
+end
+
+local function readAll(path: string): string
+    local handle = io.open(path, "rb")
+    if handle == nil then
+        return ""
+    end
+    local text = (handle as LuaFile):read("*a");
+    (handle as LuaFile):close()
+
+    return text or ""
+end
+
+--- Runs every command, at most `width` of them at once, and answers in order.
+---
+--- A `width` of one is the serial path, which is what Windows and a single job
+--- get, and it goes through `capture` so both paths are counted the same way.
+function toolruns.captureAll(argvs: {{string}}, width: integer): {toolruns.Run}
+    local runs: {toolruns.Run} = {}
+    if width <= 1 or windows then
+        for index, argv in ipairs(argvs) do
+            local code, output = toolruns.capture(argv)
+            runs[index] = {code = code, output = output}
+        end
+
+        return runs
+    end
+    local first: integer = 1
+    local total: integer = #argvs
+    while first <= total do
+        local last: integer = first + width - 1
+        if last > total then
+            last = total
+        end
+        local parts: {string} = {}
+        local outputs: {string} = {}
+        local statuses: {string} = {}
+        for index = first, last do
+            counted = counted + 1
+            local outPath = os.tmpname()
+            local statusPath = outPath .. ".rc"
+            outputs[index] = outPath
+            statuses[index] = statusPath
+            parts[
+                #parts + 1
+            ] = "( { " .. process.command(
+                argvs[index]
+            ) .. " ; } >" .. process.quote(outPath) .. " 2>&1; printf %d $? >" .. process.quote(statusPath) .. " ) &"
+        end
+        parts[#parts + 1] = "wait"
+        os.execute(table.concat(parts, "\n"))
+        for index = first, last do
+            local outPath = outputs[index] as string
+            local statusPath = statuses[index] as string
+            local status = tonumber(readAll(statusPath):match("%d+") or "")
+            local output = readAll(outPath)
+            os.remove(outPath)
+            os.remove(statusPath)
+            -- A missing status file is a wave that could not run at all, which
+            -- is a failure of this module rather than of the command. Reporting
+            -- it as a nonzero exit lets the caller say what it always says
+            -- about a compilation that did not succeed.
+            runs[index] = {code = (status or 1) as integer, output = output}
+        end
+        first = last + 1
+    end
+
+    return runs
+end
+
+export = toolruns

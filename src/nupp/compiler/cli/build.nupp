@@ -192,11 +192,62 @@ local command = spec.command{
                     phases = {
                         type = "array",
                         description = "Every activity that took measurable time, longest "
-                        .. "first. One activity is current at a time, so these sum to the whole.",
+                        .. "first. One activity is current at a time, so these sum to the whole. "
+                        .. "A target with an ahead-of-time policy accounts for it separately "
+                        .. "under aot:check, aot:lower, aot:optimize, aot:emit, aot:reuse, "
+                        .. "aot:compile and aot:link -- respectively checking the sources that "
+                        .. "carry an @aot body, lowering them, optimizing the lowered IR, "
+                        .. "writing the C and the bindings, deciding what may be reused, "
+                        .. "running the external C or Emscripten compiler, and archiving or "
+                        .. "linking what it produced. Plain aot is whatever the policy did "
+                        .. "besides those.",
                         items = {
                             type = "object",
                             properties = {name = {type = "string"}, durationMs = {type = "number"}},
                             required = {"name", "durationMs"},
+                        },
+                    },
+                    aot = {
+                        type = "object",
+                        description = "What the ahead-of-time policy did. Absent when the "
+                        .. "target has none. externalCommands counts every external toolchain "
+                        .. "process the policy started, version probes included, so an "
+                        .. "unchanged build reports zero.",
+                        properties = {
+                            units = {
+                                type = "integer",
+                                description = "Translation units the policy emitted, one per source and target tier.",
+                            },
+                            reusedObjects = {
+                                type = "integer",
+                                description = "Native objects taken from the last build unchanged.",
+                            },
+                            compiledObjects = {
+                                type = "integer",
+                                description = "Native objects the external C compiler produced.",
+                            },
+                            reusedModules = {
+                                type = "integer",
+                                description = "Wasm side modules taken from the last build unchanged.",
+                            },
+                            compiledModules = {
+                                type = "integer",
+                                description = "Wasm side modules Emscripten produced.",
+                            },
+                            linked = {type = "boolean", description = "Whether an archiver or a linker ran.",},
+                            externalCommands = {
+                                type = "integer",
+                                description = "External toolchain processes the policy started.",
+                            },
+                        },
+                        required = {
+                            "units",
+                            "reusedObjects",
+                            "compiledObjects",
+                            "reusedModules",
+                            "compiledModules",
+                            "linked",
+                            "externalCommands"
                         },
                     },
                     slowest = {

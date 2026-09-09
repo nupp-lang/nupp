@@ -44,6 +44,22 @@ type progress.ModuleSpan = {
     durationMs: number
 }
 
+--- What a build's ahead-of-time policy did, when it ran one.
+---
+--- Beside the timeline rather than in it, because these are counts and the
+--- timeline is milliseconds. `externalCommands` is the one worth having: a
+--- build that reused every object should start no compiler, and only a number
+--- can say that it did not.
+type progress.AotFacts = {
+    units: number,
+    reusedObjects: number,
+    compiledObjects: number,
+    reusedModules: number,
+    compiledModules: number,
+    linked: boolean,
+    externalCommands: number
+}
+
 --- Where a build's time went, for a caller reporting it rather than printing it.
 type progress.Timing = {
     --- Wall-clock milliseconds for the whole run.
@@ -57,7 +73,10 @@ type progress.Timing = {
     phases: {progress.Span},
 
     --- The costliest modules, longest first, at most `progress.SLOWEST` of them.
-    slowest: {progress.ModuleSpan}
+    slowest: {progress.ModuleSpan},
+
+    --- What the ahead-of-time policy did, absent when the build ran none.
+    aot: progress.AotFacts?
 }
 
 --- How many modules the summary names. Enough to point at a cause, few enough that the
@@ -201,6 +220,9 @@ record progress.Reporter
     reused: number
     specialized: number
 
+    --- What the ahead-of-time policy did, when a build ran one.
+    aotFacts: progress.AotFacts?
+
     --- When the step line was last painted, and whether one is on screen now.
     paintedAt: number
 
@@ -291,6 +313,11 @@ record progress.Reporter
         self.specialized = self.specialized + count
     end
 
+    --- What the ahead-of-time policy did, once it has finished doing it.
+    function aotCounted(self, facts: progress.AotFacts?): nil
+        self.aotFacts = facts
+    end
+
     --- What the run cost, in the shape `build --json` publishes.
     function timing(self): progress.Timing
         local phases: {progress.Span} = {}
@@ -326,6 +353,7 @@ record progress.Reporter
             specializedBodies = self.specialized,
             phases = phases,
             slowest = slowest,
+            aot = self.aotFacts,
         }
     end
 
@@ -419,6 +447,7 @@ function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
         compiled = 0,
         reused = 0,
         specialized = 0,
+        aotFacts = nil,
         paintedAt = 0,
         onScreen = false,
         columns = width()

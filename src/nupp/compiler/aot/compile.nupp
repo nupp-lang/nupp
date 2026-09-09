@@ -717,6 +717,10 @@ end
 --- @param library where the compiled object will be found, which the generated
 ---   module loads
 --- @param selected the target, which decides which gangs exist
+--- @param at named with each step this takes as it reaches it, for a build
+---   accounting for where its time went. A plain function rather than the
+---   build's reporter, because what compiles one `@aot` body should not have to
+---   know what a progress line is.
 --- @return the artifacts, or nothing and the reasons the source was refused
 function compile.artifacts(
     source: string,
@@ -726,8 +730,12 @@ function compile.artifacts(
     selected: targets.Target,
     symbolTier: string?,
     constPlans: {any}?,
-    staticLinkage: boolean?
+    staticLinkage: boolean?,
+    at: (function(step: string): nil)?
 ): (compile.Artifacts?, {compile.Diagnostic})
+    local step = at or function(_: string): nil
+    end
+    step("lower")
     local programs, diagnostics, sites = compile.lower(source, filename, parsed)
     if #diagnostics > 0 then
         return nil, diagnostics
@@ -762,6 +770,7 @@ function compile.artifacts(
     local cpuPrograms: {scalarIR.Program} = {}
     local declaredModule = parsed ~= nil and cst.declaredModule((parsed as parser.ParseResult).root) ~= nil
     local browser = selected.triple:match("^wasm") ~= nil
+    step("optimize")
     for position, program in ipairs(programs) do
         optimizations[position] = aotOptimize.program(program)
         -- Every optimized body is checked, whether or not lane lowering will
@@ -823,6 +832,7 @@ function compile.artifacts(
     -- the C, so the GPU replacements are the whole binding. Beside CPU
     -- programs they are not part of it: the build rewrites each GPU
     -- declaration in place from `gpu` instead.
+    step("emit")
     local generatedBinding = bindingRules.module(cpuPrograms, library)
     if #cpuPrograms == 0 then
         local generatedGpuBindings: {string} = {}

@@ -190,6 +190,15 @@ function process.command(argv: {string}, opts: process.Options?): string
     return testMarker and (testMarker .. command) or command
 end
 
+--- One argument, spelled so the shell that will read it sees exactly it.
+---
+--- Exposed because a caller composing several commands into one shell script --
+--- which is how `toolruns` runs compilations side by side -- has to quote the
+--- redirection targets it writes around them with the same rules.
+function process.quote(argument: string): string
+    return quote(argument)
+end
+
 function process.mkdirCommand(path: string, forWindows: boolean?): {string}
     path = tostring(path)
     if forWindows == nil then
