@@ -1896,6 +1896,7 @@ function aot.apply(
     if emitted == nil then
         return nil, emitErr
     end
+    report:at("aot")
     local specializedBodies: integer = 0
     local countedSources: {[string]: boolean} = {}
     for _, one in ipairs(emitted as {aot.Emitted}) do
