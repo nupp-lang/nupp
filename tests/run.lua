@@ -137,6 +137,7 @@ if package.config:sub(1, 1) == "\\" then
     -- Windows the moment the suite got far enough to start one, and took every
     -- suite in those lanes down as unrun with it.
     local cwdValue
+
     local function currentDirectory()
         if not cwdValue then
             local pipe = assert(rawPopen("cd"))
@@ -464,6 +465,7 @@ do
         if detected then
             terminal = answer ~= 0
         end
+
         local function requested(name)
             local value = os.getenv(name)
             return value ~= nil and value ~= "" and value ~= "0"
@@ -578,6 +580,7 @@ do
 end
 
 local RESET = "\27[0m"
+
 local function paint(code, text)
     return useColor and ("\27[" .. code .. "m" .. text .. RESET) or text
 end
@@ -729,6 +732,7 @@ end
 
 do
     local definitions = nil
+
     local function definitionsOnce()
         definitions = definitions or groupDefinitions()
         return definitions
@@ -777,7 +781,9 @@ do
 
     for _, info in ipairs(discovered) do
         local name = info.name
-        if not removed[name] and (not chosenSet or chosenSet[name]) and (not wanted or wanted[name]) and not queueDir then
+        if not removed[
+            name
+        ] and (not chosenSet or chosenSet[name]) and (not wanted or wanted[name]) and not queueDir then
             suites[#suites + 1] = info
         end
     end
@@ -786,7 +792,6 @@ end
 table.sort(suites, function(a, b)
     return a.name .. "." .. a.extension < b.name .. "." .. b.extension
 end)
-
 
 local function loadSuite(suite)
     local path = dir .. "/" .. suite.name .. "." .. suite.extension
@@ -1034,6 +1039,7 @@ local timingsPath = buildRoot .. "/.nupp-test-times.json"
 local shardCacheRoot = buildRoot .. "/.nupp-test-cache"
 
 local recordedOnce = nil
+
 local function recorded()
     if recordedOnce then
         return recordedOnce
@@ -1373,6 +1379,7 @@ if #shard == 0 and #suites > 0 and (
         -- Whether any worker wrote a mark, so this end knows whether there is a line
         -- to close. Out here rather than in `fanOut` because it is read after it.
         local marked = false
+
         local function beginPhase(text)
             if marked then
                 progressWrite("\n")
@@ -1917,6 +1924,7 @@ restoreLane = function()
     if not laneBaseline then
         return
     end
+
     local function restore(value, baseline)
         for key in pairs(value) do
             if baseline[key] == nil then
@@ -2117,6 +2125,7 @@ end)
 --- is why the shard line reports the busiest one rather than only the average.
 local function timingReport()
     local out = {}
+
     local function say(text)
         out[#out + 1] = text
     end
@@ -2147,6 +2156,7 @@ local function timingReport()
         local into = entry.alone and aloneShards or shards
         into[#into + 1] = entry
     end
+
     local function phase(label, entries)
         if #entries == 0 then
             return

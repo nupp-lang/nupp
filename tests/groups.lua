@@ -16,14 +16,9 @@ return {
     -- Reaches Windows-specific process, path and loader behaviour. Run before
     -- the broad suite on that platform so a loader failure names the last case
     -- instead of arriving twenty minutes later as unrun shards.
-    ["windows-preflight"] = {
-        "netnativetest",
-        "runnertest",
-        "rusttoolchaintest",
-        "soatest",
-        "toolchaintest",
-        "worktreetest",
-    },
+    [
+        "windows-preflight"
+    ] = {"netnativetest", "runnertest", "rusttoolchaintest", "soatest", "toolchaintest", "worktreetest",},
 
     -- Fixtures whose inputs come from outside the repository. Kept nameable
     -- because a configured corpus used to be absent and silently skipped.
@@ -31,7 +26,9 @@ return {
 
     -- The Rust-native platform boundary: resource owners, the aggregate C ABI,
     -- and C consumers of the executable and embedding SDKs.
-    ["native-platform"] = {
+    [
+        "native-platform"
+    ] = {
         "cabitest",
         "ffitest",
         "hostbinarytest",
@@ -46,7 +43,9 @@ return {
 
     -- Everything that reads or regenerates published documentation, including
     -- the diagnostic reference a `docs` anchor points at.
-    ["docs"] = {
+    [
+        "docs"
+    ] = {
         "clidoctest",
         "diagnosticgoldentest",
         "doctest",
@@ -62,22 +61,12 @@ return {
 
     -- Browser and Wasm delivery: the worker seam, the portable dialect the
     -- playground compiles under, and the generated browser templates.
-    ["browser"] = {
-        "browserworkerstest",
-        "portabledialecttest",
-        "portableiocontractstest",
-        "targetprofiletest",
-        "templatetest",
-    },
+    [
+        "browser"
+    ] = {"browserworkerstest", "portabledialecttest", "portableiocontractstest", "targetprofiletest", "templatetest",},
 
     ["gpu"] = {"gputest"},
 
     -- Packaging and release delivery.
-    ["packaging"] = {
-        "bundletest",
-        "compilerpacktest",
-        "releasetest",
-        "rocktest",
-        "servicepackagetest",
-    },
+    ["packaging"] = {"bundletest", "compilerpacktest", "releasetest", "rocktest", "servicepackagetest",},
 }
