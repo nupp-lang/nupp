@@ -4159,8 +4159,26 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         "}",
         "",
     }
-    lines[#lines + 1] = "typedef struct { uint8_t lane[" .. tostring(width) .. "]; } ks_scalar_" .. suffix .. ";"
-    lines[#lines + 1] = "typedef struct { uint8_t bytes[64]; } KsScalarBlockU8x64x" .. tostring(width) .. ";"
+    -- Spelled out rather than left to the compiler. A tier unit is compiled with
+    -- one instruction set for the whole file, but `KS_SCALAR_ORACLE` downgrades
+    -- the oracle entry alone, and GCC derives the alignment it gives a stack
+    -- aggregate from whichever instruction set the function it is compiling is
+    -- allowed to use. The oracle and the helpers it calls out to would then
+    -- disagree about a temporary both of them touch -- the caller handing out
+    -- one aligned for the platform ABI, the callee writing it with a wide
+    -- aligned move -- which faults rather than answering wrongly. An alignment
+    -- written on the type is the same on both sides of that call whatever flags
+    -- either was compiled under.
+    lines[
+        #lines + 1
+    ] = "typedef struct { uint8_t lane[" .. tostring(
+        width
+    ) .. "]; } __attribute__((aligned(" .. tostring(width) .. "))) ks_scalar_" .. suffix .. ";"
+    lines[
+        #lines + 1
+    ] = "typedef struct { uint8_t bytes[64]; } __attribute__((aligned(64))) KsScalarBlockU8x64x" .. tostring(
+        width
+    ) .. ";"
     lines[
         #lines + 1
     ] = "static inline __attribute__((unused)) ks_scalar_"
