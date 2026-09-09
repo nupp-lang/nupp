@@ -232,6 +232,43 @@ for carrying your own.
 `check` type-checks the project configured in `nupp.lua`. `test` builds and
 runs the suite, which is plain LuaJIT with no framework behind it.
 
+Run the suites that cover what changed rather than all of them. Named groups
+say what a set of suites is for, and are what the workflows ask for:
+
+```bash
+./bin/nupp test --list-groups
+./bin/nupp test --group=docs
+./bin/nupp test --lane=shared          # the ~100 suites that share a process
+./bin/nupp test --exclude-group=aot    # everything an earlier run did not cover
+./bin/nupp test --list-suites          # what a selection would run, running none
+```
+
+`tests/groups.lua` defines the groups. A group member that names no suite is an
+error rather than an empty run.
+
+## What CI asks of a change
+
+`required-ci` is the one status the trunk requires. It waits on every job in
+`.github/workflows/compiler.yml` and passes only when each job the change
+selected succeeded; a job that was not selected is skipped, and a job that was
+selected and did not answer -- failed, or cancelled -- fails it. Its meaning
+does not change when the jobs beneath it are renamed or reorganized.
+
+What a change selects is decided by `.github/scripts/classify-changes.lua` from
+the paths it touches. It is deliberately conservative: a path no rule
+classifies selects every job, and so does any change to `nupp.lua`,
+`scripts/`, `.github/`, `Cargo.lock` or the Rust toolchain file.
+`tests/cichangeclassifiertest.lua` asserts what representative files select, and
+`.github/ci-coverage.json` records what each job and step covers -- the two are
+held to the workflow itself on every run, before anything is provisioned.
+
+Measurements live in `.github/workflows/measurements.yml`, not in the gate. A
+benchmark harness that does not compile is a bug and fails there; a slower
+number is not an answer about an unrelated change.
+
+The nightly schedule runs the whole matrix whatever changed, as a backstop
+against a gap in the classification. A failure there is a bug like any other.
+
 ## Your first project
 
 The maintained application template creates the manifest, source tree, test,
