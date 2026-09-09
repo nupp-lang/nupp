@@ -1443,6 +1443,12 @@ local function render(lines)
     local prevIndent = 0
 
     local function push(text)
+        -- Only blank entries belong to the formatter. A rendered token may itself
+        -- contain any number of blank lines, as a long-bracket string does, so
+        -- collapsing the joined text would rewrite the token rather than its layout.
+        if text == "" and (#out == 0 or out[#out] == "") then
+            return
+        end
         out[#out + 1] = text
     end
 
@@ -1489,10 +1495,11 @@ local function render(lines)
         end
         prevIndent = line.indent
     end
-    -- collapse blank runs and trim the ends
+    -- A trailing blank entry is layout rather than token text.
+    if out[#out] == "" then
+        out[#out] = nil
+    end
     local text = table.concat(out, "\n")
-    text = text:gsub("\n\n\n+", "\n\n")
-    text = text:gsub("^\n+", ""):gsub("%s+$", "")
     if #text > 0 then
         text = text .. "\n"
     end

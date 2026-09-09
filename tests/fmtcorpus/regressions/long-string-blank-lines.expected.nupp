@@ -1,0 +1,7 @@
+local text = [[
+first
+
+
+last
+]]
+return text
