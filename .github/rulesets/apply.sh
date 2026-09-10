@@ -7,24 +7,27 @@
 # `required-ci` mean "this exact revision passed" rather than "some revision
 # near this one passed once".
 #
-# Two properties are the point, and both are in the JSON rather than here:
+# It requires one thing: `required-ci` must already be passing for the exact
+# commit being pushed. It deliberately requires **no pull request and no merge
+# queue**. This repository is one person working out of worktrees, and
+# `AGENTS.md` describes the flow as rebasing `main` into a worktree and
+# fast-forwarding it back. A pull request rule would forbid that flow outright
+# while adding nothing: the guarantee wanted here is that the revision reaching
+# the trunk is a revision that passed, not that somebody reviewed it.
 #
-#   * `merge_queue` with `grouping_strategy: ALLGREEN` -- the queue builds the
-#     revision that will actually advance `main`, so a result is never inherited
-#     from a different parent; and
-#   * `strict_required_status_checks_policy` -- a pull request must be current
-#     with its base before it can merge.
+# So the loop stays what it was, with one wait added:
 #
-# `require_extra_approval_for_unattributed_changes` is written out as false
-# because GitHub defaults it on, and with zero required approvals that is a
-# trap: nobody can approve their own pull request, so a commit GitHub cannot
-# attribute to an account would need an approval that cannot arrive. The gate
-# here is `required-ci` passing for the exact merged revision, not a review.
+#     git push origin my-worktree-branch    # CI runs on this exact commit
+#     # ... required-ci goes green ...
+#     git push origin my-worktree-branch:main
 #
-# The queue rebases rather than merges, and a merge commit is not an allowed
-# merge method, because `AGENTS.md` asks for a rebase and a fast-forward and the
-# trunk's history is linear. A ruleset that quietly started producing merge
-# commits would be this file disagreeing with that one.
+# The second push is the same SHA, which already has a passing `required-ci`,
+# so the ruleset admits it. A commit nothing has tested is refused, which is the
+# whole point and the only behaviour change.
+#
+# `strict_required_status_checks_policy` keeps the trunk fast-forward-only in
+# practice: what is pushed must be current with `main`. `non_fast_forward` and
+# `deletion` stop history being rewritten or the branch removed.
 #
 # This changes shared repository settings, so it is a deliberate act with a
 # person behind it rather than something a workflow does. Run it once:

@@ -198,6 +198,11 @@ reports it is usually already testing somebody else's commit. `git push
   quietly lose coverage. `tests/cichangeclassifiertest.lua` and
   `.github/ci-coverage.json` hold the classifier, the workflow and the test
   groups to one account of what is covered.
+- The trunk ruleset admits a push to `main` only when `required-ci` is already
+  green for that exact commit. So push the task branch first, wait for it, then
+  push the same SHA to `main` -- the fast-forward in "Making changes" above is
+  unchanged, it just has somewhere to be tested first. There is no pull request
+  and no review in this; a commit nothing has tested is the only thing refused.
 
 ## Speed
 

@@ -254,6 +254,26 @@ selected succeeded; a job that was not selected is skipped, and a job that was
 selected and did not answer -- failed, or cancelled -- fails it. Its meaning
 does not change when the jobs beneath it are renamed or reorganized.
 
+The trunk ruleset requires that status and **nothing else**: no pull request, no
+review, no merge queue. The worktree flow is unchanged except that the branch
+goes up before the trunk does, so the commit has somewhere to be tested:
+
+```bash
+git push origin my-task-branch          # CI runs on this exact commit
+# ... wait for required-ci ...
+git push origin my-task-branch:main     # same SHA, already green
+```
+
+The second push is admitted because that commit already has a passing
+`required-ci`. A commit nothing has tested is refused. That is the only
+behaviour change, and it is the whole guarantee: what reaches `main` is a
+revision that passed, not a revision near one that passed.
+
+`--no-verify` skips the local formatting hook; nothing skips this. If the gate
+ever wedges -- a workflow that cannot report `required-ci` at all -- set the
+ruleset's `enforcement` to `disabled`, fix it, and set it back. Rulesets stay
+editable by a repository admin whatever their bypass list says.
+
 What a change selects is decided by `.github/scripts/classify-changes.lua` from
 the paths it touches. It is deliberately conservative: a path no rule
 classifies selects every job, and so does any change to `nupp.lua`,

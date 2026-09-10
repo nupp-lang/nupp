@@ -1,17 +1,23 @@
 name: Compiler matrix
 
 on:
-  # Restricted to the trunk because an unfiltered `push` fires alongside
-  # `pull_request` for every branch in this repository, which ran the whole
-  # matrix twice for each commit of a pull request and told us nothing the
-  # second time.
+  # Every branch, because that is what the trunk ruleset needs. It admits a push
+  # to `main` only when `required-ci` is already green for that exact commit, so
+  # the commit has to have been tested somewhere first -- and the somewhere is
+  # the worktree branch it was written on. This used to be restricted to `main`,
+  # which was right while `pull_request` was the other trigger and an unfiltered
+  # `push` ran the whole matrix twice for every commit of a pull request. There
+  # are no pull requests here; the branch push is the run.
   push:
     branches:
-      - main
+      - "**"
     tags:
       - "*"
+  # Retained for a contribution from a fork, where no push to this repository
+  # happens and this is the only event there is. A pull request from a branch of
+  # this repository would be tested twice, which is a case this repository's
+  # workflow does not produce.
   pull_request:
-  merge_group:
   workflow_dispatch:
   # The affected-surface classifier is deliberately conservative, but it is a
   # judgement all the same. Run the whole matrix nightly whatever changed, so a
@@ -23,11 +29,14 @@ on:
 permissions:
   contents: read
 
-# A pull request and a merge-queue entry are only ever asked about their tip, so
-# a superseded run is work nobody is waiting on. The trunk is grouped per commit
-# rather than per branch: the previous shape kept one pending run, so a newer
-# push discarded an older push's answer, and the commit in between then had no
+# Grouped per commit rather than per branch, so no push ever discards another
+# push's answer. The previous shape kept one pending run per branch, so a newer
+# commit cancelled an older one still waiting and the commit in between had no
 # result at all -- which is the opposite of what a retained trunk history is for.
+#
+# It matters more now than it did: a worktree branch push is the run whose
+# result lets that commit reach `main`, so cancelling it does not save work, it
+# throws away the only thing standing between the commit and the trunk.
 concurrency:
   group: >-
     ${{ github.workflow }}-${{ github.event_name == 'push'
@@ -80,25 +89,41 @@ jobs:
         id: changed
         env:
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
-          MERGE_BASE: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          usable() {
+            [ -n "$1" ] \
+              && [ "$1" != "0000000000000000000000000000000000000000" ] \
+              && git cat-file -e "$1^{commit}" 2>/dev/null
+          }
+
           base=""
           case "$EVENT" in
             pull_request) base=$PR_BASE ;;
-            merge_group) base=$MERGE_BASE ;;
             push) base=$PUSH_BEFORE ;;
           esac
-          # A tag, a schedule, a manual dispatch, and the first push to a new
-          # branch all have no diff to narrow. An empty list means "everything",
-          # which the classifier decides rather than this shell.
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] \
-              || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-            : > changed-paths.txt
+
+          # The first push to a worktree branch reports an all-zero `before`,
+          # and that branch carries the whole change rather than one commit of
+          # it. Its trunk merge base is the honest answer, and it is the case
+          # that happens most: a task worktree is pushed once when it is done.
+          if ! usable "$base" && [ "$EVENT" = push ] && [ "$REF" != refs/heads/main ]; then
+            git fetch --no-tags --depth=200 origin main 2>/dev/null || true
+            base=$(git merge-base FETCH_HEAD "$HEAD_SHA" 2>/dev/null || true)
+          fi
+
+          # A tag, a schedule and a manual dispatch have no diff to narrow, and
+          # neither does a branch whose merge base could not be found. An empty
+          # list means "everything", which the classifier decides rather than
+          # this shell.
+          if usable "$base"; then
+            git diff --name-only "$base" "$HEAD_SHA" > changed-paths.txt
           else
-            git diff --name-only "$base" "${{ github.sha }}" > changed-paths.txt
+            : > changed-paths.txt
           fi
           echo "--- changed paths ---"
           cat changed-paths.txt
