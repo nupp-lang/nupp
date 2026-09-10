@@ -15,6 +15,17 @@
 #   * `strict_required_status_checks_policy` -- a pull request must be current
 #     with its base before it can merge.
 #
+# `require_extra_approval_for_unattributed_changes` is written out as false
+# because GitHub defaults it on, and with zero required approvals that is a
+# trap: nobody can approve their own pull request, so a commit GitHub cannot
+# attribute to an account would need an approval that cannot arrive. The gate
+# here is `required-ci` passing for the exact merged revision, not a review.
+#
+# The queue rebases rather than merges, and a merge commit is not an allowed
+# merge method, because `AGENTS.md` asks for a rebase and a fast-forward and the
+# trunk's history is linear. A ruleset that quietly started producing merge
+# commits would be this file disagreeing with that one.
+#
 # This changes shared repository settings, so it is a deliberate act with a
 # person behind it rather than something a workflow does. Run it once:
 #

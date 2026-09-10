@@ -23,18 +23,19 @@
         "require_code_owner_review": false,
         "require_last_push_approval": false,
         "required_review_thread_resolution": false,
+        "require_extra_approval_for_unattributed_changes": false,
         "automatic_copilot_code_review_enabled": false,
-        "allowed_merge_methods": ["squash", "merge", "rebase"]
+        "allowed_merge_methods": ["rebase", "squash"]
       }
     },
     {
       "type": "merge_queue",
       "parameters": {
-        "merge_method": "MERGE",
+        "merge_method": "REBASE",
         "max_entries_to_build": 5,
         "max_entries_to_merge": 5,
         "min_entries_to_merge": 1,
-        "min_entries_to_merge_wait_minutes": 5,
+        "min_entries_to_merge_wait_minutes": 1,
         "check_response_timeout_minutes": 120,
         "grouping_strategy": "ALLGREEN"
       }
