@@ -1,16 +1,23 @@
 name: Compiler matrix
 
 on:
-  # Every branch, because that is what the trunk ruleset needs. It admits a push
-  # to `main` only when `required-ci` is already green for that exact commit, so
-  # the commit has to have been tested somewhere first -- and the somewhere is
-  # the worktree branch it was written on. This used to be restricted to `main`,
-  # which was right while `pull_request` was the other trigger and an unfiltered
-  # `push` ran the whole matrix twice for every commit of a pull request. There
-  # are no pull requests here; the branch push is the run.
+  # Every branch except the trunk, which is the exact inverse of what this used
+  # to say and follows from the ruleset rather than from taste.
+  #
+  # The ruleset admits a push to `main` only when `required-ci` is already green
+  # for that exact commit, so the commit must have been tested somewhere first,
+  # and the somewhere is the worktree branch it was written on. A check run
+  # belongs to a commit rather than to a branch, so the branch run is the one
+  # the trunk push presents. Running again on `main` would be the same matrix
+  # over the same commit object, reaching the same answer, after the answer had
+  # already been used -- one duplicate full matrix for every change that lands.
+  #
+  # A commit that never sat on a branch is refused by the ruleset rather than
+  # tested here, which is the same guarantee arrived at more cheaply. Tags still
+  # run, because a release builds from one.
   push:
-    branches:
-      - "**"
+    branches-ignore:
+      - main
     tags:
       - "*"
   # Retained for a contribution from a fork, where no push to this repository
