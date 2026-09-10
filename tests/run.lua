@@ -380,6 +380,9 @@ end
 -- terminal on the other side of the fork.
 local progressFd = nil
 local sharedProgressStream = false
+-- Read before the block below stops exporting it, so this process still traces
+-- while the nested runners its cases launch do not.
+local traceCases = os.getenv("NUPP_TEST_TRACE_CASES") ~= nil
 do
     local loaded, ffi = pcall(require, "ffi")
     if loaded then
@@ -449,16 +452,36 @@ do
         sharedProgressStream = named ~= nil
         local statusFd = named and dup(named) or dup(asJson and 2 or 1)
         progressFd = statusFd
+
         -- This descriptor is for one runner process, not an ambient destination
         -- for commands its tests launch. Keeping the variable would make a nested
         -- `nupp test` bypass that test's capture and write into this progress line.
-        if named and os.getenv("NUPP_TEST_PROGRESS_FD") ~= nil then
+        local function stopExporting(variable)
+            if os.getenv(variable) == nil then
+                return
+            end
             if ffi.os == "Windows" then
-                pcall(C._putenv_s, "NUPP_TEST_PROGRESS_FD", "")
+                pcall(C._putenv_s, variable, "")
             else
-                pcall(C.unsetenv, "NUPP_TEST_PROGRESS_FD")
+                pcall(C.unsetenv, variable)
             end
         end
+
+        if named then
+            stopExporting("NUPP_TEST_PROGRESS_FD")
+        end
+        -- The same argument, for the same reason, one variable along.
+        --
+        -- `NUPP_TEST_TRACE_CASES` makes a runner name each case on standard
+        -- error, so a worker killed by a signal says where it was. It is a
+        -- setting for this runner process: `traceCases` above is read before
+        -- this, and a worker gets the behaviour from having been given a
+        -- progress descriptor rather than from the environment. Left exported,
+        -- it reaches every nested `nupp test` a case launches -- and a case that
+        -- asserts on a nested runner's exact output then fails because of how
+        -- the outer run was invoked, which is what happened the first time CI
+        -- ran this variable across a whole group rather than one suite.
+        stopExporting("NUPP_TEST_TRACE_CASES")
 
         local terminal = false
         local detected, answer = pcall(isatty, statusFd)
@@ -974,7 +997,7 @@ local function recordResult(suite, name, defined, ok, err, stdout, stderr, elaps
         local message, errFile, errLine = errorPosition(err)
         record.failure = {message = message, file = errFile, line = errLine}
         record.output = {stdout = stdout, stderr = stderr}
-        if os.getenv("NUPP_TEST_TRACE_CASES") then
+        if traceCases then
             io.stderr:write("__failure__:", tostring(message), "\n")
         end
         if not queueDir then
@@ -1912,7 +1935,7 @@ local function runSuite(suiteInfo, slices)
     else
         for _, name in ipairs(cases) do
             local case = suite[name]
-            if sharedProgressStream or os.getenv("NUPP_TEST_TRACE_CASES") then
+            if sharedProgressStream or traceCases then
                 io.stderr:write("__case__:", name, "\n")
             end
             local caseBefore = now()
