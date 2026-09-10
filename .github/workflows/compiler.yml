@@ -108,19 +108,33 @@ jobs:
               && git cat-file -e "$1^{commit}" 2>/dev/null
           }
 
+          # A branch is compared against the trunk it will become, never against
+          # its own previous tip.
+          #
+          # `before` is the tempting answer and it is wrong. What this run
+          # authorises is pushing `HEAD_SHA` to `main`, so the question is what
+          # this commit changes about the trunk -- not what its last commit
+          # changed about the one before it. Narrowing against `before` opens a
+          # real hole: a commit that fails the GPU job, then a commit touching
+          # only documentation, and the second run skips GPU, goes green, and
+          # carries the first one's failure onto the trunk. Comparing against the
+          # merge base costs the same and cannot do that.
+          #
+          # It is also the honest answer for the case that happens most here: a
+          # task worktree pushed once when its work is done, whose `before` is
+          # all zeros because the branch is new.
           base=""
-          case "$EVENT" in
-            pull_request) base=$PR_BASE ;;
-            push) base=$PUSH_BEFORE ;;
-          esac
-
-          # The first push to a worktree branch reports an all-zero `before`,
-          # and that branch carries the whole change rather than one commit of
-          # it. Its trunk merge base is the honest answer, and it is the case
-          # that happens most: a task worktree is pushed once when it is done.
-          if ! usable "$base" && [ "$EVENT" = push ] && [ "$REF" != refs/heads/main ]; then
+          if [ "$EVENT" = pull_request ]; then
+            base=$PR_BASE
+          elif [ "$EVENT" = push ] && [ "$REF" != refs/heads/main ]; then
             git fetch --no-tags --depth=200 origin main 2>/dev/null || true
             base=$(git merge-base FETCH_HEAD "$HEAD_SHA" 2>/dev/null || true)
+            # A branch with no common history with `main` -- or a fetch that did
+            # not reach far enough back -- has no merge base, and `before` is
+            # then better than nothing.
+            if ! usable "$base"; then
+              base=$PUSH_BEFORE
+            fi
           fi
 
           # A tag, a schedule and a manual dispatch have no diff to narrow, and
