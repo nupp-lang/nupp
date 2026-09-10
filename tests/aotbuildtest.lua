@@ -2674,6 +2674,22 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local out, code = build(dir)
     test.equal(code, 0, out)
 
+    for _, tier in ipairs(buildTiers(nil, nil)) do
+        local c = assert(read(tieredC(dir, tier.tier)), tier.tier)
+        local scalarTarget = assert(
+            c:find('#pragma GCC target ("no-avx")', 1, true),
+            tier.tier .. " holds scalar helpers to the oracle target"
+        )
+        local scalarHelper = assert(
+            c:find("ks_scalar_load_", scalarTarget, true),
+            tier.tier .. " emits the scalar helpers after that target"
+        )
+        assert(
+            c:find("#pragma GCC pop_options", scalarHelper, true),
+            tier.tier .. " restores the tier target after the scalar helpers"
+        )
+    end
+
     if artifacts then
         local function save(name, bytes)
             local file = assert(io.open(artifacts .. "/" .. name, "wb"))
@@ -2691,6 +2707,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     trace("load " .. libraryPath(dir))
     local ffi = require("ffi")
     local lib = ffi.load(libraryPath(dir))
+    trace("tier " .. libraryTier(lib))
     trace("select symbols")
     local countQuotes = librarySymbol(lib, "ks_count_quotes")
     local countQuotesScalar = librarySymbol(lib, "ks_count_quotes_forced_scalar")
@@ -2728,7 +2745,6 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     )
     trace("tail comparisons")
     for count = 0, 40 do
-        trace("tail length " .. count)
         local source = ffi.new("uint8_t[?]", math.max(count, 1))
         local expected = 0
         for i = 0, count - 1 do
@@ -2737,20 +2753,22 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
                 expected = expected + 1
             end
         end
+        trace("tail length " .. count .. " packed quotes")
+        local packedQuotes = tonumber(lib[countQuotes](source, count))
+        test.equal(packedQuotes, expected, "packed and scalar tail lanes agree at length " .. count)
+        trace("tail length " .. count .. " scalar quotes")
+        local scalarQuotes = tonumber(lib[countQuotesScalar](source, count))
         test.equal(
-            tonumber(lib[countQuotes](source, count)),
-            expected,
-            "packed and scalar tail lanes agree at length " .. count
-        )
-        test.equal(
-            tonumber(lib[countQuotes](source, count)),
-            tonumber(lib[countQuotesScalar](source, count)),
+            packedQuotes,
+            scalarQuotes,
             "packed implementation agrees with its forced-scalar oracle at length " .. count
         )
         -- `bits`, `tail`, `any` and `all` have target-specific lowerings that the
         -- scalar oracle does not share, so each one is compared rather than only
         -- the reduction that happens to consume them.
+        trace("tail length " .. count .. " packed shapes")
         local packed = lib[shapes](source, count)
+        trace("tail length " .. count .. " scalar shapes")
         local oracle = lib[shapesScalar](source, count)
         test.equal(
             tonumber(packed.v1),

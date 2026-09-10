@@ -1460,9 +1460,9 @@ function emit.includes(): {string}
         "#define KS_COLD",
         "#define KS_UNLIKELY(cond) (cond)",
         "#endif",
-        "/* Scalar oracles keep their arithmetic unoptimized. GCC x86 oracles",
-        " * exclude AVX instructions from aggregate copies so stack temporaries",
-        " * require only the alignment guaranteed by the platform ABI. */",
+        "/* Scalar oracles and their helpers keep their arithmetic unoptimized.",
+        " * GCC x86 excludes AVX instructions from aggregate copies so stack",
+        " * temporaries require only the platform ABI's alignment. */",
         "#if defined(__clang__)",
         "#define KS_SCALAR_ORACLE __attribute__((optnone))",
         "#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))",
@@ -4173,16 +4173,14 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         "}",
         "",
     }
-    -- Spelled out rather than left to the compiler. A tier unit is compiled with
-    -- one instruction set for the whole file, but `KS_SCALAR_ORACLE` downgrades
-    -- the oracle entry alone, and GCC derives the alignment it gives a stack
-    -- aggregate from whichever instruction set the function it is compiling is
-    -- allowed to use. The oracle and the helpers it calls out to would then
-    -- disagree about a temporary both of them touch -- the caller handing out
-    -- one aligned for the platform ABI, the callee writing it with a wide
-    -- aligned move -- which faults rather than answering wrongly. An alignment
-    -- written on the type is the same on both sides of that call whatever flags
-    -- either was compiled under.
+    -- A tier unit is compiled with one instruction set for the whole file, but
+    -- `KS_SCALAR_ORACLE` downgrades the oracle entry alone. GCC derives both the
+    -- alignment of stack aggregates and the moves used to copy them from the
+    -- target of the function being compiled. Keep the helpers called by the
+    -- oracle under that same target: otherwise a no-AVX caller can pass a
+    -- platform-aligned by-value temporary to a tier helper that reads it with a
+    -- wider aligned move. Win64 faults on that disagreement. The explicit type
+    -- alignment keeps return storage consistent as well.
     lines[
         #lines + 1
     ] = "typedef struct { uint8_t lane[" .. tostring(
@@ -4193,6 +4191,11 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
     ] = "typedef struct { uint8_t bytes[64]; } __attribute__((aligned(64))) KsScalarBlockU8x64x" .. tostring(
         width
     ) .. ";"
+    lines[#lines + 1] = "#if defined(__GNUC__) && !defined(__clang__) && (defined(__x86_64__) || defined(__i386__))"
+    lines[#lines + 1] = "#pragma GCC push_options"
+    lines[#lines + 1] = "#pragma GCC optimize (\"O0\")"
+    lines[#lines + 1] = "#pragma GCC target (\"no-avx\")"
+    lines[#lines + 1] = "#endif"
     lines[
         #lines + 1
     ] = "static inline __attribute__((unused)) ks_scalar_"
@@ -4651,6 +4654,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
             .. "u; ++i) { scratch->bytes[offset + i * 4u] = v0.lane[i]; scratch->bytes[offset + i * 4u + 1u] = v1.lane[i];"
             .. " scratch->bytes[offset + i * 4u + 2u] = v2.lane[i]; scratch->bytes[offset + i * 4u + 3u] = v3.lane[i]; } }"
     end
+
+    lines[#lines + 1] = "#if defined(__GNUC__) && !defined(__clang__) && (defined(__x86_64__) || defined(__i386__))"
+    lines[#lines + 1] = "#pragma GCC pop_options"
+    lines[#lines + 1] = "#endif"
 
     return lines
 end
