@@ -567,6 +567,18 @@ select_rust_tools() {
     rustc_verbose=$("$RUSTC" -vV) \
         || die "cannot inspect rustc named by NUPP_RUSTC"
     rust_host=$(printf '%s\n' "$rustc_verbose" | sed -n 's/^host: //p')
+    if [ "$PLATFORM" = darwin ]; then
+        rust_sysroot=$("$RUSTC" --print sysroot) \
+            || die "cannot locate the sysroot for rustc named by NUPP_RUSTC"
+        rust_runtime="$rust_sysroot/lib"
+        case ":${DYLD_FALLBACK_LIBRARY_PATH:-}:" in
+            *":$rust_runtime:"*) ;;
+            *)
+                DYLD_FALLBACK_LIBRARY_PATH="$rust_runtime${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
+                export DYLD_FALLBACK_LIBRARY_PATH
+                ;;
+        esac
+    fi
     if [ "$PLATFORM" = windows ]; then
         case "$RUST_WINDOWS_ABI:$rust_host" in
             gnu:x86_64-pc-windows-gnu|gnullvm:x86_64-pc-windows-gnullvm) ;;

@@ -120,6 +120,10 @@ local function fakeRustTools(directory, version, identity, identityMarker)
 case "${1:-}" in
    --version) printf '%%s\n' 'rustc %s (fake)' ;;
    -vV) printf '%%s\n' 'rustc %s (fake)' 'host: %s' 'LLVM version: %s' ;;
+   --print)
+      [ "${2:-}" = sysroot ] || exit 2
+      printf '%%s\n' "$NUPP_TEST_RUST_SYSROOT"
+      ;;
    *) exit 2 ;;
 esac
 ]]
@@ -185,6 +189,7 @@ local function environment(directory, version, identity, identityMarker)
     )
     local library, host = artifactNames()
     assert(os.execute("mkdir -p " .. quote(directory .. "/vendor")) == 0)
+    assert(os.execute("mkdir -p " .. quote(directory .. "/rust-sysroot/lib")) == 0)
 
     return {
         NUPP_TOOLCHAIN_DIR = directory .. "/toolchain",
@@ -198,6 +203,7 @@ local function environment(directory, version, identity, identityMarker)
         NUPP_TEST_CARGO_CC_RECORD = directory .. "/cargo-cc",
         NUPP_TEST_CARGO_LINKER_RECORD = directory .. "/cargo-linker",
         NUPP_TEST_CARGO_GNULLVM_LINKER_RECORD = directory .. "/cargo-gnullvm-linker",
+        NUPP_TEST_RUST_SYSROOT = directory .. "/rust-sysroot",
         NUPP_TEST_RUST_LIBRARY = library,
         NUPP_TEST_RUST_HOST = host,
         PATH = "$PATH",
@@ -366,6 +372,15 @@ esac
     local selected = readLines(rustupRecord)
     local _, count = selected:gsub("1%.98%.0\n", "")
     assert(count == 2, "Cargo and rustc did not both select the pinned Unix toolchain:\n" .. selected)
+end
+
+-- Resolving rustup's exact binaries bypasses the proxy that normally adds this
+-- path. Without it, rustc's bundled rust-objcopy cannot load libLLVM on macOS.
+function M.darwinExactRustToolsCarryTheirSysrootRuntime()
+    local driver = read(DRIVER)
+    assert(driver:find('rust_sysroot=$("$RUSTC" --print sysroot)', 1, true))
+    assert(driver:find('rust_runtime="$rust_sysroot/lib"', 1, true))
+    assert(driver:find('export DYLD_FALLBACK_LIBRARY_PATH', 1, true))
 end
 
 function M.gpuConformanceIsValidPosixShell()
