@@ -1623,7 +1623,7 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                     local method = calleeT.overloadedMethods and calleeT.overloadedMethods[
                         field
-                    ] or fieldType and fieldType.tag == "func" and relations.hasReceiver(fieldType, calleeT)
+                    ] or fieldType and relations.isMethod(fieldType, calleeT)
                     local nested = calleeT.nestedTypes and calleeT.nestedTypes[field]
                     if not bound[
                         field

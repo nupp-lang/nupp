@@ -404,6 +404,19 @@ function M.directRecordConstructionRequiresFields()
     assertClean(
         "local record Item\nname: string\nfunction describe(self): string return self.name end\nend\nlocal item = new Item(name = 'ready')\nreturn item:describe()"
     )
+    assertClean(
+        table.concat(
+            {
+                "local record Handler",
+                "call: function(self: Handler, value: string): nil & function(self: Handler, value: integer): nil",
+                "end",
+                "Handler.call = function(_self: Handler, _value: any): nil end",
+                "local handler = new Handler()",
+                "return handler",
+            },
+            "\n"
+        )
+    )
     assertEq(diagsOf("local record Handler\ncall: function(): nil\nconstructor(self) end\nend"), "NUPP2208:3")
     assertClean(
         "local record Item\nname: string\nconstructor(self, name: string) self.name = name end\nend\nlocal item = new Item('ready')\nreturn item"

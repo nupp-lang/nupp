@@ -1501,9 +1501,7 @@ function declare.install(
         local missing = {}
         for _, name in ipairs(order) do
             local ft2 = n.byname[name] or n.writeByname[name]
-            local method = n.overloadedMethods and n.overloadedMethods[
-                name
-            ] or ft2 and ft2.tag == "func" and relations.hasReceiver(ft2, n)
+            local method = n.overloadedMethods and n.overloadedMethods[name] or ft2 and relations.isMethod(ft2, n)
             if returnsInstance and ft2 and not method and ft2.tag ~= "typeobject" and not nested[
                 name
             ] and not assigned[

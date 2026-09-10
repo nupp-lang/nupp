@@ -359,6 +359,23 @@ function relations.hasReceiver(ft: T.Func, owner: Type?): boolean
     return false
 end
 
+--- Whether a function or every arm of a callable intersection is an instance
+--- method of the owner.
+function relations.isMethod(value: Type, owner: Type?): boolean
+    if value.tag == "func" then
+        return relations.hasReceiver(value, owner)
+    elseif value.tag ~= "intersection" or #value.members == 0 then
+        return false
+    end
+    for _, member in ipairs(value.members) do
+        if member.tag ~= "func" or not relations.hasReceiver(member, owner) then
+            return false
+        end
+    end
+
+    return true
+end
+
 --- The borrow relation a callable states, spelled so two callables that state the
 --- same one compare equal, and "" for none: which parameters the borrowed result
 --- reads, and which result slot it lands on.
