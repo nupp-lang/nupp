@@ -363,7 +363,11 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         oldState = loadState(statePath)
     end
     local newState = cache.emptyState()
-    newState.compilerHash = toolFingerprint()
+    -- Every cache key below this line goes through one digest. A native host has a
+    -- compiled one that answers identically, so resolve it once here and hand it
+    -- down rather than letting each site fall back to the portable spelling.
+    local contentDigest = cache.contentDigest(target.dialect ~= "lua51")
+    newState.compilerHash = toolFingerprint(contentDigest)
     -- Dated here, before a single source has been read, and published by the rename
     -- below once they all have been.
     if not opts.checkOnly then
@@ -379,9 +383,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- rebuilt the project. The carried declarations are part of it: a module is
     -- checked against `lua.d.nupp` as much as against the checker.
     newState.moduleCompilerHash = cache.moduleCompilerFingerprint(
-        cache.sharedCacheDir(join(root, join(outDir, "cache")))
+        cache.sharedCacheDir(join(root, join(outDir, "cache"))),
+        contentDigest
     )
-    newState.configHash = hash.digest(stable(config))
+    newState.configHash = contentDigest(stable(config))
     -- Every other target's record is carried through untouched, so building one does
     -- not make the others look like they produced nothing.
     for name, produced in pairs(oldState.targets) do

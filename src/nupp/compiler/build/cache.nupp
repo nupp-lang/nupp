@@ -227,6 +227,36 @@ end
 -- own memoization rather than kept as a second copy beside it.
 local stable = require("nupp.compiler.stable")
 
+--- The content digest to use for cache keys, native where the host has one.
+---
+--- Byte for byte the answer `nupp.compiler.build.hash.digest` gives --
+--- `tests/projecttest.lua` holds the two implementations to that -- and about two
+--- thousand times faster, because the portable one emulates XXH64's 64-bit
+--- arithmetic over `uint32` halves and this one does not have to. A build puts
+--- every source, every compiler file and every memoized value through it, so the
+--- difference is seconds a command rather than a micro-optimisation.
+---
+--- Resolved once. The running compiler cannot grow or lose an FFI while it runs,
+--- and a portable `lua51` session has none to load: `native` false is how a
+--- caller that knows it is building for one says so, and the `pcall` is for a
+--- native host whose library is missing rather than for that.
+local nativeDigestMemo: any = nil
+
+function cache.contentDigest(native: boolean?): function(string): string
+    if native == false then
+        return hash.digest
+    end
+    if nativeDigestMemo == nil then
+        -- Named indirectly, so a portable bundle does not carry host services in
+        -- for the sake of a branch it never takes.
+        local ok, services = pcall(require, "nupp.compiler." .. "hostservices")
+        local resolved = ok and services and services.hash and services.hash.digest or nil
+        nativeDigestMemo = resolved or false
+    end
+
+    return nativeDigestMemo or hash.digest
+end
+
 local function hashFile(path: string, contentDigest: (function(string): string)?): string?
     local text = readFile(path)
     local digest = contentDigest or hash.digest

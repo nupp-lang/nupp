@@ -382,6 +382,13 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
 
     local hash = require("nupp.compiler.build.hash")
     local stable = require("nupp.compiler.build.cache").stable
+    -- Fingerprints are asked for thousands of times a run, once per recorded
+    -- dependency of every module considered for reuse. The native digest a host
+    -- carries answers identically, so take it where the session has one.
+    local contentDigest = env.compilerServices
+        and env.compilerServices.hash
+        and env.compilerServices.hash.digest
+        or hash.digest
 
     local function entrySurface(entry)
         return {
@@ -997,7 +1004,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             value = entryListSurface(value)
         end
 
-        return hash.digest(stable(value))
+        return contentDigest(stable(value))
     end
 
     local function projectDependencyPaths(name, key)

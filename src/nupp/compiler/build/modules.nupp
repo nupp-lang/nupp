@@ -809,6 +809,18 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local opened = session or openSession(root, outDir, config, target, newState.dependencies, strict, reporter)
     local inc = opened.inc
     local checkMs = opened.checkMs
+
+    -- One digest for every cache key this build writes. A native host has a compiled
+    -- XXH64 that answers exactly what the portable spelling answers, so which one ran
+    -- is never visible in a record -- only in how long the run took. The wrapper
+    -- shadows the module-level `hashFile` so every site below reaches it without
+    -- carrying the digest through its own signature.
+    local contentDigest = cache.contentDigest(target.dialect ~= "lua51")
+
+    local function hashFile(path: string): string?
+        return cache.hashFile(path, contentDigest)
+    end
+
     local substituted: {[string]: string} = {}
     for path, text in pairs(overlays or {}) do
         local at = normalize(path)
@@ -879,11 +891,11 @@ local function buildModules(root: string, outDir: string, config: Config, target
         if text ~= nil then
             -- Generated replacements may import implementation modules. Copying
             -- those bytes into authored source must force an ordinary check.
-            return hash.digest("compiler-generated\0" .. text as string)
+            return contentDigest("compiler-generated\0" .. text as string)
         end
         local checked = inc.fileText(path)
         if checked ~= nil then
-            return hash.digest(checked as string)
+            return contentDigest(checked as string)
         end
 
         -- Not a file the checker reads through this query: a dependency's declarations
@@ -1253,9 +1265,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local specializationHashes: {[string]: string} = {}
     for path, keys in pairs(specializationKeys) do
         table.sort(keys)
-        specializationHashes[path] = hash.digest(table.concat(keys, "\0"))
+        specializationHashes[path] = contentDigest(table.concat(keys, "\0"))
     end
-    local emptySpecializationHash = hash.digest("")
+    local emptySpecializationHash = contentDigest("")
 
     local records, reused, codeFor, paths = {}, {}, {}, {}
     local order, queued, cursor = {}, {}, 1
@@ -1342,12 +1354,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
         end
         local output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
-        local artifactHash = hash.digest(text)
+        local artifactHash = contentDigest(text)
         records[
             name
         ] = {
             sourceHash = artifactHash,
-            interfaceHash = hash.digest("compiler-runtime\0" .. text),
+            interfaceHash = contentDigest("compiler-runtime\0" .. text),
             artifactHash = artifactHash,
             dependencies = required,
             runtimeModules = required,
@@ -1509,7 +1521,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 mine[#mine + 1] = diag
             end
             if #genDiags == 0 then
-                artifactHash = hash.digest(code)
+                artifactHash = contentDigest(code)
             end
             generateMs[name] = (generateMs[name] or 0) + (progress.now() - startedGenerating)
         end
@@ -1925,7 +1937,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 return nil, err
             end
             outputs[output] = true
-            if hashFile(output) ~= hash.digest(text) then
+            if hashFile(output) ~= contentDigest(text) then
                 pending[#pending + 1] = {path = output, text = text}
             end
         end
