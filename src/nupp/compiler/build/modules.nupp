@@ -774,6 +774,17 @@ local function openSession(
     )
 end
 
+--- The sidecar queries whose answer is a module's own body rather than its
+--- interface, keyed the way a recorded project dependency names them.
+---
+--- Confirming one by asking costs a full check of the module the key names, and a
+--- fresh process has no memo to answer from: a project where nothing changed spent
+--- all of its time checking a hundred and eighty modules to be told each of their
+--- cache entries was good. So a reuse decision skips them and the invalidation
+--- fixpoint settles them instead, where a module that is itself still reused has
+--- already said its body did not move.
+local GUARANTEE_QUERY = {moduleCallGuarantees = true, moduleCallGuarantee = true}
+
 local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, strict: boolean?, stats: modules.Stats?, diagnostics: {
     any
 }?, checkState: Value?,
@@ -1643,7 +1654,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
                             usable = false
                             break
                         end
-                        if inc.projectDependencyFingerprint(
+                        if not GUARANTEE_QUERY[
+                            dependencyName
+                        ] and inc.projectDependencyFingerprint(
                             dependencyName as string,
                             dependencyKey as string
                         ) ~= dependencyFingerprint then
@@ -1701,6 +1714,28 @@ local function buildModules(root: string, outDir: string, config: Config, target
                         if not current or not previous or current.interfaceHash ~= previous.interfaceHash then
                             dependencyChanged = true
                             break
+                        end
+                    end
+                end
+                if not dependencyChanged then
+                    for _, dependency in ipairs(record.projectDependencies or {}) do
+                        if type(dependency) == "table" and GUARANTEE_QUERY[dependency.name] then
+                            -- The module the key names. A module still reused here has
+                            -- the body it was recorded against -- the loop above has
+                            -- already settled anything whose dependencies moved -- so
+                            -- the answer it gave then still stands and nothing is
+                            -- asked. Only one that was recompiled has to be, and by
+                            -- now it is checked, so asking is a memo hit.
+                            local named = tostring(dependency.key):match("^([^%z]+)")
+                            if not (named ~= nil and reused[named as string] and records[named as string]) then
+                                if inc.projectDependencyFingerprint(
+                                    dependency.name as string,
+                                    dependency.key as string
+                                ) ~= dependency.fingerprint then
+                                    dependencyChanged = true
+                                    break
+                                end
+                            end
                         end
                     end
                 end

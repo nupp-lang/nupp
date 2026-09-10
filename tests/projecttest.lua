@@ -1784,6 +1784,52 @@ return {
     remove(dir)
 end
 
+-- A call guarantee is body-derived: gaining or losing one moves no interface, so
+-- nothing an interface hash covers can reach a reader that observed it. The build
+-- records the guarantee as a project dependency of the reader instead, and a warm
+-- run has to confirm that record without re-checking the module it names -- asking
+-- the query is a full check of that module, which is what made a no-op check of
+-- this repository spend twelve seconds in cache validation.
+--
+-- Confirming it late, against a provider that is itself still being reused, is only
+-- sound if a provider that is *not* still reused reaches its readers. Both
+-- directions are here, because only one of them fails loudly: a stale refusal is
+-- noticed, and a stale acceptance is a wrong answer nobody sees.
+function M.warmChecksSeeABodyOnlyGuaranteeChange()
+    local allocating = table.concat({"local M = {}", "function M.work(): nil local t = {} end", "return M",}, "\n")
+    local quiet = table.concat({"local M = {}", "function M.work(): nil local n = 1 end", "return M",}, "\n")
+    local dir = tempProject({
+        ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", entries = {"main"}},
+}
+]],
+        ["src/main.g.nupp"] = table.concat({"local D = require('dep')", "noalloc do D.work() end",}, "\n"),
+        ["src/dep.g.nupp"] = allocating,
+    })
+
+    assert(project.check(dir, {stats = {}, diagnostics = {}}) ~= 0, "an allocating call is refused in a noalloc region")
+
+    -- Unchanged, so every module is a candidate for reuse and the refusal has to
+    -- come back out of the record rather than out of a recheck.
+    local warm = {}
+    assert(project.check(dir, {stats = warm, diagnostics = {}}) ~= 0, "and is still refused when nothing has changed")
+    assertEq(warm.checkedModules, 0, "without rechecking anything")
+
+    -- The provider gains the guarantee. Its interface does not move, and the
+    -- reader's own bytes do not move, so the recorded guarantee is the only thing
+    -- that can carry the change across.
+    write(dir .. "/src/dep.g.nupp", quiet)
+    assertEq(project.check(dir, {stats = {}, diagnostics = {}}), 0, "the reader accepts once the provider is quiet")
+
+    -- And back the other way, which is the direction that fails silently.
+    write(dir .. "/src/dep.g.nupp", allocating)
+    assert(project.check(dir, {stats = {}, diagnostics = {}}) ~= 0, "and refuses again once it allocates again")
+
+    remove(dir)
+end
+
 -- Linking a compiler-carried service runtime needs its source closure before the
 -- checker sees it. A prior module record already names that closure; rediscovering it
 -- through a fresh query graph checks the module solely to confirm an otherwise usable
