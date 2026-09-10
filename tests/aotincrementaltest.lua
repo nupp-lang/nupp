@@ -128,13 +128,13 @@ local function objects(dir)
     for line in pipe:lines() do
         -- Git Bash's `find` spells a Windows drive as `/c/`, while LuaJIT's
         -- `io.open` passes paths to the Windows C runtime rather than MSYS.
-        -- Keep the stable POSIX spelling as the comparison key, but translate
-        -- the path used to read the object back.
+        -- Use the native spelling as the comparison key too: the test later
+        -- removes one of these paths and reads it again after the rebuild.
         local path = line
         if package.config:sub(1, 1) == "\\" then
             path = path:gsub("^/([A-Za-z])/", "%1:/")
         end
-        found[line] = assert(read(path), "unreadable object " .. line)
+        found[path] = assert(read(path), "unreadable object " .. path)
     end
     pipe:close()
 
