@@ -126,7 +126,15 @@ local function objects(dir)
     local found = {}
     local pipe = assert(io.popen(("find %q -name '*.o' 2>/dev/null"):format(dir .. "/build/native/aot")))
     for line in pipe:lines() do
-        found[line] = assert(read(line), "unreadable object " .. line)
+        -- Git Bash's `find` spells a Windows drive as `/c/`, while LuaJIT's
+        -- `io.open` passes paths to the Windows C runtime rather than MSYS.
+        -- Keep the stable POSIX spelling as the comparison key, but translate
+        -- the path used to read the object back.
+        local path = line
+        if package.config:sub(1, 1) == "\\" then
+            path = path:gsub("^/([A-Za-z])/", "%1:/")
+        end
+        found[line] = assert(read(path), "unreadable object " .. line)
     end
     pipe:close()
 
