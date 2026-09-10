@@ -166,6 +166,44 @@ local function decode(text)
     return decoded
 end
 
+--- The job ids and step names a workflow document defines.
+---
+--- The shape is fixed by this repository's YAML style: a job id is two spaces in
+--- under `jobs:`, and a step name is `      - name: `. Reading those two lines is
+--- all this needs, and it fails loudly rather than approximately if the shape
+--- ever changes.
+---
+--- Line endings are normalized first. The file is read in binary, and a Windows
+--- checkout with `core.autocrlf` carries CRLF; a carriage return left on the line
+--- ends up inside the captured step name, so every step in the coverage map is
+--- reported as one the workflow does not define. Twenty-six confident, identical,
+--- wrong sentences on one platform and none on the others, which is how this
+--- first appeared.
+function validator.workflowShape(text)
+    local jobs, order, steps = {}, {}, {}
+    local inJobs, current = false, nil
+    for line in ((text:gsub("\r\n", "\n")) .. "\n"):gmatch("(.-)\n") do
+        if line:match("^jobs:%s*$") then
+            inJobs = true
+        elseif inJobs then
+            local id = line:match("^  ([%w%-_]+):%s*$")
+            if id then
+                current = id
+                jobs[id] = true
+                order[#order + 1] = id
+                steps[id] = {}
+            elseif current then
+                local name = line:match("^      %- name: (.+)$")
+                if name then
+                    steps[current][name] = true
+                end
+            end
+        end
+    end
+
+    return jobs, order, steps
+end
+
 --- Every disagreement between the four files, as a list of sentences. Empty
 --- means they agree. Returned rather than printed so the suite can assert on it
 --- in process, which is what keeps this check in the fast gate rather than
@@ -183,33 +221,7 @@ function validator.problems()
     local map = decode(slurp(".github/ci-coverage.json"))
     local workflowText = slurp(map.workflow)
 
-    -- The workflow's shape is fixed by `nupp fmt`-adjacent conventions and by this
-    -- repository's own YAML style: a job id is two spaces in under `jobs:`, and a
-    -- step name is `      - name: `. Reading those two lines is all this needs, and
-    -- it fails loudly rather than approximately if the shape ever changes.
-    local workflowJobs, jobOrder = {}, {}
-    local stepsByJob = {}
-    do
-        local inJobs, current = false, nil
-        for line in (workflowText .. "\n"):gmatch("(.-)\n") do
-            if line:match("^jobs:%s*$") then
-                inJobs = true
-            elseif inJobs then
-                local id = line:match("^  ([%w%-_]+):%s*$")
-                if id then
-                    current = id
-                    workflowJobs[id] = true
-                    jobOrder[#jobOrder + 1] = id
-                    stepsByJob[id] = {}
-                elseif current then
-                    local name = line:match("^      %- name: (.+)$")
-                    if name then
-                        stepsByJob[current][name] = true
-                    end
-                end
-            end
-        end
-    end
+    local workflowJobs, jobOrder, stepsByJob = validator.workflowShape(workflowText)
     require_(#jobOrder > 0, "no jobs were found in " .. map.workflow)
 
     for id in pairs(map.jobs) do
