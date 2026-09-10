@@ -341,32 +341,10 @@ function M.theLauncherServesThePinnedReleasesWorkerPath()
     end
 end
 
--- Help output proves only that the fetched Lua loads. The stage zero also has to
--- understand every language and resolver change used by the current compiler, or a
--- fresh checkout cannot produce its first build. That is the rule the pinned
--- release imposes on these sources, and this is what enforces it.
-function M.theStageZeroBuildsTheCurrentCompiler()
-    local path = stage0()
-    assert(path, "no stage-zero compiler; run scripts/toolchain stage0")
-    local dir = os.tmpname()
-    os.remove(dir)
-    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
-    assert(os.execute(("cp '%s/nupp.lua' '%s/nupp.lua'"):format(ROOT, dir)) == 0)
-    assert(os.execute(("cp -R '%s/src' '%s/src'"):format(ROOT, dir)) == 0)
-
-    local compilerRoot = assert(path:match("^(.*)[/\\][^/\\]+$"))
-    local out, ok = capture(
-        (
-            "cd '%s' && NUPP_COMPILER_ROOT='%s' NUPP_STAGE0='%s' luajit '%s' build 2>&1"
-        ):format(dir, compilerRoot, path, path)
-    )
-    assert(ok, "the pinned stage zero cannot build the current compiler: " .. out)
-
-    local stamp = io.open(dir .. "/build/.nupp-complete", "rb")
-    assert(stamp, "the stage zero reported success without completing the build: " .. out)
-    stamp:close()
-    os.execute("rm -rf '" .. dir .. "'")
-end
+-- The classified `nupp fixpoint` gate begins by asking the pinned stage zero to
+-- build the current compiler, and the release workflow repeats that verification
+-- while composing the next stage-zero bundle. Repeating the same cold build in the
+-- ordinary suite made every local full run wait for the release boundary.
 
 -- Every resource the stage-zero bundle carries is embedded verbatim, so a
 -- checkout that translates line endings composes a bundle whose bytes cannot
