@@ -4180,7 +4180,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
     -- oracle under that same target: otherwise a no-AVX caller can pass a
     -- platform-aligned by-value temporary to a tier helper that reads it with a
     -- wider aligned move. Win64 faults on that disagreement. The explicit type
-    -- alignment keeps return storage consistent as well.
+    -- alignment keeps return storage consistent as well. Fortified libc makes
+    -- `memcpy` an always-inline function compiled for the tier target, so the
+    -- scalar region uses its own byte loop rather than crossing that target
+    -- boundary. Packed helpers remain outside the region for the same reason.
     lines[
         #lines + 1
     ] = "typedef struct { uint8_t lane[" .. tostring(
@@ -4198,6 +4201,12 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
     lines[#lines + 1] = "#endif"
     lines[
         #lines + 1
+    ] = "static __attribute__((unused)) void ks_scalar_copy_bytes(void *destination, const void *source, size_t count) {"
+    lines[#lines + 1] = "    uint8_t *out = (uint8_t *)destination; const uint8_t *in = (const uint8_t *)source;"
+    lines[#lines + 1] = "    for (size_t i = 0u; i < count; ++i) out[i] = in[i];"
+    lines[#lines + 1] = "}"
+    lines[
+        #lines + 1
     ] = "static inline __attribute__((unused)) ks_scalar_"
         .. suffix
         .. " ks_scalar_load_"
@@ -4207,7 +4216,7 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
     lines[#lines + 1] = "    if ((size_t)offset < count) {"
     lines[#lines + 1] = "        size_t active = count - (size_t)offset;"
     lines[#lines + 1] = "        if (active > " .. tostring(width) .. "u) active = " .. tostring(width) .. "u;"
-    lines[#lines + 1] = "        memcpy(out.lane, source + offset, active);"
+    lines[#lines + 1] = "        ks_scalar_copy_bytes(out.lane, source + offset, active);"
     lines[#lines + 1] = "    }"
     lines[#lines + 1] = "    return out;"
     lines[#lines + 1] = "}"
@@ -4297,7 +4306,9 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         #lines + 1
     ] = "    ks_scalar_" .. suffix .. " out = {{0}}; if (offset >= view->full_length || offset % " .. tostring(
         width
-    ) .. "u != 0u) return out; memcpy(out.lane, view->source + offset, " .. tostring(width) .. "u); return out;"
+    ) .. "u != 0u) return out; ks_scalar_copy_bytes(out.lane, view->source + offset, " .. tostring(
+        width
+    ) .. "u); return out;"
     lines[#lines + 1] = "}"
     lines[
         #lines + 1
@@ -4308,7 +4319,7 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. "(const KsPaddedStringU8x"
         .. tostring(
         width
-    ) .. " *view) { ks_scalar_" .. suffix .. " out = {{0}}; memcpy(out.lane, &view->tail, " .. tostring(
+    ) .. " *view) { ks_scalar_" .. suffix .. " out = {{0}}; ks_scalar_copy_bytes(out.lane, &view->tail, " .. tostring(
         width
     ) .. "u); return out; }"
     lines[
@@ -4323,7 +4334,7 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. " out = {{0}}; if ((size_t)offset > view->source_length || view->source_length - (size_t)offset < 64u || offset % "
         .. tostring(
         width
-    ) .. "u != 0u) return out; memcpy(out.bytes, view->source + offset, 64u); return out; }"
+    ) .. "u != 0u) return out; ks_scalar_copy_bytes(out.bytes, view->source + offset, 64u); return out; }"
     lines[
         #lines + 1
     ] = "static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_eq_"
@@ -4458,10 +4469,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. suffix
         .. " current, uint32_t offset) { ks_scalar_"
         .. suffix
-        .. " out = {{0}}; if (offset < 1u || offset > 3u) { return out; } memcpy(out.lane, previous.lane + "
+        .. " out = {{0}}; if (offset < 1u || offset > 3u) { return out; } ks_scalar_copy_bytes(out.lane, previous.lane + "
         .. tostring(
         width
-    ) .. "u - offset, offset); memcpy(out.lane + offset, current.lane, " .. tostring(
+    ) .. "u - offset, offset); ks_scalar_copy_bytes(out.lane + offset, current.lane, " .. tostring(
         width
     ) .. "u - offset); return out; }"
     lines[
@@ -4581,6 +4592,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. "(mask) != 0u); }"
     lines[#lines + 1] = ""
 
+    lines[#lines + 1] = "#if defined(__GNUC__) && !defined(__clang__) && (defined(__x86_64__) || defined(__i386__))"
+    lines[#lines + 1] = "#pragma GCC pop_options"
+    lines[#lines + 1] = "#endif"
+
     -- The interleaved store writes into a Lua-owned byte scratch, so it names
     -- `lua_State` and `KsLuaScratchU8`. A unit with no builder entry never
     -- declares either, and emitting the helper there produced C that did not
@@ -4627,6 +4642,11 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         for _, line in ipairs(storeLines) do
             lines[#lines + 1] = line
         end
+        lines[#lines + 1] = "#if defined(__GNUC__) && !defined(__clang__) && (defined(__x86_64__) || defined(__i386__))"
+        lines[#lines + 1] = "#pragma GCC push_options"
+        lines[#lines + 1] = "#pragma GCC optimize (\"O0\")"
+        lines[#lines + 1] = "#pragma GCC target (\"no-avx\")"
+        lines[#lines + 1] = "#endif"
         lines[
             #lines + 1
         ] = "static inline __attribute__((unused)) void ks_scalar_store4_"
@@ -4653,11 +4673,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         )
             .. "u; ++i) { scratch->bytes[offset + i * 4u] = v0.lane[i]; scratch->bytes[offset + i * 4u + 1u] = v1.lane[i];"
             .. " scratch->bytes[offset + i * 4u + 2u] = v2.lane[i]; scratch->bytes[offset + i * 4u + 3u] = v3.lane[i]; } }"
+        lines[#lines + 1] = "#if defined(__GNUC__) && !defined(__clang__) && (defined(__x86_64__) || defined(__i386__))"
+        lines[#lines + 1] = "#pragma GCC pop_options"
+        lines[#lines + 1] = "#endif"
     end
-
-    lines[#lines + 1] = "#if defined(__GNUC__) && !defined(__clang__) && (defined(__x86_64__) || defined(__i386__))"
-    lines[#lines + 1] = "#pragma GCC pop_options"
-    lines[#lines + 1] = "#endif"
 
     return lines
 end

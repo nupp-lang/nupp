@@ -2684,10 +2684,17 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
             c:find("ks_scalar_load_", scalarTarget, true),
             tier.tier .. " emits the scalar helpers after that target"
         )
-        assert(
+        local scalarRestore = assert(
             c:find("#pragma GCC pop_options", scalarHelper, true),
             tier.tier .. " restores the tier target after the scalar helpers"
         )
+        local scalarSection = c:sub(scalarTarget, scalarRestore)
+        assert(scalarSection:find("ks_scalar_copy_bytes", 1, true), tier.tier .. " emits an unvectorized scalar copy")
+        assert(
+            not scalarSection:find("memcpy(", 1, true),
+            tier.tier .. " keeps fortified copies out of the scalar target"
+        )
+        assert(not scalarSection:find("ks_store4_", 1, true), tier.tier .. " keeps packed helpers at the tier target")
     end
 
     if artifacts then
