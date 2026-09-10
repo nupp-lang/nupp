@@ -44,6 +44,7 @@ local command = spec.command{
                         .. "rather than from the manifest."
                     },
                     buildTarget = {type = "string"},
+                    cwd = {type = "string", description = "Task working directory, relative to the project root.",},
                     all = {
                         type = "boolean",
                         description = "Documentation: include declarations " .. "that are undocumented or local."
@@ -100,6 +101,7 @@ local function writeTask(out: {string}, style: any, task: any)
     end
     field("Output directory", task.outDir)
     field("Build target", task.buildTarget)
+    field("Working directory", task.cwd)
     field("Dialect", task.dialect)
     field("Layout target", task.layoutTarget)
     if task.platforms and #task.platforms > 0 then

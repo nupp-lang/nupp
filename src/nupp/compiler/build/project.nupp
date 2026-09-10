@@ -1049,7 +1049,8 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
 end
 
 --- Runs `tasks.<name>` from the manifest: builds `tasks.<name>.build` first if it names
---- one, then execs `tasks.<name>.argv` with `args` appended. Unlike `test`, which
+--- one, then execs `tasks.<name>.argv` from its configured working directory with
+--- `args` appended. Unlike `test`, which
 --- always builds (there is exactly one test command and it is nothing without the code
 --- under test), a custom task only builds when it says to, and most won't name a build
 --- target at all.
@@ -1096,7 +1097,7 @@ function project.runTask(root: string?, name: string, args: {string}?): integer
         end
     end
 
-    return process.run(argv, {cwd = root, env = env})
+    return process.run(argv, {cwd = join(root, task.cwd or ""), env = env})
 end
 
 -- What the compiler produced, which is what a fixpoint is a claim about.

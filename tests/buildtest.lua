@@ -475,6 +475,10 @@ return {
    },
    test = {build = "app", argv = {"luajit", "tests/run.lua"},
       env = {MODE = "test"}},
+   tasks = {release = {
+      description = "Run the release tool", cwd = "tools",
+      argv = {"nupp", "run", "release.nupp"},
+   }},
    selfHost = {target = "app", bootstrap = "scripts/find-stage0"},
 }
 ]],
@@ -487,6 +491,7 @@ return {
     assert(listed:find("tools", 1, true), "text listing includes every task: " .. listed)
     assert(listed:find("test - Build and run", 1, true), "text listing includes the configured test task: " .. listed)
     assert(listed:find("fixpoint - Verify", 1, true), "text listing includes the configured self-host task: " .. listed)
+    assert(listed:find("release - Run the release tool", 1, true), "text listing includes custom tasks: " .. listed)
     assert(
         listed:find("app", 1, true) < listed:find("tools", 1, true),
         "text listing is sorted by task name: " .. listed
@@ -514,6 +519,14 @@ return {
         fixpoint:find("Stage zero: scripts/find-stage0", 1, true),
         "text detail includes self-host configuration: " .. fixpoint
     )
+    local release = capture(("cd '%s' && '%s' tasks release --text"):format(dir, NUPP))
+    assert(
+        release:find("Working directory: tools", 1, true),
+        "text detail includes the configured working directory: " .. release
+    )
+    encoded = capture(("cd '%s' && '%s' tasks release --json"):format(dir, NUPP))
+    decoded = require("testjson").decode(encoded)
+    assertEq(decoded.cwd, "tools", "JSON detail includes the configured working directory")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

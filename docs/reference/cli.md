@@ -1572,7 +1572,8 @@ Options:
   -h, --help  Show this help
 
 Runs tasks.<name> from nupp.lua: builds tasks.<name>.build first if it names
-one, then execs tasks.<name>.argv with any arguments after <name> appended.
+one, then execs tasks.<name>.argv from tasks.<name>.cwd (the project root by
+default) with any arguments after <name> appended.
 See `nupp tasks` for the configured list.
 ```
 

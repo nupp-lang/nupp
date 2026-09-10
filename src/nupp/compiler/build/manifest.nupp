@@ -164,6 +164,7 @@ type manifest.Task = {
     description: string?,
     argv: {string}?,
     build: string?,
+    cwd: string?,
     env: {[string]: string}?,
 
     [string]: any
@@ -372,7 +373,7 @@ local PAGE_KEYS = {
 -- whose prose it opens with.
 local GENERATED_KEYS = {"path", "redirects", "source", "title"}
 
-local TASK_KEYS = {"description", "argv", "build", "env"}
+local TASK_KEYS = {"description", "argv", "build", "cwd", "env"}
 local GENERATOR_KEYS = {"description", "using", "inputs", "options"}
 
 -- The rest of the manifest, closed for the same reason the docs target is: a key
@@ -1509,6 +1510,12 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             -- no build section is still a manifest a task can be defined in.
             if task.build ~= nil then
                 valid, err = validateTargetReference(build, task.build, label .. ".build")
+                if not valid then
+                    return nil, err
+                end
+            end
+            if task.cwd ~= nil then
+                valid, err = validateString(task.cwd, label .. ".cwd")
                 if not valid then
                     return nil, err
                 end

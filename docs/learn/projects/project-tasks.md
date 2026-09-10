@@ -45,10 +45,11 @@ return {
 | `argv` | yes | The command, as an argv array of strings |
 | `description` | no | One line, shown by `nupp tasks` |
 | `build` | no | A build target to build before the command runs |
+| `cwd` | no | Working directory, relative to the project root |
 | `env` | no | Environment variables, as string to string |
 
 Any non-empty string is a name. One that is not a Lua identifier is written as
-a key, as `["docs-serve"]` above. The four keys are the whole set, and a key
+a key, as `["docs-serve"]` above. The five keys are the whole set, and a key
 that is not among them is refused by name before anything runs, with the
 nearest one when there is a candidate:
 
@@ -156,6 +157,24 @@ argv and never build a command line, which is what keeps that disagreement in
 one module.
 :::
 
+## Working directory
+
+`cwd` runs the command from a directory relative to the project containing
+`nupp.lua`. Without it, the command runs from that project root. This is useful
+for tools that are projects of their own:
+
+```lua
+format = {
+   description = "Format every source language",
+   cwd = "tools",
+   argv = { "nupp", "run", "tecs/dev/formatmain.nupp", "format" },
+},
+```
+
+Here the nested `nupp` command sees `tools/nupp.lua` as its manifest. The task's
+`build`, when present, still names and builds a target from the outer manifest
+before the command starts.
+
 ## Arguments and exit status
 
 Arguments after the task name belong to the command, so `nupp task` does not
@@ -167,8 +186,8 @@ read them. The consequences:
   `nupp task` exit 7.
 - A name no task matches exits 1, and says to run `nupp tasks` for the list.
 
-The command runs with the project root as its working directory, whatever
-directory you invoked `nupp task` from.
+The command runs with the configured `cwd`, or the project root when `cwd` is
+absent, whatever directory you invoked `nupp task` from.
 
 ## Listing tasks and targets
 

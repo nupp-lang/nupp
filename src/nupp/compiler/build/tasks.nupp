@@ -245,6 +245,7 @@ local function configuredTasks(config: manifest.Config, buildOnly: boolean?): {t
                 description = custom.description,
                 kind = "task",
                 buildTarget = custom.build,
+                cwd = custom.cwd,
                 argv = copyStrings(custom.argv),
                 env = custom.env,
                 command = jsonArray({"nupp", "task", customName}),

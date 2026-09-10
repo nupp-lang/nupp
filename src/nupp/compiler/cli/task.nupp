@@ -4,7 +4,8 @@ module nupp.compiler.cli.task
 `nupp task`: build, then run one of `nupp.lua`'s named `tasks` entries.
 
 The general case `test` is one fixed instance of: a task names an argv, an
-optional build target to build first, and optional environment. Unlike
+optional build target to build first, an optional working directory, and optional
+environment. Unlike
 `test`, which always means the project's test command, this takes which task
 by name, so a project can have any number of them -- a dev server, a release
 script, whatever it runs by hand often enough to want a name for it rather
@@ -24,7 +25,8 @@ local command = spec.command{
     universal = false,
     options = {spec.helpOption},
     detail = [[Runs tasks.<name> from nupp.lua: builds tasks.<name>.build first if it names
-one, then execs tasks.<name>.argv with any arguments after <name> appended.
+one, then execs tasks.<name>.argv from tasks.<name>.cwd (the project root by
+default) with any arguments after <name> appended.
 See `nupp tasks` for the configured list.]],
 }
 

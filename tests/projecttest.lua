@@ -3684,6 +3684,48 @@ return {
     remove(dir)
 end
 
+function M.namedTaskRunsFromItsConfiguredWorkingDirectory()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {
+   include = {"src"},
+   build = {entries = {"main"}},
+   tasks = {
+      greet = {cwd = "tools", argv = {"luajit", "greet.lua"}},
+   },
+}
+]],
+        ["src/main.nupp"] = "return true\n",
+        ["tools/greet.lua"] = "local f=assert(io.open('task-ran','wb')); f:write('hi'); f:close()\n",
+    })
+    assertEq(project.runTask(dir, "greet"), 0)
+    assertEq(read(dir .. "/tools/task-ran"), "hi")
+    assert(not exists(dir .. "/task-ran"), "the task does not run from the outer project root")
+
+    local described = assert(project.describeTasks(dir, "greet"))
+    assertEq(described.cwd, "tools", "task discovery reports the configured working directory")
+    remove(dir)
+end
+
+function M.taskWorkingDirectoryMustBeANonEmptyString()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {
+   build = {entries = {"main"}},
+   tasks = {greet = {cwd = "", argv = {"echo", "hi"}}},
+}
+]],
+    })
+    local config, err = project.loadManifest(dir)
+    assertEq(config, nil, "an empty task working directory rejects the manifest")
+    assert(err and err:find("tasks.greet.cwd must be a non-empty string", 1, true), tostring(err))
+    remove(dir)
+end
+
 function M.namedTaskBuildsFirstWhenItNamesATarget()
     local dir = tempProject({
         [
