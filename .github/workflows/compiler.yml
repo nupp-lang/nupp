@@ -1,23 +1,20 @@
 name: Compiler matrix
 
 on:
-  # Every branch except the trunk, which is the exact inverse of what this used
-  # to say and follows from the ruleset rather than from taste.
+  # Every branch, and the trunk above all.
   #
-  # The ruleset admits a push to `main` only when `required-ci` is already green
-  # for that exact commit, so the commit must have been tested somewhere first,
-  # and the somewhere is the worktree branch it was written on. A check run
-  # belongs to a commit rather than to a branch, so the branch run is the one
-  # the trunk push presents. Running again on `main` would be the same matrix
-  # over the same commit object, reaching the same answer, after the answer had
-  # already been used -- one duplicate full matrix for every change that lands.
+  # This was briefly `branches-ignore: main`, which was right only while a
+  # ruleset stood in front of the trunk: a check run belongs to a commit rather
+  # than to a branch, so the branch run was the one the trunk push presented,
+  # and running the same matrix again over the same commit object bought
+  # nothing. There is no ruleset now. Nothing else asks a question about a
+  # commit pushed straight to `main`, so if this does not, nothing does.
   #
-  # A commit that never sat on a branch is refused by the ruleset rather than
-  # tested here, which is the same guarantee arrived at more cheaply. Tags still
-  # run, because a release builds from one.
+  # Worktree branches are here too, so a task can find out before it lands
+  # rather than after.
   push:
-    branches-ignore:
-      - main
+    branches:
+      - "**"
     tags:
       - "*"
   # Retained for a contribution from a fork, where no push to this repository
@@ -126,7 +123,13 @@ jobs:
           base=""
           if [ "$EVENT" = pull_request ]; then
             base=$PR_BASE
-          elif [ "$EVENT" = push ] && [ "$REF" != refs/heads/main ]; then
+          elif [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
+            # The trunk has no merge base to compare against but its own
+            # history, so the previous tip is the answer here, and it is the
+            # right one: what is new on `main` is what arrived since `main` was
+            # last at that commit.
+            base=$PUSH_BEFORE
+          elif [ "$EVENT" = push ]; then
             git fetch --no-tags --depth=200 origin main 2>/dev/null || true
             base=$(git merge-base FETCH_HEAD "$HEAD_SHA" 2>/dev/null || true)
             # A branch with no common history with `main` -- or a fetch that did
