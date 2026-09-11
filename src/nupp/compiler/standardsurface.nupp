@@ -78,6 +78,9 @@ local MODULES = {
     ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
+    -- Reaches the recorder through nupp.profile, so it is available exactly where that
+    -- is.
+    ["nupp.bench"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.random"] = {kind = "common"},
     ["nupp.simd"] = facility("compile", "runtime.simd"),
     ["nupp.suspension"] = {kind = "common"},

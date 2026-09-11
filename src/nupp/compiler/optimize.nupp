@@ -2772,6 +2772,77 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
     return remarks, specializedBodies
 end
 
+--- One allocation left in the tree generation will emit.
+record optimize.AllocationSite
+    --- `table` for a constructor, `closure` for a function value.
+    kind: string
+
+    --- Where it stands, 1-based.
+    line: integer
+
+    col: integer
+end
+
+--- Lists the allocations still standing in the tree generation will emit.
+---
+--- This is the compiler's account of its own output and nothing more. It says which
+--- allocations *this* optimizer left in the Lua it wrote; it says nothing about whether
+--- LuaJIT went on to sink them, which happens later and in another compiler that
+--- reports nothing here. A reader gating on this detects this optimizer regressing,
+--- which is narrow and real, and must not read it as allocations performed.
+---
+--- Walked after the passes, so a constructor a pass folded away or dropped with a dead
+--- branch is correctly absent: the same exclusions `liveEffects` makes, for the same
+--- reason.
+---
+--- @param result the checked tree, after the passes have run
+--- @return the sites, in tree order
+function optimize.allocationSites(result: optimize.Checked): {optimize.AllocationSite}
+    local sites: {optimize.AllocationSite} = {}
+
+    local function visit(node)
+        if not node or isToken(node) then
+            return
+        end
+        if node.constantLoopNone then
+            return
+        end
+        if node.kind == "ifStmt" and (node.constantBranch or node.constantBranchNone) then
+            if node.constantBranch then
+                visit(node.constantBranch)
+            end
+
+            return
+        end
+        if node.comptimeValue or node.folded then
+            return
+        end
+        local kind = nil as string?
+        if node.kind == "tableExpr" then
+            kind = "table"
+        elseif node.kind == "funcExpr" or node.kind == "shortfn" then
+            kind = "closure"
+        end
+        if kind then
+            local token = firstToken(node)
+            sites[
+                #sites + 1
+            ] = new optimize.AllocationSite(
+                kind = kind,
+                line = token and token.line or 0,
+                col = token and token.col or 0
+            )
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(result.root)
+
+    return sites
+end
+
 --- Recomputes compiler runtime effects from the tree that generation will emit.
 --- Constant-folded branches and loops are deliberately skipped, so their providers
 --- disappear along with their code.

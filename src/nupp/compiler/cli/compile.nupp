@@ -70,6 +70,10 @@ record compile.Settings
     --- Remarks accumulated across the files this command reached. Present only when
     --- `remarksOut` is, because the artifact is the only reason to keep them.
     collectedRemarks: {any}?
+
+    --- Allocation sites the optimizer left standing, accumulated the same way and for
+    --- the same reason.
+    collectedAllocationSites: {any}?
 end
 
 -- The level arrives as the digit the option captured. The grammar has already refused
@@ -90,7 +94,8 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
         coverage = os.getenv("NUPP_COVERAGE") == "1",
         bytecodeBoundary = nil,
         remarksOut = values.remarksOut,
-        collectedRemarks = values.remarksOut and {} or nil
+        collectedRemarks = values.remarksOut and {} or nil,
+        collectedAllocationSites = values.remarksOut and {} or nil
     )
 end
 
@@ -123,6 +128,7 @@ function compile.writeRemarks(settings: compile.Settings): boolean
         executionProfile = {optLevel = settings.optLevel or 0, disabled = table.concat(codes, ","),},
         compiler = {version = require("nupp.compiler.version").VERSION},
         remarks = report.diagnosticValues(collected),
+        allocationSites = settings.collectedAllocationSites or {},
     }
     local wrote, writeErr = require("nupp.compiler.fs").writeFile(out, report.encode(document) .. "\n")
     if not wrote then
@@ -238,6 +244,13 @@ function compile.module(
         local collectedRemarks = settings.collectedRemarks
         for _, entry in ipairs(remarks) do
             collectedRemarks[#collectedRemarks + 1] = entry
+        end
+    end
+    if settings.collectedAllocationSites then
+        local collectedSites = settings.collectedAllocationSites
+        -- After the passes, so a constructor one of them removed is correctly absent.
+        for _, site in ipairs(require("nupp.compiler.optimize").allocationSites(result)) do
+            collectedSites[#collectedSites + 1] = {file = path, kind = site.kind, line = site.line, col = site.col,}
         end
     end
     if settings.remarks then

@@ -223,6 +223,7 @@ local RESOURCES = {
     {source = "src/nupp/compiler/doc/theme.css", output = "nupp/compiler/doc/theme.css"},
     {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
     {source = "src/nupp/services.nupp", output = "nupp/compiler/nupp/services.nupp"},
+    {source = "src/nupp/bench/init.nupp", output = "nupp/compiler/nupp/bench/init.nupp"},
     {source = "src/nupp/profile/zone.nupp", output = "nupp/compiler/nupp/profile/zone.nupp"},
     {source = "src/nupp/profile/trace.nupp", output = "nupp/compiler/nupp/profile/trace.nupp"},
     {source = "src/nupp/profile/init.nupp", output = "nupp/compiler/nupp/profile/init.nupp"},

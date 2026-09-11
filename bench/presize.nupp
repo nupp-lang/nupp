@@ -1,0 +1,32 @@
+const {type Case} = require("nupp.bench")
+
+--- OPT-1 presizing, measured through `nupp.bench`.
+---
+--- The Lua benchmark beside this one compares hand-written compiler output; this
+--- compares what the compiler actually emits for the same two shapes, which is the
+--- thing that can regress. `bench.keep` is what stops the loop being deleted: an
+--- earlier version of `bench/presize.lua` measured LuaJIT removing it.
+---
+--- Run: nupp run -O1 --remarks-out build/remarks.json bench/presize.nupp
+local bench = require("nupp.bench")
+
+local function grown(b: Case): nil
+    for _ = 1, b.n do
+        local point: {[string]: integer} = {}
+        point.x = 1
+        point.y = 2
+        point.z = 3
+        point.w = 4
+        bench.keep(point)
+    end
+end
+
+local function sized(b: Case): nil
+    for _ = 1, b.n do
+        bench.keep({x = 1, y = 2, z = 3, w = 4})
+    end
+end
+
+bench.case("presize.grown", grown)
+bench.case("presize.sized", sized)
+bench.report()

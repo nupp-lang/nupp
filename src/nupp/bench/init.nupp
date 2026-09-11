@@ -537,6 +537,37 @@ local function sameRecorder(left: any, right: any): boolean
     return left.id == right.id
 end
 
+--- The identities of the allocations the optimizer left standing, as the build
+--- recorded them. A static account of this compiler's own output; see
+--- `optimize.allocationSites` for what it does and does not say.
+local function allocationIdentities(record: any): {string}
+    local sites: {string} = {}
+    for _, site in ipairs(record.allocationSites or {}) do
+        sites[
+            #sites + 1
+        ] = ("%s|%s|%s|%s"):format(tostring(site.file), tostring(site.kind), tostring(site.line), tostring(site.col))
+    end
+    table.sort(sites)
+
+    return sites
+end
+
+--- The identities of the remarks the optimizer made, as the build recorded them.
+local function remarkIdentities(record: any): {string}
+    local entries: {string} = {}
+    for _, entry in ipairs(record.remarks or {}) do
+        local at = entry.range and entry.range.start or nil
+        entries[
+            #entries + 1
+        ] = (
+            "%s|%s|%s|%s"
+        ):format(tostring(entry.code), tostring(entry.file), tostring(at and at.line or 0), tostring(entry.message))
+    end
+    table.sort(entries)
+
+    return entries
+end
+
 local function listDifference(current: {string}, previous: {string}): {string}
     local seen: {[string]: boolean} = {}
     for _, entry in ipairs(previous) do
@@ -568,6 +599,22 @@ local function compare(record: any, baseline: any): ({string}, {string})
     local previous: {[string]: any} = {}
     for _, entry in ipairs(baseline.cases or {}) do
         previous[entry.name] = entry
+    end
+    -- Static counters are properties of the compiler's output, so they compare across
+    -- hosts unchanged and are not keyed by the recorder below.
+    for _, site in ipairs(listDifference(allocationIdentities(record), allocationIdentities(baseline))) do
+        failures[#failures + 1] = "allocation site appeared: " .. site
+    end
+    -- Reported rather than gated. A remark carries no field saying whether the pass
+    -- fired or declined, so a pass that started firing would add one remark and remove
+    -- another, and gating the set would call that improvement a regression.
+    local currentRemarks = remarkIdentities(record)
+    local previousRemarks = remarkIdentities(baseline)
+    for _, entry in ipairs(listDifference(currentRemarks, previousRemarks)) do
+        uncompared[#uncompared + 1] = "remark appeared: " .. entry
+    end
+    for _, entry in ipairs(listDifference(previousRemarks, currentRemarks)) do
+        uncompared[#uncompared + 1] = "remark went away: " .. entry
     end
     local recorderMatches = sameRecorder(record.traceProfile, baseline.traceProfile)
     for _, entry in ipairs(record.cases) do
