@@ -1,0 +1,654 @@
+module nupp.bench
+
+--[[
+Measuring Nupp code from inside an ordinary program.
+
+A benchmark here is a program, not a case a runner discovered. It links this
+module, runs under `nupp run`, and reports itself:
+
+```nupp
+local bench = nupp.bench
+
+local function sized(b: nupp.bench.Case): nil
+    for _ = 1, b.n do
+        bench.keep(makePoint())
+    end
+end
+
+bench.case("presize.sized", sized)
+bench.report()
+```
+
+The reason it is a library and not a `nupp bench` command is that a command has
+to launch what it measures. An application's hot loop lives in the application,
+so only something the loop can call reaches it. See
+[NEP 32](docs/neps/0032-benchmarks-as-programs.md).
+
+`report` raises rather than returning a status, because a chunk's return value
+is discarded and a run that did not raise exits zero. It writes the record
+first, so a case that trips the gate is still a case whose record the runner can
+merge.
+]]
+
+local json = require("nupp.codec.json")
+local profile = require("nupp.profile")
+
+local bench = {}
+
+--- The schema version of a written record. Bumped when a reader would otherwise
+--- misread an older file.
+bench.SCHEMA = 1
+
+--- Rounds timed per case. The median of these is what a record reports, so an odd
+--- count has a middle to take.
+local ROUNDS: integer = 7
+
+--- Seconds a calibrated round should take. Long enough that the clock's resolution is
+--- not the measurement, short enough that seven of them are not a wait.
+local TARGET_ROUND_SEC = 0.05
+
+--- Iterations calibration will not exceed, so a body that is somehow free terminates.
+local MAX_N = 1 << 30
+
+----------------------------------------------------------------------------
+-- The sink
+----------------------------------------------------------------------------
+
+--- Where `keep` stores. A field rather than an upvalue so the store crosses the module
+--- boundary, which is what makes the value escape; see `keep`.
+bench.__nuppSink = nil as any
+
+--- Keeps a value the measured body produced, so the work that produced it survives.
+---
+--- This is the one rule writing a case requires. LuaJIT removes work whose result does
+--- not escape its trace, which is correct and is also the most common way a benchmark
+--- comes out impossibly fast: the loop under test is deleted and the measurement is of
+--- nothing.
+---
+--- The store is to a field of this module, which is visible outside any trace and so
+--- cannot be sunk. Nothing checks that this stays true of LuaJIT; a collapse in the
+--- reported durations is the only signal, which is why it is worth reading them.
+---
+--- @param value whatever the measured body produced
+function bench.keep(value: any): nil
+    bench.__nuppSink = value
+end
+
+----------------------------------------------------------------------------
+-- Records
+----------------------------------------------------------------------------
+
+--- One case handed to a measured body.
+record bench.Case
+    --- The case's name, as `case` was given it.
+    name: string
+
+    --- Iterations the body is to run. Fixed before the measured rounds begin, and
+    --- carried in the record, so a comparison can re-run the same work.
+    n: integer
+end
+
+--- How a frame session was opened.
+record bench.FrameOptions
+    --- Milliseconds a frame is allowed. Frames over it are counted.
+    budget: number?
+
+    --- Frames to record before `more` turns false. Absent means the application
+    --- decides when to stop, and must still call `report`.
+    count: integer?
+end
+
+--- What one measured case contributes to a record.
+record bench.Measurement
+    --- The case's name.
+    name: string
+
+    --- `case` or `frames`.
+    kind: string
+
+    --- Iterations per round, for a case.
+    n: integer?
+
+    --- Rounds timed, for a case.
+    rounds: integer?
+
+    --- The median round, in seconds. Recorded, never gated.
+    medianSec: number?
+
+    --- The fastest round, in seconds.
+    minSec: number?
+
+    --- Kilobytes the measured region retained, as `collectgarbage("count")` reports
+    --- either side of it. A size rather than an allocation count, and recorded only.
+    retainedKb: number?
+
+    --- Frame durations in milliseconds at the named quantiles.
+    p50Ms: number?
+
+    p99Ms: number?
+    p999Ms: number?
+
+    --- Frames recorded, and how many exceeded the budget.
+    frames: integer?
+
+    overBudget: integer?
+
+    --- Abort site identities seen while measuring, each
+    --- `severity|reason|location|zone`. Identities rather than counts: a count is
+    --- partly a function of how much work ran, and a loop that started aborting is the
+    --- finding at any count.
+    abortSites: {string}
+
+    --- Abort events and blacklistings behind those sites. Recorded, never gated.
+    totalAborts: integer?
+
+    blacklisted: integer?
+end
+
+local measurements: {bench.Measurement} = {}
+local traceProfileSeen: any = nil
+
+----------------------------------------------------------------------------
+-- Program arguments
+----------------------------------------------------------------------------
+
+local options = {
+    out = "build/bench-record.json",
+    baseline = nil as string?,
+    remarks = nil as string?,
+    json = false,
+    accept = false,
+}
+
+local function readOptions(): nil
+    local argv = _G.arg as {string}?
+    if not argv then
+        return
+    end
+    local index: integer = 1
+    while argv[index] do
+        local entry = argv[index]
+        local name, value = entry:match("^%-%-([%w%-]+)=(.*)$")
+        if not name then
+            name = entry:match("^%-%-([%w%-]+)$")
+        end
+        if name == "json" then
+            options.json = true
+        elseif name == "accept" then
+            options.accept = true
+        elseif name == "out" then
+            options.out = value or argv[index + 1] or options.out
+            if not value then
+                index = (index + 1) as integer
+            end
+        elseif name == "baseline" then
+            options.baseline = value or argv[index + 1]
+            if not value then
+                index = (index + 1) as integer
+            end
+        elseif name == "remarks" then
+            options.remarks = value or argv[index + 1]
+            if not value then
+                index = (index + 1) as integer
+            end
+        end
+        index = (index + 1) as integer
+    end
+end
+
+readOptions()
+
+----------------------------------------------------------------------------
+-- Measuring
+----------------------------------------------------------------------------
+
+local function median(values: {number}): number
+    local sorted: {number} = {}
+    for index = 1, #values do
+        sorted[index] = values[index]
+    end
+    table.sort(sorted)
+
+    return sorted[math.ceil(#sorted / 2)]
+end
+
+local function smallest(values: {number}): number
+    local best = values[1]
+    for index = 2, #values do
+        if values[index] < best then
+            best = values[index]
+        end
+    end
+
+    return best
+end
+
+--- Grows `n` until one round takes long enough to time. Timing-derived, and therefore
+--- kept out of the measured phase: the chosen `n` is recorded and the measured rounds
+--- all run at it, so a loaded machine cannot change how much work was counted.
+---
+--- A size is accepted only when it holds twice. The first round at any size also pays
+--- for whatever the recorder had not compiled yet, so it times a program that no longer
+--- exists by the time the measured rounds run -- which is how an uncalibrated version
+--- of this settled on a million iterations that then took a third of the target.
+local function calibrate(name: string, body: function(bench.Case): nil, fixed: integer?): integer
+    if fixed and fixed > 0 then
+        return fixed
+    end
+    local n: integer = 1
+    local held = false
+    while n < MAX_N do
+        local started = os.clock()
+        body(new bench.Case(name = name, n = n))
+        if os.clock() - started >= TARGET_ROUND_SEC then
+            if held then
+                return n
+            end
+            held = true
+        else
+            held = false
+            n = (n * 2) as integer
+        end
+    end
+
+    return n
+end
+
+local function abortIdentities(report: any): ({string}, integer, integer)
+    local sites: {string} = {}
+    for _, site in ipairs(report.sites) do
+        sites[
+            #sites + 1
+        ] = (
+            "%s|%s|%s|%s"
+        ):format(
+            tostring(site.severity),
+            tostring(site.reason),
+            tostring(site.location or ""),
+            tostring(site.zone or "")
+        )
+    end
+    table.sort(sites)
+
+    return sites, report.totalAborts, report.blacklisted
+end
+
+--- Measures one case and adds it to the record this program will report.
+---
+--- The body is handed the case and runs its own loop. Calling a one-iteration closure
+--- `n` times instead would put a call boundary inside the measurement and change what
+--- the recorder sees, so the loop belongs to the body.
+---
+--- @param name what to record the case as
+--- @param body the work, which iterates `case.n` times
+--- @param fixedN an explicit iteration count, skipping calibration
+function bench.case(name: string, body: function(bench.Case): nil, fixedN: integer?): nil
+    local n = calibrate(name, body, fixedN)
+    local subject = new bench.Case(name = name, n = n)
+    body(subject)
+
+    local session = profile.trace()
+    collectgarbage("collect")
+    local before = collectgarbage("count")
+    collectgarbage("stop")
+    local times: {number} = {}
+    for round = 1, ROUNDS do
+        local started = os.clock()
+        body(subject)
+        times[round] = os.clock() - started
+    end
+    local after = collectgarbage("count")
+    collectgarbage("restart")
+    local aborts = session:stop()
+    traceProfileSeen = aborts.traceProfile
+
+    local sites, total, blacklisted = abortIdentities(aborts)
+    measurements[
+        #measurements + 1
+    ] = new bench.Measurement(
+        name = name,
+        kind = "case",
+        n = n,
+        rounds = ROUNDS,
+        medianSec = median(times),
+        minSec = smallest(times),
+        retainedKb = (after - before) / ROUNDS,
+        abortSites = sites,
+        totalAborts = total,
+        blacklisted = blacklisted
+    )
+end
+
+----------------------------------------------------------------------------
+-- Frames
+----------------------------------------------------------------------------
+
+--- A running frame measurement, as `frames` returns it.
+---
+--- The application owns its loop, so this offers a condition and a report rather than
+--- taking the loop over. There is no exit-time fallback: nothing hands this module a
+--- callback when the chunk returns, collection before shutdown is not guaranteed, and
+--- the compiler's entry point ends in `os.exit`. A session that is never reported
+--- produces no record, and the runner says so.
+record bench.FrameSession
+    name: string
+    budgetMs: number
+    wanted: integer
+    samples: {number}
+    started: number
+    session: any
+    done: boolean
+end
+
+--- Opens a frame measurement.
+---
+--- @param name what to record the session as
+--- @param opts the frame budget and how many frames to record
+function bench.frames(name: string, opts: bench.FrameOptions?): bench.FrameSession
+    local settings = opts or new bench.FrameOptions()
+
+    return new bench.FrameSession(
+        name = name,
+        budgetMs = settings.budget or 0.0,
+        wanted = settings.count or 0,
+        samples = {},
+        started = 0.0,
+        session = profile.trace(),
+        done = false
+    )
+end
+
+--- Whether more frames are wanted. False once `count` frames have been recorded, and
+--- always true when the session was opened without one.
+function bench.FrameSession:more(): boolean
+    if self.done then
+        return false
+    end
+    if self.wanted <= 0 then
+        return true
+    end
+
+    return #self.samples < self.wanted
+end
+
+--- Marks the start of a frame.
+function bench.FrameSession:begin(): nil
+    self.started = os.clock()
+end
+
+--- Marks the end of a frame and records it.
+function bench.FrameSession:finish(): nil
+    local elapsed = (os.clock() - self.started) * 1000.0
+    self.samples[#self.samples + 1] = elapsed
+end
+
+local function quantile(sorted: {number}, fraction: number): number
+    if #sorted == 0 then
+        return 0.0
+    end
+    local rank = math.ceil(fraction * #sorted)
+    if rank < 1 then
+        rank = 1
+    end
+    if rank > #sorted then
+        rank = #sorted
+    end
+
+    return sorted[rank]
+end
+
+--- Ends the session and adds it to the record this program will report.
+---
+--- A frame report is a distribution rather than a median: a budget missed one frame in
+--- a hundred is a visible stutter and an unmoved mean.
+function bench.FrameSession:report(): nil
+    if self.done then
+        return
+    end
+    self.done = true
+    local aborts = self.session:stop()
+    traceProfileSeen = aborts.traceProfile
+    local sorted: {number} = {}
+    for index = 1, #self.samples do
+        sorted[index] = self.samples[index]
+    end
+    table.sort(sorted)
+    local over: integer = 0
+    if self.budgetMs > 0 then
+        for index = 1, #sorted do
+            if sorted[index] > self.budgetMs then
+                over = (over + 1) as integer
+            end
+        end
+    end
+
+    local sites, total, blacklisted = abortIdentities(aborts)
+    measurements[
+        #measurements + 1
+    ] = new bench.Measurement(
+        name = self.name,
+        kind = "frames",
+        p50Ms = quantile(sorted, 0.5),
+        p99Ms = quantile(sorted, 0.99),
+        p999Ms = quantile(sorted, 0.999),
+        frames = #sorted,
+        overBudget = over,
+        abortSites = sites,
+        totalAborts = total,
+        blacklisted = blacklisted
+    )
+end
+
+----------------------------------------------------------------------------
+-- Reporting
+----------------------------------------------------------------------------
+
+local function readFile(path: string): string?
+    local handle = io.open(path, "r")
+    if not handle then
+        return nil
+    end
+    local content = handle:read("*a")
+    handle:close()
+
+    return content
+end
+
+--- Reads the optimizer's account of this build, when a build wrote one.
+---
+--- Its absence is a result rather than a failure: a case run without one carries no
+--- static counters and says so, and the gate then has only the dynamic half to work
+--- with.
+local function readRemarks(): any
+    local path = options.remarks or "build/remarks.json"
+    local content = readFile(path)
+    if not content then
+        return nil
+    end
+    local ok, decoded = pcall(json.decode, content)
+    if not ok then
+        return nil
+    end
+
+    return decoded
+end
+
+local function writeFile(path: string, content: string): nil
+    local handle = io.open(path, "w")
+    if not handle then
+        error("bench: cannot write " .. path, 0)
+    end
+    handle:write(content)
+    handle:close()
+end
+
+local function buildRecord(): any
+    local remarks = readRemarks()
+    local cases = {}
+    for index = 1, #measurements do
+        cases[index] = measurements[index]
+    end
+
+    return {
+        schema = bench.SCHEMA,
+        cases = cases,
+        executionProfile = remarks and remarks.executionProfile or nil,
+        remarks = remarks and remarks.remarks or nil,
+        allocationSites = remarks and remarks.allocationSites or nil,
+        traceProfile = traceProfileSeen,
+        compiler = remarks and remarks.compiler or nil,
+    }
+end
+
+--- Whether two execution profiles describe the same thing being measured.
+---
+--- The level and the excluded passes are part of what a benchmark is measuring rather
+--- than a source of drift, so a record made at another one finds a different baseline
+--- rather than a failing one.
+local function sameExecution(left: any, right: any): boolean
+    if left == nil or right == nil then
+        return false
+    end
+    if left.optLevel ~= right.optLevel then
+        return false
+    end
+
+    return (left.disabled or "") == (right.disabled or "")
+end
+
+--- Whether two trace profiles describe the same recorder.
+---
+--- Whether a loop aborts is a property of the architecture, operating system, recorder
+--- features and LuaJIT revision that watched it, so abort sites are keyed by all of
+--- them. `profile.TraceProfile.id` is already the composite of exactly those, so this
+--- compares that rather than reassembling the parts -- and in particular rather than
+--- comparing the feature list, which is a table and would compare by identity.
+local function sameRecorder(left: any, right: any): boolean
+    if left == nil or right == nil then
+        return false
+    end
+
+    return left.id == right.id
+end
+
+local function listDifference(current: {string}, previous: {string}): {string}
+    local seen: {[string]: boolean} = {}
+    for _, entry in ipairs(previous) do
+        seen[entry] = true
+    end
+    local added: {string} = {}
+    for _, entry in ipairs(current) do
+        if not seen[entry] then
+            added[#added + 1] = entry
+        end
+    end
+
+    return added
+end
+
+--- Compares the record against a baseline and returns what moved.
+---
+--- A comparison with no comparable baseline is reported as exactly that. It is a
+--- result, and a different one from a regression: the runner has to say which, or a
+--- lost baseline reads like a pass.
+local function compare(record: any, baseline: any): ({string}, {string})
+    local failures: {string} = {}
+    local uncompared: {string} = {}
+    if not sameExecution(record.executionProfile, baseline.executionProfile) then
+        uncompared[#uncompared + 1] = "execution profile differs; nothing is comparable"
+
+        return failures, uncompared
+    end
+    local previous: {[string]: any} = {}
+    for _, entry in ipairs(baseline.cases or {}) do
+        previous[entry.name] = entry
+    end
+    local recorderMatches = sameRecorder(record.traceProfile, baseline.traceProfile)
+    for _, entry in ipairs(record.cases) do
+        local was = previous[entry.name]
+        if not was then
+            uncompared[#uncompared + 1] = entry.name .. ": no baseline"
+        elseif not recorderMatches then
+            uncompared[#uncompared + 1] = entry.name .. ": trace profile differs, abort sites not compared"
+        else
+            local added = listDifference(entry.abortSites, was.abortSites or {})
+            for _, site in ipairs(added) do
+                failures[#failures + 1] = entry.name .. ": new trace abort site: " .. site
+            end
+        end
+    end
+
+    return failures, uncompared
+end
+
+--- Writes the record, compares it against a baseline when one was named, and raises
+--- when a gated counter moved.
+---
+--- The write happens first on purpose. A case that trips the gate is a case whose
+--- record the runner has to merge, or the report says only that something failed.
+---
+--- Raising is how a status reaches the shell: a chunk's return value is discarded and
+--- a run that did not raise exits zero. `os.exit` would also produce one and would
+--- discard the run's own profile and trace-abort reports, which are written after the
+--- chunk returns.
+---
+--- @raises when a gated counter moved, or the record cannot be written
+function bench.report(): nil
+    local record = buildRecord()
+    local encoded = json.encode(record)
+    writeFile(options.out, encoded)
+    if options.json then
+        io.stdout:write(encoded, "\n")
+    else
+        for _, entry in ipairs(measurements) do
+            if entry.kind == "case" then
+                io.stdout:write(
+                    (
+                        "%-40s %10.6fs  n=%d  %d abort sites\n"
+                    ):format(entry.name, entry.medianSec or 0.0, entry.n or 0, #entry.abortSites)
+                )
+            else
+                io.stdout:write(
+                    (
+                        "%-40s p50=%.3fms p99=%.3fms p999=%.3fms  %d/%d over budget\n"
+                    ):format(
+                        entry.name,
+                        entry.p50Ms or 0.0,
+                        entry.p99Ms or 0.0,
+                        entry.p999Ms or 0.0,
+                        entry.overBudget or 0,
+                        entry.frames or 0
+                    )
+                )
+            end
+        end
+    end
+    if not options.baseline then
+        return
+    end
+    local baselineText = readFile(options.baseline)
+    if not baselineText then
+        if options.accept then
+            writeFile(options.baseline, encoded)
+
+            return
+        end
+        io.stderr:write("bench: no baseline at " .. options.baseline .. "\n")
+
+        return
+    end
+    local failures, uncompared = compare(record, json.decode(baselineText))
+    for _, note in ipairs(uncompared) do
+        io.stderr:write("bench: uncompared: " .. note .. "\n")
+    end
+    if options.accept then
+        writeFile(options.baseline, encoded)
+
+        return
+    end
+    if #failures > 0 then
+        error("bench: " .. table.concat(failures, "\nbench: "), 0)
+    end
+end
+
+export = bench
