@@ -144,10 +144,55 @@ function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()
         "parallel progress is one mark per suite slice, not one per case"
     )
 
-    local isolated, isolatedRun = runWorkerHost("processnativetest --timings=0")
+    local popen, popenRun = runWorkerHost("absoluteentrytest --lane=shared --timings=0")
+    test.equal(popenRun.status, 0, "the popen run succeeded" .. evidence(popenRun))
+    test.matches(popen, "1 suites across 1 process workers")
+    test.matches(popen, "1 tests, 1 passed")
+
+    local isolated, isolatedRun = runWorkerHost("processnativetest --lane=isolated --timings=0")
     test.equal(isolatedRun.status, 0, "the isolated run succeeded" .. evidence(isolatedRun))
     test.equal(isolated:find("Nupp workers", 1, true), nil, "the native process suite stays off the mechanism it tests")
     test.matches(isolated, "11 tests, 11 passed")
+end
+
+function M.shellingFailureStaysInsideItsTestOnAProcessWorker()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(
+        dir .. "/tests/shellingtest.lua",
+        [[
+local M = {}
+function M.fails()
+    assert(os.execute("exit 7") == 0, "the shell command failed as intended")
+end
+function M.runsAfterTheFailure()
+    local pipe = assert(io.popen("printf survived"))
+    assert(pipe:read("*a") == "survived")
+    assert(pipe:close())
+end
+return M
+]]
+    )
+
+    local command = (
+        "cd %q && %sNUPP_TEST_BUILD=%q %q shellingtest --lane=shared --json --timings=0 --no-color 2>/dev/null"
+    ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    local output, invocation = capturedRun(command)
+    local report = require("testjson").decode(output)
+
+    test.equal(invocation.status, 1, "the failed test made the run fail" .. evidence(invocation))
+    test.equal(#report.shards, 1, "the shared shelling suite ran on one reusable worker")
+    test.equal(report.total, 2, "the worker ran both tests")
+    test.equal(report.failed, 1, "the command failure failed one test")
+    test.equal(report.passed, 1, "the worker continued to the next test")
+    test.equal(report.tests[1].suite, "shellingtest")
+    test.matches(report.tests[1].failure.message, "the shell command failed as intended")
+    test.equal(report.tests[2].suite, "shellingtest")
+    test.equal(report.tests[2].status, "passed")
+    os.execute("rm -rf " .. string.format("%q", dir))
 end
 
 function M.namingSeveralSuitesRunsEveryOneOfThem()

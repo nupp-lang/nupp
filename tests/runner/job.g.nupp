@@ -20,14 +20,14 @@ export function run(
     -- A Nupp worker is a Lua state inside this process. libc's popen walks and
     -- locks the process-wide stdio table; concurrent calls from worker states can
     -- each hold one stream while waiting for another and deadlock the entire run.
-    -- The parent classifies direct process users into subprocess lanes. If a
+    -- The parent routes direct shell users through reusable process workers. If a
     -- transitive call escapes that classification, fail the case instead of
     -- turning it into a run that never reports an answer.
     os.execute = function(): nil
-        error("nupp: os.execute requires a process-isolated test lane", 2)
+        error("nupp: os.execute requires a process worker", 2)
     end
     io.popen = function(): nil
-        error("nupp: io.popen requires a process-isolated test lane", 2)
+        error("nupp: io.popen requires a process worker", 2)
     end
 
     local getenv = os.getenv

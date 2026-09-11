@@ -265,10 +265,10 @@ local shard = {}
 local chosenGroups = {}
 local excludedNames = {}
 local excludedGroups = {}
--- Which execution lane to keep: `shared` is what a Nupp worker can run beside
--- other suites in one process, `isolated` is what needs a process of its own.
--- The fast gate wants the first, which is a hundred-odd suites in about half a
--- minute, and the platform jobs want both.
+-- Which execution lane to keep: `shared` is what may reuse state with other
+-- suites, `isolated` is what needs a process boundary around its runtime state.
+-- The executor is a separate choice: shell users share reusable process workers,
+-- while the rest of the shared lane uses Nupp workers.
 local lane = nil
 -- `--list-suites` and `--list-groups` answer what a run would cover without
 -- running it, which is what a workflow author and its review need.
@@ -1343,10 +1343,10 @@ local function planWork(list, shards, timings)
 end
 
 -- A Nupp worker owns a Lua state, not the process around that state. Suites that
--- touch process-wide facilities therefore keep the subprocess isolation the
--- runner historically gave every suite. Everything else runs on nupp.workers.
--- Looking at the source as well as a short hard list makes the safe choice the
--- default when a new suite starts shelling out.
+-- touch process-wide facilities therefore keep the isolated lane. Looking at the
+-- source as well as a short hard list makes the safe choice the default when a
+-- new suite reaches one. Shell calls instead choose reusable process workers:
+-- several suites share each worker, and a failed case does not end its queue.
 local PROCESS_ISOLATED = {
     -- These exercise worker hosting or runner descriptor behavior even when the
     -- operation is built as a source fixture rather than called by the Lua test.
@@ -1375,11 +1375,11 @@ local PROCESS_ISOLATED = {
     ioscalarstest = true,
     nativefoundationstest = true,
     soatest = true,
+    -- Builds and installs the URI provider by replacing the runtime root global.
+    uritest = true,
 }
 
 local processCalls = {
-    "os.execute",
-    "io.popen",
     'require("nupp.io.process")',
     "require('nupp.io.process')",
     'require("nupp.profile")',
@@ -1398,23 +1398,52 @@ local processCalls = {
     "rawset(_G,",
 }
 
-local function processIsolated(suiteInfo)
-    if not suiteInfo or PROCESS_ISOLATED[suiteInfo.name] then
-        return suiteInfo ~= nil
+local shellCalls = {"os.execute", "io.popen",}
+local sourceBySuite = {}
+
+local function suiteSource(suiteInfo)
+    if not suiteInfo then
+        return nil
+    end
+    local cached = sourceBySuite[suiteInfo.name]
+    if cached ~= nil then
+        return cached
     end
     local file = io.open(dir .. "/" .. suiteInfo.name .. "." .. suiteInfo.extension, "rb")
     if not file then
-        return true
+        return nil
     end
     local source = file:read("*a") or ""
     file:close()
-    for _, call in ipairs(processCalls) do
+    sourceBySuite[suiteInfo.name] = source
+
+    return source
+end
+
+local function sourceContains(suiteInfo, calls)
+    local source = suiteSource(suiteInfo)
+    if source == nil then
+        return false
+    end
+    for _, call in ipairs(calls) do
         if source:find(call, 1, true) then
             return true
         end
     end
 
     return false
+end
+
+local function processIsolated(suiteInfo)
+    if not suiteInfo or PROCESS_ISOLATED[suiteInfo.name] then
+        return suiteInfo ~= nil
+    end
+
+    return suiteSource(suiteInfo) == nil or sourceContains(suiteInfo, processCalls)
+end
+
+local function usesShell(suiteInfo)
+    return sourceContains(suiteInfo, shellCalls)
 end
 
 if lane then
@@ -1444,9 +1473,9 @@ if #shard == 0 and #suites > 0 and (
 ) and not os.getenv("NUPP_COVERAGE_FILE") then
     do
         local json = testJson
-        local shareable, alone = {}, {}
+        local shareable, alone, shelling = {}, {}, {}
         for _, suiteInfo in ipairs(suites) do
-            local into = processIsolated(suiteInfo) and alone or shareable
+            local into = processIsolated(suiteInfo) and alone or usesShell(suiteInfo) and shelling or shareable
             into[#into + 1] = suiteInfo
         end
 
@@ -1608,7 +1637,7 @@ if #shard == 0 and #suites > 0 and (
             -- first one to finish anywhere can be half a minute in on a cold tree,
             -- which looks exactly like a run that has not started.
             if #running > 0 then
-                beginPhase(("%d process-isolated suites across %d workers"):format(suiteCount or #lanes, #running))
+                beginPhase(("%d suites across %d process workers"):format(suiteCount or #lanes, #running))
             end
 
             if #running > 0 then
@@ -1814,6 +1843,9 @@ if #shard == 0 and #suites > 0 and (
             end
         end
 
+        for _, suiteInfo in ipairs(shelling) do
+            alone[#alone + 1] = suiteInfo
+        end
         runQueue(alone, true)
         runQueue(shareable, false)
 
@@ -2313,7 +2345,7 @@ local function timingReport()
         end
     end
 
-    phase("process-isolated workers", aloneShards, predictions.alone)
+    phase("process workers", aloneShards, predictions.alone)
     phase("Nupp worker shards", shards, predictions.shared)
     say(headline .. "\n")
 
