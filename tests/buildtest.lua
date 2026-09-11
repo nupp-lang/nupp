@@ -745,4 +745,31 @@ return new Model()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.manifestBuildWritesColdAndWarmOptimizerAccounts()
+    local dir = tempProject({
+        ["nupp.lua"] = [[return {include = {"src"}, build = {
+   outDir = "build", entries = {"main"}, optimize = 1,
+}}]],
+        ["src/main.nupp"] = [[
+local function main()
+    return {answer = 42}
+end
+return main()
+]],
+    })
+    local command = ("cd %q && %q build --remarks-out account.json"):format(dir, NUPP)
+    local firstOut = capture(command)
+    assertEq(firstOut, "", "cold manifest build writes its optimizer account: " .. firstOut)
+    local first = json.decode(read(dir .. "/account.json"))
+    assertEq(first.executionProfile.optLevel, 1, "the target's resolved level is recorded")
+    assert(#first.allocationSites >= 2, "the target's closure and table are accounted for")
+
+    local secondOut = capture(command)
+    assertEq(secondOut, "", "warm manifest build writes its optimizer account: " .. secondOut)
+    local second = json.decode(read(dir .. "/account.json"))
+    assertEq(#second.allocationSites, #first.allocationSites, "warm build preserves allocation account")
+    assertEq(#second.remarks, #first.remarks, "warm build preserves optimizer remarks")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 return M

@@ -903,6 +903,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
         opts.produced.services = result.services
+        opts.produced.optLevel = config._optLevel
+        opts.produced.optimizationRemarks = result.optimizationRemarks
+        opts.produced.allocationSites = result.allocationSites
+        opts.produced.accountedModules = result.accountedModules
     end
     report:at("write")
     local ok, stateErr = saveState(statePath, newState)
@@ -959,6 +963,8 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         aggregate.dialect = nil
         aggregate.outputs = cache.jsonArray({})
         aggregate.platforms = cache.jsonArray({})
+        aggregate.optimizationRemarks = cache.jsonArray({})
+        aggregate.allocationSites = cache.jsonArray({})
     end
     local failed = false
     for _, selected in ipairs(target.platforms) do
@@ -986,6 +992,15 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
             aggregate.platforms[#aggregate.platforms + 1] = entry
             for _, output in ipairs(produced.outputs or {}) do
                 aggregate.outputs[#aggregate.outputs + 1] = output
+            end
+            -- Every selected platform compiles the same Nupp source at the same
+            -- optimization level. Keep one account rather than multiplying every site
+            -- by the number of requested platforms.
+            if aggregate.accountedModules == nil and produced.accountedModules ~= nil then
+                aggregate.optLevel = produced.optLevel
+                aggregate.optimizationRemarks = produced.optimizationRemarks
+                aggregate.allocationSites = produced.allocationSites
+                aggregate.accountedModules = produced.accountedModules
             end
         end
     end

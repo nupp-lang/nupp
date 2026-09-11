@@ -122,15 +122,11 @@ function compile.writeRemarks(settings: compile.Settings): boolean
     if not out or not collected then
         return false
     end
-    -- A build that reached no module through this path accounts for nothing, and an
-    -- artifact saying so is worse than none: a reader gating on allocation sites would
-    -- see every site it knew about disappear at once. A manifest target compiles
-    -- through the project builder rather than here, which is exactly that case.
+    -- A build that reached no module accounts for nothing, and an artifact saying so is
+    -- worse than none: a reader gating on allocation sites would see every site it knew
+    -- about disappear at once.
     if (settings.accountedModules or 0) == 0 then
-        io.stderr:write(
-            "nupp: --remarks-out wrote nothing: this build compiled no module through the "
-            .. "file path that accounts for them\n"
-        )
+        io.stderr:write("nupp: --remarks-out wrote nothing: this build accounted for no module\n")
 
         return false
     end

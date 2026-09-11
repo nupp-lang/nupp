@@ -384,9 +384,15 @@ local function run(parsed: any): integer
             remarks = settings.remarks,
             disabled = settings.disabled,
             diagnostics = asJson and diagnostics or nil,
-            produced = asJson and produced or nil,
+            produced = (asJson or settings.remarksOut ~= nil) and produced or nil,
             progress = progressMode
         })
+        if settings.remarksOut then
+            settings.optLevel = produced.optLevel or settings.optLevel
+            settings.collectedRemarks = produced.optimizationRemarks or {}
+            settings.collectedAllocationSites = produced.allocationSites or {}
+            settings.accountedModules = produced.accountedModules or 0
+        end
         selectedDialect = produced.dialect or selectedDialect
         return finish(code, produced)
     end

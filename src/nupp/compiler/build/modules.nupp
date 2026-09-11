@@ -154,6 +154,9 @@ type modules.Result = {
     materializations: {any},
     derives: {any},
     services: {any},
+    optimizationRemarks: {any},
+    allocationSites: {any},
+    accountedModules: integer,
 
     --- Every native feature the built modules asked for, merged.
     effects: {[string]: any}?
@@ -620,6 +623,9 @@ local function copyModuleRecord(record)
         coverage = record.coverage,
         materializations = record.materializations,
         derives = record.derives,
+        optimizationRemarks = record.optimizationRemarks,
+        allocationSites = record.allocationSites,
+        optimizationAccounted = record.optimizationAccounted,
         specializationHash = record.specializationHash,
     }
 end
@@ -1381,6 +1387,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
             diags = jsonArray({}),
             materializations = jsonArray({}),
             derives = jsonArray({}),
+            optimizationRemarks = jsonArray({}),
+            allocationSites = jsonArray({}),
+            optimizationAccounted = false,
             specializationHash = emptySpecializationHash,
         }
         codeFor[name] = text
@@ -1489,6 +1498,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
             output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
         end
         local artifactHash, code, coverage
+        local optimizationRemarks = jsonArray({})
+        local allocationSites = jsonArray({})
+        local optimizationAccounted = false
         local runtimeModules = jsonArray({})
         if not external and not fatal and not checkOnly then
             report:at("generate")
@@ -1502,6 +1514,15 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 dialect = (config._target or {}).dialect,
                 constSelection = constSelection,
             })
+            optimizationAccounted = true
+            for _, note in ipairs(remarks) do
+                optimizationRemarks[#optimizationRemarks + 1] = note
+            end
+            for _, site in ipairs(optimize.allocationSites(result.result)) do
+                allocationSites[
+                    #allocationSites + 1
+                ] = {file = path, kind = site.kind, line = site.line, col = site.col,}
+            end
             if config._remarks then
                 for _, note in ipairs(remarks) do
                     mine[#mine + 1] = note
@@ -1570,6 +1591,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
             coverage = coverage,
             materializations = jsonArray(materializations),
             derives = jsonArray(derives),
+            optimizationRemarks = optimizationRemarks,
+            allocationSites = allocationSites,
+            optimizationAccounted = optimizationAccounted,
             specializationHash = specializationHashes[normalize(path)] or emptySpecializationHash,
         }
         codeFor[name] = code
@@ -1638,7 +1662,15 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     previous.runtimeModules
                 ) == "table" and type(
                     previous.diags
-                ) == "table" and type(previous.materializations) == "table" and type(previous.derives) == "table"
+                ) == "table" and type(
+                    previous.materializations
+                ) == "table" and type(
+                    previous.derives
+                ) == "table" and type(
+                    previous.optimizationRemarks
+                ) == "table" and type(
+                    previous.allocationSites
+                ) == "table" and type(previous.optimizationAccounted) == "boolean"
                 if usable and previous then
                     for _, dependency in ipairs(previous.projectDependencies or {}) do
                         if type(dependency) ~= "table" then
@@ -1911,6 +1943,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
     local materializations = {}
     local derives = {}
+    local optimizationRemarks = {}
+    local allocationSites = {}
+    local accountedModules: integer = 0
     for _, name in ipairs(order) do
         for _, observation in ipairs(records[name].materializations or {}) do
             materializations[#materializations + 1] = observation
@@ -1918,13 +1953,25 @@ local function buildModules(root: string, outDir: string, config: Config, target
         for _, observation in ipairs(records[name].derives or {}) do
             derives[#derives + 1] = observation
         end
+        if records[name].optimizationAccounted then
+            accountedModules = (accountedModules + 1) as integer
+            for _, remark in ipairs(records[name].optimizationRemarks or {}) do
+                optimizationRemarks[#optimizationRemarks + 1] = remark
+            end
+            for _, site in ipairs(records[name].allocationSites or {}) do
+                allocationSites[#allocationSites + 1] = site
+            end
+        end
     end
     if checkOnly then
         return {
             outputs = {},
             materializations = materializations,
             derives = derives,
-            services = serviceWriter.describe(artifactProviders)
+            services = serviceWriter.describe(artifactProviders),
+            optimizationRemarks = optimizationRemarks,
+            allocationSites = allocationSites,
+            accountedModules = accountedModules
         }
     end
 
@@ -1996,7 +2043,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
         effects = effects,
         materializations = materializations,
         derives = derives,
-        services = serviceWriter.describe(artifactProviders)
+        services = serviceWriter.describe(artifactProviders),
+        optimizationRemarks = optimizationRemarks,
+        allocationSites = allocationSites,
+        accountedModules = accountedModules
     }
 end
 

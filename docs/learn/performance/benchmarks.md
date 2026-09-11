@@ -149,7 +149,7 @@ from a pass.
 ```bash
 nupp task bench
 nupp run bench/run.nupp --baseline build/bench-baseline.json
-nupp run bench/run.nupp --accept
+nupp run bench/run.nupp --baseline build/bench-baseline.json --accept
 ```
 
 Each `bench.case` gets its own process, not each file: a file is asked what cases

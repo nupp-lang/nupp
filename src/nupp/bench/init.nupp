@@ -170,6 +170,13 @@ local options = {
 
     --- Print the case names and measure nothing. How the runner learns what to spawn.
     list = false,
+
+    --- Where a listing writes JSON strings, one per declared case. Nil keeps the
+    --- human-facing `--list-cases` form on stdout.
+    casesOut = nil as string?,
+
+    --- Iterations selected by the set runner from this case's merged baseline.
+    iterations = nil as integer?,
 }
 
 local function readOptions(): nil
@@ -186,6 +193,11 @@ local function readOptions(): nil
         end
         if name == "list-cases" then
             options.list = true
+        elseif name == "cases-out" then
+            options.casesOut = value or argv[index + 1]
+            if not value then
+                index = (index + 1) as integer
+            end
         elseif name == "case" then
             options.only = value or argv[index + 1]
             if not value then
@@ -210,6 +222,15 @@ local function readOptions(): nil
             if not value then
                 index = (index + 1) as integer
             end
+        elseif name == "n" then
+            local given = tonumber(value or argv[index + 1])
+            if not value then
+                index = (index + 1) as integer
+            end
+            if not given or given < 1 or given ~= math.floor(given) then
+                error("bench: --n needs a positive whole number", 0)
+            end
+            options.iterations = math.floor(given)
         end
         index = (index + 1) as integer
     end
@@ -348,7 +369,19 @@ end
 --- must not depend on the program reaching a report call. A frame session that is
 --- inert while listing returns before reporting, which is exactly the case that
 --- silently listed nothing when this was deferred.
+---
+--- @raises when a requested case-list file cannot be opened
 local function announce(name: string): nil
+    if options.casesOut then
+        local handle = io.open(options.casesOut, "a")
+        if not handle then
+            error("bench: cannot write " .. options.casesOut, 0)
+        end
+        handle:write(json.encode(name), "\n")
+        handle:close()
+
+        return
+    end
     io.stdout:write(name, "\n")
 end
 
@@ -392,7 +425,7 @@ function bench.case(name: string, body: function(bench.Case): nil, fixedN: integ
     -- later session opens, so a session opened after calibration reports nothing and
     -- the one finding that mattered is the one that got away.
     local session = openTrace()
-    local n = calibrate(name, body, fixedN or baselineIterations(name))
+    local n = calibrate(name, body, fixedN or options.iterations or baselineIterations(name))
     local subject = new bench.Case(name = name, n = n)
     body(subject)
 

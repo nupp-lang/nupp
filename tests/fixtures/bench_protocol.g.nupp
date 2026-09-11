@@ -1,0 +1,13 @@
+local bench = require("nupp.bench")
+
+print("application started")
+
+bench.case("protocol", function(case)
+    local total = 0
+    for index = 1, case.n do
+        total = total + index
+    end
+    bench.keep(total)
+end)
+
+bench.report()
