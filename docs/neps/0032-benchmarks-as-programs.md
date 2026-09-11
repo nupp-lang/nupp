@@ -1,6 +1,6 @@
 ---
 title: Benchmarks are programs, not a subcommand
-status: Draft
+status: Implemented
 created: 2026-09-10
 ---
 
@@ -335,6 +335,30 @@ rather than a silence.
 
 Re-baselining is therefore an act. The runner accepts a diff only when asked to,
 which is the point at which somebody decides the change was intended.
+
+## What changed on the way in, 2026-09-11
+
+Two things this proposal decided did not survive being built, and one it did not
+anticipate. Recorded here rather than edited into the body, which says what was
+decided at the time.
+
+**The remark set is not gated.** It is diffed and reported both ways. A remark
+carries no field saying whether the pass fired or declined, so a pass that
+started firing adds one remark and removes another, and a gate on the set would
+call that improvement a regression. Adding such a field is what would let the
+gate be what this proposed; until then the counter is reported, not enforced.
+
+**The per-case deadline is not enforced.** `nupp.io.process` does not expose
+`Process` or `Options` on its module type in this tree -- the tour's own example
+does not check either -- so the runner spawns with `os.execute`, which has no
+timeout. A case that finishes without reporting is still caught, because it
+leaves no record; a case that hangs is not. The deadline returns when that
+surface does.
+
+**A case is named, not discovered.** `bench/*.bench.nupp`. `bench/` already held
+forty-odd programs that are not cases, and running one to find out reports "wrote
+no record" -- which is the right answer for a case that failed to report and the
+wrong one for a file that was never a case.
 
 ## Risks and assumptions
 
