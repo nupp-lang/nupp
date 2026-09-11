@@ -32,6 +32,7 @@ merge.
 
 local json = require("nupp.codec.json")
 local profile = require("nupp.profile")
+local time = require("nupp.time")
 
 local bench = {}
 
@@ -88,16 +89,6 @@ record bench.Case
     n: integer
 end
 
---- How a frame session was opened.
-record bench.FrameOptions
-    --- Milliseconds a frame is allowed. Frames over it are counted.
-    budget: number?
-
-    --- Frames to record before `more` turns false. Absent means the application
-    --- decides when to stop, and must still call `report`.
-    count: integer?
-end
-
 --- What one measured case contributes to a record.
 record bench.Measurement
     --- The case's name.
@@ -118,8 +109,14 @@ record bench.Measurement
     --- The fastest round, in seconds.
     minSec: number?
 
-    --- Kilobytes the measured region retained, as `collectgarbage("count")` reports
-    --- either side of it. A size rather than an allocation count, and recorded only.
+    --- Kilobytes one round allocated, read with the collector stopped. A size rather
+    --- than a count of allocations, and recorded only.
+    allocatedKb: number?
+
+    --- Kilobytes still held once the collector has run again, which is what "retained"
+    --- has to mean. An earlier spelling of this reported the number above and called it
+    --- this one: with collection stopped for the rounds, the heap delta is what they
+    --- allocated, not what survived them.
     retainedKb: number?
 
     --- Frame durations in milliseconds at the named quantiles.
@@ -137,7 +134,10 @@ record bench.Measurement
     --- `severity|reason|location|zone`. Identities rather than counts: a count is
     --- partly a function of how much work ran, and a loop that started aborting is the
     --- finding at any count.
-    abortSites: {string}
+    ---
+    --- Nil when no session could be opened, which is not the same as an empty set: one
+    --- says nothing aborted and the other says nobody looked.
+    abortSites: {string}?
 
     --- Abort events and blacklistings behind those sites. Recorded, never gated.
     totalAborts: integer?
@@ -147,6 +147,10 @@ end
 
 local measurements: {bench.Measurement} = {}
 local traceProfileSeen: any = nil
+
+--- Whether `report` has already written. A frame session reports itself, so a program
+--- with both frames and cases would otherwise write twice and gate twice.
+local reported = false
 
 ----------------------------------------------------------------------------
 -- Program arguments
@@ -158,6 +162,14 @@ local options = {
     remarks = nil as string?,
     json = false,
     accept = false,
+
+    --- Run only this case, or every case when nil. The runner names one per child,
+    --- because a process is the measurement boundary: two cases sharing one share its
+    --- heap, its compiled traces and its blacklist.
+    only = nil as string?,
+
+    --- Print the case names and measure nothing. How the runner learns what to spawn.
+    list = false,
 }
 
 local function readOptions(): nil
@@ -172,7 +184,14 @@ local function readOptions(): nil
         if not name then
             name = entry:match("^%-%-([%w%-]+)$")
         end
-        if name == "json" then
+        if name == "list-cases" then
+            options.list = true
+        elseif name == "case" then
+            options.only = value or argv[index + 1]
+            if not value then
+                index = (index + 1) as integer
+            end
+        elseif name == "json" then
             options.json = true
         elseif name == "accept" then
             options.accept = true
@@ -201,6 +220,56 @@ readOptions()
 ----------------------------------------------------------------------------
 -- Measuring
 ----------------------------------------------------------------------------
+
+local function readFile(path: string): string?
+    local handle = io.open(path, "r")
+    if not handle then
+        return nil
+    end
+    local content = handle:read("*a")
+    handle:close()
+
+    return content
+end
+
+--- The baseline, read once and remembered, or nil when there is none to read.
+local baselineDocument: any = nil
+
+local baselineRead = false
+
+local function baseline(): any
+    if baselineRead then
+        return baselineDocument
+    end
+    baselineRead = true
+    if not options.baseline then
+        return nil
+    end
+    local text = readFile(options.baseline)
+    if not text then
+        return nil
+    end
+    local ok, decoded = pcall(json.decode, text)
+    baselineDocument = ok and decoded or nil
+
+    return baselineDocument
+end
+
+--- The iteration count a baseline recorded for this case, or nil for none.
+---
+--- Reused rather than recalibrated so that two records counted the same work. A
+--- calibrated `n` is derived from a timing, so letting each run pick its own leaves the
+--- durations describing different amounts of work and quietly not comparable.
+local function baselineIterations(name: string): integer?
+    local previous = baseline()
+    for _, entry in ipairs(previous and previous.cases or {}) do
+        if entry.name == name and entry.kind == "case" then
+            return entry.n
+        end
+    end
+
+    return nil
+end
 
 local function median(values: {number}): number
     local sorted: {number} = {}
@@ -273,6 +342,32 @@ local function abortIdentities(report: any): ({string}, integer, integer)
     return sites, report.totalAborts, report.blacklisted
 end
 
+--- Says a case's name under `--list-cases`, as it is declared.
+---
+--- Printed here rather than collected and printed by `report`, because a listing run
+--- must not depend on the program reaching a report call. A frame session that is
+--- inert while listing returns before reporting, which is exactly the case that
+--- silently listed nothing when this was deferred.
+local function announce(name: string): nil
+    io.stdout:write(name, "\n")
+end
+
+--- Opens a trace session, or answers nil when one is already open.
+---
+--- `nupp run --jit-aborts` opens a process-wide session before the program starts, and
+--- there is at most one at a time, so a case that insisted on its own would fail under
+--- the flag most likely to be set while investigating one. Answering nil instead costs
+--- the abort half of that case's record, which is then reported as uncollected rather
+--- than as an empty set -- an empty set and an uncollected one gate very differently.
+local function openTrace(): any?
+    local ok, session = pcall(profile.trace)
+    if not ok then
+        return nil
+    end
+
+    return session
+end
+
 --- Measures one case and adds it to the record this program will report.
 ---
 --- The body is handed the case and runs its own loop. Calling a one-iteration closure
@@ -283,26 +378,48 @@ end
 --- @param body the work, which iterates `case.n` times
 --- @param fixedN an explicit iteration count, skipping calibration
 function bench.case(name: string, body: function(bench.Case): nil, fixedN: integer?): nil
-    local n = calibrate(name, body, fixedN)
+    if options.list then
+        announce(name)
+
+        return
+    end
+    if options.only and options.only ~= name then
+        return
+    end
+
+    -- Opened before calibration, not after it. A loop that aborts and is blacklisted
+    -- while being calibrated has already been demoted to the interpreter by the time a
+    -- later session opens, so a session opened after calibration reports nothing and
+    -- the one finding that mattered is the one that got away.
+    local session = openTrace()
+    local n = calibrate(name, body, fixedN or baselineIterations(name))
     local subject = new bench.Case(name = name, n = n)
     body(subject)
 
-    local session = profile.trace()
     collectgarbage("collect")
     local before = collectgarbage("count")
     collectgarbage("stop")
     local times: {number} = {}
     for round = 1, ROUNDS do
-        local started = os.clock()
+        local started = time.now()
         body(subject)
-        times[round] = os.clock() - started
+        times[round] = (time.now() - started) / 1000.0
     end
-    local after = collectgarbage("count")
+    -- Collected before reading again, so what is reported is what the rounds kept
+    -- rather than everything they allocated while the collector was off.
+    local allocated = collectgarbage("count") - before
     collectgarbage("restart")
-    local aborts = session:stop()
-    traceProfileSeen = aborts.traceProfile
+    collectgarbage("collect")
+    local retained = collectgarbage("count") - before
 
-    local sites, total, blacklisted = abortIdentities(aborts)
+    local sites: {string}? = nil
+    local total: integer? = nil
+    local blacklisted: integer? = nil
+    if session then
+        local aborts = session:stop()
+        traceProfileSeen = aborts.traceProfile
+        sites, total, blacklisted = abortIdentities(aborts)
+    end
     measurements[
         #measurements + 1
     ] = new bench.Measurement(
@@ -312,7 +429,8 @@ function bench.case(name: string, body: function(bench.Case): nil, fixedN: integ
         rounds = ROUNDS,
         medianSec = median(times),
         minSec = smallest(times),
-        retainedKb = (after - before) / ROUNDS,
+        allocatedKb = allocated / ROUNDS,
+        retainedKb = retained,
         abortSites = sites,
         totalAborts = total,
         blacklisted = blacklisted
@@ -342,18 +460,43 @@ end
 
 --- Opens a frame measurement.
 ---
+--- Plain parameters rather than an options record, because a record would make the
+--- ordinary call site write `new bench.FrameOptions(...)` -- a table literal is not
+--- one, which is what the first spelling of this got wrong in its own documented
+--- example.
+---
 --- @param name what to record the session as
---- @param opts the frame budget and how many frames to record
-function bench.frames(name: string, opts: bench.FrameOptions?): bench.FrameSession
-    local settings = opts or new bench.FrameOptions()
+--- @param budgetMs milliseconds a frame is allowed; frames over it are counted
+--- @param count frames to record before `more` turns false, or nil to let the
+---     application decide when to stop
+function bench.frames(name: string, budgetMs: number?, count: integer?): bench.FrameSession
+    -- A frame session is a case as far as the runner is concerned: it is named, it is
+    -- listed, and it is selected one per process. A session that is being listed or is
+    -- not the selected one is handed back already finished, so `more` is false and the
+    -- application's loop does not run.
+    if options.list then
+        announce(name)
+    end
+    local inert = options.list or (options.only ~= nil and options.only ~= name)
+    if inert then
+        return new bench.FrameSession(
+            name = name,
+            budgetMs = budgetMs or 0.0,
+            wanted = count or 0,
+            samples = {},
+            started = 0.0,
+            session = nil,
+            done = true
+        )
+    end
 
     return new bench.FrameSession(
         name = name,
-        budgetMs = settings.budget or 0.0,
-        wanted = settings.count or 0,
+        budgetMs = budgetMs or 0.0,
+        wanted = count or 0,
         samples = {},
         started = 0.0,
-        session = profile.trace(),
+        session = openTrace(),
         done = false
     )
 end
@@ -373,13 +516,16 @@ end
 
 --- Marks the start of a frame.
 function bench.FrameSession:begin(): nil
-    self.started = os.clock()
+    self.started = time.now()
 end
 
 --- Marks the end of a frame and records it.
+---
+--- Elapsed on the monotonic clock, not `os.clock`, which counts processor time. A frame
+--- that waited on presentation, on I/O, or on a sleep spends very little of either and
+--- blows its budget anyway, and missing the budget is the whole measurement.
 function bench.FrameSession:finish(): nil
-    local elapsed = (os.clock() - self.started) * 1000.0
-    self.samples[#self.samples + 1] = elapsed
+    self.samples[#self.samples + 1] = time.now() - self.started
 end
 
 local function quantile(sorted: {number}, fraction: number): number
@@ -397,17 +543,29 @@ local function quantile(sorted: {number}, fraction: number): number
     return sorted[rank]
 end
 
---- Ends the session and adds it to the record this program will report.
+--- Ends the session, records it, and reports.
 ---
 --- A frame report is a distribution rather than a median: a budget missed one frame in
 --- a hundred is a visible stutter and an unmoved mean.
+---
+--- This writes the record and applies the gate, which is why an application's loop
+--- needs no second call. `bench.report` is idempotent, so a program with both cases and
+--- frames may still call it itself.
+---
+--- @raises when a gated counter moved, or the record cannot be written
 function bench.FrameSession:report(): nil
     if self.done then
         return
     end
     self.done = true
-    local aborts = self.session:stop()
-    traceProfileSeen = aborts.traceProfile
+    local sites: {string}? = nil
+    local total: integer? = nil
+    local blacklisted: integer? = nil
+    if self.session then
+        local aborts = self.session:stop()
+        traceProfileSeen = aborts.traceProfile
+        sites, total, blacklisted = abortIdentities(aborts)
+    end
     local sorted: {number} = {}
     for index = 1, #self.samples do
         sorted[index] = self.samples[index]
@@ -422,7 +580,6 @@ function bench.FrameSession:report(): nil
         end
     end
 
-    local sites, total, blacklisted = abortIdentities(aborts)
     measurements[
         #measurements + 1
     ] = new bench.Measurement(
@@ -437,22 +594,12 @@ function bench.FrameSession:report(): nil
         totalAborts = total,
         blacklisted = blacklisted
     )
+    bench.report()
 end
 
 ----------------------------------------------------------------------------
 -- Reporting
 ----------------------------------------------------------------------------
-
-local function readFile(path: string): string?
-    local handle = io.open(path, "r")
-    if not handle then
-        return nil
-    end
-    local content = handle:read("*a")
-    handle:close()
-
-    return content
-end
 
 --- Reads the optimizer's account of this build, when a build wrote one.
 ---
@@ -540,16 +687,19 @@ end
 --- The identities of the allocations the optimizer left standing, as the build
 --- recorded them. A static account of this compiler's own output; see
 --- `optimize.allocationSites` for what it does and does not say.
-local function allocationIdentities(record: any): {string}
-    local sites: {string} = {}
+--- Counted per file rather than identified by position. An identity of file, line and
+--- column makes inserting a comment above unchanged code look like every allocation
+--- below it was newly introduced, which fails the gate for a change that allocated
+--- nothing. A count moves when an allocation is added or removed and not when one is
+--- moved, which is the question being asked.
+local function allocationCounts(record: any): {[string]: integer}
+    local counts: {[string]: integer} = {}
     for _, site in ipairs(record.allocationSites or {}) do
-        sites[
-            #sites + 1
-        ] = ("%s|%s|%s|%s"):format(tostring(site.file), tostring(site.kind), tostring(site.line), tostring(site.col))
+        local key = tostring(site.file) .. "|" .. tostring(site.kind)
+        counts[key] = ((counts[key] or 0) + 1) as integer
     end
-    table.sort(sites)
 
-    return sites
+    return counts
 end
 
 --- The identities of the remarks the optimizer made, as the build recorded them.
@@ -583,12 +733,22 @@ local function listDifference(current: {string}, previous: {string}): {string}
     return added
 end
 
---- Compares the record against a baseline and returns what moved.
+--- Compares one record against one baseline record and returns what moved.
+---
+--- Exported because the runner owns the baseline for a whole set and has to apply the
+--- same rules a standalone case applies to its own. Two copies of these rules would
+--- disagree, and the one that mattered would be whichever the reader was not looking
+--- at.
+---
+--- @param record what this run measured
+--- @param baseline the record to compare it against
+--- @return the gated differences, which are failures
+--- @return the differences that were only reported
 ---
 --- A comparison with no comparable baseline is reported as exactly that. It is a
 --- result, and a different one from a regression: the runner has to say which, or a
 --- lost baseline reads like a pass.
-local function compare(record: any, baseline: any): ({string}, {string})
+function bench.compare(record: any, baseline: any): ({string}, {string})
     local failures: {string} = {}
     local uncompared: {string} = {}
     if not sameExecution(record.executionProfile, baseline.executionProfile) then
@@ -602,8 +762,19 @@ local function compare(record: any, baseline: any): ({string}, {string})
     end
     -- Static counters are properties of the compiler's output, so they compare across
     -- hosts unchanged and are not keyed by the recorder below.
-    for _, site in ipairs(listDifference(allocationIdentities(record), allocationIdentities(baseline))) do
-        failures[#failures + 1] = "allocation site appeared: " .. site
+    local currentAllocations = allocationCounts(record)
+    local previousAllocations = allocationCounts(baseline)
+    local allocationKeys: {string} = {}
+    for key in pairs(currentAllocations) do
+        allocationKeys[#allocationKeys + 1] = key
+    end
+    table.sort(allocationKeys)
+    for _, key in ipairs(allocationKeys) do
+        local now = currentAllocations[key] or 0
+        local was = previousAllocations[key] or 0
+        if now > was then
+            failures[#failures + 1] = ("allocations rose from %d to %d in %s"):format(was, now, key)
+        end
     end
     -- Reported rather than gated. A remark carries no field saying whether the pass
     -- fired or declined, so a pass that started firing would add one remark and remove
@@ -617,14 +788,14 @@ local function compare(record: any, baseline: any): ({string}, {string})
         uncompared[#uncompared + 1] = "remark went away: " .. entry
     end
     local recorderMatches = sameRecorder(record.traceProfile, baseline.traceProfile)
-    for _, entry in ipairs(record.cases) do
+    for _, entry in ipairs(record.cases or {}) do
         local was = previous[entry.name]
         if not was then
             uncompared[#uncompared + 1] = entry.name .. ": no baseline"
         elseif not recorderMatches then
             uncompared[#uncompared + 1] = entry.name .. ": trace profile differs, abort sites not compared"
         else
-            local added = listDifference(entry.abortSites, was.abortSites or {})
+            local added = listDifference(entry.abortSites or {}, was.abortSites or {})
             for _, site in ipairs(added) do
                 failures[#failures + 1] = entry.name .. ": new trace abort site: " .. site
             end
@@ -647,6 +818,13 @@ end
 ---
 --- @raises when a gated counter moved, or the record cannot be written
 function bench.report(): nil
+    if options.list then
+        return
+    end
+    if reported then
+        return
+    end
+    reported = true
     local record = buildRecord()
     local encoded = json.encode(record)
     writeFile(options.out, encoded)
@@ -657,8 +835,13 @@ function bench.report(): nil
             if entry.kind == "case" then
                 io.stdout:write(
                     (
-                        "%-40s %10.6fs  n=%d  %d abort sites\n"
-                    ):format(entry.name, entry.medianSec or 0.0, entry.n or 0, #entry.abortSites)
+                        "%-40s %10.6fs  n=%d  %s\n"
+                    ):format(
+                        entry.name,
+                        entry.medianSec or 0.0,
+                        entry.n or 0,
+                        entry.abortSites and (#entry.abortSites .. " abort sites") or "aborts uncollected"
+                    )
                 )
             else
                 io.stdout:write(
@@ -690,7 +873,7 @@ function bench.report(): nil
 
         return
     end
-    local failures, uncompared = compare(record, json.decode(baselineText))
+    local failures, uncompared = bench.compare(record, json.decode(baselineText))
     for _, note in ipairs(uncompared) do
         io.stderr:write("bench: uncompared: " .. note .. "\n")
     end

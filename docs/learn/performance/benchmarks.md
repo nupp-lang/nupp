@@ -68,7 +68,7 @@ answers it. A budget missed one frame in a hundred is a visible stutter and an
 unmoved mean.
 
 ```nupp
-local frames = bench.frames("frame", {budget = 16.6, count = 600})
+local frames = bench.frames("frame", 16.6, 600)
 while running and frames:more() do
     frames:begin()
     step()
@@ -78,18 +78,34 @@ end
 frames:report()
 ```
 
-`more` is false once `count` frames are recorded. An application that ignores it
-still has to call `report`: nothing hands the library a callback when the chunk
-returns, collection before shutdown is not guaranteed, and the compiler's entry
-point ends in `os.exit`, so there is nowhere to hang an exit-time fallback. A
-session that is never reported produces no record, and the runner says so.
+`more` is false once `count` frames are recorded, and `report` writes the record
+and applies the gate — a frame loop needs no second call. An application that
+ignores `more` still has to call `report`: nothing hands the library a callback
+when the chunk returns, collection before shutdown is not guaranteed, and the
+compiler's entry point ends in `os.exit`, so there is nowhere to hang an
+exit-time fallback. A session that is never reported produces no record, and the
+runner says so.
+
+Frame times are elapsed on the monotonic clock, not `os.clock`. A frame that
+waited on presentation, on I/O, or on a sleep spends little processor time and
+misses its budget anyway, and missing the budget is the measurement.
 
 ## What is gated, and what is only recorded
 
 Gated, because they are the same on every run of one binary:
 
-- the allocation sites the optimizer left standing;
+- how many allocations of each kind the optimizer left standing **in each file**;
 - the trace abort site identities — severity, reason, location and zone.
+
+Allocations are counted per file rather than identified by position. An identity
+of file, line and column would make inserting a comment above unchanged code look
+like every allocation below it was newly introduced, failing the gate for a
+change that allocated nothing.
+
+Abort sites are absent rather than empty when no session could be opened —
+`nupp run --jit-aborts` holds the one process-wide session, so a case run under
+it reports `aborts uncollected`. Nothing aborted and nobody looked gate very
+differently.
 
 Recorded, never gated: every duration, the calibrated `n`, the retained-heap
 delta, and the remark set. Remarks are diffed and reported both ways rather than
@@ -136,14 +152,25 @@ nupp run bench/run.nupp --baseline build/bench-baseline.json
 nupp run bench/run.nupp --accept
 ```
 
+Each `bench.case` gets its own process, not each file: a file is asked what cases
+it defines with `--list-cases` and then run once per case with `--case NAME`. Two
+cases sharing a process would share its heap, its compiled traces and its
+blacklist.
+
+The baseline belongs to the runner, not to a case — children comparing against it
+would each read and overwrite one file describing all of them. A named baseline
+that is not there exits non-zero rather than reading as a clean run.
+
 Cases are `bench/*.bench.nupp`. The name is a convention rather than a
 discovery, because `bench/` also holds programs that are not cases — hand-written
 comparisons, spikes and probes — and running one to find out produces "wrote no
 record", which is the right answer for a case that failed to report and the wrong
 one for a file that was never a case.
 
-One case is one process. Trace state, the trace budget, blacklisted traces and
-the heap are all process-wide, so two cases sharing a process measure each other.
+`--remarks-out` is written twice by `nupp run`: once before the program starts, so
+the program can read it, and again after it returns, once every module it
+`require`d has been compiled. The second is the complete account, and it is the
+one the runner merges into each record.
 
 ::: seealso
 - [profiling.md](profiling.md) for where the time went in one program

@@ -343,6 +343,10 @@ local function run(parsed: any): integer
     -- Ends the command with what the build produced, in the shape the project build
     -- fills in; the file shape fills in the fields it has and leaves the rest absent.
     local function finish(code: integer, produced: {[string]: any}): integer
+        -- Every way out of this command passes here, which is the point: the option is
+        -- advertised on `build`, and a build that wrote nothing because it took a
+        -- different branch is the same defect as not implementing it.
+        compile.writeRemarks(settings)
         if asJson then
             reportMod.write({
                 ok = code == 0,

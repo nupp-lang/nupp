@@ -197,8 +197,9 @@ local function run(parsed: any): integer
 
     -- Written before the program starts, because the program is what reads it: a
     -- benchmark reports the optimization level and declined passes it was compiled
-    -- under alongside what it measured. It therefore accounts for what compiling the
-    -- entry reached, and not for a module the program requires later.
+    -- under alongside what it measured. At this point it accounts for the entry alone;
+    -- it is written again below, once every module the program required has been
+    -- compiled, which is the complete account a reader of the file gets.
     compile.writeRemarks(settings)
 
     -- Opened here rather than around the compile, so what the report describes is the
@@ -233,6 +234,10 @@ local function run(parsed: any): integer
     local removeLoader = runtime.install(projectEnv, compileLoaded, loaded, checkPlain)
     local ok, runErr = pcall(chunk, unpack(programArgs))
     removeLoader()
+    -- Now complete: a `require` reached during the run compiled through the installed
+    -- loader, so the modules holding the code a benchmark actually measured are only
+    -- accounted for here.
+    compile.writeRemarks(settings)
     if watch then
         watch.finish(ok)
     end

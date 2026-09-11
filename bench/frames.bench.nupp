@@ -1,0 +1,19 @@
+--- A frame-shaped case, measured the way an application's own loop would be.
+---
+--- The work is arbitrary; what is being exercised is that a frame session records a
+--- distribution on the monotonic clock and reports itself without a second call.
+---
+--- Run: nupp run -O1 bench/frames.bench.nupp
+local bench = require("nupp.bench")
+
+local total = 0.0
+local frames = bench.frames("frame", 16.6, 60)
+while frames:more() do
+    frames:begin()
+    for index = 1, 200000 do
+        total = total + index * 0.5
+    end
+    frames:finish()
+end
+bench.keep(total)
+frames:report()

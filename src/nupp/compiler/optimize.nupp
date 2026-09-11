@@ -2820,7 +2820,10 @@ function optimize.allocationSites(result: optimize.Checked): {optimize.Allocatio
         local kind = nil as string?
         if node.kind == "tableExpr" then
             kind = "table"
-        elseif node.kind == "funcExpr" or node.kind == "shortfn" then
+        elseif node.kind == "funcExpr" or node.kind == "shortfn" or node.kind == "funcbody" then
+            -- `funcbody` is the declared form. A named function allocates a closure the
+            -- same way an anonymous one does, and leaving it out meant the account
+            -- disagreed with itself depending on how the source spelled the function.
             kind = "closure"
         end
         if kind then

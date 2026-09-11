@@ -45,6 +45,17 @@ local function compile(source, level)
    return code, parsed
 end
 
+--- Allocation sites by kind, which is how the account is read: a count per file and
+--- kind rather than a set of positions.
+local function countKinds(sites)
+   local tables, closures = 0, 0
+   for _, site in ipairs(sites) do
+      if site.kind == "table" then tables = tables + 1
+      elseif site.kind == "closure" then closures = closures + 1 end
+   end
+   return tables, closures
+end
+
 local M = {}
 
 function M.lowersKeepToAStoreRatherThanACall()
@@ -95,12 +106,11 @@ local function body()
     return point, other
 end
 ]], 1)
-   local sites = optimize.allocationSites(parsed)
-   assertEq(#sites, 2, "two constructors stand in the emitted tree")
-   for _, site in ipairs(sites) do
-      assertEq(site.kind, "table", "both are table constructors")
-      assertTrue(site.line > 0, "a site carries where it stands")
-   end
+   local tables, closures = countKinds(optimize.allocationSites(parsed))
+   assertEq(tables, 2, "two constructors stand in the emitted tree")
+   -- The enclosing declaration is itself a closure the tree allocates. Counting only
+   -- anonymous functions made the account depend on how the source spelled a function.
+   assertEq(closures, 1, "the enclosing declaration is an allocation too")
 end
 
 function M.countsAClosureAsAnAllocation()
@@ -130,8 +140,34 @@ local function body()
     return nil
 end
 ]], 1)
-   local sites = optimize.allocationSites(parsed)
-   assertEq(#sites, 0, "a folded-away constructor is not accounted for")
+   local tables = countKinds(optimize.allocationSites(parsed))
+   assertEq(tables, 0, "a folded-away constructor is not accounted for")
+end
+
+-- The gate compares counts per file, not positions. Identifying a site by file, line and
+-- column meant inserting a comment above unchanged code reported every allocation below
+-- it as newly introduced, failing the gate for a change that allocated nothing.
+function M.movingCodeDoesNotLookLikeANewAllocation()
+   local bench = require("nupp.bench")
+   local profile = {optLevel = 1, disabled = ""}
+   local before = {executionProfile = profile, allocationSites = {
+      {file = "a.nupp", kind = "table", line = 10, col = 5},
+      {file = "a.nupp", kind = "table", line = 20, col = 5},
+   }}
+   local moved = {executionProfile = profile, allocationSites = {
+      {file = "a.nupp", kind = "table", line = 40, col = 9},
+      {file = "a.nupp", kind = "table", line = 50, col = 1},
+   }}
+   local failures = bench.compare(moved, before)
+   assertEq(#failures, 0, "the same two allocations in new positions are not a regression")
+
+   local added = {executionProfile = profile, allocationSites = {
+      {file = "a.nupp", kind = "table", line = 10, col = 5},
+      {file = "a.nupp", kind = "table", line = 20, col = 5},
+      {file = "a.nupp", kind = "table", line = 30, col = 5},
+   }}
+   local grew = bench.compare(added, before)
+   assertEq(#grew, 1, "a third allocation in the same file is a regression")
 end
 
 return M

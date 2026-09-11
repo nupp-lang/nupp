@@ -360,6 +360,40 @@ forty-odd programs that are not cases, and running one to find out reports "wrot
 no record" -- which is the right answer for a case that failed to report and the
 wrong one for a file that was never a case.
 
+## Corrections, 2026-09-11
+
+A review of the first implementation found defects that changed the design
+rather than only the code, which is what this section is for.
+
+**A case is a process, not a file.** The first runner started one child per file
+and a file may define several cases, so the second case inherited the first's
+heap, traces and blacklist — the exact sharing the proposal cites as the reason
+to spawn at all. Files are now asked what they define and run once per case.
+
+**Trace collection must start before calibration.** It started after, so a loop
+that aborted and was blacklisted while being calibrated had already been demoted
+by the time anything was watching, and the one finding that mattered was the one
+guaranteed to be missed. A session is also optional now: `--jit-aborts` holds the
+single process-wide session, so a case run under the flag most likely to be set
+while investigating one used to fail outright.
+
+**The baseline belongs to the runner.** Forwarding it to each child had every
+child read and overwrite one file describing all of them, and a missing baseline
+exited zero, which is how a lost baseline comes to look like a pass.
+
+**Frames report themselves.** `FrameSession:report` recorded but did not write,
+so the documented loop produced no record. It now writes and gates, and
+`bench.report` is idempotent for a program that does both.
+
+**Frame time is elapsed, not processor time.** `os.clock` counts the latter, and a
+frame that waits on presentation or I/O misses its budget while spending almost
+none of it.
+
+**Allocations are counted per file, not identified by position.** A file, line and
+column identity made inserting a comment look like every allocation below it was
+new. The walk also counts declared functions, which it had been omitting, so the
+account no longer depends on how the source spelled a function.
+
 ## Risks and assumptions
 
 - **A compiler change moves the static counters all at once.** An optimizer
