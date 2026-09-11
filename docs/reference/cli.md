@@ -1398,7 +1398,8 @@ Options:
   --exclude-group NAME  Leave every suite a named group covers out
   --lane WHICH          Keep only one execution lane: `shared` is what a Nupp
                         worker can run beside other suites in one process,
-                        `isolated` is what needs a process of its own
+                        `shell` uses a reusable process worker, and `isolated`
+                        needs process-global isolation
   --list-suites         Print the suites this selection would run, and run none
                         of them
   --list-groups         Print every named group and the suites it covers
@@ -1505,7 +1506,8 @@ Options:
   --exclude-group NAME  Leave every suite a named group covers out
   --lane WHICH          Keep only one execution lane: `shared` is what a Nupp
                         worker can run beside other suites in one process,
-                        `isolated` is what needs a process of its own
+                        `shell` uses a reusable process worker, and `isolated`
+                        needs process-global isolation
   --list-suites         Print the suites this selection would run, and run none
                         of them
   --list-groups         Print every named group and the suites it covers

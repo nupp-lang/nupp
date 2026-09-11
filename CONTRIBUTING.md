@@ -238,7 +238,8 @@ say what a set of suites is for, and are what the workflows ask for:
 ```bash
 ./bin/nupp test --list-groups
 ./bin/nupp test --group=docs
-./bin/nupp test --lane=shared          # the ~100 suites that share a process
+./bin/nupp test --lane=shared          # the ~100 suites that use Nupp workers
+./bin/nupp test --lane=shell           # suites that use reusable process workers
 ./bin/nupp test --exclude-group=aot    # everything an earlier run did not cover
 ./bin/nupp test --list-suites          # what a selection would run, running none
 ```

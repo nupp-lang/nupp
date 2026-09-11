@@ -38,8 +38,8 @@ local command = spec.command{
             name = "--lane",
             value = "WHICH",
             help = "Keep only one execution lane: `shared` is what a Nupp "
-            .. "worker can run beside other suites in one process, `isolated` "
-            .. "is what needs a process of its own"
+            .. "worker can run beside other suites in one process, `shell` uses "
+            .. "a reusable process worker, and `isolated` needs process-global isolation"
         },
         {name = "--list-suites", help = "Print the suites this selection would run, and run none of them"},
         {name = "--list-groups", help = "Print every named group and the suites it covers"},

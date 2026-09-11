@@ -265,10 +265,10 @@ local shard = {}
 local chosenGroups = {}
 local excludedNames = {}
 local excludedGroups = {}
--- Which execution lane to keep: `shared` is what may reuse state with other
--- suites, `isolated` is what needs a process boundary around its runtime state.
--- The executor is a separate choice: shell users share reusable process workers,
--- while the rest of the shared lane uses Nupp workers.
+-- Which execution lane to keep: `shared` runs in Nupp worker states, `shell`
+-- shares reusable process workers, and `isolated` needs a process boundary
+-- around its runtime state. A full run combines the latter two on one process
+-- worker queue, but they remain separate answers to `--lane`.
 local lane = nil
 -- `--list-suites` and `--list-groups` answer what a run would cover without
 -- running it, which is what a workflow author and its review need.
@@ -336,8 +336,8 @@ for _, argument in ipairs(arg) do
         end
     elseif argument:match("^%-%-lane=") then
         lane = argument:sub(#"--lane=" + 1)
-        if lane ~= "shared" and lane ~= "isolated" then
-            io.stderr:write("nupp: --lane must be shared or isolated\n")
+        if lane ~= "shared" and lane ~= "shell" and lane ~= "isolated" then
+            io.stderr:write("nupp: --lane must be shared, shell, or isolated\n")
             os.exit(2)
         end
     elseif argument == "--list-suites" then
@@ -367,6 +367,7 @@ end
 local capture
 local progressWrite
 local useColor = false
+local pauseBriefly = nil
 local silenceProcessOutput = function()
     return function()
     end
@@ -396,6 +397,7 @@ do
             int _write(int, const void *, unsigned int);
             int _isatty(int);
             int _putenv_s(const char *, const char *);
+            void Sleep(unsigned long);
          ]]
         else
             ffi.cdef[[
@@ -407,6 +409,7 @@ do
             long write(int, const void *, unsigned long);
             int isatty(int);
             int unsetenv(const char *);
+            int usleep(unsigned int);
          ]]
         end
         local C = ffi.C
@@ -419,6 +422,11 @@ do
         local close = ffi.os == "Windows" and C._close or C.close
         local write = ffi.os == "Windows" and C._write or C.write
         local isatty = ffi.os == "Windows" and C._isatty or C.isatty
+        pauseBriefly = ffi.os == "Windows" and function()
+            C.Sleep(20)
+        end or function()
+            C.usleep(20000)
+        end
         silenceProcessOutput = function()
             local function flush()
                 io.stdout:flush();
@@ -1446,10 +1454,18 @@ local function usesShell(suiteInfo)
     return sourceContains(suiteInfo, shellCalls)
 end
 
+local function suiteLane(suiteInfo)
+    if processIsolated(suiteInfo) then
+        return "isolated"
+    end
+
+    return usesShell(suiteInfo) and "shell" or "shared"
+end
+
 if lane then
     local kept = {}
     for _, suiteInfo in ipairs(suites) do
-        if (lane == "isolated") == processIsolated(suiteInfo) then
+        if lane == suiteLane(suiteInfo) then
             kept[#kept + 1] = suiteInfo
         end
     end
@@ -1475,7 +1491,8 @@ if #shard == 0 and #suites > 0 and (
         local json = testJson
         local shareable, alone, shelling = {}, {}, {}
         for _, suiteInfo in ipairs(suites) do
-            local into = processIsolated(suiteInfo) and alone or usesShell(suiteInfo) and shelling or shareable
+            local selectedLane = suiteLane(suiteInfo)
+            local into = selectedLane == "isolated" and alone or selectedLane == "shell" and shelling or shareable
             into[#into + 1] = suiteInfo
         end
 
@@ -1494,11 +1511,10 @@ if #shard == 0 and #suites > 0 and (
             progressWidth = 0
         end
 
-        --- Starts one child per group and reads them all back.
+        --- Starts one child per group and returns the operation that reads them.
         ---
-        --- Every child is started before any is read, which is what makes them run
-        --- at once: the pipes are open and the children are working while this
-        --- blocks on whichever it reads first.
+        --- Keeping start separate from collection lets both executor kinds run at
+        --- once: every pipe and task is live before this process waits for either.
         ---
         --- `nupp.suspension`'s combinators would express the fan-out more directly,
         --- and do for a Nupp program, but reaching `nupp.io.process` from here means
@@ -1513,7 +1529,7 @@ if #shard == 0 and #suites > 0 and (
         --- because a store is written whole: children sharing one file would take
         --- turns discarding each other's entries. A suite running on its own has no
         --- one to share with and keeps the warm store this process was started with.
-        local function fanOut(lanes, ownCache, isolated, suiteCount)
+        local function startFanOut(lanes, ownCache, isolated, executionLane)
             if workerHost and ownCache and not isolated then
                 local workers = require("nupp.workers")
                 local job = require("job")
@@ -1522,9 +1538,9 @@ if #shard == 0 and #suites > 0 and (
                 -- A worker state cannot redirect process-owned descriptors safely.
                 -- Keep inherited output quiet for the threaded phase; ordinary Lua
                 -- output is captured in its state, process-writing suites are in the
-                -- isolated phase, and progress has its own saved descriptor.
+                -- process-worker queues, and progress has its own saved descriptor.
                 local restoreOutput = silenceProcessOutput()
-                local completed, reports = pcall(function()
+                local launched, problem = pcall(function()
                     for _, lane in ipairs(lanes) do
                         local index = children + 1
                         children = index
@@ -1539,40 +1555,47 @@ if #shard == 0 and #suites > 0 and (
                             task = scope:spawn(job.run, lane.arg, cache, progressFd, verbose, colorMode, suiteCatalog),
                         }
                     end
-
-                    if #running > 0 then
-                        beginPhase(("%d suites across %d Nupp workers"):format(suiteCount or #shareable, #running))
-                        marked = true
-                    end
-
-                    local reports = {}
-                    for _, child in ipairs(running) do
-                        local ok, report = pcall(function()
-                            return child.task:await()
-                        end)
-                        if ok and type(report) == "table" then
-                            report.shard = {
-                                index = child.index,
-                                names = (report.claimed and #report.claimed > 0) and report.claimed or {child.label},
-                                startedAt = child.startedAt,
-                                collectedAt = now() - started
-                            }
-                            reports[#reports + 1] = report
-                        else
-                            reports[#reports + 1] = {names = {child.label}, failure = tostring(report)}
-                        end
-                    end
-                    scope:close()
-
-                    return reports
                 end)
-                restoreOutput()
-                if not completed then
+                if not launched then
+                    restoreOutput()
                     pcall(scope.close, scope)
-                    error(reports, 0)
+                    error(problem, 0)
                 end
 
-                return reports
+                return function()
+                    local completed, reports = pcall(function()
+                        local reports = {}
+                        for _, child in ipairs(running) do
+                            local ok, report = pcall(function()
+                                return child.task:await()
+                            end)
+                            if ok and type(report) == "table" then
+                                report.shard = {
+                                    index = child.index,
+                                    names = (
+                                        report.claimed and #report.claimed > 0
+                                    ) and report.claimed or {child.label},
+                                    executionLane = executionLane,
+                                    startedAt = child.startedAt,
+                                    collectedAt = now() - started
+                                }
+                                reports[#reports + 1] = report
+                            else
+                                reports[#reports + 1] = {names = {child.label}, failure = tostring(report)}
+                            end
+                        end
+                        scope:close()
+
+                        return reports
+                    end)
+                    restoreOutput()
+                    if not completed then
+                        pcall(scope.close, scope)
+                        error(reports, 0)
+                    end
+
+                    return reports
+                end
             end
 
             local running = {}
@@ -1632,114 +1655,106 @@ if #shard == 0 and #suites > 0 and (
                 end
             end
 
-            -- Said before the first mark rather than left to be inferred from its
-            -- absence. A worker marks a suite slice off when it finishes it, and the
-            -- first one to finish anywhere can be half a minute in on a cold tree,
-            -- which looks exactly like a run that has not started.
-            if #running > 0 then
-                beginPhase(("%d suites across %d process workers"):format(suiteCount or #lanes, #running))
-            end
-
-            if #running > 0 then
-                marked = true
-            end
-            local reports = {}
-            for _, child in ipairs(running) do
-                if not child.pipe then
-                    reports[#reports + 1] = {failure = "the worker could not be started", names = {child.label}}
-                else
-                    local text = child.pipe:read("*a")
-                    local _, how, code = child.pipe:close()
-                    local decoded, report = pcall(json.decode, text or "")
-                    if decoded and type(report) == "table" then
-                        -- What the parent knows and the child cannot: which shard this
-                        -- was, when it was started, and when this end finished reading
-                        -- it. The child's own `durationMs` is its wall clock, which is
-                        -- the honest measure -- the pipes are read in order, so when
-                        -- the parent noticed says more about read order than about the
-                        -- shard.
-                        report.shard = {
-                            index = child.index,
-                            names = (report.claimed and #report.claimed > 0) and report.claimed or {child.label},
-                            alone = isolated or nil,
-                            startedAt = child.startedAt,
-                            collectedAt = now() - started
-                        }
-                        reports[#reports + 1] = report
+            return function()
+                local reports = {}
+                for _, child in ipairs(running) do
+                    if not child.pipe then
+                        reports[#reports + 1] = {failure = "the worker could not be started", names = {child.label}}
                     else
-                        -- Everything known about the death, in the failure itself. A
-                        -- signal names how it was killed; the tail of its standard
-                        -- error says what it managed to complain about first; the
-                        -- length of what it wrote separates "nothing at all" from "not
-                        -- JSON".
-                        local why = {}
-                        if how then
-                            why[#why + 1] = ("%s %s"):format(tostring(how), tostring(code))
-                        end
-                        local written = text or ""
-                        why[#why + 1] = ("%d bytes on stdout"):format(#written)
-                        if not decoded then
-                            why[#why + 1] = "JSON decode: " .. tostring(report)
-                            if #written > 0 then
-                                local head = written:sub(1, 1000)
-                                local tail = #written > 1000 and written:sub(-1000) or nil
-                                why[#why + 1] = "stdout head: " .. head
-                                if tail then
-                                    why[#why + 1] = "stdout tail: " .. tail
+                        local text = child.pipe:read("*a")
+                        local _, how, code = child.pipe:close()
+                        local decoded, report = pcall(json.decode, text or "")
+                        if decoded and type(report) == "table" then
+                            -- What the parent knows and the child cannot: which shard
+                            -- this was, when it was started, and when this end finished
+                            -- reading it. The child's own `durationMs` is its wall
+                            -- clock, which is the honest measure -- the pipes are read
+                            -- in order, so when the parent noticed says more about read
+                            -- order than about the shard.
+                            report.shard = {
+                                index = child.index,
+                                names = (report.claimed and #report.claimed > 0) and report.claimed or {child.label},
+                                alone = isolated or nil,
+                                executionLane = executionLane,
+                                startedAt = child.startedAt,
+                                collectedAt = now() - started
+                            }
+                            reports[#reports + 1] = report
+                        else
+                            -- Everything known about the death, in the failure itself.
+                            -- A signal names how it was killed; the tail of its
+                            -- standard error says what it managed to complain about
+                            -- first; the length of what it wrote separates "nothing at
+                            -- all" from "not JSON".
+                            local why = {}
+                            if how then
+                                why[#why + 1] = ("%s %s"):format(tostring(how), tostring(code))
+                            end
+                            local written = text or ""
+                            why[#why + 1] = ("%d bytes on stdout"):format(#written)
+                            if not decoded then
+                                why[#why + 1] = "JSON decode: " .. tostring(report)
+                                if #written > 0 then
+                                    local head = written:sub(1, 1000)
+                                    local tail = #written > 1000 and written:sub(-1000) or nil
+                                    why[#why + 1] = "stdout head: " .. head
+                                    if tail then
+                                        why[#why + 1] = "stdout tail: " .. tail
+                                    end
                                 end
                             end
+                            local errored = io.open(child.errors, "rb")
+                            if errored then
+                                local said = errored:read("*a") or ""
+                                errored:close()
+                                local status = said:match("__status__:(%d+)")
+                                if status then
+                                    local code = tonumber(status) or 0
+                                    why[
+                                        #why + 1
+                                    ] = code > 128 and (
+                                        "killed by signal %d"
+                                    ):format(code - 128) or ("exit %d"):format(code)
+                                    said = said:gsub("__status__:%d+%s*$", "")
+                                end
+                                -- The last suite the worker said it was starting. An
+                                -- undecodable report does not prove the worker died: it
+                                -- may have exited normally after a test failure while
+                                -- an inherited writer corrupted stdout. The marks
+                                -- themselves are taken out of what gets printed: there
+                                -- is one per suite, and a lane's worth of them would
+                                -- bury the message they are here to qualify.
+                                local inFlight
+                                for name in said:gmatch("__suite__:([^\n]*)") do
+                                    inFlight = name
+                                end
+                                local inFlightCase
+                                for name in said:gmatch("__case__:([^\n]*)") do
+                                    inFlightCase = name
+                                end
+                                said = said:gsub("__suite__:[^\n]*\n?", "")
+                                said = said:gsub("__case__:[^\n]*\n?", "")
+                                if inFlight then
+                                    why[
+                                        #why + 1
+                                    ] = "last reported " .. inFlight .. (inFlightCase and " / " .. inFlightCase or "")
+                                end
+                                if #said > 0 then
+                                    why[#why + 1] = "stderr: " .. said:sub(-2000)
+                                end
+                            end
+                            reports[
+                                #reports + 1
+                            ] = {
+                                names = {child.label},
+                                failure = "the worker wrote no report (" .. table.concat(why, "; ") .. ")"
+                            }
                         end
-                        local errored = io.open(child.errors, "rb")
-                        if errored then
-                            local said = errored:read("*a") or ""
-                            errored:close()
-                            local status = said:match("__status__:(%d+)")
-                            if status then
-                                local code = tonumber(status) or 0
-                                why[
-                                    #why + 1
-                                ] = code > 128 and (
-                                    "killed by signal %d"
-                                ):format(code - 128) or ("exit %d"):format(code)
-                                said = said:gsub("__status__:%d+%s*$", "")
-                            end
-                            -- The last suite the worker said it was starting. An
-                            -- undecodable report does not prove the worker died: it
-                            -- may have exited normally after a test failure while an
-                            -- inherited writer corrupted stdout. The marks themselves
-                            -- are taken out of what gets printed: there is one per
-                            -- suite, and a lane's worth of them would bury the message
-                            -- they are here to qualify.
-                            local inFlight
-                            for name in said:gmatch("__suite__:([^\n]*)") do
-                                inFlight = name
-                            end
-                            local inFlightCase
-                            for name in said:gmatch("__case__:([^\n]*)") do
-                                inFlightCase = name
-                            end
-                            said = said:gsub("__suite__:[^\n]*\n?", "")
-                            said = said:gsub("__case__:[^\n]*\n?", "")
-                            if inFlight then
-                                why[
-                                    #why + 1
-                                ] = "last reported " .. inFlight .. (inFlightCase and " / " .. inFlightCase or "")
-                            end
-                            if #said > 0 then
-                                why[#why + 1] = "stderr: " .. said:sub(-2000)
-                            end
-                        end
-                        reports[
-                            #reports + 1
-                        ] = {
-                            names = {child.label},
-                            failure = "the worker wrote no report (" .. table.concat(why, "; ") .. ")"
-                        }
                     end
                 end
-            end
 
-            return reports
+                return reports
+            end
         end
 
         sharded = {results = {}, suites = {}, shards = {}, total = 0, passed = 0, skipped = 0, failed = 0}
@@ -1779,6 +1794,7 @@ if #shard == 0 and #suites > 0 and (
                             index = report.shard.index,
                             specs = report.shard.names,
                             alone = report.shard.alone,
+                            executionLane = report.shard.executionLane,
                             durationMs = tonumber(report.durationMs) or 0,
                             startedAt = report.shard.startedAt,
                             collectedAt = report.shard.collectedAt,
@@ -1789,16 +1805,17 @@ if #shard == 0 and #suites > 0 and (
             end
         end
 
-        -- Run a dynamically-fed queue either in Nupp worker states or in process
-        -- workers. The queue shape stays identical, so isolation does not give up
-        -- load balancing or per-lane compiler caches.
-        local function runQueue(list, isolated)
+        -- Prepare a dynamically-fed queue for either Nupp worker states or process
+        -- workers. Starting and collecting are separate so the shell queue can join
+        -- the end of the Nupp queue without involving process-global suites.
+        local function prepareQueue(list, isolated, count, executionLane, order, prediction)
             if #list == 0 then
-                return
+                return nil
             end
-            local count = math.min(jobs or defaultJobs(), #list)
-            local order, prediction = planWork(list, count, recordedTimings())
-            predictions[isolated and "alone" or "shared"] = prediction
+            if not order then
+                order, prediction = planWork(list, count, recordedTimings())
+            end
+            predictions[executionLane] = prediction
             local ticket = os.tmpname():match("[^/\\]+$") or tostring(#order)
             local queue = shardCacheRoot .. "/queue-" .. ticket
             os.execute("rm -rf '" .. queue .. "' && mkdir -p '" .. queue .. "'")
@@ -1816,8 +1833,23 @@ if #shard == 0 and #suites > 0 and (
                     #lanes + 1
                 ] = {arg = "--queue=" .. queue, label = (isolated and "process worker " or "Nupp worker ") .. index}
             end
-            absorb(fanOut(lanes, true, isolated, #list))
-            os.execute("rm -rf '" .. queue .. "'")
+
+            return {
+                count = #list,
+                executionLane = executionLane,
+                isolated = isolated,
+                lanes = lanes,
+                order = order,
+                path = queue,
+            }
+        end
+
+        local function collectQueue(queue, collect)
+            if not queue then
+                return
+            end
+            absorb(collect())
+            os.execute("rm -rf '" .. queue.path .. "'")
 
             -- Work nobody reported having run. A worker that dies holding a piece
             -- takes it with it, and silently doing less than requested is a failure.
@@ -1827,7 +1859,7 @@ if #shard == 0 and #suites > 0 and (
                     ran[spec] = true
                 end
             end
-            for _, spec in ipairs(order) do
+            for _, spec in ipairs(queue.order) do
                 if not ran[spec] then
                     sharded.total = sharded.total + 1
                     sharded.failed = sharded.failed + 1
@@ -1843,11 +1875,58 @@ if #shard == 0 and #suites > 0 and (
             end
         end
 
-        for _, suiteInfo in ipairs(shelling) do
-            alone[#alone + 1] = suiteInfo
+        local workerCount = jobs or defaultJobs()
+        local isolatedQueue = prepareQueue(alone, true, math.min(workerCount, #alone), "isolated")
+        local sharedQueue = prepareQueue(shareable, false, math.min(workerCount, #shareable), "shared")
+        local shellQueue = prepareQueue(shelling, true, math.min(workerCount, #shelling), "shell")
+        if isolatedQueue then
+            beginPhase(("%d isolated suites across %d process workers"):format(#alone, #isolatedQueue.lanes))
+        elseif sharedQueue then
+            beginPhase(("%d suites across %d Nupp workers"):format(sharedQueue.count, #sharedQueue.lanes))
+        elseif shellQueue then
+            beginPhase(("%d shell suites across %d process workers"):format(#shelling, #shellQueue.lanes))
         end
-        runQueue(alone, true)
-        runQueue(shareable, false)
+        marked = isolatedQueue ~= nil or sharedQueue ~= nil or shellQueue ~= nil
+
+        -- Process-global suites go first: profiler and runtime-provider state must
+        -- be exercised before worker threads have existed in this process. After
+        -- that, shell users can safely overlap the tail of the Nupp worker queue.
+        if isolatedQueue then
+            collectQueue(isolatedQueue, startFanOut(isolatedQueue.lanes, true, true, "isolated"))
+        end
+        if sharedQueue and isolatedQueue then
+            beginPhase(("%d suites across %d Nupp workers"):format(sharedQueue.count, #sharedQueue.lanes))
+        end
+        local collectShared = sharedQueue and startFanOut(sharedQueue.lanes, true, false, "shared") or nil
+        local collectShell
+        if shellQueue then
+            if sharedQueue and pauseBriefly then
+                local waiting = true
+                local tail = math.max(1, math.floor(#sharedQueue.lanes / 4))
+                while waiting do
+                    local pieces = 0
+                    for index = 1, #sharedQueue.order do
+                        local piece = io.open(("%s/piece-%d"):format(sharedQueue.path, index), "rb")
+                        if piece then
+                            piece:close()
+                            pieces = pieces + 1
+                        end
+                    end
+                    waiting = pieces > tail
+                    if waiting then
+                        pauseBriefly()
+                    end
+                end
+                beginPhase(("%d shell suites joining across %d process workers"):format(#shelling, #shellQueue.lanes))
+            elseif sharedQueue then
+                collectQueue(sharedQueue, collectShared)
+                sharedQueue, collectShared = nil, nil
+                beginPhase(("%d shell suites across %d process workers"):format(#shelling, #shellQueue.lanes))
+            end
+            collectShell = startFanOut(shellQueue.lanes, true, true, "shell")
+        end
+        collectQueue(sharedQueue, collectShared)
+        collectQueue(shellQueue, collectShell)
 
         -- Workers mark completed cases without a newline because none can know
         -- whether another lane has a final mark. The parent closes it once both
@@ -2215,7 +2294,7 @@ if sharded then
     end)
 end
 
--- Recorded by the parent after both lanes are collected, so the next run packs
+-- Recorded by the parent after all lanes are collected, so the next run packs
 -- from every suite rather than whichever queue one worker happened to claim.
 -- A shard was handed its share and a slice ran part of a suite, so neither has
 -- anything to say about what a whole suite costs. Any other run does, however
@@ -2303,12 +2382,13 @@ local function timingReport()
     local headline = (
         "\n%s %s wall, %s of suite work"
     ):format(paint("1;36", "Timing:"), seconds(duration), seconds(work))
-    -- Process-isolated work runs first so retained Nupp worker states do not put
-    -- memory pressure on it. Report the two phases in that same order.
-    local shards, aloneShards = {}, {}
+    -- Process-global work runs first, then the Nupp queue with shell workers
+    -- joining its tail. Keep those three costs separate in the report.
+    local byExecutionLane = {isolated = {}, shared = {}, shell = {},}
     for _, entry in ipairs(sharded and sharded.shards or {}) do
-        local into = entry.alone and aloneShards or shards
-        into[#into + 1] = entry
+        local executionLane = entry.executionLane or (entry.alone and "isolated" or "shared")
+        local entries = byExecutionLane[executionLane]
+        entries[#entries + 1] = entry
     end
 
     local function phase(label, entries, prediction)
@@ -2345,8 +2425,9 @@ local function timingReport()
         end
     end
 
-    phase("process workers", aloneShards, predictions.alone)
-    phase("Nupp worker shards", shards, predictions.shared)
+    phase("isolated process workers", byExecutionLane.isolated, predictions.isolated)
+    phase("Nupp worker shards", byExecutionLane.shared, predictions.shared)
+    phase("shell process workers", byExecutionLane.shell, predictions.shell)
     say(headline .. "\n")
 
     local shown = 0
@@ -2436,8 +2517,12 @@ elseif asJson then
             -- stale timings or starved a lane; one at its prediction is as
             -- short as that much work gets, and only less work shortens it.
             prediction = (
-                predictions.alone or predictions.shared
-            ) and {processIsolated = predictions.alone, shared = predictions.shared,} or nil,
+                predictions.isolated or predictions.shared or predictions.shell
+            ) and {
+                processIsolated = predictions.isolated,
+                shared = predictions.shared,
+                shell = predictions.shell,
+            } or nil,
             -- What this process took off a queue, which is how the parent tells work
             -- that ran from work whose worker died holding it. A run that was not
             -- handed a queue took nothing, and says nothing.

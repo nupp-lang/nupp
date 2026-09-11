@@ -144,9 +144,9 @@ function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()
         "parallel progress is one mark per suite slice, not one per case"
     )
 
-    local popen, popenRun = runWorkerHost("absoluteentrytest --lane=shared --timings=0")
+    local popen, popenRun = runWorkerHost("absoluteentrytest --lane=shell --timings=0")
     test.equal(popenRun.status, 0, "the popen run succeeded" .. evidence(popenRun))
-    test.matches(popen, "1 suites across 1 process workers")
+    test.matches(popen, "1 shell suites across 1 process workers")
     test.matches(popen, "1 tests, 1 passed")
 
     local isolated, isolatedRun = runWorkerHost("processnativetest --lane=isolated --timings=0")
@@ -178,7 +178,7 @@ return M
     )
 
     local command = (
-        "cd %q && %sNUPP_TEST_BUILD=%q %q shellingtest --lane=shared --json --timings=0 --no-color 2>/dev/null"
+        "cd %q && %sNUPP_TEST_BUILD=%q %q shellingtest --lane=shell --json --timings=0 --no-color 2>/dev/null"
     ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
     local output, invocation = capturedRun(command)
     local report = require("testjson").decode(output)
@@ -192,6 +192,70 @@ return M
     test.matches(report.tests[1].failure.message, "the shell command failed as intended")
     test.equal(report.tests[2].suite, "shellingtest")
     test.equal(report.tests[2].status, "passed")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.processAndNuppWorkersRunAtTheSameTime()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
+    local shellMarker = dir .. "/shell-ready"
+    local sharedMarker = dir .. "/shared-ready"
+
+    local function suite(marker, other, shell)
+        return (
+            [=[
+local M = {}
+function M.meetsTheOtherExecutor()
+    %s
+    local ready = assert(io.open(%q, "wb"))
+    ready:write("ready")
+    ready:close()
+    local deadline = os.clock() + 5
+    repeat
+        local found = io.open(%q, "rb")
+        if found then
+            found:close()
+            return
+        end
+    until os.clock() >= deadline
+    error("the other executor did not start")
+end
+return M
+]=]
+        ):format(shell and 'assert(os.execute("exit 0") == 0)' or "", marker, other)
+    end
+
+    write(dir .. "/tests/shellingtest.lua", suite(shellMarker, sharedMarker, true))
+    write(dir .. "/tests/sharedtest.lua", suite(sharedMarker, shellMarker, false))
+    write(
+        dir .. "/tests/isolatedtest.lua",
+        (
+            [=[
+local M = {}
+if false then require("nupp.profile") end
+function M.runsBeforeNuppWorkersStart()
+    local started = io.open(%q, "rb")
+    assert(started == nil, "the Nupp lane started before the isolated lane finished")
+end
+return M
+]=]
+        ):format(sharedMarker)
+    )
+
+    local command = (
+        "cd %q && %sNUPP_TEST_BUILD=%q %q shellingtest sharedtest isolatedtest --jobs=2 --json --timings=0 --no-color 2>/dev/null"
+    ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    local output, invocation = capturedRun(command)
+    local report = require("testjson").decode(output)
+
+    test.equal(invocation.status, 0, "the overlapping run succeeded" .. evidence(invocation))
+    test.equal(report.total, 3, "all three execution lanes ran")
+    test.equal(report.passed, 3, "isolated work ran first and shell work overlapped")
+    test.equal(#report.shards, 3, "the two process workers and one Nupp worker reported")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
