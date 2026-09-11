@@ -58,6 +58,18 @@ record compile.Settings
     --- A command-only literal emitted between generated preamble and authored code.
     --- Absent from ordinary builds and machine bytecode reports.
     bytecodeBoundary: string?
+
+    --- Where to write the optimizer's account of this build, or nil for nowhere.
+    ---
+    --- `--remarks` says what the optimizer did to the terminal; this says the same
+    --- thing to a file, so a program can read what was compiled into it. A benchmark
+    --- is the first caller: a record of a run is worth much more beside the
+    --- optimization level it ran at and the passes that declined.
+    remarksOut: string?
+
+    --- Remarks accumulated across the files this command reached. Present only when
+    --- `remarksOut` is, because the artifact is the only reason to keep them.
+    collectedRemarks: {any}?
 end
 
 -- The level arrives as the digit the option captured. The grammar has already refused
@@ -76,8 +88,50 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
         disabled = values.disabled or {},
         diagnostics = collected,
         coverage = os.getenv("NUPP_COVERAGE") == "1",
-        bytecodeBoundary = nil
+        bytecodeBoundary = nil,
+        remarksOut = values.remarksOut,
+        collectedRemarks = values.remarksOut and {} or nil
     )
+end
+
+--- Writes the optimizer's account of this command, when one was asked for.
+---
+--- The record carries the execution profile beside the remarks on purpose. A reader
+--- comparing two runs has to know whether they were measuring the same thing, and the
+--- optimization level and the excluded passes are what decide that: `-O0` and `-O1` are
+--- different questions rather than a regression of each other.
+---
+--- Reported rather than raised. Failing a build over a diagnostic artifact would make
+--- the artifact load-bearing, which it is not.
+---
+--- @param settings the settings the command compiled under
+--- @return whether anything was written
+function compile.writeRemarks(settings: compile.Settings): boolean
+    local out = settings.remarksOut
+    local collected = settings.collectedRemarks
+    if not out or not collected then
+        return false
+    end
+    local report = require("nupp.compiler.cli.report")
+    local codes: {string} = {}
+    for code in pairs(settings.disabled) do
+        codes[#codes + 1] = code
+    end
+    table.sort(codes)
+    local document = {
+        schema = 1,
+        executionProfile = {optLevel = settings.optLevel or 0, disabled = table.concat(codes, ","),},
+        compiler = {version = require("nupp.compiler.version").VERSION},
+        remarks = report.diagnosticValues(collected),
+    }
+    local wrote, writeErr = require("nupp.compiler.fs").writeFile(out, report.encode(document) .. "\n")
+    if not wrote then
+        io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+
+        return false
+    end
+
+    return true
 end
 
 --- Reads, parses and checks one file, reporting every diagnostic the way the text
@@ -179,6 +233,12 @@ function compile.module(
     -- total, so the count is accumulated here the way materializations are.
     if settings.specializedBodies ~= nil then
         settings.specializedBodies = (settings.specializedBodies as integer) + specializedBodies
+    end
+    if settings.collectedRemarks then
+        local collectedRemarks = settings.collectedRemarks
+        for _, entry in ipairs(remarks) do
+            collectedRemarks[#collectedRemarks + 1] = entry
+        end
     end
     if settings.remarks then
         say(remarks)

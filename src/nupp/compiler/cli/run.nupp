@@ -195,6 +195,12 @@ local function run(parsed: any): integer
         return 1
     end
 
+    -- Written before the program starts, because the program is what reads it: a
+    -- benchmark reports the optimization level and declined passes it was compiled
+    -- under alongside what it measured. It therefore accounts for what compiling the
+    -- entry reached, and not for a module the program requires later.
+    compile.writeRemarks(settings)
+
     -- Opened here rather than around the compile, so what the report describes is the
     -- program that was asked for and not the compiler that got it ready.
     local sampling, tracing = nil, nil

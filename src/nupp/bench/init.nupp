@@ -186,7 +186,7 @@ local function readOptions(): nil
             if not value then
                 index = (index + 1) as integer
             end
-        elseif name == "remarks" then
+        elseif name == "remarks-from" then
             options.remarks = value or argv[index + 1]
             if not value then
                 index = (index + 1) as integer
@@ -455,6 +455,12 @@ local function readFile(path: string): string?
 end
 
 --- Reads the optimizer's account of this build, when a build wrote one.
+---
+--- `nupp run --remarks-out PATH` is what writes it, and `--remarks-from PATH` after the
+--- file name is how a case is pointed at one somewhere other than the default. The two
+--- names are deliberately not both `--remarks`: that one is the compiler's own flag for
+--- saying remarks to the terminal, and it is read before the file name rather than
+--- after it.
 ---
 --- Its absence is a result rather than a failure: a case run without one carries no
 --- static counters and says so, and the gate then has only the dynamic half to work
