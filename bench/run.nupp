@@ -1,0 +1,143 @@
+--- Runs the benchmark set and merges what each case reported.
+---
+--- One case is one process. Trace state, the compiler's trace budget, blacklisted
+--- traces and the heap are all process-wide, so two cases sharing a process measure
+--- each other. Spawning also puts a timeout under an application-hosted frame session,
+--- which is what a case that never reports needs to produce a result rather than a
+--- hang.
+---
+--- It lives here rather than in `src/` because it contains no compiler: it globs a
+--- directory, starts children, and merges JSON. See
+--- [NEP 32](docs/neps/0032-benchmarks-as-programs.md).
+---
+--- Run: nupp task bench
+local json = require("nupp.codec.json")
+
+local files = require("nupp.io.files")
+
+--- Where each case is told to write its record, and where the merged one goes.
+local RECORD_OUT = "build/bench-case.json"
+
+local REMARKS_OUT = "build/bench-remarks.json"
+local MERGED_OUT = "build/bench-record.json"
+
+local function readFile(path: string): string?
+    local handle = io.open(path, "r")
+    if not handle then
+        return nil
+    end
+    local content = handle:read("*a")
+    handle:close()
+
+    return content
+end
+
+--- The cases to run: `bench/*.bench.nupp`.
+---
+--- A case is named rather than discovered by trying it, because `bench/` also holds
+--- forty-odd programs that are not cases -- hand-written comparisons, spikes, and
+--- probes. Running one of those to find out produces "wrote no record", which is the
+--- right answer to a case that failed to report and the wrong one to a file that was
+--- never a case.
+local function discover(): {string}
+    local found: {string} = {}
+    local matched = files.glob("bench/*.bench.nupp")
+    for _, path in ipairs(matched or {}) do
+        found[#found + 1] = path
+    end
+    table.sort(found)
+
+    return found
+end
+
+local function runCase(path: string, baseline: string?, accept: boolean): (boolean, any?, string?)
+    -- Spawned rather than required, because the process is the measurement boundary:
+    -- trace state, the trace budget, blacklisted traces and the heap are all
+    -- process-wide, so two cases in one process measure each other.
+    --
+    -- `os.execute` rather than `nupp.io.process`, whose `Process` and `Options` are not
+    -- on the module's visible type in this tree -- the same reason the tour's own
+    -- example does not check. What that costs is the per-case deadline: a case that
+    -- hangs is not killed here. A case that finishes without reporting is still caught,
+    -- because it leaves no record behind.
+    local command = (
+        "./bin/nupp run -O1 --remarks-out %s %s --out %s --remarks-from %s"
+    ):format(REMARKS_OUT, path, RECORD_OUT, REMARKS_OUT)
+    if baseline then
+        command = command .. " --baseline " .. baseline
+    end
+    if accept then
+        command = command .. " --accept"
+    end
+    os.remove(RECORD_OUT)
+    local ok = os.execute(command)
+    local succeeded = ok == true or ok == 0
+    local text = readFile(RECORD_OUT)
+    if not text then
+        return false, nil, path .. ": wrote no record"
+    end
+    local parsed, decoded = pcall(json.decode, text)
+    if not parsed then
+        return false, nil, path .. ": wrote a record that does not parse"
+    end
+    if not succeeded then
+        return false, decoded, path .. ": reported a gated counter moved"
+    end
+
+    return true, decoded, nil
+end
+
+local function main(): integer
+    local baseline: string? = nil
+    local accept = false
+    local asJson = false
+    local argv = _G.arg as {string}?
+    local index: integer = 1
+    while argv and argv[index] do
+        local entry = argv[index]
+        if entry == "--accept" then
+            accept = true
+        elseif entry == "--json" then
+            asJson = true
+        elseif entry == "--baseline" then
+            baseline = argv[index + 1]
+            index = (index + 1) as integer
+        end
+        index = (index + 1) as integer
+    end
+
+    local cases = discover()
+    if #cases == 0 then
+        io.stderr:write("bench: no cases in bench/\n")
+
+        return 1
+    end
+    local merged: {any} = {}
+    local failures: {string} = {}
+    for _, path in ipairs(cases) do
+        local ok, record, failure = runCase(path, baseline, accept)
+        if record then
+            merged[#merged + 1] = {case = path, record = record,}
+        end
+        if not ok then
+            failures[#failures + 1] = tostring(failure)
+        end
+        io.stdout:write((ok and "ok   " or "FAIL ") .. path .. "\n")
+    end
+    local document = {schema = 1, cases = merged,}
+    local handle = io.open(MERGED_OUT, "w")
+    if handle then
+        handle:write(json.encode(document), "\n")
+        handle:close()
+    end
+    if asJson then
+        io.stdout:write(json.encode(document), "\n")
+    end
+    for _, failure in ipairs(failures) do
+        io.stderr:write("bench: " .. failure .. "\n")
+    end
+
+    return #failures > 0 and 1 or 0
+end
+
+os.exit(main())
