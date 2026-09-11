@@ -263,6 +263,11 @@ interface cst.Hints
     --- call.
     zoneIntrinsic: string?
 
+    --- True when the call is `keep` on a name statically known to hold the module
+    --- `nupp.bench` returns, with one positional argument. Lowering additionally needs
+    --- statement position, which is the only position the sink is ever written in.
+    keepIntrinsic: boolean?
+
     constantBranchNone: boolean?
 
     --- A loop whose constant bounds the optimizer proved admit no first iteration.

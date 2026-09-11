@@ -258,6 +258,37 @@ local function zoneIntrinsic(c, callee): string?
     return owner == zoneType and name or nil
 end
 
+-- Whether a call is `keep` on a receiver statically known to hold the module
+-- `nupp.bench` returns. Recognized on the same terms as zoneIntrinsic above, and for
+-- the same reason: the sink exists to make a measured value escape, and a call in the
+-- measured loop is the cost it must not add.
+local function keepIntrinsic(c, callee): boolean
+    if not callee or callee.kind ~= "dotIndex" or not callee.name then
+        return false
+    end
+    if callee.name.text ~= "keep" then
+        return false
+    end
+    local base = callee.obj
+    if not base or base.kind ~= "name" or not base.token then
+        return false
+    end
+    local baseType = c.lookupVar(base.token.text)
+    if not baseType then
+        return false
+    end
+    local benchType = c.env and c.env.resolveModule and c.env.resolveModule(c.env, "nupp.bench")
+    if not benchType then
+        return false
+    end
+    local owner = rawType(baseType)
+    if owner.tag == "nominal" then
+        owner = owner.origin or owner
+    end
+
+    return owner == benchType
+end
+
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
@@ -852,6 +883,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     node.zoneIntrinsic = "pop"
                 end
             end
+        end
+        -- One positional argument and nothing else: the sink stores exactly the value
+        -- it was handed, so a table call, a string call, or a pack would be storing
+        -- something other than what the source wrote.
+        if not argTable and not argStr and #argExprs == 1 and positionalOnly(argExprs) and keepIntrinsic(c, callee) then
+            node.keepIntrinsic = true
         end
         local intrinsic = node.ownershipSyntax or ownershipIntrinsic(c, callee)
         if intrinsic then

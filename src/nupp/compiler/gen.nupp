@@ -5960,6 +5960,22 @@ function gen.generate(
             e(" end")
             return
 
+        elseif kind == "callStmt" and x.expr and x.expr.keepIntrinsic then
+            -- The store stands at the site instead of behind a call. What it buys is
+            -- exactly the call: `keep` exists so a measured value escapes its trace,
+            -- and a benchmark that pays for a function call per iteration is measuring
+            -- the call. The store itself is what makes the value escape, so it stays.
+            local call = x.expr
+            local receiver = call.obj and call.obj.obj
+            local sinkName = nextTemp()
+            e(("do const %s = "):format(sinkName), sourceLine(call))
+            emit(receiver)
+            e(("; %s.__nuppSink = "):format(sinkName))
+            local exprs = call.args and call.args.exprs or {}
+            emit(exprs[1])
+            e(" end")
+            return
+
         elseif kind == "callStmt" and x.expr and x.expr.ownershipIntrinsic == "drop" then
             -- `drop` yields nothing, so the block is all the statement needs. It is
             -- also
