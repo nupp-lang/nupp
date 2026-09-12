@@ -209,6 +209,10 @@ local function main(): integer
             executionFailures[#executionFailures + 1] = path .. ": defines no case"
         end
         for _, name in ipairs(names) do
+            if not asJson then
+                io.stdout:write(("# Benchmark: %s (%s)\n"):format(name, path))
+                io.stdout:flush()
+            end
             local was = previousCase(previous, path, name)
             local record, failure = runCase(path, name, previousIterations(was))
             if failure then

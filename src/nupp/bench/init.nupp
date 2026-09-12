@@ -398,6 +398,17 @@ local function openTrace(): any?
     return session
 end
 
+--- Announces work before it starts, so calibration or an application-owned frame
+--- loop never makes the command look stuck. JSON and runner-child processes stay
+--- silent; the set runner announces those children with their source paths instead.
+local function announceRun(name: string): nil
+    if options.json or options.quiet then
+        return
+    end
+    io.stdout:write("# Benchmark: ", name, "\n")
+    io.stdout:flush()
+end
+
 --- Measures one case and adds it to the record this program will report.
 ---
 --- The body is handed the case and runs its own loop. Calling a one-iteration closure
@@ -416,6 +427,8 @@ function bench.case(name: string, body: function(bench.Case): nil, fixedN: integ
     if options.only and options.only ~= name then
         return
     end
+
+    announceRun(name)
 
     -- Opened before calibration, not after it. A loop that aborts and is blacklisted
     -- while being calibrated has already been demoted to the interpreter by the time a
@@ -519,6 +532,8 @@ function bench.frames(name: string, budgetMs: number?, count: integer?): bench.F
             done = true
         )
     end
+
+    announceRun(name)
 
     return new bench.FrameSession(
         name = name,

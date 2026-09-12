@@ -25,10 +25,17 @@ nupp run -O1 --remarks-out bench/presize.bench.nupp
 ```
 
 ```text
+# Benchmark: presize.grown
+# Benchmark: presize.sized
+
 Benchmark       Mode  Cnt       Score  Units
 presize.grown    p50    7      15.681  ns/op
 presize.sized    p50    7      15.599  ns/op
 ```
+
+Each case is announced and flushed before calibration starts. The set runner
+also names its source file, so a slow or stuck child is identifiable while the
+set is still running.
 
 The table follows JMH's compact final-report shape. `p50` is explicit because
 Nupp reports the median of seven measured rounds rather than an average and
