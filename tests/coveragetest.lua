@@ -28,8 +28,9 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     -- runner and ran them all under an instrumented compiler -- thirty seconds
     -- of the forty-seven this case cost, for coverage percentages nothing here
     -- asserts.
-    local command = ("cd %q && %q coverage --out %q pathtest 2>&1")
-        :format(ROOT, ROOT .. "/bin/nupp", out)
+    local command = (
+        "cd %q && %q test --coverage --coverage-out %q pathtest 2>&1"
+    ):format(ROOT, ROOT .. "/bin/nupp", out)
     local pipe = assert(io.popen(command))
     local output = pipe:read("*a")
     local closed, reason, status = pipe:close()
@@ -46,27 +47,39 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     assert(not index:find("Nupp source", 1, true), "coverage index does not embed source pages")
     assert(index:find("--bg:#0d1117", 1, true), "coverage report uses dark theme")
     assert(index:find(".nuppdoc-token-keyword", 1, true), "coverage CSS styles syntax")
-    assert(index:find("href='files/src/nupp/compiler/gen.nupp/index.html'", 1, true),
-        "coverage index links to a file page")
+    assert(
+        index:find("href='files/src/nupp/compiler/gen.nupp/index.html'", 1, true),
+        "coverage index links to a file page"
+    )
     local genPage = read(out .. "/files/src/nupp/compiler/gen.nupp/index.html")
     test.matches(genPage, "Nupp source")
     test.matches(genPage, "Generated Lua")
-    assert(genPage:find("<nav class=breadcrumbs aria-label=Breadcrumb>", 1, true),
-        "coverage pages have breadcrumbs")
-    assert(genPage:find("href='../../../../../directories/src/index.html'>src</a>", 1, true),
-        "coverage breadcrumbs link each parent layer")
-    assert(genPage:find("href='../../../../../directories/src/nupp/compiler/index.html'>compiler</a>", 1, true),
-        "coverage breadcrumbs link nested parent layers")
+    assert(genPage:find("<nav class=breadcrumbs aria-label=Breadcrumb>", 1, true), "coverage pages have breadcrumbs")
+    assert(
+        genPage:find("href='../../../../../directories/src/index.html'>src</a>", 1, true),
+        "coverage breadcrumbs link each parent layer"
+    )
+    assert(
+        genPage:find("href='../../../../../directories/src/nupp/compiler/index.html'>compiler</a>", 1, true),
+        "coverage breadcrumbs link nested parent layers"
+    )
     assert(not index:find("location.hash", 1, true), "coverage navigation uses real pages")
-    assert(index:find("<details open><summary><a href='directories/src/index.html'", 1, true),
-        "coverage tree opens its first level")
-    assert(index:find("<details open><summary><a href='directories/src/nupp/index.html'", 1, true),
-        "coverage tree opens its second level")
+    assert(
+        index:find("<details open><summary><a href='directories/src/index.html'", 1, true),
+        "coverage tree opens its first level"
+    )
+    assert(
+        index:find("<details open><summary><a href='directories/src/nupp/index.html'", 1, true),
+        "coverage tree opens its second level"
+    )
     local compilerPage = read(out .. "/directories/src/nupp/compiler/index.html")
-    assert(compilerPage:find("href='../../../../files/src/nupp/compiler/gen.nupp/index.html'", 1, true),
-        "directory summaries link to file pages")
-    local query = assert(io.popen(("cd %q && %q coverage --report-json --out %q")
-        :format(ROOT, ROOT .. "/bin/nupp", out)))
+    assert(
+        compilerPage:find("href='../../../../files/src/nupp/compiler/gen.nupp/index.html'", 1, true),
+        "directory summaries link to file pages"
+    )
+    local query = assert(
+        io.popen(("cd %q && %q test --coverage --report-json --coverage-out %q"):format(ROOT, ROOT .. "/bin/nupp", out))
+    )
     local queried = query:read("*a")
     local queryClosed, queryReason, queryStatus = query:close()
     assert(queryClosed or (queryReason == "exit" and queryStatus == 0), queried)
@@ -76,8 +89,7 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     assert(index:find(".tree a:hover", 1, true), "coverage tree has a hover state")
     assert(index:find("class=sort-indicator", 1, true), "sortable headings show an indicator")
     assert(index:find("aria-sort=none", 1, true), "sortable headings expose their state")
-    assert(index:find("td>.status{margin-right:.45rem}", 1, true),
-        "table status dots leave room before filenames")
+    assert(index:find("td>.status{margin-right:.45rem}", 1, true), "table status dots leave room before filenames")
     local tree = assert(index:match("<nav class=tree>(.-)</nav>"), "coverage tree")
     assert(not tree:find("class='status", 1, true), "file tree omits status circles")
     assert(tree:find("class='file partial'", 1, true), "file tree colors coverage state")
@@ -92,11 +104,10 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
 end
 
 -- Building and reporting over an instrumented compiler is coverage work, not a
--- prerequisite for an ordinary test run. The coverage command sets this for the
+-- prerequisite for an ordinary test run. The coverage mode sets this for the
 -- test process; the cheap syntax-highlighting assertion below still runs normally.
 if os.getenv("NUPP_COVERAGE") == "1" then
-    M.coverageReportRunsAndWritesBrowsableArtifacts =
-        coverageReportRunsAndWritesBrowsableArtifacts
+    M.coverageReportRunsAndWritesBrowsableArtifacts = coverageReportRunsAndWritesBrowsableArtifacts
 end
 
 function M.highlightsLongCommentsAcrossSourceLines()

@@ -223,7 +223,6 @@ validates real output against it, so the two cannot drift.
 | `build` | diagnostics, the target, and every path written |
 | `check` | diagnostics, and where the check's time went |
 | `clean` | the paths removed, or that would be |
-| `coverage` | the aggregate coverage summary |
 | `doc` | the resolved format, the output, and every path written |
 | `explain` | a code's rule and worked examples |
 | `export-c` | the header written and the declarations in it |

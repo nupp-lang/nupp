@@ -18,8 +18,8 @@ nupp test sometest        # extra arguments reach the test command
 ## Test configuration
 
 No test configuration is needed for the bundled runner and the default build
-target. A `test` table replaces the command and can also select another target
-to build first or add environment variables:
+target. A `test` table can select another target to build first or add
+environment variables; its `argv` replaces the bundled runner:
 
 ```lua
 return {
@@ -33,7 +33,6 @@ return {
 
    test = {
       build = "app",
-      argv = { "nupp", "test-runner" },
       env = { NUPP_TEST_MODE = "ci" },
    },
 }
@@ -41,7 +40,7 @@ return {
 
 | Key | Required | Means |
 | --- | --- | --- |
-| `argv` | yes | The replacement command, as an argv array |
+| `argv` | no | A replacement command, as an argv array; omitted uses Nupp's runner |
 | `build` | no | The target to build first |
 | `env` | no | Environment variables, as string to string |
 
@@ -55,8 +54,8 @@ dependencies](build.md#rock-dependencies) for where that tree comes from.
 
 ## Arguments
 
-`nupp test` does not parse its arguments, because they belong to the test
-command. The consequences:
+Except for `--coverage`, `--coverage-out`, and `--report-json`, arguments belong
+to the test command. The consequences:
 
 - `-h` and `--help` are honored only as the *first* argument. Use `--` before
   a test argument literally named `--help`.
@@ -67,10 +66,11 @@ command. The consequences:
 
 ## Nupp's runner
 
-`nupp test-runner` is the runner Nupp uses when the manifest does not select
-another harness; the compiler's own suite uses the same implementation. It loads every
-`tests/*test.lua` and compiles every `tests/*test.nupp`, and both kinds return a
-table of test functions. `nupp test --schema` describes its JSON report.
+The bundled runner is what `nupp test` uses when the manifest does not select
+another harness; the compiler's own suite uses the same implementation. It
+loads every `tests/*test.lua` and compiles every `tests/*test.nupp`, and both
+kinds return a table of test functions. `nupp test --schema` describes its JSON
+report.
 
 ```bash
 nupp test              # everything
@@ -115,9 +115,7 @@ prints N of them, and `--timings=0` prints none. Under `--json` the same
 measurements are `suites` and `shards` beside `tests`.
 
 The `app`, `lib`, and `love` templates include a real suite using `nupp.test`.
-Running `nupp test-runner` directly skips the build; the normal project command
-is `nupp test`, which builds first and forwards its remaining arguments to the
-runner.
+`nupp test` builds first and forwards its remaining arguments to the runner.
 
 ::: deepdive
 The runner is written in Lua rather than Nupp because it loads the compiler
@@ -325,8 +323,8 @@ What moves to the harness with it:
   interpreted, and `nupp test --schema` still prints what the bundled runner
   writes, so a project answering `--json` differently is the one documenting
   it.
-- **Splitting the run.** Nothing in `nupp test` divides work across processes;
-  the sharding above belongs to `nupp test-runner`.
+- **Splitting the run.** The bundled runner owns the sharding described above;
+  a replacement command owns its own execution model.
 - **The coverage protocol.** A custom runner must load the build directory
   `NUPP_COVERAGE_BUILD` names ahead of its ordinary output and flush the
   generated global `__nuppCoverage.hits` to the file named by
@@ -336,19 +334,24 @@ What stays: the build, the working directory, `test.env`, and the rock paths.
 
 ## Coverage
 
-`nupp coverage` builds a separate instrumented artifact under `build/coverage`,
-runs the project test command, and writes a static report to
+`nupp test --coverage` builds a separate instrumented artifact under
+`build/coverage`, runs the project test command, and writes a static report to
 `build/reports/coverage/index.html` by default:
 
 ```bash
-nupp coverage
-nupp coverage --out reports/coverage
-nupp coverage checktest
+nupp test --coverage
+nupp test --coverage --coverage-out reports/coverage
+nupp test --coverage checktest
 ```
 
 Normal builds and their cache never contain coverage probes. The output
 directory also holds `coverage.json`, `summary.json`, and `lcov.info` for CI or
 editor integrations.
+
+`--json` keeps its ordinary meaning: it asks the test command for its test
+report. The coverage summary moves to standard error for that run so the test
+JSON remains the only document on standard output; `coverage.json` holds the
+coverage data.
 
 The HTML report has a collapsible source tree, root and per-directory totals,
 sortable file metrics, and syntax-highlighted Nupp and generated-Lua views.
@@ -359,7 +362,7 @@ and gray is non-executable source such as a type-only line.
 
 The bundled runner reads `NUPP_COVERAGE_BUILD` and writes the coverage shard
 automatically. A runner that does not follow that protocol leaves
-`nupp coverage` reporting incomplete data rather than treating it as zero
+`nupp test --coverage` reporting incomplete data rather than treating it as zero
 coverage. Coverage probes add runtime work by design, so time a run with
 ordinary `nupp test` instead. See [profiling.md](../performance/profiling.md) for where that
 time went.
@@ -370,8 +373,8 @@ time went.
 is how an agent or another tool reads the existing report:
 
 ```bash
-nupp coverage --report-json
-nupp coverage --report-json --out reports/coverage
+nupp test --coverage --report-json
+nupp test --coverage --report-json --coverage-out reports/coverage
 ```
 
 It carries per-file metrics, missed locations, and counted coverage sites.
@@ -409,7 +412,7 @@ long it takes. A run with no `build/.nupp-test-times.json` guesses evenly and
 writes the real times for the run after it. See [parallel
 runs](#parallel-runs) for what it does with them.
 
-### Does `nupp coverage` replace `nupp test`?
+### Does `nupp test --coverage` replace an ordinary test run?
 
 No. It builds a separate instrumented artifact under `build/coverage`, and the
 probes cost runtime, so it answers what ran rather than how fast. Run
@@ -418,7 +421,7 @@ timing one.
 
 ::: seealso
 - [cli.md](../../reference/cli.md#test) for every option `nupp test`,
-  `nupp coverage`, and `nupp fixpoint` take
+  `nupp test --coverage`, and `nupp fixpoint` take
 - [build.md](build.md) for the targets `test.build` can name
 - [tasks.md](project-tasks.md) for running a command that is not the test command
 :::

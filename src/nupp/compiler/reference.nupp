@@ -2673,8 +2673,8 @@ local TOOLCHAIN_SECTIONS: {
 does not need every flag in context.
 
 - `check`, `build`, `run`, and `fmt` work with source and generated Lua.
-- `test` runs the bundled or configured test command; `coverage` runs it against a separate
-  instrumented build and writes a report.
+- `test` runs the bundled or configured test command; `test --coverage` uses a
+  separate instrumented build and writes a report.
 - `lsp` answers semantic source questions; `explain` expands a diagnostic; and
   `reference` returns focused language, CLI, and performance skills.
 - `tasks`, `clean`, `doc`, and `import-c` work with project configuration,
@@ -2690,7 +2690,7 @@ inferring fields from an example. The CLI uses 1-based byte lines and columns.
         title = "Improving test coverage",
         codes = {},
         body = [=[
-Run `nupp coverage` to build a separate instrumented artifact, run the
+Run `nupp test --coverage` to build a separate instrumented artifact, run the
 project tests, and write `build/reports/coverage/index.html`. It never
 changes an ordinary build or its cache. Pass a suite name or other test
 arguments to focus a run.
@@ -2698,7 +2698,7 @@ arguments to focus a run.
 An agent can inspect an existing report without rerunning tests:
 
 ```bash
-nupp coverage --report-json
+nupp test --coverage --report-json
 ```
 
 That JSON names each file and its missed lines, functions, and branch arms.
@@ -3072,7 +3072,8 @@ function reference.skill(chapter: reference.Chapter?): string
         out[#out + 1] = "  superset. Load before editing any .nupp file, or when"
         out[#out + 1] = "  reading a NUPP diagnostic code. Covers syntax, types,"
         out[#out + 1] = "  records, structs, ownership, C interop, the lints, and the"
-        out[#out + 1] = "  check/explain/lsp/coverage, trace-checking, and profiling commands"
+        out[#out + 1] = "  check/explain/lsp, test coverage, trace-checking, and profiling"
+        out[#out + 1] = "  commands"
         out[#out + 1] = "  and their JSON contracts."
     end
     out[#out + 1] = "---"

@@ -50,9 +50,10 @@ record compile.Settings
     --- reached. Nil when the caller does not report them.
     specializedBodies: integer?
 
-    --- Whether generated code carries coverage probes. No command has an option for
-    --- it; `NUPP_COVERAGE=1` in the environment asks for it, which is how the coverage
-    --- runner reaches the compiles it starts, and every other compile leaves it off.
+    --- Whether generated code carries coverage probes. The compile command has no
+    --- option for it; `NUPP_COVERAGE=1` in the environment asks for it, which is how
+    --- `test --coverage` reaches the compiles it starts, and every other compile leaves
+    --- it off.
     coverage: boolean
 
     --- A command-only literal emitted between generated preamble and authored code.

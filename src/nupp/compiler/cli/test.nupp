@@ -1,7 +1,8 @@
 module nupp.compiler.cli.test
 
 --[[
-`nupp test`: build, then run the bundled runner or the project's test command.
+`nupp test`: build, then run the bundled runner or the project's test command,
+optionally against a separate instrumented coverage build.
 
 The one command whose arguments are mostly not its own. Everything after the
 name is appended to `test.argv` from nupp.lua and belongs to the program that
@@ -33,11 +34,19 @@ local phasePrediction = {
 local command = spec.command{
     name = "test",
     summary = "Build and run project tests",
-    usage = {"nupp test [args...]"},
+    usage = {
+        "nupp test [args...]",
+        "nupp test --coverage [--coverage-out DIR] [args...]",
+        "nupp test --coverage --report-json [--coverage-out DIR]",
+    },
     universal = false,
     options = {
         {name = "--json", help = "Ask the test command for one JSON document instead of " .. "progress text"},
         {name = "--verbose", help = "Ask the test command to show output from passing tests"},
+        {name = "--jobs", value = "N", help = "Ask the bundled runner to use N parallel workers"},
+        {name = "--coverage", help = "Run against a separate instrumented build and write a coverage report"},
+        {name = "--coverage-out", value = "DIR", help = "Write coverage HTML, JSON, and LCOV files under DIR"},
+        {name = "--report-json", help = "Print an existing full coverage report without running tests"},
         {
             name = "--color",
             value = "WHEN",
@@ -211,19 +220,93 @@ local command = spec.command{
         required = {"ok", "total", "passed", "skipped", "failed", "tests"},
     },
     detail = [[Additional arguments are appended to the bundled runner or test.argv from
-nupp.lua. Use '--' before a test argument named --help.
+nupp.lua. `--coverage`, `--coverage-out`, and `--report-json` belong to Nupp;
+use `--` before a test argument with one of those names.
 
 --json is passed along to the test command rather than interpreted here, since
 the arguments past this point are that command's. --schema describes what the
-bundled runner writes for it.]],
+bundled runner writes for it.
+
+Coverage uses build/coverage without changing an ordinary build or its cache,
+and writes its report under build/reports/coverage by default. --report-json
+reads that report without rebuilding or rerunning tests.]],
 }
 
-local function run(args: any): integer
-    -- A leading `--` was how the caller said the rest is the test's, including a
-    -- `--help` that would otherwise have been answered here.
-    if args[1] == "--" then
-        table.remove(args, 1)
+local type TestArguments = {
+    coverage: boolean,
+    coverageOut: string?,
+    reportJson: boolean,
+    forwarded: {string}
+}
+
+--- Takes out the three options `test` owns. Everything else still belongs to the
+--- configured command, and `--` protects even one of these names from being read here.
+local function parseTestArguments(args: {string}): TestArguments, string?
+    local parsed = {coverage = false, coverageOut = nil, reportJson = false, forwarded = {},} as TestArguments
+    local literal = false
+    local index: integer = 1
+    while index <= #args do
+        local argument = args[index]
+        if literal then
+            parsed.forwarded[#parsed.forwarded + 1] = argument
+        elseif argument == "--" then
+            literal = true
+        elseif argument == "--coverage" then
+            if parsed.coverage then
+                return parsed, "option --coverage was specified more than once"
+            end
+            parsed.coverage = true
+        elseif argument == "--report-json" then
+            if parsed.reportJson then
+                return parsed, "option --report-json was specified more than once"
+            end
+            parsed.reportJson = true
+        elseif argument == "--coverage-out" then
+            if parsed.coverageOut ~= nil then
+                return parsed, "option --coverage-out was specified more than once"
+            end
+            index = index + 1
+            if args[index] == nil then
+                return parsed, "option --coverage-out needs DIR"
+            end
+            parsed.coverageOut = args[index]
+        else
+            local out = argument:match("^%-%-coverage%-out=(.*)$")
+            if out ~= nil then
+                if parsed.coverageOut ~= nil then
+                    return parsed, "option --coverage-out was specified more than once"
+                end
+                parsed.coverageOut = out
+            else
+                parsed.forwarded[#parsed.forwarded + 1] = argument
+            end
+        end
+        index = index + 1
     end
+    if parsed.coverageOut ~= nil and not parsed.coverage then
+        return parsed, "--coverage-out requires --coverage"
+    end
+    if parsed.reportJson and not parsed.coverage then
+        return parsed, "--report-json requires --coverage"
+    end
+    if parsed.reportJson and #parsed.forwarded > 0 then
+        return parsed, "--report-json does not run tests or accept test arguments"
+    end
+
+    return parsed
+end
+
+local function asksForJson(args: {string}): boolean
+    for _, argument in ipairs(args) do
+        if argument == "--json" then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function applyTestColor(args: {string}): integer?
     local color: string? = nil
     for _, argument in ipairs(args) do
         local asked = argument == "--color" and "always" or argument == "--no-color" and "never" or argument:match(
@@ -244,9 +327,76 @@ local function run(args: any): integer
     if color ~= nil then
         ansi.setMode(color)
     end
+
+    return nil
+end
+
+local function runCoverage(parsed: TestArguments): integer
+    local fs = require("nupp.compiler.fs")
+    local outDir = parsed.coverageOut or "build/reports/coverage"
+    if parsed.reportJson then
+        local existing, err = fs.readFile(outDir .. "/coverage.json")
+        if not existing then
+            io.stderr:write(
+                "nupp: cannot read coverage report " .. outDir .. "/coverage.json: " .. tostring(err) .. "\n"
+            )
+            return 1
+        end
+        io.write(existing)
+        if existing:sub(-1) ~= "\n" then
+            io.write("\n")
+        end
+        return 0
+    end
+    local buildDir = "build/coverage"
+    local raw = outDir .. "/raw.json"
+    if not fs.mkdir(outDir) then
+        io.stderr:write("nupp: cannot create coverage output " .. outDir .. "\n")
+        return 1
+    end
+    local project = require("nupp.compiler.build.project")
+    local testCode = project.test(".", parsed.forwarded, {
+        coverage = true,
+        outDir = buildDir,
+        env = {NUPP_COVERAGE = "1", NUPP_COVERAGE_BUILD = buildDir, NUPP_COVERAGE_FILE = raw}
+    })
+    local report = require("nupp.compiler.coverage")
+    local model = report.collect(buildDir .. "/.nupp-state.json", raw)
+    local summary = report.write(model, outDir)
+    local output = asksForJson(parsed.forwarded) and io.stderr or io.stdout
+    output:write(
+        (
+            "coverage: lines %.2f%%, functions %.2f%%, branches %.2f%%\n"
+        ):format(summary.lines.percent, summary.functions.percent, summary.branches.percent)
+    )
+    output:write("coverage: report written to " .. outDir .. "/index.html\n")
+    if #model.warnings > 0 and testCode == 0 then
+        io.stderr:write("nupp: coverage data is incomplete\n")
+        return 1
+    end
+
+    return testCode
+end
+
+local function run(args: any): integer
+    if args[1] == "--internal-runner" then
+        table.remove(args, 1)
+        return require("nupp.compiler.cli.testrunner").run(args)
+    end
+    local parsed, problem = parseTestArguments(args)
+    if problem ~= nil then
+        return command:usageError(problem)
+    end
+    local colorCode = applyTestColor(parsed.forwarded)
+    if colorCode ~= nil then
+        return colorCode
+    end
+    if parsed.coverage then
+        return runCoverage(parsed)
+    end
     local project = require("nupp.compiler.build.project")
 
-    return project.test(".", args)
+    return project.test(".", parsed.forwarded)
 end
 
 export = new spec.Handler(spec = command, raw = true, run = run)

@@ -35,7 +35,7 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 | `aot` | Inspect verified AOT IR and target artifacts | [index.md](../performance/ahead-of-time/index.md) |
 | `reference` | Print focused language and tool reference | [diagnostics.md](../../reference/diagnostics.md) |
 | `ownership-audit` | Report resource obligations and transfers | [ownership.md](../runtime/ownership/index.md) |
-| `coverage` | Aggregate Nupp coverage data | [testing.md](../projects/testing.md) |
+| `test --coverage` | Aggregate Nupp coverage data | [testing.md](../projects/testing.md) |
 | `completions` | Generate shell completion definitions | [cli.md](../../reference/cli.md) |
 | `rock` | Create and package typed Lua rocks | [LuaRocks](../projects/integrations/luarocks.md) |
 | `tasks` | List or inspect manifest targets | [build.md](../projects/build.md) |

@@ -3683,10 +3683,16 @@ end
 
 function M.testCommandDefaultsToBundledRunner()
     local dir = tempProject({
-        ["nupp.lua"] = [[
+        [
+            "nupp.lua"
+        ] = [[
 return {
    include = {"src"},
-   build = {outDir = "out", entries = {"main"}},
+   build = {
+      default = "app",
+      targets = {app = {outDir = "out", entries = {"main"}}},
+   },
+   test = {build = "app"},
 }
 ]],
         ["src/main.nupp"] = "return true\n",
@@ -3701,7 +3707,8 @@ return {
     process.run = originalRun
     assert(ok, result)
     assertEq(result, 0)
-    assertEq(ran.argv[2], "test-runner", "the default test command is Nupp's bundled runner")
+    assertEq(ran.argv[2], "test", "the default runner stays under the test command")
+    assertEq(ran.argv[3], "--internal-runner", "the default test command is Nupp's bundled runner")
     assertEq(ran.options.cwd, dir, "the default runner starts in the project")
     assert(exists(dir .. "/out/main.lua"), "the default test command builds first")
     remove(dir)

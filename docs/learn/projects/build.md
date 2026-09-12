@@ -163,12 +163,11 @@ only while compiling, and a dependency selected by `generators.*.using` is a hos
 tool. See [Service Providers](service-providers.md) for generators, runtime service
 lookup, and the compatibility rule for ambient type dependencies. `nupp test`
 uses the default target and bundled runner. The optional `test` action names a
-different target to build first and command to run:
+different target to build first, and `argv` replaces the runner:
 
 ```lua
 test = {
-   build = "app",
-   argv = { "nupp", "test-runner" }
+   build = "app"
 }
 ```
 

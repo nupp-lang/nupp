@@ -131,18 +131,6 @@ local REGISTRY: {{
         end
     },
     {
-        name = "test-runner",
-        load = function(): specMod.Handler
-            return require("nupp.compiler.cli.testrunner")
-        end
-    },
-    {
-        name = "coverage",
-        load = function(): specMod.Handler
-            return require("nupp.compiler.cli.coverage")
-        end
-    },
-    {
         name = "task",
         load = function(): specMod.Handler
             return require("nupp.compiler.cli.task")

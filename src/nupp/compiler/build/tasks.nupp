@@ -203,7 +203,7 @@ local function configuredTasks(config: manifest.Config, buildOnly: boolean?): {t
             description = "Build and run project tests",
             kind = "test",
             buildTarget = test.build,
-            argv = copyStrings(test.argv),
+            argv = copyStrings(manifest.testArgv(test)),
             env = test.env,
             command = jsonArray({"nupp", "test"}),
         }

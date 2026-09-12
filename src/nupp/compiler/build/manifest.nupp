@@ -127,8 +127,8 @@ type manifest.Build = {
 
 --- The command `nupp test` runs, and what it runs with.
 type manifest.Test = {
-    --- The test command. An omitted test section uses Nupp's bundled runner.
-    argv: {string},
+    --- A replacement test command. Omit it to use Nupp's bundled runner.
+    argv: {string}?,
 
     --- Which target to build first.
     build: string?,
@@ -202,7 +202,13 @@ type manifest.Config = {
 --- @param config The validated project manifest.
 --- @return The effective test action.
 function manifest.testConfig(config: manifest.Config): manifest.Test
-    return config.test or ({argv = {"nupp", "test-runner"}} as manifest.Test)
+    return config.test or ({} as manifest.Test)
+end
+
+--- Returns the configured test command, or the private invocation of the bundled
+--- runner. It remains a fresh process without becoming another public command.
+function manifest.testArgv(test: manifest.Test): {string}
+    return test.argv or {"nupp", "test", "--internal-runner"}
 end
 
 local function validateArray(value, label, itemType, required)
@@ -1461,7 +1467,7 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         if not valid then
             return nil, err
         end
-        valid, err = validateArray(config.test.argv, "test.argv", "string", true)
+        valid, err = validateArray(config.test.argv, "test.argv", "string", false)
         if not valid then
             return nil, err
         end

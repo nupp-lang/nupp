@@ -101,6 +101,9 @@ function M.bundledRunnerWorksOutsideTheCompilerCheckout()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/src")) == 0)
+    write(dir .. "/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}}}\n')
+    write(dir .. "/src/main.nupp", "return true\n")
     for _, name in ipairs({"alpha", "beta"}) do
         write(
             ("%s/tests/%stest.lua"):format(dir, name),
@@ -116,11 +119,9 @@ return M
     end
 
     -- Keep the copied runner in one process. External discovery, persistence,
-    -- and the bundled command are what this case exercises; worker shape is
+    -- and the public test command are what this case exercises; worker shape is
     -- covered independently below.
-    local command = (
-        "cd %q && NUPP_TEST_BUILD=%q %q test-runner " .. "--jobs=1 --json 2>/dev/null"
-    ):format(dir, dir .. "/build", NUPP)
+    local command = ("cd %q && %q test --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
     local output, bundled = capturedRun(command)
     test.equal(bundled.status, 0, "the bundled runner failed outside its checkout" .. evidence(bundled))
     local report = require("testjson").decode(output)

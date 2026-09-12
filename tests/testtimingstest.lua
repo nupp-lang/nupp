@@ -64,7 +64,9 @@ return M
 end
 
 local function runner(dir, args)
-    return shell(("cd %q && NUPP_TEST_BUILD=%q %q test-runner --jobs=1 %s"):format(dir, dir .. "/build", NUPP, args))
+    return shell(
+        ("cd %q && NUPP_TEST_BUILD=%q %q test --internal-runner --jobs=1 %s"):format(dir, dir .. "/build", NUPP, args)
+    )
 end
 
 local function suitesIn(dir)

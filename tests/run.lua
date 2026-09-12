@@ -2306,7 +2306,8 @@ end
 
 -- Coverage-generated modules share one small global counter table.  The runner owns
 -- the process boundary, so it is the right place to turn that in-memory table into a
--- shard the parent `nupp coverage` command can merge after the test process exits.
+-- shard the parent `nupp test --coverage` command can merge after the test process
+-- exits.
 local coverageFile = os.getenv("NUPP_COVERAGE_FILE")
 local coverage = coverageFile and rawget(_G, "__nuppCoverage") or nil
 if coverageFile and coverage then

@@ -232,6 +232,8 @@ function M.everyRegisteredCommandHasAGrammarAndHelp()
     local names = cli.names()
     assert(#names >= 14, "every command is registered: " .. #names)
     assert(table.concat(names, ","):find("bench", 1, true), "bench is a registered command")
+    assert(not table.concat(names, ","):find("test-runner", 1, true), "the runner is not a public command")
+    assert(not table.concat(names, ","):find("coverage", 1, true), "coverage is a test mode, not a command")
     for _, name in ipairs(names) do
         assert(name ~= "", "a command has a name")
     end

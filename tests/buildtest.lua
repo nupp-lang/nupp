@@ -545,7 +545,8 @@ return {
     local decoded = require("testjson").decode(encoded)
     assertEq(decoded.kind, "test", "JSON identifies the default test action")
     assertEq(decoded.argv[1], "nupp", "the default test action uses Nupp")
-    assertEq(decoded.argv[2], "test-runner", "the default test action uses the bundled runner")
+    assertEq(decoded.argv[2], "test", "the default test action stays under the test command")
+    assertEq(decoded.argv[3], "--internal-runner", "the default test action uses the bundled runner")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

@@ -2,56 +2,9 @@ module nupp.compiler.cli.testrunner
 
 --[[Runs the first-party test harness carried by the compiler.]]
 
-local spec = require("nupp.compiler.cli.spec")
+local testrunner = {}
 
-local command = spec.command{
-    name = "test-runner",
-    summary = "Run test suites with the bundled runner",
-    usage = {"nupp test-runner [suite...] [options]"},
-    universal = false,
-    options = {
-        {name = "--json", help = "Write one JSON test report instead of progress text"},
-        {name = "--verbose", help = "Show output captured from passing tests"},
-        {name = "--jobs", value = "N", help = "Use N parallel workers"},
-        {
-            name = "--timings",
-            value = "N",
-            form = "optional",
-            help = "Show every timing, or only the N slowest suites and cases"
-        },
-        {name = "--color", value = "WHEN", form = "optional", help = "Color output: always, never, or auto"},
-        {name = "--no-color", help = "Never color output"},
-        {
-            name = "--group",
-            value = "NAME",
-            help = "Run the suites a named group covers. Repeatable, and "
-            .. "comma-separated. `--list-groups` names them"
-        },
-        {
-            name = "--exclude",
-            value = "SUITE",
-            help = "Leave these suites out, which is how a later broad run "
-            .. "stops repeating what an earlier focused one already ran"
-        },
-        {name = "--exclude-group", value = "NAME", help = "Leave every suite a named group covers out"},
-        {
-            name = "--lane",
-            value = "WHICH",
-            help = "Keep only one execution lane: `shared` is what a Nupp "
-            .. "worker can run beside other suites in one process, `shell` uses "
-            .. "a reusable process worker, and `isolated` needs process-global isolation"
-        },
-        {name = "--list-suites", help = "Print the suites this selection would run, and run none of them"},
-        {name = "--list-groups", help = "Print every named group and the suites it covers"},
-        spec.helpOption,
-    },
-    schema = require("nupp.compiler.cli.test").spec.schema,
-    detail = [[Discovers tests/*test.lua and tests/*test.nupp. Each suite returns a
-table of test functions and may define beforeAll, afterAll, beforeEach, and
-afterEach hooks. A suite name selects one or more files without their extension.]],
-}
-
-local function run(args: any): integer
+function testrunner.run(args: any): integer
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
     local executable = compilerRoot and compilerRoot .. "/bin/nupp" or tostring(arg[0] or "nupp")
     local forwarded = {[0] = executable}
@@ -64,7 +17,7 @@ local function run(args: any): integer
     -- the process facts a file invocation used to derive from arg[0]: where suites
     -- live, and how a parallel child invokes the same program again.
     rawset(_G, "__NUPP_TEST_DIR", "tests")
-    rawset(_G, "__NUPP_TEST_RUNNER_COMMAND", string.format("%q", executable) .. " test-runner")
+    rawset(_G, "__NUPP_TEST_RUNNER_COMMAND", string.format("%q", executable) .. " test --internal-runner")
 
     -- A suite requiring the public assertion module receives this exact instance.
     -- The literal require also keeps it in a stamped compiler whose runner source is
@@ -82,4 +35,4 @@ local function run(args: any): integer
     return type(result) == "number" and result or 0
 end
 
-export = new spec.Handler(spec = command, raw = true, run = run)
+export = testrunner
