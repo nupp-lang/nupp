@@ -989,20 +989,16 @@ leaves in the output directory.
 Run isolated benchmark programs
 
 Usage:
-  nupp bench [--list] [--file PATH] [--case NAME] [selectors] [options]
+  nupp bench [--list] [--file PATH] [selectors] [options]
 
 Options:
   --list                List benchmark names and source files without running
   --file PATH           Inspect and run only one benchmark program
-  --case NAME           Run only an exact benchmark name
-  --case-gmatch PATTERN
-                        Run logical case names matching a Lua pattern; repeat
+  --case PATTERN        Run logical case names matching a Lua pattern; repeat
                         for alternatives
-  --parameter-gmatch PATTERN
-                        Run canonical key=value parameter text matching a Lua
-                        pattern
-  --variant-gmatch PATTERN
-                        Run variant names matching a Lua pattern; repeat for
+  --parameter PATTERN   Run parameter text matching a Lua pattern; repeat for
+                        alternatives
+  --variant PATTERN     Run variant names matching a Lua pattern; repeat for
                         alternatives
   --timeout-ms INTEGER  Child deadline in milliseconds (default 120000)
   --profile DIR         Write one measured-window collapsed-stack profile per

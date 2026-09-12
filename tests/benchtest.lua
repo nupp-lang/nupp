@@ -432,8 +432,8 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
 
     local ran = os.execute(
         (
-            "%q bench --file %q --case %q --history %q --label smoke --json > %q"
-        ):format(NUPP, fixture, "protocol.work.base:size=1", history, stdout)
+            "%q bench --file %q --case %q --variant %q --parameter %q --history %q --label smoke --json > %q"
+        ):format(NUPP, fixture, "^work$", "^base$", "^size=1$", history, stdout)
     )
     assertEq(ran, 0, "the process-isolated runner exits successfully")
     local line = read(history):match("[^\r\n]+")
@@ -448,7 +448,7 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
 
     local filtered = os.execute(
         (
-            "%q bench --list --file %q --case-gmatch %q --case-gmatch %q --variant-gmatch %q --parameter-gmatch %q > %q"
+            "%q bench --list --file %q --case %q --case %q --variant %q --parameter %q > %q"
         ):format(NUPP, fixture, "^absent$", "^work$", "^other$", "^size=2$", stdout)
     )
     assertEq(filtered, 0, "structured Lua-pattern filters select a benchmark")
@@ -460,8 +460,8 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
 
     local profiled = os.execute(
         (
-            "%q bench --file %q --case protocol --profile %q --profile-interval-ms 1 > %q"
-        ):format(NUPP, simpleFixture, profiles, stdout)
+            "%q bench --file %q --case %q --profile %q --profile-interval-ms 1 > %q"
+        ):format(NUPP, simpleFixture, "^protocol$", profiles, stdout)
     )
     assertEq(profiled, 0, "the measured-window sampling pass exits successfully")
     local human = read(stdout)

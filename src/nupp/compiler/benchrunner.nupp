@@ -41,10 +41,9 @@ type runner.Options = {
     baseline: string?,
     accept: boolean?,
     json: boolean?,
-    case: string?,
-    caseGmatch: {string}?,
-    parameterGmatch: {string}?,
-    variantGmatch: {string}?,
+    casePatterns: {string}?,
+    parameterPatterns: {string}?,
+    variantPatterns: {string}?,
     file: string?,
     history: string?,
     label: string?,
@@ -141,14 +140,10 @@ end
 
 local function selected(
     benchmark: Benchmark,
-    exact: string?,
     casePatterns: {string}?,
     parameterPatterns: {string}?,
     variantPatterns: {string}?
 ): boolean
-    if exact and benchmark.name ~= exact then
-        return false
-    end
     if not matchesAny(benchmark.caseName or benchmark.name, casePatterns) then
         return false
     end
@@ -348,10 +343,9 @@ function runner.run(options: runner.Options): integer
     local accept = options.accept == true
     local asJson = options.json == true
     local listOnly = options.list == true
-    local only = options.case
-    local casePatterns = options.caseGmatch
-    local parameterPatterns = options.parameterGmatch
-    local variantPatterns = options.variantGmatch
+    local casePatterns = options.casePatterns
+    local parameterPatterns = options.parameterPatterns
+    local variantPatterns = options.variantPatterns
     local onlyFile = options.file
     local historyPath = options.history
     local label = options.label
@@ -391,7 +385,7 @@ function runner.run(options: runner.Options): integer
                 failed = true
             end
             for _, benchmark in ipairs(names) do
-                if selected(benchmark, only, casePatterns, parameterPatterns, variantPatterns) then
+                if selected(benchmark, casePatterns, parameterPatterns, variantPatterns) then
                     io.stdout:write(benchmark.name, "\t", path, "\n")
                     listed = (listed + 1) as integer
                 end
@@ -435,7 +429,7 @@ function runner.run(options: runner.Options): integer
             executionFailures[#executionFailures + 1] = path .. ": defines no case"
         end
         for _, benchmark in ipairs(names) do
-            if not selected(benchmark, only, casePatterns, parameterPatterns, variantPatterns) then
+            if not selected(benchmark, casePatterns, parameterPatterns, variantPatterns) then
                 goto nextCase
             end
             matched = (matched + 1) as integer
@@ -488,10 +482,9 @@ function runner.run(options: runner.Options): integer
         end
     end
     if (
-        only or onlyFile or casePatterns or parameterPatterns or variantPatterns
+        onlyFile or casePatterns or parameterPatterns or variantPatterns
     ) and matched == 0 and #executionFailures == 0 then
-        local description = only and ("case " .. only) or "selection"
-        executionFailures[#executionFailures + 1] = "no benchmark matched " .. description
+        executionFailures[#executionFailures + 1] = "no benchmark matched the selection"
     end
 
     local document = {schema = 2, recordedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"), label = label, cases = merged,}

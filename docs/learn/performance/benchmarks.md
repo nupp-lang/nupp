@@ -21,7 +21,7 @@ bench.report()
 ```
 
 ```bash
-nupp bench --file bench/presize.bench.nupp --case presize.point.grown
+nupp bench --file bench/presize.bench.nupp --case '^point$' --variant '^grown$'
 ```
 
 ```text
@@ -238,24 +238,23 @@ nupp bench
 nupp bench --list
 nupp bench --baseline build/bench-baseline.json
 nupp bench --baseline build/bench-baseline.json --accept
-nupp bench --case presize.point.grown
-nupp bench --file bench/presize.bench.nupp --case presize.point.grown
-nupp bench --case-gmatch '^lookup$' --variant-gmatch '^table$'
-nupp bench --parameter-gmatch '^size=1000$'
+nupp bench --case '^point$' --variant '^grown$'
+nupp bench --file bench/presize.bench.nupp --case '^point$' --variant '^grown$'
+nupp bench --case '^lookup$' --variant '^table$'
+nupp bench --parameter '^size=1000$'
 ```
 
-`--case` is an exact full benchmark name. The three `--*-gmatch` selectors are
-Lua string patterns over the logical case name, variant name, or canonical
-comma-separated `key=value` parameter text. Different dimensions combine;
-repeating one selector supplies alternatives. Lua patterns do not have regular
-expression alternation, so select `table` or `array` by repeating the variant
-selector:
+`--case`, `--variant`, and `--parameter` are Lua string patterns over the
+logical case name, variant name, or canonical comma-separated `key=value`
+parameter text. Different dimensions combine; repeating one selector supplies
+alternatives. Lua patterns do not have regular expression alternation, so select
+`table` or `array` by repeating the variant selector:
 
 ```bash
 nupp bench \
-  --case-gmatch '^lookup$' \
-  --variant-gmatch '^table$' \
-  --variant-gmatch '^array$'
+  --case '^lookup$' \
+  --variant '^table$' \
+  --variant '^array$'
 ```
 
 Each `bench.case` gets its own process, not each file: a file is asked what cases
@@ -265,8 +264,9 @@ blacklist.
 
 The same rule is enforced for direct runs: a program that declares more than one
 benchmark must be given `--case NAME`. This prevents a convenient-looking direct
-run from sharing JIT and heap state. Suite names have the form
-`suite.case.variant:key=value`; `--case` takes that complete name.
+run from sharing JIT and heap state. This direct-program option takes the complete
+`suite.case.variant:key=value` name; the `nupp bench` selector matches only the
+logical case component.
 
 Each listing and case child has a 120-second deadline. Set another one with
 `--timeout-ms MILLISECONDS`. The runner prints and flushes the case name before
@@ -276,7 +276,7 @@ the merged table, winners, and geometric-mean summaries after the set finishes.
 ## Sampling the measured window
 
 ```bash
-nupp bench --case-gmatch '^lookup$' --profile build/bench-profiles
+nupp bench --case '^lookup$' --profile build/bench-profiles
 ```
 
 Profiling is a separate pass after timing, so sampler overhead does not change

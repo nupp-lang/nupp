@@ -14,25 +14,24 @@ local spec = require("nupp.compiler.cli.spec")
 local command = spec.command{
     name = "bench",
     summary = "Run isolated benchmark programs",
-    usage = {"nupp bench [--list] [--file PATH] [--case NAME] [selectors] [options]"},
+    usage = {"nupp bench [--list] [--file PATH] [selectors] [options]"},
     options = {
         {name = "--list", help = "List benchmark names and source files without running"},
         {name = "--file", value = "PATH", help = "Inspect and run only one benchmark program"},
-        {name = "--case", value = "NAME", help = "Run only an exact benchmark name"},
         {
-            name = "--case-gmatch",
+            name = "--case",
             value = "PATTERN",
             repeats = true,
             help = "Run logical case names matching a Lua pattern; repeat for alternatives"
         },
         {
-            name = "--parameter-gmatch",
+            name = "--parameter",
             value = "PATTERN",
             repeats = true,
-            help = "Run canonical key=value parameter text matching a Lua pattern"
+            help = "Run parameter text matching a Lua pattern; repeat for alternatives"
         },
         {
-            name = "--variant-gmatch",
+            name = "--variant",
             value = "PATTERN",
             repeats = true,
             help = "Run variant names matching a Lua pattern; repeat for alternatives"
@@ -138,9 +137,9 @@ local function run(parsed: any): integer
         return command:usageError("--profile-interval-ms and --profile-zone need --profile DIR")
     end
     for _, entry in ipairs({
-        {name = "--case-gmatch", patterns = values.caseGmatch},
-        {name = "--parameter-gmatch", patterns = values.parameterGmatch},
-        {name = "--variant-gmatch", patterns = values.variantGmatch},
+        {name = "--case", patterns = values.case},
+        {name = "--parameter", patterns = values.parameter},
+        {name = "--variant", patterns = values.variant},
     }) do
         local invalid = invalidPattern(entry.patterns)
         if invalid then
@@ -161,10 +160,9 @@ local function run(parsed: any): integer
             baseline = values.baseline,
             accept = values.accept,
             json = values.json,
-            case = values.case,
-            caseGmatch = values.caseGmatch,
-            parameterGmatch = values.parameterGmatch,
-            variantGmatch = values.variantGmatch,
+            casePatterns = values.case,
+            parameterPatterns = values.parameter,
+            variantPatterns = values.variant,
             file = values.file,
             history = values.history,
             label = values.label,
