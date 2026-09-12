@@ -200,6 +200,28 @@ function M.movingCodeDoesNotLookLikeANewAllocation()
     assertEq(#grew, 1, "a third allocation in the same file is a regression")
 end
 
+function M.formatsHumanResultsAsPerOperationScores()
+    local bench = require("nupp.bench")
+    local rendered = bench.format({
+        cases = {
+            {name = "parse", kind = "case", n = 4, rounds = 7, medianSec = 0.000000004,},
+            {name = "frame", kind = "frames", frames = 60, p50Ms = 1.25, p99Ms = 2.5, p999Ms = 3.75, overBudget = 2,},
+        },
+    })
+    assertEq(
+        rendered,
+        "\n"
+        .. [[Benchmark           Mode  Cnt       Score  Units
+parse                p50    7       1.000  ns/op
+frame                p50   60       1.250  ms/frame
+frame                p99   60       2.500  ms/frame
+frame              p99.9   60       3.750  ms/frame
+frame:over-budget  count   60           2  frames
+]],
+        "human benchmark table"
+    )
+end
+
 function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     local casesOut = os.tmpname()
     local stdout = os.tmpname()
@@ -222,6 +244,9 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     assertEq(ran, 0, "the selected case exits successfully")
     local record = json.decode(read(recordOut))
     assertEq(record.cases[1].n, 3, "the runner's iteration count bypasses calibration")
+    local human = read(stdout)
+    assertTrue(human:find("Benchmark%s+Mode%s+Cnt%s+Score%s+Units") ~= nil, "the result has a table heading")
+    assertTrue(human:find("protocol%s+p50%s+7%s+[%d.]+%s+ns/op") ~= nil, "the result is per operation")
 
     os.remove(casesOut)
     os.remove(stdout)

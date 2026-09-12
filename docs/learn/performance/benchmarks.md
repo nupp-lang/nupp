@@ -24,6 +24,18 @@ bench.report()
 nupp run -O1 --remarks-out bench/presize.bench.nupp
 ```
 
+```text
+Benchmark       Mode  Cnt       Score  Units
+presize.grown    p50    7      15.681  ns/op
+presize.sized    p50    7      15.599  ns/op
+```
+
+The table follows JMH's compact final-report shape. `p50` is explicit because
+Nupp reports the median of seven measured rounds rather than an average and
+confidence interval. A case's score is the median round divided by its calibrated
+iteration count, so the displayed unit is nanoseconds per operation. Exact round
+times and the iteration count remain in the JSON record.
+
 `build/remarks.json` is the fixed handoff between `nupp run` and the benchmark
 record. The compiler writes its optimization account there and `nupp.bench`
 includes it when the program reports. Running without `--remarks-out` still

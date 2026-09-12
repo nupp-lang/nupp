@@ -107,7 +107,7 @@ end
 local function runCase(path: string, name: string, n: integer?): (any?, string?)
     os.remove(RECORD_OUT)
     os.remove(REMARKS_OUT)
-    local extra = ("--case %s --out %s"):format(quoted(name), quoted(RECORD_OUT))
+    local extra = ("--case %s --out %s --quiet"):format(quoted(name), quoted(RECORD_OUT))
     if n then
         extra = extra .. " --n " .. quoted(tostring(n))
     end
@@ -230,7 +230,6 @@ local function main(): integer
                     end
                 end
             end
-            io.stdout:write((failure and "FAIL " or "ok   ") .. path .. " / " .. name .. "\n")
         end
     end
 
@@ -241,6 +240,14 @@ local function main(): integer
     end
     if asJson then
         io.stdout:write(encoded, "\n")
+    else
+        local cases = {}
+        for _, entry in ipairs(merged) do
+            for _, measurement in ipairs(entry.record.cases or {}) do
+                cases[#cases + 1] = measurement
+            end
+        end
+        io.stdout:write(bench.format({cases = cases,}))
     end
     for _, note in ipairs(notes) do
         io.stderr:write("bench: uncompared: " .. note .. "\n")

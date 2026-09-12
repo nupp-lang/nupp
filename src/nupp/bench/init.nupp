@@ -161,6 +161,7 @@ local options = {
     baseline = nil as string?,
     json = false,
     accept = false,
+    quiet = false,
 
     --- Run only this case, or every case when nil. The runner names one per child,
     --- because a process is the measurement boundary: two cases sharing one share its
@@ -204,6 +205,8 @@ local function readOptions(): nil
             end
         elseif name == "json" then
             options.json = true
+        elseif name == "quiet" then
+            options.quiet = true
         elseif name == "accept" then
             options.accept = true
         elseif name == "out" then
@@ -829,6 +832,88 @@ function bench.compare(record: any, baseline: any): ({string}, {string})
     return failures, uncompared
 end
 
+--- Formats a record as the compact result table used by both a standalone program
+--- and the set runner. The shape follows the useful part of JMH's final report, but
+--- names the statistic `p50`: these scores are medians, not averages with confidence
+--- intervals.
+---
+--- Case scores are normalized to one body iteration. The calibrated batch size stays
+--- in the JSON record, where the runner also finds it for the next comparison.
+function bench.format(record: any): string
+    local rows: {any} = {}
+    local width: integer = #"Benchmark"
+    for _, entry in ipairs(record.cases or {}) do
+        if entry.kind == "case" then
+            local n = entry.n or 0
+            local score = n > 0 and ((entry.medianSec or 0.0) * 1000000000.0 / n) or 0.0
+            rows[
+                #rows + 1
+            ] = {
+                name = entry.name,
+                mode = "p50",
+                count = tostring(entry.rounds or 0),
+                score = ("%.3f"):format(score),
+                units = "ns/op",
+            }
+        else
+            local count = tostring(entry.frames or 0)
+            rows[
+                #rows + 1
+            ] = {
+                name = entry.name,
+                mode = "p50",
+                count = count,
+                score = ("%.3f"):format(entry.p50Ms or 0.0),
+                units = "ms/frame",
+            }
+            rows[
+                #rows + 1
+            ] = {
+                name = entry.name,
+                mode = "p99",
+                count = count,
+                score = ("%.3f"):format(entry.p99Ms or 0.0),
+                units = "ms/frame",
+            }
+            rows[
+                #rows + 1
+            ] = {
+                name = entry.name,
+                mode = "p99.9",
+                count = count,
+                score = ("%.3f"):format(entry.p999Ms or 0.0),
+                units = "ms/frame",
+            }
+            if (entry.overBudget or 0) > 0 then
+                rows[
+                    #rows + 1
+                ] = {
+                    name = entry.name .. ":over-budget",
+                    mode = "count",
+                    count = count,
+                    score = tostring(entry.overBudget),
+                    units = "frames",
+                }
+            end
+        end
+    end
+    if #rows == 0 then
+        return ""
+    end
+    for _, row in ipairs(rows) do
+        if #row.name > width then
+            width = #row.name
+        end
+    end
+    local pattern = "%-" .. tostring(width) .. "s  %5s  %3s  %10s  %s"
+    local lines = {pattern:format("Benchmark", "Mode", "Cnt", "Score", "Units")}
+    for _, row in ipairs(rows) do
+        lines[#lines + 1] = pattern:format(row.name, row.mode, row.count, row.score, row.units)
+    end
+
+    return "\n" .. table.concat(lines, "\n") .. "\n"
+end
+
 --- Writes the record, compares it against a baseline when one was named, and raises
 --- when a gated counter moved.
 ---
@@ -854,34 +939,8 @@ function bench.report(): nil
     writeFile(options.out, encoded)
     if options.json then
         io.stdout:write(encoded, "\n")
-    else
-        for _, entry in ipairs(measurements) do
-            if entry.kind == "case" then
-                io.stdout:write(
-                    (
-                        "%-40s %10.6fs  n=%d  %s\n"
-                    ):format(
-                        entry.name,
-                        entry.medianSec or 0.0,
-                        entry.n or 0,
-                        entry.abortSites and (#entry.abortSites .. " abort sites") or "aborts uncollected"
-                    )
-                )
-            else
-                io.stdout:write(
-                    (
-                        "%-40s p50=%.3fms p99=%.3fms p999=%.3fms  %d/%d over budget\n"
-                    ):format(
-                        entry.name,
-                        entry.p50Ms or 0.0,
-                        entry.p99Ms or 0.0,
-                        entry.p999Ms or 0.0,
-                        entry.overBudget or 0,
-                        entry.frames or 0
-                    )
-                )
-            end
-        end
+    elseif not options.quiet then
+        io.stdout:write(bench.format(record))
     end
     if not options.baseline then
         return
