@@ -18,6 +18,7 @@ local json = require("nupp.codec.json")
 
 local files = require("nupp.io.files")
 local process = require("nupp.io.process")
+local time = require("nupp.time")
 local type Bench = {
     compare: function(any, any): ({string}, {string}),
     format: function(any): string
@@ -41,11 +42,25 @@ type runner.Options = {
     accept: boolean?,
     json: boolean?,
     case: string?,
+    caseGmatch: {string}?,
+    parameterGmatch: {string}?,
+    variantGmatch: {string}?,
     file: string?,
     history: string?,
     label: string?,
     timeoutMs: integer?,
-    list: boolean?
+    list: boolean?,
+    profileDir: string?,
+    profileIntervalMs: integer?,
+    profileZone: string?
+}
+
+local type Benchmark = {
+    name: string,
+    suite: string?,
+    caseName: string?,
+    variant: string?,
+    parameters: {[string]: any}?
 }
 
 local function readFile(path: string): string?
@@ -97,6 +112,63 @@ local function discover(): {string}
     return found
 end
 
+local function matchesAny(value: string, patterns: {string}?): boolean
+    if not patterns or #patterns == 0 then
+        return true
+    end
+    for _, pattern in ipairs(patterns) do
+        if value:match(pattern) ~= nil then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function parameterText(parameters: {[string]: any}?): string
+    local keys: {string} = {}
+    for key in pairs(parameters or {}) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    local values: {string} = {}
+    for _, key in ipairs(keys) do
+        values[#values + 1] = key .. "=" .. tostring((parameters or {})[key])
+    end
+
+    return table.concat(values, ",")
+end
+
+local function selected(
+    benchmark: Benchmark,
+    exact: string?,
+    casePatterns: {string}?,
+    parameterPatterns: {string}?,
+    variantPatterns: {string}?
+): boolean
+    if exact and benchmark.name ~= exact then
+        return false
+    end
+    if not matchesAny(benchmark.caseName or benchmark.name, casePatterns) then
+        return false
+    end
+    if variantPatterns and not matchesAny(benchmark.variant or "", variantPatterns) then
+        return false
+    end
+
+    return matchesAny(parameterText(benchmark.parameters), parameterPatterns)
+end
+
+local function slug(name: string): string
+    local answer = name:gsub("[^%w%-_.]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
+
+    return answer ~= "" and answer or "benchmark"
+end
+
+local function profilePath(directory: string, index: integer, name: string): string
+    return ("%s/%03d-%s.collapsed"):format(directory:gsub("/+$", ""), index, slug(name))
+end
+
 local function nuppRun(executable: string, path: string, extra: {string}, timeoutMs: integer): (boolean, string?)
     local args = {executable, "run", "-O1", "--remarks-out", path}
     for _, entry in ipairs(extra) do
@@ -124,7 +196,7 @@ local function nuppRun(executable: string, path: string, extra: {string}, timeou
 end
 
 --- The case names a file defines, by asking it rather than by reading it.
-local function casesIn(executable: string, path: string, timeoutMs: integer): ({string}, string?)
+local function casesIn(executable: string, path: string, timeoutMs: integer): ({Benchmark}, string?)
     local listing = "build/bench-cases.txt"
     os.remove(listing)
     local ok, problem = nuppRun(executable, path, {"--list-cases", "--cases-out", listing}, timeoutMs)
@@ -135,31 +207,61 @@ local function casesIn(executable: string, path: string, timeoutMs: integer): ({
     if not text then
         return {}, "wrote no case listing"
     end
-    local names: {string} = {}
+    local names: {Benchmark} = {}
     local seen: {[string]: boolean} = {}
     for line in text:gmatch("[^\r\n]+") do
-        local ok, name = pcall(json.decode, line)
-        if not ok or type(name) ~= "string" then
+        local ok, decoded = pcall(json.decode, line)
+        if not ok then
             return {}, "wrote an invalid case listing"
         end
+        local benchmark: Benchmark
+        if type(decoded) == "string" then
+            benchmark = {name = decoded}
+        elseif type(decoded) == "table" and type(decoded.name) == "string" then
+            benchmark = decoded as Benchmark
+        else
+            return {}, "wrote an invalid case listing"
+        end
+        local name = benchmark.name
         if seen[name] then
             return {}, "defines the case " .. name .. " more than once"
         end
         seen[name] = true
-        names[#names + 1] = name
+        names[#names + 1] = benchmark
     end
 
     return names, nil
 end
 
 --- Runs one named case in its own process and returns the record it wrote.
-local function runCase(executable: string, path: string, name: string, n: integer?, timeoutMs: integer): (any?, string?)
+local function runCase(
+    executable: string,
+    path: string,
+    name: string,
+    n: integer?,
+    timeoutMs: integer,
+    sampleOut: string?,
+    sampleIntervalMs: integer,
+    sampleZone: string?
+): (any?, string?)
     os.remove(RECORD_OUT)
     os.remove(REMARKS_OUT)
     local extra = {"--case", name, "--out", RECORD_OUT, "--quiet"}
     if n then
         extra[#extra + 1] = "--n"
         extra[#extra + 1] = tostring(n)
+    end
+    if sampleOut then
+        extra[#extra + 1] = "--sample-out"
+        extra[#extra + 1] = sampleOut
+        extra[#extra + 1] = "--sample-root"
+        extra[#extra + 1] = path:match("([^/\\]+)$") or path
+        extra[#extra + 1] = "--sample-interval-ms"
+        extra[#extra + 1] = tostring(sampleIntervalMs)
+        if sampleZone then
+            extra[#extra + 1] = "--sample-zone"
+            extra[#extra + 1] = sampleZone
+        end
     end
     local ok, runProblem = nuppRun(executable, path, extra, timeoutMs)
     local text = readFile(RECORD_OUT)
@@ -212,6 +314,33 @@ local function previousIterations(record: any): integer?
     return nil
 end
 
+local function progressLine(record: any, name: string, wallSec: number): string
+    local measurement = record and record.cases and record.cases[1]
+    if not measurement then
+        return ("# Result: %s  no measurement  wall=%.3fs\n"):format(name, wallSec)
+    end
+    local score = 0.0
+    local units = "ns/op"
+    local count = measurement.rounds or 0
+    local countLabel = "rounds"
+    if measurement.kind == "case" then
+        local n = measurement.n or 0
+        if n > 0 then
+            score = (measurement.medianSec or 0.0) * 1000000000.0 / n
+        end
+    elseif measurement.kind == "suite" then
+        score = (measurement.medianSec or 0.0) * 1000000000.0
+        countLabel = "samples"
+    else
+        score = measurement.p50Ms or 0.0
+        units = "ms/frame"
+        count = measurement.frames or 0
+        countLabel = "frames"
+    end
+
+    return ("# Result: %s  p50=%.3f %s  %s=%d  wall=%.3fs\n"):format(name, score, units, countLabel, count, wallSec)
+end
+
 --- Runs the selected benchmark programs.
 function runner.run(options: runner.Options): integer
     local executable = options.executable or "nupp"
@@ -220,14 +349,35 @@ function runner.run(options: runner.Options): integer
     local asJson = options.json == true
     local listOnly = options.list == true
     local only = options.case
+    local casePatterns = options.caseGmatch
+    local parameterPatterns = options.parameterGmatch
+    local variantPatterns = options.variantGmatch
     local onlyFile = options.file
     local historyPath = options.history
     local label = options.label
     local timeoutMs = options.timeoutMs or DEFAULT_TIMEOUT_MS
+    local profileDir = options.profileDir
+    local profileIntervalMs = options.profileIntervalMs or 1
+    local profileZone = options.profileZone
     if timeoutMs < 1 or timeoutMs ~= math.floor(timeoutMs) then
         io.stderr:write("bench: timeout must be a positive whole number of milliseconds\n")
 
         return 2
+    end
+    if profileIntervalMs < 1 or profileIntervalMs ~= math.floor(profileIntervalMs) then
+        io.stderr:write("bench: profile interval must be a positive whole number of milliseconds\n")
+
+        return 2
+    end
+    if profileDir then
+        local made, problem = files.createDirectory(profileDir)
+        if not made then
+            io.stderr:write(
+                "bench: cannot create profile directory " .. profileDir .. ": " .. tostring(problem) .. "\n"
+            )
+
+            return 1
+        end
     end
 
     if listOnly then
@@ -240,9 +390,9 @@ function runner.run(options: runner.Options): integer
                 io.stderr:write("bench: " .. path .. ": " .. problem .. "\n")
                 failed = true
             end
-            for _, name in ipairs(names) do
-                if not only or only == name then
-                    io.stdout:write(name, "\t", path, "\n")
+            for _, benchmark in ipairs(names) do
+                if selected(benchmark, only, casePatterns, parameterPatterns, variantPatterns) then
+                    io.stdout:write(benchmark.name, "\t", path, "\n")
                     listed = (listed + 1) as integer
                 end
             end
@@ -284,22 +434,42 @@ function runner.run(options: runner.Options): integer
         elseif #names == 0 then
             executionFailures[#executionFailures + 1] = path .. ": defines no case"
         end
-        for _, name in ipairs(names) do
-            if only and name ~= only then
+        for _, benchmark in ipairs(names) do
+            if not selected(benchmark, only, casePatterns, parameterPatterns, variantPatterns) then
                 goto nextCase
             end
             matched = (matched + 1) as integer
+            local name = benchmark.name
+            local sampleOut = profileDir and profilePath(profileDir, matched, name) or nil
             if not asJson then
                 io.stdout:write(("# Benchmark: %s (%s)\n"):format(name, path))
                 io.stdout:flush()
             end
             local was = previousCase(previous, path, name)
-            local record, failure = runCase(executable, path, name, previousIterations(was), timeoutMs)
+            local started = time.now()
+            local record, failure = runCase(
+                executable,
+                path,
+                name,
+                previousIterations(was),
+                timeoutMs,
+                sampleOut,
+                profileIntervalMs,
+                profileZone
+            )
+            local wallSec = (time.now() - started) / 1000.0
             if failure then
                 executionFailures[#executionFailures + 1] = failure
             end
             if record then
                 merged[#merged + 1] = {case = path, name = name, record = record,}
+                if not asJson then
+                    io.stdout:write(progressLine(record, name, wallSec))
+                    if sampleOut then
+                        io.stdout:write("# Profile: ", sampleOut, "\n")
+                    end
+                    io.stdout:flush()
+                end
                 if previous then
                     if not was then
                         notes[#notes + 1] = name .. ": no baseline for this case"
@@ -317,8 +487,10 @@ function runner.run(options: runner.Options): integer
             ::nextCase::
         end
     end
-    if (only or onlyFile) and matched == 0 and #executionFailures == 0 then
-        local description = only and ("case " .. only) or ("file " .. (onlyFile or ""))
+    if (
+        only or onlyFile or casePatterns or parameterPatterns or variantPatterns
+    ) and matched == 0 and #executionFailures == 0 then
+        local description = only and ("case " .. only) or "selection"
         executionFailures[#executionFailures + 1] = "no benchmark matched " .. description
     end
 

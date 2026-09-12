@@ -224,6 +224,9 @@ record bench.Measurement
     totalAborts: integer?
 
     blacklisted: integer?
+
+    --- Collapsed-stack profile written for this measured window, when requested.
+    profilePath: string?
 end
 
 local measurements: {bench.Measurement} = {}
@@ -266,6 +269,13 @@ local options = {
 
     --- Iterations selected by the set runner from this case's merged baseline.
     iterations = nil as integer?,
+
+    --- Internal handoff from `nupp bench`; callers choose the directory on the
+    --- command and the runner gives every isolated child its own file.
+    sampleOut = nil as string?,
+    sampleIntervalMs = 1,
+    sampleZone = nil as string?,
+    sampleRoot = nil as string?,
 }
 
 local function readOptions(): nil
@@ -317,6 +327,30 @@ local function readOptions(): nil
                 error("bench: --n needs a positive whole number", 0)
             end
             options.iterations = math.floor(given)
+        elseif name == "sample-out" then
+            options.sampleOut = value or argv[index + 1]
+            if not value then
+                index = (index + 1) as integer
+            end
+        elseif name == "sample-interval-ms" then
+            local given = tonumber(value or argv[index + 1])
+            if not value then
+                index = (index + 1) as integer
+            end
+            if not given or given < 1 or given ~= math.floor(given) then
+                error("bench: --sample-interval-ms needs a positive whole number", 0)
+            end
+            options.sampleIntervalMs = math.floor(given)
+        elseif name == "sample-zone" then
+            options.sampleZone = value or argv[index + 1]
+            if not value then
+                index = (index + 1) as integer
+            end
+        elseif name == "sample-root" then
+            options.sampleRoot = value or argv[index + 1]
+            if not value then
+                index = (index + 1) as integer
+            end
         end
         index = (index + 1) as integer
     end
@@ -472,18 +506,18 @@ end
 --- silently listed nothing when this was deferred.
 ---
 --- @raises when a requested case-list file cannot be opened
-local function announce(name: string): nil
+local function announce(listing: any): nil
     if options.casesOut then
         local handle = io.open(options.casesOut, "a")
         if not handle then
             error("bench: cannot write " .. options.casesOut, 0)
         end
-        handle:write(json.encode(name), "\n")
+        handle:write(json.encode(listing), "\n")
         handle:close()
 
         return
     end
-    io.stdout:write(name, "\n")
+    io.stdout:write(listing.name, "\n")
 end
 
 --- Opens a trace session, or answers nil when one is already open.
@@ -502,6 +536,20 @@ local function openTrace(): any?
     return session
 end
 
+--- Opens the optional sampler paused. Setup, teardown and harness bookkeeping stay
+--- outside the collapsed stacks; measured bodies resume it explicitly.
+local function openSample(): any?
+    if not options.sampleOut then
+        return nil
+    end
+    local argv = _G.arg as {string}?
+    local root = options.sampleRoot or (argv and argv[0] and argv[0]:match("([^/\\]+)$") or nil)
+    local session = profile.sample({intervalMs = options.sampleIntervalMs, zone = options.sampleZone, root = root,})
+    session:pause()
+
+    return session
+end
+
 --- Announces work before it starts, so calibration or an application-owned frame
 --- loop never makes the command look stuck. JSON and runner-child processes stay
 --- silent; the set runner announces those children with their source paths instead.
@@ -513,9 +561,10 @@ local function announceRun(name: string): nil
     io.stdout:flush()
 end
 
-local function register(name: string, run: function(): nil): nil
+local function register(name: string, run: function(): nil, listing: any?): nil
+    local declared = listing or {name = name}
     if options.list then
-        announce(name)
+        announce(declared)
 
         return
     end
@@ -562,6 +611,16 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         traceProfileSeen = aborts.traceProfile
         sites, total, blacklisted = abortIdentities(aborts)
     end
+    local sampling = openSample()
+    if sampling then
+        collectgarbage("collect")
+        for _ = 1, ROUNDS do
+            sampling:resume()
+            body(subject)
+            sampling:pause()
+        end
+        sampling:stop(options.sampleOut)
+    end
     measurements[
         #measurements + 1
     ] = new bench.Measurement(
@@ -575,7 +634,8 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         retainedKb = retained,
         abortSites = sites,
         totalAborts = total,
-        blacklisted = blacklisted
+        blacklisted = blacklisted,
+        profilePath = options.sampleOut
     )
 end
 
@@ -726,18 +786,18 @@ local function sampleStatistics(samples: {number}): (number, number, number, num
 end
 
 local function measureSuite(
-    options: bench.SuiteOptions,
+    suite: bench.SuiteOptions,
     case: bench.SuiteCase,
     variant: bench.Variant,
     parameters: {[string]: any},
     name: string
 ): nil
-    local warmups = positiveInteger(options.warmupIterations, 10, "warmupIterations")
-    local iterations = positiveInteger(options.sampleIterations, 1, "sampleIterations")
-    local minSamples = positiveInteger(options.minSamples, 15, "minSamples")
-    local maxSamples = positiveInteger(options.maxSamples, 100000, "maxSamples")
-    local minDuration = positiveNumber(options.minDurationSec, 0.5, "minDurationSec")
-    local maxDuration = positiveNumber(options.maxDurationSec, 10.0, "maxDurationSec")
+    local warmups = positiveInteger(suite.warmupIterations, 10, "warmupIterations")
+    local iterations = positiveInteger(suite.sampleIterations, 1, "sampleIterations")
+    local minSamples = positiveInteger(suite.minSamples, 15, "minSamples")
+    local maxSamples = positiveInteger(suite.maxSamples, 100000, "maxSamples")
+    local minDuration = positiveNumber(suite.minDurationSec, 0.5, "minDurationSec")
+    local maxDuration = positiveNumber(suite.maxDurationSec, 10.0, "maxDurationSec")
     local operations = positiveInteger(case.operations, 1, "case operations")
     if maxSamples < minSamples then
         error("bench: maxSamples must be at least minSamples", 0)
@@ -827,6 +887,14 @@ local function measureSuite(
         traceProfileSeen = aborts.traceProfile
         sites, totalAborts, blacklisted = abortIdentities(aborts)
     end
+    local sampling = openSample()
+    if sampling then
+        collectgarbage("collect")
+        for _ = 1, #samples do
+            callVariant(variant, invocation, iterations, sampling)
+        end
+        sampling:stop(options.sampleOut)
+    end
     local minimum, mean, stdev, p50, p90, p99 = sampleStatistics(samples)
     measurements[
         #measurements + 1
@@ -848,16 +916,17 @@ local function measureSuite(
         minDurationSec = minDuration,
         maxSamples = maxSamples,
         maxDurationSec = maxDuration,
-        suite = options.name,
+        suite = suite.name,
         variant = variant.name,
         caseName = case.name,
         parameters = parameters,
-        baselineVariant = options.baselineVariant or options.variants[1].name,
+        baselineVariant = suite.baselineVariant or suite.variants[1].name,
         allocatedKb = allocated / (iterations * operations),
         retainedKb = retained,
         abortSites = sites,
         totalAborts = totalAborts,
-        blacklisted = blacklisted
+        blacklisted = blacklisted,
+        profilePath = options.sampleOut
     )
 end
 
@@ -868,9 +937,13 @@ local function registerSuite(
     parameters: {[string]: any}
 ): nil
     local name = suiteName(options.name, case.name, variant.name, parameters)
-    register(name, function(): nil
-        measureSuite(options, case, variant, parameters, name)
-    end)
+    register(
+        name,
+        function(): nil
+            measureSuite(options, case, variant, parameters, name)
+        end,
+        {name = name, suite = options.name, caseName = case.name, variant = variant.name, parameters = parameters,}
+    )
 end
 
 --- Declares a comparative suite. Every case, parameter set and variant is a named
@@ -927,6 +1000,7 @@ record bench.FrameSession
     samples: {number}
     started: number
     session: any
+    sampling: any
     done: boolean
 end
 
@@ -947,7 +1021,7 @@ function bench.frames(name: string, budgetMs: number?, count: integer?): bench.F
     -- not the selected one is handed back already finished, so `more` is false and the
     -- application's loop does not run.
     if options.list then
-        announce(name)
+        announce({name = name})
     end
     local inert = options.list or (options.only ~= nil and options.only ~= name)
     if inert then
@@ -958,6 +1032,7 @@ function bench.frames(name: string, budgetMs: number?, count: integer?): bench.F
             samples = {},
             started = 0.0,
             session = nil,
+            sampling = nil,
             done = true
         )
     end
@@ -972,6 +1047,7 @@ function bench.frames(name: string, budgetMs: number?, count: integer?): bench.F
         samples = {},
         started = 0.0,
         session = openTrace(),
+        sampling = openSample(),
         done = false
     )
 end
@@ -991,6 +1067,9 @@ end
 
 --- Marks the start of a frame.
 function bench.FrameSession:begin(): nil
+    if self.sampling then
+        self.sampling:resume()
+    end
     self.started = time.now()
 end
 
@@ -1000,7 +1079,11 @@ end
 --- that waited on presentation, on I/O, or on a sleep spends very little of either and
 --- blows its budget anyway, and missing the budget is the whole measurement.
 function bench.FrameSession:finish(): nil
-    self.samples[#self.samples + 1] = time.now() - self.started
+    local finished = time.now()
+    if self.sampling then
+        self.sampling:pause()
+    end
+    self.samples[#self.samples + 1] = finished - self.started
 end
 
 --- Ends the session, records it, and reports.
@@ -1025,6 +1108,9 @@ function bench.FrameSession:report(): nil
         local aborts = self.session:stop()
         traceProfileSeen = aborts.traceProfile
         sites, total, blacklisted = abortIdentities(aborts)
+    end
+    if self.sampling then
+        self.sampling:stop(options.sampleOut)
     end
     local sorted: {number} = {}
     for index = 1, #self.samples do
@@ -1052,7 +1138,8 @@ function bench.FrameSession:report(): nil
         overBudget = over,
         abortSites = sites,
         totalAborts = total,
-        blacklisted = blacklisted
+        blacklisted = blacklisted,
+        profilePath = options.sampleOut
     )
     bench.report()
 end
@@ -1274,8 +1361,12 @@ function bench.format(record: any): string
     local width: integer = #"Benchmark"
     local baselines: {[string]: number} = {}
     local hasRatios = false
+    local workloads: {any} = {}
+    local workloadsByKey: {[string]: any} = {}
+    local suites: {any} = {}
+    local suitesByName: {[string]: any} = {}
 
-    local function comparisonKey(entry: any): string
+    local function parameterText(entry: any): string
         local keys: {string} = {}
         for key in pairs(entry.parameters or {}) do
             keys[#keys + 1] = key
@@ -1286,14 +1377,61 @@ function bench.format(record: any): string
             values[#values + 1] = key .. "=" .. tostring(entry.parameters[key])
         end
 
-        return tostring(entry.suite) .. "|" .. tostring(entry.caseName) .. "|" .. table.concat(values, ",")
+        return table.concat(values, ",")
+    end
+
+    local function comparisonKey(entry: any): string
+        return tostring(entry.suite) .. "|" .. tostring(entry.caseName) .. "|" .. parameterText(entry)
     end
 
     for _, entry in ipairs(record.cases or {}) do
         if entry.kind == "suite" then
             hasRatios = true
+            local key = comparisonKey(entry)
+            local workload = workloadsByKey[key]
+            if not workload then
+                local parameters = parameterText(entry)
+                local label = tostring(entry.suite) .. "." .. tostring(entry.caseName)
+                if parameters ~= "" then
+                    label = label .. ":" .. parameters
+                end
+                workload = {
+                    label = label,
+                    suite = entry.suite,
+                    caseName = entry.caseName,
+                    baselineVariant = entry.baselineVariant,
+                    values = {},
+                    variants = {},
+                    variantSeen = {},
+                }
+                workloadsByKey[key] = workload
+                workloads[#workloads + 1] = workload
+                local suite = suitesByName[entry.suite]
+                if not suite then
+                    suite = {
+                        name = entry.suite,
+                        baselineVariant = entry.baselineVariant,
+                        workloads = {},
+                        variants = {},
+                        variantSeen = {},
+                    }
+                    suitesByName[entry.suite] = suite
+                    suites[#suites + 1] = suite
+                end
+                suite.workloads[#suite.workloads + 1] = workload
+            end
+            if not workload.variantSeen[entry.variant] then
+                workload.variantSeen[entry.variant] = true
+                workload.variants[#workload.variants + 1] = entry.variant
+            end
+            workload.values[entry.variant] = entry.medianSec or 0.0
+            local suite = suitesByName[entry.suite]
+            if suite and not suite.variantSeen[entry.variant] then
+                suite.variantSeen[entry.variant] = true
+                suite.variants[#suite.variants + 1] = entry.variant
+            end
             if entry.variant == entry.baselineVariant then
-                baselines[comparisonKey(entry)] = entry.medianSec or 0.0
+                baselines[key] = entry.medianSec or 0.0
             end
         end
     end
@@ -1389,6 +1527,102 @@ function bench.format(record: any): string
     local lines = {pattern:format("Benchmark", "Mode", "Cnt", "Score", "Units", "Ratio"),}
     for _, row in ipairs(rows) do
         lines[#lines + 1] = pattern:format(row.name, row.mode, row.count, row.score, row.units, row.ratio)
+    end
+
+    local winners: {any} = {}
+    local winnerWidth: integer = #"Workload"
+    local variantWidth: integer = #"Winner"
+    for _, workload in ipairs(workloads) do
+        local winner: string? = nil
+        local fastest = math.huge
+        local nextFastest = math.huge
+        local compared: integer = 0
+        for _, variant in ipairs(workload.variants) do
+            local score = workload.values[variant]
+            if score and score > 0 then
+                compared = (compared + 1) as integer
+                if score < fastest then
+                    nextFastest = fastest
+                    fastest = score
+                    winner = variant
+                elseif score < nextFastest then
+                    nextFastest = score
+                end
+            end
+        end
+        if winner and compared > 1 then
+            winners[
+                #winners + 1
+            ] = {
+                workload = workload.label,
+                winner = winner,
+                speedup = nextFastest < math.huge and nextFastest / fastest or 1.0,
+            }
+            winnerWidth = math.max(winnerWidth, #workload.label)
+            variantWidth = math.max(variantWidth, #winner)
+        end
+    end
+    if #winners > 0 then
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = "Winners"
+        local winnerPattern = "%-" .. tostring(winnerWidth) .. "s  %-" .. tostring(variantWidth) .. "s  %8s"
+        lines[#lines + 1] = winnerPattern:format("Workload", "Winner", "Speedup")
+        for _, winner in ipairs(winners) do
+            lines[#lines + 1] = winnerPattern:format(winner.workload, winner.winner, ("%.3fx"):format(winner.speedup))
+        end
+    end
+
+    for _, suite in ipairs(suites) do
+        local expected: integer = 0
+        for _, workload in ipairs(suite.workloads) do
+            local baselineScore = workload.values[suite.baselineVariant]
+            if baselineScore and baselineScore > 0 then
+                expected = (expected + 1) as integer
+            end
+        end
+        local summary: {any} = {}
+        local summaryWidth: integer = #"Variant"
+        for _, variant in ipairs(suite.variants) do
+            local cases: {[string]: any} = {}
+            local caseOrder: {string} = {}
+            local compared: integer = 0
+            for _, workload in ipairs(suite.workloads) do
+                local baselineScore = workload.values[suite.baselineVariant]
+                local score = workload.values[variant]
+                if baselineScore and baselineScore > 0 and score and score > 0 then
+                    local name = workload.caseName
+                    local case = cases[name]
+                    if not case then
+                        case = {total = 0.0, count = 0}
+                        cases[name] = case
+                        caseOrder[#caseOrder + 1] = name
+                    end
+                    case.total = case.total + math.log(baselineScore / score)
+                    case.count = (case.count + 1) as integer
+                    compared = (compared + 1) as integer
+                end
+            end
+            if expected > 0 and compared == expected then
+                local total = 0.0
+                for _, name in ipairs(caseOrder) do
+                    local case = cases[name]
+                    total = total + case.total / case.count
+                end
+                summary[#summary + 1] = {variant = variant, ratio = math.exp(total / #caseOrder),}
+                summaryWidth = math.max(summaryWidth, #variant)
+            end
+        end
+        if #summary > 1 then
+            lines[#lines + 1] = ""
+            lines[
+                #lines + 1
+            ] = "Geometric mean: " .. tostring(suite.name) .. " (vs " .. tostring(suite.baselineVariant) .. ")"
+            local summaryPattern = "%-" .. tostring(summaryWidth) .. "s  %8s"
+            lines[#lines + 1] = summaryPattern:format("Variant", "Ratio")
+            for _, entry in ipairs(summary) do
+                lines[#lines + 1] = summaryPattern:format(entry.variant, ("%.3fx"):format(entry.ratio))
+            end
+        end
     end
 
     return "\n" .. table.concat(lines, "\n") .. "\n"

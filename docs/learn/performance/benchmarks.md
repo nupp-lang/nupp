@@ -32,8 +32,9 @@ presize.point.grown    p50  311      15.681  ns/op      1.000x
 ```
 
 Each case is announced and flushed before calibration starts. The set runner
-also names its source file, so a slow or stuck child is identifiable while the
-set is still running.
+also names its source file, then prints its p50 score and child wall time as soon
+as it completes. A slow or stuck child is identifiable while the set is still
+running; results do not wait for the final table.
 
 The table follows JMH's compact final-report shape. `p50` is explicit because
 Nupp reports the median of seven measured rounds rather than an average and
@@ -142,7 +143,10 @@ sample does not turn the benchmark into a GC benchmark. The record retains every
 normalized sample plus min, mean, sample standard deviation, p50, p90 and p99.
 The human table stays compact and reports p50; when the runner has every variant,
 `Ratio` is baseline p50 divided by that variant's p50, so values above `1x` are
-faster.
+faster. A winners table names the fastest variant for each workload. The final
+suite summary is the geometric mean of those ratios, weighting parameter
+expansions equally within a logical case and then weighting logical cases
+equally.
 
 ## Frames
 
@@ -236,6 +240,22 @@ nupp bench --baseline build/bench-baseline.json
 nupp bench --baseline build/bench-baseline.json --accept
 nupp bench --case presize.point.grown
 nupp bench --file bench/presize.bench.nupp --case presize.point.grown
+nupp bench --case-gmatch '^lookup$' --variant-gmatch '^table$'
+nupp bench --parameter-gmatch '^size=1000$'
+```
+
+`--case` is an exact full benchmark name. The three `--*-gmatch` selectors are
+Lua string patterns over the logical case name, variant name, or canonical
+comma-separated `key=value` parameter text. Different dimensions combine;
+repeating one selector supplies alternatives. Lua patterns do not have regular
+expression alternation, so select `table` or `array` by repeating the variant
+selector:
+
+```bash
+nupp bench \
+  --case-gmatch '^lookup$' \
+  --variant-gmatch '^table$' \
+  --variant-gmatch '^array$'
 ```
 
 Each `bench.case` gets its own process, not each file: a file is asked what cases
@@ -250,7 +270,22 @@ run from sharing JIT and heap state. Suite names have the form
 
 Each listing and case child has a 120-second deadline. Set another one with
 `--timeout-ms MILLISECONDS`. The runner prints and flushes the case name before
-starting the child, then prints the merged table after the set finishes.
+starting the child, prints that child's result when it completes, then prints
+the merged table, winners, and geometric-mean summaries after the set finishes.
+
+## Sampling the measured window
+
+```bash
+nupp bench --case-gmatch '^lookup$' --profile build/bench-profiles
+```
+
+Profiling is a separate pass after timing, so sampler overhead does not change
+the reported score. The sampler is resumed only around each variant's `run`
+callback; setup, teardown, and harness bookkeeping stay out. One
+`NNN-case-name.collapsed` file is written per isolated benchmark. Use
+`--profile-interval-ms` to change the one-millisecond interval and
+`--profile-zone` to retain one `nupp.profile.zone` subtree. The files open
+directly in speedscope, FlameGraph, and inferno.
 
 The latest complete machine-readable result is always
 `build/bench-record.json`. To retain append-only NDJSON history, name a file and

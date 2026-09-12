@@ -989,13 +989,28 @@ leaves in the output directory.
 Run isolated benchmark programs
 
 Usage:
-  nupp bench [--list] [--file PATH] [--case NAME] [options]
+  nupp bench [--list] [--file PATH] [--case NAME] [selectors] [options]
 
 Options:
   --list                List benchmark names and source files without running
   --file PATH           Inspect and run only one benchmark program
   --case NAME           Run only an exact benchmark name
+  --case-gmatch PATTERN
+                        Run logical case names matching a Lua pattern; repeat
+                        for alternatives
+  --parameter-gmatch PATTERN
+                        Run canonical key=value parameter text matching a Lua
+                        pattern
+  --variant-gmatch PATTERN
+                        Run variant names matching a Lua pattern; repeat for
+                        alternatives
   --timeout-ms INTEGER  Child deadline in milliseconds (default 120000)
+  --profile DIR         Write one measured-window collapsed-stack profile per
+                        case
+  --profile-interval-ms INTEGER
+                        Sampling interval in milliseconds (default 1)
+  --profile-zone PREFIX
+                        Keep profile samples under this zone subtree
   --baseline PATH       Compare deterministic counters with this baseline
   --accept              Replace the named baseline after a complete run
   --history PATH        Append the complete record as one NDJSON line
@@ -1009,6 +1024,12 @@ Options:
 Discovers bench/*.bench.nupp by default. Each file is first asked which
 cases it declares, then every selected case runs under `nupp run -O1` in its own
 process. That boundary keeps heaps, compiled traces and blacklists separate.
+
+Selectors use Lua string patterns and combine across dimensions. Repeated
+patterns in one dimension are alternatives.
+
+--profile runs a separate sampling pass around only the measured callback and
+writes collapsed-stack files under DIR. It does not change the reported timing.
 
 The latest merged record is build/bench-record.json. --history appends the same
 record as NDJSON. --baseline gates deterministic allocation and trace-abort

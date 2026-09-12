@@ -14,12 +14,33 @@ local spec = require("nupp.compiler.cli.spec")
 local command = spec.command{
     name = "bench",
     summary = "Run isolated benchmark programs",
-    usage = {"nupp bench [--list] [--file PATH] [--case NAME] [options]"},
+    usage = {"nupp bench [--list] [--file PATH] [--case NAME] [selectors] [options]"},
     options = {
         {name = "--list", help = "List benchmark names and source files without running"},
         {name = "--file", value = "PATH", help = "Inspect and run only one benchmark program"},
         {name = "--case", value = "NAME", help = "Run only an exact benchmark name"},
+        {
+            name = "--case-gmatch",
+            value = "PATTERN",
+            repeats = true,
+            help = "Run logical case names matching a Lua pattern; repeat for alternatives"
+        },
+        {
+            name = "--parameter-gmatch",
+            value = "PATTERN",
+            repeats = true,
+            help = "Run canonical key=value parameter text matching a Lua pattern"
+        },
+        {
+            name = "--variant-gmatch",
+            value = "PATTERN",
+            repeats = true,
+            help = "Run variant names matching a Lua pattern; repeat for alternatives"
+        },
         {name = "--timeout-ms", value = "INTEGER", help = "Child deadline in milliseconds (default 120000)"},
+        {name = "--profile", value = "DIR", help = "Write one measured-window collapsed-stack profile per case"},
+        {name = "--profile-interval-ms", value = "INTEGER", help = "Sampling interval in milliseconds (default 1)"},
+        {name = "--profile-zone", value = "PREFIX", help = "Keep profile samples under this zone subtree"},
         {name = "--baseline", value = "PATH", help = "Compare deterministic counters with this baseline"},
         {name = "--accept", help = "Replace the named baseline after a complete run"},
         {name = "--history", value = "PATH", help = "Append the complete record as one NDJSON line"},
@@ -52,10 +73,29 @@ local command = spec.command{
 cases it declares, then every selected case runs under `nupp run -O1` in its own
 process. That boundary keeps heaps, compiled traces and blacklists separate.
 
+Selectors use Lua string patterns and combine across dimensions. Repeated
+patterns in one dimension are alternatives.
+
+--profile runs a separate sampling pass around only the measured callback and
+writes collapsed-stack files under DIR. It does not change the reported timing.
+
 The latest merged record is build/bench-record.json. --history appends the same
 record as NDJSON. --baseline gates deterministic allocation and trace-abort
 counters; timing is recorded but never used as a pass/fail gate.]],
 }
+
+local function invalidPattern(patterns: {string}?): string?
+    for _, pattern in ipairs(patterns or {}) do
+        local ok = pcall(function(): any
+            return (""):match(pattern)
+        end)
+        if not ok then
+            return pattern
+        end
+    end
+
+    return nil
+end
 
 local function run(parsed: any): integer
     local positional: {string} = parsed.positional
@@ -66,8 +106,17 @@ local function run(parsed: any): integer
     if values.accept and not values.baseline then
         return command:usageError("--accept needs --baseline PATH")
     end
-    if values.list and (values.json or values.baseline or values.accept or values.history or values.label) then
-        return command:usageError("--list cannot be combined with result, baseline, or history options")
+    if values.list and (
+        values.json
+        or values.baseline
+        or values.accept
+        or values.history
+        or values.label
+        or values.profile
+        or values.profileIntervalMs
+        or values.profileZone
+    ) then
+        return command:usageError("--list cannot be combined with result, baseline, history, or profile options")
     end
     local timeoutMs: integer? = nil
     if values.timeoutMs then
@@ -76,6 +125,27 @@ local function run(parsed: any): integer
             return command:usageError("--timeout-ms needs a positive whole number")
         end
         timeoutMs = math.floor(given)
+    end
+    local profileIntervalMs: integer? = nil
+    if values.profileIntervalMs then
+        local given = tonumber(values.profileIntervalMs)
+        if not given or given < 1 or given ~= math.floor(given) then
+            return command:usageError("--profile-interval-ms needs a positive whole number")
+        end
+        profileIntervalMs = math.floor(given)
+    end
+    if (values.profileIntervalMs or values.profileZone) and not values.profile then
+        return command:usageError("--profile-interval-ms and --profile-zone need --profile DIR")
+    end
+    for _, entry in ipairs({
+        {name = "--case-gmatch", patterns = values.caseGmatch},
+        {name = "--parameter-gmatch", patterns = values.parameterGmatch},
+        {name = "--variant-gmatch", patterns = values.variantGmatch},
+    }) do
+        local invalid = invalidPattern(entry.patterns)
+        if invalid then
+            return command:usageError(entry.name .. " has an invalid Lua pattern: " .. invalid)
+        end
     end
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
     local hosted = rawget(_G, "__NUPP_EXECUTABLE")
@@ -92,11 +162,17 @@ local function run(parsed: any): integer
             accept = values.accept,
             json = values.json,
             case = values.case,
+            caseGmatch = values.caseGmatch,
+            parameterGmatch = values.parameterGmatch,
+            variantGmatch = values.variantGmatch,
             file = values.file,
             history = values.history,
             label = values.label,
             timeoutMs = timeoutMs,
             list = values.list,
+            profileDir = values.profile,
+            profileIntervalMs = profileIntervalMs,
+            profileZone = values.profileZone,
         } as Options
     )
 end

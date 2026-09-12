@@ -33,6 +33,15 @@ local function read(path)
     return content
 end
 
+local function jsonLines(path)
+    local values = {}
+    for line in read(path):gmatch("[^\r\n]+") do
+        values[#values + 1] = json.decode(line)
+    end
+
+    return values
+end
+
 local function assertEq(got, want, label)
     if got ~= want then
         error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
@@ -248,16 +257,65 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 baselineVariant = "table",
                 parameters = {size = 100},
             },
+            {
+                name = "map.lookup.table:size=200",
+                kind = "suite",
+                rounds = 20,
+                medianSec = 0.000000080,
+                suite = "map",
+                caseName = "lookup",
+                variant = "table",
+                baselineVariant = "table",
+                parameters = {size = 200},
+            },
+            {
+                name = "map.lookup.array:size=200",
+                kind = "suite",
+                rounds = 20,
+                medianSec = 0.000000020,
+                suite = "map",
+                caseName = "lookup",
+                variant = "array",
+                baselineVariant = "table",
+                parameters = {size = 200},
+            },
+            {
+                name = "map.insert.table:size=100",
+                kind = "suite",
+                rounds = 20,
+                medianSec = 0.000000030,
+                suite = "map",
+                caseName = "insert",
+                variant = "table",
+                baselineVariant = "table",
+                parameters = {size = 100},
+            },
+            {
+                name = "map.insert.array:size=100",
+                kind = "suite",
+                rounds = 20,
+                medianSec = 0.000000060,
+                suite = "map",
+                caseName = "insert",
+                variant = "array",
+                baselineVariant = "table",
+                parameters = {size = 100},
+            },
         },
     })
-    assertEq(
-        rendered,
-        "\n"
-        .. [[Benchmark                   Mode  Cnt       Score  Units       Ratio
-map.lookup.table:size=100    p50   20      20.000  ns/op      1.000x
-map.lookup.array:size=100    p50   20      10.000  ns/op      2.000x
-]],
-        "comparative benchmark table"
+    assertTrue(
+        rendered:find("map%.lookup%.array:size=100%s+p50%s+20%s+10%.000%s+ns/op%s+2%.000x") ~= nil,
+        "the result table retains each baseline ratio\n" .. rendered
+    )
+    assertTrue(
+        rendered:find(
+            "map%.lookup:size=100%s+array%s+2%.000x"
+        ) ~= nil and rendered:find("map%.insert:size=100%s+table%s+2%.000x") ~= nil,
+        "each workload names its winner against the runner-up\n" .. rendered
+    )
+    assertTrue(
+        rendered:find("Geometric mean: map %(vs table%)") ~= nil and rendered:find("array%s+1%.189x") ~= nil,
+        "the summary weights parameter expansions within their logical case\n" .. rendered
     )
 end
 
@@ -274,7 +332,9 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
         ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout)
     )
     assertEq(listed, 0, "case listing exits successfully")
-    assertEq(read(casesOut), '"protocol"\n', "the listing is framed JSON in its own file")
+    local listing = jsonLines(casesOut)
+    assertEq(#listing, 1, "the listing has one framed JSON declaration")
+    assertEq(listing[1].name, "protocol", "the listing identifies the case")
     assertEq(read(stdout), "application started\n", "application output stays on stdout")
 
     local ran = os.execute(
@@ -310,20 +370,28 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
         ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout)
     )
     assertEq(listed, 0, "suite listing exits successfully")
+    local listing = jsonLines(casesOut)
+    local names = {}
+    for index, declaration in ipairs(listing) do
+        names[index] = declaration.name
+        assertEq(declaration.suite, "protocol", "the listing identifies its suite")
+        assertEq(declaration.caseName, "work", "the listing identifies its logical case")
+    end
     assertEq(
-        read(casesOut),
+        table.concat(names, "\n"),
         table.concat(
             {
-                '"protocol.work.base:size=1"',
-                '"protocol.work.other:size=1"',
-                '"protocol.work.base:size=2"',
-                '"protocol.work.other:size=2"',
-                "",
+                "protocol.work.base:size=1",
+                "protocol.work.other:size=1",
+                "protocol.work.base:size=2",
+                "protocol.work.other:size=2",
             },
             "\n"
         ),
         "parameters and variants expand into stable names"
     )
+    assertEq(listing[2].variant, "other", "the listing identifies its variant")
+    assertEq(listing[4].parameters.size, 2, "the listing carries structured parameters")
 
     local unsafe = os.execute(("%q run -O1 %q > %q 2> %q"):format(NUPP, fixture, stdout, stderr))
     assertTrue(unsafe ~= 0, "a direct multi-benchmark run fails")
@@ -355,9 +423,12 @@ end
 function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     local history = os.tmpname()
     local stdout = os.tmpname()
+    local profiles = os.tmpname()
     local fixture = HERE .. "/fixtures/bench_suite.g.nupp"
+    local simpleFixture = HERE .. "/fixtures/bench_protocol.g.nupp"
     os.remove(history)
     os.remove(stdout)
+    os.remove(profiles)
 
     local ran = os.execute(
         (
@@ -375,8 +446,43 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
         "history includes the raw samples rather than only a summary"
     )
 
+    local filtered = os.execute(
+        (
+            "%q bench --list --file %q --case-gmatch %q --case-gmatch %q --variant-gmatch %q --parameter-gmatch %q > %q"
+        ):format(NUPP, fixture, "^absent$", "^work$", "^other$", "^size=2$", stdout)
+    )
+    assertEq(filtered, 0, "structured Lua-pattern filters select a benchmark")
+    assertEq(
+        read(stdout),
+        "protocol.work.other:size=2\t" .. fixture .. "\n",
+        "case, variant and parameter filters combine while repeats are alternatives"
+    )
+
+    local profiled = os.execute(
+        (
+            "%q bench --file %q --case protocol --profile %q --profile-interval-ms 1 > %q"
+        ):format(NUPP, simpleFixture, profiles, stdout)
+    )
+    assertEq(profiled, 0, "the measured-window sampling pass exits successfully")
+    local human = read(stdout)
+    local resultAt = human:find("# Result: protocol", 1, true)
+    local tableAt = human:find("Benchmark%s+Mode%s+Cnt%s+Score%s+Units")
+    assertTrue(
+        resultAt ~= nil and tableAt ~= nil and resultAt < tableAt,
+        "a completed score streams before the final table"
+    )
+    local profilePath = human:match("# Profile: ([^\r\n]+)")
+    assertTrue(profilePath ~= nil, "the sampling pass names its collapsed-stack file")
+    local collapsed = read(profilePath)
+    assertTrue(
+        collapsed == "" or collapsed:find("^bench_protocol%.g%.nupp:") ~= nil,
+        "collected stacks are trimmed to the benchmark program"
+    )
+    assertTrue(collapsed == "" or collapsed:find(" %d+$") ~= nil, "collected stacks carry sample counts")
+
     os.remove(history)
     os.remove(stdout)
+    os.execute(("rm -rf %q"):format(profiles))
 end
 
 return M
