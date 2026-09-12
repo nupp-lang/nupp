@@ -231,6 +231,7 @@ end
 function M.everyRegisteredCommandHasAGrammarAndHelp()
     local names = cli.names()
     assert(#names >= 14, "every command is registered: " .. #names)
+    assert(table.concat(names, ","):find("bench", 1, true), "bench is a registered command")
     for _, name in ipairs(names) do
         assert(name ~= "", "a command has a name")
     end
@@ -362,6 +363,7 @@ function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()
         "---@param value integer\n---@return integer\n" .. "local function keep(value) return value end\nreturn keep\n"
     )
     source:close()
+
     local function exists(name)
         local file = io.open(name, "rb")
         if not file then
@@ -645,6 +647,7 @@ function M.jsonPositionsAreResolvedThroughALineIndex()
     local file = assert(io.open(path, "wb"))
     file:write("first\nsecond line\n\nfourth\n")
     file:close()
+
     local function at(offset, length)
         local values = report.diagnosticValues({
             {filename = path, offset = offset, length = length, code = "NUPP0001", msg = "x", severity = "error"}

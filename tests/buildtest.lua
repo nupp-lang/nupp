@@ -353,6 +353,7 @@ function M.cliProvidesHelpForMainAndEverySubcommand()
         "fmt",
         "build",
         "clean",
+        "bench",
         "tasks",
         "test",
         "doc",

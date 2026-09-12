@@ -402,6 +402,13 @@ the temporary narrowing above has ended. Each listing and case child has a
 deadline, and a timeout is reported as a failed benchmark rather than leaving
 the set hung.
 
+**The runner is `nupp bench`.** The proposal treated a command and an in-program
+measurement API as alternatives, but they own different boundaries. The
+library still reaches the application's own loop; the command now discovers
+benchmark programs and launches one isolated process per named case. The
+repository-specific `nupp task bench` and `bench/run.nupp` proved that
+orchestration and were replaced by the compiler command.
+
 ## Risks and assumptions
 
 - **A compiler change moves the static counters all at once.** An optimizer

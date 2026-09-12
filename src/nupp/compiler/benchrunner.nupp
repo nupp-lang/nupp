@@ -1,3 +1,5 @@
+module nupp.compiler.benchrunner
+
 --- Runs the benchmark set and merges what each case reported.
 ---
 --- One case is one process, and a case here means a `bench.case`, not a file: trace
@@ -8,11 +10,11 @@
 --- The baseline belongs to the runner rather than to a case. A child comparing against
 --- it would have each of them read and overwrite one file describing all of them.
 ---
---- It lives here rather than in `src/` because it contains no compiler: it globs a
+--- It is compiler-side command support rather than a public library: it globs a
 --- directory, starts children, and merges JSON. See
 --- [NEP 32](docs/neps/0032-benchmarks-as-programs.md).
 ---
---- Run: nupp task bench
+--- Called by `nupp bench`.
 local json = require("nupp.codec.json")
 
 local files = require("nupp.io.files")
@@ -31,6 +33,21 @@ local RECORD_OUT = "build/bench-case.json"
 local REMARKS_OUT = "build/remarks.json"
 local MERGED_OUT = "build/bench-record.json"
 local DEFAULT_TIMEOUT_MS: integer = 120000
+
+local runner = {}
+
+type runner.Options = {
+    executable: string?,
+    baseline: string?,
+    accept: boolean?,
+    json: boolean?,
+    case: string?,
+    file: string?,
+    history: string?,
+    label: string?,
+    timeoutMs: integer?,
+    list: boolean?
+}
 
 local function readFile(path: string): string?
     local handle = io.open(path, "r")
@@ -81,8 +98,8 @@ local function discover(): {string}
     return found
 end
 
-local function nuppRun(path: string, extra: {string}, timeoutMs: integer): (boolean, string?)
-    local args = {"./bin/nupp", "run", "-O1", "--remarks-out", path}
+local function nuppRun(executable: string, path: string, extra: {string}, timeoutMs: integer): (boolean, string?)
+    local args = {executable, "run", "-O1", "--remarks-out", path}
     for _, entry in ipairs(extra) do
         args[#args + 1] = entry
     end
@@ -108,10 +125,10 @@ local function nuppRun(path: string, extra: {string}, timeoutMs: integer): (bool
 end
 
 --- The case names a file defines, by asking it rather than by reading it.
-local function casesIn(path: string, timeoutMs: integer): ({string}, string?)
+local function casesIn(executable: string, path: string, timeoutMs: integer): ({string}, string?)
     local listing = "build/bench-cases.txt"
     os.remove(listing)
-    local ok, problem = nuppRun(path, {"--list-cases", "--cases-out", listing}, timeoutMs)
+    local ok, problem = nuppRun(executable, path, {"--list-cases", "--cases-out", listing}, timeoutMs)
     if not ok then
         return {}, problem and "case listing " .. problem or "case listing failed"
     end
@@ -137,7 +154,7 @@ local function casesIn(path: string, timeoutMs: integer): ({string}, string?)
 end
 
 --- Runs one named case in its own process and returns the record it wrote.
-local function runCase(path: string, name: string, n: integer?, timeoutMs: integer): (any?, string?)
+local function runCase(executable: string, path: string, name: string, n: integer?, timeoutMs: integer): (any?, string?)
     os.remove(RECORD_OUT)
     os.remove(REMARKS_OUT)
     local extra = {"--case", name, "--out", RECORD_OUT, "--quiet"}
@@ -145,7 +162,7 @@ local function runCase(path: string, name: string, n: integer?, timeoutMs: integ
         extra[#extra + 1] = "--n"
         extra[#extra + 1] = tostring(n)
     end
-    local ok, runProblem = nuppRun(path, extra, timeoutMs)
+    local ok, runProblem = nuppRun(executable, path, extra, timeoutMs)
     local text = readFile(RECORD_OUT)
     if not text then
         return nil, path .. " / " .. name .. ": " .. (runProblem or "wrote no record")
@@ -196,104 +213,22 @@ local function previousIterations(record: any): integer?
     return nil
 end
 
-local function usage(): nil
-    io.stdout:write(
-        [[
-Usage: nupp run bench/run.nupp [options]
+--- Runs the selected benchmark programs.
+function runner.run(options: runner.Options): integer
+    local executable = options.executable or "nupp"
+    local baselinePath = options.baseline
+    local accept = options.accept == true
+    local asJson = options.json == true
+    local listOnly = options.list == true
+    local only = options.case
+    local onlyFile = options.file
+    local historyPath = options.history
+    local label = options.label
+    local timeoutMs = options.timeoutMs or DEFAULT_TIMEOUT_MS
+    if timeoutMs < 1 or timeoutMs ~= math.floor(timeoutMs) then
+        io.stderr:write("bench: timeout must be a positive whole number of milliseconds\n")
 
-  --case NAME             run only an exact benchmark name
-  --file PATH             inspect and run only one benchmark program
-  --list                  list benchmark names and source files without running
-  --timeout-ms INTEGER    child deadline in milliseconds (default 120000)
-  --baseline PATH         compare deterministic counters with this baseline
-  --accept                replace the named baseline after a complete run
-  --history PATH          append the complete JSON record as one NDJSON line
-  --label TEXT            attach a label to the record and history entry
-  --json                  write only the merged JSON record to stdout
-]]
-    )
-end
-
-local function main(): integer
-    local baselinePath: string? = nil
-    local accept = false
-    local asJson = false
-    local listOnly = false
-    local only: string? = nil
-    local onlyFile: string? = nil
-    local historyPath: string? = nil
-    local label: string? = nil
-    local timeoutMs = DEFAULT_TIMEOUT_MS
-    local argv = _G.arg as {string}?
-    local index: integer = 1
-    while argv and argv[index] do
-        local entry = argv[index]
-        if entry == "--accept" then
-            accept = true
-        elseif entry == "--json" then
-            asJson = true
-        elseif entry == "--list" then
-            listOnly = true
-        elseif entry == "--help" then
-            usage()
-
-            return 0
-        elseif entry == "--baseline" then
-            local given = argv[index + 1]
-            if not given then
-                io.stderr:write("bench: --baseline needs a path\n")
-
-                return 1
-            end
-            baselinePath = given
-            index = (index + 1) as integer
-        elseif entry == "--case" then
-            local given = argv[index + 1]
-            if not given then
-                io.stderr:write("bench: --case needs a name\n")
-
-                return 1
-            end
-            only = given
-            index = (index + 1) as integer
-        elseif entry == "--file" then
-            local given = argv[index + 1]
-            if not given then
-                io.stderr:write("bench: --file needs a path\n")
-
-                return 1
-            end
-            onlyFile = given
-            index = (index + 1) as integer
-        elseif entry == "--history" then
-            local given = argv[index + 1]
-            if not given then
-                io.stderr:write("bench: --history needs a path\n")
-
-                return 1
-            end
-            historyPath = given
-            index = (index + 1) as integer
-        elseif entry == "--label" then
-            local given = argv[index + 1]
-            if not given then
-                io.stderr:write("bench: --label needs text\n")
-
-                return 1
-            end
-            label = given
-            index = (index + 1) as integer
-        elseif entry == "--timeout-ms" then
-            local given = tonumber(argv[index + 1])
-            if not given or given < 1 or given ~= math.floor(given) then
-                io.stderr:write("bench: --timeout-ms needs a positive whole number\n")
-
-                return 1
-            end
-            timeoutMs = math.floor(given)
-            index = (index + 1) as integer
-        end
-        index = (index + 1) as integer
+        return 2
     end
 
     if listOnly then
@@ -301,7 +236,7 @@ local function main(): integer
         local listed: integer = 0
         local paths = onlyFile and {onlyFile} or discover()
         for _, path in ipairs(paths) do
-            local names, problem = casesIn(path, timeoutMs)
+            local names, problem = casesIn(executable, path, timeoutMs)
             if problem then
                 io.stderr:write("bench: " .. path .. ": " .. problem .. "\n")
                 failed = true
@@ -344,7 +279,7 @@ local function main(): integer
     local matched: integer = 0
     local paths = onlyFile and {onlyFile} or discover()
     for _, path in ipairs(paths) do
-        local names, listingFailure = casesIn(path, timeoutMs)
+        local names, listingFailure = casesIn(executable, path, timeoutMs)
         if listingFailure then
             executionFailures[#executionFailures + 1] = path .. ": " .. listingFailure
         elseif #names == 0 then
@@ -360,7 +295,7 @@ local function main(): integer
                 io.stdout:flush()
             end
             local was = previousCase(previous, path, name)
-            local record, failure = runCase(path, name, previousIterations(was), timeoutMs)
+            local record, failure = runCase(executable, path, name, previousIterations(was), timeoutMs)
             if failure then
                 executionFailures[#executionFailures + 1] = failure
             end
@@ -440,4 +375,4 @@ local function main(): integer
     return (#executionFailures > 0 or #regressions > 0) and 1 or 0
 end
 
-os.exit(main())
+export = runner

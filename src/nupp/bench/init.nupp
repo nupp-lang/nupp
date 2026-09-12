@@ -19,10 +19,10 @@ bench.case("presize.sized", sized)
 bench.report()
 ```
 
-The reason it is a library and not a `nupp bench` command is that a command has
-to launch what it measures. An application's hot loop lives in the application,
-so only something the loop can call reaches it. See
-[NEP 32](docs/neps/0032-benchmarks-as-programs.md).
+The library and `nupp bench` have different jobs. An application's hot loop
+lives in the application, so only something the loop can call can measure it.
+The command discovers those programs and gives each named case an isolated
+process. See [NEP 32](docs/neps/0032-benchmarks-as-programs.md).
 
 `report` raises rather than returning a status, because a chunk's return value
 is discarded and a run that did not raise exits zero. It writes the record
@@ -1417,7 +1417,7 @@ function bench.report(): nil
         error("bench: no benchmark named " .. options.only, 0)
     end
     if not options.only and #jobs > 1 then
-        error("bench: this program defines more than one benchmark; use --case NAME or nupp task bench", 0)
+        error("bench: this program defines more than one benchmark; use --case NAME or nupp bench", 0)
     end
     reported = true
     local pending = jobs

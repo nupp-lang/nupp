@@ -4,8 +4,8 @@ order: 625
 
 # Benchmarks
 
-A benchmark in Nupp is a program, not a case a runner discovered. It links
-`nupp.bench`, runs under `nupp run`, and reports itself:
+A benchmark in Nupp is a program that declares cases through `nupp.bench` and
+reports itself:
 
 ```nupp
 local bench = nupp.bench
@@ -21,7 +21,7 @@ bench.report()
 ```
 
 ```bash
-nupp run -O1 --remarks-out bench/presize.bench.nupp --case presize.point.grown
+nupp bench --file bench/presize.bench.nupp --case presize.point.grown
 ```
 
 ```text
@@ -44,17 +44,16 @@ column: seven rounds in one VM are correlated samples, so treating them as
 independent observations and printing `1.96 × stdev / sqrt(n)` would not be a
 valid confidence interval.
 
-`build/remarks.json` is the fixed handoff between `nupp run` and the benchmark
-record. The compiler writes its optimization account there and `nupp.bench`
-includes it when the program reports. Running without `--remarks-out` still
-measures the case, but records no compiler-side counters.
+`nupp bench` runs cases at `-O1` and captures the compiler's optimization
+account automatically. `build/remarks.json` is its fixed internal handoff with
+`nupp run`; benchmark callers do not choose or pass that path.
 
-There is no `nupp bench`. A command has to launch what it measures, and an
-application's hot loop lives in the application — a game's frame, a server's
-request path — with its real asset load and its real trace population. A library
-is called from the loop that already exists, so the program being measured and
-the program being shipped are the same program. [NEP
-32](../../neps/0032-benchmarks-as-programs.md) records that decision.
+`nupp.bench` measures from inside the program, while `nupp bench` discovers and
+isolates those programs. An application's hot loop lives in the application — a
+game's frame or a server's request path — with its real asset load and trace
+population. The command does not replace that loop; it launches the program
+that owns it. [NEP 32](../../neps/0032-benchmarks-as-programs.md) records why the
+measurement API has this shape.
 
 ## `keep` is the one rule
 
@@ -232,12 +231,12 @@ from a pass.
 ## Running the set
 
 ```bash
-nupp task bench
-nupp run bench/run.nupp --list
-nupp run bench/run.nupp --baseline build/bench-baseline.json
-nupp run bench/run.nupp --baseline build/bench-baseline.json --accept
-nupp run bench/run.nupp --case presize.point.grown
-nupp run bench/run.nupp --file bench/presize.bench.nupp --case presize.point.grown
+nupp bench
+nupp bench --list
+nupp bench --baseline build/bench-baseline.json
+nupp bench --baseline build/bench-baseline.json --accept
+nupp bench --case presize.point.grown
+nupp bench --file bench/presize.bench.nupp --case presize.point.grown
 ```
 
 Each `bench.case` gets its own process, not each file: a file is asked what cases
@@ -259,7 +258,7 @@ The latest complete machine-readable result is always
 optionally label the run:
 
 ```bash
-nupp run bench/run.nupp \
+nupp bench \
   --history build/bench-history.ndjson \
   --label before-parser-rewrite
 ```

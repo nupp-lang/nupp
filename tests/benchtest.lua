@@ -356,14 +356,13 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     local history = os.tmpname()
     local stdout = os.tmpname()
     local fixture = HERE .. "/fixtures/bench_suite.g.nupp"
-    local runner = HERE .. "/../bench/run.nupp"
     os.remove(history)
     os.remove(stdout)
 
     local ran = os.execute(
         (
-            "%q run %q --file %q --case %q --timeout-ms 30000 --history %q --label smoke --json > %q"
-        ):format(NUPP, runner, fixture, "protocol.work.base:size=1", history, stdout)
+            "%q bench --file %q --case %q --history %q --label smoke --json > %q"
+        ):format(NUPP, fixture, "protocol.work.base:size=1", history, stdout)
     )
     assertEq(ran, 0, "the process-isolated runner exits successfully")
     local line = read(history):match("[^\r\n]+")

@@ -24,6 +24,7 @@ The commands, in the order `nupp help` lists them:
 - [`fmt`](#fmt): format Nupp source
 - [`build`](#build): build source files or a configured project target
 - [`clean`](#clean): remove build outputs configured in `nupp.lua`
+- [`bench`](#bench): run isolated benchmark programs
 - [`tasks`](#tasks): list or inspect project tasks from `nupp.lua`
 - [`lints`](#lints): list the lints and the level each runs at
 - [`ownership-audit`](#ownership-audit): list foreign pointer contracts and
@@ -90,9 +91,10 @@ nupp check --schema
 `init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `clean`, `tasks`, `lints`,
 `ownership-audit`, `explain`, `doc`, `fixpoint`, `import-c`, `export-c` and
 `version` take all three, and so does every `lsp` operation. `reference` names its
-formats `markdown`, `skill` and `json` instead. `coverage`, `test`, `test-runner` and `run`
-take `--json` and `--schema` with no `--format`, because the JSON each writes is
-one particular artifact rather than a rendering of the whole result.
+formats `markdown`, `skill` and `json` instead. `bench`, `coverage`, `test`,
+`test-runner` and `run` take `--json` and `--schema` with no `--format`, because
+the JSON each writes is one particular artifact rather than a rendering of the
+whole result.
 `completions`, `task` and `rock` produce no structured result and take neither.
 
 A test runs each command for real and validates its output against that
@@ -980,6 +982,41 @@ removed build
 alone is a usage error. See
 [build.md](../learn/projects/build.md#cache-and-failure-behavior) for what a build
 leaves in the output directory.
+
+### `bench`
+
+```text [nupp bench --help]
+Run isolated benchmark programs
+
+Usage:
+  nupp bench [--list] [--file PATH] [--case NAME] [options]
+
+Options:
+  --list                List benchmark names and source files without running
+  --file PATH           Inspect and run only one benchmark program
+  --case NAME           Run only an exact benchmark name
+  --timeout-ms INTEGER  Child deadline in milliseconds (default 120000)
+  --baseline PATH       Compare deterministic counters with this baseline
+  --accept              Replace the named baseline after a complete run
+  --history PATH        Append the complete record as one NDJSON line
+  --label TEXT          Attach a label to the record and history entry
+  --json                Write only the merged JSON record to stdout
+  --schema              Print the JSON Schema of --json output and exit
+  --color[=WHEN]        When to color output: always, never, or auto (default)
+  --no-color            Never color output; the same as --color=never
+  -h, --help            Show this help
+
+Discovers bench/*.bench.nupp by default. Each file is first asked which
+cases it declares, then every selected case runs under `nupp run -O1` in its own
+process. That boundary keeps heaps, compiled traces and blacklists separate.
+
+The latest merged record is build/bench-record.json. --history appends the same
+record as NDJSON. --baseline gates deterministic allocation and trace-abort
+counters; timing is recorded but never used as a pass/fail gate.
+```
+
+The measurement API and authoring guide are in
+[benchmarks.md](../learn/performance/benchmarks.md).
 
 ### `tasks`
 
@@ -2224,6 +2261,7 @@ Commands:
   fmt              Format Nupp source
   build            Build source files or a configured project target
   clean            Remove build outputs configured in nupp.lua
+  bench            Run isolated benchmark programs
   tasks            List or inspect project tasks from nupp.lua
   lints            List the lints and the level each runs at
   ownership-audit  List foreign pointer contracts and unsafe assertion sites

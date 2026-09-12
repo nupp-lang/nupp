@@ -591,13 +591,6 @@ return {
             argv = {"node", "scripts/docs-serve.mjs"},
         },
         [
-            "bench"
-        ] = {
-            description = "Run the benchmark set, one process per case",
-            build = "compiler",
-            argv = {"./bin/nupp", "run", "bench/run.nupp"},
-        },
-        [
             "annotated-lua-corpus"
         ] = {
             description = "Fetch the pinned LuaLS corpus and exercise annotation ingestion",

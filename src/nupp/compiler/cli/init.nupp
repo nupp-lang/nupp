@@ -83,6 +83,12 @@ local REGISTRY: {{
         end
     },
     {
+        name = "bench",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.bench")
+        end
+    },
+    {
         name = "tasks",
         load = function(): specMod.Handler
             return require("nupp.compiler.cli.tasks")
@@ -332,7 +338,7 @@ end
 -- `lsp` is resident: its traces amortize across every edit of a session, so refusing
 -- side traces would give up what it spends the first file paying for. `run` and `task`
 -- execute a program that is not this one, and nothing here knows its shape.
-const JIT_DEFAULT_COMMANDS = {lsp = true, run = true, task = true}
+const JIT_DEFAULT_COMMANDS = {bench = true, lsp = true, run = true, task = true}
 
 -- Everything else is a compiler run: it walks a large program roughly once and exits.
 --

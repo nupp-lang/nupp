@@ -7,7 +7,7 @@ const {type Invocation} = require("nupp.bench")
 --- thing that can regress. `bench.keep` is what stops the loop being deleted: an
 --- earlier version of `bench/presize.lua` measured LuaJIT removing it.
 ---
---- Run: nupp run bench/run.nupp --file bench/presize.bench.nupp
+--- Run: nupp bench --file bench/presize.bench.nupp
 local bench = require("nupp.bench")
 
 local function grown(_: any, _: Invocation): nil

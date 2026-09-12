@@ -1,0 +1,104 @@
+module nupp.compiler.cli.bench
+
+--[[
+`nupp bench`: discover benchmark programs, isolate each named case, and merge
+their records.
+
+The measured code still owns its loop through `nupp.bench`. This command owns
+the process boundary around it: listing cases, selecting one per child, applying
+deadlines, comparing baselines, and retaining machine-readable history.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+
+local command = spec.command{
+    name = "bench",
+    summary = "Run isolated benchmark programs",
+    usage = {"nupp bench [--list] [--file PATH] [--case NAME] [options]"},
+    options = {
+        {name = "--list", help = "List benchmark names and source files without running"},
+        {name = "--file", value = "PATH", help = "Inspect and run only one benchmark program"},
+        {name = "--case", value = "NAME", help = "Run only an exact benchmark name"},
+        {name = "--timeout-ms", value = "INTEGER", help = "Child deadline in milliseconds (default 120000)"},
+        {name = "--baseline", value = "PATH", help = "Compare deterministic counters with this baseline"},
+        {name = "--accept", help = "Replace the named baseline after a complete run"},
+        {name = "--history", value = "PATH", help = "Append the complete record as one NDJSON line"},
+        {name = "--label", value = "TEXT", help = "Attach a label to the record and history entry"},
+        {name = "--json", help = "Write only the merged JSON record to stdout"},
+    },
+    schema = {
+        type = "object",
+        description = "One benchmark-set run, with one isolated child record per selected case.",
+        properties = {
+            schema = {type = "integer"},
+            recordedAt = {type = "string"},
+            label = {type = "string"},
+            cases = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        case = {type = "string", description = "Benchmark program path."},
+                        name = {type = "string", description = "Selected case name."},
+                        record = {type = "object", description = "The record written by that child."},
+                    },
+                    required = {"case", "name", "record"},
+                },
+            },
+        },
+        required = {"schema", "recordedAt", "cases"},
+    },
+    detail = [[Discovers bench/*.bench.nupp by default. Each file is first asked which
+cases it declares, then every selected case runs under `nupp run -O1` in its own
+process. That boundary keeps heaps, compiled traces and blacklists separate.
+
+The latest merged record is build/bench-record.json. --history appends the same
+record as NDJSON. --baseline gates deterministic allocation and trace-abort
+counters; timing is recorded but never used as a pass/fail gate.]],
+}
+
+local function run(parsed: any): integer
+    local positional: {string} = parsed.positional
+    if #positional > 0 then
+        return command:usageError("unexpected argument " .. positional[1])
+    end
+    local values = parsed.values
+    if values.accept and not values.baseline then
+        return command:usageError("--accept needs --baseline PATH")
+    end
+    if values.list and (values.json or values.baseline or values.accept or values.history or values.label) then
+        return command:usageError("--list cannot be combined with result, baseline, or history options")
+    end
+    local timeoutMs: integer? = nil
+    if values.timeoutMs then
+        local given = tonumber(values.timeoutMs)
+        if not given or given < 1 or given ~= math.floor(given) then
+            return command:usageError("--timeout-ms needs a positive whole number")
+        end
+        timeoutMs = math.floor(given)
+    end
+    local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
+    local hosted = rawget(_G, "__NUPP_EXECUTABLE")
+    local executable = compilerRoot and compilerRoot .. "/bin/nupp" or type(
+        hosted
+    ) == "string" and hosted or tostring(arg[0] or "nupp")
+    const {type Options} = require("nupp.compiler.benchrunner")
+    local runner = require("nupp.compiler.benchrunner")
+
+    return runner.run(
+        {
+            executable = executable,
+            baseline = values.baseline,
+            accept = values.accept,
+            json = values.json,
+            case = values.case,
+            file = values.file,
+            history = values.history,
+            label = values.label,
+            timeoutMs = timeoutMs,
+            list = values.list,
+        } as Options
+    )
+end
+
+export = new spec.Handler(spec = command, run = run)
