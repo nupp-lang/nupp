@@ -289,6 +289,19 @@ callback; setup, teardown, and harness bookkeeping stay out. One
 `--profile-zone` to retain one `nupp.profile.zone` subtree. The files open
 directly in speedscope, FlameGraph, and inferno.
 
+## Machine-readable output
+
+```bash
+nupp bench --json > build/benchmark-export.json
+nupp bench --schema
+```
+
+`--json` suppresses the progress lines and human result tables, leaving one
+merged JSON document on standard output. It contains every selected case's raw
+samples, suite identity, compiler account, and trace account. `--geo` changes
+only the human report; consumers can calculate any aggregate they need from the
+raw measurements.
+
 The latest complete machine-readable result is always
 `build/bench-record.json`. To retain append-only NDJSON history, name a file and
 optionally label the run:
