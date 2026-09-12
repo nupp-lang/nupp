@@ -16,6 +16,7 @@ module nupp.compiler.benchrunner
 --- Called by `nupp bench`.
 local json = require("nupp.codec.json")
 
+local buildProcess = require("nupp.compiler.build.process")
 local files = require("nupp.io.files")
 local process = require("nupp.io.process")
 local time = require("nupp.time")
@@ -170,8 +171,15 @@ local function nuppRun(executable: string, path: string, extra: {string}, timeou
     for _, entry in ipairs(extra) do
         args[#args + 1] = entry
     end
+    local childArgs = buildProcess.isolatedArguments(args)
     local child = new process.Process(
-        {args = args, stdin = "inherit", stdout = "pipe", stderr = "pipe", timeoutMs = timeoutMs,} as process.Options
+        {
+            args = childArgs,
+            stdin = "inherit",
+            stdout = "pipe",
+            stderr = "pipe",
+            timeoutMs = timeoutMs,
+        } as process.Options
     )
     local result, communicateProblem = child:communicate()
     child:close()

@@ -131,6 +131,15 @@ local function isolatedArgs(argv: {string}): {string}
     return launchArgs(argv)
 end
 
+--- Resolves an argv for direct use by the portable process provider.
+---
+--- In particular, a checkout's `bin/nupp` is a shell launcher rather than a
+--- Windows executable. Isolated compiler children bypass it once the built
+--- compiler exists so the native provider can start them on every platform.
+function process.isolatedArguments(argv: {string}): {string}
+    return isolatedArgs(argv)
+end
+
 -- The shell-string entry points can only say `cd` and assignments; a bound they
 -- cannot honour is a caller that wanted `captureIsolated`.
 local function assertUnbounded(opts: process.Options, entry: string): nil
@@ -252,7 +261,7 @@ end
 -- The argv an isolated child is started with: the worker itself, or a shell that
 -- lowers its address-space ceiling first where the platform has one.
 local function boundedArgs(argv: {string}, opts: process.Options): {string}
-    local args = isolatedArgs(argv)
+    local args = process.isolatedArguments(argv)
     if opts.memoryMb and not windows then
         local kilobytes = math.max(1, math.floor(opts.memoryMb * 1024))
         args = {
