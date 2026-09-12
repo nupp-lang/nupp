@@ -11,8 +11,7 @@ module nupp.compiler.benchrunner
 --- it would have each of them read and overwrite one file describing all of them.
 ---
 --- It is compiler-side command support rather than a public library: it globs a
---- directory, starts children, and merges JSON. See
---- [NEP 32](docs/neps/0032-benchmarks-as-programs.md).
+--- directory, starts children, and merges JSON.
 ---
 --- Called by `nupp bench`.
 local json = require("nupp.codec.json")

@@ -22,7 +22,7 @@ bench.report()
 The library and `nupp bench` have different jobs. An application's hot loop
 lives in the application, so only something the loop can call can measure it.
 The command discovers those programs and gives each named case an isolated
-process. See [NEP 32](docs/neps/0032-benchmarks-as-programs.md).
+process.
 
 `report` raises rather than returning a status, because a chunk's return value
 is discarded and a run that did not raise exits zero. It writes the record

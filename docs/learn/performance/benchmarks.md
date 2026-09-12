@@ -52,8 +52,7 @@ account automatically. `build/remarks.json` is its fixed internal handoff with
 isolates those programs. An application's hot loop lives in the application — a
 game's frame or a server's request path — with its real asset load and trace
 population. The command does not replace that loop; it launches the program
-that owns it. [NEP 32](../../neps/0032-benchmarks-as-programs.md) records why the
-measurement API has this shape.
+that owns it.
 
 ## `keep` is the one rule
 
