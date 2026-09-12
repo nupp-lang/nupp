@@ -5,6 +5,7 @@ interface M.Inspect
     prefixed: function(self, prefix: string): string
     decorated: function(self): string
     firstField: function(self): string
+    documentation: function(self): string
 
     function inspectKind(self): string
         return "record"
@@ -25,6 +26,10 @@ function M.consumeNames(names: {string}): string
     return first
 end
 
+function M.returnDocumentation(owner: string?, fields: {string}): string
+    return (owner or "<none>") .. "\n-- fields --\n" .. table.concat(fields, "\n")
+end
+
 function M.renderRecord(names: {string}, values: {string}): string
     local parts = {}
     for index, name in ipairs(names) do
@@ -35,11 +40,15 @@ function M.renderRecord(names: {string}, values: {string}): string
 end
 
 comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+    if info.schema ~= 2 then
+        return nupp.derive.error("Inspect needs derive input schema 2", info.reference)
+    end
     if info.kind ~= "record" then
         return nupp.derive.error("Inspect can be derived only for records", info.reference)
     end
     local names = {}
     local values = {}
+    local documentation = {}
     for _, field in ipairs(info.fields) do
         if field.readType == nil then
             return nupp.derive.error("Inspect requires readable fields", field.reference)
@@ -71,6 +80,7 @@ comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect
         end
         names[#names + 1] = field.name
         values[#values + 1] = value
+        documentation[#documentation + 1] = field.documentation or "<none>"
     end
 
     return nupp.derive.implement{
@@ -90,6 +100,10 @@ comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect
             firstField = nupp.derive.forward{
                 helper = nupp.derive.helper(M, "consumeNames"),
                 arguments = {nupp.derive.constant(names)},
+            },
+            documentation = nupp.derive.forward{
+                helper = nupp.derive.helper(M, "returnDocumentation"),
+                arguments = {nupp.derive.constant(info.documentation), nupp.derive.constant(documentation),},
             },
         },
     }

@@ -1,8 +1,14 @@
 local inspect = require("tests.fixtures.deriveinspect")
 
+--- Credentials used to authenticate.
+---
+--- Kept as a typed record.
 @derive(inspect.derive, nupp.derive.Debug)
 local record Credentials
+    --- The public account name.
     username: string
+
+    --- A secret value.
     @debug(redact = true)
     password: string
 end
@@ -13,6 +19,9 @@ assert(credentials:inspectKind() == "record")
 assert(credentials:prefixed("credentials=") == "credentials={username=michael, password=<redacted>}")
 assert(credentials:decorated() == "[{username=michael, password=<redacted>}]")
 assert(credentials:firstField() == "username")
+assert(
+    credentials:documentation() == "Credentials used to authenticate.\n\nKept as a typed record.\n-- fields --\nThe public account name.\nA secret value."
+)
 
 @derive(inspect.derive)
 local record Child
@@ -27,6 +36,7 @@ end
 local parent = new Parent(child = new Child(name = "nested"))
 assert(parent:inspect() == "{child=<nested>}")
 assert(credentials:firstField() == "username")
+assert(parent:documentation() == "<none>\n-- fields --\n<none>")
 
 -- Both providers have to observe the other's declaration-time claim before
 -- either provider body has completed. The fields are intentionally not

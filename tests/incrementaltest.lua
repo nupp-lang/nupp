@@ -360,6 +360,84 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.deriveDocumentationChangesInvalidateGeneratedBehavior()
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute("mkdir -p '" .. dir .. "'")
+    local providerPath = dir .. "/provider.nupp"
+    local depPath = dir .. "/dep.nupp"
+    local mainPath = dir .. "/main.nupp"
+
+    local function write(path, source)
+        local file = assert(io.open(path, "wb"))
+        file:write(source)
+        file:close()
+    end
+
+    write(
+        providerPath,
+        table.concat(
+            {
+                "local M = {}",
+                "interface M.Documented",
+                "   documentation: function(self): string",
+                "end",
+                "function M.returnText(text: string): string return text end",
+                "comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Documented>",
+                "   return nupp.derive.implement{methods = {documentation = nupp.derive.forward{",
+                "      helper = nupp.derive.helper(M, 'returnText'),",
+                "      arguments = {nupp.derive.constant(info.documentation or '')},",
+                "   }}}",
+                "end",
+                "return M",
+            },
+            "\n"
+        )
+    )
+    local dep = table.concat(
+        {
+            "local provider = require('provider')",
+            "local dep = {}",
+            "--- First documentation.",
+            "@derive(provider.derive)",
+            "record dep.Config",
+            "   value: integer",
+            "end",
+            "return dep",
+        },
+        "\n"
+    )
+    write(depPath, dep)
+    write(
+        mainPath,
+        table.concat(
+            {
+                "local dep = require('dep')",
+                "local config = new dep.Config(value = 1)",
+                "return config:documentation()",
+            },
+            "\n"
+        )
+    )
+
+    local inc = incremental.new(dir, {cache = false})
+    assertEq(#inc.checkFile(mainPath).diags, 0, "documented derive checks cold")
+    assertEq(inc.deriveStats().executions, 1, "one documented derive recipe is materialized")
+    local coldChecks = inc.q.stats.checkModule
+    local coldFingerprint = inc.checkFile(depPath).exports.deriveInterfaceFingerprint
+
+    inc.changeDocument(depPath, dep:gsub("First documentation", "Second documentation"))
+    assertEq(#inc.checkFile(mainPath).diags, 0, "changed derive documentation stays clean")
+    assertEq(inc.deriveStats().executions, 2, "changed documentation materializes a new recipe")
+    assertEq(inc.q.stats.checkModule, coldChecks + 2, "changed documentation rechecks the dependent")
+    assert(
+        inc.checkFile(depPath).exports.deriveInterfaceFingerprint ~= coldFingerprint,
+        "changed documentation kept the generated behavior envelope"
+    )
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.fieldDefaultChangesInvalidateModuleConsumers()
     local dir = os.tmpname()
     os.remove(dir)

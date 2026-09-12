@@ -563,8 +563,9 @@ end
 --- compiler generates members from that recipe and checks them the way it checks
 --- written ones. This is a declaration-augmentation phase rather than a text macro. A
 --- provider adds no imports, top-level declarations, modules, or independently
---- nameable types, and it observes no tokens, source positions, comments, or another
---- provider's output.
+--- nameable types, and it observes no tokens, source positions, ordinary comments,
+--- mutable syntax objects, or another provider's output. It does see normalized
+--- declaration and field docblocks.
 ---
 --- Three providers ship with the compiler and cross the same boundary a package
 --- provider does: `Debug`, `JSON`, and `Serde`.
@@ -772,6 +773,9 @@ record nupp.derive
         --- The name as written.
         readonly name: string
 
+        --- The field's `---` documentation text, with markers and tags removed.
+        readonly documentation: string?
+
         --- Whether the field can be read, and so whether `field` admits it.
         readonly readable: boolean
 
@@ -806,7 +810,7 @@ record nupp.derive
     --- than per instantiation, and a type parameter exposes its bound, or `unknown`, so
     --- a provider cannot specialize for arguments a later instantiation supplies.
     record Info
-        --- The projection's schema version, currently 1.
+        --- The projection's schema version, currently 2.
         readonly schema: integer
 
         --- What the owner was declared as: `record`, `struct`, or `interface`.
@@ -820,6 +824,9 @@ record nupp.derive
 
         --- How the declaration is bound: `local`, `module`, `global`, or `nested`.
         readonly visibility: string
+
+        --- The declaration's `---` documentation text, with markers and tags removed.
+        readonly documentation: string?
 
         --- The stable identity of the provider being run.
         readonly providerIdentity: string

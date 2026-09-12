@@ -2684,6 +2684,7 @@ function checkMod.check(
             end
             local k = decl and decl.kind
             if k == "recordDecl" and decl.name then
+                decl.documentationNode = stat
                 if #deriveApplications > 0 then
                     decl.deriveApplications = decl.deriveApplications or {}
                     for _, application in ipairs(deriveApplications) do

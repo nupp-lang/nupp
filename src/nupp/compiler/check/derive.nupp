@@ -7,6 +7,7 @@ local cst = require("nupp.compiler.cst")
 local relations = require("nupp.compiler.relations")
 local generics = require("nupp.compiler.generics")
 local hash = require("nupp.compiler.hash")
+local docblock = require("nupp.compiler.docblock")
 local recipeCodec = require("nupp.compiler.materialize.codec")
 local reflection = require("nupp.compiler.reflection")
 local typeblueprint = require("nupp.compiler.typeblueprint")
@@ -43,14 +44,15 @@ end
 ----------------------------------------------------------------------------
 
 local function fieldNodes(stat)
-    local out = {}
+    local out, documentationNodes = {}, {}
     for _, entry in ipairs(stat.entries or {}) do
         if entry.kind == "fieldDecl" and entry.name then
             out[entry.name.text] = entry
+            documentationNodes[entry.name.text] = entry.annotations and entry.annotations[1] or entry
         end
     end
 
-    return out
+    return out, documentationNodes
 end
 
 local function providerFilePaths(program)
@@ -375,19 +377,21 @@ function derive.install(c: state.Checker): derive.Ops
     -- Running a provider
     ---------------------------------------------------------------------
 
-    local function evaluateProvider(item, provider, plan, nodes)
+    local function evaluateProvider(item, provider, plan, nodes, fieldDocumentationNodes)
         local n, contract = item.nominal, provider.contract
+        local ownerDocumentation, ownerDocumented = docblock.of(item.stat.documentationNode or item.stat)
         local declarationPath = n.runtimePath or n.name
         local modulePrefix = c.moduleLocal and (c.moduleLocal .. ".") or nil
         if modulePrefix and declarationPath:sub(1, #modulePrefix) == modulePrefix then
             declarationPath = declarationPath:sub(#modulePrefix + 1)
         end
         local input = {
-            schema = 1,
+            schema = 2,
             kind = n.declKind,
             name = n.name,
             qualifiedName = (c.result.moduleName or c.result.declaredModuleName or "<chunk>") .. "." .. declarationPath,
             visibility = c.visibilityOf(item.stat),
+            documentation = ownerDocumented and ownerDocumentation.text or nil,
             providerIdentity = provider.identity,
             ownerIdentity = n.deriveKey,
             ownerType = {descriptor = item.ownerDescriptor},
@@ -480,6 +484,7 @@ function derive.install(c: state.Checker): derive.Ops
         local descriptorFields = item.ownerDescriptor.fields or {}
         for index, fieldName in ipairs(n.fieldOrder or {}) do
             local fieldType = n.byname[fieldName]
+            local fieldDocumentation, fieldDocumented = docblock.of(fieldDocumentationNodes[fieldName])
             -- What a field's type claims is fingerprint input rather than a member of
             -- the projection, and `record Field` is right not to declare it. A provider
             -- asks `nupp.derive.claims` one interface at a time, which keeps the world
@@ -500,6 +505,7 @@ function derive.install(c: state.Checker): derive.Ops
                 index
             ] = {
                 name = fieldName,
+                documentation = fieldDocumented and fieldDocumentation.text or nil,
                 readable = fieldType ~= nil,
                 writable = n.writeByname[fieldName] ~= nil,
                 readType = transportedType(fieldType),
@@ -531,6 +537,7 @@ function derive.install(c: state.Checker): derive.Ops
             kind = input.kind,
             name = input.name,
             visibility = input.visibility,
+            documentation = input.documentation,
             providerIdentity = input.providerIdentity,
             ownerIdentity = input.ownerIdentity,
             annotations = input.annotations,
@@ -545,6 +552,7 @@ function derive.install(c: state.Checker): derive.Ops
                 index
             ] = {
                 name = field.name,
+                documentation = field.documentation,
                 readable = field.readable,
                 writable = field.writable,
                 read = field.readType and field.readType.descriptor.fingerprint or nil,
@@ -1360,7 +1368,7 @@ function derive.install(c: state.Checker): derive.Ops
         end)
         item.ownerDescriptor = reflection.describe(n, nil, true)
         item.ownerDescriptor.sources = nil
-        local nodes = fieldNodes(stat)
+        local nodes, fieldDocumentationNodes = fieldNodes(stat)
         item.fieldNodes = nodes
         local plan = {
             key = n.deriveKey,
@@ -1387,7 +1395,7 @@ function derive.install(c: state.Checker): derive.Ops
                     abortAll()
                     return
                 end
-                evaluateProvider(item, provider, plan, nodes)
+                evaluateProvider(item, provider, plan, nodes, fieldDocumentationNodes)
             end
         end
 

@@ -346,6 +346,7 @@ function deriveProvider.materializeInfo(state: any, input: any, opaque: any, pro
             {
                 index = index,
                 name = field.name,
+                documentation = field.documentation,
                 readable = field.readable,
                 writable = field.writable,
                 hasDefault = field.hasDefault and true or false,
@@ -369,6 +370,7 @@ function deriveProvider.materializeInfo(state: any, input: any, opaque: any, pro
             name = input.name,
             qualifiedName = input.qualifiedName,
             visibility = input.visibility,
+            documentation = input.documentation,
             providerIdentity = input.providerIdentity,
             ownerIdentity = input.ownerIdentity,
             ownerType = input.ownerType,
@@ -402,6 +404,7 @@ function deriveProvider.index(state: any, entry: any, key: any): any, any
             or key == "providerIdentity"
             or key == "ownerIdentity"
             or key == "qualifiedName"
+            or key == "documentation"
             or key == "hasConstructor"
             or key == "fingerprint"
         then
@@ -416,6 +419,7 @@ function deriveProvider.index(state: any, entry: any, key: any): any, any
         elseif key == "readType"
             or key == "writeType"
             or key == "name"
+            or key == "documentation"
             or key == "readable"
             or key == "writable"
             or key == "hasDefault"
