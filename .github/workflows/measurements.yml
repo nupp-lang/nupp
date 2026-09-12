@@ -175,7 +175,7 @@ jobs:
             luajit -e 'print(jit.version .. " " .. jit.os .. "/" .. jit.arch)'
           } > "$results/metadata.txt"
           luajit bench/reification.lua | tee "$results/reification.txt"
-          ./bin/nupp run bench/aos.nupp | tee "$results/aos.txt"
+          ./bin/nupp bench --file bench/aos.bench.nupp | tee "$results/aos.txt"
 
       - name: Upload reification measurements
         if: always()
