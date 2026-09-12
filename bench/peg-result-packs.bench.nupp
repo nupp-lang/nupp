@@ -1,0 +1,47 @@
+-- Compare native multiple PEG results with an explicitly requested table capture.
+-- Run: nupp bench --file bench/peg-result-packs.bench.nupp
+
+local bench = require("nupp.bench")
+const {type Invocation} = require("nupp.bench")
+
+local SUBJECT = "identifier"
+local BATCH: integer = 100000
+local Native: nupp.peg.Peg<(integer, integer)> = nupp.peg.compile("{} [a-z]+ {} !.")
+local Collected: nupp.peg.Peg<{integer}> = nupp.peg.compile("{| {} [a-z]+ {} |} !.")
+
+local function native(_: any, _: Invocation): integer
+    local sink: integer = 0
+    for _ = 1, BATCH do
+        local first, nextPosition = Native(SUBJECT)
+        sink = sink + (first or 0) + (nextPosition or 0)
+    end
+
+    return sink
+end
+
+local function collected(_: any, _: Invocation): integer
+    local sink: integer = 0
+    for _ = 1, BATCH do
+        local positions = assert(Collected(SUBJECT))
+        sink = sink + positions[1] + positions[2]
+    end
+
+    return sink
+end
+
+local first, nextPosition = Native(SUBJECT)
+local positions = assert(Collected(SUBJECT))
+assert(first == positions[1] and nextPosition == positions[2])
+
+bench.suite(
+    {
+        name = "peg-result-packs",
+        baselineVariant = "table-capture",
+        variants = {{name = "table-capture", run = collected}, {name = "native-pack", run = native},},
+        cases = {{name = "identifier", operations = BATCH},},
+        warmupIterations = 3,
+        minSamples = 7,
+        minDurationSec = 0.5,
+    } as bench.SuiteOptions
+)
+bench.report()

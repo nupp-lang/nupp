@@ -20,6 +20,7 @@ local optimize = require("nupp.compiler.optimize")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 local json = require("testjson")
+local files = require("nupp.io.files")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -82,6 +83,16 @@ local function countKinds(sites)
 end
 
 local M = {}
+
+function M.everyTopLevelNuppBenchmarkUsesTheHarness()
+    local paths = assert(files.glob(HERE .. "/../bench/*.nupp"))
+    table.sort(paths)
+    assertEq(#paths, 9, "all nine top-level Nupp benchmarks are present")
+    for _, path in ipairs(paths) do
+        assertTrue(path:match("%.bench%.nupp$") ~= nil, path .. " does not use the benchmark discovery convention")
+        assertTrue(read(path):find("nupp.bench", 1, true) ~= nil, path .. " does not use the shared harness")
+    end
+end
 
 function M.lowersKeepToAStoreRatherThanACall()
     local code = compile([[

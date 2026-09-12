@@ -233,6 +233,27 @@ from a pass.
 
 ## Running the set
 
+Every top-level Nupp benchmark in `bench/` uses the harness and is discovered by
+`nupp bench`:
+
+| Program | Entries | Comparison |
+| --- | ---: | --- |
+| `aos.bench.nupp` | 2 | tables and reified carray |
+| `frames.bench.nupp` | 1 | application-owned frame loop |
+| `json-lpeg.bench.nupp` | 18 | JSON decoding and recognition across Nupp PEG, LPeg, and the runtime codec |
+| `nupp-lpeg-shapes.bench.nupp` | 6 | Nupp PEG and native LPeg by grammar shape |
+| `peg-kernels.bench.nupp` | 8 | automatic PEG specialization and forced LPeg |
+| `peg-lpeg.bench.nupp` | 7 | forced-LPeg recognition, captures, actions, and recursion |
+| `peg-result-packs.bench.nupp` | 2 | native result packs and table capture |
+| `presize.bench.nupp` | 2 | grown and presized tables |
+| `soa.bench.nupp` | 3 | generated SoA, handwritten SoA, and AoS |
+
+That is 49 isolated entries. Root-level `.lua` files are hand-written compiler
+output controls or compiler probes, not Nupp source benchmarks. Subdirectories
+such as `base64/`, `sha256/`, and `workers/` are cross-runtime benchmark projects
+whose own `run.sh` drivers build and compare multiple implementations; they are
+not callback cases for the in-process Nupp measurement API.
+
 ```bash
 nupp bench
 nupp bench --list

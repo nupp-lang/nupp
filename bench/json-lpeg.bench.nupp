@@ -1,10 +1,10 @@
 -- Compare full JSON decoding through Nupp PEG, native LPeg 1.1 `re`, and the
 -- production Nupp JSON runtime.
--- Run with: ./bin/nupp run -O2 bench/json-lpeg.nupp
+-- Run with: ./bin/nupp bench --file bench/json-lpeg.bench.nupp
 
-local runtime = nupp.codec.json
-local jit: any = require("jit")
-
+local bench = require("nupp.bench")
+const {type Invocation} = require("nupp.bench")
+local runtime = require("nupp.codec.json")
 local lpeg: any = require("lpeg")
 local re: any = require("re")
 
@@ -191,12 +191,8 @@ local RECOGNIZER_GRAMMAR = [[
     space <- %s*
 ]]
 
-local started = os.clock()
 local LPegDecoder = re.compile(DECODER_GRAMMAR, definitions)
-local lpegDecoderCompile = os.clock() - started
-started = os.clock()
 local LPegRecognizer = re.compile(RECOGNIZER_GRAMMAR)
-local lpegRecognizerCompile = os.clock() - started
 
 local tiny = runtime.encode({
     ok = true,
@@ -278,99 +274,86 @@ for _, fixture in ipairs(fixtures) do
     end
 end
 
-local ROUNDS = 7
 local NUPP_DECODE_BYTES = 64 * 1024
 local NUPP_RECOGNIZE_BYTES = 128 * 1024
-local FAST_BYTES = 8 * 1024 * 1024
-local sink = 0
 
-local function median(values: {number}): number
-    table.sort(values)
-    return values[math.ceil(#values / 2)]
-end
-
-local function score(result: any): number
-    if type(result) == "table" then
-        return result.version or result.count or 0
-    end
-    return result or 0
-end
-
-local function measure(parser: function(string): any, text: string, byteBudget: integer): number, number
+local function run(parser: function(string): any, byteBudget: integer, invocation: Invocation): any
+    local text = invocation.data as string
     local iterations = math.max(1, math.floor(byteBudget / #text))
-    local warmups = math.max(3, math.floor(64 * 1024 / #text))
-    for _ = 1, warmups do
-        sink = sink + score(assert(parser(text)))
-    end
-    local rates = {}
-    for round = 1, ROUNDS do
-        collectgarbage("collect")
-        local startedAt = os.clock()
-        local result: any
-        for _ = 1, iterations do
-            result = assert(parser(text))
-        end
-        local elapsed = os.clock() - startedAt
-        sink = sink + score(result)
-        rates[round] = #text * iterations / elapsed / 1048576
+    local result: any = nil
+    for _ = 1, iterations do
+        result = assert(parser(text))
     end
 
-    return median(rates), iterations
+    return result
 end
 
-print(string.format("JSON PEG comparison, %s, %s, %d rounds", jit.version, lpeg.version, ROUNDS))
-print(
-    string.format(
-        "native LPeg re.compile: decoder %.3f ms, recognizer %.3f ms",
-        lpegDecoderCompile * 1000,
-        lpegRecognizerCompile * 1000
-    )
+local function decodeNupp(_: any, invocation: Invocation): any
+    return run(nuppDecode, NUPP_DECODE_BYTES, invocation)
+end
+
+local function decodeLPeg(_: any, invocation: Invocation): any
+    return run(lpegDecode, NUPP_DECODE_BYTES, invocation)
+end
+
+local function decodeRuntime(_: any, invocation: Invocation): any
+    return run(runtimeDecode, NUPP_DECODE_BYTES, invocation)
+end
+
+local function recognizeNupp(_: any, invocation: Invocation): any
+    return run(nuppRecognize, NUPP_RECOGNIZE_BYTES, invocation)
+end
+
+local function recognizeInline(_: any, invocation: Invocation): any
+    return run(nuppInlineRecognize, NUPP_RECOGNIZE_BYTES, invocation)
+end
+
+local function recognizeLPeg(_: any, invocation: Invocation): any
+    return run(lpegRecognize, NUPP_RECOGNIZE_BYTES, invocation)
+end
+
+local decodeCases = {}
+local recognizeCases = {}
+for _, fixture in ipairs(fixtures) do
+    local decodeIterations = math.max(1, math.floor(NUPP_DECODE_BYTES / #fixture.text))
+    local recognizeIterations = math.max(1, math.floor(NUPP_RECOGNIZE_BYTES / #fixture.text))
+    decodeCases[
+        #decodeCases + 1
+    ] = {name = fixture.name, data = fixture.text, operations = #fixture.text * decodeIterations}
+    recognizeCases[
+        #recognizeCases + 1
+    ] = {name = fixture.name, data = fixture.text, operations = #fixture.text * recognizeIterations}
+end
+
+bench.suite(
+    {
+        name = "json-decode",
+        baselineVariant = "runtime",
+        variants = {
+            {name = "runtime", run = decodeRuntime},
+            {name = "nupp-peg", run = decodeNupp},
+            {name = "lpeg", run = decodeLPeg},
+        },
+        cases = decodeCases,
+        warmupIterations = 3,
+        minSamples = 7,
+        minDurationSec = 0.5,
+    } as bench.SuiteOptions
 )
-print("")
-print("full decoding")
-print("fixture       bytes   Nupp iterations    Nupp PEG MB/s    LPeg MB/s   runtime MB/s")
-print("----------  -------  ----------------  ---------------  -----------  -----------")
-for _, fixture in ipairs(fixtures) do
-    jit.flush()
-    local nuppRate, iterations = measure(nuppDecode, fixture.text, NUPP_DECODE_BYTES)
-    jit.flush()
-    local lpegRate = measure(lpegDecode, fixture.text, FAST_BYTES)
-    jit.flush()
-    local runtimeRate = measure(runtimeDecode, fixture.text, FAST_BYTES)
-    print(
-        string.format(
-            "%-10s  %7d  %16d  %15.2f  %11.2f  %11.2f",
-            fixture.name,
-            #fixture.text,
-            iterations,
-            nuppRate,
-            lpegRate,
-            runtimeRate
-        )
-    )
-end
 
-print("")
-print("recognition only")
-print("fixture       bytes   Nupp iterations    Nupp rules MB/s   Nupp inline MB/s    LPeg MB/s")
-print("----------  -------  ----------------  -----------------  ----------------  -----------")
-for _, fixture in ipairs(fixtures) do
-    jit.flush()
-    local nuppRate, iterations = measure(nuppRecognize, fixture.text, NUPP_RECOGNIZE_BYTES)
-    jit.flush()
-    local inlineRate = measure(nuppInlineRecognize, fixture.text, NUPP_RECOGNIZE_BYTES)
-    jit.flush()
-    local lpegRate = measure(lpegRecognize, fixture.text, FAST_BYTES)
-    print(
-        string.format(
-            "%-10s  %7d  %16d  %17.2f  %16.2f  %11.2f",
-            fixture.name,
-            #fixture.text,
-            iterations,
-            nuppRate,
-            inlineRate,
-            lpegRate
-        )
-    )
-end
-assert(sink > 0)
+bench.suite(
+    {
+        name = "json-recognize",
+        baselineVariant = "lpeg",
+        variants = {
+            {name = "lpeg", run = recognizeLPeg},
+            {name = "nupp-rules", run = recognizeNupp},
+            {name = "nupp-inline", run = recognizeInline},
+        },
+        cases = recognizeCases,
+        warmupIterations = 3,
+        minSamples = 7,
+        minDurationSec = 0.5,
+    } as bench.SuiteOptions
+)
+bench.report()

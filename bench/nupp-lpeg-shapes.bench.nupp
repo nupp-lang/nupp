@@ -1,0 +1,104 @@
+-- Find where Nupp PEG's specialized path stops outperforming native LPeg.
+-- Run: nupp bench --file bench/nupp-lpeg-shapes.bench.nupp
+
+local bench = require("nupp.bench")
+const {type Invocation} = require("nupp.bench")
+local lpeg: any = require("lpeg")
+
+local NuppIdentifier = nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
+local NuppCaptures = nupp.peg.compile("{| { [a-zA-Z_]+ } (',' { [a-zA-Z_]+ })* |} !.")
+local NuppRecursive = nupp.peg.compile("start <- value !. value <- '(' value ')' value / ''")
+
+local P, R, C, Ct, Cp, V = lpeg.P, lpeg.R, lpeg.C, lpeg.Ct, lpeg.Cp, lpeg.V
+local head = R("az", "AZ") + P("_")
+local tail = head + R("09")
+local LPegIdentifier = head * tail ^ 0 * Cp() * -P(1)
+local field = C(head ^ 1)
+local LPegCaptures = Ct(field * (P(",") * field) ^ 0) * -P(1)
+local LPegRecursive = P({"S", S = P("(") * V("S") * P(")") * V("S") + P("")}) * Cp() * -P(1)
+
+local record Workload
+    name: string
+    subject: string
+    nupp: function(string): any
+    lpeg: function(string): any
+end
+
+local workloads = {
+    new Workload(
+        name = "identifier",
+        subject = "materialized_identifier_0123456789",
+        nupp = function(subject: string): any
+            return NuppIdentifier(subject)
+        end,
+        lpeg = function(subject: string): any
+            return lpeg.match(LPegIdentifier, subject)
+        end
+    ),
+    new Workload(
+        name = "captures",
+        subject = "position,velocity,rotation,scale,health,mana,team,target",
+        nupp = function(subject: string): any
+            return NuppCaptures(subject)
+        end,
+        lpeg = function(subject: string): any
+            return lpeg.match(LPegCaptures, subject)
+        end
+    ),
+    new Workload(
+        name = "recursive",
+        subject = string.rep("(", 16) .. string.rep(")", 16),
+        nupp = function(subject: string): any
+            return NuppRecursive(subject)
+        end,
+        lpeg = function(subject: string): any
+            return lpeg.match(LPegRecursive, subject)
+        end
+    ),
+}
+
+local BATCH: integer = 100000
+
+local function runNupp(_: any, invocation: Invocation): any
+    local workload = invocation.data as Workload
+    local result: any = nil
+    for _ = 1, BATCH do
+        result = workload.nupp(workload.subject)
+    end
+
+    return result
+end
+
+local function runLPeg(_: any, invocation: Invocation): any
+    local workload = invocation.data as Workload
+    local result: any = nil
+    for _ = 1, BATCH do
+        result = workload.lpeg(workload.subject)
+    end
+
+    return result
+end
+
+local cases = {}
+for _, workload in ipairs(workloads) do
+    local want, got = workload.nupp(workload.subject), workload.lpeg(workload.subject)
+    if type(want) == "table" then
+        assert(table.concat(want, "\0") == table.concat(got, "\0"))
+    else
+        assert(want == got)
+    end
+    cases[#cases + 1] = {name = workload.name, data = workload, operations = BATCH}
+end
+
+bench.suite(
+    {
+        name = "peg-shapes",
+        baselineVariant = "lpeg",
+        variants = {{name = "lpeg", run = runLPeg}, {name = "nupp", run = runNupp},},
+        cases = cases,
+        warmupIterations = 3,
+        minSamples = 7,
+        minDurationSec = 0.5,
+    } as bench.SuiteOptions
+)
+bench.report()
