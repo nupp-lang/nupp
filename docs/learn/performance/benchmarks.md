@@ -21,8 +21,13 @@ bench.report()
 ```
 
 ```bash
-nupp run -O1 --remarks-out build/remarks.json bench/presize.bench.nupp
+nupp run -O1 --remarks-out bench/presize.bench.nupp
 ```
+
+`build/remarks.json` is the fixed handoff between `nupp run` and the benchmark
+record. The compiler writes its optimization account there and `nupp.bench`
+includes it when the program reports. Running without `--remarks-out` still
+measures the case, but records no compiler-side counters.
 
 There is no `nupp bench`. A command has to launch what it measures, and an
 application's hot loop lives in the application — a game's frame, a server's
@@ -167,10 +172,10 @@ comparisons, spikes and probes — and running one to find out produces "wrote n
 record", which is the right answer for a case that failed to report and the wrong
 one for a file that was never a case.
 
-`--remarks-out` is written twice by `nupp run`: once before the program starts, so
-the program can read it, and again after it returns, once every module it
-`require`d has been compiled. The second is the complete account, and it is the
-one the runner merges into each record.
+`build/remarks.json` is written twice by `nupp run --remarks-out`: once before
+the program starts, so the program can read it, and again after it returns, once
+every module it `require`d has been compiled. The second is the complete account,
+and it is the one the runner merges into each record.
 
 ::: seealso
 - [profiling.md](profiling.md) for where the time went in one program

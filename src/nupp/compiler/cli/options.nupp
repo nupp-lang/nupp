@@ -107,10 +107,8 @@ function options.optimize(): {any}
         {name = "--remarks", help = "Report what the optimizer did and what it declined to do"},
         {
             name = "--remarks-out",
-            value = "PATH",
             key = "remarksOut",
-            help = "Write the optimizer's account of this build as JSON, for a "
-            .. "program that reports what was compiled into it"
+            help = "Write the optimizer's account of this build to build/remarks.json"
         },
         {
             name = "-Zno-opt",

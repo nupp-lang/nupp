@@ -232,7 +232,13 @@ local function run(parsed: any): integer
         return compile.check(modulePath, env, {strict = settings.strict, dialect = settings.dialect}) ~= nil
     end
     local removeLoader = runtime.install(projectEnv, compileLoaded, loaded, checkPlain)
+    -- The artifact path is fixed, but an artifact left by an earlier run may still be
+    -- present. Tell a library in this run whether this invocation wrote it, without
+    -- making the path another piece of program configuration.
+    local previousRemarksAvailable = _G.__nuppRemarksAvailable
+    _G.__nuppRemarksAvailable = settings.remarksOut ~= nil
     local ok, runErr = pcall(chunk, unpack(programArgs))
+    _G.__nuppRemarksAvailable = previousRemarksAvailable
     removeLoader()
     -- Now complete: a `require` reached during the run compiled through the installed
     -- loader, so the modules holding the code a benchmark actually measured are only

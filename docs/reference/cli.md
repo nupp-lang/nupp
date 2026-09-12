@@ -793,33 +793,32 @@ Usage:
   nupp build [--strict] [--dialect DIALECT] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>
 
 Options:
-  --target NAME       Build a named manifest target
-  --platform NAME     Build one configured binary platform, or all
-  --standalone        Link native FFI and AOT code into the binary host
-  --out-dir DIR       Override the manifest target's output directory
-  -o DIR              Output directory for explicit source-file builds
-  --strict            Treat strict checker rules as errors
-  --dialect DIALECT   Source-lowering dialect: luajit (default), luajit-compat
-                      or lua51
-  -O0, -O1, -O2       Optimization level; ad-hoc builds default to -O0,
-                      deliverable targets to -O2
-  --remarks           Report what the optimizer did and what it declined to do
-  --remarks-out PATH  Write the optimizer's account of this build as JSON, for
-                      a program that reports what was compiled into it
-  -Zno-opt=CODE       Turn off one pass, named by its stable code, to bisect a
-                      miscompile. Unstable: the spelling may change or go away
-  --progress[=WHEN]   When to report progress and timing on standard error:
-                      always, never, or auto (default), which reports only to a
-                      terminal
-  -q, --quiet         Report no progress or timing; the same as
-                      --progress=never
-  --format FORMAT     Output format: text (default) or json
-  --json              Shorthand for --format json
-  --text              Shorthand for --format text
-  --schema            Print the JSON Schema of --json output and exit
-  --color[=WHEN]      When to color output: always, never, or auto (default)
-  --no-color          Never color output; the same as --color=never
-  -h, --help          Show this help
+  --target NAME      Build a named manifest target
+  --platform NAME    Build one configured binary platform, or all
+  --standalone       Link native FFI and AOT code into the binary host
+  --out-dir DIR      Override the manifest target's output directory
+  -o DIR             Output directory for explicit source-file builds
+  --strict           Treat strict checker rules as errors
+  --dialect DIALECT  Source-lowering dialect: luajit (default), luajit-compat
+                     or lua51
+  -O0, -O1, -O2      Optimization level; ad-hoc builds default to -O0,
+                     deliverable targets to -O2
+  --remarks          Report what the optimizer did and what it declined to do
+  --remarks-out      Write the optimizer's account of this build to
+                     build/remarks.json
+  -Zno-opt=CODE      Turn off one pass, named by its stable code, to bisect a
+                     miscompile. Unstable: the spelling may change or go away
+  --progress[=WHEN]  When to report progress and timing on standard error:
+                     always, never, or auto (default), which reports only to a
+                     terminal
+  -q, --quiet        Report no progress or timing; the same as --progress=never
+  --format FORMAT    Output format: text (default) or json
+  --json             Shorthand for --format json
+  --text             Shorthand for --format text
+  --schema           Print the JSON Schema of --json output and exit
+  --color[=WHEN]     When to color output: always, never, or auto (default)
+  --no-color         Never color output; the same as --color=never
+  -h, --help         Show this help
 
 Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
@@ -1704,8 +1703,8 @@ Options:
   -O0, -O1, -O2        Optimization level; ad-hoc builds default to -O0,
                        deliverable targets to -O2
   --remarks            Report what the optimizer did and what it declined to do
-  --remarks-out PATH   Write the optimizer's account of this build as JSON, for
-                       a program that reports what was compiled into it
+  --remarks-out        Write the optimizer's account of this build to
+                       build/remarks.json
   -Zno-opt=CODE        Turn off one pass, named by its stable code, to bisect a
                        miscompile. Unstable: the spelling may change or go away
   --watch              Keep named function identities patchable at cooperative

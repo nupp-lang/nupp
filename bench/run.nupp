@@ -21,7 +21,7 @@ local bench = require("nupp.bench")
 --- Where a child is told to write, and where the merged record goes.
 local RECORD_OUT = "build/bench-case.json"
 
-local REMARKS_OUT = "build/bench-remarks.json"
+local REMARKS_OUT = "build/remarks.json"
 local MERGED_OUT = "build/bench-record.json"
 
 local function readFile(path: string): string?
@@ -69,7 +69,7 @@ local function discover(): {string}
 end
 
 local function nuppRun(path: string, extra: string): boolean
-    local command = ("./bin/nupp run -O1 --remarks-out %s %s %s"):format(quoted(REMARKS_OUT), quoted(path), extra)
+    local command = ("./bin/nupp run -O1 --remarks-out %s %s"):format(quoted(path), extra)
     local ok = os.execute(command)
 
     return ok == true or ok == 0
@@ -107,7 +107,7 @@ end
 local function runCase(path: string, name: string, n: integer?): (any?, string?)
     os.remove(RECORD_OUT)
     os.remove(REMARKS_OUT)
-    local extra = ("--case %s --out %s --remarks-from %s"):format(quoted(name), quoted(RECORD_OUT), quoted(REMARKS_OUT))
+    local extra = ("--case %s --out %s"):format(quoted(name), quoted(RECORD_OUT))
     if n then
         extra = extra .. " --n " .. quoted(tostring(n))
     end

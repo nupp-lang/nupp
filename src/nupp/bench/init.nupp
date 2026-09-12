@@ -159,7 +159,6 @@ local reported = false
 local options = {
     out = "build/bench-record.json",
     baseline = nil as string?,
-    remarks = nil as string?,
     json = false,
     accept = false,
 
@@ -214,11 +213,6 @@ local function readOptions(): nil
             end
         elseif name == "baseline" then
             options.baseline = value or argv[index + 1]
-            if not value then
-                index = (index + 1) as integer
-            end
-        elseif name == "remarks-from" then
-            options.remarks = value or argv[index + 1]
             if not value then
                 index = (index + 1) as integer
             end
@@ -634,20 +628,17 @@ end
 -- Reporting
 ----------------------------------------------------------------------------
 
---- Reads the optimizer's account of this build, when a build wrote one.
----
---- `nupp run --remarks-out PATH` is what writes it, and `--remarks-from PATH` after the
---- file name is how a case is pointed at one somewhere other than the default. The two
---- names are deliberately not both `--remarks`: that one is the compiler's own flag for
---- saying remarks to the terminal, and it is read before the file name rather than
---- after it.
+--- Reads the optimizer's account of this build, when `nupp run --remarks-out` wrote
+--- one to the benchmark protocol's fixed `build/remarks.json` path.
 ---
 --- Its absence is a result rather than a failure: a case run without one carries no
 --- static counters and says so, and the gate then has only the dynamic half to work
 --- with.
 local function readRemarks(): any
-    local path = options.remarks or "build/remarks.json"
-    local content = readFile(path)
+    if not _G.__nuppRemarksAvailable then
+        return nil
+    end
+    local content = readFile("build/remarks.json")
     if not content then
         return nil
     end

@@ -59,7 +59,9 @@ record compile.Settings
     --- Absent from ordinary builds and machine bytecode reports.
     bytecodeBoundary: string?
 
-    --- Where to write the optimizer's account of this build, or nil for nowhere.
+    --- Where to write the optimizer's account of this build, or nil for nowhere. The
+    --- path is fixed so a running program can consume the artifact without a second
+    --- option telling it where the first option put it.
     ---
     --- `--remarks` says what the optimizer did to the terminal; this says the same
     --- thing to a file, so a program can read what was compiled into it. A benchmark
@@ -97,7 +99,7 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
         diagnostics = collected,
         coverage = os.getenv("NUPP_COVERAGE") == "1",
         bytecodeBoundary = nil,
-        remarksOut = values.remarksOut,
+        remarksOut = values.remarksOut and "build/remarks.json" or nil,
         collectedRemarks = values.remarksOut and {} or nil,
         collectedAllocationSites = values.remarksOut and {} or nil,
         accountedModules = values.remarksOut and 0 or nil

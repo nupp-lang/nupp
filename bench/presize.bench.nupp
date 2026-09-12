@@ -7,7 +7,7 @@ const {type Case} = require("nupp.bench")
 --- thing that can regress. `bench.keep` is what stops the loop being deleted: an
 --- earlier version of `bench/presize.lua` measured LuaJIT removing it.
 ---
---- Run: nupp run -O1 --remarks-out build/remarks.json bench/presize.nupp
+--- Run: nupp run -O1 --remarks-out bench/presize.bench.nupp
 local bench = require("nupp.bench")
 
 local function grown(b: Case): nil
