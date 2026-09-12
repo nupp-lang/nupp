@@ -35,10 +35,11 @@ nupp lsp serve [root]
 | Selection ranges | The enclosing node chain |
 | Formatting | Whole document and range |
 | Code actions | Quick fixes and refactorings |
+| Code lenses | One `Inspect` lens over every checked function |
+| Go to implementation | Registered service members |
 
-Document sync is full text. Inlay hints, code lens, call hierarchy, type
-hierarchy, and go-to-implementation have no handler, and an unknown request is
-answered `method not found` (-32601).
+Document sync is full text. Inlay hints, call hierarchy and type hierarchy have
+no handler, and an unknown request is answered `method not found` (-32601).
 
 ## Cancellation
 
@@ -159,6 +160,71 @@ token carrying the diagnostic rather than only at its first byte.
 A spelling fix refuses on a tie rather than picking one, and a missing require
 offers one fix per candidate module rather than guessing between them.
 
+## Compiled artifacts
+
+What a file compiles to, answered for the buffer rather than for the file on
+disk. Two requests, because the two questions cost different amounts:
+
+| Request | Cost |
+| --- | --- |
+| `$/nupp/artifacts` | The check already done, so a client may ask per function |
+| `$/nupp/artifact` | Lowers the buffer, so a client asks once something is opened |
+
+`$/nupp/artifacts` takes a document and an optional position and answers with
+the kinds available and the innermost function the position is in.
+`$/nupp/artifact` takes a document, a `kind` and an optional `optLevel`, and
+answers with the artifact or with why there is not one. The kinds the server can
+produce are advertised under `capabilities.experimental.nuppArtifacts`, so a
+client can tell what it may ask for without asking for it.
+
+| Kind | Language | Mapping |
+| --- | --- | --- |
+| `lua` | `lua` | `line-identity` |
+| `bytecode` | `nupp-bytecode` | `lines-collapsible` |
+
+Generated Lua carries no table of mappings, because it does not need one: the
+emitter holds the lowering to the source's own line numbering, which is what
+makes a stack trace correct with no sourcemap, and `line-identity` says exactly
+that. Generated line N is source line N, for every N.
+
+A bytecode listing is a rendering rather than a lowering, so it carries one
+entry per line that stands for source.
+
+It is laid out *against* the file rather than beside it. The editor already has
+the source in the next pane, so the listing does not repeat it: row N holds what
+line N compiled to, and a line that compiled to nothing is blank. Bytecode order
+is not source order -- a chunk builds each function with an `FNEW` attributed to
+the line the function ends on and assigns it on the line it starts on -- so
+instructions are gathered by the line they came from rather than left in the
+order the interpreter will meet them. Program counters are printed, so execution
+order is still there to be read.
+
+A source line that compiled to several instructions keeps the first on its own
+row and indents the rest beneath it, which is a folding region. Collapsed, every
+source line is one row again and the two panes scroll together; that is what
+`lines-collapsible` names, and a client opening one should fold it. The
+generated preamble is not part of that shape at all -- it is attributed to line
+1 only because it has nowhere else to go -- so it follows the file rather than
+displacing it.
+
+`nupp bc` keeps the older layout, which echoes each source line above the
+instructions it produced and nests a function's body under the line that
+declares it. A terminal has no second pane to lay anything against.
+
+| Role | What that line is |
+| --- | --- |
+| `exact` | One instruction, at the line it was lowered from |
+| `source` | The echoed source line |
+| `derived` | A line about a span rather than a point: a function header |
+| `synthetic` | The compiler's own: the folded runtime preamble |
+
+Lines with no entry stand for nothing anyone wrote. A client synchronizing a
+cursor reveals nothing for those rather than guessing.
+
+An artifact that could not be produced answers `available: false` with an
+`unavailable` reason and detail, rather than with an empty document. A file that
+checks can still fail to lower, and which of those happened is the whole answer.
+
 ## Command-line operations
 
 Every navigation and refactoring operation has a command-line form. Each runs
@@ -173,6 +239,8 @@ nupp lsp symbols     --json [--file FILE] [PATTERN]
 nupp lsp rename            FILE LINE COLUMN NEW_NAME
 nupp lsp actions     --json [--only quickfix|refactor] FILE LINE COLUMN
 nupp lsp trace-check --json FILE LINE COLUMN
+nupp lsp artifacts   --json FILE LINE COLUMN
+nupp lsp artifact    --json --kind lua|bytecode [-O 0|1|2] FILE
 ```
 
 Every operation takes `--root DIR` (default `.`), the format group, and
@@ -189,6 +257,12 @@ refuses a symbol not declared in a project file. `--only refactor` selects the
 same normalized blocker and risk identities used by `@jit`, including resolved
 callee paths. It reads the language server's unsaved document overlay, runs no
 program, and does not add an annotation or persist a contract.
+
+`artifact` prints the artifact itself, so `nupp lsp artifact --kind lua FILE`
+pipes generated Lua like any other command, and `--json` adds the mapping and
+the metadata beside it. An artifact that could not be produced is a failure with
+the reason on stderr. Both read the same overlay `trace-check` does, so an
+editor and a terminal answer for the same bytes.
 
 ## Agent workflow
 
@@ -212,4 +286,6 @@ operations only where a diagnostic does not say enough:
 - [diagnostics.md](../../reference/diagnostics.md) for the codes an editor shows
   and what each one means
 - [jit-trace-checking.md](../performance/jit-trace-checking.md) for what `trace-check` reports
+- [cli.md](../../reference/cli.md#bc) for `nupp bc`, which renders the same
+  listing the `bytecode` artifact carries
 :::

@@ -32,18 +32,67 @@ launch configuration. The development extension finds `bin/nupp` in the
 workspace automatically. For other workspaces, install `nupp` on `PATH` or
 point the extension at it.
 
+### Inspecting compiled output
+
+Every checked function carries an **Inspect** code lens, and the command palette
+carries the same entries:
+
+| Command | What opens |
+| --- | --- |
+| **Nupp: Inspect Compiled Output** | A pick of what is available here |
+| **Nupp: Open Generated Lua** | The Lua this file erases to |
+| **Nupp: Open Bytecode** | The folded listing `nupp bc` prints |
+| **Nupp: Compare Generated Artifacts** | Two levels of one artifact, in a diff |
+
+Artifacts open beside the source as ordinary read-only editors under the
+`nupp-generated:` scheme, so search, folding, diff and every other editor
+command keep working on them. They are made from the buffer rather than from the
+file, so an unsaved edit is what you are reading.
+
+Selecting in either view reveals the matching line in the other. For generated
+Lua that is the line itself, because the emitter never changes a file's line
+count; for a bytecode listing it is whichever line the server's mapping names,
+and a line standing for compiler-owned work -- the runtime preamble -- reveals
+nothing rather than pointing somewhere arbitrary.
+
+The bytecode view does not repeat the source, because the source is in the pane
+beside it. Row N is what line N compiled to, and it opens folded so that a line
+compiling to several instructions still occupies one row and the two panes stay
+in step. Expanding a row shows the rest of that line's instructions.
+
+One lens per function rather than one per artifact kind is deliberate. Most
+kinds do not apply to most functions, and a row of six buttons over every
+function would be five dead links.
+
+### Tests and coverage
+
+The extension registers a test controller per workspace folder, listing the
+suites `nupp test --list-suites` reports. Its **Coverage** profile runs `nupp
+test --coverage` and publishes the result through VS Code's own coverage UI: the gutter
+overlay, the hover counts, and the Test Coverage tree. Branches show both
+outcomes separately, so a condition that ran a hundred times and never once went
+the other way reads as half a branch rather than as a covered line.
+
+Coverage is computed when a coverage run is asked for, not on every edit.
+
+The gutter itself is behind VS Code's **Test: Toggle Inline Coverage** (`⌘; ⌘⇧I`),
+which is a toggle with no state an extension can read, so the first coverage run
+of a session offers it rather than flipping it blind.
+
 ### Settings
 
-Four settings configure the process, and all four restart the server when
-changed:
+Five settings configure the extension. The four naming the process restart the
+server when changed:
 
 - `nupp.serverPath`: empty, which resolves to this repository's `bin/nupp` when
   the workspace is the checkout and to `nupp` on `PATH` otherwise.
 - `nupp.serverArgs`: `["lsp", "serve", "${workspaceFolder}"]`.
 - `nupp.serverCwd`: `${workspaceFolder}`.
 - `nupp.serverEnvironment`: `{}`.
+- `nupp.artifactOptimizationLevel`: `0`, the level generated artifacts are
+  resolved at. Zero is the promise that nothing is rewritten.
 
-All four expand `${workspaceFolder}` and `${env:NAME}`, and arguments are
+The four naming the process expand `${workspaceFolder}` and `${env:NAME}`, and arguments are
 passed without shell interpretation. The extension runs one client per
 workspace folder, each watching `**/*.nupp` so an edit from Git, a generator,
 or another editor invalidates the incremental graph.
@@ -86,6 +135,7 @@ in-process session an editor gets, which is what makes them scriptable:
 
 ```bash
 nupp lsp inspect --json src/app/main.nupp 12 9
+nupp lsp artifact --kind lua src/app/main.nupp
 ```
 
 ::: seealso

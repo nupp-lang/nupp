@@ -420,6 +420,115 @@ function M.jsonDiagnosticsCarryCrossFileRelatedRanges()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- The artifact operations, which are what a client other than VS Code has.
+--
+-- An editor reaches the inspector over the protocol; everything else -- a
+-- script, an agent, somebody at a terminal -- reaches the same answers here, and
+-- a request with no command-line face is a request only one client can use.
+
+local ARTIFACT_PROJECT = {
+   ["nupp.lua"] = 'return {include = {"."}}\n',
+   ["sample.nupp"] = table.concat({
+      "local function scale(values: {number}, by: number): number",
+      "    local total = 0",
+      "    for _, value in ipairs(values) do",
+      "        total = total + value * by",
+      "    end",
+      "",
+      "    return total",
+      "end",
+      "",
+      "return scale",
+   }, "\n") .. "\n",
+}
+
+function M.artifactsListsWhatIsAvailableAndNamesTheEnclosingFunction()
+   local dir = tempProject(ARTIFACT_PROJECT)
+   local decoded = json.decode(captureJson(dir, "lsp artifacts --json sample.nupp 4 9"))
+   os.execute("rm -rf '" .. dir .. "'")
+   local kinds = {}
+   for _, entry in ipairs(decoded.artifacts) do
+      kinds[entry.kind] = entry
+   end
+   assert(kinds.lua and kinds.bytecode, "both kinds are listed")
+   assert(kinds.lua.scope == "module", "generated Lua is a whole-file artifact")
+   assert(decoded["function"].name == "scale", "the enclosing function is named")
+   assert(decoded["function"].range.start.line == 1, "and positioned in source coordinates")
+end
+
+function M.artifactPrintsGeneratedLuaLineForLine()
+   local dir = tempProject(ARTIFACT_PROJECT)
+   local text = captureJson(dir, "lsp artifact --kind lua sample.nupp")
+   local decoded = json.decode(captureJson(dir, "lsp artifact --kind lua --json sample.nupp"))
+   os.execute("rm -rf '" .. dir .. "'")
+   contains(text, "total = total + value * by", "the authored line is in the generated Lua")
+   assert(decoded.available, "the file lowers")
+   assert(decoded.mapping.kind == "line-identity", "generated Lua is line-identical to its source")
+   local generated, source = 0, 0
+   for _ in decoded.text:gmatch("\n") do
+      generated = generated + 1
+   end
+   for _ in ARTIFACT_PROJECT["sample.nupp"]:gmatch("\n") do
+      source = source + 1
+   end
+   assert(generated == source, "the lowering did not change the line count")
+end
+
+function M.artifactPrintsABytecodeListingLaidOutAgainstTheSource()
+   local dir = tempProject(ARTIFACT_PROJECT)
+   local decoded = json.decode(captureJson(dir, "lsp artifact --kind bytecode --json sample.nupp"))
+   os.execute("rm -rf '" .. dir .. "'")
+   assert(decoded.available, "the file compiles")
+   assert(decoded.mapping.kind == "lines-collapsible", "a listing carries its correspondence")
+   contains(decoded.text, "instructions of runtime preamble", "the preamble is named apart")
+   assert(not decoded.text:find("local total = 0", 1, true),
+      "the listing does not repeat the source it is laid against")
+   local lines = {}
+   for line in (decoded.text .. "\n"):gmatch("(.-)\n") do
+      lines[#lines + 1] = line
+   end
+   -- Folding the indented runs leaves one row per source line.
+   local visibleAt, visible = {}, 0
+   for index, line in ipairs(lines) do
+      if not line:match("^%s%s") then
+         visible = visible + 1
+      end
+      visibleAt[index] = visible
+   end
+   for _, entry in ipairs(decoded.mapping.entries) do
+      if entry.role == "exact" then
+         assert(visibleAt[entry.generatedLine] == entry.sourceLine,
+            ("folded row %d should be source line %d"):format(
+               visibleAt[entry.generatedLine], entry.sourceLine))
+      end
+   end
+end
+
+function M.artifactSaysWhyItCouldNotResolveOne()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["broken.nupp"] = "local value: integer = \n",
+   })
+   local text = capture(dir, "lsp artifact --kind lua broken.nupp; echo \"__exit__:$?\"")
+   local decoded = json.decode(captureJson(dir, "lsp artifact --kind lua --json broken.nupp"))
+   os.execute("rm -rf '" .. dir .. "'")
+   contains(text, "__exit__:1", "an unresolvable artifact is a failure at the terminal")
+   assert(decoded.available == false, "and says so in JSON")
+   assert(decoded.unavailable.reason == "not-lowered", "with the reason it refused")
+end
+
+function M.artifactOperationsPublishTheirSchemas()
+   local root = HERE .. "/.."
+   local discovery = json.decode(captureJson(root, "lsp artifacts --schema"))
+   local resolution = json.decode(captureJson(root, "lsp artifact --schema"))
+   assert(discovery.properties.artifacts, "discovery documents what it lists")
+   assert(resolution.properties.mapping.properties.kind, "resolution documents its mapping")
+   assert(resolution.properties.unavailable, "and documents the unavailable case")
+   local help = capture(root, "lsp --help")
+   contains(help, "nupp lsp artifact", "the group lists the artifact operations")
+   contains(help, "artifact only:", "and attributes the options only it takes")
+end
+
 function M.explicitServeAndLegacyHelpRemainAvailable()
    local help = capture(HERE .. "/..", "lsp --help")
    contains(help, "nupp lsp serve", "explicit server help")

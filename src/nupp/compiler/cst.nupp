@@ -3004,6 +3004,65 @@ function cst.lastName(x: cst.Child?): string?
     return found
 end
 
+const FUNCTION_DECLARATIONS: {
+    [string]: boolean
+} = {
+    localFuncStmt = true,
+    funcStmt = true,
+    inlineMethod = true,
+    constructorDecl = true,
+    funcExpr = true,
+    shortfn = true,
+}
+
+--- The syntax that owns a function body, which is the syntax that can name one.
+cst.FUNCTION_DECLARATIONS = FUNCTION_DECLARATIONS
+
+--- What a function is called, for a reader rather than for a linker.
+---
+--- A method is its own short name rather than the path it hangs off, because the
+--- reader is looking at the declaration and already knows what it is on. Anything
+--- with no name of its own -- a function expression passed straight to a call --
+--- has none here either, and it is the caller's job to say what to show instead.
+---
+--- Trace reporting and coverage both label functions, and labelling the same
+--- declaration two ways in two reports is how a reader stops trusting either.
+---
+--- Taken gradually because the nodes reaching it are: `name` is a token on one
+--- declaration kind and a `Funcname` on another, and neither is a field of the
+--- node union as a whole.
+---
+--- @param node a declaration from `cst.FUNCTION_DECLARATIONS`
+--- @return its name, or nothing for an anonymous one
+--- @raises never
+function cst.functionName(node: any): string?
+    if not node or cst.isToken(node) then
+        return nil
+    end
+    local name = node.name or node.token
+    if not name then
+        return nil
+    end
+    if name.text then
+        return name.text
+    end
+    if name.method and name.method.text then
+        return name.method.text
+    end
+    -- A qualified name is its leaf. `function shapes.scaledTotal` declares
+    -- `scaledTotal`; `shapes` is the table it is being attached to, and a report
+    -- that named the table would name it once per function in the file.
+    local leaf = cst.lastName(name)
+    if leaf then
+        return leaf
+    end
+    if name.base and name.base.text then
+        return name.base.text
+    end
+
+    return nil
+end
+
 --- The local an expression names as a module table. A bare `M` names itself, and
 --- `setmetatable(M, mt)` returns its first argument, so the table it is wrapping is
 --- still the module. Anything else has no single table to speak of and yields nil.

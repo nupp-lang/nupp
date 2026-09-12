@@ -277,6 +277,12 @@ local function classify(instructions: {any}): {any}
     return findings
 end
 
+--- The functions a function's constants hold, with the slot each came from.
+---
+--- The slot is what `FNEW` names: `FNEW A D` builds the function in GC constant
+--- slot `D`, which is this walk's `index`. Recording it is what lets a reader of
+--- the listing tell a function the generated preamble built from one somebody
+--- wrote, without guessing from line numbers.
 local function childrenOf(util: any, fn: any): {any}
     local out = {}
     local index = 0
@@ -286,13 +292,13 @@ local function childrenOf(util: any, fn: any): {any}
             return out
         end
         if type(constant) == "proto" or type(constant) == "function" then
-            out[#out + 1] = constant
+            out[#out + 1] = {proto = constant, slot = index}
         end
         index = index + 1
     end
 end
 
-local function collect(util: any, bc: any, fn: any, depth: integer, into: {any}, seen: any): nil
+local function collect(util: any, bc: any, fn: any, depth: integer, into: {any}, seen: any, slot: integer?): nil
     if seen[fn] then
         return
     end
@@ -300,18 +306,19 @@ local function collect(util: any, bc: any, fn: any, depth: integer, into: {any},
     local info = util.funcinfo(fn)
     local instructions = instructionsOf(util, bc, fn)
     local findings = classify(instructions)
-    into[
-        #into + 1
-    ] = {
+    into[#into + 1] = {
         what = depth == 0 and "chunk" or "function",
         depth = depth,
         firstLine = info.linedefined,
         lastLine = info.lastlinedefined,
         instructions = instructions,
         findings = findings,
+        -- Which of the parent's constant slots holds this function. Absent for
+        -- the chunk, which nothing built.
+        slot = slot,
     }
     for _, child in ipairs(childrenOf(util, fn)) do
-        collect(util, bc, child, depth + 1, into, seen)
+        collect(util, bc, child.proto, depth + 1, into, seen, child.slot)
     end
 end
 

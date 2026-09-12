@@ -4532,6 +4532,298 @@ function M.codeActionCapabilityIsAdvertised()
     assert(kinds.quickfix and not kinds["refactor.rewrite"], "only the remaining quick-fix kind is named")
 end
 
+-- Compiled artifacts ----------------------------------------------------------
+--
+-- The inspector's two requests, over a real session. Discovery is answered from
+-- the check that has already happened; resolution lowers the buffer, which is
+-- why every case here opens a document whose text is not what is on disk.
+
+local ARTIFACT_SOURCE = table.concat({
+    "local function scale(values: {number}, by: number): number",
+    "    local total = 0",
+    "    for _, value in ipairs(values) do",
+    "        total = total + value * by",
+    "    end",
+    "",
+    "    return total",
+    "end",
+    "",
+    "return scale",
+}, "\n") .. "\n"
+
+--- Opens `source` as `name` and asks one artifact question about it.
+local function artifactSession(projectDir, name, source, method, params)
+    local uri = "file://" .. projectDir .. "/" .. name
+    local request = {textDocument = {uri = uri}}
+    for key, value in pairs(params or {}) do
+        request[key] = value
+    end
+    local out = runSession({
+        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+        {
+            jsonrpc = "2.0",
+            method = "textDocument/didOpen",
+            params = {textDocument = {uri = uri, languageId = "nupp", version = 7, text = source}},
+        },
+        {jsonrpc = "2.0", id = 2, method = method, params = request},
+        {jsonrpc = "2.0", id = 3, method = "shutdown"},
+        {jsonrpc = "2.0", method = "exit"},
+    }, projectDir)
+
+    return responseWithId(out, 2).result, uri
+end
+
+function M.artifactKindsAreAdvertisedAsExperimentalCapabilities()
+    local out = runSession({
+        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+        {jsonrpc = "2.0", id = 2, method = "shutdown"},
+        {jsonrpc = "2.0", method = "exit"},
+    })
+    local capabilities = responseWithId(out, 1).result.capabilities
+    local kinds = {}
+    for _, kind in ipairs(capabilities.experimental.nuppArtifacts) do
+        kinds[kind] = true
+    end
+    assert(kinds.lua and kinds.bytecode, "both artifact kinds are advertised")
+    assert(capabilities.codeLensProvider, "code lenses are advertised")
+end
+
+function M.artifactDiscoveryNamesTheFunctionTheCursorIsIn()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local result = artifactSession(
+        projectDir,
+        "inspect.nupp",
+        ARTIFACT_SOURCE,
+        "$/nupp/artifacts",
+        {position = positionOf(ARTIFACT_SOURCE, "total = total")}
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+    local kinds = {}
+    for _, entry in ipairs(result.artifacts) do
+        kinds[entry.kind] = entry
+    end
+    assert(kinds.lua and kinds.bytecode, "both kinds are offered")
+    test.equal(kinds.lua.languageId, "lua")
+    test.equal(kinds.lua.scope, "module")
+    test.equal(result["function"].name, "scale")
+end
+
+-- Outside any function there is still a file to inspect, so discovery answers
+-- with the kinds and no enclosing function rather than with nothing.
+function M.artifactDiscoveryOutsideAFunctionStillOffersTheFile()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local result = artifactSession(
+        projectDir,
+        "outside.nupp",
+        ARTIFACT_SOURCE,
+        "$/nupp/artifacts",
+        {position = positionOf(ARTIFACT_SOURCE, "return scale")}
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+    assert(#result.artifacts == 2, "the file's artifacts are still offered")
+    test.equal(result["function"], nil)
+end
+
+-- The emitter holds generated Lua to the source's own line numbering, and the
+-- artifact says so rather than shipping an entry per line. A client synchronizes
+-- a cursor on that promise, so it is asserted here and not only documented.
+function M.generatedLuaIsLineIdenticalToItsSource()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local result = artifactSession(projectDir, "lowered.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {kind = "lua"})
+    os.execute("rm -rf '" .. projectDir .. "'")
+    assert(result.available, "the file lowers: " .. json.encode(result.unavailable or {}))
+    test.equal(result.kind, "lua")
+    test.equal(result.languageId, "lua")
+    test.equal(result.mapping.kind, "line-identity")
+    test.equal(result.version, 7)
+    local sourceLines, generatedLines = 0, 0
+    for _ in ARTIFACT_SOURCE:gmatch("\n") do
+        sourceLines = sourceLines + 1
+    end
+    for _ in result.text:gmatch("\n") do
+        generatedLines = generatedLines + 1
+    end
+    test.equal(generatedLines, sourceLines)
+    assertContains(result.text, "total = total + value * by", "the authored line is on its own line")
+end
+
+-- Resolution reads the buffer, not the file. The disk here says one thing and
+-- the editor another, and the artifact has to be the editor's.
+function M.artifactsLowerTheBufferRatherThanTheFileOnDisk()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    writeFile(projectDir .. "/unsaved.nupp", "local onDisk = 1\nreturn onDisk\n")
+    local result = artifactSession(
+        projectDir,
+        "unsaved.nupp",
+        "local inBuffer = 2\nreturn inBuffer\n",
+        "$/nupp/artifact",
+        {kind = "lua"}
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+    assert(result.available, "the buffer lowers")
+    assertContains(result.text, "inBuffer", "the buffer's text is what was lowered")
+    assert(not result.text:find("onDisk", 1, true), "the file on disk is not what was lowered")
+end
+
+function M.bytecodeArtifactMapsItsLinesBackToSource()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local result = artifactSession(
+        projectDir,
+        "listing.nupp",
+        ARTIFACT_SOURCE,
+        "$/nupp/artifact",
+        {kind = "bytecode"}
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+    assert(result.available, "the file compiles: " .. json.encode(result.unavailable or {}))
+    test.equal(result.mapping.kind, "lines-collapsible")
+    assert(#result.mapping.entries > 0, "a listing carries entries")
+    local roles = {}
+    for _, entry in ipairs(result.mapping.entries) do
+        roles[entry.role] = true
+        assert(entry.sourceLine >= 1, "every entry names a source line")
+    end
+    assert(roles.exact, "instructions map exactly")
+    assert(roles.synthetic, "the runtime preamble is marked synthetic")
+    for _, entry in ipairs(result.mapping.entries) do
+        if entry.role == "synthetic" then
+            test.equal(entry.sourceLine, 1)
+        end
+    end
+    assertContains(result.text, "instructions of runtime preamble", "the preamble is named")
+    -- The source is in the pane next to this one, so it is not repeated here.
+    assert(not result.text:find("local total = 0", 1, true), "the listing does not echo the source")
+end
+
+-- The whole point of the layout: fold the rows a multi-instruction line needed
+-- and what is left is one row per source line, in step with the file. Checked
+-- rather than described -- count the rows a fold leaves and the nth of them has
+-- to be about source line n.
+function M.foldingTheListingLeavesOneRowPerSourceLine()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local source = ARTIFACT_SOURCE:gsub(
+        "return scale\n",
+        "local function second(): integer\n    return 1\nend\n\nreturn scale, second\n"
+    )
+    local result = artifactSession(projectDir, "folded.nupp", source, "$/nupp/artifact", {kind = "bytecode"})
+    os.execute("rm -rf '" .. projectDir .. "'")
+    assert(result.available, "the file compiles: " .. json.encode(result.unavailable or {}))
+    local lines = {}
+    for line in (result.text .. "\n"):gmatch("(.-)\n") do
+        lines[#lines + 1] = line
+    end
+    -- A continuation row is indented; every other row is one a fold leaves.
+    local visibleAt, visible = {}, 0
+    for index, line in ipairs(lines) do
+        if not line:match("^%s%s") then
+            visible = visible + 1
+        end
+        visibleAt[index] = visible
+    end
+    local checked = 0
+    for _, entry in ipairs(result.mapping.entries) do
+        if entry.role == "exact" then
+            checked = checked + 1
+            test.equal(
+                visibleAt[entry.generatedLine],
+                entry.sourceLine,
+                "folded row " .. tostring(visibleAt[entry.generatedLine])
+                .. " should be source line " .. tostring(entry.sourceLine)
+            )
+        end
+    end
+    assert(checked > 5, "the listing maps several instructions")
+end
+
+-- A file that checks can still fail to lower, and a client that has to guess
+-- from an empty document shows an empty document.
+function M.anUnresolvableArtifactSaysWhyRatherThanComingBackEmpty()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local result = artifactSession(
+        projectDir,
+        "broken.nupp",
+        "local value: integer = \n",
+        "$/nupp/artifact",
+        {kind = "lua"}
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+    test.equal(result.available, false)
+    test.equal(result.unavailable.reason, "not-lowered")
+    assert(result.unavailable.detail, "an unavailable artifact says what stopped it")
+    test.equal(result.text, nil)
+end
+
+function M.anUnknownArtifactKindIsRefusedByName()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local result = artifactSession(projectDir, "kind.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {kind = "wgsl"})
+    os.execute("rm -rf '" .. projectDir .. "'")
+    test.equal(result.available, false)
+    test.equal(result.unavailable.reason, "unknown-kind")
+end
+
+-- Two levels of the same file are two artifacts, and a client putting them side
+-- by side needs them to be distinguishable without parsing the label.
+function M.artifactIdentityCarriesTheOptimizationLevel()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local plain = artifactSession(projectDir, "levels.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {kind = "lua"})
+    local optimized = artifactSession(
+        projectDir,
+        "levels.nupp",
+        ARTIFACT_SOURCE,
+        "$/nupp/artifact",
+        {kind = "lua", optLevel = 1}
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+    test.equal(plain.metadata.optLevel, 0)
+    test.equal(optimized.metadata.optLevel, 1)
+    test.notEqual(plain.id, optimized.id)
+end
+
+function M.anUnknownOptimizationLevelIsRefused()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local result = artifactSession(
+        projectDir,
+        "level.nupp",
+        ARTIFACT_SOURCE,
+        "$/nupp/artifact",
+        {kind = "lua", optLevel = 9}
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+    test.equal(result.available, false)
+    test.equal(result.unavailable.reason, "unknown-opt-level")
+end
+
+-- One lens per function rather than one per artifact kind: most kinds do not
+-- apply to most functions, and a row of dead buttons is worse than a menu.
+function M.codeLensesOfferOneInspectPerFunction()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local source = ARTIFACT_SOURCE:gsub(
+        "return scale\n",
+        "local function second(): integer\n    return 1\nend\n\nreturn scale, second\n"
+    )
+    local lenses = artifactSession(projectDir, "lenses.nupp", source, "textDocument/codeLens", {})
+    os.execute("rm -rf '" .. projectDir .. "'")
+    local names = {}
+    for _, lens in ipairs(lenses) do
+        test.equal(lens.command.title, "Inspect")
+        test.equal(lens.command.command, "nupp.inspectCompiledFunction")
+        names[lens.command.arguments[1].name] = true
+        test.equal(lens.range.start.line, lens.range["end"].line)
+    end
+    assert(names.scale and names.second, "every function gets a lens")
+end
+
 -- Session replays --------------------------------------------------------------
 --
 -- A recording in tests/lspsessions/ is one session an editor could have

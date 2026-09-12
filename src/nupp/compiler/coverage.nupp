@@ -147,7 +147,16 @@ function coverage.collect(statePath: string, shardPath: string): coverage.Model
                 local id = tostring(site.id)
                 local line = tonumber(site.line) or 0
                 local count = tonumber(moduleHits[id]) or 0
-                local value = {id = site.id, kind = site.kind, line = line, count = count}
+                local value = {
+                    id = site.id,
+                    kind = site.kind,
+                    line = line,
+                    count = count,
+                    -- Present on a function site, which is the only kind a reader
+                    -- picks out of a list rather than reads against the source.
+                    name = site.name,
+                    endLine = tonumber(site.endLine)
+                }
                 file.sites[#file.sites + 1] = value
                 if site.kind == "statement" then
                     local lineKey = "L" .. line
@@ -161,6 +170,11 @@ function coverage.collect(statePath: string, shardPath: string): coverage.Model
                 elseif site.kind == "branch" then
                     local yes = tonumber(moduleHits[id .. ":true"]) or 0
                     local no = tonumber(moduleHits[id .. ":false"]) or 0
+                    -- Both outcomes on the site itself, not only totalled onto the
+                    -- line. A branch is two things that can be missed separately,
+                    -- and a report that only says how many times the condition ran
+                    -- cannot tell a reader which half never happened.
+                    value.trueCount, value.falseCount = yes, no
                     add(file.branches, yes > 0, line .. ":true")
                     add(file.branches, no > 0, line .. ":false")
                     local lineKey = "L" .. line

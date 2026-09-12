@@ -30,7 +30,11 @@
     "onLanguage:lua",
     "onCommand:nupp.checkFunctionForJitTraceBlockers",
     "onCommand:nupp.migrateAnnotatedLua",
-    "onCommand:nupp.restartLanguageServer"
+    "onCommand:nupp.restartLanguageServer",
+    "onCommand:nupp.inspectCompiledFunction",
+    "onCommand:nupp.openGeneratedLua",
+    "onCommand:nupp.openBytecode",
+    "onCommand:nupp.compareGeneratedArtifacts"
   ],
   "files": [
     "icon.png",
@@ -60,6 +64,26 @@
         "command": "nupp.migrateAnnotatedLua",
         "title": "Nupp: Migrate Annotated Lua to Nupp",
         "category": "Nupp"
+      },
+      {
+        "command": "nupp.inspectCompiledFunction",
+        "title": "Nupp: Inspect Compiled Output",
+        "category": "Nupp"
+      },
+      {
+        "command": "nupp.openGeneratedLua",
+        "title": "Nupp: Open Generated Lua",
+        "category": "Nupp"
+      },
+      {
+        "command": "nupp.openBytecode",
+        "title": "Nupp: Open Bytecode",
+        "category": "Nupp"
+      },
+      {
+        "command": "nupp.compareGeneratedArtifacts",
+        "title": "Nupp: Compare Generated Artifacts",
+        "category": "Nupp"
       }
     ],
     "menus": {
@@ -73,13 +97,25 @@
           "command": "nupp.migrateAnnotatedLua",
           "when": "editorLangId == lua && resourceExtname == .lua",
           "group": "1_modification@20"
+        },
+        {
+          "command": "nupp.inspectCompiledFunction",
+          "when": "editorLangId == nupp",
+          "group": "navigation@21"
         }
       ]
     },
     "configurationDefaults": {
       "[nupp]": {
         "editor.semanticHighlighting.enabled": false,
-        "editor.rulers": [120]
+        "editor.rulers": [
+          120
+        ]
+      },
+      "[nupp-bytecode]": {
+        "editor.lineNumbers": "off",
+        "editor.wordWrap": "off",
+        "editor.renderWhitespace": "none"
       }
     },
     "languages": [
@@ -104,6 +140,12 @@
         "aliases": [
           "Nupp PEG",
           "nupp-peg"
+        ]
+      },
+      {
+        "id": "nupp-bytecode",
+        "aliases": [
+          "Nupp Bytecode"
         ]
       }
     ],
@@ -166,8 +208,14 @@
         },
         "nupp.serverArgs": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["lsp", "serve", "${workspaceFolder}"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "lsp",
+            "serve",
+            "${workspaceFolder}"
+          ],
           "scope": "resource",
           "description": "Arguments passed directly to the language-server executable. Supports ${workspaceFolder} and ${env:NAME}."
         },
@@ -180,16 +228,34 @@
         "nupp.serverEnvironment": {
           "type": "object",
           "default": {},
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "scope": "resource",
           "description": "Environment variables added to the language-server process. Values support ${workspaceFolder} and ${env:NAME}."
         },
         "nupp.luaMigrationDialect": {
           "type": "string",
-          "enum": ["auto", "luacats", "emmy", "luadoc"],
+          "enum": [
+            "auto",
+            "luacats",
+            "emmy",
+            "luadoc"
+          ],
           "default": "auto",
           "scope": "resource",
           "description": "Dialect hint used only by annotated Lua migration. Annotation ingestion itself is always enabled."
+        },
+        "nupp.artifactOptimizationLevel": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "default": 0,
+          "description": "Optimization level used when resolving generated artifacts. 0 is the promise that nothing is rewritten.",
+          "scope": "resource"
         }
       }
     }

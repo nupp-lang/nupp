@@ -90,6 +90,57 @@ function M.theListingShowsSourceAgainstTheInstructionsItProduced()
       "nested functions are listed with their own line span:\n" .. out)
 end
 
+-- The listing reads down the source, not down the bytecode.
+--
+-- Bytecode order is not source order: a chunk builds each function with an FNEW
+-- attributed to the line the function ends on, and assigns it on the line it
+-- starts on, so a flat listing echoed lines 2, 12, 5, 21, 15 for a file whose
+-- functions are in the obvious order. Grouping instructions under the line they
+-- came from, and nesting a body under the line that declares it, is what makes
+-- the listing something you can read beside the file.
+function M.echoedSourceLinesOnlyEverMoveForward()
+   local dir = project{["demo.g.nupp"] = SCALE}
+   local out, code = run(dir, "demo.g.nupp")
+   test.equal(code, 0, out)
+   local seen, previous = 0, 0
+   for line in out:gmatch("[^\n]+") do
+      local at = tonumber(line:match("^%s*(%d+) |"))
+      if at then
+         seen = seen + 1
+         assert(at >= previous,
+            ("the listing goes back from line %d to line %d:\n%s"):format(previous, at, out))
+         previous = at
+      end
+   end
+   assert(seen > 3, "the listing echoes source lines:\n" .. out)
+end
+
+-- A function's instructions sit under its own line rather than wherever the
+-- bytecode happened to put them.
+function M.instructionsSitUnderTheLineTheyCameFrom()
+   local dir = project{["demo.g.nupp"] = SCALE}
+   local out = run(dir, "demo.g.nupp")
+   local body = assert(out:match("\n%s*%d+ |%s+for i = 1, #values do\n(.-)\n%s*%d+ |"),
+      "the loop header's own instructions:\n" .. out)
+   assert(body:find("FORI", 1, true), "the loop opens under the line that writes it:\n" .. body)
+end
+
+-- The runtime preamble builds functions of its own. They are preamble too, and
+-- a listing that showed them put the runtime's file handling above everything
+-- the reader wrote.
+function M.functionsTheRuntimePreambleBuiltAreFoldedWithIt()
+   local dir = project{["demo.g.nupp"] = SCALE}
+   local folded = run(dir, "demo.g.nupp")
+   assert(folded:match("instructions of runtime preamble, in %d+ function"),
+      "the folded preamble counts the functions it built:\n" .. folded)
+   assert(not folded:find("could not be closed", 1, true),
+      "a preamble function's own instructions stay folded:\n" .. folded)
+
+   local shown = run(dir, "--prologue demo.g.nupp")
+   assert(shown:find("could not be closed", 1, true),
+      "--prologue shows the functions the preamble built:\n" .. shown)
+end
+
 -- The generated runtime preamble all lands on line 1, so a listing that showed it would
 -- bury the file under something nobody wrote.
 function M.theRuntimePreambleIsFoldedUnlessAskedFor()

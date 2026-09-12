@@ -16,6 +16,39 @@ and marks blocker and risk sites in a temporary **Nupp JIT Check** diagnostic
 collection. It uses unsaved editor text, runs no program, changes no source, and
 clears its findings on the next edit or check.
 
+## Inspecting compiled output
+
+Every checked function carries an **Inspect** code lens, and the same entries
+are in the command palette: **Nupp: Open Generated Lua**, **Nupp: Open
+Bytecode**, and **Nupp: Compare Generated Artifacts**. Artifacts open beside the
+source as ordinary read-only editors, so search, folding and diff keep working
+on them, and they are made from the buffer rather than the file on disk.
+
+Selecting in either view reveals the matching line in the other. Generated Lua
+is line-identical to its source, because the emitter never changes a file's line
+count; a bytecode listing carries its own mapping, and a line standing for
+compiler-owned work reveals nothing rather than pointing somewhere arbitrary.
+
+The bytecode view does not repeat the source, since the source is beside it. Row
+N is what line N compiled to, and it opens folded, so a line compiling to several
+instructions still takes one row and the panes stay in step.
+
+One lens per function rather than one per artifact kind is deliberate: most
+kinds do not apply to most functions.
+
+`nupp.artifactOptimizationLevel` sets the level artifacts resolve at.
+
+## Tests and coverage
+
+The extension registers a test controller per workspace folder listing the
+project's suites. Its **Coverage** profile runs `nupp test --coverage` and publishes
+the result through VS Code's own gutter, hover counts and Test Coverage tree.
+Branch outcomes are counted separately, so a condition that never went one way
+reads as half a branch rather than as a covered line. Coverage is computed when
+a coverage run is asked for, not on every edit. The inline gutter is VS Code's
+**Test: Toggle Inline Coverage** (`⌘; ⌘⇧I`); the first coverage run of a session
+offers it.
+
 ## Code actions
 
 Quick fixes come from the checker, so the lightbulb offers exactly what the

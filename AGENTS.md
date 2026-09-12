@@ -133,6 +133,12 @@ whenever output is not a terminal, so piped output never carries escapes.
   document symbols.
 - `./bin/nupp lsp rename FILE LINE COLUMN NEW_NAME` previews a semantic rename.
   Add `--write` only when the requested change should be applied.
+- `./bin/nupp lsp artifacts --json FILE LINE COLUMN` lists what the file
+  compiles to and names the function at the position.
+- `./bin/nupp lsp artifact --kind lua|bytecode [-O 0|1|2] FILE` prints one of
+  them. Generated Lua is line-identical to its source, so line N of the output
+  is line N of the input; a bytecode listing carries its own mapping under
+  `--json`.
 - `./bin/nupp lsp actions --json FILE LINE COLUMN` lists code actions. Use
   `--only quickfix` or `--only refactor` to narrow the results.
 

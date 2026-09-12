@@ -878,6 +878,29 @@ function gen.generate(
     local coverageSites: {any}? = nil
     local coverageSiteCount = 0
     local coverageName
+    -- What each function body is called and where it ends, keyed by the body, since
+    -- a body is what a function probe is emitted against and a body has neither.
+    -- Built once and only under coverage, so ordinary generation does not walk it.
+    local coverageFunctions: {[any]: any}? = nil
+    if coverageOn then
+        local found: {[any]: any} = {}
+
+        local function collect(node: any): nil
+            if not node or cst.isToken(node) then
+                return
+            end
+            if cst.FUNCTION_DECLARATIONS[node.kind] and node.body then
+                local last = cst.lastToken(node)
+                found[node.body] = {name = cst.functionName(node), endLine = last and last.line or nil,}
+            end
+            for _, child in ipairs(node) do
+                collect(child)
+            end
+        end
+
+        collect(result.root)
+        coverageFunctions = found
+    end
     -- One table behind one upvalue: the main emitter is already close to LuaJIT's
     -- 60-upvalue ceiling when coverage is present.
     local hotState: any = hot and {
@@ -2494,7 +2517,16 @@ function gen.generate(
         local id = coverageSiteCount
         local sites = coverageSites or {}
         coverageSites = sites
-        sites[#sites + 1] = {id = id, kind = kind, line = sourceLine(node) or 0}
+        local site = {id = id, kind = kind, line = sourceLine(node) or 0}
+        -- A function site is the only one a report names rather than counts, and
+        -- the only one whose span is worth more than its first line: a declaration
+        -- covers the body a reader wants folded under it.
+        local declared = kind == "function" and coverageFunctions and coverageFunctions[node] or nil
+        if declared then
+            site.name = declared.name
+            site.endLine = declared.endLine
+        end
+        sites[#sites + 1] = site
 
         return id
     end

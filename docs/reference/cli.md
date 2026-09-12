@@ -525,27 +525,30 @@ advice without claiming every path stays interpreted.
 ```
 
 Generated Lua keeps source line numbers one to one, so the listing shows the
-file that was written rather than the file that was generated:
+file that was written rather than the file that was generated. Instructions sit
+under the line they came from and a body is nested under the line that declares
+it, so the listing reads down the source rather than down the bytecode, and the
+functions the runtime preamble built fold away with it:
 
 ```text [nupp bc src/greet.nupp]
--- chunk, lines 0-6
-     ... 44 instructions of runtime preamble
-    3 | end
-      0044  FNEW     4   7      ; greet.nupp:1
-    5 | return {greet = greet}
-      0045  TDUP     5   8
-      0046  TSETS    4   5   9  ; "greet"
-      0047  UCLO     0 => 0048
-      0048  RET1     5   2
-
-  -- function, lines 1-3
-      1 | local function greet(name: string): string
+-- chunk, lines 0-7
+     ... 65 instructions of runtime preamble, in 1 function
+    2 | local function greet(name: string): string
+  -- function, lines 2-4
+      2 | local function greet(name: string): string
         0000  FUNCF    3 
-      2 |     return "Hello, " .. name
+      3 |     return "Hello, " .. name
         0001  KSTR     1   0      ; "Hello, "
         0002  MOV      2   0
         0003  CAT      1   1   2
         0004  RET1     1   2
+    4 | end
+      0046  FNEW     4  16      ; greet.nupp:2
+    6 | return {greet = greet}
+      0047  TDUP     5  17
+      0048  TSETS    4   5  18  ; "greet"
+      0049  UCLO     0 => 0050
+      0050  RET1     5   2
 ```
 
 Building a function is the usual thing `--check` finds. LuaJIT has no recording
@@ -2013,6 +2016,8 @@ Usage:
   nupp lsp rename [options] [-w|--write] <file> <line> <column> <new-name>
   nupp lsp actions [options] [--only quickfix|refactor] <file> <line> <column>
   nupp lsp trace-check [options] <file> <line> <column>
+  nupp lsp artifacts [options] <file> <line> <column>
+  nupp lsp artifact [options] --kind lua|bytecode <file>
 
 Options:
   --root DIR       Project root (default: current directory)
@@ -2030,6 +2035,10 @@ Options:
   --file FILE      symbols only: Search one document instead of the workspace
   -w, --write      rename only: Apply the rename instead of previewing it
   --only KIND      actions only: Narrow the results to quickfix or refactor
+  --kind KIND      artifact only: Which artifact to resolve
+  -O, --opt-level LEVEL
+                   artifact only: Optimization level to resolve the artifact at
+                   (default: 0)
 
 With no operation, or with only a root, runs the language server over stdio for
 compatibility. `serve` names that mode explicitly. Source positions are 1-based
@@ -2120,9 +2129,33 @@ risks the reason catalog knows about it:
 nupp lsp trace-check --json src/greet.nupp 2 16
 ```
 
+`artifacts` says what the file at a position compiles to, without compiling any
+of it, and names the function the position is in:
+
+```bash
+nupp lsp artifacts --json src/greet.nupp 2 16
+```
+
+`artifact` resolves one, from the editor's buffer where there is a session and
+from the file otherwise. It prints the artifact, so it pipes:
+
+```bash
+nupp lsp artifact --kind lua src/greet.nupp
+nupp lsp artifact --kind bytecode -O 1 --json src/greet.nupp
+```
+
+Generated Lua is line-identical to its source, because the emitter never changes
+a file's line count; `--json` reports that as `mapping.kind: "line-identity"`
+rather than as an entry per line. A bytecode listing is a rendering and carries
+one entry per line that stands for source. The artifact is laid out against the
+file -- row N is what line N compiled to, with the rows a multi-instruction line
+needed indented into a folding region -- while `nupp bc` echoes each source line
+above its instructions, because a terminal has no second pane to lay it against. An artifact that could not be
+produced is a failure naming what stopped it, not an empty document.
+
 `nupp help lsp` shows a merged option list; each of `--include-declaration`,
-`--file`, `--only` and `--write` belongs to exactly one operation. Every
-operation answers `--schema` with its own.
+`--file`, `--only`, `--write`, `--kind` and `-O` belongs to exactly one
+operation. Every operation answers `--schema` with its own.
 
 ::: seealso
 - [lsp.md](../learn/tooling/language-server.md) for what the resident server supports
@@ -2130,6 +2163,7 @@ operation answers `--schema` with its own.
 - [diagnostics.md](diagnostics.md) for the codes a quickfix answers
 - [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for what
   `trace-check` reports
+- [bc](#bc) for the same listing `artifact --kind bytecode` carries
 :::
 
 ### `version`

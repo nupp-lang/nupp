@@ -352,6 +352,112 @@ local OPERATION_SPECS: {
             required = {"findings"},
         }
     ),
+    artifacts = operationSpec(
+        "artifacts",
+        "List the compiled artifacts available at a position",
+        "nupp lsp artifacts [options] <file> <line> <column>",
+        {},
+        {
+            type = "object",
+            description = "What could be resolved here, without resolving any of it.",
+            properties = {
+                artifacts = {
+                    type = "array",
+                    items = {
+                        type = "object",
+                        properties = {
+                            kind = {type = "string", enum = {"lua", "bytecode"}},
+                            label = {type = "string"},
+                            languageId = {type = "string"},
+                            scope = {
+                                type = "string",
+                                enum = {"module", "function"},
+                                description = "Whether resolving this kind answers for the file or for one body.",
+                            },
+                        },
+                        required = {"kind", "label", "scope"},
+                    },
+                },
+                [
+                    "function"
+                ] = {
+                    type = "object",
+                    description = "The innermost function the position is in, absent outside one.",
+                    properties = {name = {type = "string"}, range = reportMod.RANGE},
+                },
+            },
+            required = {"artifacts"},
+        }
+    ),
+    artifact = operationSpec(
+        "artifact",
+        "Print what a file compiles to",
+        "nupp lsp artifact [options] --kind lua|bytecode <file>",
+        {
+            {
+                name = "--kind",
+                key = "kind",
+                value = "KIND",
+                choices = {"lua", "bytecode"},
+                help = "Which artifact to resolve",
+            },
+            {
+                names = {"-O", "--opt-level"},
+                key = "artifactOptLevel",
+                value = "LEVEL",
+                choices = {"0", "1", "2"},
+                help = "Optimization level to resolve the artifact at (default: 0)",
+            },
+        },
+        {
+            type = "object",
+            description = "One compiled artifact, or why there is not one.",
+            properties = {
+                id = {type = "string"},
+                kind = {type = "string"},
+                available = {type = "boolean"},
+                label = {type = "string"},
+                languageId = {type = "string"},
+                text = {type = "string"},
+                mapping = {
+                    type = "object",
+                    description = "How generated positions relate to source positions.",
+                    properties = {
+                        kind = {
+                            type = "string",
+                            enum = {"line-identity", "lines", "lines-collapsible"},
+                            description = "`line-identity` means generated line N is source line N "
+                            .. "for every N, which is what the Lua emitter guarantees. `lines` "
+                            .. "carries one entry per generated line that stands for source. "
+                            .. "`lines-collapsible` is the same, laid out so that folding every "
+                            .. "indented run leaves one row per source line.",
+                        },
+                        entries = {
+                            type = "array",
+                            items = {
+                                type = "object",
+                                properties = {
+                                    generatedLine = {type = "integer"},
+                                    sourceLine = {type = "integer"},
+                                    role = {type = "string", enum = {"exact", "source", "derived", "synthetic"}},
+                                },
+                                required = {"generatedLine", "sourceLine", "role"},
+                            },
+                        },
+                    },
+                    required = {"kind"},
+                },
+                metadata = {type = "object"},
+                summary = {type = "object"},
+                unavailable = {
+                    type = "object",
+                    properties = {reason = {type = "string"}, detail = {type = "string"}},
+                    required = {"reason"},
+                },
+            },
+            required = {"kind", "available"},
+        }
+    ),
 }
 
 -- The operations in the order help lists them.
@@ -363,7 +469,9 @@ local OPERATION_ORDER = {
     "symbols",
     "rename",
     "actions",
-    "trace-check"
+    "trace-check",
+    "artifacts",
+    "artifact"
 }
 
 --- The group's option list, rendered from the operations' grammars rather than written
@@ -441,6 +549,8 @@ local command = spec.command{
         "nupp lsp rename [options] [-w|--write] <file> <line> <column> <new-name>",
         "nupp lsp actions [options] [--only quickfix|refactor] <file> <line> <column>",
         "nupp lsp trace-check [options] <file> <line> <column>",
+        "nupp lsp artifacts [options] <file> <line> <column>",
+        "nupp lsp artifact [options] --kind lua|bytecode <file>",
     },
     universal = false,
     options = groupOptions(),
@@ -1156,6 +1266,80 @@ local function runTraceCheck(client, opts)
     return true
 end
 
+local function runArtifacts(client, opts)
+    local path, _, position, err = target(client, opts)
+    if not path then
+        return nil, err
+    end
+    local result, requestErr = client.request("$/nupp/artifacts", positionParams(path, position))
+    if requestErr then
+        return nil, requestErr
+    end
+    local available = jsonArray({})
+    for _, entry in ipairs(result and result.artifacts or {}) do
+        available[
+            #available + 1
+        ] = {kind = entry.kind, label = entry.label, languageId = entry.languageId, scope = entry.scope,}
+    end
+    local enclosing = result and result["function"] or nil
+    local value = {
+        artifacts = available,
+        [
+            "function"
+        ] = enclosing and {
+            name = enclosing.name,
+            range = enclosing.range and rangeValue(client, path, enclosing.range) or nil,
+        } or nil,
+    }
+    if opts.format == "json" then
+        jsonOutput(value)
+    else
+        for _, entry in ipairs(available) do
+            io.write(("%s: %s (%s)\n"):format(entry.kind, entry.label, entry.scope))
+        end
+        if enclosing and enclosing.name then
+            io.write("in " .. enclosing.name .. "\n")
+        end
+    end
+
+    return true
+end
+
+--- Resolving an artifact is about a file, so it takes one path and no position.
+--- A caller that has a cursor asks `artifacts` first; this is what it does next.
+local function runArtifact(client, opts)
+    if #opts.positional ~= 1 then
+        return nil, "expected FILE"
+    end
+    if not opts.kind then
+        return nil, "--kind names the artifact to resolve: lua or bytecode"
+    end
+    local path = resolvePath(opts.root, opts.positional[1])
+    local _, readErr = client.open(path)
+    if readErr then
+        return nil, readErr
+    end
+    local result, requestErr = client.request("$/nupp/artifact", {
+        textDocument = {uri = pathToUri(path)},
+        kind = opts.kind,
+        optLevel = tonumber(opts.artifactOptLevel) or 0,
+    })
+    if requestErr then
+        return nil, requestErr
+    end
+    if opts.format == "json" then
+        jsonOutput(result)
+    elseif not result.available then
+        local reason = result.unavailable or {}
+
+        return nil, (reason.detail or reason.reason or "the artifact is not available")
+    else
+        io.write(result.text)
+    end
+
+    return true
+end
+
 ----------------------------------------------------------------------------
 -- Dispatch
 ----------------------------------------------------------------------------
@@ -1171,6 +1355,8 @@ local OPERATIONS = {
     rename = runRename,
     actions = runActions,
     ["trace-check"] = runTraceCheck,
+    artifacts = runArtifacts,
+    artifact = runArtifact,
 }
 
 local function dispatch(args: any): integer

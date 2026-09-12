@@ -272,6 +272,35 @@ function tree.nodeBounds(node: cst.Child): integer?, integer?
     return first, last
 end
 
+--- The innermost analysed function containing a position, and the span it covers.
+---
+--- The analysis lists every function in the file rather than nesting them, so the
+--- one a cursor is in is the shortest of those whose span holds it. Trace checking
+--- and the artifact inspector both ask this, and a cursor that selects one function
+--- for one of them and a different function for the other would be a bug nobody
+--- could see, so they ask it here.
+---
+--- @param functions the trace analysis' function list
+--- @param offset a byte offset into the file the analysis was made from
+--- @return the function, its first byte and the byte after its last, or nothing
+--- @raises never
+function tree.functionAt(functions: {any}?, offset: integer?): (any?, integer?, integer?)
+    if not functions or not offset then
+        return nil, nil, nil
+    end
+    local selected, selectedFrom, selectedTo = nil, nil, nil
+    for _, info in ipairs(functions) do
+        local from, to = tree.nodeBounds(info.node)
+        if from and to and offset >= from and offset <= to and (
+            not selected or to - from < (selectedTo as integer) - (selectedFrom as integer)
+        ) then
+            selected, selectedFrom, selectedTo = info, from, to
+        end
+    end
+
+    return selected, selectedFrom, selectedTo
+end
+
 --- The checked comptime expression enclosing a position, plus its body span. The
 --- expression span serves hover; the body span tells completion where evaluator-only
 --- bindings apply.

@@ -41,21 +41,7 @@ local NESTED = {
 }
 
 local function nameOf(info): string
-    local node = info and info.node
-    local name = node and (node.name or node.token)
-    if name then
-        if name.text then
-            return name.text
-        end
-        if name.method and name.method.text then
-            return name.method.text
-        end
-        if name.base and name.base.text then
-            return name.base.text
-        end
-    end
-
-    return "<function>"
+    return cst.functionName(info and info.node) or "<function>"
 end
 
 local function sourceText(node): string

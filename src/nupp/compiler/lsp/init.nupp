@@ -34,6 +34,7 @@ local wire = require("nupp.compiler.lsp.wire")
 local symbols = require("nupp.compiler.lsp.symbols")
 local complete = require("nupp.compiler.lsp.complete")
 local semantic = require("nupp.compiler.lsp.semantic")
+local artifactsMod = require("nupp.compiler.lsp.artifacts")
 
 -- The declarations `@jit` can decorate: the ones the pragma checker attaches a
 -- contract to.
@@ -480,6 +481,8 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     local rememberTokens, tokenEdits = tokens.rememberTokens, tokens.tokenEdits
     local lastSentTokens = tokens.lastSent
 
+    local compiled = artifactsMod.install(s)
+
     -- Which folders a session answers for decides which project a file is read under,
     -- what a module name resolves to, which file list a rename runs over, and which
     -- declarations a name can mean, everything the query graphs were built around. So
@@ -561,7 +564,15 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 foldingRangeProvider = true,
                 selectionRangeProvider = true,
                 codeActionProvider = {codeActionKinds = wire.array({QUICKFIX}),},
+                -- One lens per checked function. A lens arrives with its command
+                -- already on it, which is what `resolveProvider` being false
+                -- says: there is no second round trip to fill one in.
+                codeLensProvider = {resolveProvider = false},
                 workspace = {workspaceFolders = {supported = true, changeNotifications = true,},},
+                -- Which compiled artifacts this server can produce. A client reads
+                -- this rather than asking for one to find out, so a server built
+                -- before a kind existed says so instead of erroring.
+                experimental = {nuppArtifacts = wire.array(artifactsMod.KINDS)},
             },
             serverInfo = {name = "nupp-lsp", version = "0.1"},
         })
@@ -956,19 +967,14 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             respond(id, json.NULL)
             return
         end
-        local selected, selectedFrom, selectedTo
-        for _, info in ipairs(analysis.functions or {}) do
-            local from, to = tree.nodeBounds(info.node)
-            if from and to and offset >= from and offset <= to and (
-                not selected or to - from < selectedTo - selectedFrom
-            ) then
-                selected, selectedFrom, selectedTo = info, from, to
-            end
-        end
+        local selected, foundFrom, foundTo = tree.functionAt(analysis.functions, offset)
         if not selected then
             respond(id, json.NULL)
             return
         end
+        -- A selected function has bounds: it was found by holding the cursor inside
+        -- them. Naming them here is what lets the rest of this read as offsets.
+        local selectedFrom, selectedTo = foundFrom as integer, foundTo as integer
         local findings = wire.array({})
         for _, finding in ipairs(selected.traceFindings or {}) do
             local from, to = tree.nodeBounds(finding.at or finding.callAt)
@@ -1014,6 +1020,21 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             contract = selected.body and selected.body.jitRequired and "@jit" or "inspection",
             addContract = addContract,
         })
+    end
+
+    -- What the buffer compiles to. Discovery is answered from the check that has
+    -- already happened, so it costs nothing to ask per function; resolution lowers
+    -- the buffer, so it is asked for once something has been opened.
+    handlers["$/nupp/artifacts"] = function(id, params)
+        respond(id, compiled.discover(params))
+    end
+
+    handlers["$/nupp/artifact"] = function(id, params)
+        respond(id, compiled.resolve(params))
+    end
+
+    handlers["textDocument/codeLens"] = function(id, params)
+        respond(id, compiled.lenses(params))
     end
 
     -- A one-shot planner for Lua documents. The current bytes travel with the request,

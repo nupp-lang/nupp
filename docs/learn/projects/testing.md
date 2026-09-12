@@ -380,6 +380,24 @@ nupp test --coverage --report-json --coverage-out reports/coverage
 It carries per-file metrics, missed locations, and counted coverage sites.
 Source text and generated Lua remain in the HTML report.
 
+Each site says where it is and how often it was reached, and carries what is
+worth knowing about its kind:
+
+| Kind | Beyond `line` and `count` |
+| --- | --- |
+| `statement` | Nothing; the count is the whole answer |
+| `function` | `name` and `endLine`, absent on an anonymous body |
+| `branch` | `trueCount` and `falseCount`, counted separately |
+
+A branch is two things that can be missed independently, which is why both
+outcomes are carried rather than only the times the condition ran: a condition
+reached a hundred times that never once went the other way is half a branch.
+`nupp test --schema` prints this one, under `coverageReport`.
+
+An editor reads these rather than the HTML. The Visual Studio Code extension
+publishes them through VS Code's own coverage UI; see
+[editors.md](../tooling/editors.md#tests-and-coverage).
+
 ## Fixpoint verification
 
 `nupp fixpoint` starts from the stage-zero compiler the project is pinned to and

@@ -87,7 +87,9 @@ local command = spec.command{
         type = "object",
         description = "One run: the totals, and a record per test. This is what "
         .. "the bundled runner writes; a project that configures a "
-        .. "different test command is the one answering for its --json.",
+        .. "different test command is the one answering for its --json. "
+        .. "`--coverage --report-json` answers with `#/definitions/coverageReport` "
+        .. "instead, which is a report rather than a run.",
         properties = {
             ok = {type = "boolean"},
             total = {type = "integer"},
@@ -218,6 +220,66 @@ local command = spec.command{
             },
         },
         required = {"ok", "total", "passed", "skipped", "failed", "tests"},
+        definitions = {
+            coverageMetric = {
+                type = "object",
+                properties = {
+                    covered = {type = "integer"},
+                    total = {type = "integer"},
+                    percent = {type = "number"},
+                    missing = {type = "array", items = {type = "string"}},
+                },
+            },
+            coverageSite = {
+                type = "object",
+                description = "One place the instrumented program counts reaching.",
+                properties = {
+                    id = {type = "integer"},
+                    kind = {type = "string", enum = {"statement", "function", "branch"}},
+                    line = {type = "integer"},
+                    count = {type = "integer", description = "Times this site was reached."},
+                    name = {
+                        type = "string",
+                        description = "A function site's declared name, absent when it is anonymous.",
+                    },
+                    endLine = {type = "integer", description = "The last line of a function site's declaration."},
+                    trueCount = {type = "integer", description = "Branch sites only: times the condition held."},
+                    falseCount = {type = "integer", description = "Branch sites only: times it did not."},
+                },
+                required = {"id", "kind", "line", "count"},
+            },
+            coverageReport = {
+                type = "object",
+                description = "What `--coverage --report-json` prints: the report "
+                .. "already written, rather than a run. An editor reads this to "
+                .. "draw a gutter, so a site says where it is, how often it was "
+                .. "reached, and -- for a branch -- which way it went.",
+                properties = {
+                    version = {type = "integer"},
+                    warnings = {type = "array", items = {type = "string"}},
+                    summary = {type = "object"},
+                    files = {
+                        type = "array",
+                        items = {
+                            type = "object",
+                            properties = {
+                                path = {type = "string"},
+                                status = {
+                                    type = "string",
+                                    enum = {"covered", "partial", "uncovered", "non-executable"},
+                                },
+                                lines = {["$ref"] = "#/definitions/coverageMetric"},
+                                functions = {["$ref"] = "#/definitions/coverageMetric"},
+                                branches = {["$ref"] = "#/definitions/coverageMetric"},
+                                sites = {type = "array", items = {["$ref"] = "#/definitions/coverageSite"}},
+                            },
+                            required = {"path", "sites"},
+                        },
+                    },
+                },
+                required = {"version", "files", "summary"},
+            },
+        },
     },
     detail = [[Additional arguments are appended to the bundled runner or test.argv from
 nupp.lua. `--coverage`, `--coverage-out`, and `--report-json` belong to Nupp;

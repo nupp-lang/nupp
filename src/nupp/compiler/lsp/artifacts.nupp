@@ -1,0 +1,280 @@
+module nupp.compiler.lsp.artifacts
+
+--[[
+What a source file compiles to, answered for the buffer rather than the file.
+
+An `@aot` body is compiled somewhere a reader cannot see, and so, less
+obviously, is an ordinary one: the Lua a `.nupp` file erases to and the bytecode
+LuaJIT then runs are both already reachable from the command line, but only for
+a file that has been saved, and only into a terminal that cannot be clicked.
+
+Two requests, for the two costs. `$/nupp/artifacts` asks what is available at a
+position and is answered from the check the session has already done, so a
+client may ask it per function on every viewport. `$/nupp/artifact` resolves one
+and lowers the buffer to do it, so a client asks it when somebody opened
+something.
+
+Generated Lua needs no mapping: `nupp.compiler.gen` holds the lowering to the
+source's own line numbering so that stack traces need no sourcemap, and this
+module reports that as a mapping kind rather than a table of entries, which is
+both smaller and the only honest way to say "every line, exactly". A bytecode
+listing is a rendering and does carry entries.
+]]
+
+local listing = require("nupp.compiler.bytecodelisting")
+local text = require("nupp.compiler.lsp.text")
+local tree = require("nupp.compiler.lsp.tree")
+local wire = require("nupp.compiler.lsp.wire")
+
+local uriToPath = text.uriToPath
+local offsetAtPosition = text.offsetAtPosition
+local spanRange = text.spanRange
+
+local artifacts = {}
+
+--- What resolution reads of a session: the open documents, and which project root
+--- owns the file being asked about.
+type artifacts.Session = {
+    documents: {[string]: any},
+    useRoot: function(path: string?): string,
+    currentRoot: string?
+}
+
+type artifacts.Api = {
+    discover: function(params: any): any,
+    resolve: function(params: any): any,
+    lenses: function(params: any): any
+}
+
+--- The kinds this server can produce. Advertised through experimental capabilities
+--- so a client can tell what it may ask for without asking for it.
+artifacts.KINDS = {"lua", "bytecode"}
+
+const LABELS: {[string]: string} = {lua = "Generated Lua", bytecode = "Bytecode",}
+const LANGUAGES: {[string]: string} = {lua = "lua", bytecode = "nupp-bytecode",}
+
+--- A kind's scope: `module` artifacts are the whole file however the request was
+--- positioned, and `function` artifacts are one body.
+const SCOPES: {[string]: string} = {lua = "module", bytecode = "module",}
+
+--- An artifact that could not be produced, said the same way whatever refused it.
+---
+--- Every kind has one of these, because every kind can fail for a reason that is
+--- not a bug: a file that checks can still fail to lower, and a GPU body can be
+--- outside the profile a browser artifact is written for. A client that has to
+--- guess from an empty document shows an empty document.
+local function unavailable(kind: string, reason: string, detail: string?): any
+    return {
+        kind = kind,
+        available = false,
+        label = LABELS[kind] or kind,
+        unavailable = {reason = reason, detail = detail},
+    }
+end
+
+function artifacts.install(s: artifacts.Session): artifacts.Api
+    --- The document a request names, with the offset its position falls on.
+    local function documentFor(params: any): (string?, any, integer?)
+        local uri = params and params.textDocument and params.textDocument.uri
+        local doc = uri and s.documents[uri] or nil
+        if not doc then
+            return uri, nil, nil
+        end
+        local offset = params.position and offsetAtPosition(doc.text, params.position) or nil
+
+        return uri, doc, offset
+    end
+
+    --- Lowers the buffer to Lua, with the diagnostics that stopped it if it did not.
+    ---
+    --- The compile is given the buffer's text rather than the path, so what opens
+    --- is what the editor shows. A fresh environment per resolution costs a prelude
+    --- the cache has already built, and is the only thing that stays correct when a
+    --- dependency changed under a session that has been open for a day.
+    local function lower(doc: any, path: string, optLevel: integer, boundary: string?): (string?, {any})
+        local collected: {any} = {}
+        local compile = require("nupp.compiler.cli.compile")
+        local env = require("nupp.compiler.env").new(s.currentRoot or ".")
+        local settings = compile.settings({optLevel = tostring(optLevel)}, collected)
+        settings.bytecodeBoundary = boundary
+        local code = compile.module(path, env, settings, nil, doc.text)
+
+        return code, collected
+    end
+
+    --- The first diagnostic that stopped a lowering, as a sentence.
+    local function firstProblem(collected: {any}): string?
+        for _, diagnostic in ipairs(collected) do
+            if diagnostic.message then
+                local where = diagnostic.line and (":" .. tostring(diagnostic.line)) or ""
+                return (diagnostic.code or "error") .. where .. ": " .. diagnostic.message
+            end
+        end
+
+        return nil
+    end
+
+    local function luaArtifact(doc: any, path: string, optLevel: integer): any
+        local code, collected = lower(doc, path, optLevel)
+        if not code then
+            return unavailable("lua", "not-lowered", firstProblem(collected) or "the file does not compile")
+        end
+
+        return {
+            kind = "lua",
+            available = true,
+            label = LABELS.lua,
+            languageId = LANGUAGES.lua,
+            text = code,
+            -- Not a table of entries: the emitter's invariant is that generated
+            -- code never changes the line count, so line N here is line N there
+            -- for every N, and saying so is both exact and constant-sized.
+            mapping = {kind = "line-identity"},
+            metadata = {optLevel = optLevel, dialect = doc.result and doc.result.dialect or nil,},
+            summary = {lines = select(2, code:gsub("\n", "\n")),},
+        }
+    end
+
+    local function bytecodeArtifact(doc: any, path: string, optLevel: integer): any
+        if not pcall(require, "jit.util") or not pcall(require, "jit.bc") then
+            return unavailable("bytecode", "unsupported-host", "bytecode needs LuaJIT's jit.util and jit.bc")
+        end
+        -- Compiled with the preamble marker in, so the reader gets the same folded
+        -- listing `nupp bc` prints rather than forty instructions of runtime setup
+        -- before the first line they wrote.
+        local code, collected = lower(doc, path, optLevel, listing.BOUNDARY)
+        if not code then
+            return unavailable("bytecode", "not-lowered", firstProblem(collected) or "the file does not compile")
+        end
+        local chunk, loadErr = loadstring(code, "@" .. path)
+        if not chunk then
+            return unavailable("bytecode", "not-loaded", tostring(loadErr))
+        end
+        local analysis = require("nupp.compiler.tracebytecode").analyze(chunk)
+        local boundaryFunction, boundaryPc = listing.boundary(analysis.functions)
+        -- Laid out against the source, not beside it: the editor already has the
+        -- file in the pane next to this one.
+        local rendered, mappings = listing.aligned(analysis.functions, doc.text, {
+            check = true,
+            boundaryFunction = boundaryFunction,
+            boundaryPc = boundaryPc,
+        })
+        local entries = wire.array({})
+        for _, mapping in ipairs(mappings) do
+            entries[#entries + 1] = mapping
+        end
+
+        return {
+            kind = "bytecode",
+            available = true,
+            label = LABELS.bytecode,
+            languageId = LANGUAGES.bytecode,
+            text = rendered,
+            -- Collapsible rather than plain lines: a source line that compiled
+            -- to several instructions keeps the first on its own row and indents
+            -- the rest, so the two panes line up once those rows are folded.
+            mapping = {kind = "lines-collapsible", entries = entries},
+            metadata = {optLevel = optLevel, fingerprint = analysis.bytecodeFingerprint,},
+            summary = {
+                blockers = analysis.blockers,
+                mustBlockers = analysis.mustBlockers,
+                risks = analysis.risks,
+                functions = #analysis.functions,
+            },
+        }
+    end
+
+    const BUILDERS: {[string]: function(any, string, integer): any} = {lua = luaArtifact, bytecode = bytecodeArtifact,}
+
+    --- Cheap discovery: what a client may ask for here, and what it would be about.
+    ---
+    --- Nothing is lowered. The function a lens would sit on comes from the trace
+    --- analysis the ordinary check already produced, which is what makes this
+    --- affordable once per function per viewport.
+    local function discover(params: any): any
+        local _, doc, offset = documentFor(params)
+        if not doc then
+            return {artifacts = wire.array({})}
+        end
+        local analysis = doc.result and doc.result.traceAnalysis or nil
+        local selected, from, to = tree.functionAt(analysis and analysis.functions or nil, offset)
+        local out = wire.array({})
+        for _, kind in ipairs(artifacts.KINDS) do
+            out[#out + 1] = {kind = kind, label = LABELS[kind], languageId = LANGUAGES[kind], scope = SCOPES[kind],}
+        end
+
+        return {
+            artifacts = out,
+            [
+                "function"
+            ] = selected and {
+                name = selected.traceName,
+                range = from and to and spanRange(doc.text, from, to as integer) or nil,
+            } or nil,
+        }
+    end
+
+    local function resolve(params: any): any
+        local uri, doc = documentFor(params)
+        local kind = params and params.kind
+        if type(kind) ~= "string" or not BUILDERS[kind] then
+            return unavailable(tostring(kind), "unknown-kind", "this server produces lua and bytecode")
+        end
+        if not doc then
+            return unavailable(kind, "no-document", "the document is not open on this server")
+        end
+        local path = uriToPath(uri as string)
+        s.useRoot(path)
+        local optLevel = math.floor(tonumber(params.optLevel) or 0)
+        if optLevel < 0 or optLevel > 2 then
+            return unavailable(kind, "unknown-opt-level", "optimization levels are 0, 1 and 2")
+        end
+        local built = assert(BUILDERS[kind])(doc, path, optLevel)
+        built.uri = uri
+        built.version = doc.version
+        -- What the client asked for, echoed so that two open artifacts of the same
+        -- kind at different levels are distinguishable without parsing the label.
+        built.id = ("%s|%s|O%d"):format(uri, kind, optLevel)
+
+        return built
+    end
+
+    --- One lens per analysed function: `Inspect`, rather than a button per kind.
+    ---
+    --- A row of buttons would have to be right about which kinds apply before the
+    --- work that knows is done, and most of them do not apply to most functions.
+    --- One lens that opens what is actually available is O(1) to render and never
+    --- offers a dead link.
+    local function lenses(params: any): any
+        local uri, doc = documentFor(params)
+        local out = wire.array({})
+        if not doc then
+            return out
+        end
+        local analysis = doc.result and doc.result.traceAnalysis or nil
+        for _, info in ipairs(analysis and analysis.functions or {}) do
+            local from, to = tree.nodeBounds(info.node)
+            if from and to then
+                local range = spanRange(doc.text, from, to as integer)
+                out[
+                    #out + 1
+                ] = {
+                    range = {start = range.start, ["end"] = range.start},
+                    command = {
+                        title = "Inspect",
+                        command = "nupp.inspectCompiledFunction",
+                        arguments = wire.array({
+                            {uri = uri, name = info.traceName, position = range.start, range = range,},
+                        }),
+                    },
+                }
+            end
+        end
+
+        return out
+    end
+
+    return {discover = discover, resolve = resolve, lenses = lenses}
+end
+
+export = artifacts
