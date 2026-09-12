@@ -21,7 +21,7 @@ local process = require("nupp.io.process")
 local time = require("nupp.time")
 local type Bench = {
     compare: function(any, any): ({string}, {string}),
-    format: function(any): string
+    format: function(any, any?): string
 }
 local bench = require("nupp.bench") as Bench
 local compare = bench.compare
@@ -41,6 +41,7 @@ type runner.Options = {
     baseline: string?,
     accept: boolean?,
     json: boolean?,
+    geo: boolean?,
     casePatterns: {string}?,
     parameterPatterns: {string}?,
     variantPatterns: {string}?,
@@ -504,7 +505,7 @@ function runner.run(options: runner.Options): integer
                 cases[#cases + 1] = measurement
             end
         end
-        io.stdout:write(format({cases = cases,}))
+        io.stdout:write(format({cases = cases,}, {geometricMean = options.geo == true}))
     end
     for _, note in ipairs(notes) do
         io.stderr:write("bench: uncompared: " .. note .. "\n")

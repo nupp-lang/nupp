@@ -143,10 +143,10 @@ sample does not turn the benchmark into a GC benchmark. The record retains every
 normalized sample plus min, mean, sample standard deviation, p50, p90 and p99.
 The human table stays compact and reports p50; when the runner has every variant,
 `Ratio` is baseline p50 divided by that variant's p50, so values above `1x` are
-faster. A winners table names the fastest variant for each workload. The final
-suite summary is the geometric mean of those ratios, weighting parameter
-expansions equally within a logical case and then weighting logical cases
-equally.
+faster. A winners table names the fastest variant for each workload. Pass
+`--geo` to also compare variants by the geometric mean of those ratios,
+weighting parameter expansions equally within a logical case and then weighting
+logical cases equally.
 
 ## Frames
 
@@ -238,6 +238,7 @@ nupp bench
 nupp bench --list
 nupp bench --baseline build/bench-baseline.json
 nupp bench --baseline build/bench-baseline.json --accept
+nupp bench --geo
 nupp bench --case '^point$' --variant '^grown$'
 nupp bench --file bench/presize.bench.nupp --case '^point$' --variant '^grown$'
 nupp bench --case '^lookup$' --variant '^table$'
@@ -271,7 +272,8 @@ logical case component.
 Each listing and case child has a 120-second deadline. Set another one with
 `--timeout-ms MILLISECONDS`. The runner prints and flushes the case name before
 starting the child, prints that child's result when it completes, then prints
-the merged table, winners, and geometric-mean summaries after the set finishes.
+the merged table and winners after the set finishes. `--geo` adds geometric-mean
+variant comparisons.
 
 ## Sampling the measured window
 

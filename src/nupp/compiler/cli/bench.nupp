@@ -36,6 +36,7 @@ local command = spec.command{
             repeats = true,
             help = "Run variant names matching a Lua pattern; repeat for alternatives"
         },
+        {name = "--geo", help = "Include geometric-mean variant comparisons in the final report"},
         {name = "--timeout-ms", value = "INTEGER", help = "Child deadline in milliseconds (default 120000)"},
         {name = "--profile", value = "DIR", help = "Write one measured-window collapsed-stack profile per case"},
         {name = "--profile-interval-ms", value = "INTEGER", help = "Sampling interval in milliseconds (default 1)"},
@@ -111,6 +112,7 @@ local function run(parsed: any): integer
         or values.accept
         or values.history
         or values.label
+        or values.geo
         or values.profile
         or values.profileIntervalMs
         or values.profileZone
@@ -160,6 +162,7 @@ local function run(parsed: any): integer
             baseline = values.baseline,
             accept = values.accept,
             json = values.json,
+            geo = values.geo,
             casePatterns = values.case,
             parameterPatterns = values.parameter,
             variantPatterns = values.variant,

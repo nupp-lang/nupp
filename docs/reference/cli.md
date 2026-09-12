@@ -1000,6 +1000,8 @@ Options:
                         alternatives
   --variant PATTERN     Run variant names matching a Lua pattern; repeat for
                         alternatives
+  --geo                 Include geometric-mean variant comparisons in the final
+                        report
   --timeout-ms INTEGER  Child deadline in milliseconds (default 120000)
   --profile DIR         Write one measured-window collapsed-stack profile per
                         case

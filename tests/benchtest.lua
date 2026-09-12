@@ -233,7 +233,7 @@ end
 
 function M.formatsComparativeSuitesWithBaselineRatios()
     local bench = require("nupp.bench")
-    local rendered = bench.format({
+    local record = {
         cases = {
             {
                 name = "map.lookup.table:size=100",
@@ -302,7 +302,8 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 parameters = {size = 100},
             },
         },
-    })
+    }
+    local rendered = bench.format(record)
     assertTrue(
         rendered:find("map%.lookup%.array:size=100%s+p50%s+20%s+10%.000%s+ns/op%s+2%.000x") ~= nil,
         "the result table retains each baseline ratio\n" .. rendered
@@ -313,9 +314,11 @@ function M.formatsComparativeSuitesWithBaselineRatios()
         ) ~= nil and rendered:find("map%.insert:size=100%s+table%s+2%.000x") ~= nil,
         "each workload names its winner against the runner-up\n" .. rendered
     )
+    assertTrue(rendered:find("Geometric mean", 1, true) == nil, "geometric means are opt-in\n" .. rendered)
+    local geometric = bench.format(record, {geometricMean = true})
     assertTrue(
-        rendered:find("Geometric mean: map %(vs table%)") ~= nil and rendered:find("array%s+1%.189x") ~= nil,
-        "the summary weights parameter expansions within their logical case\n" .. rendered
+        geometric:find("Geometric mean: map %(vs table%)") ~= nil and geometric:find("array%s+1%.189x") ~= nil,
+        "the summary weights parameter expansions within their logical case\n" .. geometric
     )
 end
 

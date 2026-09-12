@@ -143,6 +143,12 @@ type bench.SuiteOptions = {
     maxDurationSec: number?
 }
 
+--- Optional sections in the human result report.
+type bench.FormatOptions = {
+    --- Compare suite variants by their geometric-mean ratio.
+    geometricMean: boolean?
+}
+
 --- What one measured case contributes to a record.
 record bench.Measurement
     --- The case's name.
@@ -1356,7 +1362,8 @@ end
 ---
 --- Case scores are normalized to one body iteration. The calibrated batch size stays
 --- in the JSON record, where the runner also finds it for the next comparison.
-function bench.format(record: any): string
+function bench.format(record: any, options: bench.FormatOptions?): string
+    local includeGeometricMean = options and options.geometricMean == true
     local rows: {any} = {}
     local width: integer = #"Benchmark"
     local baselines: {[string]: number} = {}
@@ -1572,7 +1579,7 @@ function bench.format(record: any): string
         end
     end
 
-    for _, suite in ipairs(suites) do
+    for _, suite in ipairs(includeGeometricMean and suites or {}) do
         local expected: integer = 0
         for _, workload in ipairs(suite.workloads) do
             local baselineScore = workload.values[suite.baselineVariant]
