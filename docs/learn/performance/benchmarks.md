@@ -21,16 +21,14 @@ bench.report()
 ```
 
 ```bash
-nupp run -O1 --remarks-out bench/presize.bench.nupp
+nupp run -O1 --remarks-out bench/presize.bench.nupp --case presize.point.grown
 ```
 
 ```text
-# Benchmark: presize.grown
-# Benchmark: presize.sized
+# Benchmark: presize.point.grown
 
-Benchmark       Mode  Cnt       Score  Units
-presize.grown    p50    7      15.681  ns/op
-presize.sized    p50    7      15.599  ns/op
+Benchmark             Mode  Cnt       Score  Units       Ratio
+presize.point.grown    p50  311      15.681  ns/op      1.000x
 ```
 
 Each case is announced and flushed before calibration starts. The set runner
@@ -41,7 +39,10 @@ The table follows JMH's compact final-report shape. `p50` is explicit because
 Nupp reports the median of seven measured rounds rather than an average and
 confidence interval. A case's score is the median round divided by its calibrated
 iteration count, so the displayed unit is nanoseconds per operation. Exact round
-times and the iteration count remain in the JSON record.
+times and the iteration count remain in the JSON record. The output has no `±`
+column: seven rounds in one VM are correlated samples, so treating them as
+independent observations and printing `1.96 × stdev / sqrt(n)` would not be a
+valid confidence interval.
 
 `build/remarks.json` is the fixed handoff between `nupp run` and the benchmark
 record. The compiler writes its optimization account there and `nupp.bench`
@@ -84,6 +85,66 @@ is accepted only when it holds twice: the first round at any size also pays for
 whatever the recorder had not compiled yet. The chosen `n` is recorded and every
 measured round runs at it, so a loaded machine cannot change how much work was
 counted.
+
+## Comparative suites
+
+Use a suite when several implementations should run against the same workloads.
+It expands every case, parameter combination and variant into a separately named
+benchmark:
+
+```nupp
+local bench = nupp.bench
+const {type Invocation} = nupp.bench
+
+local function prepare(invocation: Invocation): any
+    return makeInput(invocation.parameters.size as integer)
+end
+
+local function current(input: any, _: Invocation): any
+    return currentImplementation(input)
+end
+
+local function candidate(input: any, _: Invocation): any
+    return candidateImplementation(input)
+end
+
+bench.suite({
+    name = "parser",
+    baselineVariant = "current",
+    variants = {
+        {name = "current", setup = prepare, run = current},
+        {name = "candidate", setup = prepare, run = candidate},
+    },
+    cases = {
+        {
+            name = "document",
+            parameters = {size = {1024, 65536}},
+            operations = 1,
+        },
+    },
+    sampleIterations = 1,
+} as bench.SuiteOptions)
+bench.report()
+```
+
+`setup` and `teardown` run outside the clock. `run` is the only timed callback,
+and its result is kept automatically. `sampleIterations` repeats `run` against
+one prepared state inside each sample; leave it at one for a mutating workload,
+or raise it when one call is too short to measure. `operations` says how many
+operations one call represents, so the table can still report `ns/op`.
+
+By default a suite warms each pair ten times, then samples until it has at least
+15 samples and 0.5 seconds of measured work. It stops with an error after 100,000
+samples or 10 seconds of wall time rather than publishing an under-sampled
+result. All five bounds can be set on the suite.
+
+The collector runs normally during warmup and timing. Allocation is measured in
+a separate pass with collection paused, so forcing a collection before every
+sample does not turn the benchmark into a GC benchmark. The record retains every
+normalized sample plus min, mean, sample standard deviation, p50, p90 and p99.
+The human table stays compact and reports p50; when the runner has every variant,
+`Ratio` is baseline p50 divided by that variant's p50, so values above `1x` are
+faster.
 
 ## Frames
 
@@ -172,14 +233,40 @@ from a pass.
 
 ```bash
 nupp task bench
+nupp run bench/run.nupp --list
 nupp run bench/run.nupp --baseline build/bench-baseline.json
 nupp run bench/run.nupp --baseline build/bench-baseline.json --accept
+nupp run bench/run.nupp --case presize.point.grown
+nupp run bench/run.nupp --file bench/presize.bench.nupp --case presize.point.grown
 ```
 
 Each `bench.case` gets its own process, not each file: a file is asked what cases
 it defines with `--list-cases` and then run once per case with `--case NAME`. Two
 cases sharing a process would share its heap, its compiled traces and its
 blacklist.
+
+The same rule is enforced for direct runs: a program that declares more than one
+benchmark must be given `--case NAME`. This prevents a convenient-looking direct
+run from sharing JIT and heap state. Suite names have the form
+`suite.case.variant:key=value`; `--case` takes that complete name.
+
+Each listing and case child has a 120-second deadline. Set another one with
+`--timeout-ms MILLISECONDS`. The runner prints and flushes the case name before
+starting the child, then prints the merged table after the set finishes.
+
+The latest complete machine-readable result is always
+`build/bench-record.json`. To retain append-only NDJSON history, name a file and
+optionally label the run:
+
+```bash
+nupp run bench/run.nupp \
+  --history build/bench-history.ndjson \
+  --label before-parser-rewrite
+```
+
+Every history line contains the raw samples, suite identities, compiler account
+and trace account needed to analyze that run later. History is appended only
+after every selected case produced a record.
 
 The baseline belongs to the runner, not to a case — children comparing against it
 would each read and overwrite one file describing all of them. A named baseline

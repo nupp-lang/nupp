@@ -394,6 +394,14 @@ column identity made inserting a comment look like every allocation below it was
 new. The walk also counts declared functions, which it had been omitting, so the
 account no longer depends on how the source spelled a function.
 
+## Corrections, 2026-09-12
+
+**The per-case deadline is enforced.** The process module now exposes its typed
+`Process` and `Options` surface, so the runner no longer needs `os.execute` and
+the temporary narrowing above has ended. Each listing and case child has a
+deadline, and a timeout is reported as a failed benchmark rather than leaving
+the set hung.
+
 ## Risks and assumptions
 
 - **A compiler change moves the static counters all at once.** An optimizer

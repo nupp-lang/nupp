@@ -1,0 +1,40 @@
+local bench = require("nupp.bench")
+const {type Invocation} = require("nupp.bench")
+
+local function setup(_: Invocation): any
+    return {calls = 0}
+end
+
+local function run(state: any, invocation: Invocation): any
+    state.calls = state.calls + 1
+    local value = invocation.parameters.size as integer
+    for _ = 1, value do
+        state.calls = state.calls + 1
+    end
+
+    return state.calls
+end
+
+local function teardown(state: any, invocation: Invocation): nil
+    local size = invocation.parameters.size as integer
+    assert(state.calls == 2 * (size + 1), "setup, sample iterations and teardown disagree")
+end
+
+bench.suite(
+    {
+        name = "protocol",
+        baselineVariant = "base",
+        variants = {
+            {name = "base", setup = setup, run = run, teardown = teardown,},
+            {name = "other", setup = setup, run = run, teardown = teardown,},
+        },
+        cases = {{name = "work", parameters = {size = {1, 2}}, operations = 2,},},
+        warmupIterations = 1,
+        sampleIterations = 2,
+        minSamples = 3,
+        minDurationSec = 0.000000001,
+        maxSamples = 5,
+        maxDurationSec = 0.1,
+    } as bench.SuiteOptions
+)
+bench.report()

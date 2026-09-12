@@ -222,6 +222,45 @@ frame:over-budget  count   60           2  frames
     )
 end
 
+function M.formatsComparativeSuitesWithBaselineRatios()
+    local bench = require("nupp.bench")
+    local rendered = bench.format({
+        cases = {
+            {
+                name = "map.lookup.table:size=100",
+                kind = "suite",
+                rounds = 20,
+                medianSec = 0.000000020,
+                suite = "map",
+                caseName = "lookup",
+                variant = "table",
+                baselineVariant = "table",
+                parameters = {size = 100},
+            },
+            {
+                name = "map.lookup.array:size=100",
+                kind = "suite",
+                rounds = 20,
+                medianSec = 0.000000010,
+                suite = "map",
+                caseName = "lookup",
+                variant = "array",
+                baselineVariant = "table",
+                parameters = {size = 100},
+            },
+        },
+    })
+    assertEq(
+        rendered,
+        "\n"
+        .. [[Benchmark                   Mode  Cnt       Score  Units       Ratio
+map.lookup.table:size=100    p50   20      20.000  ns/op      1.000x
+map.lookup.array:size=100    p50   20      10.000  ns/op      2.000x
+]],
+        "comparative benchmark table"
+    )
+end
+
 function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     local casesOut = os.tmpname()
     local stdout = os.tmpname()
@@ -254,6 +293,91 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     os.remove(casesOut)
     os.remove(stdout)
     os.remove(recordOut)
+end
+
+function M.suitesExpandParametersAndRequireOneSelectedPair()
+    local casesOut = os.tmpname()
+    local stdout = os.tmpname()
+    local stderr = os.tmpname()
+    local recordOut = os.tmpname()
+    local fixture = HERE .. "/fixtures/bench_suite.g.nupp"
+    os.remove(casesOut)
+    os.remove(stdout)
+    os.remove(stderr)
+    os.remove(recordOut)
+
+    local listed = os.execute(
+        ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout)
+    )
+    assertEq(listed, 0, "suite listing exits successfully")
+    assertEq(
+        read(casesOut),
+        table.concat(
+            {
+                '"protocol.work.base:size=1"',
+                '"protocol.work.other:size=1"',
+                '"protocol.work.base:size=2"',
+                '"protocol.work.other:size=2"',
+                "",
+            },
+            "\n"
+        ),
+        "parameters and variants expand into stable names"
+    )
+
+    local unsafe = os.execute(("%q run -O1 %q > %q 2> %q"):format(NUPP, fixture, stdout, stderr))
+    assertTrue(unsafe ~= 0, "a direct multi-benchmark run fails")
+    assertTrue(
+        read(stderr):find("defines more than one benchmark", 1, true) ~= nil,
+        "the failure explains how to select an isolated benchmark"
+    )
+
+    local selected = "protocol.work.other:size=2"
+    local ran = os.execute(("%q run -O1 %q --case %q --out %q --quiet"):format(NUPP, fixture, selected, recordOut))
+    assertEq(ran, 0, "the selected suite pair exits successfully")
+    local record = json.decode(read(recordOut))
+    local measurement = record.cases[1]
+    assertEq(measurement.name, selected, "the selected pair is measured")
+    assertEq(measurement.kind, "suite", "the record distinguishes adaptive suites")
+    assertEq(measurement.variant, "other", "the variant identity is structured")
+    assertEq(measurement.parameters.size, 2, "the parameter identity is structured")
+    assertEq(measurement.sampleIterations, 2, "the declared sample batching is recorded")
+    assertEq(measurement.operationsPerInvocation, 2, "operation normalization is recorded")
+    assertTrue(#measurement.samplesSec >= 3, "raw normalized samples are retained")
+    assertTrue(measurement.meanSec ~= nil and measurement.stdevSec ~= nil, "summary statistics are retained")
+
+    os.remove(casesOut)
+    os.remove(stdout)
+    os.remove(stderr)
+    os.remove(recordOut)
+end
+
+function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
+    local history = os.tmpname()
+    local stdout = os.tmpname()
+    local fixture = HERE .. "/fixtures/bench_suite.g.nupp"
+    local runner = HERE .. "/../bench/run.nupp"
+    os.remove(history)
+    os.remove(stdout)
+
+    local ran = os.execute(
+        (
+            "%q run %q --file %q --case %q --timeout-ms 30000 --history %q --label smoke --json > %q"
+        ):format(NUPP, runner, fixture, "protocol.work.base:size=1", history, stdout)
+    )
+    assertEq(ran, 0, "the process-isolated runner exits successfully")
+    local line = read(history):match("[^\r\n]+")
+    local document = json.decode(line)
+    assertEq(document.label, "smoke", "the history label is retained")
+    assertEq(#document.cases, 1, "the runner filter selects one case")
+    assertEq(document.cases[1].name, "protocol.work.base:size=1", "the selected case is named")
+    assertTrue(
+        #document.cases[1].record.cases[1].samplesSec >= 3,
+        "history includes the raw samples rather than only a summary"
+    )
+
+    os.remove(history)
+    os.remove(stdout)
 end
 
 return M

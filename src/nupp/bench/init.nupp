@@ -38,7 +38,7 @@ local bench = {}
 
 --- The schema version of a written record. Bumped when a reader would otherwise
 --- misread an older file.
-bench.SCHEMA = 1
+bench.SCHEMA = 2
 
 --- Rounds timed per case. The median of these is what a record reports, so an odd
 --- count has a middle to take.
@@ -89,12 +89,66 @@ record bench.Case
     n: integer
 end
 
+--- One expanded suite case handed to setup, run and teardown callbacks.
+record bench.Invocation
+    --- The unqualified case name from the suite declaration.
+    name: string
+
+    --- Case-specific data supplied by the declaration.
+    data: any
+
+    --- One value for each parameter in the expanded case.
+    parameters: {[string]: any}
+end
+
+--- One implementation of every case in a suite.
+type bench.Variant = {
+    name: string,
+    setup: (function(bench.Invocation): any)?,
+    run: function(any, bench.Invocation): any,
+    teardown: (function(any, bench.Invocation): nil)?
+}
+
+--- One workload in a suite. Parameter lists are expanded as a Cartesian product.
+type bench.SuiteCase = {
+    name: string,
+    data: any?,
+    parameters: {[string]: {any}}?,
+
+    --- Operations represented by one call to a variant's `run` callback.
+    operations: integer?
+}
+
+--- A comparative benchmark suite.
+type bench.SuiteOptions = {
+    name: string,
+    variants: {bench.Variant},
+    cases: {bench.SuiteCase},
+
+    --- Variant used as the denominator in the human result table.
+    baselineVariant: string?,
+
+    --- Calls made before timing begins.
+    warmupIterations: integer?,
+
+    --- Calls to `run` inside one timed sample. State is set up once per sample.
+    sampleIterations: integer?,
+
+    --- Stop once both this many samples and this much measured time exist.
+    minSamples: integer?,
+    minDurationSec: number?,
+
+    --- Safety bounds when a sample is much faster or slower than expected.
+    maxSamples: integer?,
+    maxDurationSec: number?
+}
+
 --- What one measured case contributes to a record.
 record bench.Measurement
     --- The case's name.
     name: string
 
-    --- `case` or `frames`.
+    --- `case`, `suite` or `frames`.
     kind: string
 
     --- Iterations per round, for a case.
@@ -108,6 +162,33 @@ record bench.Measurement
 
     --- The fastest round, in seconds.
     minSec: number?
+
+    --- Suite samples, normalized to one represented operation.
+    samplesSec: {number}?
+
+    meanSec: number?
+    stdevSec: number?
+    p90Sec: number?
+    p99Sec: number?
+
+    --- Calls to a suite variant inside one timed sample, and the operations one call
+    --- represents.
+    sampleIterations: integer?
+
+    operationsPerInvocation: integer?
+    warmupIterations: integer?
+    minSamples: integer?
+    minDurationSec: number?
+    maxSamples: integer?
+    maxDurationSec: number?
+
+    --- Comparative-suite identity. Kept apart so a reader need not parse `name`.
+    suite: string?
+
+    variant: string?
+    caseName: string?
+    parameters: {[string]: any}?
+    baselineVariant: string?
 
     --- Kilobytes one round allocated, read with the collector stopped. A size rather
     --- than a count of allocations, and recorded only.
@@ -147,6 +228,14 @@ end
 
 local measurements: {bench.Measurement} = {}
 local traceProfileSeen: any = nil
+
+local type Job = {
+    name: string,
+    run: function(): nil
+}
+
+local jobs: {Job} = {}
+local selectedDeclarations: integer = 0
 
 --- Whether `report` has already written. A frame session reports itself, so a program
 --- with both frames and cases would otherwise write twice and gate twice.
@@ -310,6 +399,21 @@ local function smallest(values: {number}): number
     return best
 end
 
+local function quantile(sorted: {number}, fraction: number): number
+    if #sorted == 0 then
+        return 0.0
+    end
+    local rank = math.ceil(fraction * #sorted)
+    if rank < 1 then
+        rank = 1
+    end
+    if rank > #sorted then
+        rank = #sorted
+    end
+
+    return sorted[rank]
+end
+
 --- Grows `n` until one round takes long enough to time. Timing-derived, and therefore
 --- kept out of the measured phase: the chosen `n` is recorded and the measured rounds
 --- all run at it, so a loaded machine cannot change how much work was counted.
@@ -409,16 +513,7 @@ local function announceRun(name: string): nil
     io.stdout:flush()
 end
 
---- Measures one case and adds it to the record this program will report.
----
---- The body is handed the case and runs its own loop. Calling a one-iteration closure
---- `n` times instead would put a call boundary inside the measurement and change what
---- the recorder sees, so the loop belongs to the body.
----
---- @param name what to record the case as
---- @param body the work, which iterates `case.n` times
---- @param fixedN an explicit iteration count, skipping calibration
-function bench.case(name: string, body: function(bench.Case): nil, fixedN: integer?): nil
+local function register(name: string, run: function(): nil): nil
     if options.list then
         announce(name)
 
@@ -427,7 +522,11 @@ function bench.case(name: string, body: function(bench.Case): nil, fixedN: integ
     if options.only and options.only ~= name then
         return
     end
+    selectedDeclarations = (selectedDeclarations + 1) as integer
+    jobs[#jobs + 1] = {name = name, run = run,}
+end
 
+local function measureCase(name: string, body: function(bench.Case): nil, fixedN: integer?): nil
     announceRun(name)
 
     -- Opened before calibration, not after it. A loop that aborts and is blacklisted
@@ -453,7 +552,7 @@ function bench.case(name: string, body: function(bench.Case): nil, fixedN: integ
     local allocated = collectgarbage("count") - before
     collectgarbage("restart")
     collectgarbage("collect")
-    local retained = collectgarbage("count") - before
+    local retained = math.max(0.0, collectgarbage("count") - before)
 
     local sites: {string}? = nil
     local total: integer? = nil
@@ -478,6 +577,336 @@ function bench.case(name: string, body: function(bench.Case): nil, fixedN: integ
         totalAborts = total,
         blacklisted = blacklisted
     )
+end
+
+--- Measures one case and adds it to the record this program will report.
+---
+--- The body is handed the case and runs its own loop. Calling a one-iteration closure
+--- `n` times instead would put a call boundary inside the measurement and change what
+--- the recorder sees, so the loop belongs to the body.
+---
+--- @param name what to record the case as
+--- @param body the work, which iterates `case.n` times
+--- @param fixedN an explicit iteration count, skipping calibration
+function bench.case(name: string, body: function(bench.Case): nil, fixedN: integer?): nil
+    register(name, function(): nil
+        measureCase(name, body, fixedN)
+    end)
+end
+
+----------------------------------------------------------------------------
+-- Comparative suites
+----------------------------------------------------------------------------
+
+local function positiveInteger(value: integer?, fallback: integer, name: string): integer
+    local answer = value or fallback
+    if answer < 1 or answer ~= math.floor(answer) then
+        error("bench: " .. name .. " needs a positive whole number", 3)
+    end
+
+    return answer
+end
+
+local function positiveNumber(value: number?, fallback: number, name: string): number
+    local answer = value or fallback
+    if answer <= 0 then
+        error("bench: " .. name .. " needs a positive number", 3)
+    end
+
+    return answer
+end
+
+local function expandedParameters(source: {[string]: {any}}?): {{[string]: any}}
+    if not source then
+        return {{} as {[string]: any}}
+    end
+    local keys: {string} = {}
+    for key in pairs(source) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    local expanded: {{[string]: any}} = {}
+    local current: {[string]: any} = {}
+    local visit: function(integer): nil
+    visit = function(index: integer): nil
+        if index > #keys then
+            local copy: {[string]: any} = {}
+            for key, value in pairs(current) do
+                copy[key] = value
+            end
+            expanded[#expanded + 1] = copy
+
+            return
+        end
+        local key = keys[index]
+        local values = source[key]
+        if not values then
+            error("bench: parameter " .. key .. " disappeared", 3)
+        end
+        if #values == 0 then
+            error("bench: parameter " .. key .. " has no values", 3)
+        end
+        for _, value in ipairs(values) do
+            current[key] = value
+            visit((index + 1) as integer)
+        end
+        current[key] = nil
+    end
+    visit(1)
+
+    return expanded
+end
+
+local function suiteName(suite: string, caseName: string, variant: string, parameters: {[string]: any}): string
+    local keys: {string} = {}
+    for key in pairs(parameters) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    local suffix: {string} = {}
+    for _, key in ipairs(keys) do
+        suffix[#suffix + 1] = key .. "=" .. tostring(parameters[key])
+    end
+    local name = suite .. "." .. caseName .. "." .. variant
+    if #suffix > 0 then
+        name = name .. ":" .. table.concat(suffix, ",")
+    end
+
+    return name
+end
+
+local function callVariant(
+    variant: bench.Variant,
+    invocation: bench.Invocation,
+    iterations: integer,
+    session: any?
+): number
+    local state: any = nil
+    if variant.setup then
+        state = variant.setup(invocation)
+    end
+    if session then
+        session:resume()
+    end
+    local started = time.now()
+    local result: any = nil
+    for _ = 1, iterations do
+        result = variant.run(state, invocation)
+    end
+    local elapsed = time.now() - started
+    if session then
+        session:pause()
+    end
+    bench.keep(result)
+    if variant.teardown then
+        variant.teardown(state, invocation)
+    end
+
+    return elapsed / 1000.0
+end
+
+local function sampleStatistics(samples: {number}): (number, number, number, number, number, number)
+    local sorted: {number} = {}
+    local total = 0.0
+    for index = 1, #samples do
+        local value = samples[index]
+        sorted[index] = value
+        total = total + value
+    end
+    table.sort(sorted)
+    local mean = total / #sorted
+    local squared = 0.0
+    for _, value in ipairs(sorted) do
+        local delta = value - mean
+        squared = squared + delta * delta
+    end
+    local stdev = #sorted > 1 and math.sqrt(squared / (#sorted - 1)) or 0.0
+
+    return smallest(sorted), mean, stdev, quantile(sorted, 0.5), quantile(sorted, 0.9), quantile(sorted, 0.99)
+end
+
+local function measureSuite(
+    options: bench.SuiteOptions,
+    case: bench.SuiteCase,
+    variant: bench.Variant,
+    parameters: {[string]: any},
+    name: string
+): nil
+    local warmups = positiveInteger(options.warmupIterations, 10, "warmupIterations")
+    local iterations = positiveInteger(options.sampleIterations, 1, "sampleIterations")
+    local minSamples = positiveInteger(options.minSamples, 15, "minSamples")
+    local maxSamples = positiveInteger(options.maxSamples, 100000, "maxSamples")
+    local minDuration = positiveNumber(options.minDurationSec, 0.5, "minDurationSec")
+    local maxDuration = positiveNumber(options.maxDurationSec, 10.0, "maxDurationSec")
+    local operations = positiveInteger(case.operations, 1, "case operations")
+    if maxSamples < minSamples then
+        error("bench: maxSamples must be at least minSamples", 0)
+    end
+    if maxDuration < minDuration then
+        error("bench: maxDurationSec must be at least minDurationSec", 0)
+    end
+
+    announceRun(name)
+    collectgarbage("collect")
+    local session = openTrace()
+    if session then
+        session:pause()
+    end
+    for _ = 1, warmups do
+        callVariant(
+            variant,
+            new bench.Invocation(name = case.name, data = case.data, parameters = parameters),
+            iterations,
+            session
+        )
+    end
+
+    local invocation = new bench.Invocation(name = case.name, data = case.data, parameters = parameters)
+    local samples: {number} = {}
+    local measured = 0.0
+    local wallStarted = time.now()
+    while #samples < minSamples or measured < minDuration do
+        if #samples >= maxSamples or (time.now() - wallStarted) / 1000.0 >= maxDuration then
+            break
+        end
+        local elapsed = callVariant(variant, invocation, iterations, session)
+        measured = measured + elapsed
+        samples[#samples + 1] = elapsed / (iterations * operations)
+    end
+    if #samples < minSamples or measured < minDuration then
+        error(
+            (
+                "bench: %s reached its sampling limit after %d samples and %.6fs measured; increase sampleIterations or the maximums"
+            ):format(name, #samples, measured),
+            0
+        )
+    end
+
+    -- Allocation is a separate pass so stopping the collector cannot change the
+    -- timing distribution. The collector otherwise stays enabled throughout warmup
+    -- and measurement, as it does in the application.
+    local function primeProtectedCall(): nil
+    end
+
+    pcall(primeProtectedCall)
+    local state: any = nil
+    if variant.setup then
+        state = variant.setup(invocation)
+    end
+
+    local function allocationPass(): any
+        local last: any = nil
+        for _ = 1, iterations do
+            last = variant.run(state, invocation)
+        end
+
+        return last
+    end
+
+    collectgarbage("collect")
+    local before = collectgarbage("count")
+    collectgarbage("stop")
+    local ok, result = pcall(allocationPass)
+    local allocated = collectgarbage("count") - before
+    collectgarbage("restart")
+    if not ok then
+        error(result, 0)
+    end
+    bench.keep(result)
+    if variant.teardown then
+        variant.teardown(state, invocation)
+    end
+    collectgarbage("collect")
+    local retained = math.max(0.0, collectgarbage("count") - before)
+
+    local sites: {string}? = nil
+    local totalAborts: integer? = nil
+    local blacklisted: integer? = nil
+    if session then
+        local aborts = session:stop()
+        traceProfileSeen = aborts.traceProfile
+        sites, totalAborts, blacklisted = abortIdentities(aborts)
+    end
+    local minimum, mean, stdev, p50, p90, p99 = sampleStatistics(samples)
+    measurements[
+        #measurements + 1
+    ] = new bench.Measurement(
+        name = name,
+        kind = "suite",
+        rounds = #samples,
+        medianSec = p50,
+        minSec = minimum,
+        samplesSec = samples,
+        meanSec = mean,
+        stdevSec = stdev,
+        p90Sec = p90,
+        p99Sec = p99,
+        sampleIterations = iterations,
+        operationsPerInvocation = operations,
+        warmupIterations = warmups,
+        minSamples = minSamples,
+        minDurationSec = minDuration,
+        maxSamples = maxSamples,
+        maxDurationSec = maxDuration,
+        suite = options.name,
+        variant = variant.name,
+        caseName = case.name,
+        parameters = parameters,
+        baselineVariant = options.baselineVariant or options.variants[1].name,
+        allocatedKb = allocated / (iterations * operations),
+        retainedKb = retained,
+        abortSites = sites,
+        totalAborts = totalAborts,
+        blacklisted = blacklisted
+    )
+end
+
+local function registerSuite(
+    options: bench.SuiteOptions,
+    case: bench.SuiteCase,
+    variant: bench.Variant,
+    parameters: {[string]: any}
+): nil
+    local name = suiteName(options.name, case.name, variant.name, parameters)
+    register(name, function(): nil
+        measureSuite(options, case, variant, parameters, name)
+    end)
+end
+
+--- Declares a comparative suite. Every case, parameter set and variant is a named
+--- benchmark and therefore gets its own process under the set runner.
+---
+--- @raises when the declaration or its sampling bounds are invalid
+function bench.suite(options: bench.SuiteOptions): nil
+    if #options.variants == 0 then
+        error("bench: a suite needs at least one variant", 2)
+    end
+    if #options.cases == 0 then
+        error("bench: a suite needs at least one case", 2)
+    end
+    local variants: {[string]: boolean} = {}
+    for _, variant in ipairs(options.variants) do
+        if variants[variant.name] then
+            error("bench: duplicate variant " .. variant.name, 2)
+        end
+        variants[variant.name] = true
+    end
+    local baselineVariant = options.baselineVariant or options.variants[1].name
+    if not variants[baselineVariant] then
+        error("bench: baselineVariant does not name a variant", 2)
+    end
+    local cases: {[string]: boolean} = {}
+    for _, case in ipairs(options.cases) do
+        if cases[case.name] then
+            error("bench: duplicate suite case " .. case.name, 2)
+        end
+        cases[case.name] = true
+        for _, parameters in ipairs(expandedParameters(case.parameters)) do
+            for _, variant in ipairs(options.variants) do
+                registerSuite(options, case, variant, parameters)
+            end
+        end
+    end
 end
 
 ----------------------------------------------------------------------------
@@ -533,6 +962,7 @@ function bench.frames(name: string, budgetMs: number?, count: integer?): bench.F
         )
     end
 
+    selectedDeclarations = (selectedDeclarations + 1) as integer
     announceRun(name)
 
     return new bench.FrameSession(
@@ -571,21 +1001,6 @@ end
 --- blows its budget anyway, and missing the budget is the whole measurement.
 function bench.FrameSession:finish(): nil
     self.samples[#self.samples + 1] = time.now() - self.started
-end
-
-local function quantile(sorted: {number}, fraction: number): number
-    if #sorted == 0 then
-        return 0.0
-    end
-    local rank = math.ceil(fraction * #sorted)
-    if rank < 1 then
-        rank = 1
-    end
-    if rank > #sorted then
-        rank = #sorted
-    end
-
-    return sorted[rank]
 end
 
 --- Ends the session, records it, and reports.
@@ -857,6 +1272,31 @@ end
 function bench.format(record: any): string
     local rows: {any} = {}
     local width: integer = #"Benchmark"
+    local baselines: {[string]: number} = {}
+    local hasRatios = false
+
+    local function comparisonKey(entry: any): string
+        local keys: {string} = {}
+        for key in pairs(entry.parameters or {}) do
+            keys[#keys + 1] = key
+        end
+        table.sort(keys)
+        local values: {string} = {}
+        for _, key in ipairs(keys) do
+            values[#values + 1] = key .. "=" .. tostring(entry.parameters[key])
+        end
+
+        return tostring(entry.suite) .. "|" .. tostring(entry.caseName) .. "|" .. table.concat(values, ",")
+    end
+
+    for _, entry in ipairs(record.cases or {}) do
+        if entry.kind == "suite" then
+            hasRatios = true
+            if entry.variant == entry.baselineVariant then
+                baselines[comparisonKey(entry)] = entry.medianSec or 0.0
+            end
+        end
+    end
     for _, entry in ipairs(record.cases or {}) do
         if entry.kind == "case" then
             local n = entry.n or 0
@@ -869,6 +1309,24 @@ function bench.format(record: any): string
                 count = tostring(entry.rounds or 0),
                 score = ("%.3f"):format(score),
                 units = "ns/op",
+                ratio = "-",
+            }
+        elseif entry.kind == "suite" then
+            local score = (entry.medianSec or 0.0) * 1000000000.0
+            local baselineScore = baselines[comparisonKey(entry)]
+            local ratio = "-"
+            if baselineScore and score > 0 then
+                ratio = ("%.3fx"):format(baselineScore / (entry.medianSec or 0.0))
+            end
+            rows[
+                #rows + 1
+            ] = {
+                name = entry.name,
+                mode = "p50",
+                count = tostring(entry.rounds or 0),
+                score = ("%.3f"):format(score),
+                units = "ns/op",
+                ratio = ratio,
             }
         else
             local count = tostring(entry.frames or 0)
@@ -880,6 +1338,7 @@ function bench.format(record: any): string
                 count = count,
                 score = ("%.3f"):format(entry.p50Ms or 0.0),
                 units = "ms/frame",
+                ratio = "-",
             }
             rows[
                 #rows + 1
@@ -889,6 +1348,7 @@ function bench.format(record: any): string
                 count = count,
                 score = ("%.3f"):format(entry.p99Ms or 0.0),
                 units = "ms/frame",
+                ratio = "-",
             }
             rows[
                 #rows + 1
@@ -898,6 +1358,7 @@ function bench.format(record: any): string
                 count = count,
                 score = ("%.3f"):format(entry.p999Ms or 0.0),
                 units = "ms/frame",
+                ratio = "-",
             }
             if (entry.overBudget or 0) > 0 then
                 rows[
@@ -908,6 +1369,7 @@ function bench.format(record: any): string
                     count = count,
                     score = tostring(entry.overBudget),
                     units = "frames",
+                    ratio = "-",
                 }
             end
         end
@@ -921,9 +1383,12 @@ function bench.format(record: any): string
         end
     end
     local pattern = "%-" .. tostring(width) .. "s  %5s  %3s  %10s  %s"
-    local lines = {pattern:format("Benchmark", "Mode", "Cnt", "Score", "Units")}
+    if hasRatios then
+        pattern = "%-" .. tostring(width) .. "s  %5s  %3s  %10s  %-8s  %7s"
+    end
+    local lines = {pattern:format("Benchmark", "Mode", "Cnt", "Score", "Units", "Ratio"),}
     for _, row in ipairs(rows) do
-        lines[#lines + 1] = pattern:format(row.name, row.mode, row.count, row.score, row.units)
+        lines[#lines + 1] = pattern:format(row.name, row.mode, row.count, row.score, row.units, row.ratio)
     end
 
     return "\n" .. table.concat(lines, "\n") .. "\n"
@@ -948,7 +1413,18 @@ function bench.report(): nil
     if reported then
         return
     end
+    if options.only and selectedDeclarations == 0 then
+        error("bench: no benchmark named " .. options.only, 0)
+    end
+    if not options.only and #jobs > 1 then
+        error("bench: this program defines more than one benchmark; use --case NAME or nupp task bench", 0)
+    end
     reported = true
+    local pending = jobs
+    jobs = {}
+    for _, job in ipairs(pending) do
+        job.run()
+    end
     local record = buildRecord()
     local encoded = json.encode(record)
     writeFile(options.out, encoded)
