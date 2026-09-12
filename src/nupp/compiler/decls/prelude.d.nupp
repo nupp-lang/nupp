@@ -859,7 +859,8 @@ record nupp.derive
 
     --- One value a generated call passes.
     ---
-    --- Built by `receiver`, `entry`, `argument`, `field`, `constant`, or `array`.
+    --- Built by `receiver`, `entry`, `argument`, `field`, `constant`, `witness`,
+    --- or `array`.
     --- The compiler owns it: a provider may hold one and place it in an argument
     --- list, and nothing else.
     record Argument
@@ -990,6 +991,21 @@ record nupp.derive
     --- @param value the value to embed
     --- @return the argument recipe
     constant: function(value: any): Argument
+
+    --- Resolves one `@ref` annotation argument to its transported type handle.
+    ---
+    --- The argument must come from `Info.annotations` or one of its fields. The
+    --- returned handle can be inspected with `nupp.types` and passed to `witness`.
+    ---
+    --- @param argument a reflected annotation argument whose kind is `type`
+    --- @return the referenced type handle
+    annotationType: function(argument: nupp.reflect.AnnotationArgument): any
+
+    --- Passes a named record's first-class `Type<T>` witness to the runtime helper.
+    ---
+    --- @param subject a transported nominal type handle
+    --- @return the argument recipe
+    witness: function(subject: any): Argument
 
     --- Builds a fresh array from argument recipes, once per call.
     ---

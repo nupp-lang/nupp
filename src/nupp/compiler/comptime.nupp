@@ -2005,6 +2005,14 @@ function comptime.evaluateDeriveProviderDirect(
     if importFailure then
         return nil, importFailure as comptime.Failure
     end
+    info.annotationTypes = {}
+    for _, annotationType in ipairs(input and input.annotationTypes or {}) do
+        local index = annotationType.index
+        info.annotationTypes[index], importFailure = importType(annotationType.type, "annotation" .. tostring(index))
+        if importFailure then
+            return nil, importFailure as comptime.Failure
+        end
+    end
     info.fields = {}
     state.deriveClaims = {}
     for index, field in ipairs(input and input.fields or {}) do

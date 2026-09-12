@@ -1630,6 +1630,8 @@ function gen.generate(
                     error("invalid derived constant: " .. tostring(why))
                 end
                 return rendered
+            elseif argument.kind == "witness" then
+                return argument.runtimePath or error("invalid derived type witness")
             elseif argument.kind == "array" then
                 local children = {}
                 for index, child in ipairs(argument.values or {}) do

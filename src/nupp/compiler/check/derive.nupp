@@ -396,6 +396,7 @@ function derive.install(c: state.Checker): derive.Ops
             ownerIdentity = n.deriveKey,
             ownerType = {descriptor = item.ownerDescriptor},
             interfaceType = transportedType(contract),
+            annotationTypes = {},
             fields = {},
             annotations = item.ownerDescriptor.annotations or {},
             hasConstructor = #(n.constructorEntries or {}) > 0,
@@ -429,6 +430,62 @@ function derive.install(c: state.Checker): derive.Ops
         if input.interfaceType then
             permit(input.interfaceType, "interface")
         end
+
+        local function collectAnnotationTypes(applications, reflected)
+            local used = {}
+            local collected = {}
+            for _, entry in ipairs(input.annotationTypes) do
+                collected[entry.index] = true
+            end
+            for _, reflectedApplication in ipairs(reflected or {}) do
+                local application
+                for sourceIndex, candidate in ipairs(applications or {}) do
+                    local candidateName = type(candidate.name) == "table" and candidate.name.text or candidate.name
+                    if not used[sourceIndex] and candidateName == reflectedApplication.name then
+                        application = candidate
+                        used[sourceIndex] = true
+                        break
+                    end
+                end
+                for _, reflectedArgument in ipairs(reflectedApplication.arguments or {}) do
+                    local sourceArgument = application
+                        and application.annotationValues
+                        and application.annotationValues[
+                        reflectedArgument.name
+                    ] or nil
+                    for _, candidate in ipairs(application and application.arguments or {}) do
+                        if candidate.name == reflectedArgument.name then
+                            sourceArgument = candidate
+                            break
+                        end
+                    end
+                    local index = reflectedArgument.kind == "type" and reflectedArgument.type or nil
+                    local subject = sourceArgument and (
+                        sourceArgument.annotationReferenceType or sourceArgument.kind == "type" and sourceArgument.type
+                    ) or nil
+                    if type(index) == "number" and subject then
+                        local edge = transportedType(subject)
+                        if not collected[index] then
+                            input.annotationTypes[#input.annotationTypes + 1] = {index = index, type = edge}
+                            collected[index] = true
+                        end
+                        permit(edge, "annotation" .. tostring(index))
+                        local descriptor = edge.descriptor
+                        if descriptor and descriptor.root then
+                            local rootNode = descriptor.types[descriptor.root]
+                            permittedReferences[
+                                "annotation" .. tostring(index) .. ":" .. tostring(descriptor.root)
+                            ] = {
+                                source = subject,
+                                fingerprint = rootNode.referenceFingerprint or reflection.describe(subject).fingerprint,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+
+        collectAnnotationTypes(n.annotations, input.annotations)
         local filePaths, dynamicFile = providerFilePaths(provider.sealedProgram)
         if dynamicFile then
             c.diag("NUPP2810", dynamicFile, "derive.file needs one project-relative path written as a string literal")
@@ -516,10 +573,21 @@ function derive.install(c: state.Checker): derive.Ops
                 claims = claims,
                 reference = "field:" .. tostring(index),
             }
+            local definition = n.fieldDefs and n.fieldDefs[
+                fieldName
+            ] or n.writeFieldDefs and n.writeFieldDefs[fieldName] or nil
+            collectAnnotationTypes(
+                definition and definition.annotations,
+                descriptorFields[index] and descriptorFields[index].annotations
+            )
             permit(input.fields[index].readType, "field" .. tostring(index) .. ":read")
             permit(input.fields[index].writeType, "field" .. tostring(index) .. ":write")
         end
         local semanticNodes = 0
+        for _, annotationType in ipairs(input.annotationTypes) do
+            local edge = annotationType.type
+            semanticNodes = semanticNodes + #(edge and edge.descriptor and edge.descriptor.types or {})
+        end
         for _, field in ipairs(input.fields) do
             local edge = field.readType or field.writeType
             semanticNodes = semanticNodes + #(edge and edge.descriptor and edge.descriptor.types or {})
@@ -544,9 +612,15 @@ function derive.install(c: state.Checker): derive.Ops
             hasConstructor = input.hasConstructor,
             owner = input.ownerType.descriptor.fingerprint,
             interface = input.interfaceType and input.interfaceType.descriptor.fingerprint or "none",
+            annotationTypes = {},
             fields = {},
             providerInputs = input.providerInputDescriptors,
         }
+        for _, annotationType in ipairs(input.annotationTypes) do
+            fingerprintInput.annotationTypes[
+                #fingerprintInput.annotationTypes + 1
+            ] = {index = annotationType.index, fingerprint = annotationType.type.descriptor.fingerprint,}
+        end
         for index, field in ipairs(input.fields) do
             fingerprintInput.fields[
                 index
@@ -778,6 +852,40 @@ function derive.install(c: state.Checker): derive.Ops
                     return valueType(argument.value), true
                 elseif argument.kind == "entry" then
                     return T.any, true
+                elseif argument.kind == "witness" then
+                    local subject, why = typeblueprint.validate(argument.type, permittedReferences)
+                    if not subject or subject.tag ~= "nominal" or subject.declKind ~= "record" then
+                        c.diag(
+                            "NUPP2812",
+                            provider.site.arg.expr or provider.site.arg,
+                            "derive.witness needs a named record type" .. (why and ": " .. tostring(why.message) or "")
+                        )
+
+                        return T.unknown, false
+                    end
+                    local origin = subject.origin or subject
+                    local simple = (origin.name or ""):match("[^.]+$") or origin.name
+                    local runtimePath
+                    if origin.moduleName and origin.moduleName ~= c.result.moduleName then
+                        if c.env and c.env.resolveModule then
+                            c.env.resolveModule(c.env, origin.moduleName)
+                        end
+                        runtimePath = ("require(%q).%s"):format(origin.moduleName, simple)
+                    else
+                        runtimePath = origin.runtimePath or simple
+                    end
+                    if type(runtimePath) ~= "string" or runtimePath == "" then
+                        c.diag(
+                            "NUPP2812",
+                            provider.site.arg.expr or provider.site.arg,
+                            "derive.witness cannot name this record at runtime"
+                        )
+
+                        return T.unknown, false
+                    end
+                    argument.runtimePath = runtimePath
+
+                    return T.typeObject(subject), true
                 elseif argument.kind == "array" then
                     local children, ok = {}, true
                     for _, child in ipairs(argument.values or {}) do

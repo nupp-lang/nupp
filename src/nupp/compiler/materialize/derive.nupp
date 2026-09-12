@@ -104,6 +104,31 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         end
         return opaque("derive", "Argument", {kind = "constant", value = args[1]}, provenance(at, "constant"))
     end)
+    install("annotationType", function(_, args)
+        local argument = args[1] and entryOf(args[1]) or nil
+        local value = argument
+            and argument.provider == "derive"
+            and argument.family == "View"
+            and argument.payload.value
+            or nil
+        local index = type(value) == "table" and value.kind == "type" and value.type or nil
+        local subject = type(
+            index
+        ) == "number" and state.deriveAnnotationTypes and state.deriveAnnotationTypes[index] or nil
+        if args.n ~= 1 or not subject then
+            return nil, failure("NUPP2810", "derive.annotationType needs one @ref annotation argument")
+        end
+
+        return subject
+    end)
+    install("witness", function(at, args)
+        local subject = args[1] and entryOf(args[1]) or nil
+        if args.n ~= 1 or not subject or subject.provider ~= "types" or subject.family ~= "Type" then
+            return nil, failure("NUPP2810", "derive.witness needs one transported type handle")
+        end
+
+        return opaque("derive", "Argument", {kind = "witness", type = args[1]}, provenance(at, "witness"))
+    end)
     install("array", function(at, args)
         if args.n ~= 1 or not denseArray(args[1]) then
             return nil, failure("NUPP2810", "derive.array needs an array of argument recipes")
@@ -309,6 +334,7 @@ function deriveProvider.materializeInfo(state: any, input: any, opaque: any, pro
     }
     state.deriveFiles = input.providerFiles or {}
     state.deriveInputDescriptors = input.providerInputDescriptors or {}
+    state.deriveAnnotationTypes = input.annotationTypes or {}
     local references, views = {}, {}
     local view
     view = function(value)
@@ -587,6 +613,13 @@ function deriveProvider.finalize(state: any, root: any): any, any
             if why then
                 active[handle] = nil;
                 return nil, why
+            end
+        elseif payload.kind == "witness" then
+            local why
+            out.type, why = typeprovider.finalize(state, payload.type)
+            if why then
+                active[handle] = nil;
+                return nil, why.message or why
             end
         elseif payload.kind == "array" then
             out.values = {}

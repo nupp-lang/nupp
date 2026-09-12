@@ -514,7 +514,13 @@ and supplies a closed argument list:
 - `entry()` passes the derived type's private runtime schema entry.
 - `field(fieldInfo)` directly reads one admitted stored field.
 - `constant(value)` embeds a bounded quotable value.
+- `witness(annotationType(argument))` passes the `Type<T>` witness named by an
+  `@ref` annotation argument from the owner or one of its fields.
 - `array(arguments)` constructs a fresh array from argument recipes.
+
+`annotationType` accepts only a `kind = "type"` argument taken from the
+provider's immutable `Info`. The referenced record remains typed across the
+comptime boundary instead of being reduced to a name string.
 
 There are no nested calls, operators, branches, assignments, loops, arbitrary
 member accesses, or source fragments in a forwarding recipe. Table-shaped

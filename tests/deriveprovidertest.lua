@@ -64,6 +64,7 @@ local STRICT = {
     inspect = HERE .. "/fixtures/deriveinspect_consumer.nupp",
     exported = HERE .. "/fixtures/deriveexported_main.nupp",
     witness = HERE .. "/fixtures/witnessexported_main.nupp",
+    annotationWitness = HERE .. "/fixtures/derivewitness_consumer.nupp",
     custom = HERE .. "/../editors/playground/src/examples/custom-derive.nupp",
 }
 
@@ -73,7 +74,14 @@ local REFUSED = {
     immutable = HERE .. "/fixtures/deriveimmutable.nupp",
 }
 
-local STRICT_BATCH = {STRICT.ecs, STRICT.inspect, STRICT.exported, STRICT.witness, STRICT.custom}
+local STRICT_BATCH = {
+    STRICT.ecs,
+    STRICT.inspect,
+    STRICT.exported,
+    STRICT.witness,
+    STRICT.annotationWitness,
+    STRICT.custom,
+}
 local REFUSED_BATCH = {REFUSED.unsupported, REFUSED.provider, REFUSED.immutable}
 
 local strictly = checkedTogether({"--strict"}, STRICT_BATCH)
@@ -199,6 +207,11 @@ function M.publishesAnExportedRecordAsItsWitness()
     checksStrictly(STRICT.witness, "the exported-witness main checks strictly")
     local output = ran(STRICT.witness, "the exported-witness main runs")
     assert(output == "true\t1\t2\nspawned\tnumber\n", output)
+end
+
+function M.forwardsAReflectedAnnotationTypeAsARuntimeWitness()
+    checksStrictly(STRICT.annotationWitness, "the annotation-witness consumer checks strictly")
+    ran(STRICT.annotationWitness, "the annotation-witness consumer runs")
 end
 
 function M.runsAProviderThatDeclaresItsOwnMember()
