@@ -206,4 +206,60 @@ function M.everyGroupTheWorkflowNamesIsDefined()
     end
 end
 
+-- Gating a suite narrows coverage, so the argument that it is safe has to be
+-- checkable. `benchrunnertest` runs only when a change reaches the `measurement`
+-- surface, and that is sound only while two things hold: every input that can
+-- change what the suite answers reaches that surface, and the suite is the only
+-- thing gated behind it.
+function M.everyBenchmarkRunnerInputReachesTheMeasurementSurface()
+    local surfacesOf = classifier().surfacesOf
+    for _, path in ipairs({
+        "bench/presize.bench.nupp",
+        "src/nupp/bench/init.nupp",
+        "src/nupp/bench/statistics.nupp",
+        "src/nupp/compiler/benchrunner.nupp",
+        "src/nupp/compiler/cli/bench.nupp",
+        "tests/benchrunnertest.lua",
+    }) do
+        test.assert(
+            surfacesOf(path).measurement,
+            ("%s can change what the benchmark runner answers, so it must select measurement"):format(path)
+        )
+    end
+end
+
+-- The other half. A compiler change that does not touch bench code leaves the
+-- gated suite unrun, which is only acceptable because the cover for what such a
+-- change can break -- the `keep` intrinsic's lowering, the allocation account,
+-- the statistics, the fork merge rules -- stayed in `benchtest`, which is
+-- ungrouped and therefore always runs.
+function M.gatingTheRunnerSuiteDoesNotGateTheRestOfTheBenchSurface()
+    local surfacesOf = classifier().surfacesOf
+    test.assert(
+        not surfacesOf("src/nupp/compiler/gen.nupp").measurement,
+        "an ordinary compiler change should not pay for the runner suite"
+    )
+
+    local groups = dofile("tests/groups.lua")
+    local gated = groups["measurement"]
+    test.assert(gated ~= nil, "the measurement group should exist")
+    test.assert(#gated == 1 and gated[1] == "benchrunnertest", "only the runner suite is gated behind measurement")
+
+    for name, members in pairs(groups) do
+        if name ~= "measurement" then
+            for _, member in ipairs(members) do
+                test.assert(member ~= "benchtest", ("benchtest must stay ungrouped, found in %s"):format(name))
+            end
+        end
+    end
+
+    local groupsSource = io.open("tests/groups.lua", "r")
+    local groupsText = groupsSource:read("*a")
+    groupsSource:close()
+    test.assert(
+        not groupsText:find('"benchtest"', 1, true),
+        "benchtest is named by no group, so every broad suite run includes it"
+    )
+end
+
 return M

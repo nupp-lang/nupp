@@ -4,9 +4,9 @@ order: 620
 
 # Profiling
 
-The profiler ships with the compiler, so finding out where a program spends its
-time costs a flag rather than a dependency. Two channels answer different
-questions, and a slow program usually needs both:
+The profiler ships with the compiler, so finding where a program spends its time
+costs a flag rather than a dependency. Two channels answer different questions,
+and a slow program usually needs both:
 
 ```bash
 nupp run --profile app.nupp       # where the time went
@@ -14,9 +14,12 @@ nupp run --jit-aborts app.nupp    # whether it ran compiled
 ```
 
 Whether it ran compiled is the question a conventional profiler cannot answer,
-and on LuaJIT it is usually the one that matters. Code the compiler refused
-runs an order of magnitude slower than code it took, and nothing says so out
-loud: the function looks the same, it is not fast.
+and on LuaJIT it is usually the one that matters. Code the compiler refused runs
+an order of magnitude slower and nothing says so out loud: the function looks
+the same, it is not fast.
+
+For a benchmark rather than a program, see [profiling a
+benchmark](#profiling-a-benchmark) below.
 
 Both channels are also an API. A session satisfies `profile.Session`, whose
 associated `Report` is whichever report the channel behind it produces, so a
@@ -76,14 +79,12 @@ and [`--jit-aborts`](#trace-aborts) says why.
 
 ### Frames the report omits
 
-The stacks start at your program. The frames underneath it, the loader that
-read it and the pcall that guards it, belong to `nupp run` rather than to what
-you asked about, so they are cut.
+Stacks start at your program: the loader beneath it and the pcall guarding it
+belong to `nupp run`, so they are cut.
 
-LuaJIT also inlines a compiled call chain into a single trace, and inlined
-frames are not on the stack to be walked, so a hot call chain arrives shorter
-than it reads in the source. That is the compiler doing its job, not the
-profiler losing frames.
+LuaJIT also inlines a compiled call chain into one trace, and inlined frames are
+not on the stack to walk, so a hot chain arrives shorter than it reads in the
+source. That is the compiler working, not the profiler losing frames.
 
 ## Zones
 
@@ -147,9 +148,9 @@ own state, leaving nothing on the hot path to pay for.
 | `holder.zone.push("frame")` | no | the receiver is not a bare name |
 | `other.push("frame")` | no | `other` is not `nupp.profile.zone` |
 
-Mark warm paths rather than the innermost loop even so. Every other form calls
-through the ordinary API, and `enter` and `leave` always do. See
-[performance.md](index.md) for the other lowerings a build applies.
+Mark warm paths rather than the innermost loop even so: every other form calls
+through the ordinary API, and `enter` and `leave` always do. `bench.keep` is
+lowered on the same terms — see [benchmarks.md](benchmarks.md#keep-is-the-one-rule).
 
 ### `enter` and `leave`
 
@@ -187,12 +188,10 @@ was open. `severity` orders the file:
 - `info`: trace formation working as designed, such as a loop being left or
   recursion being found. Left out unless you ask for it.
 
-`NYI: bytecode FNEW` above is a closure being created inside a loop, which
-LuaJIT will not record. Hoisting the closure out of the loop is the fix, and
-running again is how you find out whether it was the only one. See
-[jit-trace-checking.md](jit-trace-checking.md) for the whole reason catalog,
-source, bytecode, editor and runtime alike, with an example of every current
-diagnostic.
+`NYI: bytecode FNEW` is a closure created inside a loop, which LuaJIT will not
+record. Hoist it out, then run again to find out whether it was the only one.
+[jit-trace-checking.md](jit-trace-checking.md) has the whole reason catalog with
+an example of each.
 
 ### Structured output
 
@@ -203,6 +202,39 @@ nupp run --jit-aborts=jit-aborts.json --json app.nupp
 Each site keeps the raw VM detail and adds a stable `reasonId` and `class`, and
 the report names the exact trace profile and reason catalog it was produced
 under. CSV is unchanged for existing consumers.
+
+## Profiling a benchmark
+
+`nupp bench --profile` writes one collapsed-stack file per benchmark:
+
+```bash
+nupp bench --case '^floats$' --profile build/bench-profiles
+```
+
+```text
+# Profile: build/bench-profiles/001-sum.floats.ipairs:size=100.collapsed
+```
+
+Sampling happens in a **separate pass after timing**, so the sampler cannot
+change the score it sits beside, and the sampler is resumed only around each
+`run` callback — setup, teardown and harness bookkeeping stay out of the stacks.
+`--profile-interval-ms` changes the one-millisecond interval and
+`--profile-zone` keeps one zone subtree.
+
+With replication, only the first fork is profiled. Twelve flame graphs of one
+benchmark answer nothing the first does not.
+
+A benchmark that got slower and shows `_[I]` at its leaf did not get slower for
+an interesting reason — it stopped being compiled. Ask the other channel:
+
+```bash
+nupp run -O1 --jit-aborts bench/sum.bench.nupp --case 'sum.floats.index:size=100'
+```
+
+`nupp bench` collects abort sites into the record itself, gating on the ones
+every fork saw, so a benchmark that began aborting fails a baselined run without
+anyone opening a profile. See
+[benchmarks.md](benchmarks.md#what-actually-fails-a-run).
 
 ## Profiling from a program
 
@@ -222,7 +254,8 @@ print(report.samples, report.stacks)
 
 `stop` ends the session and returns the report, whose `tostring` is the text
 that was written. `pause` and `resume` leave a window out without ending
-anything, which is how a benchmark keeps its own setup out of the numbers.
+anything — which is exactly how `nupp bench` keeps setup and teardown out of a
+benchmark's stacks.
 
 The `zone` option narrows the report at `stop` rather than filtering while
 sampling, so it costs nothing at runtime. The prefix is fixed when the session
@@ -256,6 +289,7 @@ compiler at every abort. Stop a session once the question it was opened for has
 an answer.
 
 ::: seealso
+- [benchmarks.md](benchmarks.md) for measuring a change rather than locating one
 - [jit-trace-checking.md](jit-trace-checking.md) for finding the same aborts
   without running the program
 - [performance.md](index.md) for what the compiler does to code before

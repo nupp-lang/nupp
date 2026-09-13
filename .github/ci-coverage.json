@@ -89,6 +89,14 @@
           ]
         },
         {
+          "name": "Run the benchmark runner suite",
+          "platforms": ["linux"],
+          "groups": ["measurement"],
+          "guarantees": [
+            "the benchmark runner's process boundary: listing, selection, replication and the pilot"
+          ]
+        },
+        {
           "name": "Run the tl.lua oracle and import-c fixtures",
           "groups": ["external-corpus"],
           "guarantees": ["the external parser oracle and the C importer"]

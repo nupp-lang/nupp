@@ -251,13 +251,17 @@ record bench.Measurement
     --- Collapsed-stack profile written for this measured window, when requested.
     profilePath: string?
 
-    --- The quartiles of this measurement's own samples, in seconds.
+    --- Quantiles of this measurement's own samples, in seconds.
     ---
-    --- Reported as a range rather than as a percentage either side of the median,
-    --- because a benchmark whose samples are bimodal puts its median in the gap
-    --- between the two clusters, and a symmetric "+-x%" around that median describes
-    --- a distribution the run never produced. `[p25, p75]` beside the score shows the
-    --- shape instead of implying one.
+    --- The table shows `[p25, p99]` beside the score, which is a range rather than a
+    --- percentage either side of the median on purpose: a benchmark whose samples are
+    --- bimodal puts its median in the gap between the two clusters, and a symmetric
+    --- "+-x%" around that median describes a distribution the run never produced.
+    ---
+    --- The upper end is the tail rather than the third quartile because the tail is
+    --- what a reader is looking for. A slow mode holding a tenth of the samples moves
+    --- p99 and leaves p75 where it was, so a box would have hidden exactly the case
+    --- worth seeing. `p75Sec` stays in the record for anyone who wants the box.
     p25Sec: number?
 
     p75Sec: number?
@@ -733,6 +737,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         samplesSec = times,
         p25Sec = statistics.quantile(roundOrder, 0.25),
         p75Sec = statistics.quantile(roundOrder, 0.75),
+        p99Sec = statistics.quantile(roundOrder, 0.99),
         iqrSec = statistics.iqr(times),
         trend = rounds.verdict,
         trendTau = rounds.tau,
@@ -1568,12 +1573,12 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     -- about a population median follows from it, and the note below the table says so.
     local function spreadCell(entry: any, scale: number): string
         local lowerQuartile = entry.p25Sec
-        local upperQuartile = entry.p75Sec
-        if not lowerQuartile or not upperQuartile then
+        local tail = entry.p99Sec
+        if not lowerQuartile or not tail then
             return "-"
         end
 
-        return ("[%.3f, %.3f]"):format(lowerQuartile * scale, upperQuartile * scale)
+        return ("[%.3f, %.3f]"):format(lowerQuartile * scale, tail * scale)
     end
 
     -- The interval for a merged measurement, or why there is not one.
@@ -1714,7 +1719,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     local forks = options and options.forks or 1
     local replicated = forks > 1
     local spreadWidth: integer = replicated and 20 or 18
-    local spreadHeading = replicated and "Interval" or "p25-p75"
+    local spreadHeading = replicated and "Interval" or "p25-p99"
     for _, row in ipairs(rows) do
         local cell = (replicated and row.interval or row.spread) or "-"
         if #cell > spreadWidth then
@@ -1864,7 +1869,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     -- as an error bar and to believe a four percent difference.
     if not replicated then
         lines[#lines + 1] = ""
-        lines[#lines + 1] = "note: 1 fork per benchmark. p25-p75 is within-process spread, NOT a confidence"
+        lines[#lines + 1] = "note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence"
         lines[#lines + 1] = "      interval: samples inside one process share its heap, traces and thermal"
         lines[#lines + 1] = "      state, so no population interval follows from them. A score far from the"
         lines[#lines + 1] = "      middle of that range means the samples are not centred on it. No interval or"

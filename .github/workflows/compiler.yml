@@ -614,6 +614,23 @@ jobs:
           NUPP_NATIVE_CC: gcc
         run: ./bin/nupp test --jobs=1 --shard=aotbuildtest
 
+      # Three minutes of starting child processes, and the only thing that can
+      # change what they answer is bench code. `measurement` is the surface every
+      # such path reaches -- the runner, its CLI, `src/nupp/bench/`, `bench/` and
+      # this suite itself -- so the classifier turning it off means nothing that
+      # could have moved the result went unrun.
+      #
+      # The rest of the bench surface is not gated. The `keep` intrinsic's
+      # lowering, the allocation account, the statistics and the fork merge rules
+      # live in `benchtest`, which the broad suite runs on every change, because a
+      # compiler change can break those without touching anything named above.
+      - name: Run the benchmark runner suite
+        if: >-
+          runner.os == 'Linux'
+          && contains(needs.classify.outputs.selection, '"measurement"')
+        shell: bash
+        run: ./bin/nupp test --jobs=1 --group=measurement
+
       # Serialized when the comptime worker's deadline was 2000 ms and parallel
       # shards pushed past it; that deadline is 10000 ms now, chosen with
       # headroom for exactly this contention. Serialized again when the first
@@ -639,7 +656,7 @@ jobs:
             lane="--lane=isolated"
           fi
           ./bin/nupp test $lane \
-            --exclude-group=external-corpus,rust-native-gate
+            --exclude-group=external-corpus,rust-native-gate,measurement
 
       # A worker killed by a signal says which suite it was in, and on Linux it
       # is killed by SIGSEGV in a different set of suites every run -- so the
@@ -696,7 +713,7 @@ jobs:
           NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
           NUPP_TEST_SH=$(cygpath -w "$sh_path") \
           ./bin/nupp test \
-            --exclude-group=external-corpus,windows-preflight,rust-native-gate
+            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
 
       - name: Report Windows worker crashes
         if: failure() && runner.os == 'Windows'

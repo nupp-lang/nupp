@@ -75,4 +75,15 @@ return {
 
     -- Packaging and release delivery.
     ["packaging"] = {"bundletest", "compilerpacktest", "releasetest", "rocktest", "servicepackagetest",},
+
+    -- The benchmark runner's process boundary. Every case starts children and the
+    -- replicated one starts twelve, so the suite costs about three minutes where the
+    -- rest of the bench surface costs seconds.
+    --
+    -- Named so CI can run it only when the classifier reports the `measurement`
+    -- surface. The unit cover for the same area -- the `keep` intrinsic, the allocation
+    -- account, the statistics, the fork merge rules -- stays in `benchtest` and runs on
+    -- every change, so what this gates is the cost of starting processes rather than
+    -- the cover for anything a compiler change can reach.
+    ["measurement"] = {"benchrunnertest"},
 }
