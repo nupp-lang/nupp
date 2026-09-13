@@ -2,24 +2,17 @@ module nupp.compiler.cli.ownershipaudit
 
 --[[ Enumerates the ownership claims that make up a project's trusted FFI surface. ]]
 
-local spec = require("nupp.compiler.cli.spec")
-local optionsMod = require("nupp.compiler.cli.options")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "ownership-audit",
-    summary = "List foreign pointer contracts and unsafe assertion sites",
-    usage = {"nupp ownership-audit [--format text|json] [--regions] [file...]"},
-    options = optionsMod.join({name = "--regions", help = "Include automatic cleanup regions"}, optionsMod.format()),
-    detail = "With no files, scans Nupp sources under src. The report enumerates trusted C contracts and explicit unsafe regions; it does not verify foreign implementations.",
-    schema = {
-        type = "object",
-        properties = {
-            foreign = {type = "array", items = {type = "object"}},
-            unsafe = {type = "array", items = {type = "object"}},
-            regions = {type = "array", items = {type = "object"}},
-        },
-        required = {"foreign", "unsafe"},
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        foreign = {type = "array", items = {type = "object"}},
+        unsafe = {type = "array", items = {type = "object"}},
+        regions = {type = "array", items = {type = "object"}},
     },
+    required = {"foreign", "unsafe"},
 }
 
 local function pointerShaped(t, T)
@@ -52,7 +45,8 @@ local function sourceFiles(paths, fs)
     return found
 end
 
-local function run(parsed: any): integer
+local function run(options: any): integer
+    local positional: {string} = options.files
     local fs = require("nupp.compiler.fs")
     local parser = require("nupp.compiler.parser")
     local check: any = require("nupp.compiler.check")
@@ -97,7 +91,7 @@ local function run(parsed: any): integer
         if not node or cst.isToken(node) then
             return
         end
-        if parsed.values.regions and node.kind == "block" and node.automaticOwners then
+        if options.regions and node.kind == "block" and node.automaticOwners then
             local owners = {}
             for _, owner in ipairs(node.automaticOwners) do
                 if owner.lowerable then
@@ -242,7 +236,7 @@ local function run(parsed: any): integer
     end
 
     local diagnosticMod = require("nupp.compiler.diagnostics")
-    for _, file in ipairs(sourceFiles(parsed.positional, fs)) do
+    for _, file in ipairs(sourceFiles(positional, fs)) do
         local source = fs.readFile(file)
         if source then
             local result = parser.parse(source, file)
@@ -288,10 +282,10 @@ local function run(parsed: any): integer
         region.id = base .. "#" .. tostring(regionOrdinals[base])
     end
     local report = {foreign = foreign, unsafe = unsafeSites}
-    if parsed.values.regions then
+    if options.regions then
         report.regions = regions
     end
-    if parsed.values.format == "json" then
+    if options.format == "json" then
         require("nupp.compiler.cli.report").write(report)
     else
         io.write("Foreign ownership contracts\n")
@@ -320,7 +314,7 @@ local function run(parsed: any): integer
         for _, entry in ipairs(unsafeSites) do
             io.write(("  %s:%d:%d  %s\n"):format(entry.file, entry.line, entry.column, entry.kind))
         end
-        if parsed.values.regions then
+        if options.regions then
             io.write("Automatic cleanup regions\n")
             for _, region in ipairs(regions) do
                 io.write(
@@ -337,4 +331,30 @@ local function run(parsed: any): integer
     return failed and 1 or 0
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- List foreign pointer contracts and unsafe assertion sites.
+---
+--- With no files, scans Nupp sources under src. The report enumerates trusted
+--- C contracts and explicit unsafe regions.
+@cli(name = "ownership-audit", parent = root.Root)
+@derive(cliModule.Command)
+local record OwnershipAudit
+    --- Include automatic cleanup regions.
+    regions: boolean = false
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Source files to inspect.
+    @cli(positional = "FILE")
+    files: {string} = {}
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = OwnershipAudit, schema = REPORT_SCHEMA}

@@ -1,0 +1,12 @@
+module tests.fixtures.clicompleterinvalid
+
+local cli = require("nupp.cli")
+
+local record NotACompleter
+end
+
+@derive(cli.Arguments)
+local record InvalidCompletion
+    @cli(complete = NotACompleter)
+    value: string?
+end

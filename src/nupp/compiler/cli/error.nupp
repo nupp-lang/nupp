@@ -1,0 +1,49 @@
+module nupp.compiler.cli.error
+
+local terminal = require("nupp.cli")
+
+local errors = {}
+
+--- Wraps prose without breaking long words such as option names and paths.
+function errors.wrap(text: string, width: integer): {string}
+    local lines: {string} = {}
+    local line = ""
+    for word in text:gmatch("%S+") do
+        if line == "" then
+            line = word
+        elseif #line + #word + 1 <= width then
+            line = line .. " " .. word
+        else
+            lines[#lines + 1] = line
+            line = word
+        end
+    end
+    if line ~= "" then
+        lines[#lines + 1] = line
+    end
+
+    return lines
+end
+
+--- Builds the compiler's status-2 diagnostic for semantic argument combinations.
+--- Lexical and conversion failures are rendered by `cli.Application` before a
+--- command record is constructed.
+function errors.forCommand(name: string): function(string?): integer
+    return function(message: string?): integer
+        local style = terminal.style(io.stderr)
+        io.stderr:write(
+            terminal.severity(
+                style,
+                "error"
+            )(
+                "nupp:"
+            ) .. " " .. tostring(
+                message
+            ) .. "\nTry '" .. style.strong("nupp help " .. name) .. "' for more information.\n"
+        )
+
+        return 2
+    end
+end
+
+export = errors

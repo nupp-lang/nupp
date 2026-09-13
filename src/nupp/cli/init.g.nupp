@@ -1,0 +1,723 @@
+--[[
+Typed command-line parsing, command derivation, help, completion, and terminal
+styles.
+
+`optParser` and `getopt` are the syntax-only foundation. The typed derive and
+application layers are built on the same token stream in this module.
+]]
+local cliModule = {}
+const {type Entry} = require("nupp.derive")
+
+const parser = require("nupp.cli.internal.optparser")
+const {type DecodeError} = require("nupp.cli.internal.decode")
+const {type ColorMode, type Style} = require("nupp.cli.internal.terminal")
+const {type ApplicationOptions, type Application, type Invocation} = require("nupp.cli.internal.application")
+
+type cliModule.TokenKind = parser.TokenKind
+type cliModule.ValueArity = parser.ValueArity
+type cliModule.Pattern = parser.Pattern
+type cliModule.OptParserConfig = parser.OptParserConfig
+type cliModule.Token = parser.Token
+type cliModule.SyntaxError = parser.SyntaxError
+type cliModule.OptParser = parser.OptParser
+type cliModule.DecodeError = DecodeError
+type cliModule.ColorMode = ColorMode
+type cliModule.Style = Style
+type cliModule.ApplicationOptions = ApplicationOptions
+type cliModule.Application = Application
+type cliModule.Invocation = Invocation
+
+--- Marker implemented by a record deriving `Arguments`.
+interface cliModule.ArgumentRecord
+end
+
+--- The instance contract of a derived executable command.
+interface cliModule.Runnable
+    run: function(self): integer
+end
+
+--- One shell-neutral completion candidate.
+record cliModule.CompletionCandidate
+    value: string
+    description: string?
+    kind: "value" | "file" | "directory"?
+end
+
+--- Context supplied to a dynamic field completion provider.
+record cliModule.CompletionRequest
+    prefix: string
+    argv: {string}
+    wordIndex: integer
+    commandPath: {string}
+    field: string
+    cwd: string
+    environment: {[string]: string}
+end
+
+--- A lazily invoked source of dynamic values for one CLI field.
+interface cliModule.Completer
+    complete: function(self, request: cliModule.CompletionRequest): {cliModule.CompletionCandidate}
+end
+
+--- An option which consumes no following value.
+cliModule.none = "none" as cliModule.ValueArity
+
+--- An option which consumes its attached value or the following argv word.
+cliModule.required = "required" as cliModule.ValueArity
+
+--- An option whose value is optional and may only be attached with `=`.
+cliModule.optionalAttached = "optionalAttached" as cliModule.ValueArity
+
+--- An option which requires an attached `=` value.
+cliModule.attachedOnly = "attachedOnly" as cliModule.ValueArity
+
+--- Creates an incremental syntax-only option parser.
+cliModule.optParser = parser.optParser
+
+--- Iterates syntax-only option tokens.
+cliModule.getopt = parser.getopt
+
+--- Sets the process-wide default color policy.
+function cliModule.setColorMode(wanted: cliModule.ColorMode): nil
+    return require("nupp.cli.internal.terminal").setColorMode(wanted)
+end
+
+--- Runs a body under one color policy and restores the previous policy.
+function cliModule.withColorMode(wanted: cliModule.ColorMode, body: function(): nil): nil
+    return require("nupp.cli.internal.terminal").withColorMode(wanted, body)
+end
+
+--- Reports whether escapes should be written to one stream.
+function cliModule.colorEnabled(stream: LuaFile): boolean
+    return require("nupp.cli.internal.terminal").colorEnabled(stream)
+end
+
+--- Reports whether one stream is connected to a terminal.
+function cliModule.isTerminal(stream: LuaFile): boolean
+    return require("nupp.cli.internal.terminal").isTerminal(stream)
+end
+
+--- Returns the generic styles selected for one stream.
+function cliModule.style(stream: LuaFile): cliModule.Style
+    return require("nupp.cli.internal.terminal").style(stream)
+end
+
+--- Selects the color associated with a diagnostic severity.
+function cliModule.severity(styles: cliModule.Style, name: string?): function(string): string
+    return require("nupp.cli.internal.terminal").forSeverity(styles, name)
+end
+
+--- Returns the descriptor generated for a command type.
+function cliModule.command<T is table>(subject: Type<T>): table?, string?
+    return require("nupp.cli.internal.application").command(subject)
+end
+
+--- Assembles a finite tree of derived command types.
+function cliModule.application<T is table>(
+    rootType: Type<T>,
+    commandTypes: {any},
+    options: cliModule.ApplicationOptions?
+): cliModule.Application
+    return require("nupp.cli.internal.application").application(rootType, commandTypes, options)
+end
+
+--- @internal
+function cliModule.derivedFromCLI(argv: {string}, entry: Entry): table?, cliModule.DecodeError?
+    return require("nupp.cli.internal.decode").fromCLI(argv, entry) as table?
+end
+
+--- @internal
+function cliModule.derivedText(value: string): string
+    return value
+end
+
+--- @internal
+function cliModule.derivedStrings<T>(takes value: T): T preserves value
+    return value
+end
+
+--- @internal
+function cliModule.derivedValue<T>(takes value: T): T preserves value
+    return value
+end
+
+--- @internal
+function cliModule.derivedCompleter(subject: Type<cliModule.Completer>): Type<cliModule.Completer>
+    return subject
+end
+
+--- @internal
+function cliModule.derivedGroupRun(self: table): integer
+    return 0
+end
+
+local comptime function option(items, name: string): any
+    for _, item in ipairs(items) do
+        if item.name == "cli" then
+            for _, argument in ipairs(item.arguments) do
+                if argument.name == name then
+                    return argument.value
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local comptime function annotationArgument(items, name: string): nupp.reflect.AnnotationArgument?
+    for _, item in ipairs(items) do
+        if item.name == "cli" then
+            for _, argument in ipairs(item.arguments) do
+                if argument.name == name then
+                    return argument
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local comptime function detail(T: type): any
+    local described = nupp.types.describe(T)
+    if described.sourceKind then
+        local normalized = {}
+        for key, value in pairs(described) do
+            normalized[key] = value
+        end
+        normalized.kind = described.sourceKind
+        return normalized
+    end
+
+    return described
+end
+
+local comptime function optional(T: type): type?
+    local described = detail(T)
+    if described.kind ~= "union" then
+        return nil
+    end
+    local rest = {}
+    for _, member in ipairs(described.members or {}) do
+        local memberDetail = detail(member)
+        if not (memberDetail.kind == "primitive" and memberDetail.name == "nil") then
+            rest[#rest + 1] = member
+        end
+    end
+
+    if #rest == 1 then
+        return rest[1]
+    end
+
+    return nil
+end
+
+local comptime function valueSpec(T: type): any
+    local inner = optional(T)
+    if inner ~= nil then
+        local spec = valueSpec(inner)
+        if spec ~= nil then
+            spec.optional = true
+        end
+        return spec
+    end
+    local described = detail(T)
+    if described.kind == "array" then
+        local spec = valueSpec(described.element)
+        if spec ~= nil and spec.conversion ~= "boolean" then
+            spec.repeated = true
+        end
+        return spec
+    elseif described.kind == "map" then
+        local keyType = described.readKey
+        if keyType == nil then
+            keyType = described.writeKey
+        end
+        local valueType = described.readValue
+        if valueType == nil then
+            valueType = described.writeValue
+        end
+        local key = detail(keyType)
+        local value = detail(valueType)
+        if key.kind == "primitive" then
+            if key.name == "string" then
+                if value.kind == "primitive" then
+                    if value.name == "boolean" then
+                        return {conversion = "string", destination = "string", repeated = true, set = true}
+                    end
+                end
+            end
+        end
+        return nil
+    elseif described.kind == "literal" and type(described.value) == "string" then
+        return {conversion = "choice", choices = {described.value}, destination = "string"}
+    elseif described.kind == "union" then
+        local choices = {}
+        for _, member in ipairs(described.members or {}) do
+            local memberDetail = detail(member)
+            if memberDetail.kind ~= "literal" or type(memberDetail.value) ~= "string" then
+                return nil
+            end
+            choices[#choices + 1] = memberDetail.value
+        end
+        return #choices > 0 and {conversion = "choice", choices = choices, destination = "string"} or nil
+    elseif described.kind == "primitive" then
+        if described.name == "string" then
+            return {conversion = "string", destination = "string"}
+        elseif described.name == "boolean" then
+            return {conversion = "boolean", destination = "boolean"}
+        elseif described.name == "number" or described.name == "float" then
+            return {conversion = "number", destination = described.name}
+        elseif described.name == "integer" then
+            return {conversion = "integer", destination = "integer"}
+        elseif described.name == "int8" then
+            return {conversion = "integer", destination = "int8", minimum = -128, maximum = 127}
+        elseif described.name == "int16" then
+            return {conversion = "integer", destination = "int16", minimum = -32768, maximum = 32767}
+        elseif described.name == "int32" then
+            return {conversion = "integer", destination = "int32", minimum = -2147483648, maximum = 2147483647}
+        elseif described.name == "uint8" then
+            return {conversion = "integer", destination = "uint8", minimum = 0, maximum = 255}
+        elseif described.name == "uint16" then
+            return {conversion = "integer", destination = "uint16", minimum = 0, maximum = 65535}
+        elseif described.name == "uint32" then
+            return {conversion = "integer", destination = "uint32", minimum = 0, maximum = 4294967295}
+        end
+    end
+
+    return nil
+end
+
+local comptime function kebab(name: string): string
+    return name:gsub("(%l)(%u)", "%1-%2"):gsub("_", "-"):lower()
+end
+
+local comptime function firstParagraph(documentation: string?): string
+    if documentation == nil then
+        return ""
+    end
+    return documentation:match("^(.-)\n%s*\n") or documentation
+end
+
+local comptime function optionName(name: string): boolean
+    return name ~= "" and name:sub(1, 1) ~= "-" and name:find("=", 1, true) == nil and name:find("%s") == nil
+end
+
+local comptime function contains(items: {string}, wanted: string): boolean
+    for _, item in ipairs(items) do
+        if item == wanted then
+            return true
+        end
+    end
+
+    return false
+end
+
+local comptime function sortStrings(items: {string}): nil
+    for index = 2, #items do
+        local value = items[index]
+        local position = index - 1
+        while position >= 1 and items[position] > value do
+            items[position + 1] = items[position]
+            position = position - 1
+        end
+        items[position + 1] = value
+    end
+
+    return nil
+end
+
+local comptime function acceptsConstant(spec: any, value: any): boolean
+    if spec.conversion == "boolean" then
+        return type(value) == "boolean"
+    elseif spec.conversion == "string" then
+        return type(value) == "string"
+    elseif spec.conversion == "choice" then
+        return type(value) == "string" and contains(spec.choices, value)
+    elseif spec.conversion == "number" then
+        return type(value) == "number"
+    elseif spec.conversion == "integer" then
+        return type(
+            value
+        ) == "number" and value % 1 == 0 and (
+            spec.minimum == nil or value >= spec.minimum
+        ) and (spec.maximum == nil or value <= spec.maximum)
+    end
+
+    return false
+end
+
+local comptime function decodeErrorType(): type
+    local text = nupp.types.string
+    local maybeText = nupp.types.optional(text)
+    return nupp.types.shape({
+        {name = "kind", read = text},
+        {name = "message", read = text},
+        {name = "index", read = nupp.types.optional(nupp.types.integer)},
+        {name = "raw", read = maybeText},
+        {name = "option", read = maybeText},
+        {name = "field", read = maybeText},
+        {name = "destination", read = maybeText},
+    })
+end
+
+local comptime function recipe(info: nupp.derive.Info, command: boolean): any
+    if info.kind ~= "record" then
+        return nupp.derive.error("CLI arguments can be derived only for records", info.reference)
+    elseif info.hasConstructor then
+        return nupp.derive.error("CLI argument records cannot declare a constructor", info.reference)
+    end
+
+    local fields, positionals, completers = {}, {}, {}
+    local remainderField: any = nil
+    local usedNames: {string} = {}
+    for index, field in ipairs(info.fields) do
+        local spec = valueSpec(field.readType)
+        if spec == nil then
+            return nupp.derive.error("field type is not supported by CLI arguments", field.reference)
+        end
+
+        local configuredName = option(field.annotations, "name") as string?
+        local longName = kebab(field.name)
+        if configuredName ~= nil then
+            longName = configuredName
+        end
+        local positional = option(field.annotations, "positional") as string?
+        local remainder = option(field.annotations, "remainder") as boolean? == true
+        if positional ~= nil and remainder then
+            return nupp.derive.error("a CLI field cannot be both positional and remainder", field.reference)
+        elseif remainder and not spec.repeated then
+            return nupp.derive.error("a CLI remainder field must be an array", field.reference)
+        elseif remainder and index ~= #info.fields then
+            return nupp.derive.error("a CLI remainder must be the final field", field.reference)
+        end
+
+        local role = remainder and "remainder" or positional ~= nil and "positional" or "option"
+        local hasLong = option(field.annotations, "long") as boolean? ~= false
+        local names: {string} = {}
+        local short = option(field.annotations, "short") as string?
+        local aliases = option(field.annotations, "aliases") as {string}?
+        local constantAliases = option(field.annotations, "constantAliases") as {[string]: string}?
+        local constants: {[string]: string} = {}
+        local constantNames: {string} = {}
+        local pattern = option(field.annotations, "pattern") as string?
+        if role ~= "option" then
+            if configuredName ~= nil or short ~= nil or aliases ~= nil or constantAliases ~= nil or pattern ~= nil then
+                return nupp.derive.error(
+                    "CLI option names and patterns cannot be put on a positional field",
+                    field.reference
+                )
+            end
+        elseif pattern ~= nil then
+            if pattern == "" then
+                return nupp.derive.error("a CLI pattern cannot be empty", field.reference)
+            elseif option(field.annotations, "display") == nil or option(field.annotations, "display") == "" then
+                return nupp.derive.error("a CLI pattern needs a stable display form", field.reference)
+            elseif short ~= nil or aliases ~= nil or constantAliases ~= nil then
+                return nupp.derive.error("a CLI pattern cannot also declare option aliases", field.reference)
+            elseif not optionName(longName) then
+                return nupp.derive.error("a CLI pattern needs a non-empty internal name", field.reference)
+            end
+        else
+            if hasLong then
+                names[#names + 1] = longName
+            end
+            if short ~= nil then
+                names[#names + 1] = short
+            end
+            if aliases ~= nil then
+                for _, alias in ipairs(aliases) do
+                    names[#names + 1] = alias
+                end
+            end
+            if constantAliases ~= nil then
+                for alias, value in pairs(constantAliases) do
+                    constants[alias] = value
+                    constantNames[#constantNames + 1] = alias
+                end
+                sortStrings(constantNames)
+                for _, alias in ipairs(constantNames) do
+                    names[#names + 1] = alias
+                end
+            end
+            if #names == 0 then
+                return nupp.derive.error("a CLI option needs a long or short name", field.reference)
+            end
+            for _, name in ipairs(names) do
+                if not optionName(name) then
+                    return nupp.derive.error(
+                        "CLI option names must be non-empty and omit '-', '=', and whitespace",
+                        field.reference
+                    )
+                end
+                for _, used in ipairs(usedNames) do
+                    if used == name then
+                        return nupp.derive.error("CLI name " .. name .. " is duplicated", field.reference)
+                    end
+                end
+                usedNames[#usedNames + 1] = name
+            end
+        end
+
+        spec.index = index
+        spec.field = field.name
+        spec.names = names
+        spec.matchKey = pattern and longName or nil
+        spec.long = hasLong
+        spec.constants = constants
+        spec.role = role
+        local displayOverride = option(field.annotations, "display") as string?
+        spec.display = positional or remainder and field.name:upper() or pattern and displayOverride or (
+            #names[1] == 1 and "-" .. names[1] or "--" .. names[1]
+        )
+        spec.displayOverride = displayOverride
+        spec.invalid = option(field.annotations, "invalid") as string?
+        local valueName = option(field.annotations, "value") as string?
+        spec.value = "VALUE"
+        if positional ~= nil then
+            spec.value = positional
+        end
+        if valueName ~= nil then
+            spec.value = valueName
+        end
+        spec.documentation = field.documentation or ""
+        spec.hidden = option(field.annotations, "hidden") as boolean? == true
+        spec.pattern = pattern
+        local configuredConstant = option(field.annotations, "constant") as string | integer | boolean | nil
+        spec.constant = configuredConstant
+        spec.required = not field.hasDefault and spec.optional ~= true
+        spec.arity = spec.conversion == "boolean" and "none" or "required"
+        local configuredArity = option(field.annotations, "arity") as cliModule.ValueArity?
+        if role ~= "option" and (configuredArity ~= nil or configuredConstant ~= nil) then
+            return nupp.derive.error(
+                "CLI option arity and constants cannot be put on a positional field",
+                field.reference
+            )
+        end
+        if configuredArity ~= nil then
+            spec.arity = configuredArity
+        end
+        local choices = option(field.annotations, "choices") as {string}?
+        if choices ~= nil then
+            if spec.conversion ~= "string" and spec.conversion ~= "choice" then
+                return nupp.derive.error("CLI choices require a string field", field.reference)
+            end
+            if spec.conversion == "choice" then
+                for _, choice in ipairs(choices) do
+                    if not contains(spec.choices, choice) then
+                        return nupp.derive.error("a CLI choice is outside the field's literal type", field.reference)
+                    end
+                end
+            end
+            spec.choices = choices
+            spec.conversion = "choice"
+        end
+        if role ~= "option" and spec.conversion == "boolean" then
+            return nupp.derive.error("a boolean CLI field cannot be positional", field.reference)
+        elseif spec.conversion == "boolean" and spec.arity ~= "none" then
+            return nupp.derive.error("a boolean CLI field cannot consume a value", field.reference)
+        elseif spec.conversion ~= "boolean" and spec.arity == "none" and spec.constant == nil then
+            return nupp.derive.error("a no-value CLI field needs a constant", field.reference)
+        elseif spec.arity == "optionalAttached" and spec.constant == nil then
+            return nupp.derive.error("an optional attached CLI value needs a bare constant", field.reference)
+        elseif spec.constant ~= nil and not acceptsConstant(spec, spec.constant) then
+            return nupp.derive.error("a CLI constant does not inhabit the field type", field.reference)
+        end
+        for _, constantValue in pairs(constants) do
+            if not acceptsConstant(spec, constantValue) then
+                return nupp.derive.error("a CLI constant alias does not inhabit the field type", field.reference)
+            end
+        end
+        local complete = annotationArgument(field.annotations, "complete")
+        if complete ~= nil then
+            local provider = nupp.derive.annotationType(complete)
+            spec.dynamicCompletion = true
+            spec.completerMember = "__cliCompleter" .. index
+            completers[index] = provider
+        end
+        fields[index] = spec
+        if spec.role == "positional" or spec.role == "remainder" then
+            if spec.repeated and index ~= #info.fields then
+                return nupp.derive.error("a repeated CLI positional must be the final field", field.reference)
+            end
+            positionals[#positionals + 1] = spec
+            if spec.role == "remainder" then
+                remainderField = spec
+            end
+        end
+    end
+
+    local argv = nupp.types.array(nupp.types.string)
+    local statics: any = {
+        fromCLI = nupp.derive.member{
+            signature = nupp.types.function_(
+                nupp.types.pack({
+                    argv
+                }),
+                nupp.types.pack({
+                    nupp.types.optional(info.ownerType),
+                    nupp.types.optional(decodeErrorType())
+                })
+            ),
+            parameters = {"argv"},
+            forward = nupp.derive.forward{
+                helper = nupp.derive.helper(cliModule, "derivedFromCLI"),
+                arguments = {nupp.derive.argument("argv"), nupp.derive.entry()},
+            },
+        }
+    }
+    for index, provider in pairs(completers) do
+        statics[
+            "__cliCompleter" .. index
+        ] = nupp.derive.member{
+            signature = nupp.types.function_(
+                nupp.types.pack({}),
+                nupp.types.pack({
+                    nupp.types.any
+                })
+            ),
+            forward = nupp.derive.forward{
+                helper = nupp.derive.helper(cliModule, "derivedCompleter"),
+                arguments = {nupp.derive.witness(provider)},
+            },
+        }
+    end
+    local group = command and option(info.annotations, "group") as boolean? == true
+    local methods: any = nil
+    local preserveUnknown = option(info.annotations, "preserveUnknown") as boolean? == true
+    if preserveUnknown and remainderField == nil then
+        return nupp.derive.error("preserveUnknown needs a final CLI remainder field", info.reference)
+    end
+    local data: any = {
+        fields = fields,
+        positionals = positionals,
+        fieldCount = #fields,
+        remainder = remainderField,
+        preserveUnknown = preserveUnknown,
+        stopAtFirstArgument = option(info.annotations, "stopAtFirstArgument") as boolean? == true,
+    }
+    if command then
+        local configuredName = option(info.annotations, "name") as string?
+        local commandName = kebab(info.name)
+        if configuredName ~= nil then
+            commandName = configuredName
+        end
+        if not optionName(commandName) then
+            return nupp.derive.error(
+                "a CLI command name must be non-empty and omit '-', '=', and whitespace",
+                info.reference
+            )
+        end
+        local configuredAliases = option(info.annotations, "aliases") as {string}?
+        local aliases: {string} = {}
+        if configuredAliases ~= nil then
+            aliases = configuredAliases
+        end
+        local commandNames = {commandName}
+        for _, alias in ipairs(aliases) do
+            if not optionName(alias) then
+                return nupp.derive.error(
+                    "CLI command aliases must be non-empty and omit '-', '=', and whitespace",
+                    info.reference
+                )
+            elseif contains(commandNames, alias) then
+                return nupp.derive.error("CLI command alias " .. alias .. " is duplicated", info.reference)
+            end
+            commandNames[#commandNames + 1] = alias
+        end
+        local parent = annotationArgument(info.annotations, "parent")
+        if parent ~= nil then
+            statics.cliParent = nupp.derive.member{
+                signature = nupp.types.function_(nupp.types.pack({}), nupp.types.pack({nupp.types.any})),
+                forward = nupp.derive.forward{
+                    helper = nupp.derive.helper(cliModule, "derivedValue"),
+                    arguments = {nupp.derive.witness(nupp.derive.annotationType(parent))},
+                },
+            }
+        end
+        local summary = firstParagraph(info.documentation)
+        statics.cliName = nupp.derive.member{
+            signature = nupp.types.function_(
+                nupp.types.pack({}),
+                nupp.types.pack({
+                    nupp.types.string
+                })
+            ),
+            forward = nupp.derive.forward{
+                helper = nupp.derive.helper(cliModule, "derivedText"),
+                arguments = {nupp.derive.constant(commandName)},
+            },
+        }
+        statics.cliAliases = nupp.derive.member{
+            signature = nupp.types.function_(
+                nupp.types.pack({}),
+                nupp.types.pack({
+                    argv
+                })
+            ),
+            forward = nupp.derive.forward{
+                helper = nupp.derive.helper(cliModule, "derivedStrings"),
+                arguments = {nupp.derive.constant(aliases)},
+            },
+        }
+        statics.cliSummary = nupp.derive.member{
+            signature = nupp.types.function_(
+                nupp.types.pack({}),
+                nupp.types.pack({
+                    nupp.types.string
+                })
+            ),
+            forward = nupp.derive.forward{
+                helper = nupp.derive.helper(cliModule, "derivedText"),
+                arguments = {nupp.derive.constant(summary)},
+            },
+        }
+        data.command = {
+            name = commandName,
+            aliases = aliases,
+            summary = summary,
+            documentation = info.documentation or "",
+            group = group,
+            hidden = option(info.annotations, "hidden") as boolean? == true,
+        }
+        if data.command.group then
+            methods = {
+                run = nupp.derive.forward{
+                    helper = nupp.derive.helper(cliModule, "derivedGroupRun"),
+                    arguments = {nupp.derive.receiver()},
+                }
+            }
+        end
+    end
+
+    return nupp.derive.implement{statics = statics, methods = methods, data = {cli = data}, initializer = true}
+end
+
+--- Derives typed argv decoding for a record.
+comptime function cliModule.Arguments(info: nupp.derive.Info): nupp.derive.Result<cliModule.ArgumentRecord>
+    return recipe(info, false)
+end
+
+--- Derives typed argv decoding and a self-describing executable command.
+comptime function cliModule.Command(info: nupp.derive.Info): nupp.derive.Result<cliModule.Runnable>
+    return recipe(info, true)
+end
+
+--- Decodes argv as a record deriving `Arguments` or `Command`.
+function cliModule.decodeAs<T is table>(subject: Type<T>, argv: {string}): T?, cliModule.DecodeError?
+    local entry = require("nupp.derive").entry(subject)
+    if entry == nil or entry.schema.data.cli == nil then
+        return nil, {kind = "notDerived", message = "the requested type does not derive CLI arguments"}
+    end
+
+    return require("nupp.cli.internal.decode").fromCLI(argv, entry)
+end
+
+--- Returns the CLI schema carried by a derived type.
+function cliModule.schema<T is table>(subject: Type<T>): table?
+    local entry = require("nupp.derive").entry(subject)
+    return entry and entry.schema.data.cli or nil
+end
+
+return cliModule

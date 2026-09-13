@@ -1,0 +1,245 @@
+module tests.fixtures.cliparser
+
+local cliModule = require("nupp.cli")
+
+local parser = cliModule.optParser({"-v", "--output=result.txt", "main.nupp", "--", "--literal"}, {
+    arity = {v = cliModule.none, output = cliModule.required},
+})
+local first = assert(parser:next())
+assert(first.kind == "shortOption" and first.key == "v" and first.index == 1)
+local second = assert(parser:next())
+assert(second.kind == "longOption" and second.key == "output")
+assert(second.value == "result.txt" and second.attached)
+local third = assert(parser:next())
+assert(third.kind == "argument" and third.raw == "main.nupp")
+local fourth = assert(parser:next())
+assert(fourth.kind == "terminator")
+local fifth = assert(parser:next())
+assert(fifth.kind == "argument" and fifth.raw == "--literal")
+local finished = parser:next()
+assert(finished == nil)
+assert(parser:original()[1] == "-v")
+assert(#parser:remaining() == 0)
+
+local hiddenTerminator = cliModule.optParser({"first", "--", "--second"}, {exposeTerminator = false})
+assert(assert(hiddenTerminator:next()).raw == "first")
+assert(assert(hiddenTerminator:next()).raw == "--second")
+
+local iterated = {}
+for token, iterationProblem in cliModule.getopt({"--flag", "value"}) do
+    assert(iterationProblem == nil)
+    iterated[#iterated + 1] = assert(token).raw
+end
+assert(#iterated == 2 and iterated[2] == "value")
+
+local values = cliModule.optParser({"--unknown", "file", "--output", "next"}, {arity = {output = cliModule.required},})
+local unknown = assert(values:next())
+assert(unknown.key == "unknown" and unknown.value == nil)
+assert(assert(values:next()).raw == "file")
+local output = assert(values:next())
+assert(output.key == "output" and output.value == "next" and not output.attached)
+
+local missing = cliModule.optParser({"--output"}, {arity = {output = cliModule.required}})
+local missingToken, problem = missing:next()
+assert(missingToken == nil)
+assert(problem ~= nil and problem.kind == "missingValue")
+assert(problem.index == 1 and problem.key == "output")
+
+local attached = cliModule.optParser({"-Zno-opt"}, {arity = {['Zno-opt'] = cliModule.attachedOnly}})
+local attachedToken, attachedProblem = attached:next()
+assert(attachedToken == nil)
+assert(attachedProblem ~= nil and attachedProblem.kind == "needsAttachedValue")
+
+local stopped = cliModule.optParser({"-O2", "program.nupp", "--flag"}, {
+    patterns = {{pattern = "^%-O(%d)$", key = "O"}},
+    stopAtFirstArgument = true,
+})
+local level = assert(stopped:next())
+assert(level.kind == "shortOption" and level.key == "O" and level.value == "2")
+assert(assert(stopped:next()).raw == "program.nupp")
+local literal = assert(stopped:next())
+assert(literal.kind == "argument" and literal.raw == "--flag")
+
+--- Options accepted by a checked command.
+@derive(cliModule.Arguments)
+local record CheckArgs
+    --- Show each file as it is checked.
+    @cli(short = "v")
+    verbose: boolean = false
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Disable the default policy.
+    @cli(name = "disable", constant = false)
+    enabled: boolean = true
+
+    --- Number of workers to use.
+    @cli(short = "j", value = "COUNT")
+    jobs: integer?
+
+    --- Sampling ratio.
+    ratio: number?
+
+    --- Source file to check.
+    @cli(positional = "FILE")
+    files: {string} = {}
+end
+
+local checked, checkProblem = CheckArgs.fromCLI({"-v", "--format", "json", "-j", "3", "a.nupp", "b.nupp"})
+assert(checked ~= nil, checkProblem and checkProblem.message)
+assert(checked.verbose and checked.format == "json" and checked.jobs == 3 and checked.enabled)
+assert(#checked.files == 2 and checked.files[2] == "b.nupp")
+
+local same, sameProblem = cliModule.decodeAs(CheckArgs, {"--format=text", "main.nupp"})
+assert(same ~= nil, sameProblem and sameProblem.message)
+assert(not same.verbose and same.format == "text" and same.jobs == nil)
+assert(#same.files == 1 and same.files[1] == "main.nupp")
+local aliased = assert(CheckArgs.fromCLI({"--json", "--disable"}))
+assert(aliased.format == "json" and not aliased.enabled)
+local numeric = assert(CheckArgs.fromCLI({"--ratio", "1.25"}))
+assert(numeric.ratio == 1.25)
+local cachedSchema = assert(cliModule.schema(CheckArgs))
+assert(cachedSchema.byName == nil)
+assert(CheckArgs.fromCLI({}) ~= nil)
+assert(cachedSchema.byName == nil)
+
+--- Print greeting commands.
+@cli(name = "greet", group = true)
+@derive(cliModule.Command)
+local record Greet
+end
+
+local record Names is cliModule.Completer
+    function complete(self, request: cliModule.CompletionRequest): {cliModule.CompletionCandidate}
+        assert(request.field == "name" and request.commandPath[1] == "hello")
+        assert(request.cwd == "." and request.environment.mode == "test")
+        return {new cliModule.CompletionCandidate(value = request.prefix .. "Ada")}
+    end
+end
+
+--- Print one greeting.
+---
+--- The command has no separately configured help text.
+@cli(name = "hello", aliases = {"hi"}, parent = Greet)
+@derive(cliModule.Command)
+local record Hello
+    --- Greeting representation.
+    mode: "text" | "json" = "text"
+
+    --- Person to greet.
+    @cli(positional = "NAME", complete = Names)
+    name: string
+
+    function run(self): integer
+        return self.name == "Ada" and 7 or 1
+    end
+end
+
+assert(Hello.cliName() == "hello")
+assert(Hello.cliAliases()[1] == "hi")
+assert(Hello.cliSummary() == "Print one greeting.")
+assert(Hello.cliParent() == Greet)
+assert(assert(cliModule.command(Hello)).completers[2] == Names)
+local greeting, greetingProblem = Hello.fromCLI({"Ada"})
+assert(greeting ~= nil, greetingProblem and greetingProblem.message)
+assert(greeting:run() == 7)
+
+local app = cliModule.application(Greet, {Hello}, {name = "greeter", version = "1.0.0"})
+local invocation, invocationProblem = app:resolve({"hi", "Ada"})
+assert(invocation ~= nil, invocationProblem and invocationProblem.message)
+assert(invocation.commandType == Hello and invocation.options.name == "Ada")
+local help = assert(app:commandHelp({"hello"}))
+assert(help:match("Print one greeting%."))
+assert(help:match("NAME"))
+assert(help:match("Person to greet%."))
+local rootHelp = app:help()
+assert(rootHelp:match("hello%s+Print one greeting%."))
+local candidates = app:complete({
+    argv = {"hello", "A"},
+    wordIndex = 2,
+    prefix = "A",
+    cwd = ".",
+    environment = {mode = "test"},
+})
+assert(#candidates == 1 and candidates[1].value == "AAda")
+local attachedChoices = app:complete({
+    argv = {"hello", "--mode=j"},
+    wordIndex = 2,
+    prefix = "--mode=j",
+    environment = {mode = "test"},
+})
+assert(#attachedChoices == 1 and attachedChoices[1].value == "--mode=json")
+local followingChoices = app:complete({
+    argv = {"hello", "--mode", "j"},
+    wordIndex = 3,
+    prefix = "j",
+    environment = {mode = "test"},
+})
+assert(#followingChoices == 1 and followingChoices[1].value == "json")
+assert(app:completion("bash"):match("__complete bash"))
+assert(app:completion("zsh"):match("#compdef greeter"))
+assert(app:completion("fish"):match("complete %-c greeter"))
+
+local _, invalidInteger = CheckArgs.fromCLI({"--jobs", "many"})
+assert(invalidInteger ~= nil and invalidInteger.kind == "invalidValue")
+assert(invalidInteger.index == 1 and invalidInteger.raw == "--jobs")
+local _, missingName = Hello.fromCLI({})
+assert(missingName ~= nil and missingName.kind == "missingRequired" and missingName.field == "name")
+local _, duplicate = CheckArgs.fromCLI({"--jobs", "1", "--jobs", "2"})
+assert(duplicate ~= nil and duplicate.kind == "duplicateOption")
+local _, unknownOption = CheckArgs.fromCLI({"--unknown"})
+assert(unknownOption ~= nil and unknownOption.kind == "unknownOption")
+
+@derive(cliModule.Arguments)
+local record PatternArgs
+    --- Optimization level.
+    @cli(name = "O", long = false, pattern = "^%-O([0-2])$", display = "-O0, -O1, -O2", choices = {"0", "1", "2"})
+    level: string?
+end
+
+assert(assert(PatternArgs.fromCLI({"-O2"})).level == "2")
+local _, syntheticPatternName = PatternArgs.fromCLI({"--O", "2"})
+assert(syntheticPatternName ~= nil and syntheticPatternName.kind == "unknownOption")
+
+@cli(preserveUnknown = true)
+@derive(cliModule.Arguments)
+local record Forwarded
+    --- Optional attached profiling interval.
+    @cli(arity = "optionalAttached", constant = "")
+    profile: string?
+
+    --- Arguments owned by the downstream program.
+    @cli(remainder = true, value = "ARG")
+    arguments: {string} = {}
+end
+
+local forwarded = assert(Forwarded.fromCLI({"--other", "value", "--profile=5", "suite"}))
+assert(forwarded.profile == "5")
+assert(#forwarded.arguments == 3)
+assert(forwarded.arguments[1] == "--other" and forwarded.arguments[3] == "suite")
+local bareProfile = assert(Forwarded.fromCLI({"--profile"}))
+assert(bareProfile.profile == "")
+
+@derive(cliModule.Arguments)
+local record Sets
+    --- Tags to enable.
+    tags: {[string]: boolean} = {}
+end
+
+local tags = assert(Sets.fromCLI({"--tags", "fast", "--tags", "portable", "--tags", "fast"}))
+assert(tags.tags.fast and tags.tags.portable)
+
+cliModule.withColorMode("always", function()
+    local style = cliModule.style(io.stdout)
+    assert(cliModule.colorEnabled(io.stdout))
+    assert(style.red("problem") == "\27[1;31mproblem\27[0m")
+end)
+cliModule.withColorMode("never", function()
+    local style = cliModule.style(io.stdout)
+    assert(not cliModule.colorEnabled(io.stdout))
+    assert(style.red("problem") == "problem" and style.strong("heading") == "heading")
+end)
+
+print("cli parser ok")

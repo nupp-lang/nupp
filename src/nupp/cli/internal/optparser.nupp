@@ -1,0 +1,195 @@
+module nupp.cli.internal.optparser
+
+--[[
+The syntax-only half of `nupp.cli`.
+
+This parser knows how an argv word is shaped and, when the caller supplies an
+arity, whether the following word belongs to an option. It deliberately knows
+nothing about commands, field types, help, terminal policy, or process exits.
+]]
+
+--- The kind of one classified argv word.
+export type TokenKind = "shortOption" | "longOption" | "argument" | "terminator"
+
+--- How an option obtains a value.
+export type ValueArity = "none" | "required" | "optionalAttached" | "attachedOnly"
+
+--- One whole-word option form, such as `-O2`.
+export type Pattern = {
+    --- Lua pattern matched against the complete argv word.
+    pattern: string,
+
+    --- The normalized key exposed by the token.
+    key: string
+}
+
+--- Syntax policy supplied to `optParser`.
+export type OptParserConfig = {
+    --- Value arity by normalized option name, without leading hyphens.
+    arity: {[string]: ValueArity}?,
+
+    --- Whole-word forms tried before ordinary short-option classification.
+    patterns: {Pattern}?,
+
+    --- Once the first argument is seen, expose every later word as an argument.
+    stopAtFirstArgument: boolean?,
+
+    --- Whether `--` itself is returned before its following arguments.
+    exposeTerminator: boolean?
+}
+
+--- One classified argv word.
+export record Token
+    kind: TokenKind
+    key: string?
+    value: string?
+    raw: string
+    index: integer
+    attached: boolean
+    pattern: boolean = false
+end
+
+--- A syntax failure found while consuming argv.
+export record SyntaxError
+    kind: "missingValue" | "needsAttachedValue"
+    index: integer
+    raw: string
+    key: string
+    message: string
+end
+
+--- An incremental command-line option parser.
+export record OptParser
+    private argv: {string}
+    private config: OptParserConfig
+    private index: integer
+    private literal: boolean
+
+    --- Returns the next token, or a structured syntax error.
+    function next(self): Token?, SyntaxError?
+        if self.index > #self.argv then
+            return nil, nil
+        end
+
+        local index = self.index
+        local raw = self.argv[index]
+        self.index = index + 1
+
+        if self.literal then
+            return new Token(kind = "argument", raw = raw, index = index, attached = false), nil
+        end
+
+        if raw == "--" then
+            self.literal = true
+            if self.config.exposeTerminator == false then
+                return self:next()
+            end
+            return new Token(kind = "terminator", raw = raw, index = index, attached = false), nil
+        end
+
+        if raw ~= "-" and raw:sub(1, 1) == "-" then
+            local patterns = self.config.patterns or {}
+            for _, form in ipairs(patterns) do
+                local captured = raw:match(form.pattern)
+                if captured ~= nil then
+                    return new Token(
+                        kind = raw:sub(1, 2) == "--" and "longOption" or "shortOption",
+                        key = form.key,
+                        value = captured,
+                        raw = raw,
+                        index = index,
+                        attached = true,
+                        pattern = true
+                    ), nil
+                end
+            end
+
+            local long = raw:sub(1, 2) == "--"
+            local prefix = long and 3 or 2
+            local body = raw:sub(prefix)
+            local equals = body:find("=", 1, true)
+            local key = equals and body:sub(1, equals - 1) or body
+            local value = equals and body:sub(equals + 1) or nil
+            local attached = equals ~= nil
+            local arity = self.config.arity and self.config.arity[key] or "none"
+
+            if not attached and arity == "required" then
+                local following = self.argv[self.index]
+                if following == nil then
+                    return nil, new SyntaxError(
+                        kind = "missingValue",
+                        index = index,
+                        raw = raw,
+                        key = key,
+                        message = "option " .. raw .. " requires a value"
+                    )
+                end
+                self.index = self.index + 1
+                value = following
+            elseif not attached and arity == "attachedOnly" then
+                return nil, new SyntaxError(
+                    kind = "needsAttachedValue",
+                    index = index,
+                    raw = raw,
+                    key = key,
+                    message = "option " .. raw .. " requires an attached value"
+                )
+            end
+
+            return new Token(
+                kind = long and "longOption" or "shortOption",
+                key = key,
+                value = value,
+                raw = raw,
+                index = index,
+                attached = attached
+            ), nil
+        end
+
+        if self.config.stopAtFirstArgument then
+            self.literal = true
+        end
+
+        return new Token(kind = "argument", raw = raw, index = index, attached = false), nil
+    end
+
+    --- Returns the unclassified suffix in its original order.
+    function remaining(self): {string}
+        local out: {string} = {}
+        for index = self.index, #self.argv do
+            out[#out + 1] = self.argv[index]
+        end
+
+        return out
+    end
+
+    --- Returns the original argv table.
+    function original(self): {string}
+        return self.argv
+    end
+end
+
+--- Creates an incremental option parser.
+export function optParser(argv: {string}, config: OptParserConfig?): OptParser
+    return new OptParser(argv = argv, config = config or {}, index = 1, literal = false)
+end
+
+--- Iterates classified tokens until argv is exhausted or an error is found.
+---
+--- The iterator returns the token and an optional syntax error. On an error the
+--- token is nil and iteration ends after that result.
+export function getopt(argv: {string}, config: OptParserConfig?): function(): (Token?, SyntaxError?)
+    local parser = optParser(argv, config)
+    local done = false
+    return function(): (Token?, SyntaxError?)
+        if done then
+            return nil, nil
+        end
+        local token, problem = parser:next()
+        if token == nil then
+            done = true
+        end
+
+        return token, problem
+    end
+end

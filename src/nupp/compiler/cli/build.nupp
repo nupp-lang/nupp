@@ -10,283 +10,232 @@ rather than resolved.
 ]]
 const files = require("nupp.io.files")
 
-local spec = require("nupp.compiler.cli.spec")
-local optionsMod = require("nupp.compiler.cli.options")
+local usageError = require("nupp.compiler.cli.error").forCommand("build")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "build",
-    summary = "Build source files or a configured project target",
-    usage = {
-        "nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--standalone] [--out-dir DIR]"
-        .. " [-q] [--format text|json]",
-        "nupp build [--strict] [--dialect DIALECT] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>",
-    },
-    options = optionsMod.join(
-        {name = "--target", value = "NAME", help = "Build a named manifest target"},
-        {name = "--platform", value = "NAME", help = "Build one configured binary platform, or all"},
-        {name = "--standalone", help = "Link native FFI and AOT code into the binary host"},
-        -- Two directories, not two spellings of one: --out-dir moves a manifest
-        -- target's output, -o says where a named file's Lua goes. Distinct keys, so
-        -- giving both is a contradiction the command can see.
-        {
-            name = "--out-dir",
-            value = "DIR",
-            key = "projectOutDir",
-            help = "Override the manifest target's output directory"
+local REPORT_SCHEMA = {
+    type = "object",
+    description = "What a build reported and what it produced.",
+    properties = {
+        diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
+        target = {
+            type = "string",
+            description = "The manifest target that was built. Absent for a "
+            .. "build of explicitly named source files."
         },
-        {name = "-o", value = "DIR", key = "outDir", help = "Output directory for explicit source-file builds"},
-        optionsMod.strict,
-        optionsMod.dialect,
-        optionsMod.optimize(),
-        optionsMod.progress(),
-        optionsMod.format()
-    ),
-    schema = {
-        type = "object",
-        description = "What a build reported and what it produced.",
-        properties = {
-            diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
-            target = {
-                type = "string",
-                description = "The manifest target that was built. Absent for a "
-                .. "build of explicitly named source files."
-            },
-            platform = {type = "string", description = "The selected binary platform for a one-platform build."},
-            dialect = {
-                type = "string",
-                enum = require("nupp.compiler.dialects").names(),
-                description = "The resolved source-lowering dialect."
-            },
-            distributionReady = {
-                type = "boolean",
-                description = "Whether the selected platform output is ready for public distribution."
-            },
-            notice = {type = "string"},
-            platforms = {
-                type = "array",
-                description = "Per-platform outcomes for --platform all.",
-                items = {
-                    type = "object",
-                    properties = {
-                        platform = {type = "string"},
-                        status = {type = "string", enum = {"built", "failed"}},
-                        outputs = {type = "array", items = {type = "string"}},
-                        error = {type = "string"},
-                        distributionReady = {type = "boolean"},
-                        notice = {type = "string"},
-                    },
-                    required = {"platform", "status", "outputs"},
-                },
-            },
-            written = {
-                type = "array",
-                items = {type = "string"},
-                description = "Every output path the build produced, sorted."
-            },
-            artifact = {
-                type = "string",
-                description = "The transportable artifact written by a bundle, binary, or component target."
-            },
-            aotManifest = {
-                type = "string",
-                description = "The packaged Wasm AOT manifest beside the transportable artifact."
-            },
-            services = {
-                type = "array",
-                description = "Checked service providers carried by the artifact, in service/name order.",
-                items = {
-                    type = "object",
-                    properties = {
-                        service = {type = "string"},
-                        name = {type = "string"},
-                        api = {type = "integer"},
-                        contract = {type = "string"},
-                        export = {type = "string"},
-                        entry = {type = "string"},
-                        member = {type = "string"},
-                        dependency = {type = "string"},
-                    },
-                    required = {"service", "name", "api", "contract", "export", "entry"},
-                },
-            },
-            materializations = {
-                type = "array",
-                description = "Materialized expressions and their versioned provider and backend facts.",
-                items = {
-                    type = "object",
-                    properties = {
-                        source = {type = "string"},
-                        line = {type = "integer"},
-                        column = {type = "integer"},
-                        provider = {type = "string"},
-                        schema = {type = "integer"},
-                        fingerprint = {type = "string"},
-                        digest = {type = "string"},
-                        backend = {type = "string"},
-                        blueprintSize = {type = "integer"},
-                        generatedSize = {type = "integer"},
-                        runtimeFeatures = {type = "array", items = {type = "string"}},
-                        abis = {type = "object"},
-                    },
-                    required = {
-                        "source",
-                        "line",
-                        "column",
-                        "provider",
-                        "schema",
-                        "fingerprint",
-                        "backend",
-                        "blueprintSize",
-                        "generatedSize",
-                        "runtimeFeatures",
-                        "abis"
-                    },
-                },
-            },
-            derives = {
-                type = "array",
-                description = "Closed derive recipes and their bounded generation facts.",
-                items = {
-                    type = "object",
-                    properties = {
-                        provider = {type = "string"},
-                        owner = {type = "string"},
-                        semanticFingerprint = {type = "string"},
-                        generatedMembers = {type = "integer"},
-                        canonicalBytes = {type = "integer"},
-                        renderedBytes = {type = "integer"},
-                        effects = {type = "array", items = {type = "string"}},
-                        cached = {type = "boolean"},
-                        durationMs = {type = "number"},
-                        generatedLocals = {type = "integer"},
-                        maxGeneratedUpvalues = {type = "integer"},
-                    },
-                    required = {
-                        "provider",
-                        "owner",
-                        "semanticFingerprint",
-                        "generatedMembers",
-                        "canonicalBytes",
-                        "renderedBytes",
-                        "effects",
-                        "cached",
-                        "durationMs",
-                        "generatedLocals",
-                        "maxGeneratedUpvalues"
-                    },
-                },
-            },
-            timing = {
+        platform = {type = "string", description = "The selected binary platform for a one-platform build."},
+        dialect = {
+            type = "string",
+            enum = require("nupp.compiler.dialects").names(),
+            description = "The resolved source-lowering dialect."
+        },
+        distributionReady = {
+            type = "boolean",
+            description = "Whether the selected platform output is ready for public distribution."
+        },
+        notice = {type = "string"},
+        platforms = {
+            type = "array",
+            description = "Per-platform outcomes for --platform all.",
+            items = {
                 type = "object",
-                description = "Where the build's wall-clock time went. Absent when a "
-                .. "diagnostic stopped the build, since a run that did not finish has no "
-                .. "account of itself to give.",
                 properties = {
-                    totalMs = {type = "number", description = "Wall-clock milliseconds for the whole build."},
-                    compiledModules = {type = "integer"},
-                    reusedModules = {type = "integer"},
-                    specializedBodies = {
-                        type = "integer",
-                        description = "Logical const-specialized bodies emitted independently of module count.",
-                    },
-                    phases = {
-                        type = "array",
-                        description = "Every activity that took measurable time, longest "
-                        .. "first. One activity is current at a time, so these sum to the whole. "
-                        .. "A target with an ahead-of-time policy accounts for it separately "
-                        .. "under aot:check, aot:lower, aot:optimize, aot:emit, aot:reuse, "
-                        .. "aot:compile and aot:link -- respectively checking the sources that "
-                        .. "carry an @aot body, lowering them, optimizing the lowered IR, "
-                        .. "writing the C and the bindings, deciding what may be reused, "
-                        .. "running the external C or Emscripten compiler, and archiving or "
-                        .. "linking what it produced. Plain aot is whatever the policy did "
-                        .. "besides those.",
-                        items = {
-                            type = "object",
-                            properties = {name = {type = "string"}, durationMs = {type = "number"}},
-                            required = {"name", "durationMs"},
-                        },
-                    },
-                    aot = {
-                        type = "object",
-                        description = "What the ahead-of-time policy did. Absent when the "
-                        .. "target has none. externalCommands counts every external toolchain "
-                        .. "process the policy started, version probes included, so an "
-                        .. "unchanged build reports zero.",
-                        properties = {
-                            units = {
-                                type = "integer",
-                                description = "Translation units the policy emitted, one per source and target tier.",
-                            },
-                            reusedObjects = {
-                                type = "integer",
-                                description = "Native objects taken from the last build unchanged.",
-                            },
-                            compiledObjects = {
-                                type = "integer",
-                                description = "Native objects the external C compiler produced.",
-                            },
-                            reusedModules = {
-                                type = "integer",
-                                description = "Wasm side modules taken from the last build unchanged.",
-                            },
-                            compiledModules = {
-                                type = "integer",
-                                description = "Wasm side modules Emscripten produced.",
-                            },
-                            linked = {type = "boolean", description = "Whether an archiver or a linker ran.",},
-                            externalCommands = {
-                                type = "integer",
-                                description = "External toolchain processes the policy started.",
-                            },
-                        },
-                        required = {
-                            "units",
-                            "reusedObjects",
-                            "compiledObjects",
-                            "reusedModules",
-                            "compiledModules",
-                            "linked",
-                            "externalCommands"
-                        },
-                    },
-                    slowest = {
-                        type = "array",
-                        description = "The costliest modules, longest first, each charged "
-                        .. "for its own checking and generation and not for its dependencies'.",
-                        items = {
-                            type = "object",
-                            properties = {module = {type = "string"}, durationMs = {type = "number"}},
-                            required = {"module", "durationMs"},
-                        },
-                    },
+                    platform = {type = "string"},
+                    status = {type = "string", enum = {"built", "failed"}},
+                    outputs = {type = "array", items = {type = "string"}},
+                    error = {type = "string"},
+                    distributionReady = {type = "boolean"},
+                    notice = {type = "string"},
                 },
-                required = {"totalMs", "compiledModules", "reusedModules", "specializedBodies", "phases", "slowest",},
-            },
-            ok = {
-                type = "boolean",
-                description = "Whether the build completed. False when a " .. "diagnostic stopped it."
+                required = {"platform", "status", "outputs"},
             },
         },
-        required = {"ok", "diagnostics", "written", "materializations", "derives", "dialect"},
+        written = {
+            type = "array",
+            items = {type = "string"},
+            description = "Every output path the build produced, sorted."
+        },
+        artifact = {
+            type = "string",
+            description = "The transportable artifact written by a bundle, binary, or component target."
+        },
+        aotManifest = {
+            type = "string",
+            description = "The packaged Wasm AOT manifest beside the transportable artifact."
+        },
+        services = {
+            type = "array",
+            description = "Checked service providers carried by the artifact, in service/name order.",
+            items = {
+                type = "object",
+                properties = {
+                    service = {type = "string"},
+                    name = {type = "string"},
+                    api = {type = "integer"},
+                    contract = {type = "string"},
+                    export = {type = "string"},
+                    entry = {type = "string"},
+                    member = {type = "string"},
+                    dependency = {type = "string"},
+                },
+                required = {"service", "name", "api", "contract", "export", "entry"},
+            },
+        },
+        materializations = {
+            type = "array",
+            description = "Materialized expressions and their versioned provider and backend facts.",
+            items = {
+                type = "object",
+                properties = {
+                    source = {type = "string"},
+                    line = {type = "integer"},
+                    column = {type = "integer"},
+                    provider = {type = "string"},
+                    schema = {type = "integer"},
+                    fingerprint = {type = "string"},
+                    digest = {type = "string"},
+                    backend = {type = "string"},
+                    blueprintSize = {type = "integer"},
+                    generatedSize = {type = "integer"},
+                    runtimeFeatures = {type = "array", items = {type = "string"}},
+                    abis = {type = "object"},
+                },
+                required = {
+                    "source",
+                    "line",
+                    "column",
+                    "provider",
+                    "schema",
+                    "fingerprint",
+                    "backend",
+                    "blueprintSize",
+                    "generatedSize",
+                    "runtimeFeatures",
+                    "abis"
+                },
+            },
+        },
+        derives = {
+            type = "array",
+            description = "Closed derive recipes and their bounded generation facts.",
+            items = {
+                type = "object",
+                properties = {
+                    provider = {type = "string"},
+                    owner = {type = "string"},
+                    semanticFingerprint = {type = "string"},
+                    generatedMembers = {type = "integer"},
+                    canonicalBytes = {type = "integer"},
+                    renderedBytes = {type = "integer"},
+                    effects = {type = "array", items = {type = "string"}},
+                    cached = {type = "boolean"},
+                    durationMs = {type = "number"},
+                    generatedLocals = {type = "integer"},
+                    maxGeneratedUpvalues = {type = "integer"},
+                },
+                required = {
+                    "provider",
+                    "owner",
+                    "semanticFingerprint",
+                    "generatedMembers",
+                    "canonicalBytes",
+                    "renderedBytes",
+                    "effects",
+                    "cached",
+                    "durationMs",
+                    "generatedLocals",
+                    "maxGeneratedUpvalues"
+                },
+            },
+        },
+        timing = {
+            type = "object",
+            description = "Where the build's wall-clock time went. Absent when a "
+            .. "diagnostic stopped the build, since a run that did not finish has no "
+            .. "account of itself to give.",
+            properties = {
+                totalMs = {type = "number", description = "Wall-clock milliseconds for the whole build."},
+                compiledModules = {type = "integer"},
+                reusedModules = {type = "integer"},
+                specializedBodies = {
+                    type = "integer",
+                    description = "Logical const-specialized bodies emitted independently of module count.",
+                },
+                phases = {
+                    type = "array",
+                    description = "Every activity that took measurable time, longest "
+                    .. "first. One activity is current at a time, so these sum to the whole. "
+                    .. "A target with an ahead-of-time policy accounts for it separately "
+                    .. "under aot:check, aot:lower, aot:optimize, aot:emit, aot:reuse, "
+                    .. "aot:compile and aot:link -- respectively checking the sources that "
+                    .. "carry an @aot body, lowering them, optimizing the lowered IR, "
+                    .. "writing the C and the bindings, deciding what may be reused, "
+                    .. "running the external C or Emscripten compiler, and archiving or "
+                    .. "linking what it produced. Plain aot is whatever the policy did "
+                    .. "besides those.",
+                    items = {
+                        type = "object",
+                        properties = {name = {type = "string"}, durationMs = {type = "number"}},
+                        required = {"name", "durationMs"},
+                    },
+                },
+                aot = {
+                    type = "object",
+                    description = "What the ahead-of-time policy did. Absent when the "
+                    .. "target has none. externalCommands counts every external toolchain "
+                    .. "process the policy started, version probes included, so an "
+                    .. "unchanged build reports zero.",
+                    properties = {
+                        units = {
+                            type = "integer",
+                            description = "Translation units the policy emitted, one per source and target tier.",
+                        },
+                        reusedObjects = {
+                            type = "integer",
+                            description = "Native objects taken from the last build unchanged.",
+                        },
+                        compiledObjects = {
+                            type = "integer",
+                            description = "Native objects the external C compiler produced.",
+                        },
+                        reusedModules = {
+                            type = "integer",
+                            description = "Wasm side modules taken from the last build unchanged.",
+                        },
+                        compiledModules = {type = "integer", description = "Wasm side modules Emscripten produced.",},
+                        linked = {type = "boolean", description = "Whether an archiver or a linker ran.",},
+                        externalCommands = {
+                            type = "integer",
+                            description = "External toolchain processes the policy started.",
+                        },
+                    },
+                    required = {
+                        "units",
+                        "reusedObjects",
+                        "compiledObjects",
+                        "reusedModules",
+                        "compiledModules",
+                        "linked",
+                        "externalCommands"
+                    },
+                },
+                slowest = {
+                    type = "array",
+                    description = "The costliest modules, longest first, each charged "
+                    .. "for its own checking and generation and not for its dependencies'.",
+                    items = {
+                        type = "object",
+                        properties = {module = {type = "string"}, durationMs = {type = "number"}},
+                        required = {"module", "durationMs"},
+                    },
+                },
+            },
+            required = {"totalMs", "compiledModules", "reusedModules", "specializedBodies", "phases", "slowest",},
+        },
+        ok = {type = "boolean", description = "Whether the build completed. False when a " .. "diagnostic stopped it."},
     },
-    detail = [[Manifest target options cannot be combined with explicit source files.
-Use 'nupp tasks' to discover target names and configuration.
-
-The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See docs/learn/performance/index.md.
-
---json reports the same diagnostics as 'nupp check --json' alongside what the
-build wrote, so one call answers both what went wrong and what landed. It also
-reports bounded materialization facts: provider, schema, fingerprint, backend,
-sizes, runtime features and ABI versions, and a timing object saying where the
-build's wall-clock time went and which modules cost the most of it.
-
-To a terminal, a build says which module it is on while it compiles and then
-how long it took, what it spent that on, and its slowest modules. To anything
-else it stays quiet, so a script reading the output sees what it always saw.
-NUPP_PROGRESS says what --progress says, for the builds nothing passes a flag
-to -- including the rebuild bin/nupp runs before every other command.]],
+    required = {"ok", "diagnostics", "written", "materializations", "derives", "dialect"},
 }
 
 -- Whether the manifest declares a target by this name. Asked only about a positional
@@ -299,20 +248,19 @@ local function configuredTarget(name: string): boolean
     return targets[name] ~= nil
 end
 
-local function run(parsed: any): integer
-    local values = parsed.values
-    local paths: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = options.paths
+    local values = options
+    local paths: {string} = positional
     -- `-o` and `--out-dir` both name a directory but answer different questions, so
     -- they are separate keys rather than aliases of one.
     local outDir, projectOutDir = values.outDir, values.projectOutDir
     local target = values.target
     if #paths > 0 and (projectOutDir or target or values.platform or values.standalone) then
-        return command:usageError(
-            "--target, --platform, --standalone and --out-dir cannot be used with explicit source files"
-        )
+        return usageError("--target, --platform, --standalone and --out-dir cannot be used with explicit source files")
     end
     if #paths == 0 and outDir then
-        return command:usageError("-o requires at least one explicit source file")
+        return usageError("-o requires at least one explicit source file")
     end
     -- A positional is a source file, and a target is named with `--target`. `nupp build
     -- docs` reads as the first and means the second, so the two are told apart here
@@ -320,7 +268,7 @@ local function run(parsed: any): integer
     -- is left to report is that a directory did not read as a module.
     for _, path in ipairs(paths) do
         if not files.isFile(path) and configuredTarget(path) then
-            return command:usageError(
+            return usageError(
                 ("%s names a build target rather than a source file; build it with --target %s"):format(path, path)
             )
         end
@@ -546,4 +494,97 @@ local function run(parsed: any): integer
     return finish(failed and 1 or 0, {outputs = outputs, timing = report:timing()})
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Build source files or a configured project target.
+---
+--- With files, emits those modules and their dependencies. Without files,
+--- builds the manifest's default or selected target.
+--- Manifest target options cannot be combined with explicit source files.
+--- The optimization level is part of the build key, so changing it rebuilds
+--- rather than mixing artifacts compiled at two levels. JSON output carries
+--- diagnostics, written artifacts, materialization facts, and timing data.
+--- Progress and timing stay on standard error so machine-readable standard
+--- output remains one document.
+@cli(name = "build", parent = root.Root)
+@derive(cliModule.Command)
+local record Build
+    --- Build a named manifest target.
+    @cli(value = "NAME")
+    target: string?
+
+    --- Build one configured binary platform, or all.
+    @cli(value = "NAME")
+    platform: string?
+
+    --- Link native FFI and AOT code into the binary host.
+    standalone: boolean = false
+
+    --- Override the manifest target's output directory.
+    @cli(name = "out-dir", value = "DIR")
+    projectOutDir: string?
+
+    --- Output directory for explicit source-file builds.
+    @cli(name = "o", short = "o", long = false, value = "DIR")
+    outDir: string?
+
+    --- Treat strict checker rules as errors.
+    strict: boolean = false
+
+    --- Source-lowering dialect.
+    @cli(value = "DIALECT", choices = {"luajit", "luajit-compat", "lua51"})
+    dialect: string?
+
+    --- Optimization level.
+    @cli(
+        name = "O",
+        long = false,
+        pattern = "^%-O([0-2])$",
+        choices = {"0", "1", "2"},
+        display = "-O0, -O1, -O2",
+        value = "LEVEL"
+    )
+    optLevel: string?
+
+    --- Report what the optimizer did and what it declined to do.
+    remarks: boolean = false
+
+    --- Write the optimizer's account to build/remarks.json.
+    remarksOut: boolean = false
+
+    --- Turn off one optimizer pass by stable code.
+    @cli(
+        name = "Zno-opt",
+        short = "Zno-opt",
+        long = false,
+        arity = "attachedOnly",
+        display = "-Zno-opt=CODE",
+        value = "CODE"
+    )
+    disabled: {[string]: boolean} = {}
+
+    --- When to report progress and timing.
+    @cli(
+        arity = "optionalAttached",
+        constant = "always",
+        constantAliases = {q = "never", quiet = "never"},
+        choices = {"always", "never", "auto"},
+        value = "WHEN"
+    )
+    progress: string?
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Source files to build.
+    @cli(positional = "FILE")
+    paths: {string} = {}
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Build, schema = REPORT_SCHEMA}

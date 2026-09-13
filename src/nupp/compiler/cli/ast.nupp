@@ -9,74 +9,65 @@ position. A parse that failed still prints, since a recovered tree is what
 explains the failure.
 ]]
 
-local spec = require("nupp.compiler.cli.spec")
-local optionsMod = require("nupp.compiler.cli.options")
+local usageError = require("nupp.compiler.cli.error").forCommand("ast")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 local report = require("nupp.compiler.cli.report")
 
-local command = spec.command{
-    name = "ast",
-    summary = "Dump a Nupp file's parsed syntax tree",
-    usage = {"nupp ast [--format text|json] <file>"},
-    options = optionsMod.format(),
-    schema = {
-        type = "object",
-        properties = {
-            file = {type = "string"},
-            root = {["$ref"] = "#/definitions/node"},
-            errors = {
-                type = "array",
-                items = {
-                    type = "object",
-                    properties = {
-                        code = {type = "string"},
-                        message = {type = "string"},
-                        offset = {type = "integer"},
-                        length = {type = "integer"},
-                        line = {type = "integer"},
-                        col = {type = "integer"},
-                        help = {type = "string"}
-                    },
-                },
-            },
-        },
-        required = {"file", "root", "errors"},
-        definitions = {
-            node = {
-                description = "A structural node, or a token with the trivia "
-                .. "attached to it. The tree is lossless: every byte of the "
-                .. "source is in exactly one token or one piece of trivia.",
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        file = {type = "string"},
+        root = {["$ref"] = "#/definitions/node"},
+        errors = {
+            type = "array",
+            items = {
                 type = "object",
                 properties = {
-                    tag = {type = "string", enum = {"node", "token"}},
-                    kind = {type = "string"},
-                    children = {type = "array", items = {["$ref"] = "#/definitions/node"}},
-                    text = {type = "string"},
+                    code = {type = "string"},
+                    message = {type = "string"},
                     offset = {type = "integer"},
+                    length = {type = "integer"},
                     line = {type = "integer"},
                     col = {type = "integer"},
-                    missing = {type = "boolean", description = "Inserted by error recovery; not in the " .. "source."},
-                    trivia = {
-                        type = "array",
-                        items = {
-                            type = "object",
-                            properties = {
-                                kind = {type = "string"},
-                                text = {type = "string"},
-                                offset = {type = "integer"},
-                                line = {type = "integer"},
-                                col = {type = "integer"}
-                            }
-                        },
-                    },
+                    help = {type = "string"}
                 },
-                required = {"tag", "kind"},
             },
         },
     },
-    detail = [[The parser produces a lossless concrete syntax tree. Text output is an indented
-outline with quoted tokens; JSON includes structural children, tokens, trivia,
-locations, and parse errors. A recovered tree is still printed when parsing
-fails.]],
+    required = {"file", "root", "errors"},
+    definitions = {
+        node = {
+            description = "A structural node, or a token with the trivia "
+            .. "attached to it. The tree is lossless: every byte of the "
+            .. "source is in exactly one token or one piece of trivia.",
+            type = "object",
+            properties = {
+                tag = {type = "string", enum = {"node", "token"}},
+                kind = {type = "string"},
+                children = {type = "array", items = {["$ref"] = "#/definitions/node"}},
+                text = {type = "string"},
+                offset = {type = "integer"},
+                line = {type = "integer"},
+                col = {type = "integer"},
+                missing = {type = "boolean", description = "Inserted by error recovery; not in the " .. "source."},
+                trivia = {
+                    type = "array",
+                    items = {
+                        type = "object",
+                        properties = {
+                            kind = {type = "string"},
+                            text = {type = "string"},
+                            offset = {type = "integer"},
+                            line = {type = "integer"},
+                            col = {type = "integer"}
+                        }
+                    },
+                },
+            },
+            required = {"tag", "kind"},
+        },
+    },
 }
 
 --- One node or token as plain data. Recursive, because the tree is.
@@ -105,10 +96,11 @@ local function syntaxTreeValue(cst: any, value: any): any
     return {tag = "node", kind = value.kind, children = children}
 end
 
-local function run(parsed: any): integer
-    local paths: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = {options.file}
+    local paths: {string} = positional
     if #paths ~= 1 then
-        return command:usageError("exactly one source file is required")
+        return usageError("exactly one source file is required")
     end
     local path = paths[1]
     local fs = require("nupp.compiler.fs")
@@ -120,7 +112,7 @@ local function run(parsed: any): integer
     local parser = require("nupp.compiler.parser")
     local cst = require("nupp.compiler.cst")
     local result = parser.parse(source, path)
-    if (parsed.values.format or "text") == "text" then
+    if (options.format or "text") == "text" then
         io.write(cst.pretty(result.root) .. "\n")
     else
         local errors: {any} = {}
@@ -143,4 +135,27 @@ local function run(parsed: any): integer
     return require("nupp.compiler.diagnostics").report(result.errors) and 1 or 0
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Dump a Nupp file's parsed syntax tree.
+---
+--- The lossless tree includes structural children, tokens, trivia, locations,
+--- and parse errors.
+@cli(name = "ast", parent = root.Root)
+@derive(cliModule.Command)
+local record Ast
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Source file to parse.
+    @cli(positional = "FILE")
+    file: string
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Ast, schema = REPORT_SCHEMA}

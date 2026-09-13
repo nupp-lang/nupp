@@ -13,40 +13,33 @@ The number itself is `nupp.compiler.version`, which is a string and nothing else
 so this answers without loading the compiler it is the version of.
 ]]
 
-local spec = require("nupp.compiler.cli.spec")
+local usageError = require("nupp.compiler.cli.error").forCommand("version")
 local versionMod = require("nupp.compiler.version")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "version",
-    summary = "Print the compiler version",
-    usage = {"nupp version [--format text|json]", "nupp --version"},
-    options = require("nupp.compiler.cli.options").format(),
-    schema = {
-        type = "object",
-        properties = {
-            version = {
-                type = "string",
-                description = "The release, without a leading \"v\"; a -dev suffix "
-                .. "is a checkout between releases."
-            },
-            runtime = {
-                type = "string",
-                description = "The interpreter underneath: LuaJIT for a release "
-                .. "binary, plain Lua for the portable compiler."
-            },
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        version = {
+            type = "string",
+            description = "The release, without a leading \"v\"; a -dev suffix " .. "is a checkout between releases."
         },
-        required = {"version", "runtime"},
+        runtime = {
+            type = "string",
+            description = "The interpreter underneath: LuaJIT for a release "
+            .. "binary, plain Lua for the portable compiler."
+        },
     },
-    detail = [[The text form is the single line `nupp VERSION`, which is what an install
-script should read. `nupp --version` prints the same line.]],
+    required = {"version", "runtime"},
 }
 
-local function run(parsed: any): integer
-    local positional: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = {}
     if #positional > 0 then
-        return command:usageError("unexpected argument " .. positional[1])
+        return usageError("unexpected argument " .. positional[1])
     end
-    if parsed.values.format == "json" then
+    if options.format == "json" then
         require("nupp.compiler.cli.report").write({version = versionMod.VERSION, runtime = versionMod.runtime()})
 
         return 0
@@ -56,4 +49,23 @@ local function run(parsed: any): integer
     return 0
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Print the compiler version.
+---
+--- The text form is the single line `nupp VERSION`, which is what an install
+--- script should read. `nupp --version` prints the same line.
+@cli(name = "version", parent = root.Root)
+@derive(cliModule.Command)
+local record Version
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Version, schema = REPORT_SCHEMA}

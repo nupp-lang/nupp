@@ -8,48 +8,35 @@ lives in `nupp.compiler.build.project` rather than here, being a property of cle
 not of the command line, and a caller reaching it another way should meet it too.
 ]]
 
-local spec = require("nupp.compiler.cli.spec")
+local usageError = require("nupp.compiler.cli.error").forCommand("clean")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "clean",
-    summary = "Remove build outputs configured in nupp.lua",
-    usage = {"nupp clean [--target NAME] [--platform NAME|all] [--dry-run] [--format text|json]"},
-    options = require(
-        "nupp.compiler.cli.options"
-    ).join(
-        {name = "--target", value = "NAME", help = "Clean only the named build target"},
-        {name = "--platform", value = "NAME", help = "Clean one configured binary platform, or all"},
-        {name = "--dry-run", help = "Print output paths without removing them"},
-        require("nupp.compiler.cli.options").format()
-    ),
-    schema = {
-        type = "object",
-        properties = {
-            removed = {
-                type = "array",
-                items = {type = "string"},
-                description = "The output paths, removed unless dryRun is set, "
-                .. "in which case these are the paths that would be."
-            },
-            dryRun = {type = "boolean"},
-            ok = {type = "boolean"},
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        removed = {
+            type = "array",
+            items = {type = "string"},
+            description = "The output paths, removed unless dryRun is set, "
+            .. "in which case these are the paths that would be."
         },
-        required = {"ok", "removed", "dryRun"},
+        dryRun = {type = "boolean"},
+        ok = {type = "boolean"},
     },
-    detail = [[With no target, cleans every configured target output. Paths outside the
-project and paths that resolve to the project root are always rejected.]],
+    required = {"ok", "removed", "dryRun"},
 }
 
-local function run(parsed: any): integer
-    local positional: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = {}
     if #positional > 0 then
-        return command:usageError("unexpected argument " .. positional[1])
+        return usageError("unexpected argument " .. positional[1])
     end
-    local values = parsed.values
+    local values = options
     local asJson = values.format == "json"
     local dryRun = values.dryRun and true or false
     if values.platform and not values.target then
-        return command:usageError("--platform requires --target")
+        return usageError("--platform requires --target")
     end
     local project = require("nupp.compiler.build.project")
     local removed: {string} = {}
@@ -66,4 +53,34 @@ local function run(parsed: any): integer
     return code
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Remove build outputs configured in nupp.lua.
+---
+--- With no target, cleans every configured target output. Paths outside the
+--- project and paths that resolve to the project root are always rejected.
+@cli(name = "clean", parent = root.Root)
+@derive(cliModule.Command)
+local record Clean
+    --- Clean only the named build target.
+    @cli(value = "NAME")
+    target: string?
+
+    --- Clean one configured binary platform, or all.
+    @cli(value = "NAME")
+    platform: string?
+
+    --- Print output paths without removing them.
+    dryRun: boolean = false
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Clean, schema = REPORT_SCHEMA}

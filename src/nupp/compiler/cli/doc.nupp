@@ -10,53 +10,38 @@ manifest already configured; the options here override it for one run.
 const {type Config} = require("nupp.compiler.build.manifest")
 const {type Target} = require("nupp.compiler.build.manifest")
 
-local spec = require("nupp.compiler.cli.spec")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
 local FORMATS: {
     [string]: string
 } = {site = "site", markdown = "markdown", md = "markdown", json = "json", both = "both",}
 
-local command = spec.command{
-    name = "doc",
-    summary = "Generate API documentation from source comments",
-    usage = {
-        "nupp doc [site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE]"
-        .. " [--all] [--format text|json] [path...]"
-    },
-    options = require(
-        "nupp.compiler.cli.options"
-    ).join(
-        {names = {"-o", "--output"}, value = "PATH", key = "output", help = "Output file or directory"},
-        {name = "--target", value = "NAME", help = "Document a named manifest target"},
-        {name = "--title", value = "TITLE", help = "Documentation title"},
-        {name = "--all", help = "Include private declarations"},
-        require("nupp.compiler.cli.options").format()
-    ),
-    schema = {
-        type = "object",
-        properties = {
-            ok = {type = "boolean"},
-            format = {type = "string", description = "The resolved format: site, markdown, json, or both."},
-            output = {type = "string", description = "The file or directory the run was pointed at."},
-            files = {
-                type = "array",
-                items = {type = "string"},
-                description = "Every path written. A file whose contents did "
-                .. "not change is not rewritten and is not listed."
-            },
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        ok = {type = "boolean"},
+        format = {type = "string", description = "The resolved format: site, markdown, json, or both."},
+        output = {type = "string", description = "The file or directory the run was pointed at."},
+        files = {
+            type = "array",
+            items = {type = "string"},
+            description = "Every path written. A file whose contents did "
+            .. "not change is not rewritten and is not listed."
         },
-        required = {"ok", "format", "output", "files"},
     },
-    detail = [[The first argument may name the format: site, markdown (or md), json, or both.
-With none, the manifest's configured format is used, and site if it has none.
-
---format names the shape of this command's own report and is unrelated to the
-documentation format, which is the positional word.]],
+    required = {"ok", "format", "output", "files"},
 }
 
-local function run(parsed: any): integer
-    local positional: {string} = parsed.positional
-    local values = parsed.values
+local function run(options: any): integer
+    local positional: {string} = {}
+    if options.kind ~= nil then
+        positional[#positional + 1] = options.kind
+    end
+    for _, path in ipairs(options.paths) do
+        positional[#positional + 1] = path
+    end
+    local values = options
     local doc = require("nupp.compiler.doc")
     local config, configErr = doc.loadConfig(".")
     if not config then
@@ -113,4 +98,46 @@ local function run(parsed: any): integer
     return code
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Generate API documentation from source comments.
+---
+--- The first argument may name the documentation format. Remaining arguments
+--- are source paths; with none, the manifest's configured sources are used.
+@cli(name = "doc", parent = root.Root)
+@derive(cliModule.Command)
+local record Doc
+    --- Output file or directory.
+    @cli(short = "o", value = "PATH")
+    output: string?
+
+    --- Document a named manifest target.
+    @cli(value = "NAME")
+    target: string?
+
+    --- Documentation title.
+    @cli(value = "TITLE")
+    title: string?
+
+    --- Include private declarations.
+    all: boolean = false
+
+    --- Select this command's report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Documentation output format.
+    @cli(positional = "KIND", choices = {"site", "markdown", "md", "json", "both"})
+    kind: string?
+
+    --- Source paths to document.
+    @cli(positional = "PATH")
+    paths: {string} = {}
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Doc, schema = REPORT_SCHEMA}

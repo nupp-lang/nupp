@@ -8,7 +8,7 @@ The one place that turns a diagnostic into the conventional
 under it and a caret run marking the range. The CLI and the build both report
 through here, so a compiler error looks the same wherever it surfaced.
 
-Colour comes from `nupp.compiler.ansi`, which decides once whether stderr is something
+Colour comes from `nupp.cli`, which decides once whether stderr is something
 worth writing escape codes to; when it is not, the styles are identity functions
 and what comes out is byte-for-byte what it always was. The caret run is painted
 in the severity's own colour, so the eye reaches the marked span by the same
@@ -93,7 +93,7 @@ function diagnostics.report(values: {any}): boolean
     if #values == 0 then
         return false
     end
-    local ansi = require("nupp.compiler.ansi")
+    local ansi = require("nupp.cli")
     local style = ansi.style(io.stderr)
     local failed = false
     local sources = {}
@@ -115,7 +115,7 @@ function diagnostics.report(values: {any}): boolean
         if severity == "error" then
             failed = true
         end
-        local paint = ansi.forSeverity(style, severity)
+        local paint = ansi.severity(style, severity)
         local code = diagnostic.code or ""
         if diagnostic.lint then
             -- The name is what a suppression or a config entry writes, so it is said
@@ -131,7 +131,7 @@ function diagnostics.report(values: {any}): boolean
             ("%s:%d:%d:"):format(diagnostic.filename or "?", diagnostic.line or 0, diagnostic.col or 0)
         ) .. " " .. paint(severity) .. ": " .. code .. style.strong(diagnostic.msg or "error") .. "\n"
         writeSourceMark(out, style, paint, sourceFor(diagnostic.filename), diagnostic)
-        local notePaint = ansi.forSeverity(style, "note")
+        local notePaint = ansi.severity(style, "note")
         for _, related in ipairs(diagnostic.related or {}) do
             out[
                 #out + 1
@@ -146,7 +146,7 @@ function diagnostics.report(values: {any}): boolean
             out[#out + 1] = notePaint("note") .. ": " .. note .. "\n"
         end
         if diagnostic.help then
-            out[#out + 1] = ansi.forSeverity(style, "help")("help") .. ": " .. diagnostic.help .. "\n"
+            out[#out + 1] = ansi.severity(style, "help")("help") .. ": " .. diagnostic.help .. "\n"
         end
     end
     io.stderr:write(table.concat(out))

@@ -1,0 +1,881 @@
+module nupp.cli.internal.application
+
+const {type Entry} = require("nupp.derive")
+
+local decoder = require("nupp.cli.internal.decode")
+local derive = require("nupp.derive")
+local terminal = require("nupp.cli.internal.terminal")
+
+--- Runtime-only settings for a CLI application.
+export type ApplicationOptions = {
+    name: string?,
+    version: string?,
+    stdout: LuaFile?,
+    stderr: LuaFile?,
+    cwd: string?,
+    environment: {[string]: string}?,
+    width: integer?,
+    indent: string?,
+    labelLimit: integer?
+}
+
+--- A command type resolved and decoded without executing it.
+export record Invocation
+    commandType: any
+    options: any
+    argv: {string}
+    commandPath: {string}
+end
+
+local type Descriptor = {
+    subject: any,
+    entry: Entry,
+    schema: any,
+    name: string,
+    aliases: {string},
+    summary: string,
+    documentation: string,
+    group: boolean,
+    hidden: boolean,
+    parent: any?,
+    completers: {any}
+}
+
+--- A finite tree of derived command types.
+export record Application
+    private root: Descriptor
+    private commands: {Descriptor}
+    private byParent: {[any]: {[string]: Descriptor}}
+    private options: ApplicationOptions
+
+    --- Resolves and decodes argv, without writing output or invoking `run`.
+    function resolve(self, argv: {string}): Invocation?, any?
+        local command, rest, path, problem = self:resolvePath(argv)
+        if problem ~= nil then
+            return nil, problem
+        end
+        local value, decoded = decoder.fromCLI(rest, command.entry)
+        if decoded ~= nil then
+            return nil, decoded
+        end
+
+        return new Invocation(commandType = command.subject, options = value, argv = argv, commandPath = path), nil
+    end
+
+    --- Renders the application's top-level help.
+    function help(self): string
+        local out = {self.root.documentation ~= "" and self.root.summary or self.options.name or self.root.name, ""}
+        out[#out + 1] = "Usage:"
+        out[#out + 1] = self:indent() .. self:programName() .. " <command> [options]"
+        out[#out + 1] = self:indent() .. self:programName() .. " help [command ...]"
+        if self.options.version ~= nil then
+            out[#out + 1] = self:indent() .. self:programName() .. " --version"
+        end
+        local children = self:children(self.root.subject)
+        if #children > 0 then
+            out[#out + 1] = ""
+            out[#out + 1] = "Commands:"
+            self:addCommandRows(out, children)
+        end
+        out[#out + 1] = ""
+        out[#out + 1] = "Run '" .. self:programName() .. " help <command>' for command-specific help."
+
+        return table.concat(out, "\n") .. "\n"
+    end
+
+    --- Renders help for a command path, or returns nil when it is unknown.
+    function commandHelp(self, path: {string}): string?
+        local command = self.root
+        local resolved: {string} = {}
+        for _, word in ipairs(path) do
+            local child = self:child(command.subject, word)
+            if child == nil then
+                return nil
+            end
+            command = child
+            resolved[#resolved + 1] = command.name
+        end
+        if #resolved == 0 then
+            return self:help()
+        end
+
+        local schema = command.schema
+        local out = {command.documentation ~= "" and command.documentation or command.summary, "", "Usage:"}
+        out[
+            #out + 1
+        ] = self:indent() .. self:programName() .. " " .. table.concat(resolved, " ") .. self:usageSuffix(schema)
+        local children = self:children(command.subject)
+        if #children > 0 then
+            out[#out + 1] = ""
+            out[#out + 1] = "Commands:"
+            self:addCommandRows(out, children)
+        end
+        local positionals: {any} = {}
+        for _, field in ipairs(schema.positionals) do
+            if not field.hidden then
+                positionals[#positionals + 1] = field
+            end
+        end
+        if #positionals > 0 then
+            out[#out + 1] = ""
+            out[#out + 1] = "Arguments:"
+            local width = 0
+            for _, field in ipairs(positionals) do
+                if #field.value > width then
+                    width = #field.value
+                end
+            end
+            for _, field in ipairs(positionals) do
+                out[
+                    #out + 1
+                ] = self:indent() .. field.value .. (" "):rep(width - #field.value + 2) .. field.documentation
+            end
+        end
+        local visible: {any} = {}
+        for _, field in ipairs(schema.fields) do
+            if field.role == "option" and not field.hidden then
+                visible[#visible + 1] = field
+            end
+        end
+        if #visible > 0 or true then
+            out[#out + 1] = ""
+            out[#out + 1] = "Options:"
+            self:addOptionRows(out, visible)
+        end
+
+        return table.concat(out, "\n") .. "\n"
+    end
+
+    --- Produces shell-neutral candidates for one cursor position.
+    function complete(self, request: any): {any}
+        local argv = request.argv
+        local command = self.root
+        local path: {string} = {}
+        local index: integer = 1
+        while index < request.wordIndex do
+            local child = self:child(command.subject, argv[index])
+            if child == nil then
+                break
+            end
+            command = child
+            path[#path + 1] = child.name
+            index = index + 1
+        end
+        local prefix = request.prefix or argv[request.wordIndex] or ""
+        local children = self:children(command.subject)
+        if index == request.wordIndex and #children > 0 and prefix:sub(1, 1) ~= "-" then
+            local candidates: {any} = {}
+            for _, child in ipairs(children) do
+                if not child.hidden then
+                    self:addCandidate(candidates, child.name, child.summary, "value", prefix)
+                    for _, alias in ipairs(child.aliases) do
+                        self:addCandidate(candidates, alias, child.summary, "value", prefix)
+                    end
+                end
+            end
+            return candidates
+        end
+
+        return self:completeField(command, argv, index, request.wordIndex as integer, prefix, path, request)
+    end
+
+    --- Renders a Bash, Zsh, or Fish completion script from this schema.
+    function completion(self, shell: "bash" | "zsh" | "fish"): string
+        local program = self:programName()
+        local inventory: {string} = {}
+        local seen: {[string]: boolean} = {}
+        local dynamic = false
+
+        local function add(value: string): nil
+            if not seen[value] then
+                seen[value] = true
+                inventory[#inventory + 1] = value
+            end
+        end
+
+        for _, command in ipairs(self.commands) do
+            if not command.hidden then
+                add(command.name)
+                for _, alias in ipairs(command.aliases) do
+                    add(alias)
+                end
+                for _, field in ipairs(command.schema.fields) do
+                    if not field.hidden then
+                        local spellings = self:optionSpellings(field)
+                        if field.role == "option" then
+                            for spellingIndex, spelling in ipairs(spellings) do
+                                local constant = field.names[
+                                    spellingIndex
+                                ] and field.constants[field.names[spellingIndex]]
+                                if field.arity == "attachedOnly" and constant == nil then
+                                    add(spelling .. "=")
+                                else
+                                    add(spelling)
+                                end
+                            end
+                        end
+                        if field.pattern == nil then
+                            for _, choice in ipairs(field.choices or {}) do
+                                if field.role ~= "option" or field.arity == "required" then
+                                    add(choice)
+                                else
+                                    for spellingIndex, spelling in ipairs(spellings) do
+                                        local name = field.names[spellingIndex]
+                                        if name == nil or field.constants[name] == nil then
+                                            add(spelling .. "=" .. choice)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        dynamic = dynamic or field.dynamicCompletion == true
+                    end
+                end
+            end
+        end
+        add("--help")
+        add("--color")
+        add("--color=always")
+        add("--color=never")
+        add("--color=auto")
+        add("--no-color")
+        table.sort(inventory)
+        local words = table.concat(inventory, " ")
+        local generated = "# Completion for " .. program .. "; generated from nupp.cli.\n"
+        if shell == "bash" then
+            local body = dynamic
+                and "  local IFS=$'\\n'\n  COMPREPLY=( $("
+                .. program
+                .. " __complete bash \"$COMP_CWORD\" \"${COMP_WORDS[@]:1}\") )\n"
+                or "  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n  COMPREPLY=( $(compgen -W "
+                .. self:shellQuote(
+                words
+            ) .. " -- \"$cur\") )\n"
+            return generated
+                .. "_"
+                .. program
+                .. "() {\n"
+                .. body
+                .. "}\ncomplete -F _"
+                .. program
+                .. " "
+                .. program
+                .. "\n"
+        elseif shell == "zsh" then
+            if not dynamic then
+                return "#compdef " .. program .. "\n" .. generated .. "compadd -- " .. self:quotedWords(
+                    inventory
+                ) .. "\n"
+            end
+            return "#compdef "
+                .. program
+                .. "\n"
+                .. generated
+                .. "local -a reply\nreply=(\"${(@f)$("
+                .. program
+                .. " __complete zsh $((CURRENT - 1)) ${words[@]:1})}\")\n_describe '"
+                .. program
+                .. " value' reply\n"
+        elseif shell == "fish" then
+            if not dynamic then
+                return generated .. "complete -c " .. program .. " -f -a " .. self:shellQuote(words) .. "\n"
+            end
+            return generated
+                .. "function __fish_"
+                .. program
+                .. "\n"
+                .. "    set -l words (commandline -opc)\n"
+                .. "    set -e words[1]\n"
+                .. "    set -l cursor (math (count $words) + 1)\n"
+                .. "    "
+                .. program
+                .. " __complete fish $cursor $words (commandline -ct)\n"
+                .. "end\ncomplete -c "
+                .. program
+                .. " -f -a '(__fish_"
+                .. program
+                .. ")'\n"
+        end
+    end
+
+    --- Handles framework options, renders failures, and invokes a typed command.
+    function main(self, argv: {string}): integer
+        if #argv == 0 or argv[1] == "-h" or argv[1] == "--help" then
+            local output = self:stdout()
+            output:write(self:styled(self:help(), output))
+            return 0
+        elseif argv[1] == "--version" and self.options.version ~= nil then
+            local output = self:stdout()
+            output:write(self.options.version .. "\n")
+            return 0
+        elseif argv[1] == "help" then
+            local path: {string} = {}
+            if argv[2] == "-h" or argv[2] == "--help" then
+                path[1] = "help"
+            else
+                for index = 2, #argv do
+                    path[#path + 1] = argv[index]
+                end
+            end
+            local rendered = self:commandHelp(path)
+            if rendered == nil then
+                return self:usageError("unknown command " .. table.concat(path, " "))
+            end
+            local output = self:stdout()
+            output:write(self:styled(rendered, output))
+            return 0
+        elseif argv[1] == "__complete" then
+            return self:completionQuery(argv)
+        end
+
+        local preliminary, _, preliminaryPath = self:resolvePath(argv)
+        local preserveFramework = preliminary ~= nil and preliminary.schema.preserveUnknown == true
+        local filtered, wantsHelp, color, frameworkProblem = self:frameworkOptions(
+            argv,
+            preserveFramework,
+            #preliminaryPath,
+            preliminary ~= nil and preliminary.schema.stopAtFirstArgument == true,
+            preliminary
+        )
+        if frameworkProblem ~= nil then
+            return self:usageError(frameworkProblem, preliminaryPath)
+        end
+        if color ~= nil then
+            terminal.setColorMode(color)
+        end
+        local command, _, path, pathProblem = self:resolvePath(filtered)
+        if pathProblem ~= nil then
+            return self:usageError(pathProblem.message)
+        elseif wantsHelp then
+            local output = self:stdout()
+            output:write(self:styled(assert(self:commandHelp(path)), output))
+            return 0
+        elseif command.group and #self:children(command.subject) > 0 and #filtered == #path then
+            local output = self:stdout()
+            output:write(self:styled(assert(self:commandHelp(path)), output))
+            return 0
+        end
+        local invocation, problem = self:resolve(filtered)
+        if invocation == nil then
+            return self:usageError(problem.message, path)
+        end
+
+        return invocation.options:run()
+    end
+
+    function programName(self): string
+        return self.options.name or self.root.name
+    end
+
+    function stdout(self): LuaFile
+        return self.options.stdout or io.stdout
+    end
+
+    function stderr(self): LuaFile
+        return self.options.stderr or io.stderr
+    end
+
+    function indent(self): string
+        return self.options.indent or "  "
+    end
+
+    function children(self, subject: any): {Descriptor}
+        local out: {Descriptor} = {}
+        for _, command in ipairs(self.commands) do
+            if command.parent == subject and not command.hidden then
+                out[#out + 1] = command
+            end
+        end
+
+        return out
+    end
+
+    function child(self, parent: any, name: string?): Descriptor?
+        local children = self.byParent[parent]
+        return name and children and children[name] or nil
+    end
+
+    function resolvePath(self, argv: {string}): Descriptor, {string}, {string}, any?
+        local command = self.root
+        local path: {string} = {}
+        local index: integer = 1
+        while index <= #argv do
+            local child = self:child(command.subject, argv[index])
+            if child == nil then
+                break
+            end
+            command = child
+            path[#path + 1] = child.name
+            index = index + 1
+        end
+        if command == self.root then
+            return command, {}, path, {
+                kind = "unknownCommand",
+                message = "unknown command " .. (argv[1] or ""),
+                index = 1,
+                raw = argv[1],
+            }
+        end
+        local rest: {string} = {}
+        for position = index, #argv do
+            rest[#rest + 1] = argv[position]
+        end
+
+        return command, rest, path, nil
+    end
+
+    function frameworkOptions(
+        self,
+        argv: {string},
+        preserve: boolean,
+        commandWords: integer,
+        stopAtFirstArgument: boolean,
+        command: Descriptor?
+    ): {string}, boolean, terminal.ColorMode?, string?
+        local out: {string} = {}
+        local help = false
+        local color: terminal.ColorMode? = nil
+        local colorSeen = false
+        local colorProblem: string? = nil
+        local literal = false
+        local takesNext: {[string]: boolean} = {}
+        for _, field in ipairs(command and command.schema.fields or {}) do
+            if field.role == "option" and field.pattern == nil and field.arity == "required" then
+                for _, name in ipairs(field.names) do
+                    takesNext[name] = true
+                end
+            end
+        end
+        local expectingValue = false
+        for index, word in ipairs(argv) do
+            local inCommandPath = index <= commandWords
+            if inCommandPath or literal or expectingValue then
+                out[#out + 1] = word
+                expectingValue = false
+            elseif word == "--" then
+                literal = true
+                out[#out + 1] = word
+            elseif (word == "-h" or word == "--help") and (not preserve or index == commandWords + 1) then
+                help = true
+            elseif word == "--no-color" then
+                if colorSeen then
+                    colorProblem = "color was both asked for and refused"
+                end
+                colorSeen = true
+                color = "never"
+                if preserve then
+                    out[#out + 1] = word
+                end
+            elseif word == "--color" then
+                if colorSeen then
+                    colorProblem = "color was both asked for and refused"
+                end
+                colorSeen = true
+                color = "always"
+                if preserve then
+                    out[#out + 1] = word
+                end
+            else
+                local wanted = word:match("^%-%-color=(.*)$")
+                if wanted == "always" or wanted == "never" or wanted == "auto" then
+                    if colorSeen then
+                        colorProblem = "color was both asked for and refused"
+                    end
+                    colorSeen = true
+                    color = wanted
+                    if preserve then
+                        out[#out + 1] = word
+                    end
+                else
+                    out[#out + 1] = word
+                    local bare = word:match("^%-%-?([^=]+)$")
+                    expectingValue = bare ~= nil and takesNext[bare] == true
+                    if stopAtFirstArgument and word:sub(1, 1) ~= "-" then
+                        literal = true
+                    end
+                end
+            end
+        end
+
+        return out, help, color, colorProblem
+    end
+
+    function usageError(self, message: string, path: {string}?): integer
+        local output = self:stderr()
+        local style = terminal.style(output)
+        output:write(style.red(self:programName() .. ":") .. " " .. message .. "\n")
+        local suffix = path ~= nil and #path > 0 and " " .. table.concat(path, " ") or ""
+        output:write("Try '" .. self:programName() .. " help" .. suffix .. "' for usage.\n")
+
+        return 2
+    end
+
+    function usageSuffix(self, schema: any): string
+        local out = ""
+        local hasOptions = false
+        for _, field in ipairs(schema.fields) do
+            if field.role == "option" and not field.hidden then
+                hasOptions = true
+            elseif field.role == "positional" or field.role == "remainder" then
+                local value = field.value
+                if field.repeated then
+                    value = value .. "..."
+                end
+                out = out .. (field.required and " " .. value or " [" .. value .. "]")
+            end
+        end
+        if hasOptions then
+            out = " [options]" .. out
+        end
+
+        return out
+    end
+
+    function optionLabel(self, field: any): string
+        if field.displayOverride ~= nil then
+            return field.displayOverride
+        end
+        local names = self:optionSpellings(field)
+        for index, rendered in ipairs(names) do
+            local name = field.names[index]
+            if field.constants[name] == nil and field.conversion ~= "boolean" then
+                rendered = rendered .. (
+                    field.arity == "attachedOnly"
+                    and "="
+                    .. field.value
+                    or field.arity == "optionalAttached"
+                    and "[="
+                    .. field.value
+                    .. "]"
+                    or " "
+                    .. field.value
+                )
+            end
+            names[index] = rendered
+        end
+
+        return table.concat(names, ", ")
+    end
+
+    function optionSpellings(self, field: any): {string}
+        local names: {string} = {}
+        if field.pattern ~= nil then
+            for spelling in tostring(field.displayOverride):gmatch("[^,]+") do
+                names[#names + 1] = spelling:match("^%s*(.-)%s*$") as string
+            end
+            return names
+        end
+        for index, name in ipairs(field.names) do
+            names[
+                #names + 1
+            ] = index == 1 and field.long == false and "-" .. name or #name == 1 and "-" .. name or "--" .. name
+        end
+
+        return names
+    end
+
+    function shellQuote(self, value: string): string
+        return "'" .. value:gsub("'", "'\\''") .. "'"
+    end
+
+    function quotedWords(self, values: {string}): string
+        local out: {string} = {}
+        for _, value in ipairs(values) do
+            out[#out + 1] = self:shellQuote(value)
+        end
+
+        return table.concat(out, " ")
+    end
+
+    function addCommandRows(self, out: {string}, commands: {Descriptor}): nil
+        local width = 0
+        for _, command in ipairs(commands) do
+            if #command.name > width then
+                width = #command.name
+            end
+        end
+        for _, command in ipairs(commands) do
+            local prefix = self:indent() .. command.name .. (" "):rep(width - #command.name + 2)
+            local continuation = (" "):rep(#self:indent() + width + 2)
+            local lines = self:wrap(command.summary, (self:width() - #continuation) as integer)
+            out[#out + 1] = prefix .. (lines[1] or "")
+            for index = 2, #lines do
+                out[#out + 1] = continuation .. lines[index]
+            end
+        end
+    end
+
+    function addOptionRows(self, out: {string}, fields: {any}): nil
+        local rows: {any} = {}
+        for _, field in ipairs(fields) do
+            rows[#rows + 1] = field
+        end
+        rows[#rows + 1] = {documentation = "Show this help", universalLabel = "-h, --help"}
+        rows[
+            #rows + 1
+        ] = {documentation = "When to color output: always, never, or auto", universalLabel = "--color[=WHEN]",}
+        rows[#rows + 1] = {documentation = "Never color output", universalLabel = "--no-color"}
+        local labels: {string} = {}
+        local width = 0
+        local limit = self.options.labelLimit or 20
+        for index, field in ipairs(rows) do
+            local label = field.universalLabel or self:optionLabel(field)
+            labels[index] = label
+            if #label <= limit and #label > width then
+                width = #label
+            end
+        end
+        for index, field in ipairs(rows) do
+            local label = labels[index]
+            local gap = #self:indent() + width + 2
+            local lines = self:wrap(field.documentation, (self:width() - gap) as integer)
+            if #label > limit then
+                out[#out + 1] = self:indent() .. label
+                local padding = (" "):rep(gap)
+                for _, line in ipairs(lines) do
+                    out[#out + 1] = padding .. line
+                end
+            else
+                local padding = (" "):rep(gap)
+                out[#out + 1] = self:indent() .. label .. (" "):rep(width - #label + 2) .. (lines[1] or "")
+                for line = 2, #lines do
+                    out[#out + 1] = padding .. lines[line]
+                end
+            end
+        end
+    end
+
+    function width(self): integer
+        return self.options.width or 79
+    end
+
+    function wrap(self, text: string, width: integer): {string}
+        local lines: {string} = {}
+        local line = ""
+        for word in text:gmatch("%S+") do
+            if line == "" then
+                line = word
+            elseif #line + 1 + #word <= width then
+                line = line .. " " .. word
+            else
+                lines[#lines + 1] = line
+                line = word
+            end
+        end
+        if line ~= "" then
+            lines[#lines + 1] = line
+        end
+
+        return lines
+    end
+
+    function styled(self, text: string, stream: LuaFile): string
+        local style = terminal.style(stream)
+        local rendered = text:gsub("\n(Usage:)", "\n" .. style.strong("%1"))
+        rendered = rendered:gsub("\n(Commands:)", "\n" .. style.strong("%1"))
+        rendered = rendered:gsub("\n(Options:)", "\n" .. style.strong("%1"))
+        rendered = rendered:gsub("\n(Arguments:)", "\n" .. style.strong("%1"))
+
+        return rendered
+    end
+
+    function addCandidate(self, out: {any}, value: string, description: string?, kind: string?, prefix: string): nil
+        if value:sub(1, #prefix) ~= prefix then
+            return
+        end
+        for _, candidate in ipairs(out) do
+            if candidate.value == value then
+                return
+            end
+        end
+        out[#out + 1] = {value = value, description = description, kind = kind}
+    end
+
+    function completeField(
+        self,
+        command: Descriptor,
+        argv: {string},
+        start: integer,
+        cursor: integer,
+        prefix: string,
+        path: {string},
+        request: any
+    ): {any}
+        local schema, expecting, positional = command.schema, nil, 1
+        local byName: {[string]: any} = {}
+        for _, field in ipairs(schema.fields) do
+            if field.role == "option" then
+                for _, name in ipairs(field.names) do
+                    byName[name] = field
+                end
+            end
+        end
+        local index = start
+        while index < cursor do
+            local word = argv[index]
+            if expecting ~= nil then
+                expecting = nil
+            elseif word ~= "--" and word:sub(1, 1) == "-" then
+                local bare = word:gsub("^%-%-?", "")
+                local equals = bare:find("=", 1, true)
+                local field = byName[equals and bare:sub(1, equals - 1) or bare]
+                if field ~= nil and field.arity == "required" and equals == nil then
+                    expecting = field
+                end
+            else
+                local field = schema.positionals[positional]
+                if field ~= nil and not field.repeated then
+                    positional = positional + 1
+                end
+            end
+            index = index + 1
+        end
+        local field = expecting
+        local attachedName = prefix:match("^%-%-?([^=]+)=")
+        local attachedStem = attachedName and prefix:match("^(.-=)") or nil
+        local valuePrefix = attachedStem and prefix:sub(#attachedStem + 1) or prefix
+        if attachedName ~= nil then
+            field = byName[attachedName]
+        end
+        local out: {any} = {}
+        if field == nil and prefix:sub(1, 1) == "-" then
+            for _, candidate in ipairs(schema.fields) do
+                if candidate.role == "option" and not candidate.hidden then
+                    for _, shown in ipairs(self:optionSpellings(candidate)) do
+                        if candidate.arity == "attachedOnly" then
+                            shown = shown .. "="
+                        end
+                        self:addCandidate(out, shown, candidate.documentation, "value", prefix)
+                    end
+                end
+            end
+            self:addCandidate(out, "--help", "Show this help", "value", prefix)
+            self:addCandidate(out, "--color", "Set color policy", "value", prefix)
+            self:addCandidate(out, "--color=always", "Always color output", "value", prefix)
+            self:addCandidate(out, "--color=never", "Never color output", "value", prefix)
+            self:addCandidate(out, "--color=auto", "Color terminal output", "value", prefix)
+            self:addCandidate(out, "--no-color", "Never color output", "value", prefix)
+            return out
+        elseif field == nil then
+            field = schema.positionals[positional]
+        end
+        if field == nil then
+            return out
+        end
+        for _, choice in ipairs(field.choices or {}) do
+            local shown = attachedStem and attachedStem .. choice or choice
+            self:addCandidate(out, shown, nil, "value", prefix)
+        end
+        local providerType = command.completers[field.index]
+        if providerType then
+            local provider = setmetatable({}, providerType)
+            local dynamicRequest = {
+                prefix = valuePrefix,
+                argv = argv,
+                wordIndex = cursor,
+                commandPath = path,
+                field = field.field,
+                cwd = request.cwd or self.options.cwd or ".",
+                environment = request.environment or self.options.environment or {},
+            }
+            local ok, dynamic = pcall(function()
+                return provider:complete(dynamicRequest)
+            end)
+            if ok and type(dynamic) == "table" then
+                for _, candidate in ipairs(dynamic) do
+                    local shown = attachedStem and attachedStem .. candidate.value or candidate.value
+                    self:addCandidate(out, shown, candidate.description, candidate.kind, prefix)
+                end
+            end
+        end
+        table.sort(out, function(left: any, right: any): boolean
+            return left.value < right.value
+        end)
+
+        return out
+    end
+
+    function completionQuery(self, argv: {string}): integer
+        local cursor: integer = (tonumber(argv[3]) or 1) as integer
+        local words: {string} = {}
+        for index = 4, #argv do
+            words[#words + 1] = argv[index]
+        end
+        local prefix = words[cursor] or ""
+        local candidates = self:complete({argv = words, wordIndex = cursor, prefix = prefix})
+        local output = self:stdout()
+        for _, candidate in ipairs(candidates) do
+            output:write(candidate.value .. "\n")
+        end
+
+        return 0
+    end
+end
+
+local function descriptor(subject: any): Descriptor?, string?
+    local entry = derive.entry(subject)
+    local schema = entry and entry.schema.data.cli or nil
+    if schema == nil or schema.command == nil then
+        return nil, "a CLI application member does not derive cli.Command"
+    end
+
+    local completers: {any} = {}
+    for _, field in ipairs(schema.fields) do
+        if field.completerMember ~= nil then
+            completers[field.index] = subject[field.completerMember]()
+        end
+    end
+
+    return {
+        subject = subject,
+        entry = entry as Entry,
+        schema = schema,
+        name = schema.command.name,
+        aliases = schema.command.aliases,
+        summary = schema.command.summary,
+        documentation = schema.command.documentation,
+        group = schema.command.group,
+        hidden = schema.command.hidden,
+        parent = subject.cliParent and subject.cliParent() or nil,
+        completers = completers,
+    }, nil
+end
+
+--- Returns the runtime descriptor generated for a command type.
+export function command(subject: any): any?, string?
+    return descriptor(subject)
+end
+
+--- Assembles derived command types into a deterministic tree.
+export function application(rootType: any, commandTypes: {any}, options: ApplicationOptions?): Application
+    local root, rootProblem = descriptor(rootType)
+    assert(root ~= nil, rootProblem)
+    local commands: {Descriptor} = {}
+    local byParent: {[any]: {[string]: Descriptor}} = {}
+    local known: {[any]: boolean} = {[rootType] = true}
+    for _, subject in ipairs(commandTypes) do
+        known[subject] = true
+    end
+    for _, subject in ipairs(commandTypes) do
+        local commandDescriptor, problem = descriptor(subject)
+        assert(commandDescriptor ~= nil, problem)
+        assert(
+            commandDescriptor.parent ~= nil and known[commandDescriptor.parent],
+            "CLI command parent is outside the application"
+        )
+        local names = byParent[commandDescriptor.parent]
+        if names == nil then
+            names = {};
+            byParent[commandDescriptor.parent] = names
+        end
+        assert(names[commandDescriptor.name] == nil, "duplicate CLI command name " .. commandDescriptor.name)
+        names[commandDescriptor.name] = commandDescriptor
+        for _, alias in ipairs(commandDescriptor.aliases) do
+            assert(names[alias] == nil, "duplicate CLI command alias " .. alias)
+            names[alias] = commandDescriptor
+        end
+        commands[#commands + 1] = commandDescriptor
+    end
+
+    return new Application(root = root, commands = commands, byParent = byParent, options = options or {})
+end

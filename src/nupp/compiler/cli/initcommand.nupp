@@ -14,90 +14,60 @@ somebody something rather than only in the documentation.
 ]]
 
 local files = require("nupp.io.files")
-local ansi = require("nupp.compiler.ansi")
-local spec = require("nupp.compiler.cli.spec")
+local ansi = require("nupp.cli")
+local usageError = require("nupp.compiler.cli.error").forCommand("init")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "init",
-    summary = "Create a project from a template",
-    usage = {"nupp init [TEMPLATE] [DIRECTORY]", "nupp init --from PATH [DIRECTORY]", "nupp init --list",},
-    positionals = {{name = "TEMPLATE"}, {name = "DIRECTORY"}},
-    options = require(
-        "nupp.compiler.cli.options"
-    ).join(
-        {name = "--name", value = "NAME", help = "Project name; defaults to the directory basename"},
-        {
-            name = "--set",
-            value = "KEY=VALUE",
-            repeats = true,
-            help = "Set a template variable; may be given more than once"
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        ok = {type = "boolean"},
+        directory = {type = "string"},
+        template = {
+            type = "object",
+            description = "What the TEMPLATE argument resolved to.",
+            properties = {
+                kind = {type = "string", enum = {"builtin", "directory", "remote"}},
+                name = {type = "string", description = "The built-in's name."},
+                path = {type = "string", description = "The directory it was read from."},
+                url = {type = "string"},
+                subdir = {type = "string"},
+                commit = {type = "string", description = "The commit a repository template resolved to."},
+            },
+            required = {"kind"},
         },
-        {name = "--from", value = "PATH", help = "Use a template directory on disk"},
-        {name = "--rev", value = "REV", help = "Commit, tag or branch for a repository template"},
-        {name = "--list", help = "List the built-in templates and exit"},
-        {name = "--yes", help = "Do not ask before writing a repository template"},
-        {name = "--dry-run", help = "Print what would be written and write nothing"},
-        require("nupp.compiler.cli.options").format()
-    ),
-    schema = {
-        type = "object",
-        properties = {
-            ok = {type = "boolean"},
-            directory = {type = "string"},
-            template = {
+        variables = {
+            type = "object",
+            description = "Every variable value used, derived ones included.",
+            additionalProperties = {type = "string"},
+        },
+        written = {
+            type = "array",
+            items = {type = "string"},
+            description = "The paths written, or the paths that would be under --dry-run."
+        },
+        dryRun = {type = "boolean"},
+        steps = {
+            type = "array",
+            description = "The post-init steps that ran, and whether each succeeded.",
+            items = {
                 type = "object",
-                description = "What the TEMPLATE argument resolved to.",
-                properties = {
-                    kind = {type = "string", enum = {"builtin", "directory", "remote"}},
-                    name = {type = "string", description = "The built-in's name."},
-                    path = {type = "string", description = "The directory it was read from."},
-                    url = {type = "string"},
-                    subdir = {type = "string"},
-                    commit = {type = "string", description = "The commit a repository template resolved to."},
-                },
-                required = {"kind"},
-            },
-            variables = {
-                type = "object",
-                description = "Every variable value used, derived ones included.",
-                additionalProperties = {type = "string"},
-            },
-            written = {
-                type = "array",
-                items = {type = "string"},
-                description = "The paths written, or the paths that would be under --dry-run."
-            },
-            dryRun = {type = "boolean"},
-            steps = {
-                type = "array",
-                description = "The post-init steps that ran, and whether each succeeded.",
-                items = {
-                    type = "object",
-                    properties = {name = {type = "string"}, ok = {type = "boolean"}},
-                    required = {"name", "ok"},
-                },
-            },
-            dropped = {
-                type = "array",
-                items = {type = "string"},
-                description = "Steps the template asked for that a repository template does not get."
+                properties = {name = {type = "string"}, ok = {type = "boolean"}},
+                required = {"name", "ok"},
             },
         },
-        required = {"ok", "directory", "template", "variables", "written", "dryRun", "steps", "dropped"},
+        dropped = {
+            type = "array",
+            items = {type = "string"},
+            description = "Steps the template asked for that a repository template does not get."
+        },
     },
-    detail = [[With no TEMPLATE, the built-in `app`. A name with no slash is a built-in,
-a path beginning with `.`, `/` or `~` is a directory, and `owner/repo`, optionally
-followed by a path within it and by `@rev`, is a repository on GitHub; a full URL is
-used as given.
-
-A repository template is fetched with git, named by the commit it resolved to, and
-confirmed before anything is written. Its post-init steps are reduced to `git init`:
-`check`, `build` and `test` all load the scaffolded `nupp.lua`, which is ordinary
-unrestricted Lua, so running them would execute code that was just downloaded.]],
+    required = {"ok", "directory", "template", "variables", "written", "dryRun", "steps", "dropped"},
 }
 
 local function fail(message: string): integer
-    io.stderr:write(ansi.forSeverity(ansi.style(io.stderr), "error")("nupp:") .. " " .. message .. "\n")
+    io.stderr:write(ansi.severity(ansi.style(io.stderr), "error")("nupp:") .. " " .. message .. "\n")
 
     return 1
 end
@@ -173,7 +143,7 @@ local function listBuiltins(): integer
     io.write(style.strong("Built-in templates:") .. "\n")
     for _, name in ipairs(names) do
         io.write(
-            "  " .. ansi.forSeverity(
+            "  " .. ansi.severity(
                 style,
                 "note"
             )(name) .. (" "):rep(width - #name + 2) .. template.builtinDescription(name) .. "\n"
@@ -289,17 +259,23 @@ local function scaffold(source: any, destination: string, values: any, set: {[st
     return 0
 end
 
-local function run(parsed: any): integer
-    local values = parsed.values
-    local positional: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = {}
+    if options.template ~= nil then
+        positional[#positional + 1] = options.template
+    end
+    if options.directory ~= nil then
+        positional[#positional + 1] = options.directory
+    end
+    local values = options
     if values.list then
-        if #positional > 0 or values.from then
-            return command:usageError("--list takes no other arguments")
+        if #positional > 0 or values.templateFrom then
+            return usageError("--list takes no other arguments")
         end
         -- The command's JSON schema describes a scaffold, which a listing is not,
         -- so refusing is honest where quietly printing text would not be.
         if values.format == "json" then
-            return command:usageError("--list has no JSON output")
+            return usageError("--list has no JSON output")
         end
 
         return listBuiltins()
@@ -307,18 +283,18 @@ local function run(parsed: any): integer
     -- `--from` names the template, so the one positional left is the directory.
     -- Without it the first positional is the template and the second the
     -- directory, which is why the two forms have separate usage lines.
-    local spelling = not values.from and positional[1] or nil
-    local named = values.from and positional[1] or positional[2]
-    local limit: integer = values.from and 1 or 2
+    local spelling = not values.templateFrom and positional[1] or nil
+    local named = values.templateFrom and positional[1] or positional[2]
+    local limit: integer = values.templateFrom and 1 or 2
     if #positional > limit then
-        return command:usageError("unexpected argument " .. positional[limit + 1])
+        return usageError("unexpected argument " .. positional[limit + 1])
     end
     local set, setErr = settings(values.set)
     if not set then
-        return command:usageError(setErr as string)
+        return usageError(setErr as string)
     end
     local template = require("nupp.compiler.template")
-    local source, resolveErr = template.resolve(spelling, values.from, values.rev)
+    local source, resolveErr = template.resolve(spelling, values.templateFrom, values.rev)
     if not source then
         return fail(resolveErr as string)
     end
@@ -347,4 +323,53 @@ local function run(parsed: any): integer
     return code
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Create a project from a template.
+@cli(name = "init", parent = root.Root)
+@derive(cliModule.Command)
+local record Init
+    --- Project name; defaults to the directory basename.
+    @cli(value = "NAME")
+    name: string?
+
+    --- Set a template variable.
+    @cli(value = "KEY=VALUE")
+    set: {string} = {}
+
+    --- Use a template directory on disk.
+    @cli(name = "from", value = "PATH")
+    templateFrom: string?
+
+    --- Commit, tag, or branch for a repository template.
+    @cli(value = "REV")
+    rev: string?
+
+    --- List built-in templates and exit.
+    list: boolean = false
+
+    --- Do not ask before writing a repository template.
+    yes: boolean = false
+
+    --- Print what would be written and write nothing.
+    dryRun: boolean = false
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Template name or repository.
+    @cli(positional = "TEMPLATE")
+    template: string?
+
+    --- Destination directory.
+    @cli(positional = "DIRECTORY")
+    directory: string?
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Init, schema = REPORT_SCHEMA}

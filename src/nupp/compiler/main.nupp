@@ -1,11 +1,10 @@
 --[[
 The entry point.
 
-Everything the command line is lives under `nupp.compiler.cli`: the option grammar in
-`nupp.compiler.cli.spec`, one file per subcommand beside it, and the dispatch that finds
-the command and hands it a parsed argument list. What is left here is the two
-things a program has to do that a library cannot: read `arg`, and exit with a
-status.
+Everything the command line is lives under `nupp.compiler.cli`: one derived
+command record per subcommand and the application that resolves and runs those
+typed records. What is left here is the two things a program has to do that a
+library cannot: read `arg`, and exit with a status.
 ]]
 
 -- Windows opens the inherited standard streams in text mode. That changes LF

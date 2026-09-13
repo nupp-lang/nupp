@@ -1,0 +1,11 @@
+module tests.fixtures.cliremainderinvalid
+
+local cli = require("nupp.cli")
+
+@derive(cli.Arguments)
+local record Misordered
+    @cli(remainder = true)
+    arguments: {string} = {}
+
+    verbose: boolean = false
+end

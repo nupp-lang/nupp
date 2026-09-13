@@ -1,0 +1,24 @@
+module nupp.compiler.cli.root
+
+local cliModule = require("nupp.cli")
+
+--- Nupp compiler and project tool.
+@cli(name = "nupp", group = true)
+@derive(cliModule.Command)
+export record Root
+end
+
+--- Show general or command-specific help.
+---
+--- With no command, prints the command list.
+@cli(name = "help", parent = Root)
+@derive(cliModule.Command)
+export record Help
+    --- Command path to describe.
+    @cli(remainder = true, value = "COMMAND")
+    command: {string} = {}
+
+    function run(self): integer
+        return 0
+    end
+end

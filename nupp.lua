@@ -132,6 +132,14 @@ local RESOURCES = {
     {source = "src/re.g.nupp", output = "nupp/compiler/re.g.nupp"},
     {source = "src/nupp/text/buffer/types.d.nupp", output = "nupp/compiler/nupp/text/buffer/types.d.nupp"},
     {source = "src/nupp/text/buffer/init.nupp", output = "nupp/compiler/nupp/text/buffer/init.nupp"},
+    {source = "src/nupp/cli/init.g.nupp", output = "nupp/compiler/nupp/cli/init.g.nupp"},
+    {source = "src/nupp/cli/internal/optparser.nupp", output = "nupp/compiler/nupp/cli/internal/optparser.nupp"},
+    {source = "src/nupp/cli/internal/decode.g.nupp", output = "nupp/compiler/nupp/cli/internal/decode.g.nupp"},
+    {source = "src/nupp/cli/internal/terminal.nupp", output = "nupp/compiler/nupp/cli/internal/terminal.nupp"},
+    {
+        source = "src/nupp/cli/internal/application.g.nupp",
+        output = "nupp/compiler/nupp/cli/internal/application.g.nupp"
+    },
     {source = "src/nupp/runtime/workersprovider.nupp", output = "nupp/compiler/nupp/runtime/workersprovider.nupp"},
     {source = "src/nupp/runtime/wasm.nupp", output = "nupp/compiler/nupp/runtime/wasm.nupp"},
     {source = "src/nupp/runtime/uuid.nupp", output = "nupp/compiler/nupp/runtime/uuid.nupp"},
@@ -575,6 +583,7 @@ return {
                     -- above `nupp.derive`'s generated field list. Every other
                     -- standard module says what it has to say in its own blurb.
                     {path = "modules/nupp/derive", title = "nupp.derive", source = "docs/reference/derives.md",},
+                    {path = "modules/nupp/cli", title = "nupp.cli", source = "docs/reference/cli-module.md",},
                     {path = "modules/nupp/io/path", title = "nupp.io.path",},
                 },
             },

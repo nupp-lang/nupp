@@ -16,33 +16,29 @@ they are appended to the task's own argv and belong to whatever ends up
 running.
 ]]
 
-local spec = require("nupp.compiler.cli.spec")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "task",
-    summary = "Build, then run a named task from nupp.lua",
-    usage = {"nupp task <name> [args...]"},
-    universal = false,
-    options = {spec.helpOption},
-    detail = [[Runs tasks.<name> from nupp.lua: builds tasks.<name>.build first if it names
-one, then execs tasks.<name>.argv from tasks.<name>.cwd (the project root by
-default) with any arguments after <name> appended.
-See `nupp tasks` for the configured list.]],
-}
+--- Build, then run a named task from nupp.lua.
+---
+--- Runs `tasks.<name>` from nupp.lua: builds `tasks.<name>.build` first when
+--- it names one, then executes `tasks.<name>.argv` from `tasks.<name>.cwd`
+--- (the project root by default) with every trailing argument appended. See
+--- `nupp tasks` for the configured list.
+@cli(name = "task", parent = root.Root, stopAtFirstArgument = true)
+@derive(cliModule.Command)
+local record Task
+    --- Configured task name.
+    @cli(positional = "NAME")
+    name: string
 
-local function run(args: any): integer
-    -- A leading `--` was how the caller said the rest is the task's, including a first
-    -- argument named --help that would otherwise have been answered here.
-    if args[1] == "--" then
-        table.remove(args, 1)
+    --- Arguments appended to the configured command.
+    @cli(remainder = true, value = "ARG")
+    arguments: {string} = {}
+
+    function run(self): integer
+        return require("nupp.compiler.build.project").runTask(".", self.name, self.arguments)
     end
-    local name = table.remove(args, 1)
-    if not name or name == "" then
-        return command:usageError("a task name is required; see `nupp tasks`")
-    end
-    local project = require("nupp.compiler.build.project")
-
-    return project.runTask(".", name, args)
 end
 
-export = new spec.Handler(spec = command, raw = true, run = run)
+export = {commandType = Task}

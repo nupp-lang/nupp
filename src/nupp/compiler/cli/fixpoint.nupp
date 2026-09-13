@@ -10,59 +10,37 @@ stamp another identical to itself, which is what the payload format's
 determinism rests on.
 ]]
 
-local spec = require("nupp.compiler.cli.spec")
+local usageError = require("nupp.compiler.cli.error").forCommand("fixpoint")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "fixpoint",
-    summary = "Verify a byte-identical self-hosting rebuild",
-    usage = {"nupp fixpoint [--emit-stage0 PATH] [--format text|json]", "nupp fixpoint --binary [--format text|json]",},
-    intro = [[By default the stage-zero compiler builds stage one, stage one builds
-stage two, stage two builds stage three, and stages two and three must be byte
-identical. Stage zero is a published release rather than a file in the tree, so
-it is meant to differ from the current compiler and nothing compares it with one;
-the first stage is what absorbs that difference.
-
---emit-stage0 writes the stage-zero bundle the verified compiler composes, which
-is the artifact a release publishes for the next checkout to start from.
-
---binary makes the same claim about packaging: the target named by
-selfHost.binary is stamped, and the binary that comes out stamps another
-identical to itself. It is what the payload format's determinism rests on.]],
-    options = require(
-        "nupp.compiler.cli.options"
-    ).join(
-        {name = "--emit-stage0", value = "PATH", help = "Write the verified stage-zero bundle here"},
-        {name = "--binary", help = "Verify the packaged binary instead of the compiler"},
-        require("nupp.compiler.cli.options").format()
-    ),
-    schema = {
-        type = "object",
-        properties = {
-            ok = {type = "boolean", description = "Whether the rebuild reproduced itself."},
-            kind = {
-                type = "string",
-                enum = {"compiler", "binary"},
-                description = "Which claim was checked: the compiler compiling "
-                .. "itself from stage zero, or the packaged binary stamping another."
-            },
-            target = {type = "string", description = "The manifest target that was verified."},
-            stage0 = {type = "string", description = "The stage-zero compiler the run started from."},
-            emittedStage0 = {type = "string", description = "Where the stage-zero bundle was written, if anywhere."},
-            bytes = {type = "integer", description = "The size of the verified binary, for --binary."},
-            reason = {type = "string", description = "Why it failed. Absent when ok is true."},
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        ok = {type = "boolean", description = "Whether the rebuild reproduced itself."},
+        kind = {
+            type = "string",
+            enum = {"compiler", "binary"},
+            description = "Which claim was checked: the compiler compiling "
+            .. "itself from stage zero, or the packaged binary stamping another."
         },
-        required = {"ok", "kind"},
+        target = {type = "string", description = "The manifest target that was verified."},
+        stage0 = {type = "string", description = "The stage-zero compiler the run started from."},
+        emittedStage0 = {type = "string", description = "Where the stage-zero bundle was written, if anywhere."},
+        bytes = {type = "integer", description = "The size of the verified binary, for --binary."},
+        reason = {type = "string", description = "Why it failed. Absent when ok is true."},
     },
+    required = {"ok", "kind"},
 }
 
-local function run(parsed: any): integer
-    local positional: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = {}
     if #positional > 0 then
-        return command:usageError("unexpected argument " .. positional[1])
+        return usageError("unexpected argument " .. positional[1])
     end
-    local values = parsed.values
+    local values = options
     if values.binary and values.emitStage0 then
-        return command:usageError("--binary verifies the packaged binary and composes no stage zero")
+        return usageError("--binary verifies the packaged binary and composes no stage zero")
     end
     local asJson = values.format == "json"
     local project = require("nupp.compiler.build.project")
@@ -84,4 +62,27 @@ local function run(parsed: any): integer
     return code
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Verify a byte-identical self-hosting rebuild.
+@cli(name = "fixpoint", parent = root.Root)
+@derive(cliModule.Command)
+local record Fixpoint
+    --- Write the verified stage-zero bundle here.
+    @cli(value = "PATH")
+    emitStage0: string?
+
+    --- Verify the packaged binary instead of the compiler.
+    binary: boolean = false
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Fixpoint, schema = REPORT_SCHEMA}

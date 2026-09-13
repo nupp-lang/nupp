@@ -3,8 +3,16 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 corpus="$root/tests/portable-corpus"
+cli_build=$(mktemp -d "${TMPDIR:-/tmp}/nupp-cli-portable.XXXXXX")
+trap 'rm -rf "$cli_build"' EXIT HUP INT TERM
 
 (cd "$corpus" && ../../bin/nupp build --dialect lua51 >/dev/null)
+if ! (cd "$root" && ./bin/nupp build --dialect lua51 --strict -o "$cli_build" \
+  tests/fixtures/cliparser.nupp src/nupp/runtime/provider/tablebuffer.nupp \
+  >"$cli_build/build.log" 2>&1); then
+    cat "$cli_build/build.log" >&2
+    exit 1
+fi
 expected=$(sed -n '1p' "$corpus/expected.txt")
 
 if [ "$#" -eq 0 ]; then
@@ -31,6 +39,20 @@ for runtime in "$@"; do
     if [ "$actual" != "$expected" ]; then
         echo "portable corpus: $runtime returned: $actual" >&2
         echo "portable corpus: expected: $expected" >&2
+        exit 1
+    fi
+    case "$runtime" in
+      *luajit*)
+        cli_actual=$(LUA_PATH="$cli_build/?.lua;$cli_build/?/init.lua;$cli_build/src/?.lua;$cli_build/src/?/init.lua;;" \
+          "$runtime" -e 'jit=nil; dofile(arg[1])' "$cli_build/tests/fixtures/cliparser.lua")
+        ;;
+      *)
+        cli_actual=$(LUA_PATH="$cli_build/?.lua;$cli_build/?/init.lua;$cli_build/src/?.lua;$cli_build/src/?/init.lua;;" \
+          "$runtime" "$cli_build/tests/fixtures/cliparser.lua")
+        ;;
+    esac
+    if [ "$cli_actual" != "cli parser ok" ]; then
+        echo "portable cli: $runtime returned: $cli_actual" >&2
         exit 1
     fi
     echo "portable corpus: $runtime passed"

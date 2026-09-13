@@ -285,9 +285,14 @@ local function requiredAreDescribed(schema, path)
 end
 
 function M.everySchemaDescribesWhatItRequires()
-    for _, command in ipairs(require("nupp.compiler.cli").commands()) do
-        if command.spec.schema then
-            requiredAreDescribed(command.spec.schema, command.name)
+    local cli = require("nupp.compiler.cli")
+    for _, name in ipairs(cli.names()) do
+        if name ~= "help" and name ~= "lsp" then
+            local help = capture(nil, "help " .. name)
+            if help:find("--schema", 1, true) then
+                local text = capture(nil, name .. " --schema")
+                requiredAreDescribed(json.decode(text), name)
+            end
         end
     end
     local lspOperations = {"inspect", "definition", "references", "symbols", "rename", "actions", "trace-check"}

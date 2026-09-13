@@ -9,79 +9,31 @@ the process boundary around it: listing cases, selecting one per child, applying
 deadlines, comparing baselines, and retaining machine-readable history.
 ]]
 
-local spec = require("nupp.compiler.cli.spec")
+local usageError = require("nupp.compiler.cli.error").forCommand("bench")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "bench",
-    summary = "Run isolated benchmark programs",
-    usage = {"nupp bench [--list] [--file PATH] [selectors] [options]"},
-    options = {
-        {name = "--list", help = "List benchmark names and source files without running"},
-        {name = "--file", value = "PATH", help = "Inspect and run only one benchmark program"},
-        {
-            name = "--case",
-            value = "PATTERN",
-            repeats = true,
-            help = "Run logical case names matching a Lua pattern; repeat for alternatives"
-        },
-        {
-            name = "--parameter",
-            value = "PATTERN",
-            repeats = true,
-            help = "Run parameter text matching a Lua pattern; repeat for alternatives"
-        },
-        {
-            name = "--variant",
-            value = "PATTERN",
-            repeats = true,
-            help = "Run variant names matching a Lua pattern; repeat for alternatives"
-        },
-        {name = "--geo", help = "Include geometric-mean variant comparisons in the final report"},
-        {name = "--timeout-ms", value = "INTEGER", help = "Child deadline in milliseconds (default 120000)"},
-        {name = "--profile", value = "DIR", help = "Write one measured-window collapsed-stack profile per case"},
-        {name = "--profile-interval-ms", value = "INTEGER", help = "Sampling interval in milliseconds (default 1)"},
-        {name = "--profile-zone", value = "PREFIX", help = "Keep profile samples under this zone subtree"},
-        {name = "--baseline", value = "PATH", help = "Compare deterministic counters with this baseline"},
-        {name = "--accept", help = "Replace the named baseline after a complete run"},
-        {name = "--history", value = "PATH", help = "Append the complete record as one NDJSON line"},
-        {name = "--label", value = "TEXT", help = "Attach a label to the record and history entry"},
-        {name = "--json", help = "Write only the merged JSON record to stdout"},
-    },
-    schema = {
-        type = "object",
-        description = "One benchmark-set run, with one isolated child record per selected case.",
-        properties = {
-            schema = {type = "integer"},
-            recordedAt = {type = "string"},
-            label = {type = "string"},
-            cases = {
-                type = "array",
-                items = {
-                    type = "object",
-                    properties = {
-                        case = {type = "string", description = "Benchmark program path."},
-                        name = {type = "string", description = "Selected case name."},
-                        record = {type = "object", description = "The record written by that child."},
-                    },
-                    required = {"case", "name", "record"},
+local REPORT_SCHEMA = {
+    type = "object",
+    description = "One benchmark-set run, with one isolated child record per selected case.",
+    properties = {
+        schema = {type = "integer"},
+        recordedAt = {type = "string"},
+        label = {type = "string"},
+        cases = {
+            type = "array",
+            items = {
+                type = "object",
+                properties = {
+                    case = {type = "string", description = "Benchmark program path."},
+                    name = {type = "string", description = "Selected case name."},
+                    record = {type = "object", description = "The record written by that child."},
                 },
+                required = {"case", "name", "record"},
             },
         },
-        required = {"schema", "recordedAt", "cases"},
     },
-    detail = [[Discovers bench/*.bench.nupp by default. Each file is first asked which
-cases it declares, then every selected case runs under `nupp run -O1` in its own
-process. That boundary keeps heaps, compiled traces and blacklists separate.
-
-Selectors use Lua string patterns and combine across dimensions. Repeated
-patterns in one dimension are alternatives.
-
---profile runs a separate sampling pass around only the measured callback and
-writes collapsed-stack files under DIR. It does not change the reported timing.
-
-The latest merged record is build/bench-record.json. --history appends the same
-record as NDJSON. --baseline gates deterministic allocation and trace-abort
-counters; timing is recorded but never used as a pass/fail gate.]],
+    required = {"schema", "recordedAt", "cases"},
 }
 
 local function invalidPattern(patterns: {string}?): string?
@@ -97,14 +49,14 @@ local function invalidPattern(patterns: {string}?): string?
     return nil
 end
 
-local function run(parsed: any): integer
-    local positional: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = {}
     if #positional > 0 then
-        return command:usageError("unexpected argument " .. positional[1])
+        return usageError("unexpected argument " .. positional[1])
     end
-    local values = parsed.values
+    local values = options
     if values.accept and not values.baseline then
-        return command:usageError("--accept needs --baseline PATH")
+        return usageError("--accept needs --baseline PATH")
     end
     if values.list and (
         values.json
@@ -117,13 +69,13 @@ local function run(parsed: any): integer
         or values.profileIntervalMs
         or values.profileZone
     ) then
-        return command:usageError("--list cannot be combined with result, baseline, history, or profile options")
+        return usageError("--list cannot be combined with result, baseline, history, or profile options")
     end
     local timeoutMs: integer? = nil
     if values.timeoutMs then
         local given = tonumber(values.timeoutMs)
         if not given or given < 1 or given ~= math.floor(given) then
-            return command:usageError("--timeout-ms needs a positive whole number")
+            return usageError("--timeout-ms needs a positive whole number")
         end
         timeoutMs = math.floor(given)
     end
@@ -131,12 +83,12 @@ local function run(parsed: any): integer
     if values.profileIntervalMs then
         local given = tonumber(values.profileIntervalMs)
         if not given or given < 1 or given ~= math.floor(given) then
-            return command:usageError("--profile-interval-ms needs a positive whole number")
+            return usageError("--profile-interval-ms needs a positive whole number")
         end
         profileIntervalMs = math.floor(given)
     end
     if (values.profileIntervalMs or values.profileZone) and not values.profile then
-        return command:usageError("--profile-interval-ms and --profile-zone need --profile DIR")
+        return usageError("--profile-interval-ms and --profile-zone need --profile DIR")
     end
     for _, entry in ipairs({
         {name = "--case", patterns = values.case},
@@ -145,7 +97,7 @@ local function run(parsed: any): integer
     }) do
         local invalid = invalidPattern(entry.patterns)
         if invalid then
-            return command:usageError(entry.name .. " has an invalid Lua pattern: " .. invalid)
+            return usageError(entry.name .. " has an invalid Lua pattern: " .. invalid)
         end
     end
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
@@ -178,4 +130,75 @@ local function run(parsed: any): integer
     )
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Run isolated benchmark programs.
+---
+--- Selectors are Lua string patterns. Repeated patterns within one dimension
+--- are alternatives; the command interprets and validates those strings.
+@cli(name = "bench", parent = root.Root)
+@derive(cliModule.Command)
+local record Bench
+    --- List benchmark names and source files without running.
+    list: boolean = false
+
+    --- Inspect and run only one benchmark program.
+    @cli(value = "PATH")
+    file: string?
+
+    --- Run logical case names matching a Lua pattern.
+    @cli(name = "case", value = "PATTERN")
+    caseGmatch: {string} = {}
+
+    --- Run parameter text matching a Lua pattern.
+    @cli(value = "PATTERN")
+    parameter: {string} = {}
+
+    --- Run variant names matching a Lua pattern.
+    @cli(value = "PATTERN")
+    variant: {string} = {}
+
+    --- Include geometric-mean variant comparisons.
+    geo: boolean = false
+
+    --- Child deadline in milliseconds.
+    @cli(value = "INTEGER")
+    timeoutMs: integer?
+
+    --- Write one collapsed-stack profile per case under this directory.
+    @cli(value = "DIR")
+    profile: string?
+
+    --- Sampling interval in milliseconds.
+    @cli(value = "INTEGER")
+    profileIntervalMs: integer?
+
+    --- Keep profile samples under this zone subtree.
+    @cli(value = "PREFIX")
+    profileZone: string?
+
+    --- Compare deterministic counters with this baseline.
+    @cli(value = "PATH")
+    baseline: string?
+
+    --- Replace the named baseline after a complete run.
+    accept: boolean = false
+
+    --- Append the complete record as one NDJSON line.
+    @cli(value = "PATH")
+    history: string?
+
+    --- Attach a label to the record and history entry.
+    @cli(value = "TEXT")
+    label: string?
+
+    --- Write only the merged JSON record to stdout.
+    json: boolean = false
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Bench, schema = REPORT_SCHEMA}

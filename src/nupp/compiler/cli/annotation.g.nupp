@@ -1,0 +1,33 @@
+module nupp.compiler.cli.annotation
+
+-- The public compiler registers this schema as the built-in `@cli`
+-- annotation. This source declaration lets the preceding stage-zero compiler
+-- check Nupp's own command records before that built-in exists there.
+@annotation(targets = {"record", "field"})
+record cli
+    @annotationValue
+    name: string?
+    long: boolean?
+    aliases: {string}?
+    constantAliases: {[string]: string}?
+    short: string?
+    value: string?
+    display: string?
+    invalid: string?
+    arity: "none" | "required" | "optionalAttached" | "attachedOnly"?
+    positional: string?
+    remainder: boolean?
+    hidden: boolean?
+    group: boolean?
+    preserveUnknown: boolean?
+    stopAtFirstArgument: boolean?
+    constant: string | integer | boolean?
+    pattern: string?
+    choices: {string}?
+
+    @ref
+    parent: table | nil
+
+    @ref
+    complete: table | nil
+end

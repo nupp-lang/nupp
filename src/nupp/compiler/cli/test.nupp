@@ -10,8 +10,10 @@ ends up running. Colour is the exception: it governs both the build this command
 performs and the configured runner, so it is read here and still passed along.
 ]]
 
-local spec = require("nupp.compiler.cli.spec")
-local ansi = require("nupp.compiler.ansi")
+local ansi = require("nupp.cli")
+local cliModule = ansi
+local root = require("nupp.compiler.cli.root")
+local usageError = require("nupp.compiler.cli.error").forCommand("test")
 
 --- What one phase of a parallel run was predicted to cost, which the report puts
 --- beside what its busiest lane actually cost. Written once and used for both
@@ -31,332 +33,195 @@ local phasePrediction = {
     required = {"planned", "lanes", "heaviest", "floor"},
 }
 
-local command = spec.command{
-    name = "test",
-    summary = "Build and run project tests",
-    usage = {
-        "nupp test [args...]",
-        "nupp test --coverage [--coverage-out DIR] [args...]",
-        "nupp test --coverage --report-json [--coverage-out DIR]",
-    },
-    universal = false,
-    options = {
-        {name = "--json", help = "Ask the test command for one JSON document instead of " .. "progress text"},
-        {name = "--verbose", help = "Ask the test command to show output from passing tests"},
-        {name = "--jobs", value = "N", help = "Ask the bundled runner to use N parallel workers"},
-        {name = "--coverage", help = "Run against a separate instrumented build and write a coverage report"},
-        {name = "--coverage-out", value = "DIR", help = "Write coverage HTML, JSON, and LCOV files under DIR"},
-        {name = "--report-json", help = "Print an existing full coverage report without running tests"},
-        {
-            name = "--color",
-            value = "WHEN",
-            form = "optional",
-            help = "Color both compiler and test output: always, never, or auto"
-        },
-        {name = "--no-color", help = "Never color compiler or test output"},
-        {
-            name = "--timings",
-            help = "Ask the test command for its whole timing report rather than "
-            .. "the slowest few. `--timings=N` asks for N rows, and `--timings=0` for none"
-        },
-        {
-            name = "--group",
-            value = "NAME",
-            help = "Run the suites a named group covers. Repeatable, and "
-            .. "comma-separated. `--list-groups` names them"
-        },
-        {
-            name = "--exclude",
-            value = "SUITE",
-            help = "Leave these suites out, which is how a later broad run "
-            .. "stops repeating what an earlier focused one already ran"
-        },
-        {name = "--exclude-group", value = "NAME", help = "Leave every suite a named group covers out"},
-        {
-            name = "--lane",
-            value = "WHICH",
-            help = "Keep only one execution lane: `shared` is what a Nupp "
-            .. "worker can run beside other suites in one process, `shell` uses "
-            .. "a reusable process worker, and `isolated` needs process-global isolation"
-        },
-        {name = "--list-suites", help = "Print the suites this selection would run, and run none of them"},
-        {name = "--list-groups", help = "Print every named group and the suites it covers"},
-        spec.helpOption,
-    },
-    schema = {
-        type = "object",
-        description = "One run: the totals, and a record per test. This is what "
-        .. "the bundled runner writes; a project that configures a "
-        .. "different test command is the one answering for its --json. "
-        .. "`--coverage --report-json` answers with `#/definitions/coverageReport` "
-        .. "instead, which is a report rather than a run.",
-        properties = {
-            ok = {type = "boolean"},
-            total = {type = "integer"},
-            passed = {type = "integer"},
-            skipped = {type = "integer"},
-            failed = {type = "integer"},
-            durationMs = {type = "number", description = "Wall-clock milliseconds for the whole run."},
-            tests = {
-                type = "array",
-                items = {
-                    type = "object",
-                    properties = {
-                        suite = {type = "string", description = "The test file, without its extension."},
-                        name = {type = "string"},
-                        status = {type = "string", enum = {"passed", "skipped", "failed"}},
-                        durationMs = {type = "number"},
-                        file = {type = "string", description = "Where the test is defined."},
-                        line = {type = "integer", description = "1-based, as everywhere else."},
-                        failure = {
-                            type = "object",
-                            description = "Absent when the test passed.",
-                            properties = {
-                                message = {type = "string"},
-                                file = {
-                                    type = "string",
-                                    description = "Where the error came from, "
-                                    .. "which is often not where the test "
-                                    .. "is defined."
-                                },
-                                line = {
-                                    type = "integer",
-                                    description = "1-based. A Lua error carries " .. "no column, so none is reported."
-                                },
+local REPORT_SCHEMA = {
+    type = "object",
+    description = "One run: the totals, and a record per test. This is what "
+    .. "the bundled runner writes; a project that configures a "
+    .. "different test command is the one answering for its --json. "
+    .. "`--coverage --report-json` answers with `#/definitions/coverageReport` "
+    .. "instead, which is a report rather than a run.",
+    properties = {
+        ok = {type = "boolean"},
+        total = {type = "integer"},
+        passed = {type = "integer"},
+        skipped = {type = "integer"},
+        failed = {type = "integer"},
+        durationMs = {type = "number", description = "Wall-clock milliseconds for the whole run."},
+        tests = {
+            type = "array",
+            items = {
+                type = "object",
+                properties = {
+                    suite = {type = "string", description = "The test file, without its extension."},
+                    name = {type = "string"},
+                    status = {type = "string", enum = {"passed", "skipped", "failed"}},
+                    durationMs = {type = "number"},
+                    file = {type = "string", description = "Where the test is defined."},
+                    line = {type = "integer", description = "1-based, as everywhere else."},
+                    failure = {
+                        type = "object",
+                        description = "Absent when the test passed.",
+                        properties = {
+                            message = {type = "string"},
+                            file = {
+                                type = "string",
+                                description = "Where the error came from, "
+                                .. "which is often not where the test "
+                                .. "is defined."
                             },
-                            required = {"message"},
+                            line = {
+                                type = "integer",
+                                description = "1-based. A Lua error carries " .. "no column, so none is reported."
+                            },
                         },
-                        output = {
-                            type = "object",
-                            description = "Captured output from a failed test.",
-                            properties = {stdout = {type = "string"}, stderr = {type = "string"},},
-                            required = {"stdout", "stderr"},
-                        },
-                        skip = {
-                            type = "object",
-                            description = "Present when the test was skipped.",
-                            properties = {reason = {type = "string"}},
-                            required = {"reason"},
-                        },
+                        required = {"message"},
                     },
-                    required = {"suite", "name", "status", "durationMs"},
-                },
-            },
-            suites = {
-                type = "array",
-                description = "One record per suite the run loaded, which is "
-                .. "where the time a run waits for actually goes: a suite costs "
-                .. "its cases plus what loading it and its lifecycle hooks cost, "
-                .. "and neither of those belongs to any case.",
-                items = {
-                    type = "object",
-                    properties = {
-                        suite = {type = "string"},
-                        durationMs = {
-                            type = "number",
-                            description = "Wall-clock milliseconds for the whole suite, loading included."
-                        },
-                        loadMs = {
-                            type = "number",
-                            description = "Compiling a Nupp suite, or running a Lua suite's top level."
-                        },
-                        hooksMs = {
-                            type = "number",
-                            description = "beforeAll and afterAll. beforeEach and afterEach are counted with the case they ran for."
-                        },
-                        casesMs = {type = "number"},
-                        tests = {type = "integer"},
-                        slowestCase = {type = "string"},
-                        slowestCaseMs = {type = "number"},
-                        shard = {type = "integer", description = "Which shard ran it, absent when the run was serial."},
-                        alone = {
-                            type = "boolean",
-                            description = "Ran on a process worker rather than on a Nupp worker."
-                        },
-                        executionLane = {type = "string", enum = {"shared", "shell", "isolated"}},
+                    output = {
+                        type = "object",
+                        description = "Captured output from a failed test.",
+                        properties = {stdout = {type = "string"}, stderr = {type = "string"},},
+                        required = {"stdout", "stderr"},
                     },
-                    required = {"suite", "durationMs"},
-                },
-            },
-            shards = {
-                type = "array",
-                description = "One record per worker lane, empty when the run "
-                .. "was serial. Within an execution lane, the busiest shard is "
-                .. "the floor more workers cannot lower.",
-                items = {
-                    type = "object",
-                    properties = {
-                        index = {type = "integer"},
-                        specs = {
-                            type = "array",
-                            description = "What it was asked to run: a suite name, or 'name#index/count' for one slice of one.",
-                            items = {type = "string"},
-                        },
-                        alone = {
-                            type = "boolean",
-                            description = "Ran on a process worker rather than on a Nupp worker."
-                        },
-                        executionLane = {type = "string", enum = {"shared", "shell", "isolated"}},
-                        durationMs = {type = "number"},
-                        startedAt = {type = "number", description = "Milliseconds into the run when it was started."},
-                        collectedAt = {
-                            type = "number",
-                            description = "Milliseconds into the run when the parent finished reading it. Pipes are read in order, so this says more about read order than about the shard."
-                        },
-                        tests = {type = "integer"},
+                    skip = {
+                        type = "object",
+                        description = "Present when the test was skipped.",
+                        properties = {reason = {type = "string"}},
+                        required = {"reason"},
                     },
-                    required = {"index", "durationMs", "executionLane"},
                 },
-            },
-            prediction = {
-                type = "object",
-                description = "What the packer said each phase could not finish "
-                .. "under, from the timings the last run recorded. Absent when "
-                .. "the run was serial. A phase whose busiest shard came out far "
-                .. "above its floor was packed from stale timings or starved a "
-                .. "lane; one that came out at its floor is as short as that much "
-                .. "work gets, and only less work shortens it.",
-                properties = {processIsolated = phasePrediction, shared = phasePrediction, shell = phasePrediction},
+                required = {"suite", "name", "status", "durationMs"},
             },
         },
-        required = {"ok", "total", "passed", "skipped", "failed", "tests"},
-        definitions = {
-            coverageMetric = {
+        suites = {
+            type = "array",
+            description = "One record per suite the run loaded, which is "
+            .. "where the time a run waits for actually goes: a suite costs "
+            .. "its cases plus what loading it and its lifecycle hooks cost, "
+            .. "and neither of those belongs to any case.",
+            items = {
                 type = "object",
                 properties = {
-                    covered = {type = "integer"},
-                    total = {type = "integer"},
-                    percent = {type = "number"},
-                    missing = {type = "array", items = {type = "string"}},
-                },
-            },
-            coverageSite = {
-                type = "object",
-                description = "One place the instrumented program counts reaching.",
-                properties = {
-                    id = {type = "integer"},
-                    kind = {type = "string", enum = {"statement", "function", "branch"}},
-                    line = {type = "integer"},
-                    count = {type = "integer", description = "Times this site was reached."},
-                    name = {
-                        type = "string",
-                        description = "A function site's declared name, absent when it is anonymous.",
+                    suite = {type = "string"},
+                    durationMs = {
+                        type = "number",
+                        description = "Wall-clock milliseconds for the whole suite, loading included."
                     },
-                    endLine = {type = "integer", description = "The last line of a function site's declaration."},
-                    trueCount = {type = "integer", description = "Branch sites only: times the condition held."},
-                    falseCount = {type = "integer", description = "Branch sites only: times it did not."},
+                    loadMs = {
+                        type = "number",
+                        description = "Compiling a Nupp suite, or running a Lua suite's top level."
+                    },
+                    hooksMs = {
+                        type = "number",
+                        description = "beforeAll and afterAll. beforeEach and afterEach are counted with the case they ran for."
+                    },
+                    casesMs = {type = "number"},
+                    tests = {type = "integer"},
+                    slowestCase = {type = "string"},
+                    slowestCaseMs = {type = "number"},
+                    shard = {type = "integer", description = "Which shard ran it, absent when the run was serial."},
+                    alone = {type = "boolean", description = "Ran on a process worker rather than on a Nupp worker."},
+                    executionLane = {type = "string", enum = {"shared", "shell", "isolated"}},
                 },
-                required = {"id", "kind", "line", "count"},
+                required = {"suite", "durationMs"},
             },
-            coverageReport = {
+        },
+        shards = {
+            type = "array",
+            description = "One record per worker lane, empty when the run "
+            .. "was serial. Within an execution lane, the busiest shard is "
+            .. "the floor more workers cannot lower.",
+            items = {
                 type = "object",
-                description = "What `--coverage --report-json` prints: the report "
-                .. "already written, rather than a run. An editor reads this to "
-                .. "draw a gutter, so a site says where it is, how often it was "
-                .. "reached, and -- for a branch -- which way it went.",
                 properties = {
-                    version = {type = "integer"},
-                    warnings = {type = "array", items = {type = "string"}},
-                    summary = {type = "object"},
-                    files = {
+                    index = {type = "integer"},
+                    specs = {
                         type = "array",
-                        items = {
-                            type = "object",
-                            properties = {
-                                path = {type = "string"},
-                                status = {
-                                    type = "string",
-                                    enum = {"covered", "partial", "uncovered", "non-executable"},
-                                },
-                                lines = {["$ref"] = "#/definitions/coverageMetric"},
-                                functions = {["$ref"] = "#/definitions/coverageMetric"},
-                                branches = {["$ref"] = "#/definitions/coverageMetric"},
-                                sites = {type = "array", items = {["$ref"] = "#/definitions/coverageSite"}},
-                            },
-                            required = {"path", "sites"},
-                        },
+                        description = "What it was asked to run: a suite name, or 'name#index/count' for one slice of one.",
+                        items = {type = "string"},
                     },
+                    alone = {type = "boolean", description = "Ran on a process worker rather than on a Nupp worker."},
+                    executionLane = {type = "string", enum = {"shared", "shell", "isolated"}},
+                    durationMs = {type = "number"},
+                    startedAt = {type = "number", description = "Milliseconds into the run when it was started."},
+                    collectedAt = {
+                        type = "number",
+                        description = "Milliseconds into the run when the parent finished reading it. Pipes are read in order, so this says more about read order than about the shard."
+                    },
+                    tests = {type = "integer"},
                 },
-                required = {"version", "files", "summary"},
+                required = {"index", "durationMs", "executionLane"},
             },
         },
+        prediction = {
+            type = "object",
+            description = "What the packer said each phase could not finish "
+            .. "under, from the timings the last run recorded. Absent when "
+            .. "the run was serial. A phase whose busiest shard came out far "
+            .. "above its floor was packed from stale timings or starved a "
+            .. "lane; one that came out at its floor is as short as that much "
+            .. "work gets, and only less work shortens it.",
+            properties = {processIsolated = phasePrediction, shared = phasePrediction, shell = phasePrediction},
+        },
     },
-    detail = [[Additional arguments are appended to the bundled runner or test.argv from
-nupp.lua. `--coverage`, `--coverage-out`, and `--report-json` belong to Nupp;
-use `--` before a test argument with one of those names.
-
---json is passed along to the test command rather than interpreted here, since
-the arguments past this point are that command's. --schema describes what the
-bundled runner writes for it.
-
-Coverage uses build/coverage without changing an ordinary build or its cache,
-and writes its report under build/reports/coverage by default. --report-json
-reads that report without rebuilding or rerunning tests.]],
+    required = {"ok", "total", "passed", "skipped", "failed", "tests"},
+    definitions = {
+        coverageMetric = {
+            type = "object",
+            properties = {
+                covered = {type = "integer"},
+                total = {type = "integer"},
+                percent = {type = "number"},
+                missing = {type = "array", items = {type = "string"}},
+            },
+        },
+        coverageSite = {
+            type = "object",
+            description = "One place the instrumented program counts reaching.",
+            properties = {
+                id = {type = "integer"},
+                kind = {type = "string", enum = {"statement", "function", "branch"}},
+                line = {type = "integer"},
+                count = {type = "integer", description = "Times this site was reached."},
+                name = {
+                    type = "string",
+                    description = "A function site's declared name, absent when it is anonymous.",
+                },
+                endLine = {type = "integer", description = "The last line of a function site's declaration."},
+                trueCount = {type = "integer", description = "Branch sites only: times the condition held."},
+                falseCount = {type = "integer", description = "Branch sites only: times it did not."},
+            },
+            required = {"id", "kind", "line", "count"},
+        },
+        coverageReport = {
+            type = "object",
+            description = "What `--coverage --report-json` prints: the report "
+            .. "already written, rather than a run. An editor reads this to "
+            .. "draw a gutter, so a site says where it is, how often it was "
+            .. "reached, and -- for a branch -- which way it went.",
+            properties = {
+                version = {type = "integer"},
+                warnings = {type = "array", items = {type = "string"}},
+                summary = {type = "object"},
+                files = {
+                    type = "array",
+                    items = {
+                        type = "object",
+                        properties = {
+                            path = {type = "string"},
+                            status = {type = "string", enum = {"covered", "partial", "uncovered", "non-executable"},},
+                            lines = {["$ref"] = "#/definitions/coverageMetric"},
+                            functions = {["$ref"] = "#/definitions/coverageMetric"},
+                            branches = {["$ref"] = "#/definitions/coverageMetric"},
+                            sites = {type = "array", items = {["$ref"] = "#/definitions/coverageSite"}},
+                        },
+                        required = {"path", "sites"},
+                    },
+                },
+            },
+            required = {"version", "files", "summary"},
+        },
+    },
 }
-
-local type TestArguments = {
-    coverage: boolean,
-    coverageOut: string?,
-    reportJson: boolean,
-    forwarded: {string}
-}
-
---- Takes out the three options `test` owns. Everything else still belongs to the
---- configured command, and `--` protects even one of these names from being read here.
-local function parseTestArguments(args: {string}): TestArguments, string?
-    local parsed = {coverage = false, coverageOut = nil, reportJson = false, forwarded = {},} as TestArguments
-    local literal = false
-    local index: integer = 1
-    while index <= #args do
-        local argument = args[index]
-        if literal then
-            parsed.forwarded[#parsed.forwarded + 1] = argument
-        elseif argument == "--" then
-            literal = true
-        elseif argument == "--coverage" then
-            if parsed.coverage then
-                return parsed, "option --coverage was specified more than once"
-            end
-            parsed.coverage = true
-        elseif argument == "--report-json" then
-            if parsed.reportJson then
-                return parsed, "option --report-json was specified more than once"
-            end
-            parsed.reportJson = true
-        elseif argument == "--coverage-out" then
-            if parsed.coverageOut ~= nil then
-                return parsed, "option --coverage-out was specified more than once"
-            end
-            index = index + 1
-            if args[index] == nil then
-                return parsed, "option --coverage-out needs DIR"
-            end
-            parsed.coverageOut = args[index]
-        else
-            local out = argument:match("^%-%-coverage%-out=(.*)$")
-            if out ~= nil then
-                if parsed.coverageOut ~= nil then
-                    return parsed, "option --coverage-out was specified more than once"
-                end
-                parsed.coverageOut = out
-            else
-                parsed.forwarded[#parsed.forwarded + 1] = argument
-            end
-        end
-        index = index + 1
-    end
-    if parsed.coverageOut ~= nil and not parsed.coverage then
-        return parsed, "--coverage-out requires --coverage"
-    end
-    if parsed.reportJson and not parsed.coverage then
-        return parsed, "--report-json requires --coverage"
-    end
-    if parsed.reportJson and #parsed.forwarded > 0 then
-        return parsed, "--report-json does not run tests or accept test arguments"
-    end
-
-    return parsed
-end
 
 local function asksForJson(args: {string}): boolean
     for _, argument in ipairs(args) do
@@ -387,16 +252,16 @@ local function applyTestColor(args: {string}): integer?
         end
     end
     if color ~= nil then
-        ansi.setMode(color)
+        ansi.setColorMode(color as ansi.ColorMode)
     end
 
     return nil
 end
 
-local function runCoverage(parsed: TestArguments): integer
+local function runCoverage(options: any): integer
     local fs = require("nupp.compiler.fs")
-    local outDir = parsed.coverageOut or "build/reports/coverage"
-    if parsed.reportJson then
+    local outDir = options.coverageOut or "build/reports/coverage"
+    if options.reportJson then
         local existing, err = fs.readFile(outDir .. "/coverage.json")
         if not existing then
             io.stderr:write(
@@ -417,7 +282,7 @@ local function runCoverage(parsed: TestArguments): integer
         return 1
     end
     local project = require("nupp.compiler.build.project")
-    local testCode = project.test(".", parsed.forwarded, {
+    local testCode = project.test(".", options.arguments, {
         coverage = true,
         outDir = buildDir,
         env = {NUPP_COVERAGE = "1", NUPP_COVERAGE_BUILD = buildDir, NUPP_COVERAGE_FILE = raw}
@@ -425,7 +290,7 @@ local function runCoverage(parsed: TestArguments): integer
     local report = require("nupp.compiler.coverage")
     local model = report.collect(buildDir .. "/.nupp-state.json", raw)
     local summary = report.write(model, outDir)
-    local output = asksForJson(parsed.forwarded) and io.stderr or io.stdout
+    local output = asksForJson(options.arguments) and io.stderr or io.stdout
     output:write(
         (
             "coverage: lines %.2f%%, functions %.2f%%, branches %.2f%%\n"
@@ -440,25 +305,63 @@ local function runCoverage(parsed: TestArguments): integer
     return testCode
 end
 
-local function run(args: any): integer
-    if args[1] == "--internal-runner" then
-        table.remove(args, 1)
-        return require("nupp.compiler.cli.testrunner").run(args)
-    end
-    local parsed, problem = parseTestArguments(args)
-    if problem ~= nil then
-        return command:usageError(problem)
-    end
-    local colorCode = applyTestColor(parsed.forwarded)
-    if colorCode ~= nil then
-        return colorCode
-    end
-    if parsed.coverage then
-        return runCoverage(parsed)
-    end
-    local project = require("nupp.compiler.build.project")
+--- Build and run project tests.
+---
+--- Coverage options belong to Nupp. Every other argument is preserved in
+--- order for the bundled runner or the project's configured test command.
+--- The bundled runner accepts suite names, `--json`, `--verbose`, `--jobs=N`,
+--- repeated `--group=NAME`, `--exclude=SUITE`, `--exclude-group=NAME`, one of
+--- `--lane=shared|shell|isolated`, `--list-suites`, `--list-groups`, and
+--- `--timings[=N]`. Those remain forwarded arguments rather than fields of
+--- this command because a project may configure a different test executable.
+---
+--- Coverage uses `build/coverage` without changing the ordinary build cache
+--- and writes under `build/reports/coverage` by default. `--report-json` reads
+--- that report without rebuilding or rerunning tests.
+@cli(name = "test", parent = root.Root, preserveUnknown = true)
+@derive(cliModule.Command)
+local record Test
+    --- Run against a separately instrumented build.
+    coverage: boolean = false
 
-    return project.test(".", parsed.forwarded)
+    --- Directory for coverage HTML, JSON, and LCOV files.
+    @cli(value = "DIR")
+    coverageOut: string?
+
+    --- Print an existing coverage report without running tests.
+    reportJson: boolean = false
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Arguments owned by the selected test command.
+    @cli(remainder = true, value = "ARG")
+    arguments: {string} = {}
+
+    function run(self): integer
+        if self.arguments[1] == "--internal-runner" then
+            local runnerArguments: {string} = {}
+            for index = 2, #self.arguments do
+                runnerArguments[#runnerArguments + 1] = self.arguments[index]
+            end
+            return require("nupp.compiler.cli.testrunner").run(runnerArguments)
+        end
+        if self.coverageOut ~= nil and not self.coverage then
+            return usageError("--coverage-out requires --coverage")
+        elseif self.reportJson and not self.coverage then
+            return usageError("--report-json requires --coverage")
+        elseif self.reportJson and #self.arguments > 0 then
+            return usageError("--report-json does not run tests or accept test arguments")
+        end
+        local colorCode = applyTestColor(self.arguments)
+        if colorCode ~= nil then
+            return colorCode
+        elseif self.coverage then
+            return runCoverage(self)
+        end
+
+        return require("nupp.compiler.build.project").test(".", self.arguments)
+    end
 end
 
-export = new spec.Handler(spec = command, raw = true, run = run)
+export = {commandType = Test, schema = REPORT_SCHEMA}

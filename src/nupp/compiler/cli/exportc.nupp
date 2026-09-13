@@ -2,33 +2,20 @@ module nupp.compiler.cli.exportc
 
 -- `nupp export-c`: canonical C declarations for ordinary Nupp structs.
 
-local spec = require("nupp.compiler.cli.spec")
-local optionsMod = require("nupp.compiler.cli.options")
+local usageError = require("nupp.compiler.cli.error").forCommand("export-c")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "export-c",
-    summary = "Export canonical C declarations for Nupp structs",
-    usage = {
-        "nupp export-c -o FILE [--target NAME] [--format text|json] " .. "<source.nupp>... <module.Declaration>..."
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        ok = {type = "boolean"},
+        output = {type = "string"},
+        target = {type = "string"},
+        declarations = {type = "array", items = {type = "string"}},
+        diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
     },
-    options = optionsMod.join(
-        {names = {"-o", "--output"}, value = "FILE", key = "output", help = "Write the generated header to FILE"},
-        {name = "--target", value = "NAME", help = "Use a named manifest build target"},
-        optionsMod.format()
-    ),
-    schema = {
-        type = "object",
-        properties = {
-            ok = {type = "boolean"},
-            output = {type = "string"},
-            target = {type = "string"},
-            declarations = {type = "array", items = {type = "string"}},
-            diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
-        },
-        required = {"ok", "target", "declarations", "diagnostics"},
-    },
-    detail = [[The selected build target supplies layoutTarget. When it has none, the
-compiler host is used. Header generation itself invokes no C compiler.]],
+    required = {"ok", "target", "declarations", "diagnostics"},
 }
 
 -- Every node of one tree, with whatever the visitor needs carried alongside rather
@@ -59,10 +46,11 @@ local function diagnostic(path: string, node: any, code: string, message: string
     }
 end
 
-local function run(parsed: any): integer
+local function run(options: any): integer
+    local positional: {string} = options.inputs
     local fs = require("nupp.compiler.fs")
     local paths, selections = {}, {}
-    for _, value in ipairs(parsed.positional as {string}) do
+    for _, value in ipairs(positional as {string}) do
         if fs.exists(value) then
             paths[#paths + 1] = value
         else
@@ -70,11 +58,11 @@ local function run(parsed: any): integer
         end
     end
     if #paths == 0 or #selections == 0 then
-        return command:usageError("at least one source file and one selected declaration are required")
+        return usageError("at least one source file and one selected declaration are required")
     end
-    local output = parsed.values.output
+    local output = options.output
     if not output then
-        return command:usageError("-o FILE is required")
+        return usageError("-o FILE is required")
     end
 
     local manifest = require("nupp.compiler.build.manifest")
@@ -83,7 +71,7 @@ local function run(parsed: any): integer
         io.stderr:write("nupp: " .. tostring(configErr) .. "\n")
         return 1
     end
-    local target, targetErr = require("nupp.compiler.build.tasks").targetConfig(config, parsed.values.target)
+    local target, targetErr = require("nupp.compiler.build.tasks").targetConfig(config, options.target)
     if not target then
         io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
         return 1
@@ -250,7 +238,7 @@ local function run(parsed: any): integer
         end
     end
 
-    if parsed.values.format == "json" then
+    if options.format == "json" then
         reportMod.write({
             ok = not failed,
             output = not failed and output or nil,
@@ -268,4 +256,32 @@ local function run(parsed: any): integer
     return failed and 1 or 0
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Export canonical C declarations for Nupp structs.
+@cli(name = "export-c", parent = root.Root)
+@derive(cliModule.Command)
+local record ExportC
+    --- Write the generated header to this file.
+    @cli(short = "o", value = "FILE")
+    output: string
+
+    --- Use a named manifest build target.
+    @cli(value = "NAME")
+    target: string?
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Source files and declarations to export.
+    @cli(positional = "INPUT")
+    inputs: {string}
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = ExportC, schema = REPORT_SCHEMA}

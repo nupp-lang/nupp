@@ -25,9 +25,9 @@ terminal, because a build's output has been quiet on success for as long as
 there have been build scripts reading it, and `--quiet` and `NUPP_PROGRESS` are
 there to overrule the guess in either direction.
 ]]
-const {type Style} = require("nupp.compiler.ansi")
+const {type Style} = require("nupp.cli")
 
-local ansi = require("nupp.compiler.ansi")
+local ansi = require("nupp.cli")
 
 local progress = {}
 
@@ -87,7 +87,7 @@ const progress.SLOWEST = 5
 -- the disk, and none of that is this process's CPU time however long the user spends
 -- watching it. LuaJIT has no wall clock of its own beyond `os.time`, whose one-second
 -- resolution would report most builds as zero, so this goes through the FFI and is
--- guarded at every step the way `nupp.compiler.ansi` guards `isatty`: a build must not
+-- guarded at every step the way `nupp.cli` guards `isatty`: a build must not
 -- fail to start because a timer could not be declared. The fallback is CPU time, which
 -- is wrong in the direction of being too small and is still better than nothing.
 local function makeClock(): function(): number
@@ -393,8 +393,8 @@ record progress.Reporter
         if measured.specializedBodies > 0 then
             counts = counts .. (", %d specialized"):format(measured.specializedBodies)
         end
-        local success = ansi.forSeverity(style, "help")
-        local detail = ansi.forSeverity(style, "note")
+        local success = ansi.severity(style, "help")
+        local detail = ansi.severity(style, "note")
         self.stream:write(
             (
                 "%s in %s: %s\n"
@@ -448,7 +448,7 @@ function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
         showing = showing,
         -- Rewriting a line needs the escapes that colour needs, so one answer settles
         -- both. A terminal that has said it cannot take them gets a line per step.
-        rewriting = showing and ansi.enabled(target),
+        rewriting = showing and ansi.colorEnabled(target),
         style = ansi.style(target),
         startedAt = started,
         activity = "other",

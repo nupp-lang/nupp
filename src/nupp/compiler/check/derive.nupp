@@ -1073,7 +1073,16 @@ function derive.install(c: state.Checker): derive.Ops
                             true
                         ) then
                             recipe.provider = provider.identity
-                            recipe.interface = contract and contract.id or nil
+                            -- A nominal's numeric id is process-local. Putting it in
+                            -- emitted derive metadata made each self-hosting stage
+                            -- differ when compiler-owned records first derived a
+                            -- package interface. The resolver has already retained
+                            -- the stable source spelling used to claim the contract.
+                            recipe.interface = contract and (
+                                item.stat.deriveInterfaceRuntimeNames and item.stat.deriveInterfaceRuntimeNames[
+                                    contract
+                                ] or contract.name
+                            ) or nil
                             recipe.signature = T.tostring(callable)
                             recipe.paramNames = callable.paramNames
                             if recipe.helper.module == c.result.moduleName and c.moduleLocal then

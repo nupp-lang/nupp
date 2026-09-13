@@ -2,53 +2,34 @@ module nupp.compiler.cli.migrate
 
 -- `nupp migrate`: one extension-dispatched path from foreign source facts into Nupp.
 
-local spec = require("nupp.compiler.cli.spec")
-local options = require("nupp.compiler.cli.options")
+local usageError = require("nupp.compiler.cli.error").forCommand("migrate")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "migrate",
-    summary = "Migrate typed foreign source into gradual Nupp",
-    usage = {"nupp migrate [--check] [--json] [--dialect auto|luacats|emmy|luadoc] FILE..."},
-    options = options.join(
-        {name = "--check", help = "Print the migration plan without changing files"},
-        {
-            name = "--dialect",
-            value = "DIALECT",
-            choices = {"auto", "luacats", "emmy", "luadoc"},
-            help = "Resolve ambiguous comment spellings for this migration (default auto)"
-        },
-        options.format()
-    ),
-    schema = {
-        type = "object",
-        properties = {
-            ok = {type = "boolean"},
-            check = {type = "boolean"},
-            migrations = {
-                type = "array",
-                items = {
-                    type = "object",
-                    properties = {
-                        source = {type = "string"},
-                        destination = {type = "string"},
-                        dialect = {type = "string"},
-                        text = {type = "string"},
-                        edits = {type = "array", items = {type = "object"}},
-                        warnings = {type = "array", items = {type = "object"}},
-                        written = {type = "boolean"},
-                    },
-                    required = {"source", "destination", "dialect", "edits", "warnings", "written"},
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        ok = {type = "boolean"},
+        check = {type = "boolean"},
+        migrations = {
+            type = "array",
+            items = {
+                type = "object",
+                properties = {
+                    source = {type = "string"},
+                    destination = {type = "string"},
+                    dialect = {type = "string"},
+                    text = {type = "string"},
+                    edits = {type = "array", items = {type = "object"}},
+                    warnings = {type = "array", items = {type = "object"}},
+                    written = {type = "boolean"},
                 },
+                required = {"source", "destination", "dialect", "edits", "warnings", "written"},
             },
-            errors = {type = "array", items = {type = "string"}},
         },
-        required = {"ok", "check", "migrations", "errors"},
+        errors = {type = "array", items = {type = "string"}},
     },
-    detail = [[The file extension selects the migrator. Annotated `.lua` becomes the
-same module at `.g.nupp`; unsupported extensions are refused rather than guessed.
-
-Without --check, the destination is written atomically and checked before the source
-is removed. An existing destination is never replaced.]],
+    required = {"ok", "check", "migrations", "errors"},
 }
 
 local function publicPlan(plan: any, written: boolean, includeText: boolean): any
@@ -63,14 +44,15 @@ local function publicPlan(plan: any, written: boolean, includeText: boolean): an
     }
 end
 
-local function run(parsed: any): integer
-    local paths: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = options.files
+    local paths: {string} = positional
     if #paths == 0 then
-        return command:usageError("at least one source file is required")
+        return usageError("at least one source file is required")
     end
-    local asJson = parsed.values.format == "json"
-    local asking = parsed.values.check and true or false
-    local dialect = parsed.values.dialect or "auto"
+    local asJson = options.format == "json"
+    local asking = options.check and true or false
+    local dialect = options.dialect or "auto"
     local fs = require("nupp.compiler.fs")
     local planner = require("nupp.compiler.migrate")
     local plans, errors = {}, {}
@@ -180,4 +162,34 @@ local function run(parsed: any): integer
     return #errors == 0 and 0 or 1
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Migrate typed foreign source into gradual Nupp.
+---
+--- Without --check, each destination is checked and written atomically before
+--- its source is removed. Existing destinations are never replaced.
+@cli(name = "migrate", parent = root.Root)
+@derive(cliModule.Command)
+local record Migrate
+    --- Print the migration plan without changing files.
+    check: boolean = false
+
+    --- Resolve ambiguous comment annotations for this migration.
+    @cli(value = "DIALECT")
+    dialect: "auto" | "luacats" | "emmy" | "luadoc" = "auto"
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Files to migrate.
+    @cli(positional = "FILE")
+    files: {string}
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Migrate, schema = REPORT_SCHEMA}

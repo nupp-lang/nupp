@@ -1,0 +1,12 @@
+module tests.fixtures.cliconflictinvalid
+
+local cli = require("nupp.cli")
+
+@derive(cli.Arguments)
+local record Conflicting
+    @cli("same")
+    first: boolean = false
+
+    @cli("same")
+    second: boolean = false
+end

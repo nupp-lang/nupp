@@ -179,38 +179,29 @@ print(greet.greet("world"))
 ### `init`
 
 ```text [nupp init --help]
-Create a project from a template
+Create a project from a template.
 
 Usage:
-  nupp init [TEMPLATE] [DIRECTORY]
-  nupp init --from PATH [DIRECTORY]
-  nupp init --list
+  nupp init [options] [TEMPLATE] [DIRECTORY]
+
+Arguments:
+  TEMPLATE   Template name or repository.
+  DIRECTORY  Destination directory.
 
 Options:
-  --name NAME      Project name; defaults to the directory basename
-  --set KEY=VALUE  Set a template variable; may be given more than once
-  --from PATH      Use a template directory on disk
-  --rev REV        Commit, tag or branch for a repository template
-  --list           List the built-in templates and exit
-  --yes            Do not ask before writing a repository template
-  --dry-run        Print what would be written and write nothing
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
+  --name NAME      Project name; defaults to the directory basename.
+  --set KEY=VALUE  Set a template variable.
+  --from PATH      Use a template directory on disk.
+  --rev REV        Commit, tag, or branch for a repository template.
+  --list           List built-in templates and exit.
+  --yes            Do not ask before writing a repository template.
+  --dry-run        Print what would be written and write nothing.
+  --format FORMAT, --json, --text
+                   Select the report representation.
+  --schema         Print the JSON Schema of JSON output and exit.
   -h, --help       Show this help
-
-With no TEMPLATE, the built-in `app`. A name with no slash is a built-in,
-a path beginning with `.`, `/` or `~` is a directory, and `owner/repo`, optionally
-followed by a path within it and by `@rev`, is a repository on GitHub; a full URL is
-used as given.
-
-A repository template is fetched with git, named by the commit it resolved to, and
-confirmed before anything is written. Its post-init steps are reduced to `git init`:
-`check`, `build` and `test` all load the scaffolded `nupp.lua`, which is ordinary
-unrestricted Lua, so running them would execute code that was just downloaded.
+  --color[=WHEN]   When to color output: always, never, or auto
+  --no-color       Never color output
 ```
 
 The built-in templates travel inside the compiler, so this works with no network
@@ -326,24 +317,24 @@ decoration.
 ### `ast`
 
 ```text [nupp ast --help]
-Dump a Nupp file's parsed syntax tree
+Dump a Nupp file's parsed syntax tree.
+
+The lossless tree includes structural children, tokens, trivia, locations,
+and parse errors.
 
 Usage:
-  nupp ast [--format text|json] <file>
+  nupp ast [options] FILE
+
+Arguments:
+  FILE  Source file to parse.
 
 Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
-
-The parser produces a lossless concrete syntax tree. Text output is an indented
-outline with quoted tokens; JSON includes structural children, tokens, trivia,
-locations, and parse errors. A recovered tree is still printed when parsing
-fails.
+  --format FORMAT, --json, --text
+                  Select the report representation.
+  --schema        Print the JSON Schema of JSON output and exit.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 The tree is the one [grammar.md](grammar.md) defines, kept lossless down to
@@ -394,31 +385,27 @@ chunk
 ### `aot`
 
 ```text [nupp aot --help]
-Show what the @aot functions in a file compile to
+Show what the @aot functions in a file compile to.
 
 Usage:
-  nupp aot [--emit ir|c|spirv|wgsl|asm|binding] [--check] [--function NAME] [--target TRIPLE] [--features TIER] <file>
+  nupp aot [options] FILE
 
-Reports what the ahead-of-time backend produces for one file, without writing it. A native build emits the same artifacts under `aot = "emit-c"` or `aot = "require"`; Lua 5.1 Wasm applications use `emit-wasm` or `require-wasm`.
+Arguments:
+  FILE  Source file to inspect.
 
 Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --emit ARTIFACT  Print one artifact: ir, c, spirv, wgsl, asm, or binding
-  --function NAME  Show only this function, named as the source or the symbol
-                   spells it
-  --check          Exit non-zero for a map loop that wanted lanes and ran one
-                   iteration at a time
-  --target TRIPLE  The target triple to compile for; the host's by default
-  --features TIER  The CPU feature tier to promise: baseline, avx2, avx512f,
-                   neon, scalar, or simd128
-  --library PATH   Where the compiled object will be found, for the generated
-                   binding
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
+  --emit ARTIFACT  Artifact to print.
+  --function NAME  Show only this function.
+  --check          Exit non-zero when a loop wanted lanes and remained scalar.
+  --target TRIPLE  Target triple to compile for.
+  --features TIER  CPU feature tier to promise.
+  --library PATH   Compiled object path used by a generated binding.
+  --format FORMAT, --json, --text
+                   Select the report representation.
+  --schema         Print the JSON Schema of JSON output and exit.
   -h, --help       Show this help
+  --color[=WHEN]   When to color output: always, never, or auto
+  --no-color       Never color output
 ```
 
 The bare command says what the backend decided for every `@aot` function in the
@@ -496,59 +483,50 @@ for how a gang is chosen and for the tiers `--features` names.
 ### `bc`
 
 ```text [nupp bc --help]
-Show the bytecode a Nupp file compiles to
+Show the bytecode a Nupp file compiles to.
+
+Source lines are shown beside their instructions. `--check` identifies
+operations which prevent a containing loop from being recorded by LuaJIT.
 
 Usage:
-  nupp bc [--check] [--prologue] [--format text|json] <file>
+  nupp bc [options] FILE
+
+Arguments:
+  FILE  Source file to inspect.
 
 Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --check          Report bytecode a loop cannot compile, and exit non-zero for
-                   it
-  --prologue       Include the generated runtime preamble, folded away by
-                   default
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
-
-Source lines are shown against the instructions they produced. The generated
-runtime preamble all lands on line 1 and is folded away unless `--prologue`
-asks for it.
-
-`--check` marks every instruction LuaJIT cannot record that sits inside a loop.
-It exits 1 when every repeatable path reaches one, because that loop cannot
-complete a root trace. A blocker reached on only some paths remains visible as
-advice without claiming every path stays interpreted.
+  --format FORMAT, --json, --text
+                  Select the report representation.
+  --check         Report bytecode a loop cannot compile.
+  --prologue      Include the generated runtime preamble.
+  --schema        Print the JSON Schema of JSON output and exit.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 Generated Lua keeps source line numbers one to one, so the listing shows the
-file that was written rather than the file that was generated. Instructions sit
-under the line they came from and a body is nested under the line that declares
-it, so the listing reads down the source rather than down the bytecode, and the
-functions the runtime preamble built fold away with it:
+file that was written rather than the file that was generated:
 
 ```text [nupp bc src/greet.nupp]
--- chunk, lines 0-7
-     ... 65 instructions of runtime preamble, in 1 function
-    2 | local function greet(name: string): string
-  -- function, lines 2-4
-      2 | local function greet(name: string): string
+-- chunk, lines 0-6
+     ... 44 instructions of runtime preamble
+    3 | end
+      0044  FNEW     4   7      ; greet.nupp:1
+    5 | return {greet = greet}
+      0045  TDUP     5   8
+      0046  TSETS    4   5   9  ; "greet"
+      0047  UCLO     0 => 0048
+      0048  RET1     5   2
+
+  -- function, lines 1-3
+      1 | local function greet(name: string): string
         0000  FUNCF    3 
-      3 |     return "Hello, " .. name
+      2 |     return "Hello, " .. name
         0001  KSTR     1   0      ; "Hello, "
         0002  MOV      2   0
         0003  CAT      1   1   2
         0004  RET1     1   2
-    4 | end
-      0046  FNEW     4  16      ; greet.nupp:2
-    6 | return {greet = greet}
-      0047  TDUP     5  17
-      0048  TSETS    4   5  18  ; "greet"
-      0049  UCLO     0 => 0050
-      0050  RET1     5   2
 ```
 
 Building a function is the usual thing `--check` finds. LuaJIT has no recording
@@ -575,26 +553,28 @@ what this reads.
 ### `check`
 
 ```text [nupp check --help]
-Type-check source without emitting Lua
+Type-check source without emitting Lua.
+
+With no files, checks the configured project target. Named files are
+checked with project context when available.
 
 Usage:
-  nupp check [--strict] [--dialect DIALECT] [--target NAME] [--platform NAME|all] [--format text|json] [file...]
+  nupp check [options] [FILE...]
+
+Arguments:
+  FILE  Source files to check.
 
 Options:
-  --strict           Treat strict checker rules as errors
-  --dialect DIALECT  Source-lowering dialect: luajit (default), luajit-compat
-                     or lua51
-  --target NAME      Check a named manifest target
-  --platform NAME    Check one configured binary platform, or all
-  --format FORMAT    Output format: text (default) or json
-  --json             Shorthand for --format json
-  --text             Shorthand for --format text
-  --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to color output: always, never, or auto (default)
-  --no-color         Never color output; the same as --color=never
+  --strict           Treat strict checker rules as errors.
+  --dialect DIALECT  Source-lowering dialect.
+  --target NAME      Check a named manifest target.
+  --platform NAME    Check one configured binary platform, or all.
+  --format FORMAT, --json, --text
+                     Select the report representation.
+  --schema           Print the JSON Schema of JSON output and exit.
   -h, --help         Show this help
-
-With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/reference/diagnostics.md.
+  --color[=WHEN]     When to color output: always, never, or auto
+  --no-color         Never color output
 ```
 
 A file's extension decides the floor it is held to, with `.nupp` strict and
@@ -698,54 +678,28 @@ no account of itself to give.
 ### `fmt`
 
 ```text [nupp fmt --help]
-Format Nupp source
+Format Nupp source.
+
+With named files, formats each to stdout or rewrites it. With none, reports
+files in the project which are not formatted.
 
 Usage:
-  nupp fmt [-w|--write] [--check] [--no-method-parens] [--width N] [--format text|json] [file...]
+  nupp fmt [options] [FILE...]
 
-With files named, each is formatted to stdout, or rewritten with --write.
-
-With none, the project is the subject: every .nupp and .d.nupp under the
-manifest's include roots, minus the build output. The files that are not
-formatted are listed and the exit status is 1, so a build can gate on it;
---write formats them and lists what it changed.
-
---check asks that question of whatever it was given, so a build can gate on
-the files a change touched. Nothing is written and nothing goes to stdout but
-the list; the exit status is 1 if it is not empty.
+Arguments:
+  FILE  Source files to format.
 
 Options:
-  -w, --write         Rewrite files in place instead of writing to stdout
-  --check             Report which files are not formatted; write nothing
-  --no-method-parens  Leave obj:m{...} and obj:m"..." written without
-                      parentheses, instead of adding them
-  --width N           Code column past which a line breaks, at least 20
-                      (default 120)
-  --format FORMAT     Output format: text (default) or json
-  --json              Shorthand for --format json
-  --text              Shorthand for --format text
-  --schema            Print the JSON Schema of --json output and exit
-  --color[=WHEN]      When to color output: always, never, or auto (default)
-  --no-color          Never color output; the same as --color=never
+  --write, -w         Rewrite files in place instead of writing to stdout.
+  --check             Report files which are not formatted and write nothing.
+  --no-method-parens  Preserve method-call sugar without parentheses.
+  --width N           Code column after which a line may break.
+  --format FORMAT, --json, --text
+                      Select the report representation.
+  --schema            Print the JSON Schema of JSON output and exit.
   -h, --help          Show this help
-
---json always reports the list, whichever form was asked for, and separates a
-file that could not be formatted from one that merely is not.
-
-Absolute references to declared modules and their types become explicit local
-imports. Module operations use a module binding; type-only references use an
-erased selection. Declarations used in both positions receive value and type bindings.
-Name collisions receive a numeric suffix. Compiler intrinsics and explicit require
-calls keep their spelling and placement.
-
-A method call left in its sugar form, obj:m{...} or obj:m"...", is given its
-parentheses back, obj:m({...}) and obj:m("..."). --no-method-parens leaves it
-as written, and so does a manifest with fmt = { methodParens = false }; the
-flag wins if both are given.
-
---width sets the code column past which a line breaks; the default is 120,
-unchanged from before this was a flag. Docblock text keeps wrapping at 88
-columns regardless.
+  --color[=WHEN]      When to color output: always, never, or auto
+  --no-color          Never color output
 ```
 
 With a file named, the formatted source goes to stdout. Given an unformatted
@@ -788,57 +742,43 @@ See [fmt.md](../learn/tooling/formatter.md) for the rules the formatter applies 
 ### `build`
 
 ```text [nupp build --help]
-Build source files or a configured project target
+Build source files or a configured project target.
+
+With files, emits those modules and their dependencies. Without files,
+builds the manifest's default or selected target.
+Manifest target options cannot be combined with explicit source files.
+The optimization level is part of the build key, so changing it rebuilds
+rather than mixing artifacts compiled at two levels. JSON output carries
+diagnostics, written artifacts, materialization facts, and timing data.
+Progress and timing stay on standard error so machine-readable standard
+output remains one document.
 
 Usage:
-  nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--standalone] [--out-dir DIR] [-q] [--format text|json]
-  nupp build [--strict] [--dialect DIALECT] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>
+  nupp build [options] [FILE...]
+
+Arguments:
+  FILE  Source files to build.
 
 Options:
-  --target NAME      Build a named manifest target
-  --platform NAME    Build one configured binary platform, or all
-  --standalone       Link native FFI and AOT code into the binary host
-  --out-dir DIR      Override the manifest target's output directory
-  -o DIR             Output directory for explicit source-file builds
-  --strict           Treat strict checker rules as errors
-  --dialect DIALECT  Source-lowering dialect: luajit (default), luajit-compat
-                     or lua51
-  -O0, -O1, -O2      Optimization level; ad-hoc builds default to -O0,
-                     deliverable targets to -O2
-  --remarks          Report what the optimizer did and what it declined to do
-  --remarks-out      Write the optimizer's account of this build to
-                     build/remarks.json
-  -Zno-opt=CODE      Turn off one pass, named by its stable code, to bisect a
-                     miscompile. Unstable: the spelling may change or go away
-  --progress[=WHEN]  When to report progress and timing on standard error:
-                     always, never, or auto (default), which reports only to a
-                     terminal
-  -q, --quiet        Report no progress or timing; the same as --progress=never
-  --format FORMAT    Output format: text (default) or json
-  --json             Shorthand for --format json
-  --text             Shorthand for --format text
-  --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to color output: always, never, or auto (default)
-  --no-color         Never color output; the same as --color=never
+  --target NAME      Build a named manifest target.
+  --platform NAME    Build one configured binary platform, or all.
+  --standalone       Link native FFI and AOT code into the binary host.
+  --out-dir DIR      Override the manifest target's output directory.
+  -o DIR             Output directory for explicit source-file builds.
+  --strict           Treat strict checker rules as errors.
+  --dialect DIALECT  Source-lowering dialect.
+  -O0, -O1, -O2      Optimization level.
+  --remarks          Report what the optimizer did and what it declined to do.
+  --remarks-out      Write the optimizer's account to build/remarks.json.
+  -Zno-opt=CODE      Turn off one optimizer pass by stable code.
+  --progress[=WHEN], -q, --quiet
+                     When to report progress and timing.
+  --format FORMAT, --json, --text
+                     Select the report representation.
+  --schema           Print the JSON Schema of JSON output and exit.
   -h, --help         Show this help
-
-Manifest target options cannot be combined with explicit source files.
-Use 'nupp tasks' to discover target names and configuration.
-
-The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See docs/learn/performance/index.md.
-
---json reports the same diagnostics as 'nupp check --json' alongside what the
-build wrote, so one call answers both what went wrong and what landed. It also
-reports bounded materialization facts: provider, schema, fingerprint, backend,
-sizes, runtime features and ABI versions, and a timing object saying where the
-build's wall-clock time went and which modules cost the most of it.
-
-To a terminal, a build says which module it is on while it compiles and then
-how long it took, what it spent that on, and its slowest modules. To anything
-else it stays quiet, so a script reading the output sees what it always saw.
-NUPP_PROGRESS says what --progress says, for the builds nothing passes a flag
-to -- including the rebuild bin/nupp runs before every other command.
+  --color[=WHEN]     When to color output: always, never, or auto
+  --no-color         Never color output
 ```
 
 #### Output directories
@@ -946,25 +886,24 @@ versions.
 ### `clean`
 
 ```text [nupp clean --help]
-Remove build outputs configured in nupp.lua
-
-Usage:
-  nupp clean [--target NAME] [--platform NAME|all] [--dry-run] [--format text|json]
-
-Options:
-  --target NAME    Clean only the named build target
-  --platform NAME  Clean one configured binary platform, or all
-  --dry-run        Print output paths without removing them
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
+Remove build outputs configured in nupp.lua.
 
 With no target, cleans every configured target output. Paths outside the
 project and paths that resolve to the project root are always rejected.
+
+Usage:
+  nupp clean [options]
+
+Options:
+  --target NAME    Clean only the named build target.
+  --platform NAME  Clean one configured binary platform, or all.
+  --dry-run        Print output paths without removing them.
+  --format FORMAT, --json, --text
+                   Select the report representation.
+  --schema         Print the JSON Schema of JSON output and exit.
+  -h, --help       Show this help
+  --color[=WHEN]   When to color output: always, never, or auto
+  --no-color       Never color output
 ```
 
 `--dry-run` names the paths and removes nothing, which is how to see what a
@@ -986,52 +925,37 @@ leaves in the output directory.
 ### `bench`
 
 ```text [nupp bench --help]
-Run isolated benchmark programs
+Run isolated benchmark programs.
+
+Selectors are Lua string patterns. Repeated patterns within one dimension
+are alternatives; the command interprets and validates those strings.
 
 Usage:
-  nupp bench [--list] [--file PATH] [selectors] [options]
+  nupp bench [options]
 
 Options:
-  --list                List benchmark names and source files without running
-  --file PATH           Inspect and run only one benchmark program
-  --case PATTERN        Run logical case names matching a Lua pattern; repeat
-                        for alternatives
-  --parameter PATTERN   Run parameter text matching a Lua pattern; repeat for
-                        alternatives
-  --variant PATTERN     Run variant names matching a Lua pattern; repeat for
-                        alternatives
-  --geo                 Include geometric-mean variant comparisons in the final
-                        report
-  --timeout-ms INTEGER  Child deadline in milliseconds (default 120000)
-  --profile DIR         Write one measured-window collapsed-stack profile per
-                        case
+  --list                List benchmark names and source files without running.
+  --file PATH           Inspect and run only one benchmark program.
+  --case PATTERN        Run logical case names matching a Lua pattern.
+  --parameter PATTERN   Run parameter text matching a Lua pattern.
+  --variant PATTERN     Run variant names matching a Lua pattern.
+  --geo                 Include geometric-mean variant comparisons.
+  --timeout-ms INTEGER  Child deadline in milliseconds.
+  --profile DIR         Write one collapsed-stack profile per case under this
+                        directory.
   --profile-interval-ms INTEGER
-                        Sampling interval in milliseconds (default 1)
+                        Sampling interval in milliseconds.
   --profile-zone PREFIX
-                        Keep profile samples under this zone subtree
-  --baseline PATH       Compare deterministic counters with this baseline
-  --accept              Replace the named baseline after a complete run
-  --history PATH        Append the complete record as one NDJSON line
-  --label TEXT          Attach a label to the record and history entry
-  --json                Write only the merged JSON record to stdout
-  --schema              Print the JSON Schema of --json output and exit
-  --color[=WHEN]        When to color output: always, never, or auto (default)
-  --no-color            Never color output; the same as --color=never
+                        Keep profile samples under this zone subtree.
+  --baseline PATH       Compare deterministic counters with this baseline.
+  --accept              Replace the named baseline after a complete run.
+  --history PATH        Append the complete record as one NDJSON line.
+  --label TEXT          Attach a label to the record and history entry.
+  --json                Write only the merged JSON record to stdout.
+  --schema              Print the JSON Schema of JSON output and exit.
   -h, --help            Show this help
-
-Discovers bench/*.bench.nupp by default. Each file is first asked which
-cases it declares, then every selected case runs under `nupp run -O1` in its own
-process. That boundary keeps heaps, compiled traces and blacklists separate.
-
-Selectors use Lua string patterns and combine across dimensions. Repeated
-patterns in one dimension are alternatives.
-
---profile runs a separate sampling pass around only the measured callback and
-writes collapsed-stack files under DIR. It does not change the reported timing.
-
-The latest merged record is build/bench-record.json. --history appends the same
-record as NDJSON. --baseline gates deterministic allocation and trace-abort
-counters; timing is recorded but never used as a pass/fail gate.
+  --color[=WHEN]        When to color output: always, never, or auto
+  --no-color            Never color output
 ```
 
 The measurement API and authoring guide are in
@@ -1040,23 +964,24 @@ The measurement API and authoring guide are in
 ### `tasks`
 
 ```text [nupp tasks --help]
-List or inspect project tasks from nupp.lua
+List or inspect project tasks from nupp.lua.
+
+With no name, lists build targets plus the test and configured self-host
+actions. With a name, prints the task's effective configuration.
 
 Usage:
-  nupp tasks [--format text|json]
-  nupp tasks <name> [--format text|json]
+  nupp tasks [options] [NAME]
+
+Arguments:
+  NAME  Task to inspect.
 
 Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
-
-With no name, lists build targets plus the test and configured self-host actions.
-With a name, prints the task's effective configuration.
+  --format FORMAT, --json, --text
+                  Select the report representation.
+  --schema        Print the JSON Schema of JSON output and exit.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 The list marks the default build target:
@@ -1091,27 +1016,20 @@ for running one.
 ### `lints`
 
 ```text [nupp lints --help]
-List the lints and the level each runs at
+List the lints and the level each runs at.
+
+Levels are off, note, warning and error; only an error stops a build.
 
 Usage:
-  nupp lints [--format text|json]
-
-Levels are off, note, warning and error; only an error stops a build. A
-project moves one in nupp.lua by name or by category:
-
-  lints = { ["missing-require"] = "warning", style = "off" }
-
-A statement waves one away with @allow("missing-require"). See
-docs/reference/lints.md.
+  nupp lints [options]
 
 Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
+  --format FORMAT, --json, --text
+                  Select the report representation.
+  --schema        Print the JSON Schema of JSON output and exit.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 The text table has no code column; `--json` includes `code`, `default`, and
@@ -1143,22 +1061,25 @@ and [lints.md](lints.md#local-suppressions) for waving one away at a statement.
 ### `ownership-audit`
 
 ```text [nupp ownership-audit --help]
-List foreign pointer contracts and unsafe assertion sites
+List foreign pointer contracts and unsafe assertion sites.
+
+With no files, scans Nupp sources under src. The report enumerates trusted
+C contracts and explicit unsafe regions.
 
 Usage:
-  nupp ownership-audit [--format text|json] [--regions] [file...]
+  nupp ownership-audit [options] [FILE...]
+
+Arguments:
+  FILE  Source files to inspect.
 
 Options:
-  --regions        Include automatic cleanup regions
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
-
-With no files, scans Nupp sources under src. The report enumerates trusted C contracts and explicit unsafe regions; it does not verify foreign implementations.
+  --regions       Include automatic cleanup regions.
+  --format FORMAT, --json, --text
+                  Select the report representation.
+  --schema        Print the JSON Schema of JSON output and exit.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 The report is the list of places where the checker is trusting something it
@@ -1214,28 +1135,25 @@ contract to enumerate.
 ### `explain`
 
 ```text [nupp explain --help]
-Describe a diagnostic code, with an example either way
+Describe a diagnostic code, with an example either way.
+
+A code with no worked example still resolves through its family rather than
+inventing an example to fit it.
 
 Usage:
-  nupp explain <code> [--format text|json]
-  nupp explain --list
+  nupp explain [options] [CODE]
+
+Arguments:
+  CODE  Diagnostic code to explain.
 
 Options:
-  --list           List the codes with a worked example
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
-
-Every diagnostic written by --json carries the same `docs` anchor this
-reports, so a reader holding a diagnostic can reach the reference without
-being told where it is.
-
-A code with no worked example still resolves through its family, and says so
-with `family: true`, rather than an example being invented to fit it.
+  --list          List the codes with a worked example.
+  --format FORMAT, --json, --text
+                  Select the report representation.
+  --schema        Print the JSON Schema of JSON output and exit.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 ```text [nupp explain NUPP2119]
@@ -1270,43 +1188,44 @@ Reference: docs/reference/diagnostics.md#diagnostic-index
 ### `reference`
 
 ```text [nupp reference --help]
-List or print a focused Nupp reference chapter
+List or print a focused Nupp reference chapter.
+
+With no chapter, lists the focused references and their sections. A
+chapter is compiled into the executable and belongs to this compiler.
+`--section` prints one section by heading or documentation pointer, and
+`--for` prints the sections which explain one diagnostic code. Skill output
+puts its short description in the always-loaded frontmatter and the full
+reference in the lazily loaded body.
+
+Examples:
+
+    nupp reference cli
+    nupp reference language
+    nupp reference --section affine-resources
+    nupp reference --section docs/learn/language/modules.md#modules
+    nupp reference --for NUPP2004
+    nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
+    nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
+    nupp reference --format skill -o .claude/skills/nupp/SKILL.md
 
 Usage:
-  nupp reference [language|cli|performance|all] [--format markdown|skill|json] [-o PATH]
-  nupp reference --section NAME | --for CODE
+  nupp reference [options] [CHAPTER]
 
-With no chapter, lists the available focused references and the sections
-inside them. `all` is the complete Nupp reference, meant to be pasted whole.
-
-A chapter is thousands of words. `--section` prints one section, named by its
-heading or by any `docs` pointer at it, and `--for` prints whichever sections
-explain a diagnostic code -- which is what a reader holding one actually has.
-
-  nupp reference cli
-  nupp reference language
-  nupp reference --section affine-resources
-  nupp reference --section docs/learn/language/modules.md#modules
-  nupp reference --for NUPP2004
-  nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
-  nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
-  nupp reference --format skill -o .claude/skills/nupp/SKILL.md
+Arguments:
+  CHAPTER  Reference chapter to print.
 
 Options:
-  --format FORMAT    Output format: markdown (default), skill, or json
-  --skill            Shorthand for --format skill
-  --json             Shorthand for --format json
-  --section NAME     Print one section, by heading or by a docs pointer at it
-  --for CODE         Print whichever sections explain that diagnostic code
-  -o, --output PATH  Write to this file rather than to standard output
-  --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to color output: always, never, or auto (default)
-  --no-color         Never color output; the same as --color=never
-  -h, --help         Show this help
-
-The skill's description is what a harness keeps in context permanently;
-the body loads when something is actually being written. The documentation site
-instead presents the same subjects as focused pages for human browsing.
+  --format FORMAT  Output format.
+  --skill          Shorthand for --format skill.
+  --json           Shorthand for --format json.
+  --section NAME   Print one section, by heading or documentation pointer.
+  --for CODE       Print sections which explain a diagnostic code.
+  --output PATH, -o PATH
+                   Write to this file instead of standard output.
+  --schema         Print the JSON Schema of JSON output and exit.
+  -h, --help       Show this help
+  --color[=WHEN]   When to color output: always, never, or auto
+  --no-color       Never color output
 ```
 
 With no chapter, it lists what there is to print:
@@ -1390,20 +1309,23 @@ are running. Printing it from the binary makes the two the same artifact.
 ### `completions`
 
 ```text [nupp completions --help]
-Print a shell completion script
+Print a shell completion script.
 
 Usage:
-  nupp completions <bash|zsh|fish>
+  nupp completions SHELL
+
+Arguments:
+  SHELL  Shell whose completion script to print.
 
 Options:
-  --color[=WHEN]  When to color output: always, never, or auto (default)
-  --no-color      Never color output; the same as --color=never
   -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
-The script is generated from the same command grammar that parses arguments and
-renders help, so a new command and its options appear in it without a second
-edit. Install it for the shell that runs `nupp`:
+The script is generated from the same derived command records that parse
+arguments and render help, so a new command and its options appear in it
+without a second edit. Install it for the shell that runs `nupp`:
 
 ```bash
 # Bash: add this to ~/.bashrc.
@@ -1417,72 +1339,45 @@ nupp completions fish > ~/.config/fish/completions/nupp.fish
 ```
 
 ```text [nupp completions bash | head -12]
-# Bash completion for nupp; generated from nupp.compiler.cli.spec.
+# Completion for nupp; generated from nupp.cli.
 _nupp() {
-  local cur prev command options
-  cur="${COMP_WORDS[COMP_CWORD]}"
-  prev="${COMP_WORDS[COMP_CWORD - 1]}"
-  if (( COMP_CWORD == 1 )); then
-    COMPREPLY=( $(compgen -W 'init ast aot bc check fmt build clean tasks lints ownership-audit explain reference completions test task doc fixpoint run import-c migrate export-c rock lsp help' -- "$cur") )
-    return 0
-  fi
-  command="${COMP_WORDS[1]}"
-  case "$command" in
-  init)
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=( $(compgen -W '--accept --all --baseline --binary --bridge-out --case --check --color --color=always --color=auto --color=never --coverage --coverage-out --dialect --dry-run --emit --emit-stage0 --features --file --for --format --from --function --geo --help --history --include-declaration --inspect --jit-aborts --json --kind --label --lib --library --list --name --no-color --no-method-parens --only --opt-level --out --out-dir --output --parameter --platform --profile --profile-interval-ms --profile-out --profile-zone --progress --progress=always --progress=auto --progress=never --prologue --quiet --regions --remarks --remarks-out --report-json --rev --root --schema --section --set --skill --standalone --strict --target --text --timeout-ms --title --variant --watch --width --write --yes -O -O0 -O1 -O2 -Zno-opt= -l -o -q -w 0 1 2 actions all aot artifact artifacts asm ast auto bash bc bench binding both build bytecode c check clean cli completions definition doc emmy explain export-c fish fixpoint fmt help implementation import-c init inspect ir json language lints lsp lua lua51 luacats luadoc luajit luajit-compat markdown md migrate ownership-audit pack performance quickfix refactor reference references rename rock run serve server site skill spirv symbols task tasks test text trace-check version wgsl zsh' -- "$cur") )
+}
+complete -F _nupp nupp
 ```
 
 ### `test`
 
 ```text [nupp test --help]
-Build and run project tests
+Build and run project tests.
+
+Coverage options belong to Nupp. Every other argument is preserved in
+order for the bundled runner or the project's configured test command.
+The bundled runner accepts suite names, `--json`, `--verbose`, `--jobs=N`,
+repeated `--group=NAME`, `--exclude=SUITE`, `--exclude-group=NAME`, one of
+`--lane=shared|shell|isolated`, `--list-suites`, `--list-groups`, and
+`--timings[=N]`. Those remain forwarded arguments rather than fields of
+this command because a project may configure a different test executable.
+
+Coverage uses `build/coverage` without changing the ordinary build cache
+and writes under `build/reports/coverage` by default. `--report-json` reads
+that report without rebuilding or rerunning tests.
 
 Usage:
-  nupp test [args...]
-  nupp test --coverage [--coverage-out DIR] [args...]
-  nupp test --coverage --report-json [--coverage-out DIR]
+  nupp test [options] [ARG...]
+
+Arguments:
+  ARG  Arguments owned by the selected test command.
 
 Options:
-  --json                Ask the test command for one JSON document instead of
-                        progress text
-  --verbose             Ask the test command to show output from passing tests
-  --jobs N              Ask the bundled runner to use N parallel workers
-  --coverage            Run against a separate instrumented build and write a
-                        coverage report
-  --coverage-out DIR    Write coverage HTML, JSON, and LCOV files under DIR
-  --report-json         Print an existing full coverage report without running
-                        tests
-  --color[=WHEN]        Color both compiler and test output: always, never, or
-                        auto
-  --no-color            Never color compiler or test output
-  --timings             Ask the test command for its whole timing report rather
-                        than the slowest few. `--timings=N` asks for N rows,
-                        and `--timings=0` for none
-  --group NAME          Run the suites a named group covers. Repeatable, and
-                        comma-separated. `--list-groups` names them
-  --exclude SUITE       Leave these suites out, which is how a later broad run
-                        stops repeating what an earlier focused one already ran
-  --exclude-group NAME  Leave every suite a named group covers out
-  --lane WHICH          Keep only one execution lane: `shared` is what a Nupp
-                        worker can run beside other suites in one process,
-                        `shell` uses a reusable process worker, and `isolated`
-                        needs process-global isolation
-  --list-suites         Print the suites this selection would run, and run none
-                        of them
-  --list-groups         Print every named group and the suites it covers
-  -h, --help            Show this help
-  --schema              Print the JSON Schema of --json output and exit
-
-Additional arguments are appended to the bundled runner or test.argv from
-nupp.lua. `--coverage`, `--coverage-out`, and `--report-json` belong to Nupp;
-use `--` before a test argument with one of those names.
-
---json is passed along to the test command rather than interpreted here, since
-the arguments past this point are that command's. --schema describes what the
-bundled runner writes for it.
-
-Coverage uses build/coverage without changing an ordinary build or its cache,
-and writes its report under build/reports/coverage by default. --report-json
-reads that report without rebuilding or rerunning tests.
+  --coverage          Run against a separately instrumented build.
+  --coverage-out DIR  Directory for coverage HTML, JSON, and LCOV files.
+  --report-json       Print an existing coverage report without running tests.
+  --schema            Print the JSON Schema of JSON output and exit.
+  -h, --help          Show this help
+  --color[=WHEN]      When to color output: always, never, or auto
+  --no-color          Never color output
 ```
 
 These examples run in Nupp's own repository, whose runner takes a suite name.
@@ -1558,18 +1453,24 @@ because a single named suite runs in one.
 ### `task`
 
 ```text [nupp task --help]
-Build, then run a named task from nupp.lua
+Build, then run a named task from nupp.lua.
+
+Runs `tasks.<name>` from nupp.lua: builds `tasks.<name>.build` first when
+it names one, then executes `tasks.<name>.argv` from `tasks.<name>.cwd`
+(the project root by default) with every trailing argument appended. See
+`nupp tasks` for the configured list.
 
 Usage:
-  nupp task <name> [args...]
+  nupp task NAME [ARG...]
+
+Arguments:
+  NAME  Configured task name.
+  ARG   Arguments appended to the configured command.
 
 Options:
-  -h, --help  Show this help
-
-Runs tasks.<name> from nupp.lua: builds tasks.<name>.build first if it names
-one, then execs tasks.<name>.argv from tasks.<name>.cwd (the project root by
-default) with any arguments after <name> appended.
-See `nupp tasks` for the configured list.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 ```text [nupp task greet]
@@ -1583,29 +1484,30 @@ first.
 ### `doc`
 
 ```text [nupp doc --help]
-Generate API documentation from source comments
+Generate API documentation from source comments.
+
+The first argument may name the documentation format. Remaining arguments
+are source paths; with none, the manifest's configured sources are used.
 
 Usage:
-  nupp doc [site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE] [--all] [--format text|json] [path...]
+  nupp doc [options] [KIND] [PATH...]
+
+Arguments:
+  KIND  Documentation output format.
+  PATH  Source paths to document.
 
 Options:
-  -o, --output PATH  Output file or directory
-  --target NAME      Document a named manifest target
-  --title TITLE      Documentation title
-  --all              Include private declarations
-  --format FORMAT    Output format: text (default) or json
-  --json             Shorthand for --format json
-  --text             Shorthand for --format text
-  --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to color output: always, never, or auto (default)
-  --no-color         Never color output; the same as --color=never
-  -h, --help         Show this help
-
-The first argument may name the format: site, markdown (or md), json, or both.
-With none, the manifest's configured format is used, and site if it has none.
-
---format names the shape of this command's own report and is unrelated to the
-documentation format, which is the positional word.
+  --output PATH, -o PATH
+                  Output file or directory.
+  --target NAME   Document a named manifest target.
+  --title TITLE   Documentation title.
+  --all           Include private declarations.
+  --format FORMAT, --json, --text
+                  Select this command's report representation.
+  --schema        Print the JSON Schema of JSON output and exit.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 A successful run writes nothing to the terminal. `--json` names what it wrote:
@@ -1625,35 +1527,20 @@ configuring a documentation target.
 ### `fixpoint`
 
 ```text [nupp fixpoint --help]
-Verify a byte-identical self-hosting rebuild
+Verify a byte-identical self-hosting rebuild.
 
 Usage:
-  nupp fixpoint [--emit-stage0 PATH] [--format text|json]
-  nupp fixpoint --binary [--format text|json]
-
-By default the stage-zero compiler builds stage one, stage one builds
-stage two, stage two builds stage three, and stages two and three must be byte
-identical. Stage zero is a published release rather than a file in the tree, so
-it is meant to differ from the current compiler and nothing compares it with one;
-the first stage is what absorbs that difference.
-
---emit-stage0 writes the stage-zero bundle the verified compiler composes, which
-is the artifact a release publishes for the next checkout to start from.
-
---binary makes the same claim about packaging: the target named by
-selfHost.binary is stamped, and the binary that comes out stamps another
-identical to itself. It is what the payload format's determinism rests on.
+  nupp fixpoint [options]
 
 Options:
-  --emit-stage0 PATH  Write the verified stage-zero bundle here
-  --binary            Verify the packaged binary instead of the compiler
-  --format FORMAT     Output format: text (default) or json
-  --json              Shorthand for --format json
-  --text              Shorthand for --format text
-  --schema            Print the JSON Schema of --json output and exit
-  --color[=WHEN]      When to color output: always, never, or auto (default)
-  --no-color          Never color output; the same as --color=never
+  --emit-stage0 PATH  Write the verified stage-zero bundle here.
+  --binary            Verify the packaged binary instead of the compiler.
+  --format FORMAT, --json, --text
+                      Select the report representation.
+  --schema            Print the JSON Schema of JSON output and exit.
   -h, --help          Show this help
+  --color[=WHEN]      When to color output: always, never, or auto
+  --no-color          Never color output
 ```
 
 Every stage is built into its own directory, and the last two are compared file
@@ -1683,57 +1570,40 @@ this verifies.
 ### `run`
 
 ```text [nupp run --help]
-Compile and run a Nupp or Lua program
+Compile and run a Nupp or Lua program.
+
+The program path divides compiler options from arguments passed to the
+loaded chunk. Profiling and trace-abort reports cover the program only.
+Use `--` before a program path beginning with a dash. `--profile` writes
+collapsed-stack samples, while `--jit-aborts` records where LuaJIT stopped
+tracing. `--watch` is development-only, uses `-O0`, and applies valid
+changed-body patches at cooperative poll boundaries.
 
 Usage:
-  nupp run [--strict] [-O<n>] [--watch] [--profile[=MS]] [--profile-out PATH]
-           [--jit-aborts[=PATH]] [--json] <file> [args...]
+  nupp run [options] FILE [ARG...]
+
+Arguments:
+  FILE  Program to compile and run.
+  ARG   Arguments passed to the program.
 
 Options:
-  --strict             Treat strict checker rules as errors
-  -O0, -O1, -O2        Optimization level; ad-hoc builds default to -O0,
-                       deliverable targets to -O2
-  --remarks            Report what the optimizer did and what it declined to do
-  --remarks-out        Write the optimizer's account of this build to
-                       build/remarks.json
-  -Zno-opt=CODE        Turn off one pass, named by its stable code, to bisect a
-                       miscompile. Unstable: the spelling may change or go away
-  --watch              Keep named function identities patchable at cooperative
-                       poll points
-  --profile[=MS]       Sample the program every MS milliseconds (default 10)
-  --profile-out PATH   Where the samples go (default profile.out)
-  --jit-aborts[=PATH]  Record where the JIT gave up (default jit-aborts.csv)
-  --json               Write --jit-aborts as structured JSON instead of CSV
-  --schema             Print the JSON Schema of --json output and exit
-  --color[=WHEN]       When to color output: always, never, or auto (default)
-  --no-color           Never color output; the same as --color=never
+  --strict             Check the program under the strict floor.
+  -O0, -O1, -O2        Optimization level.
+  --remarks            Report what the optimizer did and what it declined to
+                       do.
+  --remarks-out        Write the optimizer account to build/remarks.json.
+  -Zno-opt=CODE        Turn off one optimizer pass by stable code.
+  --watch              Keep named function identities patchable at poll points.
+  --profile[=MS]       Sample the program, optionally with an attached
+                       interval.
+  --profile-out PATH   File which receives profiling samples.
+  --jit-aborts[=PATH]  Record JIT aborts, optionally naming an attached output
+                       path.
+  --json               Write JIT aborts as JSON rather than CSV.
+  --schema             Print the JSON Schema of JSON output and exit.
   -h, --help           Show this help
-
-Program arguments are passed to the loaded chunk. Use '--' before a file name
-that starts with a dash.
-
---profile writes collapsed-stack text: one line per stack, frames separated by
-semicolons, then the sample count. speedscope.app, FlameGraph.pl and inferno
-all read it directly. Frames are prefixed by the zone path that was open, so a
-program that calls nupp.profile.zone reports itself in its own terms, and the leaf
-carries the VM state most of its samples were in: N compiled, I interpreted,
-C in a C function, G collecting, J compiling.
-
---jit-aborts answers the question a sampler cannot: whether the hot code was
-compiled at all. It writes CSV, one row per place the compiler gave up, with a
-blacklisted trace, permanently demoted to the interpreter, ranked first.
-
-Both cover the program only: the session opens once the file has compiled and
-closes when it returns, so the compiler's own work stays out of the report. A
-program that fails still writes what was collected before it did. Each reports
-a summary line on stderr.
-
---watch is development-only and always uses -O0. A long-running program calls
-nupp.hotreload.poll() at a safe loop or request boundary.
-The poll scans inputs, stages a valid changed-body patch, commits it,
-and leaves the last good generation running after diagnostics or a required
-restart. Programs that never return to such a boundary cannot reload
-cooperatively.
+  --color[=WHEN]       When to color output: always, never, or auto
+  --no-color           Never color output
 ```
 
 The first non-option argument is the program; everything after it goes to the
@@ -1770,23 +1640,25 @@ detail and its stable normalized reason identity.
 ### `import-c`
 
 ```text [nupp import-c --help]
-Generate typed Nupp bindings from a C header
+Generate typed Nupp bindings from a C header.
 
 Usage:
-  nupp import-c [-o FILE] [-l NAME|--lib NAME] [--bridge-out FILE] [--inspect] [--format text|json] <header.h>
+  nupp import-c [options] HEADER
+
+Arguments:
+  HEADER  C header to import.
 
 Options:
-  -o FILE            Write the generated module to FILE
-  -l, --lib NAME     Name the native library loaded by the bindings
-  --bridge-out FILE  Emit C wrappers for eligible static inline functions
-  --inspect          Report declaration dispositions without writing output
-  --format FORMAT    Output format: text (default) or json
-  --json             Shorthand for --format json
-  --text             Shorthand for --format text
-  --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to color output: always, never, or auto (default)
-  --no-color         Never color output; the same as --color=never
-  -h, --help         Show this help
+  --out FILE, -o FILE  Write the generated module to this file.
+  --lib NAME, -l NAME  Name the native library loaded by the bindings.
+  --bridge-out FILE    Emit C wrappers for eligible static inline functions.
+  --inspect            Report declaration dispositions without writing output.
+  --format FORMAT, --json, --text
+                       Select the report representation.
+  --schema             Print the JSON Schema of JSON output and exit.
+  -h, --help           Show this help
+  --color[=WHEN]       When to color output: always, never, or auto
+  --no-color           Never color output
 ```
 
 It writes a committed, hand-editable module of `cdef` declarations. Without
@@ -1896,28 +1768,26 @@ emitted C, ownership refinements, and supported limits.
 ### `migrate`
 
 ```text [nupp migrate --help]
-Migrate typed foreign source into gradual Nupp
+Migrate typed foreign source into gradual Nupp.
+
+Without --check, each destination is checked and written atomically before
+its source is removed. Existing destinations are never replaced.
 
 Usage:
-  nupp migrate [--check] [--json] [--dialect auto|luacats|emmy|luadoc] FILE...
+  nupp migrate [options] FILE...
+
+Arguments:
+  FILE  Files to migrate.
 
 Options:
-  --check            Print the migration plan without changing files
-  --dialect DIALECT  Resolve ambiguous comment spellings for this migration
-                     (default auto)
-  --format FORMAT    Output format: text (default) or json
-  --json             Shorthand for --format json
-  --text             Shorthand for --format text
-  --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to color output: always, never, or auto (default)
-  --no-color         Never color output; the same as --color=never
+  --check            Print the migration plan without changing files.
+  --dialect DIALECT  Resolve ambiguous comment annotations for this migration.
+  --format FORMAT, --json, --text
+                     Select the report representation.
+  --schema           Print the JSON Schema of JSON output and exit.
   -h, --help         Show this help
-
-The file extension selects the migrator. Annotated `.lua` becomes the
-same module at `.g.nupp`; unsupported extensions are refused rather than guessed.
-
-Without --check, the destination is written atomically and checked before the source
-is removed. An existing destination is never replaced.
+  --color[=WHEN]     When to color output: always, never, or auto
+  --no-color         Never color output
 ```
 
 The annotated-Lua guide describes [always-on comment
@@ -1927,24 +1797,24 @@ planner. `--check` reports the complete plan without writing or removing files.
 ### `export-c`
 
 ```text [nupp export-c --help]
-Export canonical C declarations for Nupp structs
+Export canonical C declarations for Nupp structs.
 
 Usage:
-  nupp export-c -o FILE [--target NAME] [--format text|json] <source.nupp>... <module.Declaration>...
+  nupp export-c [options] INPUT...
+
+Arguments:
+  INPUT  Source files and declarations to export.
 
 Options:
-  -o, --output FILE  Write the generated header to FILE
-  --target NAME      Use a named manifest build target
-  --format FORMAT    Output format: text (default) or json
-  --json             Shorthand for --format json
-  --text             Shorthand for --format text
-  --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to color output: always, never, or auto (default)
-  --no-color         Never color output; the same as --color=never
-  -h, --help         Show this help
-
-The selected build target supplies layoutTarget. When it has none, the
-compiler host is used. Header generation itself invokes no C compiler.
+  --output FILE, -o FILE
+                  Write the generated header to this file.
+  --target NAME   Use a named manifest build target.
+  --format FORMAT, --json, --text
+                  Select the report representation.
+  --schema        Print the JSON Schema of JSON output and exit.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 The command writes one target-specific header from selected exported structs
@@ -1956,19 +1826,24 @@ what a struct has to be for a header to be exportable from it.
 ### `rock`
 
 ```text [nupp rock --help]
-Package and check typed LuaRocks libraries
-
-Usage:
-  nupp rock pack [rockspec]
-  nupp rock test [rockspec]
-
-Options:
-  -h, --help  Show this help
+Package and check typed LuaRocks libraries.
 
 A Nupp rock installs runtime Lua normally and carries matching public
-declarations in its versioned `nupp/` directory. `pack` validates and builds that
-layout; `test` installs the result into a fresh tree and checks a fresh consumer.
-`nupp init lib <name>` writes a project already in that shape.
+declarations in its versioned `nupp/` directory. `pack` validates and
+builds that layout; `test` installs the result into a fresh tree and checks
+a fresh consumer. `nupp init lib <name>` writes a project in that shape.
+
+Usage:
+  nupp rock
+
+Commands:
+  pack  Build and pack the current Nupp library.
+  test  Install and check the rock from a clean consumer.
+
+Options:
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 Starting one is [`init`](#init) with the built-in `lib` template:
@@ -2003,47 +1878,45 @@ publishing one.
 ### `lsp`
 
 ```text [nupp lsp --help]
-Language-server and semantic source operations
+Language-server and semantic source operations.
+
+With no operation, or with only a root, runs the language server over stdio.
+Use `nupp lsp serve [root]` to name that mode explicitly. Semantic
+operations are `nupp lsp inspect`, `nupp lsp definition`,
+`nupp lsp implementation`, `nupp lsp references`, `nupp lsp symbols`,
+`nupp lsp rename`, `nupp lsp actions`, and `nupp lsp trace-check`.
+Artifact operations are `nupp lsp artifacts` and `nupp lsp artifact`.
+
+Operation-only options: references only: `--include-declaration`;
+symbols only: `--file`; rename only: `--write`; actions only: `--only`;
+artifact only: `--kind`, `--opt-level`.
+Ask `nupp lsp <operation> --schema` for an operation's JSON schema.
+Source positions are one-based byte line and column numbers. Rename
+previews by default and changes files only with `--write`.
 
 Usage:
-  nupp lsp [root]
-  nupp lsp serve [root]
-  nupp lsp inspect [options] <file> <line> <column>
-  nupp lsp definition [options] <file> <line> <column>
-  nupp lsp implementation [options] <file> <line> <column>
-  nupp lsp references [options] [--include-declaration] <file> <line> <column>
-  nupp lsp symbols [options] [--file FILE] [pattern]
-  nupp lsp rename [options] [-w|--write] <file> <line> <column> <new-name>
-  nupp lsp actions [options] [--only quickfix|refactor] <file> <line> <column>
-  nupp lsp trace-check [options] <file> <line> <column>
-  nupp lsp artifacts [options] <file> <line> <column>
-  nupp lsp artifact [options] --kind lua|bytecode <file>
+  nupp lsp [ROOT]
+
+Commands:
+  serve           Run the language server over stdio.
+  inspect         Describe the symbol at a position.
+  definition      Find where the symbol at a position is defined.
+  implementation  Find registered implementations of a service member.
+  references      Find semantic references to the symbol at a position.
+  symbols         Search workspace or document symbols.
+  rename          Rename a symbol and every semantic reference to it.
+  actions         List code actions available at a position.
+  trace-check     Check the function at a position for LuaJIT trace blockers.
+  artifacts       List the compiled artifacts available at a position.
+  artifact        Print what a file compiles to.
+
+Arguments:
+  ROOT  Project root.
 
 Options:
-  --root DIR       Project root (default: current directory)
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of an operation's --json output; ask
-                   one operation, as `nupp lsp <operation> --schema`
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
-  --include-declaration
-                   references only: Include the declaration among the
-                   references
-  --file FILE      symbols only: Search one document instead of the workspace
-  -w, --write      rename only: Apply the rename instead of previewing it
-  --only KIND      actions only: Narrow the results to quickfix or refactor
-  --kind KIND      artifact only: Which artifact to resolve
-  -O, --opt-level LEVEL
-                   artifact only: Optimization level to resolve the artifact at
-                   (default: 0)
-
-With no operation, or with only a root, runs the language server over stdio for
-compatibility. `serve` names that mode explicitly. Source positions are 1-based
-byte line and column numbers, matching compiler diagnostics. Rename previews by
-default and changes files only with --write.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 `inspect` describes the symbol under a position:
@@ -2129,33 +2002,9 @@ risks the reason catalog knows about it:
 nupp lsp trace-check --json src/greet.nupp 2 16
 ```
 
-`artifacts` says what the file at a position compiles to, without compiling any
-of it, and names the function the position is in:
-
-```bash
-nupp lsp artifacts --json src/greet.nupp 2 16
-```
-
-`artifact` resolves one, from the editor's buffer where there is a session and
-from the file otherwise. It prints the artifact, so it pipes:
-
-```bash
-nupp lsp artifact --kind lua src/greet.nupp
-nupp lsp artifact --kind bytecode -O 1 --json src/greet.nupp
-```
-
-Generated Lua is line-identical to its source, because the emitter never changes
-a file's line count; `--json` reports that as `mapping.kind: "line-identity"`
-rather than as an entry per line. A bytecode listing is a rendering and carries
-one entry per line that stands for source. The artifact is laid out against the
-file -- row N is what line N compiled to, with the rows a multi-instruction line
-needed indented into a folding region -- while `nupp bc` echoes each source line
-above its instructions, because a terminal has no second pane to lay it against. An artifact that could not be
-produced is a failure naming what stopped it, not an empty document.
-
 `nupp help lsp` shows a merged option list; each of `--include-declaration`,
-`--file`, `--only`, `--write`, `--kind` and `-O` belongs to exactly one
-operation. Every operation answers `--schema` with its own.
+`--file`, `--only` and `--write` belongs to exactly one operation. Every
+operation answers `--schema` with its own.
 
 ::: seealso
 - [lsp.md](../learn/tooling/language-server.md) for what the resident server supports
@@ -2163,29 +2012,26 @@ operation. Every operation answers `--schema` with its own.
 - [diagnostics.md](diagnostics.md) for the codes a quickfix answers
 - [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for what
   `trace-check` reports
-- [bc](#bc) for the same listing `artifact --kind bytecode` carries
 :::
 
 ### `version`
 
 ```text [nupp version --help]
-Print the compiler version
-
-Usage:
-  nupp version [--format text|json]
-  nupp --version
-
-Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
+Print the compiler version.
 
 The text form is the single line `nupp VERSION`, which is what an install
 script should read. `nupp --version` prints the same line.
+
+Usage:
+  nupp version [options]
+
+Options:
+  --format FORMAT, --json, --text
+                  Select the report representation.
+  --schema        Print the JSON Schema of JSON output and exit.
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 The text form is one line and stays one line, in the shape an install script or
@@ -2214,57 +2060,60 @@ the cheapest way to tell whether an install works at all.
 ### `help`
 
 ```text [nupp help --help]
-Show general or command-specific help
-
-Usage:
-  nupp help [command]
-
-Options:
-  --color[=WHEN]  When to color output: always, never, or auto (default)
-  --no-color      Never color output; the same as --color=never
-  -h, --help      Show this help
+Show general or command-specific help.
 
 With no command, prints the command list.
+
+Usage:
+  nupp help [COMMAND...]
+
+Arguments:
+  COMMAND  Command path to describe.
+
+Options:
+  -h, --help      Show this help
+  --color[=WHEN]  When to color output: always, never, or auto
+  --no-color      Never color output
 ```
 
 Bare `nupp` prints the same list:
 
 ```text [nupp help]
-Nupp compiler and project tool
+Nupp compiler and project tool.
 
 Usage:
   nupp <command> [options]
-  nupp help [command]
+  nupp help [command ...]
   nupp --version
 
 Commands:
-  init             Create a project from a template
-  ast              Dump a Nupp file's parsed syntax tree
-  aot              Show what the @aot functions in a file compile to
-  bc               Show the bytecode a Nupp file compiles to
-  check            Type-check source without emitting Lua
-  fmt              Format Nupp source
-  build            Build source files or a configured project target
-  clean            Remove build outputs configured in nupp.lua
-  bench            Run isolated benchmark programs
-  tasks            List or inspect project tasks from nupp.lua
-  lints            List the lints and the level each runs at
-  ownership-audit  List foreign pointer contracts and unsafe assertion sites
-  explain          Describe a diagnostic code, with an example either way
-  reference        List or print a focused Nupp reference chapter
-  completions      Print a shell completion script
-  test             Build and run project tests
-  task             Build, then run a named task from nupp.lua
-  doc              Generate API documentation from source comments
-  fixpoint         Verify a byte-identical self-hosting rebuild
-  run              Compile and run a Nupp or Lua program
-  import-c         Generate typed Nupp bindings from a C header
-  migrate          Migrate typed foreign source into gradual Nupp
-  export-c         Export canonical C declarations for Nupp structs
-  rock             Package and check typed LuaRocks libraries
-  lsp              Language-server and semantic source operations
-  version          Print the compiler version
-  help             Show general or command-specific help
+  init             Create a project from a template.
+  ast              Dump a Nupp file's parsed syntax tree.
+  aot              Show what the @aot functions in a file compile to.
+  bc               Show the bytecode a Nupp file compiles to.
+  check            Type-check source without emitting Lua.
+  fmt              Format Nupp source.
+  build            Build source files or a configured project target.
+  clean            Remove build outputs configured in nupp.lua.
+  bench            Run isolated benchmark programs.
+  tasks            List or inspect project tasks from nupp.lua.
+  lints            List the lints and the level each runs at.
+  ownership-audit  List foreign pointer contracts and unsafe assertion sites.
+  explain          Describe a diagnostic code, with an example either way.
+  reference        List or print a focused Nupp reference chapter.
+  completions      Print a shell completion script.
+  test             Build and run project tests.
+  task             Build, then run a named task from nupp.lua.
+  doc              Generate API documentation from source comments.
+  fixpoint         Verify a byte-identical self-hosting rebuild.
+  run              Compile and run a Nupp or Lua program.
+  import-c         Generate typed Nupp bindings from a C header.
+  migrate          Migrate typed foreign source into gradual Nupp.
+  export-c         Export canonical C declarations for Nupp structs.
+  rock             Package and check typed LuaRocks libraries.
+  lsp              Language-server and semantic source operations.
+  version          Print the compiler version.
+  help             Show general or command-specific help.
 
-Run 'nupp help <command>' for command-specific options.
+Run 'nupp help <command>' for command-specific help.
 ```

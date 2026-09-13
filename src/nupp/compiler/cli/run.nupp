@@ -16,121 +16,72 @@ before it did.
 ]]
 const {type Session} = require("nupp.compiler.cli.watch")
 
-local spec = require("nupp.compiler.cli.spec")
-local optionsMod = require("nupp.compiler.cli.options")
+local usageError = require("nupp.compiler.cli.error").forCommand("run")
 local report = require("nupp.compiler.cli.report")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "run",
-    summary = "Compile and run a Nupp or Lua program",
-    usage = {
-        "nupp run [--strict] [-O<n>] [--watch] [--profile[=MS]] [--profile-out PATH]",
-        "         [--jit-aborts[=PATH]] [--json] <file> [args...]",
-    },
-    stopAtPositional = true,
-    options = optionsMod.join(
-        optionsMod.strict,
-        optionsMod.optimize(),
-        {name = "--watch", help = "Keep named function identities patchable at cooperative poll points"},
-        {
-            name = "--profile",
-            value = "MS",
-            form = "optional",
-            help = "Sample the program every MS milliseconds (default 10)"
+local REPORT_SCHEMA = {
+    type = "object",
+    description = "Normalized LuaJIT trace aborts observed while one program ran.",
+    properties = {
+        durationSec = {type = "number"},
+        totalAborts = {type = "integer"},
+        blacklisted = {type = "integer"},
+        traceProfile = {
+            type = "object",
+            properties = {
+                id = {type = "string"},
+                luajitRevision = {type = "string"},
+                luajitVersion = {type = "integer"},
+                architecture = {type = "string"},
+                operatingSystem = {type = "string"},
+                enabledRecorderFeatures = {type = "array", items = {type = "string"}},
+                bytecodeSchema = {type = "string"},
+                supported = {type = "boolean"},
+            },
+            required = {"id", "luajitRevision", "architecture", "operatingSystem", "bytecodeSchema"},
         },
-        {name = "--profile-out", value = "PATH", help = "Where the samples go (default profile.out)"},
-        {
-            name = "--jit-aborts",
-            value = "PATH",
-            form = "optional",
-            help = "Record where the JIT gave up (default jit-aborts.csv)"
+        reasonCatalog = {
+            type = "object",
+            properties = {id = {type = "string"}, version = {type = "integer"}},
+            required = {"id", "version"},
         },
-        {name = "--json", help = "Write --jit-aborts as structured JSON instead of CSV"}
-    ),
-    schema = {
-        type = "object",
-        description = "Normalized LuaJIT trace aborts observed while one program ran.",
-        properties = {
-            durationSec = {type = "number"},
-            totalAborts = {type = "integer"},
-            blacklisted = {type = "integer"},
-            traceProfile = {
+        sites = {
+            type = "array",
+            items = {
                 type = "object",
                 properties = {
-                    id = {type = "string"},
-                    luajitRevision = {type = "string"},
-                    luajitVersion = {type = "integer"},
-                    architecture = {type = "string"},
-                    operatingSystem = {type = "string"},
-                    enabledRecorderFeatures = {type = "array", items = {type = "string"}},
-                    bytecodeSchema = {type = "string"},
-                    supported = {type = "boolean"},
+                    severity = {type = "string", enum = {"blacklist", "warn", "info"}},
+                    count = {type = "integer"},
+                    reason = {type = "string"},
+                    reasonId = {type = "string"},
+                    class = {type = "string", enum = {"blocker", "risk", "stop"}},
+                    rawReason = {type = "string"},
+                    location = {type = "string"},
+                    zone = {type = "string"},
                 },
-                required = {"id", "luajitRevision", "architecture", "operatingSystem", "bytecodeSchema"},
-            },
-            reasonCatalog = {
-                type = "object",
-                properties = {id = {type = "string"}, version = {type = "integer"}},
-                required = {"id", "version"},
-            },
-            sites = {
-                type = "array",
-                items = {
-                    type = "object",
-                    properties = {
-                        severity = {type = "string", enum = {"blacklist", "warn", "info"}},
-                        count = {type = "integer"},
-                        reason = {type = "string"},
-                        reasonId = {type = "string"},
-                        class = {type = "string", enum = {"blocker", "risk", "stop"}},
-                        rawReason = {type = "string"},
-                        location = {type = "string"},
-                        zone = {type = "string"},
-                    },
-                    required = {"severity", "count", "reason", "reasonId", "class", "rawReason", "location", "zone"},
-                },
+                required = {"severity", "count", "reason", "reasonId", "class", "rawReason", "location", "zone"},
             },
         },
-        required = {"durationSec", "totalAborts", "blacklisted", "traceProfile", "reasonCatalog", "sites"},
     },
-    detail = [[Program arguments are passed to the loaded chunk. Use '--' before a file name
-that starts with a dash.
-
---profile writes collapsed-stack text: one line per stack, frames separated by
-semicolons, then the sample count. speedscope.app, FlameGraph.pl and inferno
-all read it directly. Frames are prefixed by the zone path that was open, so a
-program that calls nupp.profile.zone reports itself in its own terms, and the leaf
-carries the VM state most of its samples were in: N compiled, I interpreted,
-C in a C function, G collecting, J compiling.
-
---jit-aborts answers the question a sampler cannot: whether the hot code was
-compiled at all. It writes CSV, one row per place the compiler gave up, with a
-blacklisted trace, permanently demoted to the interpreter, ranked first.
-
-Both cover the program only: the session opens once the file has compiled and
-closes when it returns, so the compiler's own work stays out of the report. A
-program that fails still writes what was collected before it did. Each reports
-a summary line on stderr.
-
---watch is development-only and always uses -O0. A long-running program calls
-nupp.hotreload.poll() at a safe loop or request boundary.
-The poll scans inputs, stages a valid changed-body patch, commits it,
-and leaves the last good generation running after diagnostics or a required
-restart. Programs that never return to such a boundary cannot reload
-cooperatively.]],
+    required = {"durationSec", "totalAborts", "blacklisted", "traceProfile", "reasonCatalog", "sites"},
 }
 
 local DEFAULT_INTERVAL_MS: integer = 10
 
-local function run(parsed: any): integer
-    local values = parsed.values
-    local positional: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = {options.file}
+    for _, value in ipairs(options.arguments) do
+        positional[#positional + 1] = value
+    end
+    local values = options
     local profiling = values.profile ~= nil
     local intervalMs: integer = DEFAULT_INTERVAL_MS
     if type(values.profile) == "string" then
         local given = tonumber(values.profile)
         if not given or given < 1 or given ~= math.floor(given) then
-            return command:usageError("--profile takes a whole number of " .. "milliseconds, not " .. values.profile)
+            return usageError("--profile takes a whole number of " .. "milliseconds, not " .. values.profile)
         end
         intervalMs = math.floor(given)
     end
@@ -138,30 +89,30 @@ local function run(parsed: any): integer
     -- is missing beats accepting it quietly and leaving someone waiting on a file that
     -- was never going to be written.
     if values.profileOut and not profiling then
-        return command:usageError("--profile-out names where --profile writes, " .. "which was not asked for")
+        return usageError("--profile-out names where --profile writes, " .. "which was not asked for")
     end
     local profileOut = values.profileOut or "profile.out"
     local tracingAborts = values.jitAborts ~= nil
     if values.json and not tracingAborts then
-        return command:usageError("--json describes --jit-aborts, which was not asked for")
+        return usageError("--json describes --jit-aborts, which was not asked for")
     end
     if values.jitAborts == "" then
-        return command:usageError("--jit-aborts= requires a file name")
+        return usageError("--jit-aborts= requires a file name")
     end
-    local abortsOut = type(
-        values.jitAborts
-    ) == "string" and values.jitAborts or values.json and "jit-aborts.json" or "jit-aborts.csv"
+    local abortsOut = values.jitAborts == "\0" and (
+        values.json and "jit-aborts.json" or "jit-aborts.csv"
+    ) or values.jitAborts as string
 
     local path = positional[1]
     if not path then
-        return command:usageError("a program file is required")
+        return usageError("a program file is required")
     end
     local watching = values.watch == true
     if watching and not path:find("%.nupp$") then
-        return command:usageError("--watch requires a .nupp program")
+        return usageError("--watch requires a .nupp program")
     end
     if watching and values.optLevel and values.optLevel ~= "0" then
-        return command:usageError("--watch supports -O0 only; run a normal optimized build before release")
+        return usageError("--watch supports -O0 only; run a normal optimized build before release")
     end
     local programArgs: {string} = {}
     for index = 2, #positional do
@@ -322,4 +273,73 @@ local function run(parsed: any): integer
     return 0
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Compile and run a Nupp or Lua program.
+---
+--- The program path divides compiler options from arguments passed to the
+--- loaded chunk. Profiling and trace-abort reports cover the program only.
+--- Use `--` before a program path beginning with a dash. `--profile` writes
+--- collapsed-stack samples, while `--jit-aborts` records where LuaJIT stopped
+--- tracing. `--watch` is development-only, uses `-O0`, and applies valid
+--- changed-body patches at cooperative poll boundaries.
+@cli(name = "run", parent = root.Root, stopAtFirstArgument = true)
+@derive(cliModule.Command)
+local record Run
+    --- Check the program under the strict floor.
+    strict: boolean = false
+
+    --- Optimization level.
+    @cli(
+        name = "O",
+        long = false,
+        pattern = "^%-O([0-2])$",
+        choices = {"0", "1", "2"},
+        display = "-O0, -O1, -O2",
+        value = "LEVEL"
+    )
+    optLevel: string?
+
+    --- Report what the optimizer did and what it declined to do.
+    remarks: boolean = false
+
+    --- Write the optimizer account to build/remarks.json.
+    remarksOut: boolean = false
+
+    --- Turn off one optimizer pass by stable code.
+    @cli(short = "Zno-opt", long = false, arity = "attachedOnly", value = "CODE")
+    disabled: {[string]: boolean} = {}
+
+    --- Keep named function identities patchable at poll points.
+    watch: boolean = false
+
+    --- Sample the program, optionally with an attached interval.
+    @cli(arity = "optionalAttached", constant = "10", value = "MS")
+    profile: string?
+
+    --- File which receives profiling samples.
+    @cli(value = "PATH")
+    profileOut: string?
+
+    --- Record JIT aborts, optionally naming an attached output path.
+    @cli(arity = "optionalAttached", constant = "\0", value = "PATH")
+    jitAborts: string?
+
+    --- Write JIT aborts as JSON rather than CSV.
+    json: boolean = false
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Program to compile and run.
+    @cli(positional = "FILE")
+    file: string
+
+    --- Arguments passed to the program.
+    @cli(remainder = true, value = "ARG")
+    arguments: {string} = {}
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Run, schema = REPORT_SCHEMA}

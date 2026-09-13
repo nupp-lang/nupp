@@ -8,74 +8,55 @@ generate the ffi bindings at runtime, so the result is something a program
 requires, not something the checker merely reads.
 ]]
 
-local spec = require("nupp.compiler.cli.spec")
+local usageError = require("nupp.compiler.cli.error").forCommand("import-c")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "import-c",
-    summary = "Generate typed Nupp bindings from a C header",
-    usage = {
-        "nupp import-c [-o FILE] [-l NAME|--lib NAME] [--bridge-out FILE] [--inspect]"
-        .. " [--format text|json] <header.h>"
-    },
-    options = require(
-        "nupp.compiler.cli.options"
-    ).join(
-        {name = "-o", value = "FILE", key = "out", help = "Write the generated module to FILE"},
-        {names = {"-l", "--lib"}, value = "NAME", key = "lib", help = "Name the native library loaded by the bindings"},
-        {
-            name = "--bridge-out",
-            value = "FILE",
-            key = "bridgeOut",
-            help = "Emit C wrappers for eligible static inline functions"
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        ok = {type = "boolean"},
+        output = {
+            type = "string",
+            description = "Where the generated module was written. Absent " .. "when nothing was generated."
         },
-        {name = "--inspect", key = "inspect", help = "Report declaration dispositions without writing output"},
-        require("nupp.compiler.cli.options").format()
-    ),
-    schema = {
-        type = "object",
-        properties = {
-            ok = {type = "boolean"},
-            output = {
-                type = "string",
-                description = "Where the generated module was written. Absent " .. "when nothing was generated."
-            },
-            warnings = {
-                type = "array",
-                items = {type = "string"},
-                description = "What the header contained that the bindings "
-                .. "could not represent. Present whether or not it "
-                .. "succeeded; a warning is not a failure."
-            },
-            bridgeOutput = {type = "string"},
-            direct = {type = "integer"},
-            bridged = {type = "integer"},
-            skipped = {type = "integer"},
-            dispositions = {type = "array", items = {type = "object"}},
+        warnings = {
+            type = "array",
+            items = {type = "string"},
+            description = "What the header contained that the bindings "
+            .. "could not represent. Present whether or not it "
+            .. "succeeded; a warning is not a failure."
         },
-        required = {"ok", "warnings"},
+        bridgeOutput = {type = "string"},
+        direct = {type = "integer"},
+        bridged = {type = "integer"},
+        skipped = {type = "integer"},
+        dispositions = {type = "array", items = {type = "object"}},
     },
+    required = {"ok", "warnings"},
 }
 
-local function run(parsed: any): integer
-    local paths: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = {options.header}
+    local paths: {string} = positional
     if #paths ~= 1 then
-        return command:usageError("exactly one C header is required")
+        return usageError("exactly one C header is required")
     end
     local header = paths[1]
-    local asJson = parsed.values.format == "json"
+    local asJson = options.format == "json"
     local reportMod = require("nupp.compiler.cli.report")
     local importc = require("nupp.compiler.importc")
-    local out = parsed.values.out or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
+    local out = options.out or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
     local config = require("nupp.compiler.build.manifest").load(".")
     local envMod = require("nupp.compiler.env")
     local moduleName = envMod.moduleNameInRoots(envMod.projectRoots(".", config), out)
-    if not parsed.values.inspect and not moduleName then
-        return command:usageError("output must be a .nupp file beneath the project root or an include root")
+    if not options.inspect and not moduleName then
+        return usageError("output must be a .nupp file beneath the project root or an include root")
     end
     local text, warnings, details = importc.import(header, {
         module = moduleName,
-        lib = parsed.values.lib,
-        bridge = parsed.values.bridgeOut ~= nil,
+        lib = options.lib,
+        bridge = options.bridgeOut ~= nil,
     })
 
     local function fail(): integer
@@ -98,7 +79,7 @@ local function run(parsed: any): integer
             io.stderr:write("nupp: warning: " .. warning .. "\n")
         end
     end
-    if parsed.values.inspect then
+    if options.inspect then
         if asJson then
             reportMod.write({
                 ok = true,
@@ -143,7 +124,7 @@ local function run(parsed: any): integer
         return 1
     end
 
-    local bridgeOut = parsed.values.bridgeOut
+    local bridgeOut = options.bridgeOut
     if bridgeOut and details and details.bridgeSource then
         local stopped = write(bridgeOut, details.bridgeSource)
         if stopped then
@@ -172,4 +153,39 @@ local function run(parsed: any): integer
     return 0
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Generate typed Nupp bindings from a C header.
+@cli(name = "import-c", parent = root.Root)
+@derive(cliModule.Command)
+local record ImportC
+    --- Write the generated module to this file.
+    @cli(short = "o", value = "FILE")
+    out: string?
+
+    --- Name the native library loaded by the bindings.
+    @cli(short = "l", value = "NAME")
+    lib: string?
+
+    --- Emit C wrappers for eligible static inline functions.
+    @cli(value = "FILE")
+    bridgeOut: string?
+
+    --- Report declaration dispositions without writing output.
+    inspect: boolean = false
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- C header to import.
+    @cli(positional = "HEADER")
+    header: string
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = ImportC, schema = REPORT_SCHEMA}

@@ -1,0 +1,9 @@
+module tests.fixtures.cliconstantinvalid
+
+local cli = require("nupp.cli")
+
+@derive(cli.Arguments)
+local record InvalidConstant
+    @cli(arity = "optionalAttached", constant = true)
+    profile: string?
+end

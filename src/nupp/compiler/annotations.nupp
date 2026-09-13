@@ -31,6 +31,9 @@ type annotations.TypeAPI = {
     nil_: table,
     string: table,
     boolean: table,
+    integer: table,
+    array: function(element: table): table,
+    map: function(key: table, value: table): table,
     union: function(values: {table}): table,
     literal: function(value: string | number | boolean, base: table?): table
 }
@@ -108,7 +111,13 @@ function Registry:define(spec)
         return nil, "annotation name must be an identifier"
     end
     local previous = self.byname[spec.name]
-    if previous and (not spec.source or not sameSource(previous.source, spec.source)) then
+    local source = type(spec.source) == "string" and spec.source:gsub("\\", "/") or ""
+    local bootstrapCLI = previous and previous.builtin and spec.name == "cli" and (
+        source == "src/nupp/compiler/cli/annotation.g.nupp" or source:match(
+            "/src/nupp/compiler/cli/annotation%.g%.nupp$"
+        ) ~= nil
+    )
+    if previous and not bootstrapCLI and (not spec.source or not sameSource(previous.source, spec.source)) then
         return nil, ("annotation @%s is already defined"):format(spec.name)
     end
     if spec.arguments ~= "none"
@@ -276,6 +285,14 @@ local BUILTINS = {
         docsPath = "reference/derives",
     },
     {
+        name = "cli",
+        arguments = "typed",
+        targets = {"record", "field"},
+        builtin = true,
+        doc = "Configures command and field metadata consumed by `nupp.cli` derives.",
+        docsPath = "reference/cli-module",
+    },
+    {
         name = "json",
         arguments = "typed",
         targets = {"record", "field"},
@@ -376,6 +393,69 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     local function member(name, t, isOptional, doc, docsPath)
         return {name = name, type = t, optional = isOptional == true, doc = doc, docsPath = docsPath}
     end
+
+    local cli = registry:get("cli")
+    local cliDocs = "reference/cli-module"
+
+    local function cliMember(name, t, reference)
+        local value = member(name, optional(t), true, nil, cliDocs)
+        value.reference = reference == true
+        return value
+    end
+
+    cli.members = {
+        name = cliMember("name", typesApi.string),
+        long = cliMember("long", typesApi.boolean),
+        aliases = cliMember("aliases", typesApi.array(typesApi.string)),
+        constantAliases = cliMember("constantAliases", typesApi.map(typesApi.string, typesApi.string)),
+        short = cliMember("short", typesApi.string),
+        value = cliMember("value", typesApi.string),
+        display = cliMember("display", typesApi.string),
+        invalid = cliMember("invalid", typesApi.string),
+        arity = cliMember(
+            "arity",
+            typesApi.union({
+                typesApi.literal("none"),
+                typesApi.literal("required"),
+                typesApi.literal("optionalAttached"),
+                typesApi.literal("attachedOnly")
+            })
+        ),
+        positional = cliMember("positional", typesApi.string),
+        remainder = cliMember("remainder", typesApi.boolean),
+        hidden = cliMember("hidden", typesApi.boolean),
+        group = cliMember("group", typesApi.boolean),
+        preserveUnknown = cliMember("preserveUnknown", typesApi.boolean),
+        stopAtFirstArgument = cliMember("stopAtFirstArgument", typesApi.boolean),
+        constant = cliMember("constant", typesApi.union({typesApi.string, typesApi.integer, typesApi.boolean})),
+        pattern = cliMember("pattern", typesApi.string),
+        choices = cliMember("choices", typesApi.array(typesApi.string)),
+        parent = cliMember("parent", typesApi.any, true),
+        complete = cliMember("complete", typesApi.any, true),
+    }
+    cli.memberOrder = {
+        "name",
+        "long",
+        "aliases",
+        "constantAliases",
+        "short",
+        "value",
+        "display",
+        "invalid",
+        "arity",
+        "positional",
+        "remainder",
+        "hidden",
+        "group",
+        "preserveUnknown",
+        "stopAtFirstArgument",
+        "constant",
+        "pattern",
+        "choices",
+        "parent",
+        "complete"
+    }
+    cli.singleValue = "name"
 
     local json = registry:get("json")
     local jsonDocs = "reference/derives"

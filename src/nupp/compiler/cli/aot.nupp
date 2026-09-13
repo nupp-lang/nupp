@@ -40,264 +40,197 @@ const {type Toolchain} = require("nupp.compiler.build.aot")
 const {type Claim} = require("nupp.compiler.aot.instructions")
 const {type Listing} = require("nupp.compiler.aot.instructions")
 
-local optionsMod = require("nupp.compiler.cli.options")
-local spec = require("nupp.compiler.cli.spec")
+local usageError = require("nupp.compiler.cli.error").forCommand("aot")
 local report = require("nupp.compiler.cli.report")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
---- What this command accepts beyond the shared `--format` trio.
-local function aotOptions(): {any}
-    local list = optionsMod.format()
-    list[
-        #list + 1
-    ] = {
-        name = "--emit",
-        key = "emit",
-        value = "ARTIFACT",
-        choices = {"ir", "c", "spirv", "wgsl", "asm", "binding"},
-        help = "Print one artifact: ir, c, spirv, wgsl, asm, or binding",
-    }
-    list[
-        #list + 1
-    ] = {
-        name = "--function",
-        key = "function",
-        value = "NAME",
-        help = "Show only this function, named as the source or the symbol spells it",
-    }
-    list[
-        #list + 1
-    ] = {
-        name = "--check",
-        key = "check",
-        help = "Exit non-zero for a map loop that wanted lanes and ran one iteration at a time",
-    }
-    list[
-        #list + 1
-    ] = {
-        name = "--target",
-        key = "target",
-        value = "TRIPLE",
-        help = "The target triple to compile for; the host's by default",
-    }
-    list[
-        #list + 1
-    ] = {
-        name = "--features",
-        key = "features",
-        value = "TIER",
-        help = "The CPU feature tier to promise: baseline, avx2, avx512f, neon, scalar, or simd128",
-    }
-    list[
-        #list + 1
-    ] = {
-        name = "--library",
-        key = "library",
-        value = "PATH",
-        help = "Where the compiled object will be found, for the generated binding",
-    }
-
-    return list
-end
-
-local command = spec.command{
-    name = "aot",
-    summary = "Show what the @aot functions in a file compile to",
-    usage = {
-        "nupp aot [--emit ir|c|spirv|wgsl|asm|binding] [--check] [--function NAME] "
-        .. "[--target TRIPLE] [--features TIER] <file>",
-    },
-    intro = "Reports what the ahead-of-time backend produces for one file, without writing it. "
-    .. "A native build emits the same artifacts under `aot = \"emit-c\"` or `aot = \"require\"`; "
-    .. "Lua 5.1 Wasm applications use `emit-wasm` or `require-wasm`.",
-    options = aotOptions(),
-    schema = {
-        type = "object",
-        description = "What every @aot function in one file lowered to.",
-        properties = {
-            file = {type = "string"},
-            target = {
+local REPORT_SCHEMA = {
+    type = "object",
+    description = "What every @aot function in one file lowered to.",
+    properties = {
+        file = {type = "string"},
+        target = {
+            type = "object",
+            description = "What the gangs were chosen for.",
+            properties = {triple = {type = "string"}, architecture = {type = "string"}, tier = {type = "string"},},
+        },
+        functions = {
+            type = "array",
+            description = "One entry per @aot function, in source order.",
+            items = {
                 type = "object",
-                description = "What the gangs were chosen for.",
-                properties = {triple = {type = "string"}, architecture = {type = "string"}, tier = {type = "string"},},
-            },
-            functions = {
-                type = "array",
-                description = "One entry per @aot function, in source order.",
-                items = {
-                    type = "object",
-                    properties = {
-                        name = {type = "string"},
-                        symbol = {type = "string"},
-                        entryMode = {type = "string", enum = {"kernel", "lua-builder"}},
-                        builderMode = {type = "string", enum = {"eager", "pull", "serde"}},
-                        runtimeAbi = {type = "string"},
-                        registrar = {type = "string"},
-                        optimization = {
+                properties = {
+                    name = {type = "string"},
+                    symbol = {type = "string"},
+                    entryMode = {type = "string", enum = {"kernel", "lua-builder"}},
+                    builderMode = {type = "string", enum = {"eager", "pull", "serde"}},
+                    runtimeAbi = {type = "string"},
+                    registrar = {type = "string"},
+                    optimization = {
+                        type = "object",
+                        description = "Verified scalar AOT rewrites applied before lane selection.",
+                        properties = {
+                            beforeNodes = {type = "integer"},
+                            afterNodes = {type = "integer"},
+                            folds = {type = "integer"},
+                            propagatedConstants = {type = "integer"},
+                            specializedHelperCalls = {type = "integer"},
+                            unrolledLoops = {type = "integer"},
+                            unrolledIterations = {type = "integer"},
+                            removedStatements = {type = "integer"},
+                            iterations = {type = "integer"},
+                            ruleApplications = {
+                                type = "array",
+                                description = "Applied rules and pseudo-rules, sorted by stable ID; "
+                                .. "zero-count rules are omitted.",
+                                items = {
+                                    type = "object",
+                                    properties = {id = {type = "string"}, count = {type = "integer"},},
+                                },
+                            },
+                        },
+                    },
+                    loops = {
+                        type = "array",
+                        description = "One measured decision per loop, in source order.",
+                        items = {
                             type = "object",
-                            description = "Verified scalar AOT rewrites applied before lane selection.",
                             properties = {
-                                beforeNodes = {type = "integer"},
-                                afterNodes = {type = "integer"},
-                                folds = {type = "integer"},
-                                propagatedConstants = {type = "integer"},
-                                specializedHelperCalls = {type = "integer"},
-                                unrolledLoops = {type = "integer"},
-                                unrolledIterations = {type = "integer"},
-                                removedStatements = {type = "integer"},
-                                iterations = {type = "integer"},
-                                ruleApplications = {
-                                    type = "array",
-                                    description = "Applied rules and pseudo-rules, sorted by stable ID; "
-                                    .. "zero-count rules are omitted.",
-                                    items = {
-                                        type = "object",
-                                        properties = {id = {type = "string"}, count = {type = "integer"},},
-                                    },
+                                id = {type = "integer"},
+                                kind = {type = "string", enum = {"map", "fornum", "while"}},
+                                line = {type = "integer"},
+                                column = {type = "integer"},
+                                nodes = {type = "integer"},
+                                simdOperations = {type = "integer"},
+                                luaOperations = {type = "integer"},
+                                nativeReads = {type = "integer"},
+                                nativeWrites = {type = "integer"},
+                                mayRaise = {type = "boolean"},
+                                outcome = {
+                                    type = "string",
+                                    enum = {"lowered", "declined", "refused", "explicit-simd", "scalar"},
                                 },
+                                reason = {type = "string"},
                             },
                         },
-                        loops = {
-                            type = "array",
-                            description = "One measured decision per loop, in source order.",
-                            items = {
-                                type = "object",
-                                properties = {
-                                    id = {type = "integer"},
-                                    kind = {type = "string", enum = {"map", "fornum", "while"}},
-                                    line = {type = "integer"},
-                                    column = {type = "integer"},
-                                    nodes = {type = "integer"},
-                                    simdOperations = {type = "integer"},
-                                    luaOperations = {type = "integer"},
-                                    nativeReads = {type = "integer"},
-                                    nativeWrites = {type = "integer"},
-                                    mayRaise = {type = "boolean"},
-                                    outcome = {
-                                        type = "string",
-                                        enum = {"lowered", "declined", "refused", "explicit-simd", "scalar"},
-                                    },
-                                    reason = {type = "string"},
-                                },
+                    },
+                    intensity = {
+                        type = "object",
+                        description = "Arithmetic per byte the loop body touches, and the two counts behind it.",
+                        properties = {
+                            perByte = {type = "number"},
+                            operations = {type = "number"},
+                            bytes = {type = "number"},
+                        },
+                    },
+                    lanes = {
+                        type = "object",
+                        description = "The gang the loop was lowered to, absent when it was not.",
+                        properties = {
+                            shape = {type = "string"},
+                            lanes = {type = "integer"},
+                            rounded = {
+                                type = "boolean",
+                                description = "Whether explicit fixed-width work was performed wider and rounded.",
                             },
                         },
-                        intensity = {
+                    },
+                    outcome = {
+                        type = "string",
+                        enum = {"lowered", "declined", "refused"},
+                        description = "Whether the loop vectorised, was not expected to, or wanted to and could not.",
+                    },
+                    refusals = {
+                        type = "array",
+                        description = "Why it ran one iteration at a time, when it wanted not to.",
+                        items = {
                             type = "object",
-                            description = "Arithmetic per byte the loop body touches, and the two counts behind it.",
                             properties = {
-                                perByte = {type = "number"},
-                                operations = {type = "number"},
-                                bytes = {type = "number"},
-                            },
-                        },
-                        lanes = {
-                            type = "object",
-                            description = "The gang the loop was lowered to, absent when it was not.",
-                            properties = {
-                                shape = {type = "string"},
-                                lanes = {type = "integer"},
-                                rounded = {
-                                    type = "boolean",
-                                    description = "Whether explicit fixed-width work was performed wider and rounded.",
-                                },
-                            },
-                        },
-                        outcome = {
-                            type = "string",
-                            enum = {"lowered", "declined", "refused"},
-                            description = "Whether the loop vectorised, was not expected to, or wanted to and could not.",
-                        },
-                        refusals = {
-                            type = "array",
-                            description = "Why it ran one iteration at a time, when it wanted not to.",
-                            items = {
-                                type = "object",
-                                properties = {
-                                    file = {type = "string"},
-                                    line = {type = "integer"},
-                                    column = {type = "integer"},
-                                    message = {type = "string"},
-                                },
+                                file = {type = "string"},
+                                line = {type = "integer"},
+                                column = {type = "integer"},
+                                message = {type = "string"},
                             },
                         },
                     },
                 },
             },
-            ir = {type = "string"},
-            c = {type = "string"},
-            spirv = {type = "string", description = "Canonical SPIR-V bytes as lowercase hexadecimal."},
-            binding = {type = "string"},
-            asm = {
-                type = "object",
-                description = "The instructions the generated C compiled to. Present only for "
-                .. "--emit asm, because producing it runs a C compiler.",
-                properties = {
-                    toolchain = {
+        },
+        ir = {type = "string"},
+        c = {type = "string"},
+        spirv = {type = "string", description = "Canonical SPIR-V bytes as lowercase hexadecimal."},
+        binding = {type = "string"},
+        asm = {
+            type = "object",
+            description = "The instructions the generated C compiled to. Present only for "
+            .. "--emit asm, because producing it runs a C compiler.",
+            properties = {
+                toolchain = {
+                    type = "object",
+                    description = "The compiler that produced them, which is part of the answer: "
+                    .. "two runs are comparable only when this is the same.",
+                    properties = {
+                        command = {type = "string"},
+                        version = {type = "string"},
+                        dialect = {type = "string"},
+                    },
+                },
+                flags = {
+                    type = "array",
+                    description = "Every flag it was given, in order. The same flags a build compiles "
+                    .. "this tier's translation unit with.",
+                    items = {type = "string"},
+                },
+                functions = {
+                    type = "array",
+                    description = "One entry per emitted symbol that has instructions, ordered "
+                    .. "by role and then by where the compiler wrote it.",
+                    items = {
                         type = "object",
-                        description = "The compiler that produced them, which is part of the answer: "
-                        .. "two runs are comparable only when this is the same.",
                         properties = {
-                            command = {type = "string"},
-                            version = {type = "string"},
-                            dialect = {type = "string"},
-                        },
-                    },
-                    flags = {
-                        type = "array",
-                        description = "Every flag it was given, in order. The same flags a build compiles "
-                        .. "this tier's translation unit with.",
-                        items = {type = "string"},
-                    },
-                    functions = {
-                        type = "array",
-                        description = "One entry per emitted symbol that has instructions, ordered "
-                        .. "by role and then by where the compiler wrote it.",
-                        items = {
-                            type = "object",
-                            properties = {
-                                symbol = {type = "string"},
-                                name = {type = "string"},
-                                role = {
-                                    type = "string",
-                                    description = "Which body this symbol is. Listings are reported "
-                                    .. "in this order.",
-                                    enum = {"kernel", "oracle", "wrapper", "registrar", "reporter", "helper"},
+                            symbol = {type = "string"},
+                            name = {type = "string"},
+                            role = {
+                                type = "string",
+                                description = "Which body this symbol is. Listings are reported " .. "in this order.",
+                                enum = {"kernel", "oracle", "wrapper", "registrar", "reporter", "helper"},
+                            },
+                            counts = {
+                                type = "object",
+                                description = "`total` is every instruction. The rest are the "
+                                .. "architecture's rules over the mnemonic and the operand shape.",
+                                properties = {
+                                    total = {type = "integer"},
+                                    vector = {type = "integer"},
+                                    loads = {type = "integer"},
+                                    stores = {type = "integer"},
+                                    branches = {type = "integer"},
+                                    calls = {type = "integer"},
+                                    stack = {type = "integer"},
                                 },
-                                counts = {
+                                required = {"total"},
+                            },
+                            instructions = {
+                                type = "array",
+                                items = {
                                     type = "object",
-                                    description = "`total` is every instruction. The rest are the "
-                                    .. "architecture's rules over the mnemonic and the operand shape.",
                                     properties = {
-                                        total = {type = "integer"},
-                                        vector = {type = "integer"},
-                                        loads = {type = "integer"},
-                                        stores = {type = "integer"},
-                                        branches = {type = "integer"},
-                                        calls = {type = "integer"},
-                                        stack = {type = "integer"},
-                                    },
-                                    required = {"total"},
-                                },
-                                instructions = {
-                                    type = "array",
-                                    items = {
-                                        type = "object",
-                                        properties = {
-                                            label = {
-                                                type = "string",
-                                                description = "The label this is the first instruction "
-                                                .. "under. Absent when none precedes it.",
-                                            },
-                                            text = {type = "string"},
-                                            mnemonic = {type = "string"},
-                                            operands = {type = "string"},
-                                            kinds = {type = "array", items = {type = "string"}},
+                                        label = {
+                                            type = "string",
+                                            description = "The label this is the first instruction "
+                                            .. "under. Absent when none precedes it.",
                                         },
-                                        required = {"text", "mnemonic", "kinds"},
+                                        text = {type = "string"},
+                                        mnemonic = {type = "string"},
+                                        operands = {type = "string"},
+                                        kinds = {type = "array", items = {type = "string"}},
                                     },
+                                    required = {"text", "mnemonic", "kinds"},
                                 },
                             },
-                            required = {"symbol", "role", "counts", "instructions"},
                         },
+                        required = {"symbol", "role", "counts", "instructions"},
                     },
                 },
             },
@@ -472,19 +405,20 @@ local function writeListing(listing: Listing): nil
     io.write("\n")
 end
 
-local function run(parsed: any): integer
+local function run(options: any): integer
+    local positional: {string} = {options.file}
     local aot = require("nupp.compiler.aot.compile")
     local targets = require("nupp.compiler.aot.target")
-    local paths: {string} = parsed.positional
+    local paths: {string} = positional
     if #paths ~= 1 then
-        return command:usageError("exactly one source file is required")
+        return usageError("exactly one source file is required")
     end
 
     local path = paths[1]
     -- A placeholder rather than a guess: where the object lands is a build
     -- decision this command does not make, and a binding printed for reading
     -- says so rather than naming a path nobody will produce.
-    local selected, targetErr = targets.select(parsed.values.target, parsed.values.features)
+    local selected, targetErr = targets.select(options.target, options.features)
     if selected == nil then
         io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
 
@@ -506,7 +440,7 @@ local function run(parsed: any): integer
         return 1
     end
 
-    local library = parsed.values.library or "<object>"
+    local library = options.library or "<object>"
     local artifacts, diagnostics = aot.artifacts(source as string, path, tree, library, selected as targets.Target)
     if artifacts == nil then
         for _, problem in ipairs(diagnostics) do
@@ -516,12 +450,12 @@ local function run(parsed: any): integer
         return 1
     end
 
-    local emit = parsed.values.emit
+    local emit = options.emit
     local spirvParts: {string} = {}
     local wgslParts: {string} = {}
     for _, program in ipairs(artifacts.programs) do
         local artifact = artifacts.gpu[program.symbol]
-        local selectedFunction = parsed.values["function"]
+        local selectedFunction = options.functionName
         if artifact ~= nil and (
             selectedFunction == nil or selectedFunction == program.name or selectedFunction == program.symbol
         ) then
@@ -533,7 +467,7 @@ local function run(parsed: any): integer
     end
     local wgsl = table.concat(wgslParts, "\n")
     local spirvHex: string? = nil
-    if emit == "spirv" and #spirvParts == 1 and parsed.values.format == "json" then
+    if emit == "spirv" and #spirvParts == 1 and options.format == "json" then
         local bytes: {string} = {}
         for index = 1, #spirvParts[1] do
             bytes[index] = ("%02x"):format(spirvParts[1]:byte(index))
@@ -558,7 +492,7 @@ local function run(parsed: any): integer
     -- of choosing an output format.
     local instructionReport: any = nil
     if emit == "asm" then
-        local built, instructionErr = assembly(artifacts, selected as targets.Target, parsed.values["function"])
+        local built, instructionErr = assembly(artifacts, selected as targets.Target, options.functionName)
         if built == nil then
             io.stderr:write("nupp: " .. tostring(instructionErr) .. "\n")
 
@@ -566,7 +500,7 @@ local function run(parsed: any): integer
         end
         instructionReport = built
     end
-    if parsed.values.format == "json" then
+    if options.format == "json" then
         -- An absent list is an empty array rather than an empty object, so a
         -- consumer reading `refusals` never has to handle two shapes.
         -- Lane counts and widths are integers the backend settled on, so a NaN here
@@ -655,7 +589,7 @@ local function run(parsed: any): integer
             refused = true
         end
     end
-    if parsed.values.check and refused then
+    if options.check and refused then
         -- stdout is buffered and stderr is not, so the summary would otherwise
         -- arrive after the failure it summarises.
         io.stdout:flush()
@@ -674,4 +608,47 @@ local function run(parsed: any): integer
     return 0
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Show what the @aot functions in a file compile to.
+@cli(name = "aot", parent = root.Root)
+@derive(cliModule.Command)
+local record Aot
+    --- Artifact to print.
+    @cli(value = "ARTIFACT", choices = {"ir", "c", "spirv", "wgsl", "asm", "binding"})
+    emit: string?
+
+    --- Show only this function.
+    @cli(name = "function", value = "NAME")
+    functionName: string?
+
+    --- Exit non-zero when a loop wanted lanes and remained scalar.
+    check: boolean = false
+
+    --- Target triple to compile for.
+    @cli(value = "TRIPLE")
+    target: string?
+
+    --- CPU feature tier to promise.
+    @cli(value = "TIER")
+    features: string?
+
+    --- Compiled object path used by a generated binding.
+    @cli(value = "PATH")
+    library: string?
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Source file to inspect.
+    @cli(positional = "FILE")
+    file: string
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Aot, schema = REPORT_SCHEMA}

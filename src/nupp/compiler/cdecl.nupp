@@ -523,7 +523,7 @@ end
 ---
 --- A block LuaJIT has already seen introduces nothing, so a function this process had
 --- already declared for its own use is claimed back by name instead. The compiler runs
---- the code it compiles: `nupp.compiler.ansi` declares `isatty` and calls it, and by
+--- the code it compiles: `nupp.cli` declares `isatty` and calls it, and by
 --- the time the checker reaches that file the declaration is already in the registry
 --- and the diff finds nothing. Left at that, whether `ffi.C` is typed from the program
 --- in front of the checker would depend on whether the compiler happened to reach the

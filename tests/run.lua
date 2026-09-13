@@ -622,7 +622,7 @@ end
 
 -- Wall clock, because most of what these tests spend time on is a subprocess,
 -- which no measure of this process's own CPU time would ever see. The FFI is
--- guarded the same way nupp.compiler.ansi guards it: a build without it still runs the
+-- guarded the same way nupp.cli guards it: a build without it still runs the
 -- tests, it just reports coarser times.
 local now
 do
@@ -1360,6 +1360,7 @@ local PROCESS_ISOLATED = {
     -- operation is built as a source fixture rather than called by the Lua test.
     bundletest = true,
     comptimetest = true,
+    publicclitest = true,
     -- Their compiler fixtures reach build commands through shared helpers, so the
     -- process call is not text in the suite for the source scan below to find.
     deriveacceptancetest = true,

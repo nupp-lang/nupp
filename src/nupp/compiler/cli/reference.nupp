@@ -13,113 +13,44 @@ the frontmatter an agent harness loads it by; `json` hands over the chapters and
 sections themselves, for a consumer that would rather render its own.
 ]]
 
-local spec = require("nupp.compiler.cli.spec")
+local usageError = require("nupp.compiler.cli.error").forCommand("reference")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
-local command = spec.command{
-    name = "reference",
-    summary = "List or print a focused Nupp reference chapter",
-    usage = {
-        "nupp reference [language|cli|performance|all] [--format markdown|skill|json] [-o PATH]",
-        "nupp reference --section NAME | --for CODE",
-    },
-    positionals = {{name = "chapter", choices = {"language", "cli", "performance", "all"}}},
-    intro = [[With no chapter, lists the available focused references and the sections
-inside them. `all` is the complete Nupp reference, meant to be pasted whole.
-
-A chapter is thousands of words. `--section` prints one section, named by its
-heading or by any `docs` pointer at it, and `--for` prints whichever sections
-explain a diagnostic code -- which is what a reader holding one actually has.
-
-  nupp reference cli
-  nupp reference language
-  nupp reference --section affine-resources
-  nupp reference --section docs/learn/language/modules.md#modules
-  nupp reference --for NUPP2004
-  nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
-  nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
-  nupp reference --format skill -o .claude/skills/nupp/SKILL.md]],
-    options = {
-        {
-            name = "--format",
-            value = "FORMAT",
-            choices = {"markdown", "skill", "json"},
-            duplicate = "output format was specified more than once",
-            help = "Output format: markdown (default), skill, or json"
-        },
-        {
-            name = "--skill",
-            key = "format",
-            constant = "skill",
-            duplicate = "output format was specified more than once",
-            help = "Shorthand for --format skill"
-        },
-        {
-            name = "--json",
-            key = "format",
-            constant = "json",
-            duplicate = "output format was specified more than once",
-            help = "Shorthand for --format json"
-        },
-        {
-            name = "--section",
-            value = "NAME",
-            key = "section",
-            duplicate = "a section was named more than once",
-            help = "Print one section, by heading or by a docs pointer at it"
-        },
-        {
-            name = "--for",
-            value = "CODE",
-            key = "forCode",
-            duplicate = "a code was named more than once",
-            help = "Print whichever sections explain that diagnostic code"
-        },
-        {
-            names = {"-o", "--output"},
-            value = "PATH",
-            key = "output",
-            help = "Write to this file rather than to standard output"
-        },
-    },
-    detail = [[The skill's description is what a harness keeps in context permanently;
-the body loads when something is actually being written. The documentation site
-instead presents the same subjects as focused pages for human browsing.]],
-    schema = {
-        type = "object",
-        properties = {
-            title = {type = "string"},
-            sections = {
-                type = "array",
-                items = {
-                    type = "object",
-                    properties = {
-                        title = {type = "string", description = "The heading, and its anchor."},
-                        body = {type = "string", description = "What the construct is for, as markdown."},
-                        example = {
-                            type = "string",
-                            description = "A complete module using it. Every one "
-                            .. "is compiled by the compiler's own tests."
-                        },
-                        codes = {
-                            type = "array",
-                            items = {type = "string"},
-                            description = "The codes that report getting it "
-                            .. "wrong. 'nupp explain <code>' says more."
-                        },
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        title = {type = "string"},
+        sections = {
+            type = "array",
+            items = {
+                type = "object",
+                properties = {
+                    title = {type = "string", description = "The heading, and its anchor."},
+                    body = {type = "string", description = "What the construct is for, as markdown."},
+                    example = {
+                        type = "string",
+                        description = "A complete module using it. Every one "
+                        .. "is compiled by the compiler's own tests."
                     },
-                    required = {"title", "body", "codes"},
+                    codes = {
+                        type = "array",
+                        items = {type = "string"},
+                        description = "The codes that report getting it " .. "wrong. 'nupp explain <code>' says more."
+                    },
                 },
+                required = {"title", "body", "codes"},
             },
-            chapters = {
-                type = "array",
-                description = "Top-level reference chapters, each containing sections.",
-                items = {type = "object"},
-            },
-            tooling = {type = "string", description = "How to drive the toolchain, as markdown."},
-            markdown = {type = "string", description = "The whole document, as `--format markdown` writes it."},
         },
-        required = {"title", "sections", "chapters", "tooling", "markdown"},
+        chapters = {
+            type = "array",
+            description = "Top-level reference chapters, each containing sections.",
+            items = {type = "object"},
+        },
+        tooling = {type = "string", description = "How to drive the toolchain, as markdown."},
+        markdown = {type = "string", description = "The whole document, as `--format markdown` writes it."},
     },
+    required = {"title", "sections", "chapters", "tooling", "markdown"},
 }
 
 --- Writes `-o` output with the result checked, so a full disk is a failed
@@ -134,21 +65,27 @@ local function writeOutput(path: string, content: string): integer
     return 0
 end
 
-local function run(parsed: any): integer
+local function run(options: any): integer
+    local positional: {string} = {}
+    if options.chapter ~= nil then
+        positional[1] = options.chapter
+    end
     local reference = require("nupp.compiler.reference")
-    local format = parsed.values.format or "markdown"
-    local positional: {string} = parsed.positional
+    if (options.skill and options.json) or (options.skill or options.json) and options.format ~= nil then
+        return usageError("output format was specified more than once")
+    end
+    local format = options.skill and "skill" or options.json and "json" or options.format or "markdown"
     if #positional > 1 then
-        return command:usageError("at most one reference chapter is required")
+        return usageError("at most one reference chapter is required")
     end
     local topic = positional[1]
-    local wantedSection = parsed.values.section
-    local wantedCode = parsed.values.forCode
+    local wantedSection = options.section
+    local wantedCode = options.forCode
     if wantedSection and wantedCode then
-        return command:usageError("--section and --for name the same thing two ways")
+        return usageError("--section and --for name the same thing two ways")
     end
     if (wantedSection or wantedCode) and topic then
-        return command:usageError("--section and --for already say which part to print")
+        return usageError("--section and --for already say which part to print")
     end
 
     -- One section, or the sections covering one code. Both answer the question a
@@ -158,9 +95,7 @@ local function run(parsed: any): integer
         if wantedSection then
             local section, chapter = reference.findSection(wantedSection)
             if not section then
-                return command:usageError(
-                    "no reference section named " .. wantedSection .. "; `nupp reference` lists them"
-                )
+                return usageError("no reference section named " .. wantedSection .. "; `nupp reference` lists them")
             end
             chosen[1] = {section = section, chapter = chapter}
         else
@@ -170,7 +105,7 @@ local function run(parsed: any): integer
             if #chosen == 0 then
                 -- The code may still be real and simply not be what any section is
                 -- about; `explain` is where a code always answers.
-                return command:usageError(
+                return usageError(
                     "no reference section covers " .. wantedCode .. "; try `nupp explain " .. wantedCode .. "`"
                 )
             end
@@ -201,27 +136,27 @@ local function run(parsed: any): integer
                 tooling = reference.tooling,
                 markdown = rendered,
             }
-            if parsed.values.output then
-                return writeOutput(parsed.values.output, require("nupp.compiler.cli.report").encode(payload))
+            if options.output then
+                return writeOutput(options.output, require("nupp.compiler.cli.report").encode(payload))
             end
             require("nupp.compiler.cli.report").write(payload)
             return 0
         end
-        if parsed.values.output then
-            return writeOutput(parsed.values.output, rendered)
+        if options.output then
+            return writeOutput(options.output, rendered)
         end
         io.write(rendered, "\n")
 
         return 0
     end
 
-    if not topic and not parsed.values.format and not parsed.values.output then
+    if not topic and not options.format and not options.output then
         io.write(reference.catalog(), "\n")
         return 0
     end
     local chapter = topic and topic ~= "all" and reference.chapter(topic) or nil
     if topic and topic ~= "all" and not chapter then
-        return command:usageError("unknown reference chapter " .. topic)
+        return usageError("unknown reference chapter " .. topic)
     end
     local text
     if format == "skill" then
@@ -263,19 +198,75 @@ local function run(parsed: any): integer
         if chapter then
             payload.chapter = chapter
         end
-        if parsed.values.output then
-            return writeOutput(parsed.values.output, require("nupp.compiler.cli.report").encode(payload))
+        if options.output then
+            return writeOutput(options.output, require("nupp.compiler.cli.report").encode(payload))
         end
         require("nupp.compiler.cli.report").write(payload)
         return 0
     end
 
-    if parsed.values.output then
-        return writeOutput(parsed.values.output, text)
+    if options.output then
+        return writeOutput(options.output, text)
     end
     io.write(text, "\n")
 
     return 0
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- List or print a focused Nupp reference chapter.
+---
+--- With no chapter, lists the focused references and their sections. A
+--- chapter is compiled into the executable and belongs to this compiler.
+--- `--section` prints one section by heading or documentation pointer, and
+--- `--for` prints the sections which explain one diagnostic code. Skill output
+--- puts its short description in the always-loaded frontmatter and the full
+--- reference in the lazily loaded body.
+---
+--- Examples:
+---
+---     nupp reference cli
+---     nupp reference language
+---     nupp reference --section affine-resources
+---     nupp reference --section docs/learn/language/modules.md#modules
+---     nupp reference --for NUPP2004
+---     nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
+---     nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
+---     nupp reference --format skill -o .claude/skills/nupp/SKILL.md
+@cli(name = "reference", parent = root.Root)
+@derive(cliModule.Command)
+local record Reference
+    --- Output format.
+    @cli(value = "FORMAT", choices = {"markdown", "skill", "json"})
+    format: string?
+
+    --- Shorthand for --format skill.
+    skill: boolean = false
+
+    --- Shorthand for --format json.
+    json: boolean = false
+
+    --- Print one section, by heading or documentation pointer.
+    @cli(value = "NAME")
+    section: string?
+
+    --- Print sections which explain a diagnostic code.
+    @cli(name = "for", value = "CODE")
+    forCode: string?
+
+    --- Write to this file instead of standard output.
+    @cli(short = "o", value = "PATH")
+    output: string?
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Reference chapter to print.
+    @cli(positional = "CHAPTER", choices = {"language", "cli", "performance", "all"})
+    chapter: string?
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Reference, schema = REPORT_SCHEMA}

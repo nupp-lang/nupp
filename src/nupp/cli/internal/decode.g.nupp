@@ -1,0 +1,275 @@
+module nupp.cli.internal.decode
+
+const {type Entry} = require("nupp.derive")
+
+local parser = require("nupp.cli.internal.optparser")
+local derive = require("nupp.derive")
+
+export type DecodeError = {
+    readonly kind: string,
+    readonly message: string,
+    readonly index: integer?,
+    readonly raw: string?,
+    readonly option: string?,
+    readonly field: string?,
+    readonly destination: string?
+}
+
+local function failure(kind: string, message: string, token: parser.Token?, field: any?): DecodeError
+    return {
+        kind = kind,
+        message = message,
+        index = token and token.index or nil,
+        raw = token and token.raw or nil,
+        option = token and token.key or nil,
+        field = field and field.field or nil,
+        destination = field and field.destination or nil,
+    }
+end
+
+local PREPARED: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+local function prepared(entry: Entry): any
+    local schema = entry.schema.data.cli
+    local existing = PREPARED[entry]
+    if existing ~= nil then
+        return existing
+    end
+    local byName, byPattern, arity, patterns = {}, {}, {}, {}
+    for _, field in ipairs(schema.fields) do
+        if field.role == "option" then
+            for _, name in ipairs(field.names) do
+                byName[name] = field
+                arity[name] = field.constants[name] ~= nil and "none" or field.arity
+            end
+            if field.pattern ~= nil then
+                byPattern[field.matchKey] = field
+                patterns[#patterns + 1] = {pattern = field.pattern, key = field.matchKey}
+            end
+        end
+    end
+    local plan = {schema = schema, byName = byName, byPattern = byPattern, arity = arity, patterns = patterns}
+    PREPARED[entry] = plan
+
+    return plan
+end
+
+local function converted(text: string, field: any, token: parser.Token?): any, DecodeError?
+    local kind = field.conversion
+    if kind == "string" then
+        return text, nil
+    elseif kind == "integer" then
+        local number = tonumber(text)
+        if number == nil
+            or number % 1 ~= 0
+            or field.minimum ~= nil
+            and number < field.minimum
+            or field.maximum ~= nil
+            and number > field.maximum
+        then
+            return nil, failure(
+                "invalidValue",
+                field.invalid or text .. " is not a valid " .. field.destination .. " for " .. field.display,
+                token,
+                field
+            )
+        end
+        return number, nil
+    elseif kind == "number" then
+        local number = tonumber(text)
+        if number == nil then
+            return nil, failure("invalidValue", text .. " is not a valid number for " .. field.display, token, field)
+        end
+        return number, nil
+    elseif kind == "choice" then
+        for _, choice in ipairs(field.choices) do
+            if choice == text then
+                return text, nil
+            end
+        end
+        return nil, failure(
+            "invalidChoice",
+            field.invalid or "option " .. field.display .. " does not take " .. text .. "; expected " .. table.concat(
+                field.choices,
+                ", "
+            ),
+            token,
+            field
+        )
+    end
+
+    return nil, failure("invalidValue", "unsupported value for " .. field.display, token, field)
+end
+
+local function assign(
+    values: {any},
+    seen: {[integer]: boolean},
+    field: any,
+    text: string,
+    token: parser.Token?
+): DecodeError?
+    local value, problem = converted(text, field, token)
+    if problem ~= nil then
+        return problem
+    end
+    local index = field.index
+    if field.repeated then
+        local accumulated = values[index]
+        if accumulated == nil then
+            accumulated = {}
+            values[index] = accumulated
+        end
+        if field.set then
+            accumulated[value] = true
+        else
+            accumulated[#accumulated + 1] = value
+        end
+    elseif seen[index] then
+        return failure("duplicateOption", field.display .. " was specified more than once", token, field)
+    else
+        values[index] = value
+    end
+    seen[index] = true
+
+    return nil
+end
+
+--- Decodes argv with the schema carried by a derive entry.
+export function fromCLI(argv: {string}, entry: Entry): any, DecodeError?
+    local plan = prepared(entry)
+    local schema = plan.schema
+    local values, seen = {}, {}
+    local positionals = schema.positionals
+    local positionalIndex = 1
+    local stream = parser.optParser(argv, {
+        arity = plan.arity,
+        patterns = plan.patterns,
+        stopAtFirstArgument = schema.stopAtFirstArgument,
+    })
+
+    while true do
+        local token, syntax = stream:next()
+        if syntax ~= nil then
+            return nil, {
+                kind = syntax.kind,
+                message = syntax.message,
+                index = syntax.index,
+                raw = syntax.raw,
+                option = syntax.key,
+            }
+        elseif token == nil then
+            break
+        elseif token.kind == "terminator" then
+        elseif token.kind == "shortOption" or token.kind == "longOption" then
+            local field = token.pattern and plan.byPattern[token.key] or plan.byName[token.key]
+            if field == nil then
+                if schema.preserveUnknown then
+                    local problem = assign(values, seen, schema.remainder, token.raw, token)
+                    if problem ~= nil then
+                        return nil, problem
+                    end
+                else
+                    return nil, failure("unknownOption", "unknown option " .. token.raw, token, nil)
+                end
+            elseif field.conversion == "boolean" then
+                if token.value ~= nil then
+                    return nil, failure("unexpectedValue", field.display .. " takes no value", token, field)
+                elseif seen[field.index] then
+                    return nil, failure(
+                        "duplicateOption",
+                        field.display .. " was specified more than once",
+                        token,
+                        field
+                    )
+                end
+                if field.constant ~= nil then
+                    values[field.index] = field.constant
+                else
+                    values[field.index] = true
+                end
+                seen[field.index] = true
+            elseif field.constants[token.key] ~= nil then
+                if token.value ~= nil then
+                    return nil, failure("unexpectedValue", token.raw .. " takes no value", token, field)
+                end
+                local problem = assign(values, seen, field, field.constants[token.key], token)
+                if problem ~= nil then
+                    return nil, problem
+                end
+            elseif token.value == nil and field.constant ~= nil then
+                if seen[field.index] then
+                    return nil, failure(
+                        "duplicateOption",
+                        field.display .. " was specified more than once",
+                        token,
+                        field
+                    )
+                end
+                values[field.index] = field.constant
+                seen[field.index] = true
+            else
+                local text = token.value
+                if text == nil then
+                    return nil, failure("missingValue", field.display .. " needs " .. field.value, token, field)
+                end
+                local problem = assign(values, seen, field, text, token)
+                if problem ~= nil then
+                    return nil, problem
+                end
+            end
+        else
+            local field = positionals[positionalIndex]
+            if field ~= nil and field.optional and field.choices ~= nil then
+                local matches = false
+                for _, choice in ipairs(field.choices) do
+                    if choice == token.raw then
+                        matches = true
+                    end
+                end
+                if not matches then
+                    positionalIndex = positionalIndex + 1
+                    field = positionals[positionalIndex]
+                end
+            end
+            if field == nil then
+                return nil, failure("unexpectedArgument", "unexpected argument " .. token.raw, token, nil)
+            end
+            local problem = assign(values, seen, field, token.raw, token)
+            if problem ~= nil then
+                return nil, problem
+            end
+            if not field.repeated then
+                positionalIndex = positionalIndex + 1
+            end
+        end
+    end
+
+    for _, field in ipairs(schema.fields) do
+        if field.required and not seen[field.index] then
+            return nil, failure("missingRequired", field.display .. " is required", nil, field)
+        end
+    end
+
+    local initializer = derive.initializer(entry.mt)
+    if initializer == nil then
+        return nil, failure("invalidSchema", "CLI initializer is unavailable", nil, nil)
+    end
+    local storage = setmetatable({}, entry.mt)
+
+    return initializer(storage, unpack(values, 1, schema.fieldCount)), nil
+end
+
+--- Returns a string unchanged for generated metadata accessors.
+export function text(value: string): string
+    return value
+end
+
+--- Returns a fresh string list supplied by a generated metadata accessor.
+export function strings(value: {string}): {string}
+    return value
+end
+
+--- Implements the inert handler of a pure command group.
+export function groupRun(self: table): integer
+    return 0
+end

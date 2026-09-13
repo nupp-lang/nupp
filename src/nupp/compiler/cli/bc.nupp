@@ -20,98 +20,69 @@ the bytecode finds it without running anything, which is what makes it usable as
 a gate -- no quiet machine, no threshold, and the same answer every time.
 ]]
 
-local spec = require("nupp.compiler.cli.spec")
-local optionsMod = require("nupp.compiler.cli.options")
+local usageError = require("nupp.compiler.cli.error").forCommand("bc")
 local report = require("nupp.compiler.cli.report")
 local listing = require("nupp.compiler.bytecodelisting")
+local cliModule = require("nupp.cli")
+local root = require("nupp.compiler.cli.root")
 
--- The shared `--format` trio, plus the two questions this command answers.
-local function bcOptions(): {any}
-    local list = optionsMod.format()
-    list[
-        #list + 1
-    ] = {name = "--check", key = "check", help = "Report bytecode a loop cannot compile, and exit non-zero for it",}
-    list[
-        #list + 1
-    ] = {
-        name = "--prologue",
-        key = "prologue",
-        help = "Include the generated runtime preamble, folded away by default",
-    }
-
-    return list
-end
-
-local command = spec.command{
-    name = "bc",
-    summary = "Show the bytecode a Nupp file compiles to",
-    usage = {"nupp bc [--check] [--prologue] [--format text|json] <file>"},
-    options = bcOptions(),
-    schema = {
-        type = "object",
-        description = "The bytecode of one Nupp file, by function.",
-        properties = {
-            file = {type = "string"},
-            functions = {
-                type = "array",
-                items = {
-                    type = "object",
-                    properties = {
-                        what = {type = "string", enum = {"chunk", "function"}},
-                        firstLine = {type = "integer"},
-                        lastLine = {type = "integer"},
-                        instructions = {
-                            type = "array",
-                            items = {
-                                type = "object",
-                                properties = {
-                                    pc = {type = "integer"},
-                                    op = {type = "string"},
-                                    text = {type = "string"},
-                                    line = {type = "integer"},
-                                    inLoop = {type = "boolean"},
-                                    unrecordable = {
-                                        type = "string",
-                                        description = "Why a loop holding this cannot be "
-                                        .. "compiled. Absent when it can.",
-                                    },
-                                    traceReason = {type = "string"},
-                                    traceReachability = {type = "string", enum = {"must", "may"}},
+local REPORT_SCHEMA = {
+    type = "object",
+    description = "The bytecode of one Nupp file, by function.",
+    properties = {
+        file = {type = "string"},
+        functions = {
+            type = "array",
+            items = {
+                type = "object",
+                properties = {
+                    what = {type = "string", enum = {"chunk", "function"}},
+                    firstLine = {type = "integer"},
+                    lastLine = {type = "integer"},
+                    instructions = {
+                        type = "array",
+                        items = {
+                            type = "object",
+                            properties = {
+                                pc = {type = "integer"},
+                                op = {type = "string"},
+                                text = {type = "string"},
+                                line = {type = "integer"},
+                                inLoop = {type = "boolean"},
+                                unrecordable = {
+                                    type = "string",
+                                    description = "Why a loop holding this cannot be "
+                                    .. "compiled. Absent when it can.",
                                 },
-                                required = {"pc", "op", "text"},
+                                traceReason = {type = "string"},
+                                traceReachability = {type = "string", enum = {"must", "may"}},
                             },
+                            required = {"pc", "op", "text"},
                         },
                     },
-                    required = {"what", "instructions"},
                 },
+                required = {"what", "instructions"},
             },
-            unrecordable = {
-                type = "integer",
-                description = "How many instructions sit in a loop that therefore never compiles.",
-            },
-            blockers = {type = "integer"},
-            mustBlockers = {type = "integer"},
-            risks = {type = "integer"},
-            bytecodeFingerprint = {type = "string"},
-            traceProfile = {type = "object"},
-            reasonCatalog = {type = "object"},
         },
-        required = {"file", "functions", "unrecordable"},
+        unrecordable = {
+            type = "integer",
+            description = "How many instructions sit in a loop that therefore never compiles.",
+        },
+        blockers = {type = "integer"},
+        mustBlockers = {type = "integer"},
+        risks = {type = "integer"},
+        bytecodeFingerprint = {type = "string"},
+        traceProfile = {type = "object"},
+        reasonCatalog = {type = "object"},
     },
-    detail = [[Source lines are shown against the instructions they produced. The generated
-runtime preamble all lands on line 1 and is folded away unless `--prologue`
-asks for it.
-
-`--check` marks every instruction LuaJIT cannot record that sits inside a loop.
-It exits 1 when every repeatable path reaches one, because that loop cannot
-complete a root trace. A blocker reached on only some paths remains visible as
-advice without claiming every path stays interpreted.]],
+    required = {"file", "functions", "unrecordable"},
 }
 
-local function run(parsed: any): integer
-    local paths: {string} = parsed.positional
+local function run(options: any): integer
+    local positional: {string} = {options.file}
+    local paths: {string} = positional
     if #paths ~= 1 then
-        return command:usageError("exactly one source file is required")
+        return usageError("exactly one source file is required")
     end
     local path = paths[1]
 
@@ -131,8 +102,8 @@ local function run(parsed: any): integer
 
     local compile = require("nupp.compiler.cli.compile")
     local env = require("nupp.compiler.env").new(".")
-    local settings = compile.settings(parsed.values)
-    local folding = (parsed.values.format or "text") == "text" and not parsed.values.prologue
+    local settings = compile.settings(options)
+    local folding = (options.format or "text") == "text" and not options.prologue
     local boundary = folding and listing.BOUNDARY or nil
     settings.bytecodeBoundary = boundary
     local code, compileErr = compile.module(path, env, settings)
@@ -168,7 +139,7 @@ local function run(parsed: any): integer
         end
     end
 
-    if (parsed.values.format or "text") == "json" then
+    if (options.format or "text") == "json" then
         -- Every count below is an integer this pass produced, so a NaN reaching the
         -- encoder is a fault worth failing on rather than a token to write out.
         io.write(
@@ -187,14 +158,14 @@ local function run(parsed: any): integer
     else
         io.write(
             (listing.render(functions, source, {
-                check = parsed.values.check and true or false,
+                check = options.check and true or false,
                 boundaryFunction = boundaryFunction,
                 boundaryPc = boundaryPc,
             }))
         )
     end
 
-    if parsed.values.check and analysis.mustBlockers > 0 then
+    if options.check and analysis.mustBlockers > 0 then
         io.stderr:write(
             (
                 "nupp: %d instruction%s in a loop that cannot compile\n"
@@ -206,4 +177,33 @@ local function run(parsed: any): integer
     return 0
 end
 
-export = new spec.Handler(spec = command, run = run)
+--- Show the bytecode a Nupp file compiles to.
+---
+--- Source lines are shown beside their instructions. `--check` identifies
+--- operations which prevent a containing loop from being recorded by LuaJIT.
+@cli(name = "bc", parent = root.Root)
+@derive(cliModule.Command)
+local record Bytecode
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Report bytecode a loop cannot compile.
+    check: boolean = false
+
+    --- Include the generated runtime preamble.
+    prologue: boolean = false
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Source file to inspect.
+    @cli(positional = "FILE")
+    file: string
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+export = {commandType = Bytecode, schema = REPORT_SCHEMA}

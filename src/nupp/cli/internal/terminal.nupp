@@ -1,0 +1,179 @@
+module nupp.cli.internal.terminal
+
+--- How terminal styling is selected.
+export type ColorMode = "auto" | "always" | "never"
+
+--- Generic terminal styles shared by CLI applications and their commands.
+export record Style
+    strong: function(string): string
+    faint: function(string): string
+    red: function(string): string
+    yellow: function(string): string
+    green: function(string): string
+    cyan: function(string): string
+    blue: function(string): string
+
+    -- Retained for compiler renderers while they move to the generic colours.
+    path: function(string): string
+    gutter: function(string): string
+    severity: {[string]: function(string): string}
+end
+
+local CODES = {strong = "1", faint = "2", red = "1;31", yellow = "1;33", green = "1;32", cyan = "1;36", blue = "1;34",}
+local RESET = "\27[0m"
+
+local function plain(text: string): string
+    return text
+end
+
+local function styler(code: string): function(string): string
+    local prefix = "\27[" .. code .. "m"
+    return function(text: string): string
+        return prefix .. text .. RESET
+    end
+end
+
+local SEVERITY_COLOR = {error = "red", warning = "yellow", note = "cyan", help = "green"}
+local plainSeverity: {[string]: function(string): string} = {}
+for name in pairs(SEVERITY_COLOR) do
+    plainSeverity[name] = plain
+end
+
+local PLAIN = new Style(
+    strong = plain,
+    faint = plain,
+    red = plain,
+    yellow = plain,
+    green = plain,
+    cyan = plain,
+    blue = plain,
+    path = plain,
+    gutter = plain,
+    severity = plainSeverity
+)
+
+local COLORED = new Style(
+    strong = styler(CODES.strong),
+    faint = styler(CODES.faint),
+    red = styler(CODES.red),
+    yellow = styler(CODES.yellow),
+    green = styler(CODES.green),
+    cyan = styler(CODES.cyan),
+    blue = styler(CODES.blue),
+    path = styler(CODES.strong),
+    gutter = styler(CODES.blue),
+    severity = {}
+)
+for name, color in pairs(SEVERITY_COLOR) do
+    COLORED.severity[name] = styler(CODES[color])
+end
+
+local windows = package.config:sub(1, 1) == "\\"
+
+local function requested(name: string): boolean
+    local value = os.getenv(name)
+    return value ~= nil and value ~= "" and value ~= "0"
+end
+
+local function isatty(fd: integer): boolean
+    local loaded, ffi = pcall(require, "ffi")
+    if not loaded then
+        return false
+    end
+    pcall(ffi.cdef, "int isatty(int);")
+    local ok, result = pcall(function()
+        local C: any = ffi.C
+        return C.isatty(fd)
+    end)
+    if ok then
+        return result ~= 0
+    end
+    pcall(ffi.cdef, "int _isatty(int);")
+    local retried, retriedResult = pcall(function()
+        local C: any = ffi.C
+        return C._isatty(fd)
+    end)
+
+    return retried and retriedResult ~= 0
+end
+
+local function capable(fd: integer): boolean
+    if os.getenv("TERM") == "dumb" then
+        return false
+    end
+    if windows and not (
+        requested("WT_SESSION") or requested("ANSICON") or requested("ConEmuANSI") or os.getenv("TERM")
+    ) then
+        return false
+    end
+
+    return isatty(fd)
+end
+
+local mode: ColorMode = "auto"
+local decided: {[LuaFile]: boolean} = {}
+local terminals: {[LuaFile]: boolean} = {}
+local DESCRIPTOR = {[io.stdin] = 0, [io.stdout] = 1, [io.stderr] = 2}
+
+--- Sets the process-wide default color policy.
+export function setColorMode(wanted: ColorMode): nil
+    if wanted ~= mode then
+        mode = wanted
+        decided = {}
+    end
+end
+
+--- Runs a body under one color policy and restores the previous policy.
+export function withColorMode(wanted: ColorMode, body: function(): nil): nil
+    local before = mode
+    setColorMode(wanted)
+    local ok, problem = pcall(body)
+    setColorMode(before)
+    if not ok then
+        error(problem, 0)
+    end
+end
+
+--- Reports whether escapes should be written to one stream.
+export function colorEnabled(stream: LuaFile): boolean
+    local known = decided[stream]
+    if known ~= nil then
+        return known
+    end
+    local answer: boolean
+    if mode == "always" then
+        answer = true
+    elseif mode == "never" then
+        answer = false
+    elseif requested("NO_COLOR") then
+        answer = false
+    elseif requested("CLICOLOR_FORCE") then
+        answer = true
+    else
+        answer = capable(DESCRIPTOR[stream] or 1)
+    end
+    decided[stream] = answer
+
+    return answer
+end
+
+--- Reports whether one stream is attached to a terminal.
+export function isTerminal(stream: LuaFile): boolean
+    local known = terminals[stream]
+    if known == nil then
+        known = isatty(DESCRIPTOR[stream] or 1)
+        terminals[stream] = known
+    end
+
+    return known
+end
+
+--- Returns a stable style table for one stream.
+export function style(stream: LuaFile): Style
+    return colorEnabled(stream) and COLORED or PLAIN
+end
+
+--- Selects the compiler-compatible severity style.
+export function forSeverity(styles: Style, name: string?): function(string): string
+    return styles.severity[name or "error"] or styles.severity.error or PLAIN.strong
+end
