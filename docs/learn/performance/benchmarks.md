@@ -65,9 +65,21 @@ Benchmark             Mode    Cnt       Score  Units                p25-p99
 presize.point.grown    p50     73      46.015  ns/op      [19.469, 153.456]
 ```
 
-Those samples alternate between ~21ns and ~140ns. The median lands in the empty
-gap between the two clusters and describes nothing the benchmark does. The same
-run used to report `40.702 ns/op` and look unremarkable.
+Those samples alternate between ~21ns and ~140ns, and the harness says so:
+
+```text
+bench: presize.point.grown: scattered: only 9% of samples lie within 10% of the
+       median, so the score describes no rate this benchmark ran at; raise
+       sampleIterations until one sample spans whole collector cycles
+```
+
+That one was real. `bench/presize.bench.nupp` allocated about a collector
+cycle's worth per call, so with one call per sample the collector ran on every
+*other* sample: half measured the loop, half measured the loop plus a cycle the
+previous sample's garbage had earned. Raising `sampleIterations` to 8 so each
+sample spans whole cycles moved it from 9% concentration to 98%, and the score
+from `40.6` to `65.8 ns/op` — the old number was **18% low**, because half the
+samples excluded work their own allocations caused.
 
 The upper end is p99 rather than p75 because a slow mode holding a tenth of the
 samples moves p99 and leaves p75 where it was. `p75Sec` is still in the record.
@@ -267,6 +279,21 @@ the median is a moving target. Raise `warmupIterations` and run it again.
 There is deliberately **no verdict asserting a steady state**. Failing to detect
 a trend does not establish one, and Barrett et al. needed changepoint analysis
 over 2,000 iterations in each of 30 processes to earn that claim.
+
+### `scattered` means the score describes nothing
+
+```text
+bench: scattered: only 9% of samples lie within 10% of the median
+```
+
+A descriptive count, not a test: the fraction of samples within 10% of the
+median. One rate with noise puts that near 100%; two clusters with a sparse
+middle put it near zero, and then the median is an artefact of where the two
+happen to balance rather than a rate the code ever ran at.
+
+The usual cause is the collector cycling on alternate samples. The usual fix is
+`sampleIterations` high enough that one sample spans whole cycles, so every
+sample pays its share instead of every other one paying all of it.
 
 ### Outliers are counted, not dropped
 

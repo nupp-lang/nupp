@@ -745,4 +745,94 @@ function M.aWithheldIntervalCannotProduceAConfidentVerdict()
     )
 end
 
+-- The measure that catches a median describing nothing.
+--
+-- `bench/presize.bench.nupp` allocated about one collector cycle's worth per call, so
+-- with one call per sample the collector ran on every other one: alternate samples
+-- measured the loop, the rest measured the loop plus a cycle the previous sample had
+-- earned. The median landed in the gap between the two clusters and read about 18%
+-- below the real cost, because half the samples excluded work their own allocations
+-- caused. Nothing in a score, a spread or a trend test says that is happening.
+function M.concentrationCatchesAMedianThatDescribesNoSample()
+    local statistics = require("nupp.bench.statistics")
+
+    -- One rate, some noise: nearly everything sits near the middle.
+    local tight = {}
+    for index = 1, 40 do
+        tight[index] = 100.0 + (index % 4) * 0.5
+    end
+    assertTrue(
+        statistics.concentration(tight, 0.10) > 0.9,
+        "a single-rate workload concentrates around its median"
+    )
+
+    -- Two clusters with a sparse middle, which is the shape a collector cycling on
+    -- alternate samples actually produces.
+    --
+    -- Not an exact half-and-half split: the median is a nearest-rank order statistic
+    -- and so is always an observed sample, which means it can never land in an empty
+    -- gap. What goes wrong in practice is that it lands in a thinly populated region
+    -- between the clusters, and an even split would instead put it squarely on one of
+    -- them and concentrate fine.
+    local split = {}
+    for index = 1, 18 do
+        split[#split + 1] = 20.0 + (index % 3) * 0.4
+    end
+    for _, middle in ipairs({40.0, 60.0, 80.0, 100.0}) do
+        split[#split + 1] = middle
+    end
+    for index = 1, 18 do
+        split[#split + 1] = 140.0 + (index % 3) * 0.4
+    end
+    const scattered = statistics.concentration(split, 0.10)
+    assertTrue(scattered < 0.1, "a two-cluster workload concentrates nowhere near its median")
+    assertTrue(
+        scattered < statistics.MIN_CONCENTRATION,
+        "and falls below the threshold the runner reports on"
+    )
+
+    -- The threshold sits between two values an order of magnitude apart, so it is not
+    -- adjudicating anything borderline.
+    assertTrue(
+        statistics.concentration(tight, 0.10) > statistics.MIN_CONCENTRATION,
+        "the healthy case is on the other side of the same threshold"
+    )
+
+    assertEq(statistics.concentration({}, 0.10), 1.0, "an empty series claims nothing")
+end
+
+-- A scattered benchmark is reported by name with the number behind the judgement, so
+-- the reader can disagree with the threshold rather than only with the verdict.
+function M.mergeReportsAScatteredBenchmark()
+    local runner = require("nupp.compiler.benchrunner")
+    local function fork(samples)
+        return {
+            allocationSites = {},
+            remarks = {},
+            cases = {
+                {
+                    name = "x",
+                    kind = "suite",
+                    medianSec = 0.00000008,
+                    abortSites = {},
+                    samplesSec = samples,
+                    concentration = 0.09,
+                },
+            },
+        }
+    end
+    local samples = {}
+    for index = 1, 40 do
+        samples[index] = (index % 2 == 0) and 0.00000002 or 0.00000014
+    end
+    local forks = {}
+    for index = 1, 3 do
+        forks[index] = fork(samples)
+    end
+    local merged, notes = runner.mergeForks("x", "a.nupp", forks)
+    assertTrue(table.concat(notes, "\n"):find("scattered") ~= nil, "the benchmark is named as scattered")
+    assertTrue(table.concat(notes, "\n"):find("9%%") ~= nil, "with the concentration behind the judgement")
+    assertTrue(merged.summary.concentration ~= nil, "and the figure is recorded")
+end
+
 return M

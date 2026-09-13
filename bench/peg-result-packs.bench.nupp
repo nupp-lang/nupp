@@ -40,6 +40,12 @@ bench.suite(
         variants = {{name = "table-capture", run = collected}, {name = "native-pack", run = native},},
         cases = {{name = "identifier", operations = BATCH},},
         warmupIterations = 3,
+        -- One call allocates close enough to a collector cycle that a single call per
+        -- sample put a collection in every other one, splitting the samples into a
+        -- fast cluster and a slow one with the median in the sparse middle. Several
+        -- calls per sample span whole cycles, so every sample pays its share instead
+        -- of every other one paying all of it.
+        sampleIterations = 8,
         minSamples = 7,
         minDurationSec = 0.5,
     } as bench.SuiteOptions

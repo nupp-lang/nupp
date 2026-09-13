@@ -288,6 +288,15 @@ record bench.Measurement
 
     trendPValue: number?
 
+    --- The fraction of this measurement's samples lying within ten percent of its
+    --- median.
+    ---
+    --- Near one when the samples describe a single rate. Near zero when they split
+    --- into clusters and the median falls in the gap, which is what a collector
+    --- running on alternate samples produces and which makes the reported score
+    --- describe a rate the benchmark never ran at.
+    concentration: number?
+
     --- Samples beyond three interquartile ranges of the nearer quartile, and the
     --- largest of them over the median.
     ---
@@ -742,6 +751,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         trend = rounds.verdict,
         trendTau = rounds.tau,
         trendPValue = rounds.pValue,
+        concentration = statistics.concentration(times, statistics.CONCENTRATION_TOLERANCE),
         outlierCount = far.severe,
         outlierMaxRatio = far.maxRatio,
         allocatedKb = allocated / ROUNDS,
@@ -1035,6 +1045,7 @@ local function measureSuite(
         trend = drift.verdict,
         trendTau = drift.tau,
         trendPValue = drift.pValue,
+        concentration = statistics.concentration(samples, statistics.CONCENTRATION_TOLERANCE),
         outlierCount = far.severe,
         outlierMaxRatio = far.maxRatio,
         sampleIterations = iterations,

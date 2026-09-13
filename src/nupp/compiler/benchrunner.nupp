@@ -628,6 +628,31 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
         end
     end
 
+    -- Reported before anything else about the durations, because it decides whether
+    -- the score above is worth reading at all. A benchmark whose samples cluster away
+    -- from their own median has not produced a slightly noisy number, it has produced
+    -- one that describes no rate it ever ran at.
+    local concentrations: {number} = {}
+    for _, fork in ipairs(forks) do
+        local measurement = onlyMeasurement(fork)
+        if measurement and measurement.concentration then
+            concentrations[#concentrations + 1] = measurement.concentration
+        end
+    end
+    if #concentrations > 0 then
+        local typical = statistics.median(concentrations)
+        merged.concentration = typical
+        if typical < statistics.MIN_CONCENTRATION then
+            notes[
+                #notes + 1
+            ] = (
+                "%s: scattered: only %.0f%% of samples lie within %.0f%% of the median, "
+                .. "so the score describes no rate this benchmark ran at; raise sampleIterations "
+                .. "until one sample spans whole collector cycles"
+            ):format(name, typical * 100.0, statistics.CONCENTRATION_TOLERANCE * 100.0)
+        end
+    end
+
     local outliers: integer = 0
     local worst = 1.0
     for _, fork in ipairs(forks) do

@@ -34,6 +34,14 @@ bench.suite(
         variants = {{name = "grown", run = grown}, {name = "sized", run = sized},},
         cases = {{name = "point", operations = 100000},},
         warmupIterations = 2,
+        -- One call allocates about 15MB, which is close enough to one collector cycle
+        -- that a single call per sample put a collection in every other one: alternate
+        -- samples measured the loop, and the rest measured the loop plus a cycle the
+        -- previous sample's garbage had earned. The median then fell in the gap between
+        -- the two clusters and read about 18% below the real cost, because half the
+        -- samples excluded work their own allocations caused. Several calls per sample
+        -- span whole cycles, so every sample pays its share.
+        sampleIterations = 8,
     } as bench.SuiteOptions
 )
 bench.report()

@@ -34,6 +34,17 @@ statistics.TARGET_COVERAGE = 0.95
 --- Significance level for trend and change tests.
 statistics.ALPHA = 0.05
 
+--- How near the median a sample counts as near, for `concentration`.
+statistics.CONCENTRATION_TOLERANCE = 0.10
+
+--- Concentration below which the median is reported as not describing a mode.
+---
+--- Half is a wide margin rather than a fine one. A benchmark whose collector cycles on
+--- alternate samples lands near five percent and a healthy one near ninety, so nothing
+--- borderline is being adjudicated here and the threshold only has to sit between two
+--- values that are an order of magnitude apart.
+statistics.MIN_CONCENTRATION = 0.5
+
 --- Blocks a sample series is reduced to before testing it for trend.
 ---
 --- A suite fork holds thousands of samples and the pairwise sign count is quadratic,
@@ -279,6 +290,37 @@ function statistics.outliers(values: {number}): statistics.Outliers
     end
 
     return new statistics.Outliers(severe = severe, maxRatio = worst, lowFence = lowFence, upperFence = upperFence)
+end
+
+--- The fraction of samples lying within `tolerance` of the median, as a fraction.
+---
+--- A descriptive measure, deliberately not a test: there is no null hypothesis here
+--- and no p-value, only a count with a stated definition. It answers the one question
+--- a median cannot answer about itself -- whether the samples are anywhere near it.
+---
+--- A unimodal workload puts nearly everything inside a narrow band. A workload whose
+--- samples split into two clusters puts almost nothing there, because the median falls
+--- in the gap between them and describes a rate the benchmark never ran at. The second
+--- case is what a collector cycling on alternate samples produces, and reporting one
+--- number for it is not merely imprecise: the median sits wherever the two clusters
+--- happen to balance, which moves with the split rather than with the code.
+function statistics.concentration(values: {number}, tolerance: number): number
+    if #values == 0 then
+        return 1.0
+    end
+    local middle = statistics.median(values)
+    if middle <= 0.0 then
+        return 1.0
+    end
+    local band = tolerance * middle
+    local near: integer = 0
+    for _, value in ipairs(values) do
+        if math.abs(value - middle) <= band then
+            near = (near + 1) as integer
+        end
+    end
+
+    return near / #values
 end
 
 ----------------------------------------------------------------------------
