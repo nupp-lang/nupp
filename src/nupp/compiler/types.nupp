@@ -2503,7 +2503,12 @@ const ESCAPES: {
 --- `%q` is not the answer: it renders a newline as a real newline and passes the
 --- high bytes through. The short escape is used where the next character cannot
 --- extend it into a different one.
-local function quoteConstant(value: string): string
+local function quoteConstant(value: any): string
+    if value == true then
+        return "true"
+    elseif value == false then
+        return "false"
+    end
     local out: {string} = {"\""}
     for index = 1, #value do
         local code = (value:byte(index) or 0) as integer
@@ -2534,7 +2539,7 @@ function types.tostringConst(term: types.ConstTerm): string
             return value:match("#(.*)$") or value
         end
 
-        return term.domain == "string" and quoteConstant(term.value as string) or tostring(term.value)
+        return term.domain == "string" and quoteConstant(term.value) or tostring(term.value)
     elseif term.tag == "constVar" then
         return term.name
     end
@@ -3724,7 +3729,7 @@ function types.tostring(t: types.Type): string
         return types.tostring(t.of) .. "." .. t.name
     elseif tag == "literal" then
         if t.base == types.string then
-            return quoteConstant(t.constant as string)
+            return quoteConstant(t.constant)
         end
         return tostring(t.constant)
     elseif tag == "func" then
