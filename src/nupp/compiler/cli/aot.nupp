@@ -43,7 +43,6 @@ const {type Listing} = require("nupp.compiler.aot.instructions")
 local usageError = require("nupp.compiler.cli.error").forCommand("aot")
 local report = require("nupp.compiler.cli.report")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -609,7 +608,7 @@ local function run(options: any): integer
 end
 
 --- Show what the @aot functions in a file compile to.
-@cli(name = "aot", parent = root.Root)
+@cli("aot")
 @derive(cliModule.Command)
 local record Aot
     --- Artifact to print.
@@ -651,4 +650,8 @@ local record Aot
     end
 end
 
-export = {commandType = Aot, schema = REPORT_SCHEMA}
+function Aot.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Aot}

@@ -3,10 +3,9 @@ module nupp.compiler.cli.completionscommand
 -- `nupp completions`: print shell completion generated from the CLI schema.
 
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 --- Print a shell completion script.
-@cli(name = "completions", parent = root.Root)
+@cli("completions")
 @derive(cliModule.Command)
 local record Completions
     --- Shell whose completion script to print.

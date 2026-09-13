@@ -10,7 +10,6 @@ requires, not something the checker merely reads.
 
 local usageError = require("nupp.compiler.cli.error").forCommand("import-c")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -154,7 +153,7 @@ local function run(options: any): integer
 end
 
 --- Generate typed Nupp bindings from a C header.
-@cli(name = "import-c", parent = root.Root)
+@cli("import-c")
 @derive(cliModule.Command)
 local record ImportC
     --- Write the generated module to this file.
@@ -188,4 +187,8 @@ local record ImportC
     end
 end
 
-export = {commandType = ImportC, schema = REPORT_SCHEMA}
+function ImportC.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = ImportC}

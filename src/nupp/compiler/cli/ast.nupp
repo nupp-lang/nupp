@@ -11,7 +11,6 @@ explains the failure.
 
 local usageError = require("nupp.compiler.cli.error").forCommand("ast")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 local report = require("nupp.compiler.cli.report")
 
 local REPORT_SCHEMA = {
@@ -139,7 +138,7 @@ end
 ---
 --- The lossless tree includes structural children, tokens, trivia, locations,
 --- and parse errors.
-@cli(name = "ast", parent = root.Root)
+@cli("ast")
 @derive(cliModule.Command)
 local record Ast
     --- Select the report representation.
@@ -158,4 +157,8 @@ local record Ast
     end
 end
 
-export = {commandType = Ast, schema = REPORT_SCHEMA}
+function Ast.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Ast}

@@ -11,7 +11,6 @@ use, after the defaults have been filled in.
 local usageError = require("nupp.compiler.cli.error").forCommand("tasks")
 local ansi = require("nupp.cli")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     description = "The task list, or one task's effective configuration when " .. "a name was given.",
@@ -185,7 +184,7 @@ end
 ---
 --- With no name, lists build targets plus the test and configured self-host
 --- actions. With a name, prints the task's effective configuration.
-@cli(name = "tasks", parent = root.Root)
+@cli("tasks")
 @derive(cliModule.Command)
 local record Tasks
     --- Select the report representation.
@@ -204,4 +203,8 @@ local record Tasks
     end
 end
 
-export = {commandType = Tasks, schema = REPORT_SCHEMA}
+function Tasks.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Tasks}

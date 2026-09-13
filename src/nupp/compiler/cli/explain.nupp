@@ -12,7 +12,6 @@ local cliError = require("nupp.compiler.cli.error")
 local usageError = cliError.forCommand("explain")
 local ansi = require("nupp.cli")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -173,7 +172,7 @@ end
 ---
 --- A code with no worked example still resolves through its family rather than
 --- inventing an example to fit it.
-@cli(name = "explain", parent = root.Root)
+@cli("explain")
 @derive(cliModule.Command)
 local record Explain
     --- List the codes with a worked example.
@@ -195,4 +194,8 @@ local record Explain
     end
 end
 
-export = {commandType = Explain, schema = REPORT_SCHEMA}
+function Explain.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Explain}

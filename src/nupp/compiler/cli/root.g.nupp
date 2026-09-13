@@ -11,7 +11,7 @@ end
 --- Show general or command-specific help.
 ---
 --- With no command, prints the command list.
-@cli(name = "help", parent = Root)
+@cli("help")
 @derive(cliModule.Command)
 export record Help
     --- Command path to describe.
@@ -21,4 +21,37 @@ export record Help
     function run(self): integer
         return 0
     end
+end
+
+--- Returns Nupp's top-level commands in help order.
+function Root.subcommands(): {cliModule.CommandType}
+    return {
+        require("nupp.compiler.cli.initcommand").commandType,
+        require("nupp.compiler.cli.ast").commandType,
+        require("nupp.compiler.cli.aot").commandType,
+        require("nupp.compiler.cli.bc").commandType,
+        require("nupp.compiler.cli.check").commandType,
+        require("nupp.compiler.cli.fmt").commandType,
+        require("nupp.compiler.cli.build").commandType,
+        require("nupp.compiler.cli.clean").commandType,
+        require("nupp.compiler.cli.bench").commandType,
+        require("nupp.compiler.cli.tasks").commandType,
+        require("nupp.compiler.cli.lints").commandType,
+        require("nupp.compiler.cli.ownershipaudit").commandType,
+        require("nupp.compiler.cli.explain").commandType,
+        require("nupp.compiler.cli.reference").commandType,
+        require("nupp.compiler.cli.completionscommand").commandType,
+        require("nupp.compiler.cli.test").commandType,
+        require("nupp.compiler.cli.task").commandType,
+        require("nupp.compiler.cli.doc").commandType,
+        require("nupp.compiler.cli.fixpoint").commandType,
+        require("nupp.compiler.cli.run").commandType,
+        require("nupp.compiler.cli.importc").commandType,
+        require("nupp.compiler.cli.migrate").commandType,
+        require("nupp.compiler.cli.exportc").commandType,
+        require("nupp.compiler.cli.rock").commandType,
+        require("nupp.compiler.cli.lsp").commandType,
+        require("nupp.compiler.cli.version").commandType,
+        Help,
+    }
 end

@@ -19,7 +19,6 @@ const {type Session} = require("nupp.compiler.cli.watch")
 local usageError = require("nupp.compiler.cli.error").forCommand("run")
 local report = require("nupp.compiler.cli.report")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -281,7 +280,7 @@ end
 --- collapsed-stack samples, while `--jit-aborts` records where LuaJIT stopped
 --- tracing. `--watch` is development-only, uses `-O0`, and applies valid
 --- changed-body patches at cooperative poll boundaries.
-@cli(name = "run", parent = root.Root, stopAtFirstArgument = true)
+@cli(name = "run", stopAtFirstArgument = true)
 @derive(cliModule.Command)
 local record Run
     --- Check the program under the strict floor.
@@ -342,4 +341,8 @@ local record Run
     end
 end
 
-export = {commandType = Run, schema = REPORT_SCHEMA}
+function Run.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Run}

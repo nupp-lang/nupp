@@ -12,7 +12,6 @@ const files = require("nupp.io.files")
 
 local usageError = require("nupp.compiler.cli.error").forCommand("build")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -504,7 +503,7 @@ end
 --- diagnostics, written artifacts, materialization facts, and timing data.
 --- Progress and timing stay on standard error so machine-readable standard
 --- output remains one document.
-@cli(name = "build", parent = root.Root)
+@cli("build")
 @derive(cliModule.Command)
 local record Build
     --- Build a named manifest target.
@@ -587,4 +586,8 @@ local record Build
     end
 end
 
-export = {commandType = Build, schema = REPORT_SCHEMA}
+function Build.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Build}

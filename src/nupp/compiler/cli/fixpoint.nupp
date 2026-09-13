@@ -12,7 +12,6 @@ determinism rests on.
 
 local usageError = require("nupp.compiler.cli.error").forCommand("fixpoint")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -63,7 +62,7 @@ local function run(options: any): integer
 end
 
 --- Verify a byte-identical self-hosting rebuild.
-@cli(name = "fixpoint", parent = root.Root)
+@cli("fixpoint")
 @derive(cliModule.Command)
 local record Fixpoint
     --- Write the verified stage-zero bundle here.
@@ -85,4 +84,8 @@ local record Fixpoint
     end
 end
 
-export = {commandType = Fixpoint, schema = REPORT_SCHEMA}
+function Fixpoint.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Fixpoint}

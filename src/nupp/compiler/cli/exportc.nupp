@@ -4,7 +4,6 @@ module nupp.compiler.cli.exportc
 
 local usageError = require("nupp.compiler.cli.error").forCommand("export-c")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -257,7 +256,7 @@ local function run(options: any): integer
 end
 
 --- Export canonical C declarations for Nupp structs.
-@cli(name = "export-c", parent = root.Root)
+@cli("export-c")
 @derive(cliModule.Command)
 local record ExportC
     --- Write the generated header to this file.
@@ -284,4 +283,8 @@ local record ExportC
     end
 end
 
-export = {commandType = ExportC, schema = REPORT_SCHEMA}
+function ExportC.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = ExportC}

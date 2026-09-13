@@ -15,7 +15,6 @@ the files a change touched rather than on the whole tree.
 
 local usageError = require("nupp.compiler.cli.error").forCommand("fmt")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -241,7 +240,7 @@ end
 ---
 --- With named files, formats each to stdout or rewrites it. With none, reports
 --- files in the project which are not formatted.
-@cli(name = "fmt", parent = root.Root)
+@cli("fmt")
 @derive(cliModule.Command)
 local record Fmt
     --- Rewrite files in place instead of writing to stdout.
@@ -274,4 +273,8 @@ local record Fmt
     end
 end
 
-export = {commandType = Fmt, schema = REPORT_SCHEMA}
+function Fmt.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Fmt}

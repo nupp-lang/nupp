@@ -17,7 +17,6 @@ is the named files, not their dependencies.
 
 local usageError = require("nupp.compiler.cli.error").forCommand("check")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -279,7 +278,7 @@ end
 ---
 --- With no files, checks the configured project target. Named files are
 --- checked with project context when available.
-@cli(name = "check", parent = root.Root)
+@cli("check")
 @derive(cliModule.Command)
 local record Check
     --- Treat strict checker rules as errors.
@@ -313,4 +312,8 @@ local record Check
     end
 end
 
-export = {commandType = Check, schema = REPORT_SCHEMA}
+function Check.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Check}

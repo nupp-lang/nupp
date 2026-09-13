@@ -17,7 +17,6 @@ running.
 ]]
 
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 --- Build, then run a named task from nupp.lua.
 ---
@@ -25,7 +24,7 @@ local root = require("nupp.compiler.cli.root")
 --- it names one, then executes `tasks.<name>.argv` from `tasks.<name>.cwd`
 --- (the project root by default) with every trailing argument appended. See
 --- `nupp tasks` for the configured list.
-@cli(name = "task", parent = root.Root, stopAtFirstArgument = true)
+@cli(name = "task", stopAtFirstArgument = true)
 @derive(cliModule.Command)
 local record Task
     --- Configured task name.

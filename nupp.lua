@@ -583,7 +583,6 @@ return {
                     -- above `nupp.derive`'s generated field list. Every other
                     -- standard module says what it has to say in its own blurb.
                     {path = "modules/nupp/derive", title = "nupp.derive", source = "docs/reference/derives.md",},
-                    {path = "modules/nupp/cli", title = "nupp.cli", source = "docs/reference/cli-module.md",},
                     {path = "modules/nupp/io/path", title = "nupp.io.path",},
                 },
             },

@@ -122,7 +122,7 @@ end
 --- Print one greeting.
 ---
 --- The command has no separately configured help text.
-@cli(name = "hello", aliases = {"hi"}, parent = Greet)
+@cli(name = "hello", aliases = {"hi"})
 @derive(cliModule.Command)
 local record Hello
     --- Greeting representation.
@@ -140,13 +140,16 @@ end
 assert(Hello.cliName() == "hello")
 assert(Hello.cliAliases()[1] == "hi")
 assert(Hello.cliSummary() == "Print one greeting.")
-assert(Hello.cliParent() == Greet)
 assert(assert(cliModule.command(Hello)).completers[2] == Names)
 local greeting, greetingProblem = Hello.fromCLI({"Ada"})
 assert(greeting ~= nil, greetingProblem and greetingProblem.message)
 assert(greeting:run() == 7)
 
-local app = cliModule.application(Greet, {Hello}, {name = "greeter", version = "1.0.0"})
+function Greet.subcommands(): {cliModule.CommandType}
+    return {Hello}
+end
+
+local app = cliModule.application(Greet, {name = "greeter", version = "1.0.0"})
 local invocation, invocationProblem = app:resolve({"hi", "Ada"})
 assert(invocation ~= nil, invocationProblem and invocationProblem.message)
 assert(invocation.commandType == Hello and invocation.options.name == "Ada")
@@ -181,6 +184,13 @@ assert(#followingChoices == 1 and followingChoices[1].value == "json")
 assert(app:completion("bash"):match("__complete bash"))
 assert(app:completion("zsh"):match("#compdef greeter"))
 assert(app:completion("fish"):match("complete %-c greeter"))
+
+local hello = cliModule.application(Hello, {name = "hello"})
+local direct, directProblem = hello:resolve({"Ada"})
+assert(direct ~= nil, directProblem and directProblem.message)
+assert(direct.commandType == Hello and #direct.commandPath == 0)
+assert(hello:help():match("NAME"))
+assert(hello:main({"Ada"}) == 7)
 
 local _, invalidInteger = CheckArgs.fromCLI({"--jobs", "many"})
 assert(invalidInteger ~= nil and invalidInteger.kind == "invalidValue")

@@ -290,7 +290,7 @@ local BUILTINS = {
         targets = {"record", "field"},
         builtin = true,
         doc = "Configures command and field metadata consumed by `nupp.cli` derives.",
-        docsPath = "reference/cli-module",
+        docsPath = "learn/projects/command-line-applications",
     },
     {
         name = "json",
@@ -395,7 +395,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     end
 
     local cli = registry:get("cli")
-    local cliDocs = "reference/cli-module"
+    local cliDocs = "learn/projects/command-line-applications"
 
     local function cliMember(name, t, reference)
         local value = member(name, optional(t), true, nil, cliDocs)
@@ -430,7 +430,6 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
         constant = cliMember("constant", typesApi.union({typesApi.string, typesApi.integer, typesApi.boolean})),
         pattern = cliMember("pattern", typesApi.string),
         choices = cliMember("choices", typesApi.array(typesApi.string)),
-        parent = cliMember("parent", typesApi.any, true),
         complete = cliMember("complete", typesApi.any, true),
     }
     cli.memberOrder = {
@@ -452,7 +451,6 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
         "constant",
         "pattern",
         "choices",
-        "parent",
         "complete"
     }
     cli.singleValue = "name"

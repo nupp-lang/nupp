@@ -11,7 +11,6 @@ const {type Config} = require("nupp.compiler.build.manifest")
 const {type Target} = require("nupp.compiler.build.manifest")
 
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local FORMATS: {
     [string]: string
@@ -102,7 +101,7 @@ end
 ---
 --- The first argument may name the documentation format. Remaining arguments
 --- are source paths; with none, the manifest's configured sources are used.
-@cli(name = "doc", parent = root.Root)
+@cli("doc")
 @derive(cliModule.Command)
 local record Doc
     --- Output file or directory.
@@ -140,4 +139,8 @@ local record Doc
     end
 end
 
-export = {commandType = Doc, schema = REPORT_SCHEMA}
+function Doc.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Doc}
