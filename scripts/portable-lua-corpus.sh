@@ -4,6 +4,10 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 corpus="$root/tests/portable-corpus"
 cli_build=$(mktemp -d "${TMPDIR:-/tmp}/nupp-cli-portable.XXXXXX")
+cli_lua_root=$cli_build
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) cli_lua_root=$(cygpath -m "$cli_build") ;;
+esac
 trap 'rm -rf "$cli_build"' EXIT HUP INT TERM
 
 (cd "$corpus" && ../../bin/nupp build --dialect lua51 >/dev/null)
@@ -43,11 +47,11 @@ for runtime in "$@"; do
     fi
     case "$runtime" in
       *luajit*)
-        cli_actual=$(LUA_PATH="$cli_build/?.lua;$cli_build/?/init.lua;$cli_build/src/?.lua;$cli_build/src/?/init.lua;;" \
+        cli_actual=$(LUA_PATH="$cli_lua_root/?.lua;$cli_lua_root/?/init.lua;$cli_lua_root/src/?.lua;$cli_lua_root/src/?/init.lua;;" \
           "$runtime" -e 'jit=nil; dofile(arg[1])' "$cli_build/tests/fixtures/cliparser.lua")
         ;;
       *)
-        cli_actual=$(LUA_PATH="$cli_build/?.lua;$cli_build/?/init.lua;$cli_build/src/?.lua;$cli_build/src/?/init.lua;;" \
+        cli_actual=$(LUA_PATH="$cli_lua_root/?.lua;$cli_lua_root/?/init.lua;$cli_lua_root/src/?.lua;$cli_lua_root/src/?/init.lua;;" \
           "$runtime" "$cli_build/tests/fixtures/cliparser.lua")
         ;;
     esac
