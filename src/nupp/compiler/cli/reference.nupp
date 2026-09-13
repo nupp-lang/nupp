@@ -15,7 +15,6 @@ sections themselves, for a consumer that would rather render its own.
 
 local usageError = require("nupp.compiler.cli.error").forCommand("reference")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -232,7 +231,7 @@ end
 ---     nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
 ---     nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
 ---     nupp reference --format skill -o .claude/skills/nupp/SKILL.md
-@cli(name = "reference", parent = root.Root)
+@cli("reference")
 @derive(cliModule.Command)
 local record Reference
     --- Output format.
@@ -269,4 +268,8 @@ local record Reference
     end
 end
 
-export = {commandType = Reference, schema = REPORT_SCHEMA}
+function Reference.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Reference}

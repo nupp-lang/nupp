@@ -19,7 +19,6 @@ running.
 local usageError = require("nupp.compiler.cli.error").forCommand("task")
 local ansi = require("nupp.cli")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     description = "The task list, or one task's effective configuration when " .. "a name was given.",
@@ -190,7 +189,7 @@ end
 --- Otherwise runs `tasks.<name>` from nupp.lua: builds `tasks.<name>.build` first when
 --- it names one, then executes `tasks.<name>.argv` from `tasks.<name>.cwd`
 --- (the project root by default) with every trailing argument appended.
-@cli(name = "task", parent = root.Root, stopAtFirstArgument = true)
+@cli(name = "task", stopAtFirstArgument = true)
 @derive(cliModule.Command)
 local record Task
     --- List project tasks, or inspect NAME.

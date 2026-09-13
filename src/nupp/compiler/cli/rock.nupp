@@ -5,7 +5,6 @@ module nupp.compiler.cli.rock
 -- Starting one is `nupp init lib`, which writes the layout this validates.
 
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local function operate(name: string, rockspec: string?): integer
     local library = require("nupp.compiler.rock")
@@ -30,7 +29,7 @@ end
 --- declarations in its versioned `nupp/` directory. `pack` validates and
 --- builds that layout; `test` installs the result into a fresh tree and checks
 --- a fresh consumer. `nupp init lib <name>` writes a project in that shape.
-@cli(name = "rock", parent = root.Root, group = true)
+@cli(name = "rock", group = true)
 @derive(cliModule.Command)
 local record Rock
 end
@@ -38,7 +37,7 @@ end
 --- Build and pack the current Nupp library.
 ---
 --- With no path, uses the one rockspec in the current directory.
-@cli(name = "pack", parent = Rock)
+@cli("pack")
 @derive(cliModule.Command)
 local record Pack
     --- Rockspec to package.
@@ -53,7 +52,7 @@ end
 --- Install and check the rock from a clean consumer.
 ---
 --- Packs first, installs into a temporary tree, and checks every declared module.
-@cli(name = "test", parent = Rock)
+@cli("test")
 @derive(cliModule.Command)
 local record Test
     --- Rockspec to test.
@@ -65,4 +64,8 @@ local record Test
     end
 end
 
-export = {commandType = Rock, commandTypes = {Rock, Pack, Test}}
+function Rock.subcommands(): {cliModule.CommandType}
+    return {Pack, Test}
+end
+
+export = {commandType = Rock}

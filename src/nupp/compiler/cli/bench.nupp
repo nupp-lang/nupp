@@ -11,7 +11,6 @@ deadlines, comparing baselines, and retaining machine-readable history.
 
 local usageError = require("nupp.compiler.cli.error").forCommand("bench")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -199,7 +198,7 @@ end
 ---
 --- Selectors are Lua string patterns. Repeated patterns within one dimension
 --- are alternatives; the command interprets and validates those strings.
-@cli(name = "bench", parent = root.Root)
+@cli("bench")
 @derive(cliModule.Command)
 local record Bench
     --- List benchmark names and source files without running.
@@ -285,4 +284,8 @@ local record Bench
     end
 end
 
-export = {commandType = Bench, schema = REPORT_SCHEMA}
+function Bench.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Bench}

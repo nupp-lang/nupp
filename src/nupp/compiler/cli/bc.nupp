@@ -24,7 +24,6 @@ local usageError = require("nupp.compiler.cli.error").forCommand("bc")
 local report = require("nupp.compiler.cli.report")
 local listing = require("nupp.compiler.bytecodelisting")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -181,7 +180,7 @@ end
 ---
 --- Source lines are shown beside their instructions. `--check` identifies
 --- operations which prevent a containing loop from being recorded by LuaJIT.
-@cli(name = "bc", parent = root.Root)
+@cli("bc")
 @derive(cliModule.Command)
 local record Bytecode
     --- Select the report representation.
@@ -206,4 +205,8 @@ local record Bytecode
     end
 end
 
-export = {commandType = Bytecode, schema = REPORT_SCHEMA}
+function Bytecode.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Bytecode}

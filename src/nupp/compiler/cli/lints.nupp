@@ -10,7 +10,6 @@ beside its summary, since the difference is the thing worth noticing.
 
 local ansi = require("nupp.cli")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -135,7 +134,7 @@ end
 --- List the lints and the level each runs at.
 ---
 --- Levels are off, note, warning and error; only an error stops a build.
-@cli(name = "lints", parent = root.Root)
+@cli("lints")
 @derive(cliModule.Command)
 local record Lints
     --- Select the report representation.
@@ -150,4 +149,8 @@ local record Lints
     end
 end
 
-export = {commandType = Lints, schema = REPORT_SCHEMA}
+function Lints.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Lints}

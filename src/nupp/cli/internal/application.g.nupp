@@ -64,6 +64,10 @@ export record Application
 
     --- Renders the application's top-level help.
     function help(self): string
+        local children = self:children(self.root.subject)
+        if not self.root.group then
+            return self:renderCommandHelp(self.root, {})
+        end
         local out = {self.root.documentation ~= "" and self.root.summary or self.options.name or self.root.name, ""}
         out[#out + 1] = "Usage:"
         out[#out + 1] = self:indent() .. self:programName() .. " <command> [options]"
@@ -71,12 +75,9 @@ export record Application
         if self.options.version ~= nil then
             out[#out + 1] = self:indent() .. self:programName() .. " --version"
         end
-        local children = self:children(self.root.subject)
-        if #children > 0 then
-            out[#out + 1] = ""
-            out[#out + 1] = "Commands:"
-            self:addCommandRows(out, children)
-        end
+        out[#out + 1] = ""
+        out[#out + 1] = "Commands:"
+        self:addCommandRows(out, children)
         out[#out + 1] = ""
         out[#out + 1] = "Run '" .. self:programName() .. " help <command>' for command-specific help."
 
@@ -99,11 +100,14 @@ export record Application
             return self:help()
         end
 
+        return self:renderCommandHelp(command, resolved)
+    end
+
+    function renderCommandHelp(self, command: Descriptor, resolved: {string}): string
         local schema = command.schema
         local out = {command.documentation ~= "" and command.documentation or command.summary, "", "Usage:"}
-        out[
-            #out + 1
-        ] = self:indent() .. self:programName() .. " " .. table.concat(resolved, " ") .. self:usageSuffix(schema)
+        local path = #resolved > 0 and " " .. table.concat(resolved, " ") or ""
+        out[#out + 1] = self:indent() .. self:programName() .. path .. self:usageSuffix(schema)
         local children = self:children(command.subject)
         if #children > 0 then
             out[#out + 1] = ""
@@ -193,11 +197,17 @@ export record Application
             end
         end
 
+        local all = {self.root}
         for _, command in ipairs(self.commands) do
+            all[#all + 1] = command
+        end
+        for _, command in ipairs(all) do
             if not command.hidden then
-                add(command.name)
-                for _, alias in ipairs(command.aliases) do
-                    add(alias)
+                if command ~= self.root then
+                    add(command.name)
+                    for _, alias in ipairs(command.aliases) do
+                        add(alias)
+                    end
                 end
                 for _, field in ipairs(command.schema.fields) do
                     if not field.hidden then
@@ -300,7 +310,7 @@ export record Application
 
     --- Handles framework options, renders failures, and invokes a typed command.
     function main(self, argv: {string}): integer
-        if #argv == 0 or argv[1] == "-h" or argv[1] == "--help" then
+        if argv[1] == "-h" or argv[1] == "--help" or (#argv == 0 and self.root.group) then
             local output = self:stdout()
             output:write(self:styled(self:help(), output))
             return 0
@@ -408,12 +418,12 @@ export record Application
             path[#path + 1] = child.name
             index = index + 1
         end
-        if command == self.root then
+        if index <= #argv and command.group and #self:children(command.subject) > 0 then
             return command, {}, path, {
                 kind = "unknownCommand",
-                message = "unknown command " .. (argv[1] or ""),
-                index = 1,
-                raw = argv[1],
+                message = "unknown command " .. (argv[index] or ""),
+                index = index,
+                raw = argv[index],
             }
         end
         local rest: {string} = {}
@@ -836,7 +846,7 @@ local function descriptor(subject: any): Descriptor?, string?
         documentation = schema.command.documentation,
         group = schema.command.group,
         hidden = schema.command.hidden,
-        parent = subject.cliParent and subject.cliParent() or nil,
+        parent = nil,
         completers = completers,
     }, nil
 end
@@ -846,27 +856,24 @@ export function command(subject: any): any?, string?
     return descriptor(subject)
 end
 
---- Assembles derived command types into a deterministic tree.
-export function application(rootType: any, commandTypes: {any}, options: ApplicationOptions?): Application
+--- Builds the tree recursively from each command type's `subcommands` function.
+export function application(rootType: any, options: ApplicationOptions?): Application
     local root, rootProblem = descriptor(rootType)
     assert(root ~= nil, rootProblem)
     local commands: {Descriptor} = {}
     local byParent: {[any]: {[string]: Descriptor}} = {}
     local known: {[any]: boolean} = {[rootType] = true}
-    for _, subject in ipairs(commandTypes) do
+
+    local function add(parent: any, subject: any): nil
+        assert(not known[subject], "CLI command type appears more than once in the application")
         known[subject] = true
-    end
-    for _, subject in ipairs(commandTypes) do
         local commandDescriptor, problem = descriptor(subject)
         assert(commandDescriptor ~= nil, problem)
-        assert(
-            commandDescriptor.parent ~= nil and known[commandDescriptor.parent],
-            "CLI command parent is outside the application"
-        )
-        local names = byParent[commandDescriptor.parent]
+        commandDescriptor.parent = parent
+        local names = byParent[parent]
         if names == nil then
             names = {};
-            byParent[commandDescriptor.parent] = names
+            byParent[parent] = names
         end
         assert(names[commandDescriptor.name] == nil, "duplicate CLI command name " .. commandDescriptor.name)
         names[commandDescriptor.name] = commandDescriptor
@@ -875,6 +882,18 @@ export function application(rootType: any, commandTypes: {any}, options: Applica
             names[alias] = commandDescriptor
         end
         commands[#commands + 1] = commandDescriptor
+
+        local children = subject.subcommands and subject.subcommands() or {}
+        assert(type(children) == "table", "CLI subcommands must return an array of command types")
+        for _, child in ipairs(children) do
+            add(subject, child)
+        end
+    end
+
+    local children = rootType.subcommands and rootType.subcommands() or {}
+    assert(type(children) == "table", "CLI subcommands must return an array of command types")
+    for _, subject in ipairs(children) do
+        add(rootType, subject)
     end
 
     return new Application(root = root, commands = commands, byParent = byParent, options = options or {})

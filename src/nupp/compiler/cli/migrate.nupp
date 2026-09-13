@@ -4,7 +4,6 @@ module nupp.compiler.cli.migrate
 
 local usageError = require("nupp.compiler.cli.error").forCommand("migrate")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -166,7 +165,7 @@ end
 ---
 --- Without --check, each destination is checked and written atomically before
 --- its source is removed. Existing destinations are never replaced.
-@cli(name = "migrate", parent = root.Root)
+@cli("migrate")
 @derive(cliModule.Command)
 local record Migrate
     --- Print the migration plan without changing files.
@@ -192,4 +191,8 @@ local record Migrate
     end
 end
 
-export = {commandType = Migrate, schema = REPORT_SCHEMA}
+function Migrate.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Migrate}

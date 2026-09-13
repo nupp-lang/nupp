@@ -4,188 +4,22 @@ module nupp.compiler.cli
 The command line: which commands exist, and what happens to an argument list.
 
 Every public subcommand is a derived command record under `nupp/compiler/cli`.
-Nothing here knows what any of them do.
+The root command owns their order and each record owns its grammar and run method.
 
 What is here is the part they share: finding the command, parsing against its
 grammar, honouring `--help` and `--color` before either can matter, and turning
 a parse failure into the conventional status 2. A command therefore never sees a
 malformed argument list, and never has to remember to check for `--help`.
 
-A command's module is loaded when it is named. A command file holds its grammar
-and requires the compiler it needs inside its `run`, so listing every command in
-`nupp help` costs small files rather than the whole compiler, and running one
-loads only what that one needs.
+Command files require heavier compiler code inside `run`, so building the tree
+loads only their small declarations.
 ]]
 
 local ansi = require("nupp.cli")
 
 local cli = {}
 
-local type Loader = function(): any
-
--- The commands, in the order `nupp help` lists them. Each is loaded through a function
--- holding a literal `require`, which keeps the dependency visible to the build while
--- still only loading what a run actually reaches.
-local REGISTRY: {{
-    name: string,
-    load: Loader
-}} = {
-    {
-        name = "init",
-        load = function(): any
-            return require("nupp.compiler.cli.initcommand")
-        end
-    },
-    {
-        name = "ast",
-        load = function(): any
-            return require("nupp.compiler.cli.ast")
-        end
-    },
-    {
-        name = "aot",
-        load = function(): any
-            return require("nupp.compiler.cli.aot")
-        end
-    },
-    {
-        name = "bc",
-        load = function(): any
-            return require("nupp.compiler.cli.bc")
-        end
-    },
-    {
-        name = "check",
-        load = function(): any
-            return require("nupp.compiler.cli.check")
-        end
-    },
-    {
-        name = "fmt",
-        load = function(): any
-            return require("nupp.compiler.cli.fmt")
-        end
-    },
-    {
-        name = "build",
-        load = function(): any
-            return require("nupp.compiler.cli.build")
-        end
-    },
-    {
-        name = "clean",
-        load = function(): any
-            return require("nupp.compiler.cli.clean")
-        end
-    },
-    {
-        name = "bench",
-        load = function(): any
-            return require("nupp.compiler.cli.bench")
-        end
-    },
-    {
-        name = "lints",
-        load = function(): any
-            return require("nupp.compiler.cli.lints")
-        end
-    },
-    {
-        name = "ownership-audit",
-        load = function(): any
-            return require("nupp.compiler.cli.ownershipaudit")
-        end
-    },
-    {
-        name = "explain",
-        load = function(): any
-            return require("nupp.compiler.cli.explain")
-        end
-    },
-    {
-        name = "reference",
-        load = function(): any
-            return require("nupp.compiler.cli.reference")
-        end
-    },
-    {
-        name = "completions",
-        load = function(): any
-            return require("nupp.compiler.cli.completionscommand")
-        end
-    },
-    {
-        name = "test",
-        load = function(): any
-            return require("nupp.compiler.cli.test")
-        end
-    },
-    {
-        name = "task",
-        load = function(): any
-            return require("nupp.compiler.cli.task")
-        end
-    },
-    {
-        name = "doc",
-        load = function(): any
-            return require("nupp.compiler.cli.doc")
-        end
-    },
-    {
-        name = "fixpoint",
-        load = function(): any
-            return require("nupp.compiler.cli.fixpoint")
-        end
-    },
-    {
-        name = "run",
-        load = function(): any
-            return require("nupp.compiler.cli.run")
-        end
-    },
-    {
-        name = "import-c",
-        load = function(): any
-            return require("nupp.compiler.cli.importc")
-        end
-    },
-    {
-        name = "migrate",
-        load = function(): any
-            return require("nupp.compiler.cli.migrate")
-        end
-    },
-    {
-        name = "export-c",
-        load = function(): any
-            return require("nupp.compiler.cli.exportc")
-        end
-    },
-    {
-        name = "rock",
-        load = function(): any
-            return require("nupp.compiler.cli.rock")
-        end
-    },
-    {
-        name = "lsp",
-        load = function(): any
-            return require("nupp.compiler.cli.lsp")
-        end
-    },
-    {
-        name = "version",
-        load = function(): any
-            return require("nupp.compiler.cli.version")
-        end
-    },
-}
-
-local byName: {[string]: Loader} = {}
-for _, entry in ipairs(REGISTRY) do
-    byName[entry.name] = entry.load
-end
+local root = require("nupp.compiler.cli.root")
 
 local APPLICATION: any? = nil
 
@@ -195,20 +29,7 @@ local function application(): any
     if APPLICATION ~= nil then
         return APPLICATION
     end
-    local types: {any} = {}
-    for _, entry in ipairs(REGISTRY) do
-        local handler = entry.load()
-        if handler.commandTypes ~= nil then
-            for _, commandType in ipairs(handler.commandTypes) do
-                types[#types + 1] = commandType
-            end
-        else
-            assert(handler.commandType ~= nil, entry.name .. " has no derived CLI command type")
-            types[#types + 1] = handler.commandType
-        end
-    end
-    types[#types + 1] = require("nupp.compiler.cli.root").Help
-    APPLICATION = ansi.application(require("nupp.compiler.cli.root").Root, types, {
+    APPLICATION = ansi.application(root.Root, {
         name = "nupp",
         version = require("nupp.compiler.version").line(),
         width = 79,
@@ -217,23 +38,6 @@ local function application(): any
     })
 
     return APPLICATION
-end
-
-local function commandType(handler: any, name: string?): any?
-    if handler.commandTypes ~= nil and name ~= nil then
-        for _, subject in ipairs(handler.commandTypes) do
-            if subject.cliName() == name then
-                return subject
-            end
-            for _, alias in ipairs(subject.cliAliases()) do
-                if alias == name then
-                    return subject
-                end
-            end
-        end
-    end
-
-    return handler.commandType
 end
 
 local function requestsSchema(subject: any, argv: {string}): boolean
@@ -275,28 +79,49 @@ local function requestsSchema(subject: any, argv: {string}): boolean
     end
 end
 
---- The JSON report schema is compiler-specific metadata rather than parsing
---- metadata, so it remains an adapter around the public derived application.
-local function writeSchema(argv: {string}): integer?
-    local load = byName[argv[1]]
-    local handler = load and load() or nil
-    if handler == nil then
+local function child(parent: any, name: string?): any?
+    if name == nil or parent.subcommands == nil then
         return nil
     end
-    local schema = handler.schema
-    local argumentStart: integer = 2
-    local subject = commandType(handler, nil)
-    if handler.schemas ~= nil then
-        schema = handler.schemas[argv[2] or ""]
-        subject = commandType(handler, argv[2])
-        argumentStart = 3
-        if argv[2] == "--schema" then
-            return require(
-                "nupp.compiler.cli.error"
-            ).forCommand("lsp")("--schema answers for one operation: nupp lsp <operation> --schema")
+    for _, subject in ipairs(parent.subcommands()) do
+        if subject.cliName() == name then
+            return subject
+        end
+        for _, alias in ipairs(subject.cliAliases()) do
+            if alias == name then
+                return subject
+            end
         end
     end
-    if schema == nil or subject == nil then
+
+    return nil
+end
+
+local function selectCommand(argv: {string}): any, integer
+    local subject: any = root.Root
+    local index: integer = 1
+    while index <= #argv do
+        local nextSubject = child(subject, argv[index])
+        if nextSubject == nil then
+            break
+        end
+        subject = nextSubject
+        index = index + 1
+    end
+
+    return subject, index
+end
+
+--- Writes a command's compiler report schema when it owns one.
+local function writeSchema(argv: {string}): integer?
+    local subject, argumentStart = selectCommand(argv)
+    if subject.cliName() == "lsp" and argv[argumentStart] == "--schema" then
+        return require(
+            "nupp.compiler.cli.error"
+        ).forCommand("lsp")("--schema answers for one operation: nupp lsp <operation> --schema")
+    end
+    local schema = subject.reportSchema and subject.reportSchema() or nil
+    if schema == nil then
         return nil
     end
     local arguments: {string} = {}
@@ -442,10 +267,10 @@ end
 --- Every command's name, for the tests that check the list is complete.
 function cli.names(): {string}
     local names: {string} = {}
-    for _, entry in ipairs(REGISTRY) do
-        names[#names + 1] = entry.name
+    for _, subject in ipairs(root.Root.subcommands()) do
+        local commandType: any = subject
+        names[#names + 1] = commandType.cliName()
     end
-    names[#names + 1] = "help"
 
     return names
 end

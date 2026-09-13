@@ -17,7 +17,6 @@ everywhere and rejected afterwards.
 local json = require("nupp.codec.json")
 local fs = require("nupp.compiler.fs")
 local cliModule = require("nupp.cli")
-local rootCommand = require("nupp.compiler.cli.root")
 
 local type CodeActionContext = {
     diagnostics: {any},
@@ -1258,7 +1257,7 @@ end
 --- Ask `nupp lsp <operation> --schema` for an operation's JSON schema.
 --- Source positions are one-based byte line and column numbers. Rename
 --- previews by default and changes files only with `--write`.
-@cli(name = "lsp", parent = rootCommand.Root)
+@cli("lsp")
 @derive(cliModule.Command)
 local record Lsp
     --- Project root.
@@ -1271,7 +1270,7 @@ local record Lsp
 end
 
 --- Run the language server over stdio.
-@cli(name = "serve", aliases = {"server"}, parent = Lsp)
+@cli(name = "serve", aliases = {"server"})
 @derive(cliModule.Command)
 local record Serve
     --- Project root.
@@ -1284,7 +1283,7 @@ local record Serve
 end
 
 --- Describe the symbol at a position.
-@cli(name = "inspect", parent = Lsp)
+@cli("inspect")
 @derive(cliModule.Command)
 local record Inspect
     --- Project root.
@@ -1316,7 +1315,7 @@ local record Inspect
 end
 
 --- Find where the symbol at a position is defined.
-@cli(name = "definition", parent = Lsp)
+@cli("definition")
 @derive(cliModule.Command)
 local record Definition
     --- Project root.
@@ -1348,7 +1347,7 @@ local record Definition
 end
 
 --- Find registered implementations of a service member.
-@cli(name = "implementation", parent = Lsp)
+@cli("implementation")
 @derive(cliModule.Command)
 local record Implementation
     --- Project root.
@@ -1380,7 +1379,7 @@ local record Implementation
 end
 
 --- Find semantic references to the symbol at a position.
-@cli(name = "references", parent = Lsp)
+@cli("references")
 @derive(cliModule.Command)
 local record References
     --- Project root.
@@ -1415,7 +1414,7 @@ local record References
 end
 
 --- Search workspace or document symbols.
-@cli(name = "symbols", parent = Lsp)
+@cli("symbols")
 @derive(cliModule.Command)
 local record Symbols
     --- Project root.
@@ -1443,7 +1442,7 @@ local record Symbols
 end
 
 --- Rename a symbol and every semantic reference to it.
-@cli(name = "rename", parent = Lsp)
+@cli("rename")
 @derive(cliModule.Command)
 local record Rename
     --- Project root.
@@ -1483,7 +1482,7 @@ local record Rename
 end
 
 --- List code actions available at a position.
-@cli(name = "actions", parent = Lsp)
+@cli("actions")
 @derive(cliModule.Command)
 local record Actions
     --- Project root.
@@ -1519,7 +1518,7 @@ local record Actions
 end
 
 --- Check the function at a position for LuaJIT trace blockers.
-@cli(name = "trace-check", parent = Lsp)
+@cli("trace-check")
 @derive(cliModule.Command)
 local record TraceCheck
     --- Project root.
@@ -1551,7 +1550,7 @@ local record TraceCheck
 end
 
 --- List the compiled artifacts available at a position.
-@cli(name = "artifacts", parent = Lsp)
+@cli("artifacts")
 @derive(cliModule.Command)
 local record Artifacts
     --- Project root.
@@ -1583,7 +1582,7 @@ local record Artifacts
 end
 
 --- Print what a file compiles to.
-@cli(name = "artifact", parent = Lsp)
+@cli("artifact")
 @derive(cliModule.Command)
 local record Artifact
     --- Project root.
@@ -1614,10 +1613,8 @@ local record Artifact
     end
 end
 
-export = {
-    commandType = Lsp,
-    commandTypes = {
-        Lsp,
+function Lsp.subcommands(): {cliModule.CommandType}
+    return {
         Serve,
         Inspect,
         Definition,
@@ -1629,6 +1626,47 @@ export = {
         TraceCheck,
         Artifacts,
         Artifact,
-    },
-    schemas = OPERATION_SCHEMAS,
-}
+    }
+end
+
+function Inspect.reportSchema(): any
+    return OPERATION_SCHEMAS.inspect
+end
+
+function Definition.reportSchema(): any
+    return OPERATION_SCHEMAS.definition
+end
+
+function Implementation.reportSchema(): any
+    return OPERATION_SCHEMAS.implementation
+end
+
+function References.reportSchema(): any
+    return OPERATION_SCHEMAS.references
+end
+
+function Symbols.reportSchema(): any
+    return OPERATION_SCHEMAS.symbols
+end
+
+function Rename.reportSchema(): any
+    return OPERATION_SCHEMAS.rename
+end
+
+function Actions.reportSchema(): any
+    return OPERATION_SCHEMAS.actions
+end
+
+function TraceCheck.reportSchema(): any
+    return OPERATION_SCHEMAS["trace-check"]
+end
+
+function Artifacts.reportSchema(): any
+    return OPERATION_SCHEMAS.artifacts
+end
+
+function Artifact.reportSchema(): any
+    return OPERATION_SCHEMAS.artifact
+end
+
+export = {commandType = Lsp}

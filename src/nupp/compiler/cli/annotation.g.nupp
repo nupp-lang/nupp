@@ -26,8 +26,5 @@ record cli
     choices: {string}?
 
     @ref
-    parent: table | nil
-
-    @ref
     complete: table | nil
 end

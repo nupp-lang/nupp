@@ -17,7 +17,6 @@ local files = require("nupp.io.files")
 local ansi = require("nupp.cli")
 local usageError = require("nupp.compiler.cli.error").forCommand("init")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -324,7 +323,7 @@ local function run(options: any): integer
 end
 
 --- Create a project from a template.
-@cli(name = "init", parent = root.Root)
+@cli("init")
 @derive(cliModule.Command)
 local record Init
     --- Project name; defaults to the directory basename.
@@ -372,4 +371,8 @@ local record Init
     end
 end
 
-export = {commandType = Init, schema = REPORT_SCHEMA}
+function Init.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Init}

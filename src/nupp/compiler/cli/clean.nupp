@@ -10,7 +10,6 @@ not of the command line, and a caller reaching it another way should meet it too
 
 local usageError = require("nupp.compiler.cli.error").forCommand("clean")
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -57,7 +56,7 @@ end
 ---
 --- With no target, cleans every configured target output. Paths outside the
 --- project and paths that resolve to the project root are always rejected.
-@cli(name = "clean", parent = root.Root)
+@cli("clean")
 @derive(cliModule.Command)
 local record Clean
     --- Clean only the named build target.
@@ -83,4 +82,8 @@ local record Clean
     end
 end
 
-export = {commandType = Clean, schema = REPORT_SCHEMA}
+function Clean.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Clean}

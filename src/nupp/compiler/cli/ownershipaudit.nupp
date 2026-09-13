@@ -3,7 +3,6 @@ module nupp.compiler.cli.ownershipaudit
 --[[ Enumerates the ownership claims that make up a project's trusted FFI surface. ]]
 
 local cliModule = require("nupp.cli")
-local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -335,7 +334,7 @@ end
 ---
 --- With no files, scans Nupp sources under src. The report enumerates trusted
 --- C contracts and explicit unsafe regions.
-@cli(name = "ownership-audit", parent = root.Root)
+@cli("ownership-audit")
 @derive(cliModule.Command)
 local record OwnershipAudit
     --- Include automatic cleanup regions.
@@ -357,4 +356,8 @@ local record OwnershipAudit
     end
 end
 
-export = {commandType = OwnershipAudit, schema = REPORT_SCHEMA}
+function OwnershipAudit.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = OwnershipAudit}

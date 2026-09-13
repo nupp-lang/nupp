@@ -36,6 +36,9 @@ interface cliModule.Runnable
     run: function(self): integer
 end
 
+--- A record type deriving `Command`.
+type cliModule.CommandType = Type<cliModule.Runnable>
+
 --- One shell-neutral completion candidate.
 record cliModule.CompletionCandidate
     value: string
@@ -112,13 +115,12 @@ function cliModule.command<T is table>(subject: Type<T>): table?, string?
     return require("nupp.cli.internal.application").command(subject)
 end
 
---- Assembles a finite tree of derived command types.
-function cliModule.application<T is table>(
+--- Builds an application from a command type and its `subcommands` tree.
+function cliModule.application<T is cliModule.Runnable>(
     rootType: Type<T>,
-    commandTypes: {any},
     options: cliModule.ApplicationOptions?
 ): cliModule.Application
-    return require("nupp.cli.internal.application").application(rootType, commandTypes, options)
+    return require("nupp.cli.internal.application").application(rootType, options)
 end
 
 --- @internal
@@ -133,11 +135,6 @@ end
 
 --- @internal
 function cliModule.derivedStrings<T>(takes value: T): T preserves value
-    return value
-end
-
---- @internal
-function cliModule.derivedValue<T>(takes value: T): T preserves value
     return value
 end
 
@@ -625,16 +622,6 @@ local comptime function recipe(info: nupp.derive.Info, command: boolean): any
                 return nupp.derive.error("CLI command alias " .. alias .. " is duplicated", info.reference)
             end
             commandNames[#commandNames + 1] = alias
-        end
-        local parent = annotationArgument(info.annotations, "parent")
-        if parent ~= nil then
-            statics.cliParent = nupp.derive.member{
-                signature = nupp.types.function_(nupp.types.pack({}), nupp.types.pack({nupp.types.any})),
-                forward = nupp.derive.forward{
-                    helper = nupp.derive.helper(cliModule, "derivedValue"),
-                    arguments = {nupp.derive.witness(nupp.derive.annotationType(parent))},
-                },
-            }
         end
         local summary = firstParagraph(info.documentation)
         statics.cliName = nupp.derive.member{
