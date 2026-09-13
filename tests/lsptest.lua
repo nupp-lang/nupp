@@ -4552,14 +4552,14 @@ local ARTIFACT_SOURCE = table.concat({
 }, "\n") .. "\n"
 
 --- Opens `source` as `name` and asks one artifact question about it.
-local function artifactSession(projectDir, name, source, method, params)
+local function artifactSession(projectDir, name, source, method, params, clientOptions)
     local uri = "file://" .. projectDir .. "/" .. name
     local request = {textDocument = {uri = uri}}
     for key, value in pairs(params or {}) do
         request[key] = value
     end
     local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+        {jsonrpc = "2.0", id = 1, method = "initialize", params = {initializationOptions = clientOptions},},
         {
             jsonrpc = "2.0",
             method = "textDocument/didOpen",
@@ -4585,7 +4585,62 @@ function M.artifactKindsAreAdvertisedAsExperimentalCapabilities()
         kinds[kind] = true
     end
     assert(kinds.lua and kinds.bytecode, "both artifact kinds are advertised")
-    assert(capabilities.codeLensProvider, "code lenses are advertised")
+end
+
+-- A lens runs a command belonging to the client. Offering one to a client that
+-- never registered it puts a button over every function that nothing can run,
+-- which is exactly what an editor still on an older extension would see. So the
+-- capability is the client's to ask for, by naming the command.
+function M.codeLensesAreOfferedOnlyToAClientThatNamedItsCommand()
+    local silent = runSession({
+        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+        {jsonrpc = "2.0", id = 2, method = "shutdown"},
+        {jsonrpc = "2.0", method = "exit"},
+    })
+    test.equal(responseWithId(silent, 1).result.capabilities.codeLensProvider, nil)
+
+    local asked = runSession({
+        {
+            jsonrpc = "2.0",
+            id = 1,
+            method = "initialize",
+            params = {initializationOptions = {artifacts = {inspectCommand = "demo.inspect"}},},
+        },
+        {jsonrpc = "2.0", id = 2, method = "shutdown"},
+        {jsonrpc = "2.0", method = "exit"},
+    })
+    assert(
+        responseWithId(asked, 1).result.capabilities.codeLensProvider,
+        "a client that named a command is offered lenses"
+    )
+end
+
+-- And the lens carries the client's own command, not one this server invented.
+function M.codeLensesCarryTheCommandTheClientNamed()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local lenses = artifactSession(
+        projectDir,
+        "named.nupp",
+        ARTIFACT_SOURCE,
+        "textDocument/codeLens",
+        {},
+        {artifacts = {inspectCommand = "demo.inspect"}}
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+    assert(#lenses > 0, "a client that asked gets lenses")
+    for _, lens in ipairs(lenses) do
+        test.equal(lens.command.command, "demo.inspect")
+    end
+end
+
+-- A client that said nothing gets none, even if it asks for them anyway.
+function M.codeLensesAreEmptyForAClientThatNamedNoCommand()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local lenses = artifactSession(projectDir, "silent.nupp", ARTIFACT_SOURCE, "textDocument/codeLens", {})
+    os.execute("rm -rf '" .. projectDir .. "'")
+    test.equal(#lenses, 0)
 end
 
 function M.artifactDiscoveryNamesTheFunctionTheCursorIsIn()
@@ -4812,7 +4867,14 @@ function M.codeLensesOfferOneInspectPerFunction()
         "return scale\n",
         "local function second(): integer\n    return 1\nend\n\nreturn scale, second\n"
     )
-    local lenses = artifactSession(projectDir, "lenses.nupp", source, "textDocument/codeLens", {})
+    local lenses = artifactSession(
+        projectDir,
+        "lenses.nupp",
+        source,
+        "textDocument/codeLens",
+        {},
+        {artifacts = {inspectCommand = "nupp.inspectCompiledFunction"}}
+    )
     os.execute("rm -rf '" .. projectDir .. "'")
     local names = {}
     for _, lens in ipairs(lenses) do

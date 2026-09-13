@@ -856,6 +856,13 @@ async function startClient(context, folder) {
           pattern: new vscode.RelativePattern(folder, "**/*.nupp")
         }
       ],
+      // The command a code lens carries is this extension's, so the server is
+      // told which one rather than assuming it exists. A server talking to an
+      // older extension that names none offers no lenses at all, instead of
+      // putting a button over every function that nothing can run.
+      initializationOptions: {
+        artifacts: { inspectCommand: "nupp.inspectCompiledFunction" }
+      },
       synchronize: { fileEvents: watchers },
       workspaceFolder: folder,
       diagnosticCollectionName: "nupp",

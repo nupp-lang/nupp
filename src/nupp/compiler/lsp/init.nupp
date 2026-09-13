@@ -126,6 +126,10 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         -- The last lex of each file, so a handler that only needs tokens does not
         -- reparse.
         lexed = {},
+        -- What the client said it can do beyond the protocol, from its
+        -- `initializationOptions`. Empty for a client that said nothing, which
+        -- is what every feature gated on this has to keep working for.
+        clientOptions = {},
     }
 
     local running = true
@@ -531,6 +535,18 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     local handlers = {}
 
     handlers["initialize"] = function(id, params)
+        -- A lens carries a command the *client* runs, so a server that offered one
+        -- to a client with no such command would be putting a dead button over
+        -- every function. The client names the command it registered, and that is
+        -- both the permission to advertise lenses and the id to put on them.
+        local options = params and params.initializationOptions
+        s.clientOptions = type(options) == "table" and options or {}
+        local inspectCommand = nil
+        local artifactOptions = s.clientOptions.artifacts
+        if type(artifactOptions) == "table" and type(artifactOptions.inspectCommand) == "string" then
+            inspectCommand = artifactOptions.inspectCommand
+        end
+        compiled.useInspectCommand(inspectCommand)
         -- The s.folders the client opened, which are what it will send changes against.
         -- A client that names none has one workspace and it is the root the server was
         -- launched with, so nothing is added.
@@ -564,10 +580,10 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 foldingRangeProvider = true,
                 selectionRangeProvider = true,
                 codeActionProvider = {codeActionKinds = wire.array({QUICKFIX}),},
-                -- One lens per checked function. A lens arrives with its command
-                -- already on it, which is what `resolveProvider` being false
-                -- says: there is no second round trip to fill one in.
-                codeLensProvider = {resolveProvider = false},
+                -- Only for a client that named a command to put on a lens. A lens
+                -- arrives with that command already on it, which is what
+                -- `resolveProvider` being false says: no second round trip.
+                codeLensProvider = inspectCommand and {resolveProvider = false} or nil,
                 workspace = {workspaceFolders = {supported = true, changeNotifications = true,},},
                 -- Which compiled artifacts this server can produce. A client reads
                 -- this rather than asking for one to find out, so a server built

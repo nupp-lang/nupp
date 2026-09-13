@@ -43,7 +43,10 @@ type artifacts.Session = {
 type artifacts.Api = {
     discover: function(params: any): any,
     resolve: function(params: any): any,
-    lenses: function(params: any): any
+    lenses: function(params: any): any,
+
+    --- Names the client command a lens should carry, or nothing to offer none.
+    useInspectCommand: function(command: string?): nil
 }
 
 --- The kinds this server can produce. Advertised through experimental capabilities
@@ -73,6 +76,11 @@ local function unavailable(kind: string, reason: string, detail: string?): any
 end
 
 function artifacts.install(s: artifacts.Session): artifacts.Api
+    -- The command a lens runs belongs to the client, not to this server: it is
+    -- whatever the client registered and told us about at `initialize`. Nothing
+    -- is offered until one is named.
+    local inspectCommand: string? = nil
+
     --- The document a request names, with the offset its position falls on.
     local function documentFor(params: any): (string?, any, integer?)
         local uri = params and params.textDocument and params.textDocument.uri
@@ -248,7 +256,7 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
     local function lenses(params: any): any
         local uri, doc = documentFor(params)
         local out = wire.array({})
-        if not doc then
+        if not doc or inspectCommand == nil then
             return out
         end
         local analysis = doc.result and doc.result.traceAnalysis or nil
@@ -262,7 +270,7 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
                     range = {start = range.start, ["end"] = range.start},
                     command = {
                         title = "Inspect",
-                        command = "nupp.inspectCompiledFunction",
+                        command = inspectCommand,
                         arguments = wire.array({
                             {uri = uri, name = info.traceName, position = range.start, range = range,},
                         }),
@@ -274,7 +282,11 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
         return out
     end
 
-    return {discover = discover, resolve = resolve, lenses = lenses}
+    local function useInspectCommand(command: string?): nil
+        inspectCommand = command
+    end
+
+    return {discover = discover, resolve = resolve, lenses = lenses, useInspectCommand = useInspectCommand,}
 end
 
 export = artifacts

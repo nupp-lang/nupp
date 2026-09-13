@@ -35,7 +35,7 @@ nupp lsp serve [root]
 | Selection ranges | The enclosing node chain |
 | Formatting | Whole document and range |
 | Code actions | Quick fixes and refactorings |
-| Code lenses | One `Inspect` lens over every checked function |
+| Code lenses | One `Inspect` lens over every checked function, for a client that asked |
 | Go to implementation | Registered service members |
 
 Document sync is full text. Inlay hints, call hierarchy and type hierarchy have
@@ -169,6 +169,18 @@ disk. Two requests, because the two questions cost different amounts:
 | --- | --- |
 | `$/nupp/artifacts` | The check already done, so a client may ask per function |
 | `$/nupp/artifact` | Lowers the buffer, so a client asks once something is opened |
+
+A lens carries a command the *client* runs, so the server advertises
+`codeLensProvider` only for a client whose `initializationOptions` name one:
+
+```json
+{"artifacts": {"inspectCommand": "nupp.inspectCompiledFunction"}}
+```
+
+A client that names none is offered no lenses, which is what keeps an editor on
+an older extension from showing a button over every function that nothing it has
+can run. The command on each lens is the one the client gave, so the server never
+needs to know what any particular editor calls it.
 
 `$/nupp/artifacts` takes a document and an optional position and answers with
 the kinds available and the innermost function the position is in.
