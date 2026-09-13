@@ -1015,9 +1015,49 @@ async function restartClients(context) {
   );
 }
 
+// Registering a command that already exists throws, and one throw in `activate`
+// abandons everything after it. That is how a second Nupp extension installed
+// alongside this one -- the same commands under a different publisher -- left
+// the palette with no `Open Generated Lua` at all: the first duplicate aborted
+// activation before the rest were contributed. A clash costs that one command
+// now, and is reported once rather than silently.
+function registerCommands(context, commands) {
+  const clashed = [];
+  for (const [id, handler] of commands) {
+    try {
+      context.subscriptions.push(vscode.commands.registerCommand(id, handler));
+    } catch (error) {
+      clashed.push(id);
+    }
+  }
+  if (clashed.length > 0) {
+    void vscode.window.showWarningMessage(
+      `Another installed extension already provides ${clashed.join(", ")}.`
+        + " Uninstall the other Nupp extension so both are not competing for the same files."
+    );
+  }
+}
+
 async function activate(context) {
   traceDiagnostics = vscode.languages.createDiagnosticCollection("nupp-jit-check");
   generatedEvents = new vscode.EventEmitter();
+
+  // Commands first, and before anything that can fail. A command is what the
+  // palette and every code lens reach for, and none of them needs a language
+  // server to have started, so none of them should be lost when one does not.
+  registerCommands(context, [
+    ["nupp.checkFunctionForJitTraceBlockers", checkFunctionForTraceBlockers],
+    ["nupp.migrateAnnotatedLua", migrateAnnotatedLua],
+    ["nupp.inspectCompiledFunction", inspectCompiledFunction],
+    ["nupp.openGeneratedLua", (target) => openGeneratedArtifact("lua", target)],
+    ["nupp.openBytecode", (target) => openGeneratedArtifact("bytecode", target)],
+    ["nupp.compareGeneratedArtifacts", compareGeneratedArtifacts],
+    ["nupp.restartLanguageServer", async () => {
+      await restartClients(context);
+      void vscode.window.showInformationMessage("Nupp language server restarted.");
+    }],
+  ]);
+
   await Promise.all(
     (vscode.workspace.workspaceFolders || []).map(
       (folder) => startClient(context, folder)
@@ -1025,13 +1065,66 @@ async function activate(context) {
   );
   for (const folder of vscode.workspace.workspaceFolders || []) {
     if (folder.uri.scheme === "file") {
-      registerTestController(context, folder, serverLaunch(context, folder));
+      try {
+        registerTestController(context, folder, serverLaunch(context, folder));
+      } catch (error) {
+        // A folder whose controller cannot be built is one folder without test
+        // integration, not a session without an extension.
+        const detail = error instanceof Error ? error.message : String(error);
+        void vscode.window.showWarningMessage(
+          `Nupp could not register tests for ${folder.name}: ${detail}`
+        );
+      }
     }
   }
 
   context.subscriptions.push(
     traceDiagnostics,
     generatedEvents,
+    // Generated Lua is emitted at column zero, so the indentation the editor
+    // would otherwise derive folding from is not there, and a pane with no
+    // folding has no sticky scroll either. The source pane has both, which left
+    // the two sitting a row apart at the same line -- right line, wrong height.
+    //
+    // The server already knows where this file folds, and generated Lua is line
+    // for line with its source, so its own folding ranges are the artifact's.
+    // With them the artifact pane pins the same headers as the source and the
+    // panes sit level.
+    //
+    // Only for `lua`: the bytecode listing folds by indentation, which is what
+    // collapses a line's extra instructions, and a provider here would take that
+    // over.
+    vscode.languages.registerFoldingRangeProvider(
+      { scheme: GENERATED_SCHEME, language: "lua" },
+      {
+        async provideFoldingRanges(document) {
+          const artifact = generated.get(document.uri.toString());
+          if (!artifact || !artifact.mapping || artifact.mapping.kind !== "line-identity") {
+            return [];
+          }
+          const sourceUri = originOf(document.uri);
+          const running = clientForUri(sourceUri);
+          if (!running) {
+            return [];
+          }
+          let ranges;
+          try {
+            ranges = await running.client.sendRequest("textDocument/foldingRange", {
+              textDocument: { uri: sourceUri.toString() }
+            });
+          } catch {
+            return [];
+          }
+          const last = Math.max(0, document.lineCount - 1);
+          return (ranges || [])
+            .filter((range) => range.startLine < last)
+            .map((range) => new vscode.FoldingRange(
+              Math.min(range.startLine, last),
+              Math.min(range.endLine, last)
+            ));
+        }
+      }
+    ),
     // A content provider rather than a webview: what opens is an ordinary
     // read-only editor, so search, folding, diff and every editor command keep
     // working on generated code.
@@ -1041,21 +1134,6 @@ async function activate(context) {
         const artifact = generated.get(uri.toString());
         return artifact && artifact.available ? artifact.text : "";
       }
-    }),
-    vscode.commands.registerCommand(
-      "nupp.checkFunctionForJitTraceBlockers",
-      checkFunctionForTraceBlockers
-    ),
-    vscode.commands.registerCommand("nupp.migrateAnnotatedLua", migrateAnnotatedLua),
-    vscode.commands.registerCommand("nupp.inspectCompiledFunction", inspectCompiledFunction),
-    vscode.commands.registerCommand("nupp.openGeneratedLua", (target) =>
-      openGeneratedArtifact("lua", target)),
-    vscode.commands.registerCommand("nupp.openBytecode", (target) =>
-      openGeneratedArtifact("bytecode", target)),
-    vscode.commands.registerCommand("nupp.compareGeneratedArtifacts", compareGeneratedArtifacts),
-    vscode.commands.registerCommand("nupp.restartLanguageServer", async () => {
-      await restartClients(context);
-      void vscode.window.showInformationMessage("Nupp language server restarted.");
     }),
     vscode.window.onDidChangeTextEditorSelection(synchronizeSelection),
     vscode.window.onDidChangeTextEditorVisibleRanges(synchronizeScroll),

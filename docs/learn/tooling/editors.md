@@ -57,10 +57,16 @@ nothing rather than pointing somewhere arbitrary.
 
 Scrolling either pane carries the other with it, matched line to line through
 the same mapping rather than by pixel offset -- the two panes rarely have the
-same number of rows, so matching offsets would drift apart immediately. The
-panes travel together rather than locking exactly: a source editor with sticky
-scroll or breadcrumbs is taller at the top than a generated one, so the same
-line sits a row or two apart. `nupp.syncArtifactScrolling` turns it off.
+same number of rows, so matching offsets would drift apart immediately.
+`nupp.syncArtifactScrolling` turns it off.
+
+The generated Lua view folds where its source folds. It has to be told: the
+emitter writes at column zero, so there is no indentation for the editor to
+derive folding from, and a pane with no folding has no sticky scroll either --
+which left it sitting a row above the source at the same line, because the
+source pinned a header the artifact did not. It reuses the server's folding
+ranges for the source, which generated Lua being line-for-line with it makes
+exact.
 
 The bytecode view does not repeat the source, because the source is in the pane
 beside it. Row N is what line N compiled to, and it opens folded so that a line

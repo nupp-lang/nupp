@@ -30,9 +30,9 @@ count; a bytecode listing carries its own mapping, and a line standing for
 compiler-owned work reveals nothing rather than pointing somewhere arbitrary.
 
 Scrolling either pane carries the other with it, matched line to line through
-the mapping. They travel together rather than locking exactly, since a source
-editor with sticky scroll or breadcrumbs is taller at the top than a generated
-one. `nupp.syncArtifactScrolling` turns it off.
+the mapping. `nupp.syncArtifactScrolling` turns it off. The generated Lua view
+folds where its source folds, reusing the server's folding ranges, so it pins
+the same sticky headers and the panes sit level.
 
 The bytecode view does not repeat the source, since the source is beside it. Row
 N is what line N compiled to, and it opens folded, so a line compiling to several
