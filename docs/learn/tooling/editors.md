@@ -55,6 +55,13 @@ count; for a bytecode listing it is whichever line the server's mapping names,
 and a line standing for compiler-owned work -- the runtime preamble -- reveals
 nothing rather than pointing somewhere arbitrary.
 
+Scrolling either pane carries the other with it, matched line to line through
+the same mapping rather than by pixel offset -- the two panes rarely have the
+same number of rows, so matching offsets would drift apart immediately. The
+panes travel together rather than locking exactly: a source editor with sticky
+scroll or breadcrumbs is taller at the top than a generated one, so the same
+line sits a row or two apart. `nupp.syncArtifactScrolling` turns it off.
+
 The bytecode view does not repeat the source, because the source is in the pane
 beside it. Row N is what line N compiled to, and it opens folded so that a line
 compiling to several instructions still occupies one row and the two panes stay

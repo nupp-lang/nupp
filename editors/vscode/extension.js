@@ -323,18 +323,105 @@ function sourceLineFor(artifact, generatedLine) {
   return undefined;
 }
 
-function revealLine(editor, line) {
+function revealLine(editor, line, atTop) {
   const at = new vscode.Position(Math.max(0, line - 1), 0);
-  editor.selection = new vscode.Selection(at, at);
-  editor.revealRange(new vscode.Range(at, at), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  editor.revealRange(
+    new vscode.Range(at, at),
+    atTop ? vscode.TextEditorRevealType.AtTop : vscode.TextEditorRevealType.InCenterIfOutsideViewport
+  );
 }
 
-// Selecting in either view reveals the matching line in the other. Guarded so
-// that the reveal this performs does not come back as another selection.
-let synchronizing = false;
+// Revealing in one pane scrolls it, which the editor reports back as another
+// change; left alone the two panes push each other.
+//
+// The guard is per pane rather than global, and that matters: a global one also
+// swallows the user's next wheel event, so a scroll burst arrives as a handful
+// of accepted events and the follower ends up lagging several lines behind. Only
+// the pane that was just driven has anything to ignore.
+const drivenUntil = new Map();
 
+function drivingPane(editor) {
+  drivenUntil.set(editor.document.uri.toString(), Date.now() + 250);
+}
+
+function echoOfOurOwnScroll(editor) {
+  const until = drivenUntil.get(editor.document.uri.toString());
+  if (until === undefined) {
+    return false;
+  }
+  if (Date.now() >= until) {
+    drivenUntil.delete(editor.document.uri.toString());
+    return false;
+  }
+  return true;
+}
+
+// Every generated view open on `document`, with the artifact behind it.
+function generatedViewsOf(document) {
+  const source = document.uri.toString();
+  return vscode.window.visibleTextEditors
+    .filter((editor) => editor.document.uri.scheme === GENERATED_SCHEME)
+    .filter((editor) => originOf(editor.document.uri).toString() === source)
+    .map((editor) => ({ editor, artifact: generated.get(editor.document.uri.toString()) }));
+}
+
+function sourceViewOf(document) {
+  const origin = originOf(document.uri).toString();
+  return vscode.window.visibleTextEditors.find(
+    (candidate) => candidate.document.uri.toString() === origin
+  );
+}
+
+// Scrolling wants a line even where the exact one maps to nothing: a blank row
+// in the listing, or a source line that compiled away. The nearest mapped line
+// at or above it keeps the two panes travelling together instead of stalling
+// whenever the top of the viewport lands on a gap.
+function nearestGeneratedLine(artifact, sourceLine) {
+  const exact = generatedLineFor(artifact, sourceLine);
+  if (exact !== undefined) {
+    return exact;
+  }
+  if (!artifact || !artifact.mapping) {
+    return undefined;
+  }
+  let best;
+  for (const entry of artifact.mapping.entries || []) {
+    if (entry.role !== "synthetic" && entry.sourceLine <= sourceLine) {
+      if (!best || entry.sourceLine > best.sourceLine
+        || (entry.sourceLine === best.sourceLine && entry.generatedLine < best.generatedLine)) {
+        best = entry;
+      }
+    }
+  }
+  return best && best.generatedLine;
+}
+
+function nearestSourceLine(artifact, generatedLine) {
+  const exact = sourceLineFor(artifact, generatedLine);
+  if (exact !== undefined) {
+    return exact;
+  }
+  if (!artifact || !artifact.mapping) {
+    return undefined;
+  }
+  let best;
+  for (const entry of artifact.mapping.entries || []) {
+    if (entry.role !== "synthetic" && entry.generatedLine <= generatedLine) {
+      if (!best || entry.generatedLine > best.generatedLine) {
+        best = entry;
+      }
+    }
+  }
+  return best && best.sourceLine;
+}
+
+function scrollSyncEnabled(uri) {
+  return vscode.workspace.getConfiguration("nupp", uri).get("syncArtifactScrolling", true);
+}
+
+// Selecting in either view reveals the matching line in the other.
 function synchronizeSelection(event) {
-  if (synchronizing) {
+  if (echoOfOurOwnScroll(event.textEditor)) {
     return;
   }
   const document = event.textEditor.document;
@@ -342,29 +429,50 @@ function synchronizeSelection(event) {
   if (document.uri.scheme === GENERATED_SCHEME) {
     const artifact = generated.get(document.uri.toString());
     const sourceLine = sourceLineFor(artifact, line);
-    const sourceUri = originOf(document.uri).toString();
-    const editor = vscode.window.visibleTextEditors.find(
-      (candidate) => candidate.document.uri.toString() === sourceUri
-    );
+    const editor = sourceViewOf(document);
     if (editor && sourceLine !== undefined) {
-      synchronizing = true;
-      revealLine(editor, sourceLine);
-      synchronizing = false;
+      drivingPane(editor);
+      revealLine(editor, sourceLine, false);
     }
     return;
   }
-  for (const editor of vscode.window.visibleTextEditors) {
-    if (editor.document.uri.scheme !== GENERATED_SCHEME) {
-      continue;
-    }
-    if (originOf(editor.document.uri).toString() !== document.uri.toString()) {
-      continue;
-    }
-    const generatedLine = generatedLineFor(generated.get(editor.document.uri.toString()), line);
+  for (const { editor, artifact } of generatedViewsOf(document)) {
+    const generatedLine = generatedLineFor(artifact, line);
     if (generatedLine !== undefined) {
-      synchronizing = true;
-      revealLine(editor, generatedLine);
-      synchronizing = false;
+      drivingPane(editor);
+      revealLine(editor, generatedLine, false);
+    }
+  }
+}
+
+// Scrolling either view carries the other with it, top line to top line. The
+// mapping is what makes that meaningful: the panes do not have the same number
+// of rows, so matching pixel offsets would drift apart immediately.
+function synchronizeScroll(event) {
+  const document = event.textEditor.document;
+  if (echoOfOurOwnScroll(event.textEditor) || !scrollSyncEnabled(originOf(document.uri))) {
+    return;
+  }
+  const ranges = event.visibleRanges;
+  if (ranges.length === 0) {
+    return;
+  }
+  const top = ranges[0].start.line + 1;
+  if (document.uri.scheme === GENERATED_SCHEME) {
+    const artifact = generated.get(document.uri.toString());
+    const sourceLine = nearestSourceLine(artifact, top);
+    const editor = sourceViewOf(document);
+    if (editor && sourceLine !== undefined) {
+      drivingPane(editor);
+      revealLine(editor, sourceLine, true);
+    }
+    return;
+  }
+  for (const { editor, artifact } of generatedViewsOf(document)) {
+    const generatedLine = nearestGeneratedLine(artifact, top);
+    if (generatedLine !== undefined) {
+      drivingPane(editor);
+      revealLine(editor, generatedLine, true);
     }
   }
 }
@@ -950,6 +1058,7 @@ async function activate(context) {
       void vscode.window.showInformationMessage("Nupp language server restarted.");
     }),
     vscode.window.onDidChangeTextEditorSelection(synchronizeSelection),
+    vscode.window.onDidChangeTextEditorVisibleRanges(synchronizeScroll),
     // An edit invalidates every open artifact made from that file. They are
     // re-resolved when something asks, not on the keystroke.
     vscode.workspace.onDidChangeTextDocument((event) => {

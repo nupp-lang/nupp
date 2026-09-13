@@ -256,6 +256,12 @@
           "default": 0,
           "description": "Optimization level used when resolving generated artifacts. 0 is the promise that nothing is rewritten.",
           "scope": "resource"
+        },
+        "nupp.syncArtifactScrolling": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Scroll a generated artifact and its source together, matched by line through the server's mapping rather than by pixel offset."
         }
       }
     }

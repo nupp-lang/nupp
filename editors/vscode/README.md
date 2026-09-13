@@ -29,6 +29,11 @@ is line-identical to its source, because the emitter never changes a file's line
 count; a bytecode listing carries its own mapping, and a line standing for
 compiler-owned work reveals nothing rather than pointing somewhere arbitrary.
 
+Scrolling either pane carries the other with it, matched line to line through
+the mapping. They travel together rather than locking exactly, since a source
+editor with sticky scroll or breadcrumbs is taller at the top than a generated
+one. `nupp.syncArtifactScrolling` turns it off.
+
 The bytecode view does not repeat the source, since the source is beside it. Row
 N is what line N compiled to, and it opens folded, so a line compiling to several
 instructions still takes one row and the panes stay in step.

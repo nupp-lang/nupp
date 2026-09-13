@@ -23078,14 +23078,79 @@ function sourceLineFor(artifact, generatedLine) {
   }
   return void 0;
 }
-function revealLine(editor, line) {
+function revealLine(editor, line, atTop) {
   const at = new vscode.Position(Math.max(0, line - 1), 0);
-  editor.selection = new vscode.Selection(at, at);
-  editor.revealRange(new vscode.Range(at, at), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  editor.revealRange(
+    new vscode.Range(at, at),
+    atTop ? vscode.TextEditorRevealType.AtTop : vscode.TextEditorRevealType.InCenterIfOutsideViewport
+  );
 }
-var synchronizing = false;
+var drivenUntil = /* @__PURE__ */ new Map();
+function drivingPane(editor) {
+  drivenUntil.set(editor.document.uri.toString(), Date.now() + 250);
+}
+function echoOfOurOwnScroll(editor) {
+  const until = drivenUntil.get(editor.document.uri.toString());
+  if (until === void 0) {
+    return false;
+  }
+  if (Date.now() >= until) {
+    drivenUntil.delete(editor.document.uri.toString());
+    return false;
+  }
+  return true;
+}
+function generatedViewsOf(document) {
+  const source = document.uri.toString();
+  return vscode.window.visibleTextEditors.filter((editor) => editor.document.uri.scheme === GENERATED_SCHEME).filter((editor) => originOf(editor.document.uri).toString() === source).map((editor) => ({ editor, artifact: generated.get(editor.document.uri.toString()) }));
+}
+function sourceViewOf(document) {
+  const origin = originOf(document.uri).toString();
+  return vscode.window.visibleTextEditors.find(
+    (candidate) => candidate.document.uri.toString() === origin
+  );
+}
+function nearestGeneratedLine(artifact, sourceLine) {
+  const exact = generatedLineFor(artifact, sourceLine);
+  if (exact !== void 0) {
+    return exact;
+  }
+  if (!artifact || !artifact.mapping) {
+    return void 0;
+  }
+  let best;
+  for (const entry of artifact.mapping.entries || []) {
+    if (entry.role !== "synthetic" && entry.sourceLine <= sourceLine) {
+      if (!best || entry.sourceLine > best.sourceLine || entry.sourceLine === best.sourceLine && entry.generatedLine < best.generatedLine) {
+        best = entry;
+      }
+    }
+  }
+  return best && best.generatedLine;
+}
+function nearestSourceLine(artifact, generatedLine) {
+  const exact = sourceLineFor(artifact, generatedLine);
+  if (exact !== void 0) {
+    return exact;
+  }
+  if (!artifact || !artifact.mapping) {
+    return void 0;
+  }
+  let best;
+  for (const entry of artifact.mapping.entries || []) {
+    if (entry.role !== "synthetic" && entry.generatedLine <= generatedLine) {
+      if (!best || entry.generatedLine > best.generatedLine) {
+        best = entry;
+      }
+    }
+  }
+  return best && best.sourceLine;
+}
+function scrollSyncEnabled(uri) {
+  return vscode.workspace.getConfiguration("nupp", uri).get("syncArtifactScrolling", true);
+}
 function synchronizeSelection(event) {
-  if (synchronizing) {
+  if (echoOfOurOwnScroll(event.textEditor)) {
     return;
   }
   const document = event.textEditor.document;
@@ -23093,29 +23158,46 @@ function synchronizeSelection(event) {
   if (document.uri.scheme === GENERATED_SCHEME) {
     const artifact = generated.get(document.uri.toString());
     const sourceLine = sourceLineFor(artifact, line);
-    const sourceUri = originOf(document.uri).toString();
-    const editor = vscode.window.visibleTextEditors.find(
-      (candidate) => candidate.document.uri.toString() === sourceUri
-    );
+    const editor = sourceViewOf(document);
     if (editor && sourceLine !== void 0) {
-      synchronizing = true;
-      revealLine(editor, sourceLine);
-      synchronizing = false;
+      drivingPane(editor);
+      revealLine(editor, sourceLine, false);
     }
     return;
   }
-  for (const editor of vscode.window.visibleTextEditors) {
-    if (editor.document.uri.scheme !== GENERATED_SCHEME) {
-      continue;
-    }
-    if (originOf(editor.document.uri).toString() !== document.uri.toString()) {
-      continue;
-    }
-    const generatedLine = generatedLineFor(generated.get(editor.document.uri.toString()), line);
+  for (const { editor, artifact } of generatedViewsOf(document)) {
+    const generatedLine = generatedLineFor(artifact, line);
     if (generatedLine !== void 0) {
-      synchronizing = true;
-      revealLine(editor, generatedLine);
-      synchronizing = false;
+      drivingPane(editor);
+      revealLine(editor, generatedLine, false);
+    }
+  }
+}
+function synchronizeScroll(event) {
+  const document = event.textEditor.document;
+  if (echoOfOurOwnScroll(event.textEditor) || !scrollSyncEnabled(originOf(document.uri))) {
+    return;
+  }
+  const ranges = event.visibleRanges;
+  if (ranges.length === 0) {
+    return;
+  }
+  const top = ranges[0].start.line + 1;
+  if (document.uri.scheme === GENERATED_SCHEME) {
+    const artifact = generated.get(document.uri.toString());
+    const sourceLine = nearestSourceLine(artifact, top);
+    const editor = sourceViewOf(document);
+    if (editor && sourceLine !== void 0) {
+      drivingPane(editor);
+      revealLine(editor, sourceLine, true);
+    }
+    return;
+  }
+  for (const { editor, artifact } of generatedViewsOf(document)) {
+    const generatedLine = nearestGeneratedLine(artifact, top);
+    if (generatedLine !== void 0) {
+      drivingPane(editor);
+      revealLine(editor, generatedLine, true);
     }
   }
 }
@@ -23618,6 +23700,7 @@ async function activate(context) {
       void vscode.window.showInformationMessage("Nupp language server restarted.");
     }),
     vscode.window.onDidChangeTextEditorSelection(synchronizeSelection),
+    vscode.window.onDidChangeTextEditorVisibleRanges(synchronizeScroll),
     // An edit invalidates every open artifact made from that file. They are
     // re-resolved when something asks, not on the keystroke.
     vscode.workspace.onDidChangeTextDocument((event) => {
