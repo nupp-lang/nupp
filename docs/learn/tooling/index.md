@@ -147,7 +147,7 @@ does with its result.
 nupp build                    # the default manifest target
 nupp build --target docs      # a named target
 nupp build -O2                # optimize
-nupp tasks                    # what targets exist
+nupp task --list              # what targets exist
 nupp clean --dry-run          # what clean would remove
 ```
 

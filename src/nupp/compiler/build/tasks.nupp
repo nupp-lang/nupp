@@ -27,8 +27,8 @@ local tasks = {}
 ---
 --- A build target, or one of the actions a manifest configures beside them. The fields
 --- past the first four depend on which: a docs target has `sources` where a bundle has
---- `entries`, and the test action has `argv`. `nupp tasks` prints the ones that are
---- there, which is what makes the output say what kind of task it is.
+--- `entries`, and the test action has `argv`. `nupp task --list` prints the ones that
+--- are there, which is what makes the output say what kind of task it is.
 type tasks.Task = {
     name: string,
 

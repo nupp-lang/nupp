@@ -25,7 +25,6 @@ The commands, in the order `nupp help` lists them:
 - [`build`](#build): build source files or a configured project target
 - [`clean`](#clean): remove build outputs configured in `nupp.lua`
 - [`bench`](#bench): run isolated benchmark programs
-- [`tasks`](#tasks): list or inspect project tasks from `nupp.lua`
 - [`lints`](#lints): list the lints and the level each runs at
 - [`ownership-audit`](#ownership-audit): list foreign pointer contracts and
   unsafe assertion sites
@@ -33,7 +32,7 @@ The commands, in the order `nupp help` lists them:
 - [`reference`](#reference): list or print a focused Nupp reference chapter
 - [`completions`](#completions): print a shell completion script
 - [`test`](#test): build and run project tests
-- [`task`](#task): build, then run a named task from `nupp.lua`
+- [`task`](#task): list, inspect, or run project tasks from `nupp.lua`
 - [`doc`](#doc): generate API documentation from source comments
 - [`fixpoint`](#fixpoint): verify a byte-identical self-hosting rebuild
 - [`run`](#run): compile and run a Nupp or Lua program
@@ -85,14 +84,14 @@ nupp check --json
 nupp check --schema
 ```
 
-`init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `clean`, `tasks`, `lints`,
+`init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `clean`, `task`, `lints`,
 `ownership-audit`, `explain`, `doc`, `fixpoint`, `import-c`, `export-c` and
 `version` take all three, and so does every `lsp` operation. `reference` names its
 formats `markdown`, `skill` and `json` instead. `bench`, `test` and `run` take
 `--json` and `--schema` with no `--format`, because
 the JSON each writes is one particular artifact rather than a rendering of the
 whole result.
-`completions`, `task` and `rock` produce no structured result and take neither.
+`completions` and `rock` produce no structured result and take neither.
 
 A test runs each command for real and validates its output against that
 command's own `--schema`, so a schema cannot drift from what the command emits.
@@ -961,58 +960,6 @@ Options:
 The measurement API and authoring guide are in
 [benchmarks.md](../learn/performance/benchmarks.md).
 
-### `tasks`
-
-```text [nupp tasks --help]
-List or inspect project tasks from nupp.lua.
-
-With no name, lists build targets plus the test and configured self-host
-actions. With a name, prints the task's effective configuration.
-
-Usage:
-  nupp tasks [options] [NAME]
-
-Arguments:
-  NAME  Task to inspect.
-
-Options:
-  --format FORMAT, --json, --text
-                  Select the report representation.
-  --schema        Print the JSON Schema of JSON output and exit.
-  -h, --help      Show this help
-  --color[=WHEN]  When to color output: always, never, or auto
-  --no-color      Never color output
-```
-
-The list marks the default build target:
-
-```text [nupp tasks]
-app (default) - Build the greeter
-greet - Print a greeting
-```
-
-Naming one prints its effective configuration, inherited manifest defaults
-included:
-
-```text [nupp tasks app]
-Name: app
-Default: yes
-Description: Build the greeter
-Kind: modules
-Category: build
-Command: nupp build --target app
-Output directory: build
-Entries:
-  - main
-Resources:
-  (none)
-Dependencies:
-  (none)
-```
-
-See [tasks.md](../learn/projects/project-tasks.md) for the manifest shape, and [`task`](#task)
-for running one.
-
 ### `lints`
 
 ```text [nupp lints --help]
@@ -1342,7 +1289,7 @@ nupp completions fish > ~/.config/fish/completions/nupp.fish
 # Completion for nupp; generated from nupp.cli.
 _nupp() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=( $(compgen -W '--accept --all --baseline --binary --bridge-out --case --check --color --color=always --color=auto --color=never --coverage --coverage-out --dialect --dry-run --emit --emit-stage0 --features --file --for --format --from --function --geo --help --history --include-declaration --inspect --jit-aborts --json --kind --label --lib --library --list --name --no-color --no-method-parens --only --opt-level --out --out-dir --output --parameter --platform --profile --profile-interval-ms --profile-out --profile-zone --progress --progress=always --progress=auto --progress=never --prologue --quiet --regions --remarks --remarks-out --report-json --rev --root --schema --section --set --skill --standalone --strict --target --text --timeout-ms --title --variant --watch --width --write --yes -O -O0 -O1 -O2 -Zno-opt= -l -o -q -w 0 1 2 actions all aot artifact artifacts asm ast auto bash bc bench binding both build bytecode c check clean cli completions definition doc emmy explain export-c fish fixpoint fmt help implementation import-c init inspect ir json language lints lsp lua lua51 luacats luadoc luajit luajit-compat markdown md migrate ownership-audit pack performance quickfix refactor reference references rename rock run serve server site skill spirv symbols task tasks test text trace-check version wgsl zsh' -- "$cur") )
+  COMPREPLY=( $(compgen -W '--accept --all --baseline --binary --bridge-out --case --check --color --color=always --color=auto --color=never --coverage --coverage-out --dialect --dry-run --emit --emit-stage0 --features --file --for --format --from --function --geo --help --history --include-declaration --inspect --jit-aborts --json --kind --label --lib --library --list --name --no-color --no-method-parens --only --opt-level --out --out-dir --output --parameter --platform --profile --profile-interval-ms --profile-out --profile-zone --progress --progress=always --progress=auto --progress=never --prologue --quiet --regions --remarks --remarks-out --report-json --rev --root --schema --section --set --skill --standalone --strict --target --text --timeout-ms --title --variant --watch --width --write --yes -O -O0 -O1 -O2 -Zno-opt= -l -o -q -w 0 1 2 actions all aot artifact artifacts asm ast auto bash bc bench binding both build bytecode c check clean cli completions definition doc emmy explain export-c fish fixpoint fmt help implementation import-c init inspect ir json language lints lsp lua lua51 luacats luadoc luajit luajit-compat markdown md migrate ownership-audit pack performance quickfix refactor reference references rename rock run serve server site skill spirv symbols task test text trace-check version wgsl zsh' -- "$cur") )
 }
 complete -F _nupp nupp
 ```
@@ -1453,31 +1400,62 @@ because a single named suite runs in one.
 ### `task`
 
 ```text [nupp task --help]
-Build, then run a named task from nupp.lua.
+List, inspect, or run project tasks from nupp.lua.
 
-Runs `tasks.<name>` from nupp.lua: builds `tasks.<name>.build` first when
+With `--list`, lists build targets plus configured actions, or inspects NAME.
+Otherwise runs `tasks.<name>` from nupp.lua: builds `tasks.<name>.build` first when
 it names one, then executes `tasks.<name>.argv` from `tasks.<name>.cwd`
-(the project root by default) with every trailing argument appended. See
-`nupp tasks` for the configured list.
+(the project root by default) with every trailing argument appended.
 
 Usage:
-  nupp task NAME [ARG...]
+  nupp task [options] [NAME] [ARG...]
 
 Arguments:
-  NAME  Configured task name.
+  NAME  Configured task to run, or inspect with --list.
   ARG   Arguments appended to the configured command.
 
 Options:
+  --list, -l      List project tasks, or inspect NAME.
+  --format FORMAT, --json, --text
+                  Select the list representation.
+  --schema        Print the JSON Schema of list output and exit.
   -h, --help      Show this help
   --color[=WHEN]  When to color output: always, never, or auto
   --no-color      Never color output
+```
+
+The list marks the default build target:
+
+```text [nupp task --list]
+app (default) - Build the greeter
+greet - Print a greeting
+```
+
+Naming one after `--list` prints its effective configuration, inherited
+manifest defaults included:
+
+```text [nupp task --list app]
+Name: app
+Default: yes
+Description: Build the greeter
+Kind: modules
+Category: build
+Command: nupp build --target app
+Output directory: build
+Entries:
+  - main
+Resources:
+  (none)
+Dependencies:
+  (none)
 ```
 
 ```text [nupp task greet]
 Hello, world
 ```
 
-The exit code is the task command's own. See
+Listing options go before `NAME`, because everything after a task name is
+passed to that task. The exit code is the task command's own. See
 [tasks.md](../learn/projects/project-tasks.md) for declaring a task and for the build it runs
 first.
 
@@ -2096,14 +2074,13 @@ Commands:
   build            Build source files or a configured project target.
   clean            Remove build outputs configured in nupp.lua.
   bench            Run isolated benchmark programs.
-  tasks            List or inspect project tasks from nupp.lua.
   lints            List the lints and the level each runs at.
   ownership-audit  List foreign pointer contracts and unsafe assertion sites.
   explain          Describe a diagnostic code, with an example either way.
   reference        List or print a focused Nupp reference chapter.
   completions      Print a shell completion script.
   test             Build and run project tests.
-  task             Build, then run a named task from nupp.lua.
+  task             List, inspect, or run project tasks from nupp.lua.
   doc              Generate API documentation from source comments.
   fixpoint         Verify a byte-identical self-hosting rebuild.
   run              Compile and run a Nupp or Lua program.

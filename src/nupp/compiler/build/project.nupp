@@ -1086,7 +1086,7 @@ function project.runTask(root: string?, name: string, args: {string}?): integer
     -- says that indexing a map of them yields one.
     local task = tasks[name] as manifest.Task
     if type(task) ~= "table" or type(task.argv) ~= "table" then
-        io.stderr:write("nupp: no task named " .. tostring(name) .. "; see `nupp tasks`\n")
+        io.stderr:write("nupp: no task named " .. tostring(name) .. "; see `nupp task --list`\n")
         return 1
     end
     if task.build then

@@ -9,8 +9,8 @@ builds what that task says to build and then runs its argv with your arguments
 appended.
 
 ```bash
-nupp tasks                        # build targets, test, fixpoint, and tasks
-nupp tasks docs-serve             # one entry's effective configuration
+nupp task --list                  # build targets, test, fixpoint, and tasks
+nupp task --list docs-serve       # one entry's effective configuration
 nupp task docs-serve              # run it
 nupp task docs-serve --no-build   # arguments after the name reach the command
 ```
@@ -43,7 +43,7 @@ return {
 | Key | Required | Means |
 | --- | --- | --- |
 | `argv` | yes | The command, as an argv array of strings |
-| `description` | no | One line, shown by `nupp tasks` |
+| `description` | no | One line, shown by `nupp task --list` |
 | `build` | no | A build target to build before the command runs |
 | `cwd` | no | Working directory, relative to the project root |
 | `env` | no | Environment variables, as string to string |
@@ -184,27 +184,27 @@ read them. The consequences:
   command's, and `nupp task -- --help` names a task called `--help`.
 - The exit status is the command's own. A task whose command exits 7 makes
   `nupp task` exit 7.
-- A name no task matches exits 1, and says to run `nupp tasks` for the list.
+- A name no task matches exits 1, and says to run `nupp task --list` for the list.
 
 The command runs with the configured `cwd`, or the project root when `cwd` is
 absent, whatever directory you invoked `nupp task` from.
 
 ## Listing tasks and targets
 
-`nupp tasks` covers everything the project can run, not only the `tasks` table:
+`nupp task --list` covers everything the project can run, not only the `tasks` table:
 each build target, with the default one marked, the default or configured test
 command, the self-host action `nupp fixpoint` runs, and each named task.
 
-```text [nupp tasks]
+```text [nupp task --list]
 release - Stamp a release archive
 tools (default) - Build the maintenance tools
 ```
 
-`nupp tasks <name>` prints that entry's effective configuration, filled in with
+`nupp task --list <name>` prints that entry's effective configuration, filled in with
 the defaults a build would actually use, and prints only the fields the entry
 has, so the shape of the output says what kind of entry it is:
 
-```text [nupp tasks release]
+```text [nupp task --list release]
 Name: release
 Default: no
 Description: Stamp a release archive
@@ -219,13 +219,15 @@ Environment:
   - RELEASE_CHANNEL=stable
 ```
 
-Both forms take `--json`, and `nupp tasks --schema` prints the shape they
-write. A task named the same as a build target is listed as `command:<name>`,
+Both list forms take `--json`, and `nupp task --list --schema` prints the shape
+they write. Put listing options before the optional name, because arguments
+after a task name belong to the task being run. A task named the same as a build
+target is listed as `command:<name>`,
 because the build target holds the plain name; `nupp task <name>` still runs
 the task, since it looks only at the `tasks` table.
 
 ::: warning
-`nupp tasks` reports `nupp: build is not configured` in a project whose
+`nupp task --list` reports `nupp: build is not configured` in a project whose
 manifest has no `build` section, because the list it prints is mostly build
 targets. `nupp task <name>` has no such requirement and runs the task.
 :::
@@ -241,8 +243,7 @@ Tasks do not depend on other tasks. The one ordering a task can express is
 or a script written in Nupp is for.
 
 ::: seealso
-- [cli.md](../../reference/cli.md#task) for every option `nupp task` and
-  `nupp tasks` take
+- [cli.md](../../reference/cli.md#task) for every option `nupp task` takes
 - [build.md](build.md) for the target kinds `build` can name
 - [testing.md](testing.md) for `test`, the one command that always builds
 :::

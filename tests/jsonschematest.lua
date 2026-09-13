@@ -168,8 +168,8 @@ function M.lintsOutputMatchesItsSchema()
     end
 end
 
-function M.tasksOutputMatchesItsSchema()
-    local decoded = agrees(HERE .. "/..", "tasks")
+function M.taskListOutputMatchesItsSchema()
+    local decoded = agrees(HERE .. "/..", "task --list")
     assert(#decoded.tasks > 0, "the tasks are listed")
 end
 

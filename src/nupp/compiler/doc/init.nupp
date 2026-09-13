@@ -1393,9 +1393,9 @@ end
 
 --- Where a documentation target writes when the manifest names no `outDir`.
 ---
---- `nupp tasks` reports this and `nupp clean` removes it, so the default lives here
---- rather than being spelled again wherever it is needed: a build that writes somewhere
---- the task table does not name is a build clean can miss.
+--- `nupp task --list` reports this and `nupp clean` removes it, so the default lives
+--- here rather than being spelled again wherever it is needed: a build that writes
+--- somewhere the task table does not name is a build clean can miss.
 ---
 --- @param format site, markdown, json, or both
 --- @return the path, relative to the project root

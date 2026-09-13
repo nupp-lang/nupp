@@ -354,7 +354,7 @@ function M.cliProvidesHelpForMainAndEverySubcommand()
         "build",
         "clean",
         "bench",
-        "tasks",
+        "task",
         "test",
         "doc",
         "fixpoint",
@@ -369,6 +369,9 @@ function M.cliProvidesHelpForMainAndEverySubcommand()
         assert(out:find("Usage:", 1, true), command .. " --help did not print command help: " .. out)
         assert(not out:find("No such file", 1, true), command .. " --help was interpreted as an input: " .. out)
     end
+
+    local removed = capture(("'%s' tasks"):format(NUPP))
+    assert(removed:find("unknown command tasks", 1, true), "the standalone tasks command still exists: " .. removed)
 end
 
 function M.astCommandDumpsTextAndJsonSyntaxTrees()
@@ -484,7 +487,7 @@ return {
 }
 ]],
     })
-    local listed = capture(("cd '%s' && '%s' tasks"):format(dir, NUPP))
+    local listed = capture(("cd '%s' && '%s' task -l"):format(dir, NUPP))
     assert(
         listed:find("app (default) - Build the application", 1, true),
         "text listing marks the default and includes its description: " .. listed
@@ -498,34 +501,34 @@ return {
         "text listing is sorted by task name: " .. listed
     )
 
-    local detail = capture(("cd '%s' && '%s' tasks app --text"):format(dir, NUPP))
+    local detail = capture(("cd '%s' && '%s' task --list --text app"):format(dir, NUPP))
     assert(detail:find("Output directory: out", 1, true), "text detail includes inherited configuration: " .. detail)
     assert(detail:find("  - app.main", 1, true), "text detail includes entries: " .. detail)
 
-    local encoded = capture(("cd '%s' && '%s' tasks app --json"):format(dir, NUPP))
+    local encoded = capture(("cd '%s' && '%s' task --list --json app"):format(dir, NUPP))
     local decoded = require("testjson").decode(encoded)
     assertEq(decoded.name, "app", "JSON detail identifies the task")
     assertEq(decoded.outDir, "out", "JSON detail includes effective defaults")
     assertEq(decoded.entries[1], "app.main", "JSON detail includes entries")
 
-    encoded = capture(("cd '%s' && '%s' tasks test --json"):format(dir, NUPP))
+    encoded = capture(("cd '%s' && '%s' task --list --json test"):format(dir, NUPP))
     decoded = require("testjson").decode(encoded)
     assertEq(decoded.kind, "test", "JSON identifies the configured action kind")
     assertEq(decoded.buildTarget, "app", "JSON includes the prerequisite target")
     assertEq(decoded.argv[2], "tests/run.lua", "JSON includes the configured argv")
     assertEq(decoded.env.MODE, "test", "JSON includes the configured environment")
 
-    local fixpoint = capture(("cd '%s' && '%s' tasks fixpoint --text"):format(dir, NUPP))
+    local fixpoint = capture(("cd '%s' && '%s' task --list --text fixpoint"):format(dir, NUPP))
     assert(
         fixpoint:find("Stage zero: scripts/find-stage0", 1, true),
         "text detail includes self-host configuration: " .. fixpoint
     )
-    local release = capture(("cd '%s' && '%s' tasks release --text"):format(dir, NUPP))
+    local release = capture(("cd '%s' && '%s' task --list --text release"):format(dir, NUPP))
     assert(
         release:find("Working directory: tools", 1, true),
         "text detail includes the configured working directory: " .. release
     )
-    encoded = capture(("cd '%s' && '%s' tasks release --json"):format(dir, NUPP))
+    encoded = capture(("cd '%s' && '%s' task --list --json release"):format(dir, NUPP))
     decoded = require("testjson").decode(encoded)
     assertEq(decoded.cwd, "tools", "JSON detail includes the configured working directory")
     os.execute("rm -rf '" .. dir .. "'")
@@ -541,7 +544,7 @@ return {
 ]],
         ["src/main.nupp"] = "return true\n",
     })
-    local encoded = capture(("cd '%s' && '%s' tasks test --json"):format(dir, NUPP))
+    local encoded = capture(("cd '%s' && '%s' task --list --json test"):format(dir, NUPP))
     local decoded = require("testjson").decode(encoded)
     assertEq(decoded.kind, "test", "JSON identifies the default test action")
     assertEq(decoded.argv[1], "nupp", "the default test action uses Nupp")
@@ -563,7 +566,7 @@ return {
 }
 ]],
     })
-    local out = capture(("cd '%s' && '%s' tasks"):format(dir, NUPP))
+    local out = capture(("cd '%s' && '%s' task --list"):format(dir, NUPP))
     assert(
         out:find("build.default references unknown target missing", 1, true),
         "task discovery validates the manifest: " .. out

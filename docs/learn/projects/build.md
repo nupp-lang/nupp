@@ -128,7 +128,7 @@ build = {
 
 `nupp build --dialect lua51` and `nupp check --dialect lua51` override the
 selected target for that invocation and also work with explicitly named source
-files. The resolved value appears in build and check JSON and in `nupp tasks`.
+files. The resolved value appears in build and check JSON and in `nupp task --list`.
 It is part of the cache key, so artifacts and checks from different dialects
 cannot satisfy one another.
 
@@ -220,16 +220,16 @@ is that a setting appears not to work.
 
 ## Listing targets
 
-`nupp tasks` lists the manifest's build targets, default or configured test action,
+`nupp task --list` lists the manifest's build targets, default or configured test action,
 self-host and fixpoint action, and any named `tasks` entries, and marks the
-default build target. `nupp tasks <name>` prints the effective target
+default build target. `nupp task --list <name>` prints the effective target
 configuration, including manifest-level defaults such as `outDir`. Both forms
 accept `--format json`, or `--json`, for build-tool integration; text is the
 default.
 
 ```bash
-nupp tasks
-nupp tasks app --json
+nupp task --list
+nupp task --list --json app
 nupp task docs-serve
 ```
 

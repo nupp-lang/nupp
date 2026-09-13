@@ -85,12 +85,6 @@ local REGISTRY: {{
         end
     },
     {
-        name = "tasks",
-        load = function(): any
-            return require("nupp.compiler.cli.tasks")
-        end
-    },
-    {
         name = "lints",
         load = function(): any
             return require("nupp.compiler.cli.lints")
