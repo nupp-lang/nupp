@@ -15,25 +15,56 @@ local root = require("nupp.compiler.cli.root")
 
 local REPORT_SCHEMA = {
     type = "object",
-    description = "One benchmark-set run, with one isolated child record per selected case.",
+    description = "One benchmark-set run, with every fork of every selected benchmark.",
     properties = {
         schema = {type = "integer"},
         recordedAt = {type = "string"},
         label = {type = "string"},
-        cases = {
+        forks = {type = "integer", description = "Processes each benchmark was run in."},
+        seed = {type = "integer", description = "Seed for the per-round permutation, so an order can be reproduced."},
+        margin = {type = "number", description = "Equivalence margin for duration verdicts, as a fraction."},
+        machineKey = {
+            type = "string",
+            description = "Stable identity of the machine. Durations are only compared across records sharing it.",
+        },
+        hostProfile = {
+            type = "object",
+            description = "Platform facts. These identify a class of machine, not a machine; machineKey does that.",
+        },
+        comparison = {
+            type = "string",
+            description = "interleaved for a paired causal comparison, observational for one against a stored record.",
+        },
+        benchmarks = {
             type = "array",
             items = {
                 type = "object",
                 properties = {
                     case = {type = "string", description = "Benchmark program path."},
-                    name = {type = "string", description = "Selected case name."},
-                    record = {type = "object", description = "The record written by that child."},
+                    name = {type = "string", description = "Selected benchmark name."},
+                    forks = {
+                        type = "array",
+                        description = "One entry per process, in execution order, each keeping its own ordered samples.",
+                        items = {
+                            type = "object",
+                            properties = {
+                                index = {type = "integer"},
+                                measurement = {type = "object", description = "That fork's whole measurement."},
+                            },
+                            required = {"index", "measurement"},
+                        },
+                    },
+                    summary = {
+                        type = "object",
+                        description = "The merged measurement: fork summaries, the interval or why it was withheld, "
+                        .. "and the unanimous abort sites.",
+                    },
                 },
-                required = {"case", "name", "record"},
+                required = {"case", "name", "forks", "summary"},
             },
         },
     },
-    required = {"schema", "recordedAt", "cases"},
+    required = {"schema", "recordedAt", "benchmarks"},
 }
 
 local function invalidPattern(patterns: {string}?): string?
@@ -68,8 +99,37 @@ local function run(options: any): integer
         or values.profile
         or values.profileIntervalMs
         or values.profileZone
+        or values.forks
+        or values.margin
+        or values.pilot
+        or values.against
     ) then
         return usageError("--list cannot be combined with result, baseline, history, or profile options")
+    end
+    local forks: integer? = nil
+    if values.forks then
+        local given = tonumber(values.forks)
+        if not given or given < 1 or given ~= math.floor(given) then
+            return usageError("--forks needs a positive whole number")
+        end
+        forks = math.floor(given)
+    end
+    local margin: number? = nil
+    if values.margin then
+        local given = tonumber(values.margin)
+        if not given or given <= 0 then
+            return usageError("--margin needs a positive percentage")
+        end
+        margin = given / 100.0
+    end
+    if values.margin and not values.baseline and not values.against then
+        return usageError("--margin needs --baseline PATH or --against PATH to compare against")
+    end
+    if values.against and not values.margin then
+        return usageError("--against needs --margin PERCENT, the margin its verdicts are judged against")
+    end
+    if values.pilot and (values.forks or values.baseline or values.margin or values.against) then
+        return usageError("--pilot runs its own forks and reports no result, so it takes no forks, baseline or margin")
     end
     local timeoutMs: integer? = nil
     if values.timeoutMs then
@@ -126,6 +186,11 @@ local function run(options: any): integer
             profileDir = values.profile,
             profileIntervalMs = profileIntervalMs,
             profileZone = values.profileZone,
+            forks = forks,
+            seed = values.seed,
+            margin = margin,
+            pilot = values.pilot,
+            against = values.against,
         } as Options
     )
 end
@@ -158,6 +223,25 @@ local record Bench
 
     --- Include geometric-mean variant comparisons.
     geo: boolean = false
+
+    --- Processes to run each benchmark in.
+    @cli(value = "INTEGER")
+    forks: integer?
+
+    --- Seed for the per-round permutation.
+    @cli(value = "INTEGER")
+    seed: integer?
+
+    --- Practical equivalence margin, as a percentage, for duration verdicts.
+    @cli(value = "PERCENT")
+    margin: number?
+
+    --- Estimate variance and report the forks a precision would need.
+    pilot: boolean = false
+
+    --- Another nupp executable to measure beside this one, interleaved and paired.
+    @cli(value = "PATH")
+    against: string?
 
     --- Child deadline in milliseconds.
     @cli(value = "INTEGER")

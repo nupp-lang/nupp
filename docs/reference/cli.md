@@ -939,6 +939,14 @@ Options:
   --parameter PATTERN   Run parameter text matching a Lua pattern.
   --variant PATTERN     Run variant names matching a Lua pattern.
   --geo                 Include geometric-mean variant comparisons.
+  --forks INTEGER       Processes to run each benchmark in.
+  --seed INTEGER        Seed for the per-round permutation.
+  --margin PERCENT      Practical equivalence margin, as a percentage, for
+                        duration verdicts.
+  --pilot               Estimate variance and report the forks a precision
+                        would need.
+  --against PATH        Another nupp executable to measure beside this one,
+                        interleaved and paired.
   --timeout-ms INTEGER  Child deadline in milliseconds.
   --profile DIR         Write one collapsed-stack profile per case under this
                         directory.
@@ -956,6 +964,18 @@ Options:
   --color[=WHEN]        When to color output: always, never, or auto
   --no-color            Never color output
 ```
+
+`--forks` runs each benchmark in that many separate processes, which is what an
+interval is computed across; below ten the harness reports a range and withholds
+every verdict, because no interval over fewer observations attains 95%.
+`--pilot` reports the count a target precision would need instead of reporting a
+result. `--margin` is required for duration verdicts and declares the practical
+equivalence margin as a percentage. `--against` measures a second executable
+interleaved with this one for a paired, causal comparison, where `--baseline`
+compares against a stored record and is observational.
+
+Durations are reported and never gate. The exit status still comes only from the
+deterministic counters.
 
 The measurement API and authoring guide are in
 [benchmarks.md](../learn/performance/benchmarks.md).

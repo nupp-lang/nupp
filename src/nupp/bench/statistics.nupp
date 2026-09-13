@@ -1,0 +1,742 @@
+module nupp.bench.statistics
+
+--[[
+Distribution-free statistics for benchmark records.
+
+Everything here is exact and deterministic: order statistics, exact null
+distributions, and closed-form coverage. Nothing resamples, so nothing needs a
+seed and two readers of one record compute the same answer.
+
+The governing rule is that a claim is never printed above the sample size that
+supports it. `medianInterval` reports the coverage it *attained* rather than the
+one that was requested, and returns nothing at all below `MIN_INTERVAL_SAMPLES`,
+because the widest interval derivable from nine observations still does not
+reach 95% and a label saying otherwise would be wrong rather than approximate.
+
+Callers pass fork summaries -- one number per process -- not raw samples. Samples
+inside one process share its heap, traces and thermal state, so treating them as
+independent draws is the error this module exists to avoid.
+]]
+
+local statistics = {}
+
+--- Fork summaries below which no interval is reported.
+---
+--- Six is the mathematical floor: `[x(1), x(n)]` attains 96.88% at six and 93.75%
+--- at five, so five observations cannot support a 95% claim however they are
+--- combined. Ten is used instead because at ten the selected interval is
+--- `[x(2), x(9)]` and no single extreme observation decides an endpoint.
+statistics.MIN_INTERVAL_SAMPLES = 10
+
+--- The coverage an interval must attain to be reported.
+statistics.TARGET_COVERAGE = 0.95
+
+--- Significance level for trend and change tests.
+statistics.ALPHA = 0.05
+
+--- Blocks a sample series is reduced to before testing it for trend.
+---
+--- A suite fork holds thousands of samples and the pairwise sign count is quadratic,
+--- so the series is summarised into at most this many ordered block medians first.
+--- The drift a warmup or deoptimization produces is slow relative to the series, so
+--- it survives the reduction; sample-to-sample noise, which is not what the test is
+--- asking about, does not.
+local TREND_BLOCKS: integer = 64
+
+--- Samples below which a fork is not tested for trend at all.
+local TREND_MIN_SAMPLES: integer = 32
+
+--- Sample sizes above which exact null distributions give way to normal
+--- approximations. Fork counts are far below this; raw-sample callers are not.
+local EXACT_LIMIT: integer = 200
+
+--- An interval and the coverage it actually attains.
+record statistics.Interval
+    --- Lower and upper endpoints, in the units of the input.
+    low: number
+
+    upper: number
+
+    --- The order statistic index selected, counting from one.
+    k: integer
+
+    --- Exact probability that this interval covers the population median, as a
+    --- fraction. Reported rather than requested: it is what the sample size gives.
+    attainedCoverage: number
+end
+
+--- What a trend test concluded about one ordered series.
+record statistics.Trend
+    --- `trend`, `no-trend-detected`, or `unknown`.
+    ---
+    --- There is deliberately no class asserting a steady state. Detecting the absence
+    --- of a monotone trend is not evidence of having reached one, and the literature
+    --- that established this used changepoint analysis over far more data than a
+    --- benchmark fork carries.
+    verdict: string
+
+    --- Kendall's tau over the reduced series, in [-1, 1]. Zero when unknown.
+    tau: number
+
+    --- Two-sided p-value. One when unknown.
+    pValue: number
+
+    --- Blocks the series was reduced to before testing.
+    blocks: integer
+end
+
+--- How many samples fell outside the fences, and how far the worst one was.
+record statistics.Outliers
+    --- Samples beyond three interquartile ranges from the nearer quartile.
+    severe: integer
+
+    --- The largest sample divided by the median, or one when there are none.
+    maxRatio: number
+
+    --- The fences themselves, for a reader that wants to see them.
+    lowFence: number
+
+    upperFence: number
+end
+
+----------------------------------------------------------------------------
+-- Order statistics
+----------------------------------------------------------------------------
+
+--- A sorted copy, so callers keep their own order. Every routine below needs one and
+--- none of them may disturb the execution order a trend test depends on.
+function statistics.sorted(values: {number}): {number}
+    local copy: {number} = {}
+    for index = 1, #values do
+        copy[index] = values[index]
+    end
+    table.sort(copy)
+
+    return copy
+end
+
+--- The value at `fraction` through a sorted series, by nearest rank.
+---
+--- Nearest rank rather than interpolation: an interpolated quantile invents a value
+--- the benchmark never produced, and every consumer here wants an observation.
+function statistics.quantile(sorted: {number}, fraction: number): number
+    if #sorted == 0 then
+        return 0.0
+    end
+    local rank = math.ceil(fraction * #sorted)
+    if rank < 1 then
+        rank = 1
+    end
+    if rank > #sorted then
+        rank = #sorted
+    end
+
+    return sorted[rank]
+end
+
+--- The median of an unsorted series.
+function statistics.median(values: {number}): number
+    if #values == 0 then
+        return 0.0
+    end
+
+    return statistics.quantile(statistics.sorted(values), 0.5)
+end
+
+--- The interquartile range of an unsorted series.
+function statistics.iqr(values: {number}): number
+    if #values == 0 then
+        return 0.0
+    end
+    local sorted = statistics.sorted(values)
+
+    return statistics.quantile(sorted, 0.75) - statistics.quantile(sorted, 0.25)
+end
+
+----------------------------------------------------------------------------
+-- The sign-test interval
+----------------------------------------------------------------------------
+
+--- `P(Bin(n, 1/2) <= m)`, computed by stepping the terms rather than by factorials.
+---
+--- Each term is the last times `(n - i + 1) / i`, which keeps every intermediate in
+--- range where `C(n, i)` alone would overflow well before `n` reached a hundred.
+local function binomialAtMost(n: integer, m: integer): number
+    if m < 0 then
+        return 0.0
+    end
+    if m >= n then
+        return 1.0
+    end
+    local term = 0.5 ^ n
+    if term == 0.0 then
+        -- Underflowed, so the tail is far below anything that changes a decision.
+        return 0.0
+    end
+    local total = term
+    for index = 1, m do
+        term = term * ((n - index + 1) / index)
+        total = total + term
+    end
+    if total > 1.0 then
+        return 1.0
+    end
+
+    return total
+end
+
+--- The exact probability that `[x(k), x(n+1-k)]` covers the population median.
+---
+--- This is the sign test read as an interval: the interval misses only when more than
+--- `n - k` observations fall on one side of the median, and each observation falls
+--- above it with probability one half whatever the distribution's shape.
+function statistics.medianCoverage(n: integer, k: integer): number
+    if n < 2 or k < 1 or k > n / 2 then
+        return 0.0
+    end
+    local coverage = 1.0 - 2.0 * binomialAtMost(n, (k - 1) as integer)
+    if coverage < 0.0 then
+        return 0.0
+    end
+
+    return coverage
+end
+
+--- The narrowest order-statistic interval still attaining `target`, or zero if none.
+---
+--- Larger `k` narrows the interval and lowers its coverage, so the answer is the
+--- largest `k` that still clears the target.
+function statistics.selectK(n: integer, target: number): integer
+    local best: integer = 0
+    local limit = math.floor(n / 2)
+    for k = 1, limit do
+        if statistics.medianCoverage(n, k) >= target then
+            best = k
+        end
+    end
+
+    return best
+end
+
+--- An interval for the population median of `values`, or nothing.
+---
+--- Returns nothing when there are fewer than `MIN_INTERVAL_SAMPLES` observations, or
+--- when no order-statistic interval over them attains the target. The caller is
+--- expected to print the observed range and withhold every verdict in that case
+--- rather than widening a label to fit.
+function statistics.medianInterval(values: {number}): statistics.Interval?
+    local n = #values
+    if n < statistics.MIN_INTERVAL_SAMPLES then
+        return nil
+    end
+    local k = statistics.selectK(n as integer, statistics.TARGET_COVERAGE)
+    if k < 1 then
+        return nil
+    end
+    local sorted = statistics.sorted(values)
+
+    return new statistics.Interval(
+        low = sorted[k],
+        upper = sorted[n - k + 1],
+        k = k,
+        attainedCoverage = statistics.medianCoverage(n as integer, k)
+    )
+end
+
+----------------------------------------------------------------------------
+-- Outlier classification
+----------------------------------------------------------------------------
+
+--- Classifies samples beyond three interquartile ranges of the nearer quartile.
+---
+--- Counted and returned, never removed. A genuine warmup or deoptimization phase sits
+--- exactly where these fences fall, so excluding what they catch would delete the
+--- behaviour the trend test is looking for. The median estimator is robust enough to
+--- see every sample without being moved by the far ones.
+function statistics.outliers(values: {number}): statistics.Outliers
+    if #values == 0 then
+        return new statistics.Outliers(severe = 0, maxRatio = 1.0, lowFence = 0.0, upperFence = 0.0)
+    end
+    local sorted = statistics.sorted(values)
+    local lowerQuartile = statistics.quantile(sorted, 0.25)
+    local upperQuartile = statistics.quantile(sorted, 0.75)
+    local spread = upperQuartile - lowerQuartile
+    local lowFence = lowerQuartile - 3.0 * spread
+    local upperFence = upperQuartile + 3.0 * spread
+    local middle = statistics.quantile(sorted, 0.5)
+    local severe: integer = 0
+    local worst = 1.0
+    for _, value in ipairs(sorted) do
+        if value < lowFence or value > upperFence then
+            severe = (severe + 1) as integer
+            if middle > 0.0 then
+                local ratio = value / middle
+                if ratio > worst then
+                    worst = ratio
+                end
+            end
+        end
+    end
+
+    return new statistics.Outliers(severe = severe, maxRatio = worst, lowFence = lowFence, upperFence = upperFence)
+end
+
+----------------------------------------------------------------------------
+-- Normal tail, for the approximate branches
+----------------------------------------------------------------------------
+
+--- Abramowitz and Stegun 7.1.26. Absolute error below 1.5e-7, which is far finer than
+--- any decision taken on it here.
+local function erf(x: number): number
+    local sign = x < 0.0 and -1.0 or 1.0
+    local value = math.abs(x)
+    local t = 1.0 / (1.0 + 0.3275911 * value)
+    local poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))))
+
+    return sign * (1.0 - poly * math.exp(-value * value))
+end
+
+--- Two-sided tail probability of the standard normal beyond `z`.
+local function normalTwoSided(z: number): number
+    local tail = 1.0 - erf(math.abs(z) / math.sqrt(2.0))
+    if tail < 0.0 then
+        return 0.0
+    end
+    if tail > 1.0 then
+        return 1.0
+    end
+
+    return tail
+end
+
+----------------------------------------------------------------------------
+-- Trend
+----------------------------------------------------------------------------
+
+--- Reduces an ordered series to at most `TREND_BLOCKS` ordered block medians.
+local function blockMedians(series: {number}): {number}
+    local count = #series
+    local blocks = count < TREND_BLOCKS and count or TREND_BLOCKS
+    if blocks < 1 then
+        return {}
+    end
+    local reduced: {number} = {}
+    for index = 1, blocks do
+        local from = math.floor((index - 1) * count / blocks) + 1
+        local to = math.floor(index * count / blocks)
+        if to < from then
+            to = from
+        end
+        local block: {number} = {}
+        for position = from, to do
+            block[#block + 1] = series[position]
+        end
+        reduced[#reduced + 1] = statistics.median(block)
+    end
+
+    return reduced
+end
+
+--- Tests one process's ordered samples for a monotone trend.
+---
+--- Mann-Kendall over block medians, which is distribution-free and cares only about
+--- the order of the values. A detected trend means warmup was insufficient or the
+--- code deoptimized partway through; an undetected one means exactly that and is not
+--- a claim about having reached a steady state.
+---
+--- Called per fork. Never call it on samples pooled across processes: concatenating
+--- two processes' series manufactures a discontinuity at the join that has nothing
+--- to do with either process's behaviour.
+function statistics.trend(series: {number}): statistics.Trend
+    if #series < TREND_MIN_SAMPLES then
+        return new statistics.Trend(verdict = "unknown", tau = 0.0, pValue = 1.0, blocks = 0)
+    end
+    local reduced = blockMedians(series)
+    local n = #reduced
+    if n < 4 then
+        return new statistics.Trend(verdict = "unknown", tau = 0.0, pValue = 1.0, blocks = n as integer)
+    end
+    local score = 0.0
+    for i = 1, n - 1 do
+        for j = i + 1, n do
+            local delta = reduced[j] - reduced[i]
+            if delta > 0.0 then
+                score = score + 1.0
+            elseif delta < 0.0 then
+                score = score - 1.0
+            end
+        end
+    end
+    local comparisons = n * (n - 1) / 2.0
+    local tau = comparisons > 0.0 and score / comparisons or 0.0
+    local variance = n * (n - 1) * (2 * n + 5) / 18.0
+    local pValue = 1.0
+    if variance > 0.0 then
+        local adjusted = 0.0
+        if score > 0.0 then
+            adjusted = score - 1.0
+        elseif score < 0.0 then
+            adjusted = score + 1.0
+        end
+        pValue = normalTwoSided(adjusted / math.sqrt(variance))
+    end
+    local verdict = pValue < statistics.ALPHA and "trend" or "no-trend-detected"
+
+    return new statistics.Trend(verdict = verdict, tau = tau, pValue = pValue, blocks = n as integer)
+end
+
+----------------------------------------------------------------------------
+-- Paired comparison: Wilcoxon signed rank and Hodges-Lehmann
+----------------------------------------------------------------------------
+
+--- Counts of subsets of `{1..n}` by their sum, which is the null distribution of the
+--- signed-rank statistic. Index `s + 1` holds the count for sum `s`.
+local function signedRankCounts(n: integer): {number}
+    local total = (n * (n + 1) / 2) as integer
+    local counts: {number} = {}
+    for index = 0, total do
+        counts[index + 1] = 0.0
+    end
+    counts[1] = 1.0
+    for rank = 1, n do
+        for sum = total, rank, -1 do
+            counts[sum + 1] = counts[sum + 1] + counts[sum - rank + 1]
+        end
+    end
+
+    return counts
+end
+
+--- `P(W+ <= m)` under the null that the differences are symmetric about zero.
+local function signedRankAtMost(n: integer, m: integer): number
+    if m < 0 then
+        return 0.0
+    end
+    local total = (n * (n + 1) / 2) as integer
+    if m >= total then
+        return 1.0
+    end
+    local counts = signedRankCounts(n)
+    local accumulated = 0.0
+    for sum = 0, m do
+        accumulated = accumulated + counts[sum + 1]
+    end
+
+    return accumulated / 2.0 ^ n
+end
+
+--- Every Walsh average of a series, sorted. The Hodges-Lehmann estimator is their
+--- median and its interval is a pair of their order statistics.
+local function walshAverages(values: {number}): {number}
+    local averages: {number} = {}
+    for i = 1, #values do
+        for j = i, #values do
+            averages[#averages + 1] = (values[i] + values[j]) / 2.0
+        end
+    end
+    table.sort(averages)
+
+    return averages
+end
+
+--- A paired shift estimate and interval for `differences`, or nothing.
+---
+--- The estimator is the median of Walsh averages; the interval's endpoints are the
+--- order statistics the exact signed-rank distribution places the tails at. Both are
+--- distribution-free, and pairing is what interleaved execution buys: fork `k` of one
+--- executable ran beside fork `k` of the other, under one thermal state.
+function statistics.pairedShift(differences: {number}): statistics.Interval?
+    local n = #differences
+    if n < statistics.MIN_INTERVAL_SAMPLES then
+        return nil
+    end
+    if n > EXACT_LIMIT then
+        return nil
+    end
+    local averages = walshAverages(differences)
+    local total = #averages
+    local best: integer = 0
+    local coverage = 0.0
+    for k = 1, math.floor(total / 2) do
+        local attained = 1.0 - 2.0 * signedRankAtMost(n as integer, (k - 2) as integer)
+        if attained >= statistics.TARGET_COVERAGE then
+            best = k
+            coverage = attained
+        end
+    end
+    if best < 1 then
+        return nil
+    end
+
+    return new statistics.Interval(
+        low = averages[best],
+        upper = averages[total - best + 1],
+        k = best,
+        attainedCoverage = coverage
+    )
+end
+
+--- Two-sided signed-rank p-value for the null that `differences` centre on zero.
+function statistics.pairedPValue(differences: {number}): number
+    local n = #differences
+    if n < 4 then
+        return 1.0
+    end
+    local positive = 0.0
+    local ranked: {number} = {}
+    for _, value in ipairs(differences) do
+        ranked[#ranked + 1] = math.abs(value)
+    end
+    local order: {integer} = {}
+    for index = 1, #ranked do
+        order[index] = index as integer
+    end
+    table.sort(order, function(left: integer, right: integer): boolean
+        return ranked[left] < ranked[right]
+    end)
+    for rank = 1, #order do
+        if differences[order[rank]] > 0.0 then
+            positive = positive + rank
+        end
+    end
+    if n > EXACT_LIMIT then
+        local mean = n * (n + 1) / 4.0
+        local variance = n * (n + 1) * (2 * n + 1) / 24.0
+        if variance <= 0.0 then
+            return 1.0
+        end
+
+        return normalTwoSided((positive - mean) / math.sqrt(variance))
+    end
+    local total = n * (n + 1) / 2.0
+    local lower = positive < total - positive and positive or total - positive
+    local tail = signedRankAtMost(n as integer, math.floor(lower) as integer)
+    local p = 2.0 * tail
+    if p > 1.0 then
+        return 1.0
+    end
+
+    return p
+end
+
+----------------------------------------------------------------------------
+-- Unpaired comparison
+----------------------------------------------------------------------------
+
+--- The Hodges-Lehmann two-sample shift: the median of every pairwise difference.
+---
+--- Used when the comparison is observational, which is every comparison against a
+--- record made in another session. There is no pairing to exploit, so the interval is
+--- wider than the paired form over the same number of observations.
+function statistics.unpairedShift(candidate: {number}, baseline: {number}): (number, statistics.Interval?)
+    local differences: {number} = {}
+    for _, right in ipairs(baseline) do
+        for _, left in ipairs(candidate) do
+            differences[#differences + 1] = left - right
+        end
+    end
+    if #differences == 0 then
+        return 0.0, nil
+    end
+    local estimate = statistics.median(differences)
+    if #candidate < statistics.MIN_INTERVAL_SAMPLES or #baseline < statistics.MIN_INTERVAL_SAMPLES then
+        return estimate, nil
+    end
+    -- The pairwise differences are not independent, so their own order statistics do
+    -- not carry the sign test's guarantee. A normal approximation to the rank-sum null
+    -- places the endpoints instead.
+    --
+    -- Its `attainedCoverage` is therefore the level this targeted, not one derived the
+    -- way `medianInterval` derives its own. Nothing prints it: the duration section
+    -- shows the interval without a coverage column precisely because this branch cannot
+    -- honestly fill one, and the exact figure in the result table comes from the
+    -- per-benchmark median interval rather than from here.
+    local n = #candidate
+    local m = #baseline
+    local mean = n * m / 2.0
+    local variance = n * m * (n + m + 1) / 12.0
+    if variance <= 0.0 then
+        return estimate, nil
+    end
+    local offset = 1.959964 * math.sqrt(variance)
+    local sorted = statistics.sorted(differences)
+    -- The endpoints are placed symmetrically about the centre of the pairwise
+    -- differences, so the upper one is derived from the lower rather than computed
+    -- again. Rounding each independently would leave the interval very slightly
+    -- lopsided for no reason.
+    local lowIndex = math.floor(mean - offset)
+    if lowIndex < 1 then
+        lowIndex = 1
+    end
+    local upperIndex = #sorted + 1 - lowIndex
+    if upperIndex > #sorted then
+        upperIndex = #sorted
+    end
+    if lowIndex > upperIndex then
+        return estimate, nil
+    end
+
+    return estimate, new statistics.Interval(
+        low = sorted[lowIndex],
+        upper = sorted[upperIndex],
+        k = lowIndex as integer,
+        attainedCoverage = 0.95
+    )
+end
+
+--- Two-sided rank-sum p-value for the null that both samples share a centre.
+function statistics.unpairedPValue(candidate: {number}, baseline: {number}): number
+    local n = #candidate
+    local m = #baseline
+    if n < 3 or m < 3 then
+        return 1.0
+    end
+    local greater = 0.0
+    for _, left in ipairs(candidate) do
+        for _, right in ipairs(baseline) do
+            if left > right then
+                greater = greater + 1.0
+            elseif left == right then
+                greater = greater + 0.5
+            end
+        end
+    end
+    local mean = n * m / 2.0
+    local variance = n * m * (n + m + 1) / 12.0
+    if variance <= 0.0 then
+        return 1.0
+    end
+
+    return normalTwoSided((greater - mean) / math.sqrt(variance))
+end
+
+----------------------------------------------------------------------------
+-- Family-wise adjustment
+----------------------------------------------------------------------------
+
+--- Benjamini-Hochberg adjusted p-values, in the order the inputs were given.
+---
+--- The benchmark set is dozens of comparisons, and dozens of tests at a nominal five
+--- percent produce significant results from unchanged code by construction. This
+--- controls the expected proportion of false discoveries among the comparisons a run
+--- actually reports.
+function statistics.benjaminiHochberg(pValues: {number}): {number}
+    local count = #pValues
+    if count == 0 then
+        return {}
+    end
+    local order: {integer} = {}
+    for index = 1, count do
+        order[index] = index as integer
+    end
+    table.sort(order, function(left: integer, right: integer): boolean
+        return pValues[left] < pValues[right]
+    end)
+    local adjusted: {number} = {}
+    local running = 1.0
+    for rank = count, 1, -1 do
+        local source = order[rank]
+        local scaled = pValues[source] * count / rank
+        if scaled < running then
+            running = scaled
+        end
+        if running > 1.0 then
+            running = 1.0
+        end
+        adjusted[source] = running
+    end
+
+    return adjusted
+end
+
+----------------------------------------------------------------------------
+-- Verdicts
+----------------------------------------------------------------------------
+
+--- Classifies a relative change against a declared equivalence margin.
+---
+--- `margin` is a fraction, so 0.02 is two percent. The four answers are distinct
+--- claims and the distinction is the point:
+---
+--- - `regressed` and `improved` say the whole interval sits beyond the margin on one
+---   side, and the adjusted p-value survives the family.
+--- - `unchanged` says the whole interval sits inside the margin. Equivalence is a
+---   claim demonstrated by a narrow interval, not the residue of a test that failed
+---   to reach significance.
+--- - `inconclusive` is everything else, including every interval straddling a margin
+---   boundary. A wide interval centred on zero lands here, which is correct: it says
+---   the run could not tell, not that nothing moved.
+---
+--- With no interval -- too few forks, or a trend detected -- the answer is always
+--- `inconclusive`.
+function statistics.verdict(interval: statistics.Interval?, margin: number, adjustedPValue: number): string
+    if not interval then
+        return "inconclusive"
+    end
+    local low = interval.low
+    local upper = interval.upper
+    if low > -margin and upper < margin then
+        return "unchanged"
+    end
+    if adjustedPValue >= statistics.ALPHA then
+        return "inconclusive"
+    end
+    if low >= margin then
+        return "regressed"
+    end
+    if upper <= -margin then
+        return "improved"
+    end
+
+    return "inconclusive"
+end
+
+----------------------------------------------------------------------------
+-- Sizing a run
+----------------------------------------------------------------------------
+
+--- Forks needed to resolve `precision` given an observed coefficient of variation.
+---
+--- Dimensioning replication from the variance that is actually present is the point:
+--- a universal constant is either wasteful on the quiet benchmarks or insufficient on
+--- the noisy ones. The estimate assumes the summaries are roughly symmetric, which is
+--- why it is a recommendation printed by `--pilot` rather than an input to any
+--- interval computed above.
+function statistics.forksForPrecision(coefficientOfVariation: number, precision: number): integer
+    if precision <= 0.0 or coefficientOfVariation <= 0.0 then
+        return statistics.MIN_INTERVAL_SAMPLES
+    end
+    -- 1.96 standard errors either side, and the median's efficiency relative to the
+    -- mean under a normal costs a factor of pi/2 in variance.
+    local needed = math.ceil(1.5708 * (1.959964 * coefficientOfVariation / precision) ^ 2)
+    if needed < statistics.MIN_INTERVAL_SAMPLES then
+        return statistics.MIN_INTERVAL_SAMPLES
+    end
+
+    return needed as integer
+end
+
+--- The coefficient of variation of a set of fork summaries, as a fraction.
+function statistics.coefficientOfVariation(values: {number}): number
+    local count = #values
+    if count < 2 then
+        return 0.0
+    end
+    local total = 0.0
+    for _, value in ipairs(values) do
+        total = total + value
+    end
+    local mean = total / count
+    if mean <= 0.0 then
+        return 0.0
+    end
+    local squared = 0.0
+    for _, value in ipairs(values) do
+        local delta = value - mean
+        squared = squared + delta * delta
+    end
+
+    return math.sqrt(squared / (count - 1)) / mean
+end
+
+export = statistics

@@ -19,6 +19,9 @@ local json = require("nupp.codec.json")
 local buildProcess = require("nupp.compiler.build.process")
 local files = require("nupp.io.files")
 local process = require("nupp.io.process")
+local random = require("nupp.random")
+local statistics = require("nupp.bench.statistics")
+local system = require("nupp.system")
 local time = require("nupp.time")
 local type Bench = {
     compare: function(any, any): ({string}, {string}),
@@ -34,6 +37,15 @@ local RECORD_OUT = "build/bench-case.json"
 local REMARKS_OUT = "build/remarks.json"
 local MERGED_OUT = "build/bench-record.json"
 local DEFAULT_TIMEOUT_MS: integer = 120000
+
+--- Forks a pilot run uses to estimate between-fork variance.
+---
+--- Deliberately below the count an interval needs. A pilot is not trying to answer the
+--- benchmark, it is trying to say how many processes answering it would take.
+local PILOT_FORKS: integer = 5
+
+--- Where the machine identity is cached, relative to the toolchain cache.
+local MACHINE_KEY_FILE = "bench-machine-key"
 
 local runner = {}
 
@@ -53,7 +65,31 @@ type runner.Options = {
     list: boolean?,
     profileDir: string?,
     profileIntervalMs: integer?,
-    profileZone: string?
+    profileZone: string?,
+
+    --- Processes to run each benchmark in. One by default, which reports a score and a
+    --- within-process spread and no interval.
+    forks: integer?,
+
+    --- Seed for the per-round permutation. Drawn and reported when absent.
+    seed: integer?,
+
+    --- Practical equivalence margin as a fraction, so 0.02 is two percent. Verdicts
+    --- need one: without a declared margin there is no way to say a change did not
+    --- matter, only that a test failed to find one.
+    margin: number?,
+
+    --- Estimate between-fork variance and report the forks a precision would need,
+    --- instead of reporting the benchmark.
+    pilot: boolean?,
+
+    --- Another `nupp` executable to measure beside this one, interleaved.
+    ---
+    --- Fork `k` of each runs adjacent in the same permutation, under one thermal and
+    --- scheduling state, so the two are paired and the comparison is causal. Comparing
+    --- against a stored record instead is observational: nothing controls for what
+    --- changed on the machine between the two sessions.
+    against: string?
 }
 
 local type Benchmark = {
@@ -296,17 +332,6 @@ local function runCase(
     return decoded, nil
 end
 
---- The record this exact case had before, if any.
-local function previousCase(document: any, path: string, name: string): any?
-    for _, entry in ipairs(document and document.cases or {}) do
-        if entry.name == name and entry.case == path then
-            return entry.record
-        end
-    end
-
-    return nil
-end
-
 --- The fixed iteration count in one case record, if it is a throughput case.
 local function previousIterations(record: any): integer?
     for _, measurement in ipairs(record and record.cases or {}) do
@@ -345,6 +370,563 @@ local function progressLine(record: any, name: string, wallSec: number): string
     return ("# Result: %s  p50=%.3f %s  %s=%d  wall=%.3fs\n"):format(name, score, units, countLabel, count, wallSec)
 end
 
+----------------------------------------------------------------------------
+-- Merging forks
+----------------------------------------------------------------------------
+
+--- The measurement a child record carries. One child runs one benchmark, so there is
+--- exactly one.
+local function onlyMeasurement(record: any): any?
+    local cases = record and record.cases
+    if not cases or #cases == 0 then
+        return nil
+    end
+
+    return cases[1]
+end
+
+--- Whether a record carries a measurement something can be computed from.
+---
+--- A case needs its iteration count, because its score is a median divided by it, and a
+--- suite or frame session needs a median. Without those the record is a file that
+--- parsed rather than a process that measured.
+local function usableRecord(record: any): boolean
+    local measurement = record and record.cases and record.cases[1]
+    if not measurement then
+        return false
+    end
+    if measurement.kind == "case" then
+        return type(measurement.n) == "number" and measurement.n >= 1 and measurement.medianSec ~= nil
+    end
+    if measurement.kind == "suite" then
+        return measurement.medianSec ~= nil
+    end
+
+    return measurement.p50Ms ~= nil
+end
+
+--- One measurement's score in seconds per represented operation.
+---
+--- The three kinds store their score differently, and everything statistical below
+--- compares across benchmarks, so they are brought to one scale here and put back
+--- afterwards rather than special-cased at every use.
+local function perOperation(measurement: any): number
+    if not measurement then
+        return 0.0
+    end
+    if measurement.kind == "case" then
+        local n = measurement.n or 0
+        if n <= 0 then
+            return 0.0
+        end
+
+        return (measurement.medianSec or 0.0) / n
+    end
+    if measurement.kind == "suite" then
+        return measurement.medianSec or 0.0
+    end
+
+    return (measurement.p50Ms or 0.0) / 1000.0
+end
+
+--- The inverse of `perOperation`, so a merged value lands in the field the formatter
+--- reads it from.
+local function fromPerOperation(measurement: any, value: number): number
+    if measurement and measurement.kind == "case" then
+        return value * (measurement.n or 1)
+    end
+
+    return value
+end
+
+--- A sorted, canonical spelling of one fork's allocation sites.
+---
+--- Site records are tables, so comparing the lists directly compares table identity
+--- and reports every fork after the first as a disagreement. What has to match is the
+--- content, and in the same terms the gate uses: the file and kind a site is counted
+--- under, which is what `bench.compare` compares a baseline on.
+local function allocationIdentities(record: any): {string}
+    local entries: {string} = {}
+    for _, site in ipairs(record and record.allocationSites or {}) do
+        entries[
+            #entries + 1
+        ] = tostring(site.file) .. "|" .. tostring(site.kind) .. "|" .. tostring(site.line) .. "|" .. tostring(site.col)
+    end
+    table.sort(entries)
+
+    return entries
+end
+
+--- The same for remarks, keyed as the comparison keys them.
+local function remarkIdentities(record: any): {string}
+    local entries: {string} = {}
+    for _, entry in ipairs(record and record.remarks or {}) do
+        local at = entry.range and entry.range.start or nil
+        entries[
+            #entries + 1
+        ] = (
+            "%s|%s|%s|%s"
+        ):format(tostring(entry.code), tostring(entry.file), tostring(at and at.line or 0), tostring(entry.message))
+    end
+    table.sort(entries)
+
+    return entries
+end
+
+--- Whether two canonical identity lists hold the same entries.
+local function sameList(left: {string}, right: {string}): boolean
+    if #left ~= #right then
+        return false
+    end
+    for index = 1, #left do
+        if left[index] ~= right[index] then
+            return false
+        end
+    end
+
+    return true
+end
+
+--- Abort sites present in every fork, and those present in some but not all.
+---
+--- Whether a loop aborts is timing-dependent, so forks legitimately disagree. Gating
+--- on the unanimous set means a site has to survive every process before it fails a
+--- run, which is strictly harder to trip by accident than the single observation the
+--- gate used to rest on. The rest are reported, because a site that appears in three
+--- forks of fourteen is worth seeing and is not worth failing on.
+local function mergeAbortSites(forks: {any}): ({string}?, {any})
+    local seen: {[string]: integer} = {}
+    local order: {string} = {}
+    local observed: integer = 0
+    for _, fork in ipairs(forks) do
+        local measurement = onlyMeasurement(fork)
+        local sites = measurement and measurement.abortSites
+        if sites then
+            observed = (observed + 1) as integer
+            for _, site in ipairs(sites) do
+                local count = seen[site]
+                if count == nil then
+                    count = 0
+                    order[#order + 1] = site
+                end
+                seen[site] = (count + 1) as integer
+            end
+        end
+    end
+    if observed == 0 then
+        -- Nobody looked, which is not the same as nothing aborted.
+        return nil, {}
+    end
+    local unanimous: {string} = {}
+    local flaky: {any} = {}
+    for _, site in ipairs(order) do
+        local count = seen[site]
+        if count == observed then
+            unanimous[#unanimous + 1] = site
+        else
+            flaky[#flaky + 1] = {site = site, forks = count, of = observed,}
+        end
+    end
+    table.sort(unanimous)
+
+    return unanimous, flaky
+end
+
+--- Builds one merged record for a benchmark from its forks.
+---
+--- The forks themselves are kept beside the summary rather than reduced to it. A
+--- reader recomputing the interval needs the summaries, and a later warmup classifier
+--- needs each process's ordered samples, neither of which can be recovered from a
+--- median.
+local function mergeForks(name: string, path: string, forks: {any}): (any, {string})
+    local notes: {string} = {}
+    local first = forks[1]
+    local firstMeasurement = onlyMeasurement(first)
+    local summaries: {number} = {}
+    for _, fork in ipairs(forks) do
+        local measurement = onlyMeasurement(fork)
+        if measurement then
+            summaries[#summaries + 1] = perOperation(measurement)
+        end
+    end
+
+    -- Allocation sites and remarks are the compiler's account of its own output, so
+    -- every fork of one binary must agree. A disagreement is a defect in the harness
+    -- or the compiler rather than a measurement, and picking one silently would hide
+    -- it behind a number.
+    local firstAllocations = allocationIdentities(first)
+    local firstRemarks = remarkIdentities(first)
+    for index = 2, #forks do
+        if not sameList(allocationIdentities(forks[index]), firstAllocations) then
+            notes[
+                #notes + 1
+            ] = name .. ": nondeterministic compiler output: fork " .. tostring(
+                index
+            ) .. " reported different allocation sites"
+        end
+        if not sameList(remarkIdentities(forks[index]), firstRemarks) then
+            notes[
+                #notes + 1
+            ] = name .. ": nondeterministic compiler output: fork " .. tostring(index) .. " reported different remarks"
+        end
+    end
+
+    local unanimousAborts, flaky = mergeAbortSites(forks)
+    for _, entry in ipairs(flaky) do
+        notes[
+            #notes + 1
+        ] = (
+            "%s: flaky abort site: %s in %d/%d forks; reported, not gated"
+        ):format(name, entry.site, entry.forks, entry.of)
+    end
+
+    local merged: {[string]: any} = {}
+    for key, value in pairs(firstMeasurement or {}) do
+        merged[key] = value
+    end
+    merged.forkCount = #summaries
+    merged.forkSummariesSec = summaries
+    merged.abortSites = unanimousAborts
+
+    -- A process showing a monotone trend has not settled, so its median describes a
+    -- moving target. Withholding the interval is the only honest rendering of that;
+    -- the verdict follows it to inconclusive.
+    local trending: integer = 0
+    local tested: integer = 0
+    for _, fork in ipairs(forks) do
+        local measurement = onlyMeasurement(fork)
+        local verdict = measurement and measurement.trend
+        if verdict == "trend" or verdict == "no-trend-detected" then
+            tested = (tested + 1) as integer
+            if verdict == "trend" then
+                trending = (trending + 1) as integer
+            end
+        end
+    end
+    local unsettled = tested > 0 and trending * 2 >= tested
+    if #summaries > 0 then
+        merged.medianSec = fromPerOperation(firstMeasurement, statistics.median(summaries))
+        if firstMeasurement and firstMeasurement.kind == "frames" then
+            merged.p50Ms = statistics.median(summaries) * 1000.0
+        end
+    end
+    if unsettled then
+        merged.intervalWithheld = "trend-warning"
+        notes[
+            #notes + 1
+        ] = (
+            "%s: trend-warning: monotone trend in %d/%d forks; interval withheld and verdict forced to inconclusive"
+        ):format(name, trending, tested)
+    else
+        local interval = statistics.medianInterval(summaries)
+        if interval then
+            merged.intervalLowSec = fromPerOperation(firstMeasurement, interval.low)
+            merged.intervalHighSec = fromPerOperation(firstMeasurement, interval.upper)
+            merged.intervalCoverage = interval.attainedCoverage
+        else
+            merged.intervalWithheld = "below-minimum-forks"
+        end
+    end
+
+    local outliers: integer = 0
+    local worst = 1.0
+    for _, fork in ipairs(forks) do
+        local measurement = onlyMeasurement(fork)
+        if measurement then
+            outliers = (outliers + (measurement.outlierCount or 0)) as integer
+            if (measurement.outlierMaxRatio or 1.0) > worst then
+                worst = measurement.outlierMaxRatio or 1.0
+            end
+        end
+    end
+    merged.outlierCount = outliers
+    merged.outlierMaxRatio = worst
+    if outliers > 0 then
+        local total: integer = 0
+        for _, fork in ipairs(forks) do
+            local measurement = onlyMeasurement(fork)
+            total = (total + ((measurement and measurement.samplesSec) and #measurement.samplesSec or 0)) as integer
+        end
+        notes[
+            #notes + 1
+        ] = (
+            "%s: outliers: %d severe of %d samples across %d forks, max %.1fx median; classified only, all samples retained"
+        ):format(name, outliers, total, #forks, worst)
+    end
+
+    local forkEntries: {any} = {}
+    for index, fork in ipairs(forks) do
+        forkEntries[#forkEntries + 1] = {index = index, measurement = onlyMeasurement(fork),}
+    end
+
+    return {
+        name = name,
+        case = path,
+        forks = forkEntries,
+        summary = merged,
+        executionProfile = first.executionProfile,
+        remarks = first.remarks,
+        allocationSites = first.allocationSites,
+        traceProfile = first.traceProfile,
+        compiler = first.compiler,
+    }, notes
+end
+
+--- The record shape `bench.compare` reads, assembled from a merged benchmark.
+local function comparableRecord(entry: any): any
+    return {
+        schema = 3,
+        cases = {entry.summary,},
+        executionProfile = entry.executionProfile,
+        remarks = entry.remarks,
+        allocationSites = entry.allocationSites,
+        traceProfile = entry.traceProfile,
+        compiler = entry.compiler,
+    }
+end
+
+----------------------------------------------------------------------------
+-- Duration verdicts
+----------------------------------------------------------------------------
+
+--- Compares one benchmark's fork summaries against a baseline's.
+---
+--- Returns the relative change, its interval, and the p-value behind it. Paired when
+--- the two sets came from one interleaved session, where fork `k` of each ran under
+--- the same conditions; unpaired otherwise, which is every comparison against a record
+--- made in another session.
+local function durationChange(current: {number}, previous: {number}, paired: boolean): (number, any, number)
+    if #current == 0 or #previous == 0 then
+        return 0.0, nil, 1.0
+    end
+    local currentLogs: {number} = {}
+    local previousLogs: {number} = {}
+    for _, value in ipairs(current) do
+        currentLogs[#currentLogs + 1] = value > 0.0 and math.log(value) or 0.0
+    end
+    for _, value in ipairs(previous) do
+        previousLogs[#previousLogs + 1] = value > 0.0 and math.log(value) or 0.0
+    end
+    if paired and #currentLogs == #previousLogs then
+        local differences: {number} = {}
+        for index = 1, #currentLogs do
+            differences[#differences + 1] = currentLogs[index] - previousLogs[index]
+        end
+        local shift = statistics.pairedShift(differences)
+        local estimate = statistics.median(differences)
+        local interval: any = nil
+        if shift then
+            interval = {low = math.exp(shift.low) - 1.0, upper = math.exp(shift.upper) - 1.0,}
+        end
+
+        return math.exp(estimate) - 1.0, interval, statistics.pairedPValue(differences)
+    end
+    local estimate, shift = statistics.unpairedShift(currentLogs, previousLogs)
+    local interval: any = nil
+    if shift then
+        interval = {low = math.exp(shift.low) - 1.0, upper = math.exp(shift.upper) - 1.0,}
+    end
+
+    return math.exp(estimate) - 1.0, interval, statistics.unpairedPValue(currentLogs, previousLogs)
+end
+
+local function percent(value: number): string
+    return ("%+.1f%%"):format(value * 100.0)
+end
+
+----------------------------------------------------------------------------
+-- Host identity
+----------------------------------------------------------------------------
+
+--- Facts about the platform a record was made on.
+---
+--- These identify a class of machine, not a machine: two laptops of the same model
+--- share every field. They are recorded because they are cheap and because a mismatch
+--- is conclusive the other way -- a record made on another architecture is certainly
+--- not comparable -- but agreement here is not what licenses a duration comparison.
+--- `machineKey` is.
+local function hostProfile(merged: {any}): any
+    local luajitRevision: string? = nil
+    for _, entry in ipairs(merged) do
+        local profile = entry.traceProfile
+        if profile and profile.luajitRevision then
+            luajitRevision = profile.luajitRevision
+            break
+        end
+    end
+
+    return {
+        platform = system.platform,
+        architecture = system.architecture,
+        pointerBits = system.pointerBits,
+        luajitRevision = luajitRevision,
+    }
+end
+
+--- A stable identity for this machine, created once and cached.
+---
+--- Durations are only comparable across records made on the same machine under
+--- comparable conditions, and no tuple of platform facts can establish that. A cached
+--- random key can: it is the same value on every run here and a different one anywhere
+--- else, which is exactly the question a duration comparison has to ask.
+local function machineKey(): string?
+    local directory = os.getenv("NUPP_TOOLCHAIN_CACHE") or (os.getenv("HOME") or ".") .. "/.cache/nupp"
+    local path = directory .. "/" .. MACHINE_KEY_FILE
+    local existing = readFile(path)
+    if existing then
+        local trimmed = existing:gsub("%s+$", "")
+        if trimmed ~= "" then
+            return trimmed
+        end
+    end
+    local generator = random.newRandom(math.floor(os.time() * 1000 + os.clock() * 1000000))
+    local letters = "0123456789abcdef"
+    local built: {string} = {}
+    for _ = 1, 32 do
+        local pick = generator:integer(1, 16)
+        built[#built + 1] = letters:sub(pick, pick)
+    end
+    local key = table.concat(built)
+    files.createDirectory(directory)
+    if not writeFile(path, key .. "\n") then
+        -- Without somewhere to keep it there is no stable identity, and inventing a
+        -- fresh one every run would make every comparison look cross-machine. Saying
+        -- nothing is the honest answer.
+        return nil
+    end
+
+    return key
+end
+
+----------------------------------------------------------------------------
+-- Reports
+----------------------------------------------------------------------------
+
+--- Reports between-fork variance and the forks a target precision would need.
+local function reportPilot(merged: {any}, forks: integer, failures: {string}): integer
+    local width: integer = #"Benchmark"
+    for _, entry in ipairs(merged) do
+        if #entry.name > width then
+            width = #entry.name as integer
+        end
+    end
+    local recommended: integer = statistics.MIN_INTERVAL_SAMPLES
+    io.stdout:write(("\nbench: pilot over %d forks, one shuffled permutation per round\n\n"):format(forks))
+    local pattern = "%-" .. tostring(width) .. "s  %15s  %13s  %13s"
+    io.stdout:write(pattern:format("Benchmark", "Between-fork CV", "Forks for +-2%", "Forks for +-5%"), "\n")
+    for _, entry in ipairs(merged) do
+        local summaries = entry.summary.forkSummariesSec or {}
+        local variation = statistics.coefficientOfVariation(summaries)
+        local tight = statistics.forksForPrecision(variation, 0.02)
+        local loose = statistics.forksForPrecision(variation, 0.05)
+        if tight > recommended then
+            recommended = tight
+        end
+        io.stdout:write(
+            pattern:format(entry.name, ("%.1f%%"):format(variation * 100.0), tostring(tight), tostring(loose)),
+            "\n"
+        )
+    end
+    io.stdout:write(("\nbench: --forks %d covers every selected benchmark at +-2%%\n"):format(recommended))
+    for _, failure in ipairs(failures) do
+        io.stderr:write("bench: " .. failure .. "\n")
+    end
+
+    return #failures > 0 and 1 or 0
+end
+
+--- The duration section, which reports and never gates.
+---
+--- The heading names which kind of comparison produced it. An interleaved run paired
+--- fork `k` of each executable under one machine state and supports a causal reading;
+--- a run against a stored record does not, and a reader has to be told which they are
+--- looking at before the verdicts mean anything.
+local function formatVerdicts(verdicts: {any}, margin: number, source: string, paired: boolean): string
+    local width: integer = #"Benchmark"
+    for _, item in ipairs(verdicts) do
+        if #item.name > width then
+            width = #item.name as integer
+        end
+    end
+    local lines: {string} = {}
+    lines[#lines + 1] = ""
+    if paired then
+        lines[#lines + 1] = ("Durations: candidate vs %s  (interleaved, paired)"):format(source)
+    else
+        lines[#lines + 1] = ("Durations vs %s  (observational, unpaired)"):format(source)
+        lines[#lines + 1] = "note: the baseline was recorded in another session; nothing controls for what"
+        lines[#lines + 1] = "      changed on this machine between them. Use --against for a causal claim."
+    end
+    local pattern = "%-" .. tostring(width) .. "s  %9s  %22s  %s"
+    lines[#lines + 1] = pattern:format("Benchmark", "Change", "Interval", "Verdict")
+    local counts: {[string]: integer} = {}
+    for _, item in ipairs(verdicts) do
+        local interval = "-"
+        if item.withheld == "trend-warning" then
+            interval = "withheld (trend)"
+        elseif item.withheld == "below-minimum-forks" then
+            interval = "withheld (forks)"
+        elseif item.interval then
+            interval = ("[%s, %s]"):format(percent(item.interval.low), percent(item.interval.upper))
+        end
+        lines[#lines + 1] = pattern:format(item.name, percent(item.change), interval, item.verdict)
+        counts[item.verdict] = ((counts[item.verdict] or 0) + 1) as integer
+    end
+    lines[#lines + 1] = ""
+    lines[
+        #lines + 1
+    ] = (
+        "bench: %d compared, equivalence margin +-%.1f%%, Benjamini-Hochberg adjusted"
+    ):format(#verdicts, margin * 100.0)
+    lines[
+        #lines + 1
+    ] = (
+        "       %d regressed, %d improved, %d unchanged, %d inconclusive"
+    ):format(counts.regressed or 0, counts.improved or 0, counts.unchanged or 0, counts.inconclusive or 0)
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
+----------------------------------------------------------------------------
+-- The run
+----------------------------------------------------------------------------
+
+--- Every benchmark the selection matched, flattened so one permutation covers them all.
+local function planned(
+    executable: string,
+    paths: {string},
+    timeoutMs: integer,
+    casePatterns: {string}?,
+    parameterPatterns: {string}?,
+    variantPatterns: {string}?,
+    failures: {string}
+): {any}
+    local entries: {any} = {}
+    for _, path in ipairs(paths) do
+        local names, listingFailure = casesIn(executable, path, timeoutMs)
+        if listingFailure then
+            failures[#failures + 1] = path .. ": " .. listingFailure
+        elseif #names == 0 then
+            failures[#failures + 1] = path .. ": defines no case"
+        end
+        for _, benchmark in ipairs(names) do
+            if selected(benchmark, casePatterns, parameterPatterns, variantPatterns) then
+                entries[
+                    #entries + 1
+                ] = {
+                    path = path,
+                    name = benchmark.name,
+                    records = {},
+                    againstRecords = {},
+                    iterations = nil as integer?,
+                }
+            end
+        end
+    end
+
+    return entries
+end
+
 --- Runs the selected benchmark programs.
 function runner.run(options: runner.Options): integer
     local executable = options.executable or "nupp"
@@ -362,8 +944,17 @@ function runner.run(options: runner.Options): integer
     local profileDir = options.profileDir
     local profileIntervalMs = options.profileIntervalMs or 1
     local profileZone = options.profileZone
+    local pilot = options.pilot == true
+    local forks = pilot and PILOT_FORKS or (options.forks or 1)
+    local margin = options.margin
+    local against = options.against
     if timeoutMs < 1 or timeoutMs ~= math.floor(timeoutMs) then
         io.stderr:write("bench: timeout must be a positive whole number of milliseconds\n")
+
+        return 2
+    end
+    if forks < 1 or forks ~= math.floor(forks) then
+        io.stderr:write("bench: --forks needs a positive whole number\n")
 
         return 2
     end
@@ -424,37 +1015,54 @@ function runner.run(options: runner.Options): integer
         end
     end
 
-    local merged: {any} = {}
     local executionFailures: {string} = {}
     local regressions: {string} = {}
     local notes: {string} = {}
-    local matched: integer = 0
     local paths = onlyFile and {onlyFile} or discover()
-    for _, path in ipairs(paths) do
-        local names, listingFailure = casesIn(executable, path, timeoutMs)
-        if listingFailure then
-            executionFailures[#executionFailures + 1] = path .. ": " .. listingFailure
-        elseif #names == 0 then
-            executionFailures[#executionFailures + 1] = path .. ": defines no case"
+    local entries = planned(
+        executable,
+        paths,
+        timeoutMs,
+        casePatterns,
+        parameterPatterns,
+        variantPatterns,
+        executionFailures
+    )
+    local seed = options.seed or math.floor(os.time() * 1000 + os.clock() * 1000) % 0x7FFFFFFF
+    local shuffler = random.newRandom(seed)
+
+    -- Rounds outside, benchmarks inside. Running every fork of one benchmark back to
+    -- back would give that benchmark one contiguous slice of the machine's thermal and
+    -- scheduling history, which is exactly the confound replication is meant to break.
+    -- A fresh permutation each round spreads every benchmark's forks across the
+    -- session.
+    for round = 1, forks do
+        local order: {any} = {}
+        for _, entry in ipairs(entries) do
+            order[#order + 1] = entry
         end
-        for _, benchmark in ipairs(names) do
-            if not selected(benchmark, casePatterns, parameterPatterns, variantPatterns) then
-                goto nextCase
+        if #order > 1 then
+            shuffler:shuffle(order)
+        end
+        for _, entry in ipairs(order) do
+            local sampleOut: string? = nil
+            if profileDir and round == 1 then
+                sampleOut = profilePath(profileDir, #entry.records + 1, entry.name)
             end
-            matched = (matched + 1) as integer
-            local name = benchmark.name
-            local sampleOut = profileDir and profilePath(profileDir, matched, name) or nil
-            if not asJson then
-                io.stdout:write(("# Benchmark: %s (%s)\n"):format(name, path))
+            if not asJson and not pilot then
+                if forks > 1 then
+                    io.stdout:write(("# Benchmark: %s (%s) fork %d/%d\n"):format(entry.name, entry.path, round, forks))
+                else
+                    io.stdout:write(("# Benchmark: %s (%s)\n"):format(entry.name, entry.path))
+                end
                 io.stdout:flush()
             end
-            local was = previousCase(previous, path, name)
             local started = time.now()
             local record, failure = runCase(
                 executable,
-                path,
-                name,
-                previousIterations(was),
+                entry.path,
+                entry.name,
+                entry.iterations,
                 timeoutMs,
                 sampleOut,
                 profileIntervalMs,
@@ -464,39 +1072,103 @@ function runner.run(options: runner.Options): integer
             if failure then
                 executionFailures[#executionFailures + 1] = failure
             end
+            -- A record only counts as a fork once it carries a measurement with a
+            -- score. A child that died partway can still leave a file that parses, and
+            -- letting that through would put a fork with no measurement into the
+            -- interval -- widening or narrowing it on the strength of a crash.
+            if record and not usableRecord(record) then
+                executionFailures[
+                    #executionFailures + 1
+                ] = (
+                    "%s / %s: fork %d wrote no usable measurement and was dropped"
+                ):format(entry.path, entry.name, round)
+                record = nil
+            end
             if record then
-                merged[#merged + 1] = {case = path, name = name, record = record,}
-                if not asJson then
-                    io.stdout:write(progressLine(record, name, wallSec))
+                entry.records[#entry.records + 1] = record
+                -- Every fork of a case has to count the same work, or their scores are
+                -- derived from different amounts of it. The first round calibrates and
+                -- the rest are told what it chose.
+                if not entry.iterations then
+                    entry.iterations = previousIterations(record)
+                end
+                if not asJson and not pilot then
+                    io.stdout:write(progressLine(record, entry.name, wallSec))
                     if sampleOut then
                         io.stdout:write("# Profile: ", sampleOut, "\n")
                     end
                     io.stdout:flush()
                 end
-                if previous then
-                    if not was then
-                        notes[#notes + 1] = name .. ": no baseline for this case"
-                    else
-                        local caseFailures, caseNotes = compare(record, was)
-                        for _, entry in ipairs(caseFailures) do
-                            regressions[#regressions + 1] = name .. ": " .. entry
-                        end
-                        for _, entry in ipairs(caseNotes) do
-                            notes[#notes + 1] = name .. ": " .. entry
-                        end
-                    end
+            end
+            if against then
+                -- Adjacent in the same permutation, and told the same iteration count,
+                -- so the pair differ in the executable and as little else as the
+                -- machine allows.
+                local otherRecord, otherFailure = runCase(
+                    against,
+                    entry.path,
+                    entry.name,
+                    entry.iterations,
+                    timeoutMs,
+                    nil,
+                    profileIntervalMs,
+                    profileZone
+                )
+                if otherFailure then
+                    executionFailures[#executionFailures + 1] = "against: " .. otherFailure
+                end
+                if otherRecord and not usableRecord(otherRecord) then
+                    executionFailures[
+                        #executionFailures + 1
+                    ] = (
+                        "against: %s / %s: fork %d wrote no usable measurement and was dropped"
+                    ):format(entry.path, entry.name, round)
+                    otherRecord = nil
+                end
+                if otherRecord then
+                    entry.againstRecords[#entry.againstRecords + 1] = otherRecord
                 end
             end
-            ::nextCase::
+        end
+    end
+
+    local merged: {any} = {}
+    local againstByName: {[string]: any} = {}
+    for _, entry in ipairs(entries) do
+        if #entry.records > 0 then
+            local summary, forkNotes = mergeForks(entry.name, entry.path, entry.records)
+            merged[#merged + 1] = summary
+            for _, note in ipairs(forkNotes) do
+                notes[#notes + 1] = note
+            end
+            if #entry.againstRecords > 0 then
+                local other = mergeForks(entry.name, entry.path, entry.againstRecords)
+                againstByName[tostring(entry.path) .. "\0" .. tostring(entry.name)] = other
+            end
         end
     end
     if (
         onlyFile or casePatterns or parameterPatterns or variantPatterns
-    ) and matched == 0 and #executionFailures == 0 then
+    ) and #merged == 0 and #executionFailures == 0 then
         executionFailures[#executionFailures + 1] = "no benchmark matched the selection"
     end
 
-    local document = {schema = 2, recordedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"), label = label, cases = merged,}
+    if pilot then
+        return reportPilot(merged, forks, executionFailures)
+    end
+
+    local document = {
+        schema = 3,
+        recordedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+        label = label,
+        forks = forks,
+        seed = seed,
+        margin = margin,
+        hostProfile = hostProfile(merged),
+        machineKey = machineKey(),
+        comparison = against and "interleaved" or (baselinePath and "observational" or nil),
+        benchmarks = merged,
+    }
     local encoded = json.encode(document)
     if not writeFile(MERGED_OUT, encoded) then
         executionFailures[#executionFailures + 1] = "cannot write " .. MERGED_OUT
@@ -504,19 +1176,114 @@ function runner.run(options: runner.Options): integer
     if historyPath and #executionFailures == 0 and not appendFile(historyPath, encoded .. "\n") then
         executionFailures[#executionFailures + 1] = "cannot append " .. historyPath
     end
+
+    -- Deterministic counters, which gate, and durations, which do not.
+    local verdicts: {any} = {}
+    local pairedComparison = false
+    local verdictSource = baselinePath or ""
+    if against and margin then
+        pairedComparison = true
+        verdictSource = against
+        local pending: {any} = {}
+        for _, entry in ipairs(merged) do
+            local other = againstByName[tostring(entry.case) .. "\0" .. tostring(entry.name)]
+            if other then
+                local current = entry.summary.forkSummariesSec or {}
+                local before = other.summary.forkSummariesSec or {}
+                local change, interval, pValue = durationChange(current, before, true)
+                local withheld = entry.summary.intervalWithheld or other.summary.intervalWithheld
+                -- Written out rather than folded into one expression. `withheld and nil
+                -- or interval` reads as a conditional and is not one: when `withheld`
+                -- is truthy the `and` yields nil and the `or` hands back the interval,
+                -- so the guard passes exactly the value it was meant to suppress and a
+                -- benchmark that earned no interval gets a confident verdict anyway.
+                if withheld then
+                    interval = nil
+                end
+                pending[
+                    #pending + 1
+                ] = {name = entry.name, change = change, interval = interval, pValue = pValue, withheld = withheld,}
+            end
+        end
+        if #pending > 0 then
+            local pValues: {number} = {}
+            for _, item in ipairs(pending) do
+                pValues[#pValues + 1] = item.pValue
+            end
+            local adjusted = statistics.benjaminiHochberg(pValues)
+            for index, item in ipairs(pending) do
+                item.adjusted = adjusted[index]
+                item.verdict = statistics.verdict(item.interval, margin or 0.0, adjusted[index])
+                verdicts[#verdicts + 1] = item
+            end
+        end
+    end
+    if previous then
+        local baselineByName: {[string]: any} = {}
+        for _, entry in ipairs(previous.benchmarks or {}) do
+            baselineByName[tostring(entry.case) .. "\0" .. tostring(entry.name)] = entry
+        end
+        local sameMachine = previous.machineKey ~= nil and previous.machineKey == document.machineKey
+        local pending: {any} = {}
+        for _, entry in ipairs(merged) do
+            local was = baselineByName[tostring(entry.case) .. "\0" .. tostring(entry.name)]
+            if not was then
+                notes[#notes + 1] = entry.name .. ": no baseline for this benchmark"
+            else
+                local caseFailures, caseNotes = compare(comparableRecord(entry), comparableRecord(was))
+                for _, item in ipairs(caseFailures) do
+                    regressions[#regressions + 1] = entry.name .. ": " .. item
+                end
+                for _, item in ipairs(caseNotes) do
+                    notes[#notes + 1] = entry.name .. ": " .. item
+                end
+                if margin and sameMachine then
+                    local current = entry.summary.forkSummariesSec or {}
+                    local before = was.summary and was.summary.forkSummariesSec or {}
+                    local change, interval, pValue = durationChange(current, before, false)
+                    local withheld = entry.summary.intervalWithheld
+                    if withheld then
+                        interval = nil
+                    end
+                    pending[
+                        #pending + 1
+                    ] = {name = entry.name, change = change, interval = interval, pValue = pValue, withheld = withheld,}
+                end
+            end
+        end
+        if margin and not sameMachine then
+            notes[
+                #notes + 1
+            ] = "durations not compared: the baseline was recorded on another machine, so nothing controls for the difference"
+        end
+        if #pending > 0 then
+            local pValues: {number} = {}
+            for _, item in ipairs(pending) do
+                pValues[#pValues + 1] = item.pValue
+            end
+            local adjusted = statistics.benjaminiHochberg(pValues)
+            for index, item in ipairs(pending) do
+                item.adjusted = adjusted[index]
+                item.verdict = statistics.verdict(item.interval, margin or 0.0, adjusted[index])
+                verdicts[#verdicts + 1] = item
+            end
+        end
+    end
+
     if asJson then
         io.stdout:write(encoded, "\n")
     else
-        local cases = {}
+        local cases: {any} = {}
         for _, entry in ipairs(merged) do
-            for _, measurement in ipairs(entry.record.cases or {}) do
-                cases[#cases + 1] = measurement
-            end
+            cases[#cases + 1] = entry.summary
         end
-        io.stdout:write(format({cases = cases,}, {geometricMean = options.geo == true}))
+        io.stdout:write(format({cases = cases,}, {geometricMean = options.geo == true, forks = forks,}))
+        if #verdicts > 0 then
+            io.stdout:write(formatVerdicts(verdicts, margin or 0.0, verdictSource, pairedComparison))
+        end
     end
     for _, note in ipairs(notes) do
-        io.stderr:write("bench: uncompared: " .. note .. "\n")
+        io.stderr:write("bench: " .. note .. "\n")
     end
     for _, failure in ipairs(executionFailures) do
         io.stderr:write("bench: " .. failure .. "\n")
@@ -526,7 +1293,7 @@ function runner.run(options: runner.Options): integer
     end
     if baselinePath and accept then
         if #executionFailures > 0 then
-            io.stderr:write("bench: baseline not written because a case failed\n")
+            io.stderr:write("bench: baseline not written because a benchmark failed\n")
 
             return 1
         end
@@ -545,7 +1312,16 @@ function runner.run(options: runner.Options): integer
         return 1
     end
 
+    -- Durations never reach this. They are machine-dependent, and a gate on them would
+    -- fail runs for the machine being busy rather than for the code having changed.
+
     return (#executionFailures > 0 or #regressions > 0) and 1 or 0
 end
+
+--- The fork merge, exposed because it is the contract rather than an implementation
+--- detail: which counters must agree across processes, which may differ, and when an
+--- interval is withheld. Those rules decide what a run is allowed to claim, so they are
+--- tested directly rather than inferred from a table somewhere downstream.
+runner.mergeForks = mergeForks
 
 export = runner

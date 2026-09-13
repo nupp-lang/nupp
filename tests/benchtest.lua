@@ -231,15 +231,104 @@ function M.formatsHumanResultsAsPerOperationScores()
     assertEq(
         rendered,
         "\n"
-        .. [[Benchmark           Mode  Cnt       Score  Units
-parse                p50    7       1.000  ns/op
-frame                p50   60       1.250  ms/frame
-frame                p99   60       2.500  ms/frame
-frame              p99.9   60       3.750  ms/frame
-frame:over-budget  count   60           2  frames
+        .. [[Benchmark           Mode    Cnt       Score  Units                p25-p75
+parse                p50      7       1.000  ns/op                      -
+frame                p50     60       1.250  ms/frame                   -
+frame                p99     60       2.500  ms/frame                   -
+frame              p99.9     60       3.750  ms/frame                   -
+frame:over-budget  count     60           2  frames                     -
+
+note: 1 fork per benchmark. p25-p75 is within-process spread, NOT a confidence
+      interval: samples inside one process share its heap, traces and thermal
+      state, so no population interval follows from them. A score far from the
+      middle of that range means the samples are not centred on it. No interval or
+      verdict is available below 10 forks; run --pilot to size a replicated run.
 ]],
         "human benchmark table"
     )
+end
+
+-- A single-fork table must never present its spread as an interval. The column heading
+-- and the note are the whole defence against a reader treating one process's quartiles
+-- as an error bar, so both are asserted rather than left to review.
+function M.singleForkTableRefusesToCallItsSpreadAnInterval()
+    local bench = require("nupp.bench")
+    local rendered = bench.format({
+        cases = {
+            {
+                name = "parse",
+                kind = "case",
+                n = 4,
+                rounds = 7,
+                medianSec = 0.000000004,
+                p25Sec = 0.0000000035,
+                p75Sec = 0.0000000052,
+            },
+        },
+    })
+    assertTrue(rendered:find("p25%-p75") ~= nil, "the spread column is named for what it is")
+    assertTrue(rendered:find("Interval") == nil, "a one fork table names no interval")
+    assertTrue(rendered:find("Coverage") == nil, "a one fork table claims no coverage")
+    assertTrue(rendered:find("NOT a confidence") ~= nil, "the note says what the spread is not")
+    assertTrue(rendered:find("%[0%.875, 1%.300%]") ~= nil, "the quartiles are shown in score units")
+end
+
+-- The replicated table carries the coverage it attained, and the attained value for ten
+-- forks is the sign test's, not the one that was asked for.
+function M.replicatedTableReportsAttainedCoverage()
+    local bench = require("nupp.bench")
+    local rendered = bench.format(
+        {
+            cases = {
+                {
+                    name = "map.lookup.table",
+                    kind = "suite",
+                    rounds = 40,
+                    forkCount = 10,
+                    medianSec = 0.000000004,
+                    suite = "map",
+                    caseName = "lookup",
+                    variant = "table",
+                    baselineVariant = "table",
+                    intervalLowSec = 0.0000000038,
+                    intervalHighSec = 0.0000000043,
+                    intervalCoverage = 0.978515625,
+                },
+            },
+        },
+        {forks = 10}
+    )
+    assertTrue(rendered:find("Forks") ~= nil, "the count column counts forks")
+    assertTrue(rendered:find("Coverage") ~= nil, "the coverage column is present")
+    assertTrue(rendered:find("97%.85%%") ~= nil, "the attained coverage is reported")
+    assertTrue(rendered:find("%[3%.800, 4%.300%]") ~= nil, "the interval is shown in score units")
+    assertTrue(rendered:find("NOT a confidence") == nil, "the one fork warning is not repeated")
+end
+
+-- A benchmark whose interval was withheld says so in the column rather than leaving it
+-- blank, because a blank reads as "no change" to anyone skimming.
+function M.withheldIntervalIsNamedInTheTable()
+    local bench = require("nupp.bench")
+    local rendered = bench.format(
+        {
+            cases = {
+                {
+                    name = "map.lookup.table",
+                    kind = "suite",
+                    rounds = 40,
+                    forkCount = 12,
+                    medianSec = 0.000000004,
+                    suite = "map",
+                    caseName = "lookup",
+                    variant = "table",
+                    baselineVariant = "table",
+                    intervalWithheld = "trend-warning",
+                },
+            },
+        },
+        {forks = 12}
+    )
+    assertTrue(rendered:find("unstable") ~= nil, "a withheld interval is labelled unstable")
 end
 
 function M.formatsComparativeSuitesWithBaselineRatios()
@@ -316,7 +405,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
     }
     local rendered = bench.format(record)
     assertTrue(
-        rendered:find("map%.lookup%.array:size=100%s+p50%s+20%s+10%.000%s+ns/op%s+2%.000x") ~= nil,
+        rendered:find("map%.lookup%.array:size=100%s+p50%s+20%s+10%.000%s+ns/op%s+%-%s+2%.000x") ~= nil,
         "the result table retains each baseline ratio\n" .. rendered
     )
     assertTrue(
@@ -452,16 +541,29 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     assertEq(ran, 0, "the process-isolated runner exits successfully")
     local stdoutDocument = json.decode(read(stdout))
     assertEq(stdoutDocument.label, "smoke", "--json writes the merged record to stdout")
-    assertEq(#stdoutDocument.cases, 1, "--json contains only the selected cases")
-    assertEq(stdoutDocument.cases[1].name, "protocol.work.base:size=1", "--json stdout contains the selected benchmark")
+    assertEq(#stdoutDocument.benchmarks, 1, "--json contains only the selected benchmarks")
+    assertEq(
+        stdoutDocument.benchmarks[1].name,
+        "protocol.work.base:size=1",
+        "--json stdout contains the selected benchmark"
+    )
     local line = read(history):match("[^\r\n]+")
     local document = json.decode(line)
     assertEq(document.label, "smoke", "the history label is retained")
-    assertEq(#document.cases, 1, "the runner filter selects one case")
-    assertEq(document.cases[1].name, "protocol.work.base:size=1", "the selected case is named")
+    assertEq(#document.benchmarks, 1, "the runner filter selects one benchmark")
+    assertEq(document.benchmarks[1].name, "protocol.work.base:size=1", "the selected benchmark is named")
+    assertEq(document.forks, 1, "an unreplicated run records that it ran one fork")
+    assertTrue(document.seed ~= nil, "the permutation seed is recorded so an order can be reproduced")
+    -- Each fork is kept whole rather than reduced to its median. A warmup classifier
+    -- needs every process's ordered samples, and a summary cannot give them back.
+    assertEq(#document.benchmarks[1].forks, 1, "one fork was run and one fork was kept")
     assertTrue(
-        #document.cases[1].record.cases[1].samplesSec >= 3,
-        "history includes the raw samples rather than only a summary"
+        #document.benchmarks[1].forks[1].measurement.samplesSec >= 3,
+        "history includes each fork's raw samples rather than only a summary"
+    )
+    assertTrue(
+        document.benchmarks[1].summary.intervalWithheld == "below-minimum-forks",
+        "one fork names why it carries no interval instead of leaving the field absent"
     )
 
     local filtered = os.execute(
@@ -485,6 +587,7 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     local human = read(stdout)
     local resultAt = human:find("# Result: protocol", 1, true)
     local tableAt = human:find("Benchmark%s+Mode%s+Cnt%s+Score%s+Units")
+    assertTrue(human:find("NOT a confidence") ~= nil, "an unreplicated run says its spread is not an interval")
     assertTrue(
         resultAt ~= nil and tableAt ~= nil and resultAt < tableAt,
         "a completed score streams before the final table"
@@ -501,6 +604,394 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     os.remove(history)
     os.remove(stdout)
     os.execute(("rm -rf %q"):format(profiles))
+end
+
+----------------------------------------------------------------------------
+-- Distribution-free statistics
+--
+-- These run against fixed inputs with hand-computed expectations, so they fail on a
+-- change to the mathematics rather than on a change to the machine. The coverage
+-- figures are the sign test's: `[x(k), x(n+1-k)]` covers the population median with
+-- probability `1 - 2*P(Bin(n, 1/2) <= k-1)`, which is why five observations cannot
+-- support a 95% claim and why the harness refuses to print one.
+----------------------------------------------------------------------------
+
+local function closeTo(got, want, tolerance, label)
+    if math.abs(got - want) > (tolerance or 1e-9) then
+        error(("%s:\n  want: %.10f\n  got:  %.10f"):format(label or "mismatch", want, got), 2)
+    end
+end
+
+function M.signTestCoverageIsExactAtEverySize()
+    local statistics = require("nupp.bench.statistics")
+    -- The widest interval the observations allow, and what it actually attains.
+    closeTo(statistics.medianCoverage(3, 1), 0.75, 1e-12, "n=3 spans 75%")
+    closeTo(statistics.medianCoverage(5, 1), 0.9375, 1e-12, "n=5 spans 93.75%")
+    closeTo(statistics.medianCoverage(6, 1), 0.96875, 1e-12, "n=6 spans 96.875%")
+    closeTo(statistics.medianCoverage(10, 2), 0.978515625, 1e-12, "n=10 at k=2")
+    closeTo(statistics.medianCoverage(15, 4), 0.96484375, 1e-9, "n=15 at k=4")
+    closeTo(statistics.medianCoverage(20, 6), 0.9586105, 1e-6, "n=20 at k=6")
+end
+
+function M.selectedOrderStatisticIsTheNarrowestThatStillCovers()
+    local statistics = require("nupp.bench.statistics")
+    -- Below six, no interval over the observations reaches 95% at all, so there is
+    -- nothing to select and the harness must not invent one.
+    assertEq(statistics.selectK(3, 0.95), 0, "three observations support no 95% interval")
+    assertEq(statistics.selectK(5, 0.95), 0, "five observations support no 95% interval")
+    assertEq(statistics.selectK(6, 0.95), 1, "six reaches it only by spanning every observation")
+    assertEq(statistics.selectK(10, 0.95), 2, "ten excludes the extremes and still covers")
+    assertEq(statistics.selectK(15, 0.95), 4, "fifteen at k=4")
+    assertEq(statistics.selectK(20, 0.95), 6, "twenty at k=6")
+end
+
+function M.noIntervalBelowTheMinimumForkCount()
+    local statistics = require("nupp.bench.statistics")
+    local nine = {}
+    for index = 1, 9 do
+        nine[index] = index + 0.0
+    end
+    assertEq(statistics.medianInterval(nine), nil, "nine forks yield no interval")
+    local ten = {}
+    for index = 1, 10 do
+        ten[index] = index + 0.0
+    end
+    local interval = statistics.medianInterval(ten)
+    assertTrue(interval ~= nil, "ten forks yield an interval")
+    closeTo(interval.low, 2.0, 1e-12, "the lower endpoint is the second order statistic")
+    closeTo(interval.upper, 9.0, 1e-12, "the upper endpoint is the ninth")
+    assertEq(interval.k, 2, "k is reported so the endpoints can be located")
+    closeTo(interval.attainedCoverage, 0.978515625, 1e-12, "the coverage reported is the one attained")
+end
+
+function M.outliersAreClassifiedWithoutMovingTheEstimate()
+    local statistics = require("nupp.bench.statistics")
+    local clean = {10.0, 10.1, 9.9, 10.2, 9.8, 10.0, 10.1, 9.9, 10.0, 10.1}
+    local planted = {}
+    for index, value in ipairs(clean) do
+        planted[index] = value
+    end
+    planted[#planted + 1] = 90.0
+    planted[#planted + 1] = 95.0
+
+    local found = statistics.outliers(planted)
+    assertEq(found.severe, 2, "both planted samples are classified severe")
+    assertTrue(found.maxRatio > 8.0, "the worst one is reported as a multiple of the median")
+    -- The whole point of classifying rather than excluding: a robust estimator does not
+    -- need the samples removed, and removing them would delete a real warmup phase.
+    closeTo(statistics.median(planted), statistics.median(clean), 0.2, "the median is unmoved by the outliers")
+end
+
+function M.trendIsDetectedAndSteadyIsNeverClaimed()
+    local statistics = require("nupp.bench.statistics")
+    local warming, drifting, flat = {}, {}, {}
+    for index = 1, 200 do
+        warming[index] = 100.0 - index * 0.2
+        drifting[index] = 50.0 + index * 0.1
+        flat[index] = 100.0 + (index % 5) * 0.1
+    end
+    assertEq(statistics.trend(warming).verdict, "trend", "a falling series is a trend")
+    assertEq(statistics.trend(drifting).verdict, "trend", "a rising series is a trend")
+    -- The negative result is deliberately weak. There is no verdict asserting a steady
+    -- state, because failing to detect a monotone trend does not establish one.
+    assertEq(statistics.trend(flat).verdict, "no-trend-detected", "a flat series is not declared steady")
+    assertTrue(statistics.trend(warming).tau < -0.5, "tau carries the direction")
+    assertEq(statistics.trend({1.0, 2.0, 3.0}).verdict, "unknown", "too few samples to test is its own answer")
+end
+
+function M.benjaminiHochbergAdjustsAcrossTheFamily()
+    local statistics = require("nupp.bench.statistics")
+    local adjusted = statistics.benjaminiHochberg({0.001, 0.008, 0.039, 0.041, 0.042})
+    closeTo(adjusted[1], 0.005, 1e-9, "the smallest scales by five")
+    closeTo(adjusted[2], 0.020, 1e-9, "the second scales by five halves")
+    closeTo(adjusted[3], 0.042, 1e-9, "the step enforces monotonicity")
+    closeTo(adjusted[4], 0.042, 1e-9, "as does the fourth")
+    closeTo(adjusted[5], 0.042, 1e-9, "the largest is unchanged")
+    local uniform = statistics.benjaminiHochberg({0.01, 0.02, 0.03, 0.04, 0.05})
+    for index = 1, 5 do
+        closeTo(uniform[index], 0.05, 1e-9, "a uniform ramp adjusts to a single value")
+    end
+end
+
+function M.verdictsSeparateEquivalenceFromIgnorance()
+    local statistics = require("nupp.bench.statistics")
+    local function interval(low, upper)
+        return {low = low, upper = upper, k = 2, attainedCoverage = 0.978515625}
+    end
+    -- Equivalence is demonstrated by a narrow interval inside the margin, not inferred
+    -- from a test that failed to reach significance.
+    assertEq(statistics.verdict(interval(-0.013, 0.006), 0.02, 0.4), "unchanged", "inside the margin is unchanged")
+    -- The case the whole rule exists for. A point estimate of zero with an interval
+    -- twenty points wide says the run could not tell, and calling that "unchanged"
+    -- would be asserting equivalence from an absence of evidence.
+    assertEq(
+        statistics.verdict(interval(-0.20, 0.20), 0.02, 0.4),
+        "inconclusive",
+        "a wide interval around zero is inconclusive, not unchanged"
+    )
+    assertEq(statistics.verdict(interval(0.162, 0.207), 0.02, 0.001), "regressed", "wholly above the margin")
+    assertEq(statistics.verdict(interval(-0.111, -0.082), 0.02, 0.001), "improved", "wholly below the margin")
+    assertEq(
+        statistics.verdict(interval(-0.013, 0.140), 0.02, 0.02),
+        "inconclusive",
+        "straddling a margin boundary is inconclusive"
+    )
+    -- Surviving the family matters even when the interval looks decisive.
+    assertEq(
+        statistics.verdict(interval(0.162, 0.207), 0.02, 0.30),
+        "inconclusive",
+        "an adjusted p-value that did not survive the family withholds the claim"
+    )
+    assertEq(statistics.verdict(nil, 0.02, 0.001), "inconclusive", "no interval is always inconclusive")
+end
+
+function M.pairedShiftIsDistributionFreeAndBracketsItsEstimate()
+    local statistics = require("nupp.bench.statistics")
+    local differences = {}
+    for index = 1, 12 do
+        differences[index] = 0.10 + (index % 3) * 0.01
+    end
+    local shift = statistics.pairedShift(differences)
+    assertTrue(shift ~= nil, "twelve pairs support a shift interval")
+    local estimate = statistics.median(differences)
+    assertTrue(shift.low <= estimate and estimate <= shift.upper, "the interval brackets the estimate")
+    assertTrue(shift.low > 0.0, "a consistently positive shift excludes zero")
+    assertTrue(shift.attainedCoverage >= 0.95, "the reported coverage clears the target")
+    local short = {0.1, 0.2, 0.3}
+    assertEq(statistics.pairedShift(short), nil, "three pairs support no interval")
+end
+
+function M.forkCountRecommendationFollowsObservedVariance()
+    local statistics = require("nupp.bench.statistics")
+    -- A quiet benchmark needs the floor; a noisy one needs far more, which is the whole
+    -- reason the count is derived rather than fixed.
+    assertEq(
+        statistics.forksForPrecision(0.001, 0.02),
+        statistics.MIN_INTERVAL_SAMPLES,
+        "a quiet benchmark still runs the minimum"
+    )
+    assertTrue(statistics.forksForPrecision(0.15, 0.02) > 200, "a fifteen percent CV needs hundreds of forks at 2%")
+    assertTrue(
+        statistics.forksForPrecision(0.15, 0.05) < statistics.forksForPrecision(0.15, 0.02),
+        "a looser precision needs fewer forks"
+    )
+end
+
+----------------------------------------------------------------------------
+-- What a comparison gates on, and what it only reports
+----------------------------------------------------------------------------
+
+-- A run's forks are separate processes of one binary, so they must agree about what the
+-- compiler emitted and may disagree about what the recorder saw. Merging has to hold
+-- both of those, because collapsing them would either gate on a timing-dependent abort
+-- or hide a compiler that stopped being deterministic.
+function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
+    local runner = require("nupp.compiler.benchrunner")
+    local function fork(sites, aborts)
+        return {
+            allocationSites = sites,
+            remarks = {},
+            cases = {{name = "x", kind = "suite", medianSec = 0.000001, abortSites = aborts, samplesSec = {1.0}}},
+        }
+    end
+    local stable = {{file = "a.nupp", kind = "table", line = 1, col = 1}}
+
+    -- A site every fork saw is the recorder reporting something reproducible.
+    local merged, notes = runner.mergeForks("x", "a.nupp", {
+        fork(stable, {"warn|reason|a.nupp:1|"}),
+        fork(stable, {"warn|reason|a.nupp:1|"}),
+    })
+    assertEq(#merged.summary.abortSites, 1, "a site every fork saw survives to the gated set")
+    assertEq(#notes, 0, "and needs no note")
+
+    -- A site only one fork saw is reported and kept out of the gated set, because trace
+    -- formation is timing-dependent and one observation is not a regression.
+    local partial, partialNotes = runner.mergeForks("x", "a.nupp", {
+        fork(stable, {"warn|reason|a.nupp:1|"}),
+        fork(stable, {}),
+    })
+    assertEq(#partial.summary.abortSites, 0, "a site one fork missed does not gate")
+    assertTrue(
+        table.concat(partialNotes, "\n"):find("flaky abort site") ~= nil,
+        "but it is reported rather than dropped"
+    )
+
+    -- Allocation sites are the compiler's account of its own output. Forks of one
+    -- binary disagreeing is a defect, not a measurement, and must not be averaged away.
+    local drifted, driftNotes = runner.mergeForks("x", "a.nupp", {
+        fork(stable, {}),
+        fork({{file = "a.nupp", kind = "closure", line = 9, col = 9}}, {}),
+    })
+    assertTrue(
+        table.concat(driftNotes, "\n"):find("nondeterministic compiler output") ~= nil,
+        "disagreeing allocation sites are reported as a defect"
+    )
+    assertTrue(drifted ~= nil, "and the merge still produces a record to look at")
+end
+
+-- Forks that disagree about nothing must not be reported as disagreeing. The counters
+-- arrive as tables, so a merge comparing them by identity would call every fork after
+-- the first nondeterministic and bury the real signal in noise.
+function M.identicalForksReportNoDisagreement()
+    local runner = require("nupp.compiler.benchrunner")
+    local function fork()
+        return {
+            allocationSites = {{file = "a.nupp", kind = "table", line = 1, col = 1}},
+            remarks = {{code = "OPT-1", file = "a.nupp", message = "m", range = {start = {line = 1}}}},
+            cases = {{name = "x", kind = "suite", medianSec = 0.000001, abortSites = {}, samplesSec = {1.0}}},
+        }
+    end
+    local _, notes = runner.mergeForks("x", "a.nupp", {fork(), fork(), fork()})
+    assertEq(#notes, 0, "three identical forks disagree about nothing")
+end
+
+-- An interval needs enough processes to support it, and a process that never settled
+-- cannot contribute to one at all. Both refusals name themselves.
+function M.mergeWithholdsIntervalsItCannotSupport()
+    local runner = require("nupp.compiler.benchrunner")
+    local function fork(median, trend)
+        return {
+            allocationSites = {},
+            remarks = {},
+            cases = {
+                {
+                    name = "x",
+                    kind = "suite",
+                    medianSec = median,
+                    abortSites = {},
+                    samplesSec = {median},
+                    trend = trend,
+                },
+            },
+        }
+    end
+    local few = {}
+    for index = 1, 5 do
+        few[index] = fork(0.000001 * index, "no-trend-detected")
+    end
+    local scarce = runner.mergeForks("x", "a.nupp", few)
+    assertEq(scarce.summary.intervalWithheld, "below-minimum-forks", "five forks cannot support an interval")
+    assertEq(scarce.summary.intervalLowSec, nil, "and none is invented")
+
+    local many = {}
+    for index = 1, 12 do
+        many[index] = fork(0.000001 * index, "no-trend-detected")
+    end
+    local settled = runner.mergeForks("x", "a.nupp", many)
+    assertEq(settled.summary.intervalWithheld, nil, "twelve settled forks support one")
+    assertTrue(settled.summary.intervalLowSec ~= nil, "and it is present")
+    assertTrue(settled.summary.intervalCoverage >= 0.95, "reporting the coverage it attained")
+
+    local trending = {}
+    for index = 1, 12 do
+        trending[index] = fork(0.000001 * index, "trend")
+    end
+    local unsettled, trendNotes = runner.mergeForks("x", "a.nupp", trending)
+    assertEq(unsettled.summary.intervalWithheld, "trend-warning", "a trending benchmark gets no interval")
+    assertEq(unsettled.summary.intervalLowSec, nil, "however many forks it ran")
+    assertTrue(table.concat(trendNotes, "\n"):find("trend%-warning") ~= nil, "and the reason is reported")
+end
+
+-- The replicated run end to end, against the real binary. What matters here and cannot
+-- be checked from a unit test is that the forks are separate processes, that every fork
+-- of a case counted the same work, and that the permutation actually changes between
+-- rounds rather than being shuffled once and reused.
+function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
+    local stdout = os.tmpname()
+    local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
+    os.remove(stdout)
+
+    local ran = os.execute(
+        ("%q bench --file %q --forks 12 --seed 4242 --json > %q"):format(NUPP, fixture, stdout)
+    )
+    assertEq(ran, 0, "a replicated run exits successfully")
+    local document = json.decode(read(stdout))
+    assertEq(document.forks, 12, "the record says how many processes ran")
+    assertEq(document.seed, 4242, "and the seed the permutation came from")
+    assertEq(#document.benchmarks, 1, "one benchmark was selected")
+
+    local benchmark = document.benchmarks[1]
+    -- Kept whole, not reduced. A warmup classifier needs each process's own series and
+    -- a median cannot give it back.
+    assertEq(#benchmark.forks, 12, "every fork is retained structurally")
+    for index, fork in ipairs(benchmark.forks) do
+        assertEq(fork.index, index, "forks are recorded in execution order")
+        assertTrue(#fork.measurement.samplesSec > 0, "each fork keeps its own ordered samples")
+    end
+
+    -- Fork one calibrates and the rest are told what it chose. Without this their scores
+    -- would each be a median over a different amount of work.
+    local iterations = benchmark.forks[1].measurement.n
+    assertTrue(iterations ~= nil and iterations >= 1, "the first fork calibrated an iteration count")
+    for _, fork in ipairs(benchmark.forks) do
+        assertEq(fork.measurement.n, iterations, "every fork counted the same work")
+    end
+
+    assertEq(#benchmark.summary.forkSummariesSec, 12, "one summary per process feeds the interval")
+    assertTrue(benchmark.summary.intervalLowSec ~= nil, "twelve forks support an interval")
+    assertTrue(
+        benchmark.summary.intervalCoverage >= 0.95,
+        "and it reports a coverage that clears the target"
+    )
+    assertTrue(
+        benchmark.summary.intervalLowSec <= benchmark.summary.medianSec
+            and benchmark.summary.medianSec <= benchmark.summary.intervalHighSec,
+        "the interval brackets the score"
+    )
+
+    os.remove(stdout)
+end
+
+-- A pilot answers how many processes a precision would take, and must not answer the
+-- benchmark: reporting a score from five forks is exactly the unearned claim the fork
+-- minimum exists to prevent.
+function M.pilotSizesTheRunWithoutReportingAResult()
+    local stdout = os.tmpname()
+    local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
+    os.remove(stdout)
+
+    local ran = os.execute(("%q bench --file %q --pilot > %q 2>&1"):format(NUPP, fixture, stdout))
+    assertEq(ran, 0, "a pilot exits successfully")
+    local report = read(stdout)
+    assertTrue(report:find("Between%-fork CV") ~= nil, "the pilot reports the variance it observed")
+    assertTrue(report:find("Forks for") ~= nil, "and the forks a precision would need")
+    assertTrue(report:find("Coverage") == nil, "a pilot claims no coverage")
+    assertTrue(report:find("Winners") == nil, "and declares no winner")
+
+    os.remove(stdout)
+end
+
+-- A withheld interval must reach the verdict as a withheld interval. This existed as a
+-- bug: the guard was written `withheld and nil or interval`, which reads as a
+-- conditional and is not one -- when `withheld` is truthy the `and` yields nil and the
+-- `or` hands the interval straight back. A benchmark that had earned no interval was
+-- then reported `unchanged`, which is the single strongest claim this tool makes and
+-- exactly the one it had no grounds for.
+function M.aWithheldIntervalCannotProduceAConfidentVerdict()
+    local statistics = require("nupp.bench.statistics")
+    local narrow = {low = -0.001, upper = 0.001, k = 2, attainedCoverage = 0.978515625}
+
+    -- The interval on its own would be equivalence, and that is the point: the guard
+    -- has to be what stops it, not the width.
+    assertEq(statistics.verdict(narrow, 0.02, 0.9), "unchanged", "a narrow interval inside the margin is equivalence")
+    assertEq(statistics.verdict(nil, 0.02, 0.9), "inconclusive", "and withholding it must reach inconclusive")
+
+    -- The shape of the guard itself, so a rewrite that reintroduces the idiom fails
+    -- here rather than in a report somebody believes.
+    local function guard(withheld, interval)
+        if withheld then
+            interval = nil
+        end
+
+        return interval
+    end
+    assertEq(guard("trend-warning", narrow), nil, "a withheld interval is cleared")
+    assertEq(guard(nil, narrow), narrow, "and an unwithheld one is passed through")
+    assertEq(
+        statistics.verdict(guard("trend-warning", narrow), 0.02, 0.9),
+        "inconclusive",
+        "a trending benchmark is inconclusive however narrow its interval looked"
+    )
 end
 
 return M

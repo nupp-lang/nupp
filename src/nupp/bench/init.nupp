@@ -32,13 +32,20 @@ merge.
 
 local json = require("nupp.codec.json")
 local profile = require("nupp.profile")
+local statistics = require("nupp.bench.statistics")
 local time = require("nupp.time")
 
 local bench = {}
 
 --- The schema version of a written record. Bumped when a reader would otherwise
 --- misread an older file.
-bench.SCHEMA = 2
+---
+--- Three adds per-measurement samples on the case path, within-process dispersion,
+--- trend and outlier classification, and a runner-side document holding one record per
+--- fork. A version two record still reads as a baseline for the deterministic
+--- counters; it carries no duration statistics, so every duration verdict against one
+--- is inconclusive rather than an error.
+bench.SCHEMA = 3
 
 --- Rounds timed per case. The median of these is what a record reports, so an odd
 --- count has a middle to take.
@@ -146,7 +153,17 @@ type bench.SuiteOptions = {
 --- Optional sections in the human result report.
 type bench.FormatOptions = {
     --- Compare suite variants by their geometric-mean ratio.
-    geometricMean: boolean?
+    geometricMean: boolean?,
+
+    --- Forks behind the measurements, when the runner merged them.
+    ---
+    --- Decides which columns the table carries. One fork reports a within-process
+    --- interquartile range, which is a spread and not an interval; more than one
+    --- reports the interval and the coverage it attained.
+    forks: integer?,
+
+    --- Lines appended below the table, each already wrapped.
+    notes: {string}?
 }
 
 --- What one measured case contributes to a record.
@@ -233,6 +250,72 @@ record bench.Measurement
 
     --- Collapsed-stack profile written for this measured window, when requested.
     profilePath: string?
+
+    --- The quartiles of this measurement's own samples, in seconds.
+    ---
+    --- Reported as a range rather than as a percentage either side of the median,
+    --- because a benchmark whose samples are bimodal puts its median in the gap
+    --- between the two clusters, and a symmetric "+-x%" around that median describes
+    --- a distribution the run never produced. `[p25, p75]` beside the score shows the
+    --- shape instead of implying one.
+    p25Sec: number?
+
+    p75Sec: number?
+
+    --- The interquartile range of this measurement's own samples, in seconds.
+    ---
+    --- Within-process spread. It says how much the samples inside one process varied
+    --- and is not a confidence interval: those samples share a heap, a set of compiled
+    --- traces and a thermal state, so they are not independent draws and no interval
+    --- may be derived from them. An interval comes from fork summaries, which the
+    --- runner assembles across processes.
+    iqrSec: number?
+
+    --- What a monotone-trend test made of this process's samples in execution order:
+    --- `trend`, `no-trend-detected`, or `unknown`.
+    ---
+    --- There is no value asserting a steady state. A test that found no trend has not
+    --- established one, and saying otherwise is the mistake this field exists to
+    --- avoid making.
+    trend: string?
+
+    --- Kendall's tau and the two-sided p-value behind `trend`.
+    trendTau: number?
+
+    trendPValue: number?
+
+    --- Samples beyond three interquartile ranges of the nearer quartile, and the
+    --- largest of them over the median.
+    ---
+    --- Classified, never removed. A real warmup or deoptimization phase falls exactly
+    --- where these fences do, so excluding what they catch would delete the behaviour
+    --- `trend` is looking for. Every sample stays in `samplesSec` and in the median.
+    outlierCount: integer?
+
+    outlierMaxRatio: number?
+
+    --- Processes this measurement summarises, when the runner merged forks into it.
+    ---
+    --- Absent on a measurement a child wrote: a child is one process and knows nothing
+    --- about the others.
+    forkCount: integer?
+
+    --- One normalized summary per fork, in execution order. The input the interval
+    --- below was computed from, kept so a reader can recompute it.
+    forkSummariesSec: {number}?
+
+    --- The interval for this benchmark's population median, when one is available.
+    ---
+    --- `intervalCoverage` is the probability this interval actually attains, not one
+    --- that was requested: it falls out of the fork count through the sign test, and a
+    --- run with too few forks gets no interval rather than a relabelled one.
+    intervalLowSec: number?
+
+    intervalHighSec: number?
+    intervalCoverage: number?
+
+    --- Why there is no interval: `below-minimum-forks` or `trend-warning`.
+    intervalWithheld: string?
 end
 
 local measurements: {bench.Measurement} = {}
@@ -469,9 +552,13 @@ local function calibrate(name: string, body: function(bench.Case): nil, fixed: i
     local n: integer = 1
     local held = false
     while n < MAX_N do
-        local started = os.clock()
+        -- The monotonic clock, because it is the clock the measured rounds below are
+        -- timed on. Calibrating against `os.clock` processor time would size `n` from
+        -- one quantity and then report another, and the two part company for any body
+        -- that waits on anything.
+        local started = time.now()
         body(new bench.Case(name = name, n = n))
-        if os.clock() - started >= TARGET_ROUND_SEC then
+        if (time.now() - started) / 1000.0 >= TARGET_ROUND_SEC then
             if held then
                 return n
             end
@@ -627,6 +714,13 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         end
         sampling:stop(options.sampleOut)
     end
+    -- Retained in execution order, not just summarised. The runner's interval is built
+    -- from one summary per process, but a reader wanting to see what a process actually
+    -- did -- or a later warmup classifier wanting to run over it -- needs the series
+    -- itself, and a median thrown away cannot be recovered.
+    local rounds = statistics.trend(times)
+    local far = statistics.outliers(times)
+    local roundOrder = statistics.sorted(times)
     measurements[
         #measurements + 1
     ] = new bench.Measurement(
@@ -636,6 +730,15 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         rounds = ROUNDS,
         medianSec = median(times),
         minSec = smallest(times),
+        samplesSec = times,
+        p25Sec = statistics.quantile(roundOrder, 0.25),
+        p75Sec = statistics.quantile(roundOrder, 0.75),
+        iqrSec = statistics.iqr(times),
+        trend = rounds.verdict,
+        trendTau = rounds.tau,
+        trendPValue = rounds.pValue,
+        outlierCount = far.severe,
+        outlierMaxRatio = far.maxRatio,
         allocatedKb = allocated / ROUNDS,
         retainedKb = retained,
         abortSites = sites,
@@ -902,6 +1005,12 @@ local function measureSuite(
         sampling:stop(options.sampleOut)
     end
     local minimum, mean, stdev, p50, p90, p99 = sampleStatistics(samples)
+    -- Tested in execution order, before anything sorts the series. This process only:
+    -- pooling two processes' samples manufactures a step at the join that belongs to
+    -- neither of them.
+    local drift = statistics.trend(samples)
+    local far = statistics.outliers(samples)
+    local sampleOrder = statistics.sorted(samples)
     measurements[
         #measurements + 1
     ] = new bench.Measurement(
@@ -915,6 +1024,14 @@ local function measureSuite(
         stdevSec = stdev,
         p90Sec = p90,
         p99Sec = p99,
+        p25Sec = statistics.quantile(sampleOrder, 0.25),
+        p75Sec = statistics.quantile(sampleOrder, 0.75),
+        iqrSec = statistics.iqr(samples),
+        trend = drift.verdict,
+        trendTau = drift.tau,
+        trendPValue = drift.pValue,
+        outlierCount = far.severe,
+        outlierMaxRatio = far.maxRatio,
         sampleIterations = iterations,
         operationsPerInvocation = operations,
         warmupIterations = warmups,
@@ -1442,22 +1559,65 @@ function bench.format(record: any, options: bench.FormatOptions?): string
             end
         end
     end
+
+    -- How wide the samples behind one score were, in the score's own units.
+    --
+    -- With one process this is that process's interquartile range, written as a
+    -- percentage either side of the median. It is a spread, not an interval: the
+    -- samples it summarises share a heap and a set of compiled traces, so nothing
+    -- about a population median follows from it, and the note below the table says so.
+    local function spreadCell(entry: any, scale: number): string
+        local lowerQuartile = entry.p25Sec
+        local upperQuartile = entry.p75Sec
+        if not lowerQuartile or not upperQuartile then
+            return "-"
+        end
+
+        return ("[%.3f, %.3f]"):format(lowerQuartile * scale, upperQuartile * scale)
+    end
+
+    -- The interval for a merged measurement, or why there is not one.
+    local function intervalCell(entry: any, scale: number): string
+        if entry.intervalWithheld == "trend-warning" then
+            return "unstable"
+        end
+        if not entry.intervalLowSec or not entry.intervalHighSec then
+            return "-"
+        end
+
+        return ("[%.3f, %.3f]"):format(entry.intervalLowSec * scale, entry.intervalHighSec * scale)
+    end
+
+    local function coverageCell(entry: any): string
+        if not entry.intervalCoverage then
+            return "-"
+        end
+
+        return ("%.2f%%"):format(entry.intervalCoverage * 100.0)
+    end
+
     for _, entry in ipairs(record.cases or {}) do
         if entry.kind == "case" then
             local n = entry.n or 0
-            local score = n > 0 and ((entry.medianSec or 0.0) * 1000000000.0 / n) or 0.0
+            local scale = n > 0 and (1000000000.0 / n) or 0.0
+            local score = (entry.medianSec or 0.0) * scale
             rows[
                 #rows + 1
             ] = {
                 name = entry.name,
                 mode = "p50",
                 count = tostring(entry.rounds or 0),
+                forkCount = tostring(entry.forkCount or 1),
                 score = ("%.3f"):format(score),
                 units = "ns/op",
                 ratio = "-",
+                spread = spreadCell(entry, scale),
+                interval = intervalCell(entry, scale),
+                coverage = coverageCell(entry),
             }
         elseif entry.kind == "suite" then
-            local score = (entry.medianSec or 0.0) * 1000000000.0
+            local scale = 1000000000.0
+            local score = (entry.medianSec or 0.0) * scale
             local baselineScore = baselines[comparisonKey(entry)]
             local ratio = "-"
             if baselineScore and score > 0 then
@@ -1469,9 +1629,13 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 name = entry.name,
                 mode = "p50",
                 count = tostring(entry.rounds or 0),
+                forkCount = tostring(entry.forkCount or 1),
                 score = ("%.3f"):format(score),
                 units = "ns/op",
                 ratio = ratio,
+                spread = spreadCell(entry, scale),
+                interval = intervalCell(entry, scale),
+                coverage = coverageCell(entry),
             }
         else
             local count = tostring(entry.frames or 0)
@@ -1481,9 +1645,13 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 name = entry.name,
                 mode = "p50",
                 count = count,
+                forkCount = tostring(entry.forkCount or 1),
                 score = ("%.3f"):format(entry.p50Ms or 0.0),
                 units = "ms/frame",
                 ratio = "-",
+                spread = "-",
+                interval = "-",
+                coverage = "-",
             }
             rows[
                 #rows + 1
@@ -1491,9 +1659,13 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 name = entry.name,
                 mode = "p99",
                 count = count,
+                forkCount = tostring(entry.forkCount or 1),
                 score = ("%.3f"):format(entry.p99Ms or 0.0),
                 units = "ms/frame",
                 ratio = "-",
+                spread = "-",
+                interval = "-",
+                coverage = "-",
             }
             rows[
                 #rows + 1
@@ -1501,9 +1673,13 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 name = entry.name,
                 mode = "p99.9",
                 count = count,
+                forkCount = tostring(entry.forkCount or 1),
                 score = ("%.3f"):format(entry.p999Ms or 0.0),
                 units = "ms/frame",
                 ratio = "-",
+                spread = "-",
+                interval = "-",
+                coverage = "-",
             }
             if (entry.overBudget or 0) > 0 then
                 rows[
@@ -1512,9 +1688,13 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                     name = entry.name .. ":over-budget",
                     mode = "count",
                     count = count,
+                    forkCount = tostring(entry.forkCount or 1),
                     score = tostring(entry.overBudget),
                     units = "frames",
                     ratio = "-",
+                    spread = "-",
+                    interval = "-",
+                    coverage = "-",
                 }
             end
         end
@@ -1527,13 +1707,59 @@ function bench.format(record: any, options: bench.FormatOptions?): string
             width = #row.name
         end
     end
-    local pattern = "%-" .. tostring(width) .. "s  %5s  %3s  %10s  %s"
-    if hasRatios then
-        pattern = "%-" .. tostring(width) .. "s  %5s  %3s  %10s  %-8s  %7s"
-    end
-    local lines = {pattern:format("Benchmark", "Mode", "Cnt", "Score", "Units", "Ratio"),}
+    -- One fork reports a within-process spread; more than one reports the interval
+    -- across processes and the coverage that interval attains. The heading changes with
+    -- the column because the two quantities support entirely different claims, and a
+    -- reader who sees "IQR" where they expected an interval should notice.
+    local forks = options and options.forks or 1
+    local replicated = forks > 1
+    local spreadWidth: integer = replicated and 20 or 18
+    local spreadHeading = replicated and "Interval" or "p25-p75"
     for _, row in ipairs(rows) do
-        lines[#lines + 1] = pattern:format(row.name, row.mode, row.count, row.score, row.units, row.ratio)
+        local cell = (replicated and row.interval or row.spread) or "-"
+        if #cell > spreadWidth then
+            spreadWidth = #cell as integer
+        end
+    end
+    local pattern = "%-" .. tostring(width) .. "s  %5s  %5s  %10s  %-8s  %" .. tostring(spreadWidth) .. "s"
+    local headings = {"Benchmark", "Mode", replicated and "Forks" or "Cnt", "Score", "Units", spreadHeading,}
+    if replicated then
+        pattern = pattern .. "  %9s"
+        headings[#headings + 1] = "Coverage"
+    end
+    if hasRatios then
+        pattern = pattern .. "  %8s"
+        headings[#headings + 1] = "Ratio"
+    end
+
+    local function emit(cells: {string}): string
+        if #cells == 6 then
+            return pattern:format(cells[1], cells[2], cells[3], cells[4], cells[5], cells[6])
+        end
+        if #cells == 7 then
+            return pattern:format(cells[1], cells[2], cells[3], cells[4], cells[5], cells[6], cells[7])
+        end
+
+        return pattern:format(cells[1], cells[2], cells[3], cells[4], cells[5], cells[6], cells[7], cells[8])
+    end
+
+    local lines = {emit(headings),}
+    for _, row in ipairs(rows) do
+        local cells = {
+            row.name,
+            row.mode,
+            (replicated and row.forkCount or row.count) or "0",
+            row.score,
+            row.units,
+            (replicated and row.interval or row.spread) or "-",
+        }
+        if replicated then
+            cells[#cells + 1] = row.coverage or "-"
+        end
+        if hasRatios then
+            cells[#cells + 1] = row.ratio
+        end
+        lines[#lines + 1] = emit(cells)
     end
 
     local winners: {any} = {}
@@ -1630,6 +1856,26 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 lines[#lines + 1] = summaryPattern:format(entry.variant, ("%.3fx"):format(entry.ratio))
             end
         end
+    end
+
+    -- The standing note is the part of this table that stops it being over-read. A
+    -- single-fork run publishes a number with a spread beside it, and without a
+    -- sentence saying what that spread is not, a reader has every reason to treat it
+    -- as an error bar and to believe a four percent difference.
+    if not replicated then
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = "note: 1 fork per benchmark. p25-p75 is within-process spread, NOT a confidence"
+        lines[#lines + 1] = "      interval: samples inside one process share its heap, traces and thermal"
+        lines[#lines + 1] = "      state, so no population interval follows from them. A score far from the"
+        lines[#lines + 1] = "      middle of that range means the samples are not centred on it. No interval or"
+        lines[
+            #lines + 1
+        ] = (
+            "      verdict is available below %d forks; run --pilot to size a replicated run."
+        ):format(statistics.MIN_INTERVAL_SAMPLES)
+    end
+    for _, note in ipairs(options and options.notes or {}) do
+        lines[#lines + 1] = note
     end
 
     return "\n" .. table.concat(lines, "\n") .. "\n"
