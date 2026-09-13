@@ -228,4 +228,8 @@ local record Task
     end
 end
 
-export = {commandType = Task, schema = REPORT_SCHEMA}
+function Task.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Task}

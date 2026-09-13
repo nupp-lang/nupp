@@ -35,7 +35,6 @@ function Root.subcommands(): {cliModule.CommandType}
         require("nupp.compiler.cli.build").commandType,
         require("nupp.compiler.cli.clean").commandType,
         require("nupp.compiler.cli.bench").commandType,
-        require("nupp.compiler.cli.tasks").commandType,
         require("nupp.compiler.cli.lints").commandType,
         require("nupp.compiler.cli.ownershipaudit").commandType,
         require("nupp.compiler.cli.explain").commandType,
