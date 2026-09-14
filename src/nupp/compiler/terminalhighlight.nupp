@@ -10,9 +10,16 @@ question the listing exists to answer -- which instructions did this line cost
 a column.
 
 The source colours are the website's, decided by `nupp.compiler.syntaxstyle` so
-that a keyword is a keyword in both. The bytecode colours are the same palette
-applied to opcodes by what they do, so a jump reads as control flow and a call
-reads as a call, exactly as their source counterparts do a line above.
+that a keyword is a keyword in both.
+
+The bytecode is deliberately not highlighted. Colouring opcodes by what they do
+reads well in isolation and badly here: a listing is mostly bytecode, so every
+instruction competing with the source above it leaves nothing quiet to rest
+against, and the line a reader is actually looking for -- the source -- stops
+standing out. It is muted instead, as a block, and the one part of it that
+carries a name from the program the reader wrote is what keeps its colour: the
+`;` hint LuaJIT prints for whatever constant or global the instruction reached
+for.
 
 Nothing here decides whether to colour. A palette is asked for with the answer,
 which the CLI takes from `nupp.cli`, so redirected output is plain by the same
@@ -34,6 +41,7 @@ type terminalhighlight.Palette = {[string]: terminalhighlight.Paint}
 -- and bold at this density reads as emphasis nobody meant. Bright variants
 -- carry the same distinctions legibly on either background.
 local CODES = {
+    muted = "90",
     comment = "90",
     keyword = "35",
     meta = "95",
@@ -139,46 +147,36 @@ function terminalhighlight.nuppLines(source: string, palette: terminalhighlight.
     return lines
 end
 
---- The style an opcode is painted in, or nothing for the ones that are plain
---- work: moves, arithmetic and concatenation.
+--- The `;` hint LuaJIT prints for an instruction, coloured.
 ---
---- Grouped by what the instruction does rather than by LuaJIT's own ordering, so
---- that the colours line up with the source above them -- `FORL` is the colour
---- of `for`, `CALL` the colour of the call it came from, `KSTR` the colour of
---- the literal it loads.
-local function opcodeStyle(op: string): string?
-    if op:sub(
-        1,
-        2
-    ) == "IS" or op:sub(
-        1,
-        3
-    ) == "RET" or op == "JMP" or op == "UCLO" or op:find(
-        "FOR",
-        1,
-        true
-    ) or op:find("ITER", 1, true) or op:find("LOOP", 1, true) then
-        return "keyword"
+--- The hint is where a bytecode line names something the reader wrote -- the
+--- global it looked up, the string it loaded, the function and line an `FNEW`
+--- builds -- so the name itself is painted as the literal it is and the rest
+--- carries the comment colour it would have in source.
+local function hint(text: string, palette: terminalhighlight.Palette): string
+    local paint = terminalhighlight.paint
+    local out: {string} = {}
+    local cursor = 1
+    while true do
+        local opens, closes = text:find('"[^"]*"', cursor)
+        if opens == nil then
+            break
+        end
+        out[#out + 1] = paint(palette, "comment", text:sub(cursor, (opens as integer) - 1))
+        out[#out + 1] = paint(palette, "string", text:sub(opens as integer, closes as integer))
+        cursor = (closes as integer) + 1
     end
-    if op:sub(1, 4) == "CALL" or op:sub(1, 4) == "FUNC" or op == "FNEW" or op == "VARG" then
-        return "function"
-    end
-    if op:sub(1, 1) == "K" then
-        return "number"
-    end
-    if op:sub(1, 1) == "G" or op:sub(1, 1) == "T" or op:sub(1, 1) == "U" then
-        return "type"
-    end
+    out[#out + 1] = paint(palette, "comment", text:sub(cursor))
 
-    return nil
+    return table.concat(out)
 end
 
 --- Colours one line of a bytecode listing.
 ---
 --- The shape LuaJIT prints is fixed -- a program counter, an optional jump
---- marker, an opcode, its operands, and a trailing `;` hint naming whatever
---- constant or global the instruction reached for. Anything that does not have
---- that shape is left alone, because a listing is worth more plain than
+--- marker, an opcode, its operands, and a trailing `;` hint. Everything up to
+--- the hint is muted as one run, because none of it is what the listing is read
+--- for. Anything that does not have that shape is muted whole rather than
 --- rearranged by a pattern that did not match.
 ---
 --- @param text one rendered instruction, without its newline
@@ -186,35 +184,13 @@ end
 --- @return the instruction, coloured
 --- @raises never
 function terminalhighlight.bytecode(text: string, palette: terminalhighlight.Palette): string
-    local counter, marker, gap, op, rest = text:match("^(%s*%d+%s*)(=?>?)(%s*)([A-Z][A-Z0-9]*)(.*)$")
-    if counter == nil then
-        return text
-    end
     local paint = terminalhighlight.paint
-    local operands, hint = (rest as string):match("^([^;]*)(;.*)$")
-    if operands == nil then
-        operands, hint = rest as string, ""
+    local body, comment = text:match("^([^;]*)(;.*)$")
+    if body == nil then
+        return paint(palette, "muted", text)
     end
-    -- A jump's destination is the one operand that is not a register, and the
-    -- only place a reader's eye has somewhere else to go.
-    operands = (operands as string):gsub("(=> )(%d+)", function(arrow: string, target: string): string
-        return arrow .. paint(palette, "keyword", target)
-    end)
-    local style = opcodeStyle(op as string)
 
-    return paint(
-        palette,
-        "comment",
-        counter as string
-    ) .. paint(
-        palette,
-        "keyword",
-        marker as string
-    ) .. (
-        gap as string
-    ) .. (
-        style and paint(palette, style, op as string) or (op as string)
-    ) .. (operands as string) .. (hint ~= "" and paint(palette, "comment", hint as string) or "")
+    return paint(palette, "muted", body as string) .. hint(comment as string, palette)
 end
 
 export = terminalhighlight

@@ -558,12 +558,15 @@ file that was written rather than the file that was generated:
         0004  RET1     1   2
 ```
 
-A terminal gets the listing colored: the source in the same colors this
-documentation uses, and each opcode in the color of the source construct it came
-from, so a jump reads as control flow and a call reads as a call. The escapes go
-inside lines and never change how many there are, so a listing stripped of them
-is the listing a pipe gets -- which is what redirected output is, as everywhere
-else, unless [`--color`](#universal-options) says otherwise.
+A terminal gets the listing colored. The source carries the colors this
+documentation uses; the instructions under it are muted, because a listing is
+mostly bytecode and coloring all of it leaves the source nothing to stand out
+against. The `;` hint keeps its color, since that is where an instruction names
+something from the source -- the global it looked up, the string it loaded.
+
+The escapes go inside lines and never change how many there are, so a listing
+stripped of them is the listing a pipe gets -- which is what redirected output
+is, as everywhere else, unless [`--color`](#universal-options) says otherwise.
 
 Building a function is the usual thing `--check` finds. LuaJIT has no recording
 for it, so the loop holding one aborts recording, is blacklisted after enough

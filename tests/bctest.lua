@@ -371,17 +371,19 @@ function M.colorRepaintsTheListingWithoutChangingIt()
    test.equal((listing(painted):gsub("\27%[[%d;]*m", "")), listing(plain))
 end
 
--- The two languages the listing prints are told apart by what the colours mean,
--- not by which half of the line they are on: `for` and the `FORI` it became are
--- the same colour, and the hint naming a constant is as quiet as a comment.
-function M.colorPaintsSourceAndBytecodeAlike()
-   local dir = project{["demo.g.nupp"] = SCALE}
+-- The listing is read for the source; the bytecode beneath it is what that
+-- source cost. So the source carries the colours and the instructions are muted
+-- as one run, with one exception: the `;` hint, where an instruction names
+-- something the reader wrote.
+function M.colorHighlightsSourceAndMutesTheBytecode()
+   local dir = project{["demo.g.nupp"] = 'local greeting = "hi"\nprint(greeting)\n'}
    local out = run(dir, "--color demo.g.nupp")
-   assert(out:find("\27%[35mfor\27%[0m"), "a source keyword is painted as one:\n" .. out)
-   assert(out:find("\27%[35mFORI\27%[0m"), "a loop opcode is painted as control flow:\n" .. out)
-   assert(out:find("\27%[33mKSHORT\27%[0m") or out:find("\27%[33mKNUM\27%[0m"),
-      "a constant load is painted as a constant:\n" .. out)
-   assert(out:find("\27%[90m;"), "an instruction's hint is dimmed:\n" .. out)
+   assert(out:find("\27%[35mlocal\27%[0m"), "a source keyword is painted as one:\n" .. out)
+   assert(out:find('\27%[32m"hi"\27%[0m'), "a source string is painted as one:\n" .. out)
+   assert(out:find("\27%[90m[^\27]*GGET"), "the instruction is muted as one run:\n" .. out)
+   assert(not out:find("\27%[%d+mGGET"), "no opcode carries a colour of its own:\n" .. out)
+   assert(out:find('\27%[32m"print"\27%[0m'),
+      "the hint keeps the name it carries from the source:\n" .. out)
 end
 
 function M.colorMarksAVerdictWithItsSeverity()
