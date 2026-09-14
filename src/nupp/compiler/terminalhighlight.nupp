@@ -98,21 +98,28 @@ function terminalhighlight.paint(palette: terminalhighlight.Palette, style: stri
     return paint(text)
 end
 
---- Colours one Nupp source, a line at a time.
+--- One line of source, as the runs of text that make it up.
+type terminalhighlight.Row = {syntaxstyle.Span}
+
+--- Classifies one Nupp source into rows, a row per line.
 ---
---- The whole source is classified at once because Nupp's syntax needs it: a
---- name is a type or a call by what surrounds it, and a long comment spans
---- lines. The result is indexed by source line so a caller echoing lines out of
---- order -- which a listing does -- can ask for one.
+--- The whole source is classified at once because Nupp's syntax needs it: a name
+--- is a type or a call by what surrounds it, and a long comment spans lines. The
+--- result is indexed by source line, so a caller echoing lines out of order --
+--- which a listing does -- can ask for one.
 ---
---- A source that does not parse is returned uncoloured rather than refused.
+--- Rows rather than painted strings, because a listing decides how much room a
+--- line gets only after it has seen every line, and a painted string cannot be
+--- cut to a width afterwards without cutting an escape in half.
 ---
---- @param source the Nupp source to colour
---- @param palette the palette to paint from
---- @return one string per line of the source, without newlines
+--- A source that does not parse has no rows, and each line of it is then shown
+--- as the plain text it already was.
+---
+--- @param source the Nupp source to classify
+--- @return one row per line of the source
 --- @raises never
-function terminalhighlight.nuppLines(source: string, palette: terminalhighlight.Palette): {string}
-    local lines: {string} = {""}
+function terminalhighlight.rows(source: string): {terminalhighlight.Row}
+    local rows: {terminalhighlight.Row} = {{}}
 
     local function append(text: string, style: string?): nil
         local start = 1
@@ -120,31 +127,70 @@ function terminalhighlight.nuppLines(source: string, palette: terminalhighlight.
             local finish = text:find("\n", start, true)
             local piece = finish and text:sub(start, finish - 1) or text:sub(start)
             if piece ~= "" then
-                lines[#lines] = lines[#lines] .. (style and terminalhighlight.paint(palette, style, piece) or piece)
+                local row = rows[#rows]
+                row[#row + 1] = {text = piece, style = style}
             end
             if not finish then
                 break
             end
-            lines[#lines + 1] = ""
+            rows[#rows + 1] = {}
             start = finish + 1
         end
     end
 
     local spans = syntaxstyle.spans(source, "bytecode-listing.nupp")
     if spans == nil then
-        for line in (source .. "\n"):gmatch("(.-)\n") do
-            lines[#lines] = line
-            lines[#lines + 1] = ""
-        end
-        lines[#lines] = nil
-
-        return lines
+        return {}
     end
     for _, span in ipairs(spans) do
         append(span.text, span.style)
     end
 
-    return lines
+    return rows
+end
+
+--- Paints one row, cut to the columns it has been given.
+---
+--- The marker is the caller's, because what marks a line the listing had to cut
+--- is the listing's decision and has to match however it marks anything else it
+--- cut.
+---
+--- @param row the row to paint, or nothing for a line that was never classified
+--- @param text the line's plain text, used when there is no row
+--- @param palette the palette to paint from
+--- @param column how many display columns the result may occupy
+--- @param marker written where the line was cut
+--- @return the painted line
+--- @raises never
+function terminalhighlight.paintRow(
+    row: terminalhighlight.Row?,
+    text: string,
+    palette: terminalhighlight.Palette,
+    column: integer,
+    marker: string
+): string
+    local measure: any = require("nupp.compiler.fmt.displaywidth")
+    if row == nil then
+        local clipped = measure.clip(text, column)
+        return clipped == text and text or (measure.clip(text, column - #marker) .. marker)
+    end
+    local out: {string} = {}
+    local remaining = column
+    for _, span in ipairs(row) do
+        local wide = measure.displayWidth(span.text)
+        if wide <= remaining then
+            out[#out + 1] = terminalhighlight.paint(palette, span.style or "", span.text)
+            remaining = remaining - wide
+        else
+            local kept = measure.clip(span.text, remaining - #marker)
+            out[#out + 1] = terminalhighlight.paint(palette, span.style or "", kept)
+            out[#out + 1] = marker
+
+            return table.concat(out)
+        end
+    end
+
+    return table.concat(out)
 end
 
 --- The `;` hint LuaJIT prints for an instruction, coloured.

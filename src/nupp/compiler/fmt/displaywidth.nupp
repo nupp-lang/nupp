@@ -491,3 +491,34 @@ export function displayWidth(text: string): number
 
     return width
 end
+
+--- The longest prefix of a string that occupies no more than a given number of
+--- columns.
+---
+--- Cutting by bytes is the wrong question for the same reason measuring by them
+--- is: it can land inside a character and leave a broken one behind. This stops
+--- on a boundary, and never returns a prefix wider than it was asked for -- so a
+--- double-width character with one column left is dropped rather than shown as
+--- half of itself.
+---
+--- @param text the string to cut
+--- @param columns how many display columns the prefix may occupy
+--- @return the prefix
+--- @raises never
+export function clip(text: string, columns: number): string
+    if columns <= 0 then
+        return ""
+    end
+    local width, pos = 0, 1
+    while pos <= #text do
+        local cp, nextPos = nextCodepoint(text, pos)
+        local advance = codepointWidth(cp)
+        if width + advance > columns then
+            return text:sub(1, pos - 1)
+        end
+        width = width + advance
+        pos = nextPos
+    end
+
+    return text
+end

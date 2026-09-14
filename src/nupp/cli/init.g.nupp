@@ -105,6 +105,11 @@ function cliModule.isTerminal(stream: LuaFile): boolean
     return require("nupp.cli.internal.terminal").isTerminal(stream)
 end
 
+--- Reports how many columns one stream's terminal has, when it has one.
+function cliModule.columns(stream: LuaFile): integer?
+    return require("nupp.cli.internal.terminal").columns(stream)
+end
+
 --- Returns the generic styles selected for one stream.
 function cliModule.style(stream: LuaFile): cliModule.Style
     return require("nupp.cli.internal.terminal").style(stream)

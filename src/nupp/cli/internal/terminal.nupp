@@ -114,6 +114,44 @@ local function isatty(fd: integer): boolean
     return retried and retriedResult ~= 0
 end
 
+-- `TIOCGWINSZ` is not a portable constant: it is an encoded request number, and
+-- the encoding differs between the BSD lineage and Linux. Only the two spellings
+-- that exist are listed, so a platform with a third answers "unknown" rather than
+-- issuing some other system call by accident.
+local WINDOW_SIZE = {OSX = 0x40087468, BSD = 0x40087468, Linux = 0x5413}
+
+local function ioctlColumns(fd: integer): integer?
+    local loaded, ffi = pcall(require, "ffi")
+    if not loaded then
+        return nil
+    end
+    -- Which system this is, asked of the foreign-function library rather than of
+    -- `jit`: this file is held to the `lua51` surface, where that global does not
+    -- exist, and the library is already the thing that decides whether any of
+    -- this runs at all.
+    local library: any = ffi
+    local request = WINDOW_SIZE[library.os or ""]
+    if request == nil then
+        return nil
+    end
+    pcall(ffi.cdef, "struct nupp_winsize { unsigned short ws_row, ws_col, ws_x, ws_y; };")
+    pcall(ffi.cdef, "int ioctl(int, unsigned long, ...);")
+    local ok, answer = pcall(function(): number?
+        local C: any = library.C
+        local size: any = library.new("struct nupp_winsize")
+        if C.ioctl(fd, request, size) ~= 0 then
+            return nil
+        end
+
+        return tonumber(size.ws_col)
+    end)
+    if not ok or answer == nil or (answer as number) <= 0 then
+        return nil
+    end
+
+    return math.floor(answer as number)
+end
+
 local function capable(fd: integer): boolean
     if os.getenv("TERM") == "dumb" then
         return false
@@ -183,6 +221,21 @@ export function isTerminal(stream: LuaFile): boolean
     end
 
     return known
+end
+
+--- How many columns one stream's terminal has, or nothing when it has none.
+---
+--- The terminal itself is asked first, because `COLUMNS` is a shell variable
+--- that is usually not exported and is stale whenever it is: a window resized
+--- after the shell started still reports the width it had at login.
+export function columns(stream: LuaFile): integer?
+    local measured = ioctlColumns(DESCRIPTOR[stream] or 1)
+    if measured ~= nil then
+        return measured
+    end
+    local declared = tonumber(os.getenv("COLUMNS") or "")
+
+    return declared ~= nil and declared > 0 and math.floor(declared) or nil
 end
 
 --- Returns a stable style table for one stream.

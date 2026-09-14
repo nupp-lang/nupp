@@ -43,6 +43,26 @@ local function run(dir, argv)
    return (out:gsub("__exit__:%d+%s*$", "")), code
 end
 
+-- The row a source line owns, from the line number to the end of the rows that
+-- carry the rest of its instructions. The listing is two columns now, so "what
+-- did this line compile to" is a row and its continuations rather than the lines
+-- beneath a heading.
+local function rowsFor(out, pattern)
+   local rows, collecting = {}, false
+   for line in out:gmatch("([^\n]*)\n") do
+      local numbered = line:match("^%s*%d+ |")
+      if numbered and line:find(pattern) then
+         rows, collecting = {line}, true
+      elseif numbered then
+         collecting = false
+      elseif collecting and line:match("^%s*|") then
+         rows[#rows + 1] = line
+      end
+   end
+
+   return #rows > 0 and table.concat(rows, "\n") or nil
+end
+
 local SCALE = table.concat({
    "local function scale(values: {number}, by: number): number",
    "    local total = 0",
@@ -86,8 +106,31 @@ function M.theListingShowsSourceAgainstTheInstructionsItProduced()
       "source lines are shown:\n" .. out)
    assert(out:find("FORI", 1, true) and out:find("FORL", 1, true),
       "the loop's bytecode is shown:\n" .. out)
-   assert(out:find("-- function, lines 1-7", 1, true),
-      "nested functions are listed with their own line span:\n" .. out)
+   assert(out:find("|%s+0%d%d%d%s+FORI"),
+      "an instruction sits on the row of the line that wrote it:\n" .. out)
+end
+
+-- The file runs down the left and what it compiled to runs down the right. Two
+-- things follow that the older listing could not show: a line is written once
+-- however many functions have instructions on it -- the line declaring a nested
+-- function used to appear twice, under the chunk that built the closure and
+-- again under the function it opened -- and a line that compiled to nothing is
+-- visibly a row with nothing beside it.
+function M.theListingIsTheFileBesideWhatItCompiledTo()
+   local dir = project{["demo.g.nupp"] = SCALE}
+   local out, code = run(dir, "demo.g.nupp")
+   test.equal(code, 0, out)
+   local seen = {}
+   for line in out:gmatch("[^\n]+") do
+      local at = tonumber(line:match("^%s*(%d+) |"))
+      if at then
+         assert(not seen[at], ("line %d has more than one row of its own:\n%s"):format(at, out))
+         seen[at] = true
+      end
+   end
+   assert(seen[1], "the first line of the file has a row:\n" .. out)
+   assert(out:match("\n%s*8 |%s*\n"),
+      "a blank line is a row with nothing beside it:\n" .. out)
 end
 
 -- The listing reads down the source, not down the bytecode.
@@ -120,9 +163,9 @@ end
 function M.instructionsSitUnderTheLineTheyCameFrom()
    local dir = project{["demo.g.nupp"] = SCALE}
    local out = run(dir, "demo.g.nupp")
-   local body = assert(out:match("\n%s*%d+ |%s+for i = 1, #values do\n(.-)\n%s*%d+ |"),
+   local body = assert(rowsFor(out, "for i = 1, #values do"),
       "the loop header's own instructions:\n" .. out)
-   assert(body:find("FORI", 1, true), "the loop opens under the line that writes it:\n" .. body)
+   assert(body:find("FORI", 1, true), "the loop opens beside the line that writes it:\n" .. body)
 end
 
 -- The runtime preamble builds functions of its own. They are preamble too, and
@@ -192,7 +235,7 @@ end
 function M.declaredTypesLeaveNothingBehindInTheLoop()
    local dir = project{["demo.g.nupp"] = SCALE}
    local out = run(dir, "demo.g.nupp")
-   local body = assert(out:match("total = total %+ values%[i%] %* by\n(.-)\n%s*%d+ |"),
+   local body = assert(rowsFor(out, "total = total %+ values%[i%] %* by"),
       "the loop body's instructions:\n" .. out)
    assert(body:find("MULVV", 1, true) and body:find("ADDVV", 1, true),
       "the arithmetic is register ops:\n" .. body)
@@ -390,7 +433,7 @@ function M.colorMarksAVerdictWithItsSeverity()
    local dir = project{["bad.g.nupp"] = CAPTURING}
    local out, code = run(dir, "--color --check bad.g.nupp")
    test.equal(code, 1, out)
-   assert(out:find("\27%[31m   <%-%- this loop never compiles"),
+   assert(out:find("\27%[31m  <%-%- this loop never compiles"),
       "a loop that cannot compile is marked in red:\n" .. out)
 end
 

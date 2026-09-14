@@ -525,44 +525,58 @@ Arguments:
 
 Options:
   --format FORMAT, --json, --text
-                  Select the report representation.
-  --check         Report bytecode a loop cannot compile.
-  --prologue      Include the generated runtime preamble.
-  --schema        Print the JSON Schema of JSON output and exit.
-  -h, --help      Show this help
-  --color[=WHEN]  When to color output: always, never, or auto
-  --no-color      Never color output
+                   Select the report representation.
+  --check          Report bytecode a loop cannot compile.
+  --prologue       Include the generated runtime preamble.
+  --width COLUMNS  Columns the listing may use. Defaults to the terminal's
+                   width.
+  --schema         Print the JSON Schema of JSON output and exit.
+  -h, --help       Show this help
+  --color[=WHEN]   When to color output: always, never, or auto
+  --no-color       Never color output
 ```
 
 Generated Lua keeps source line numbers one to one, so the listing shows the
-file that was written rather than the file that was generated:
+file that was written rather than the file that was generated. The file runs
+down the left and what each line compiled to runs down the right:
 
-```text [nupp bc src/greet.nupp]
--- chunk, lines 0-6
-     ... 44 instructions of runtime preamble
-    3 | end
-      0044  FNEW     4   7      ; greet.nupp:1
-    5 | return {greet = greet}
-      0045  TDUP     5   8
-      0046  TSETS    4   5   9  ; "greet"
-      0047  UCLO     0 => 0048
-      0048  RET1     5   2
+```text [nupp bc greet.nupp]
+  1 | local function greet(name: string): string | 0000  FUNCF    3
+  2 |     return "Hello, " .. name               | 0001  KSTR     1   0      ; "Hello, "
+    |                                            | 0002  MOV      2   0
+    |                                            | 0003  CAT      1   1   2
+    |                                            | 0004  RET1     1   2
+  3 | end                                        | 0046  FNEW     4  16      ; greet.nupp:1
+  4 |
+  5 | return {greet = greet}                     | 0047  TDUP     5  17
+    |                                            | 0048  TSETS    4   5  18  ; "greet"
+    |                                            | 0049  UCLO     0 => 0050
+    |                                            | 0050  RET1     5   2
 
-  -- function, lines 1-3
-      1 | local function greet(name: string): string
-        0000  FUNCF    3 
-      2 |     return "Hello, " .. name
-        0001  KSTR     1   0      ; "Hello, "
-        0002  MOV      2   0
-        0003  CAT      1   1   2
-        0004  RET1     1   2
+-- 65 instructions of runtime preamble, in 1 function
 ```
 
-A terminal gets the listing colored. The source carries the colors this
-documentation uses; the instructions under it are muted, because a listing is
-mostly bytecode and coloring all of it leaves the source nothing to stand out
-against. The `;` hint keeps its color, since that is where an instruction names
-something from the source -- the global it looked up, the string it loaded.
+A line that compiled to several instructions keeps the first beside it and the
+rest on the rows below. A line that compiled to nothing -- line 4 above, and
+every comment and type annotation -- is a row with nothing beside it, which is
+the answer to what the annotations cost.
+
+The row is divided by what each half needs: the file gets the width of its
+longest line where the terminal has room for it, and the source is what gets
+truncated when it does not, since a source line cut short is one you can still
+recognize where an instruction cut short is not. [`--width`](#bc) overrides the
+width, and redirected output uses a fixed one so the same command produces the
+same bytes on any machine.
+
+The generated runtime preamble is folded into the count at the end rather than
+shown against line 1, where it would bury whatever the file has on that line
+under a runtime nobody wrote. `--prologue` shows it.
+
+A terminal gets the listing colored. The left half carries the colors this
+documentation uses; the right half is muted, because a listing is mostly
+bytecode and coloring all of it leaves the source nothing to stand out against.
+The `;` hint keeps its color, since that is where an instruction names something
+from the source -- the global it looked up, the string it loaded.
 
 The escapes go inside lines and never change how many there are, so a listing
 stripped of them is the listing a pipe gets -- which is what redirected output

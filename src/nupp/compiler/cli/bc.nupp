@@ -77,6 +77,20 @@ local REPORT_SCHEMA = {
     required = {"file", "functions", "unrecordable"},
 }
 
+--- How many columns the listing may use.
+---
+--- A terminal is asked how wide it is, so the file gets whatever room the window
+--- has. Anything else -- a pipe, a file, a CI log -- gets the default rather
+--- than a width that would make the same command produce different bytes on
+--- different machines.
+local function width(options: any): integer?
+    if options.width ~= nil and options.width > 0 then
+        return math.floor(options.width)
+    end
+
+    return cliModule.colorEnabled(io.stdout) and cliModule.columns(io.stdout) or nil
+end
+
 --- The listing's colours, wired from the terminal highlighter.
 ---
 --- The source is highlighted once, here, rather than a line at a time inside the
@@ -90,11 +104,11 @@ local REPORT_SCHEMA = {
 local function palette(source: string): listing.Palette
     local paint = require("nupp.compiler.terminalhighlight")
     local colors = paint.palette(cliModule.colorEnabled(io.stdout))
-    local lines = paint.nuppLines(source, colors)
+    local rows = paint.rows(source)
 
     return {
-        source = function(at: integer, text: string): string
-            return lines[at] or text
+        source = function(at: integer, text: string, column: integer): string
+            return paint.paintRow(rows[at], text, colors, column, listing.TRUNCATED)
         end,
         gutter = function(text: string): string
             return paint.paint(colors, "comment", text)
@@ -195,6 +209,7 @@ local function run(options: any): integer
                 boundaryFunction = boundaryFunction,
                 boundaryPc = boundaryPc,
                 palette = palette(source),
+                width = width(options),
             }))
         )
     end
@@ -227,6 +242,10 @@ local record Bytecode
 
     --- Include the generated runtime preamble.
     prologue: boolean = false
+
+    --- Columns the listing may use. Defaults to the terminal's width.
+    @cli(value = "COLUMNS")
+    width: integer = 0
 
     --- Print the JSON Schema of JSON output and exit.
     schema: boolean = false
