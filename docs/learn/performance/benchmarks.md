@@ -268,13 +268,22 @@ interior. Below ten you get the range and no verdict.
 `sum.floats.index:size=10000` shows `unstable` above:
 
 ```text
-bench: trend-warning: sum.floats.index:size=10000: monotone trend in 7/12 forks;
-       interval withheld and verdict forced to inconclusive
+bench: trend-warning: sum.floats.index:size=10000: monotone trend in 7/12 forks,
+       level moved +5.4% across the series; interval withheld and verdict forced
+       to inconclusive. Raise warmupIterations so the movement happens before
+       timing starts
 ```
 
 Each fork's samples are tested in execution order for a monotone trend
-(Mann–Kendall, per process, never pooled). Still trending means not settled, so
-the median is a moving target. Raise `warmupIterations` and run it again.
+(Mann–Kendall, per process, never pooled) **and** for how far the level actually
+moved between the ends of the series. Both are required: a trend needs a
+p-value under 0.05 *and* a drift of at least 3%.
+
+The magnitude half matters as much as the significance half. Over 64 blocks a
+drift of a fraction of a percent is comfortably detectable — one benchmark
+reported `p = 0.00035` on a level that had moved 2.5%, which is unmistakable and
+worth nothing. Withholding an interval for that is the same error as calling a
+significant change meaningful without a margin.
 
 There is deliberately **no verdict asserting a steady state**. Failing to detect
 a trend does not establish one, and Barrett et al. needed changepoint analysis

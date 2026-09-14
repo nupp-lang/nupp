@@ -150,7 +150,7 @@ local function run(options: any): integer
         return usageError("--profile-interval-ms and --profile-zone need --profile DIR")
     end
     for _, entry in ipairs({
-        {name = "--case", patterns = values.case},
+        {name = "--case", patterns = values.caseGmatch},
         {name = "--parameter", patterns = values.parameter},
         {name = "--variant", patterns = values.variant},
     }) do
@@ -174,7 +174,7 @@ local function run(options: any): integer
             accept = values.accept,
             json = values.json,
             geo = values.geo,
-            casePatterns = values.case,
+            casePatterns = values.caseGmatch,
             parameterPatterns = values.parameter,
             variantPatterns = values.variant,
             file = values.file,

@@ -283,10 +283,15 @@ record bench.Measurement
     --- avoid making.
     trend: string?
 
-    --- Kendall's tau and the two-sided p-value behind `trend`.
+    --- Kendall's tau and the two-sided p-value behind `trend`, and how far the level
+    --- actually moved between the ends of the series.
+    ---
+    --- `trend` needs both a significant test and a drift worth acting on, so a series
+    --- that moved half a percent with a p-value of 0.005 is not reported as trending.
     trendTau: number?
 
     trendPValue: number?
+    trendDrift: number?
 
     --- The fraction of this measurement's samples lying within ten percent of its
     --- median.
@@ -751,6 +756,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         trend = rounds.verdict,
         trendTau = rounds.tau,
         trendPValue = rounds.pValue,
+        trendDrift = rounds.drift,
         concentration = statistics.concentration(times, statistics.CONCENTRATION_TOLERANCE),
         outlierCount = far.severe,
         outlierMaxRatio = far.maxRatio,
@@ -1045,6 +1051,7 @@ local function measureSuite(
         trend = drift.verdict,
         trendTau = drift.tau,
         trendPValue = drift.pValue,
+        trendDrift = drift.drift,
         concentration = statistics.concentration(samples, statistics.CONCENTRATION_TOLERANCE),
         outlierCount = far.severe,
         outlierMaxRatio = far.maxRatio,

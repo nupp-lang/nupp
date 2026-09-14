@@ -593,6 +593,7 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
     -- the verdict follows it to inconclusive.
     local trending: integer = 0
     local tested: integer = 0
+    local drifts: {number} = {}
     for _, fork in ipairs(forks) do
         local measurement = onlyMeasurement(fork)
         local verdict = measurement and measurement.trend
@@ -600,6 +601,7 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
             tested = (tested + 1) as integer
             if verdict == "trend" then
                 trending = (trending + 1) as integer
+                drifts[#drifts + 1] = measurement.trendDrift or 0.0
             end
         end
     end

@@ -502,8 +502,53 @@ function M.outliersAreClassifiedWithoutMovingTheEstimate()
     closeTo(statistics.median(planted), statistics.median(clean), 0.2, "the median is unmoved by the outliers")
 end
 
+-- Significance is not enough to withhold an interval.
+--
+-- Mann-Kendall answers whether a monotone trend exists, not whether it matters, and
+-- over sixty-four blocks a drift of a fraction of a percent is comfortably detectable.
+-- Four JSON benchmarks were reported as trending on that basis; one of them had
+-- p = 0.00035 with a level that moved 2.5%, which withheld its interval and forced
+-- every verdict about it to inconclusive over a movement nobody would act on. That is
+-- the same error the verdict rule has a margin to avoid, so this has one too.
+function M.aTrendNeedsMagnitudeAndNotOnlySignificance()
+    local statistics = require("nupp.bench.statistics")
+
+    -- A long, very slightly falling series: unmistakable to the test, worth nothing to
+    -- a reader. Detectable and negligible at the same time is the case that matters.
+    local negligible = {}
+    for index = 1, 400 do
+        negligible[index] = 100.0 - index * 0.0025
+    end
+    const slight = statistics.trend(negligible)
+    assertTrue(slight.pValue < statistics.ALPHA, "the trend is statistically unmistakable")
+    assertTrue(math.abs(slight.drift) < statistics.TREND_MIN_DRIFT, "and the level barely moved")
+    assertEq(slight.verdict, "no-trend-detected", "so it is not reported as trending")
+
+    -- The same shape with a movement worth acting on.
+    local material = {}
+    for index = 1, 400 do
+        material[index] = 100.0 - index * 0.05
+    end
+    const real = statistics.trend(material)
+    assertTrue(real.pValue < statistics.ALPHA, "the trend is significant")
+    assertTrue(math.abs(real.drift) >= statistics.TREND_MIN_DRIFT, "and the level moved materially")
+    assertEq(real.verdict, "trend", "so it is reported")
+    assertTrue(real.drift < 0.0, "and the direction is carried, so a report can say which way")
+
+    -- Magnitude without significance is noise that happened to end where it started
+    -- from, and must not be reported either.
+    local noisy = {}
+    for index = 1, 400 do
+        noisy[index] = 100.0 + ((index * 37) % 41) * 1.0
+    end
+    const jitter = statistics.trend(noisy)
+    assertEq(jitter.verdict, "no-trend-detected", "an unstructured series is not a trend")
+end
+
 function M.trendIsDetectedAndSteadyIsNeverClaimed()
     local statistics = require("nupp.bench.statistics")
+    -- The movements here clear the magnitude margin as well as the significance test,
+    -- because a trend now needs both.
     local warming, drifting, flat = {}, {}, {}
     for index = 1, 200 do
         warming[index] = 100.0 - index * 0.2
