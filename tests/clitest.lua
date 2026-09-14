@@ -165,6 +165,76 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
     ansi.setColorMode("auto")
 end
 
+function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
+    local long = "a description far longer than the window it is being printed into"
+    -- The style decides whether a cut can be shown by dimming, so it is passed here
+    -- rather than read from the process: a caller printing unpainted gets the marker
+    -- whatever the mode says.
+    local function build(width)
+        return {
+            columns = {{heading = "name"}, {heading = "summary"}},
+            rows = {{ansi.cell("alpha"), ansi.cell(long)}, {ansi.cell("beta"), ansi.cell("short")}},
+            style = ansi.style(io.stdout),
+            width = width,
+        }
+    end
+
+    ansi.setColorMode("never")
+    -- No width is no edge, so nothing is cut. This is the pipe, and a pipe gets every
+    -- byte: something reads it later that wanted all of them.
+    local whole = ansi.table(build(nil))
+    assert(whole:find(long, 1, true), "with no width the cell is printed whole")
+
+    local fitted = ansi.table(build(40))
+    for line in fitted:gmatch("[^\n]+") do
+        assert(#line <= 40, "every line fits the width: " .. #line .. " " .. line)
+    end
+    assert(not fitted:find(long, 1, true), "the long cell was cut")
+    assert(fitted:find("short", 1, true), "a cell that already fits is untouched")
+    -- Nothing wraps: a row is still a row.
+    local rows = 0
+    for _ in fitted:gmatch("[^\n]+") do
+        rows = rows + 1
+    end
+    assert(rows == 3, "heading and two rows, none of them wrapped: " .. rows)
+    -- Without colour the cut needs a mark of its own, or it reads as a description
+    -- that simply ended there.
+    assert(fitted:find("...", 1, true), "an unpainted cut says it was cut")
+
+    ansi.setColorMode("always")
+    local painted = ansi.table(build(40))
+    local cut
+    for line in painted:gmatch("[^\n]+") do
+        if line:find("alpha", 1, true) then
+            cut = line
+        end
+    end
+    assert(cut:find("\27%[2m"), "a painted cut fades toward the edge instead: " .. cut)
+    assert(not cut:find("...", 1, true), "and needs no marker")
+    assert(#(cut:gsub("\27%[[0-9;]*m", "")) == 40, "the fade is inside the width, not past it")
+
+    -- A cell's aside survives the cut. It is the shorter and more particular half, so
+    -- losing it silently would lose the whole of what it said.
+    ansi.setColorMode("never")
+    local noted = ansi.table({
+        columns = {{heading = "name"}, {heading = "summary"}},
+        rows = {{ansi.cell("alpha"), ansi.annotatedCell(long, " (note)")}},
+        style = ansi.style(io.stdout),
+        width = 40,
+    })
+    assert(noted:find(" (note)", 1, true), "the aside is kept and the text cut around it")
+    for line in noted:gmatch("[^\n]+") do
+        assert(#line <= 40, "still fits: " .. line)
+    end
+
+    -- Too narrow to cut usefully: what would survive is a few letters and a fade,
+    -- which says less than the wrapped line it replaced.
+    local cramped = ansi.table(build(22))
+    assert(cramped:find(long, 1, true), "below the floor the cell is left alone to wrap")
+
+    ansi.setColorMode("auto")
+end
+
 local function capture(argv)
     -- This test defines automatic colour as a plain pipe, whatever the shell
     -- that launched the suite put in its environment.

@@ -8,9 +8,15 @@ applied after padding, because an escape code is bytes with no width on screen:
 padding styled text aligns the escapes rather than the letters. That ordering is
 the whole reason this is shared rather than written again at each command.
 
-Nothing here wraps or truncates. A column is as wide as its widest cell, and a
-terminal narrower than the total is the terminal's business -- a listing that
-silently drops the end of a name is worse than one that wraps.
+Nothing here wraps. A row is a row: a description that runs past the window is
+cut at the edge and dimmed as it approaches it, so the line still reads as one
+row and the cut reads as text continuing rather than as text ending. Wrapping
+would say the opposite -- a two-line row in a list of one-line rows looks like
+two entries, and the column it wrapped under is no longer a column.
+
+The cut happens only when the width is known and the output is going somewhere
+that has an edge. A pipe, a file, a redirect: those get every byte, because
+output nobody is watching gets read later by something that wanted all of it.
 ]]
 
 const {type Style} = require("nupp.cli.internal.terminal")
@@ -77,7 +83,19 @@ export record Options
 
     --- Whether to print the heading row at all.
     showHeading: boolean?
+
+    --- Columns available on screen. The last column is cut to fit rather than left
+    --- to wrap. Nil cuts nothing, which is what a pipe wants.
+    width: integer?
 end
+
+--- How many characters at a cut are dimmed. Enough to read as a fade rather than as
+--- one odd-looking character, short enough to leave the words before it plain.
+local FADE = 8
+
+--- Below this there is no room to cut usefully: what survives would be a few letters
+--- and a fade, which says less than the wrapped line it replaced.
+local NARROWEST = 24
 
 --- A plain cell.
 export function text(value: string): Cell
@@ -137,6 +155,42 @@ export function render(options: Options): string
 
     const notePaint = styles ~= nil and styles.faint or identity
 
+    -- Whether dimming is actually visible. Under `--no-color`, or into anything that
+    -- is not a terminal, `faint` hands the text straight back, so a cut would be a
+    -- cut with nothing to mark it. There the marker is written instead.
+    const dims = notePaint("x") ~= "x"
+
+    -- Only the last column is cut. The ones before it are keys -- a name, a level, a
+    -- kind -- and a cut key is not a shorter key, it is the wrong one.
+    if options.width ~= nil and #columns > 1 then
+        local before = #indent
+        for index = 1, #columns - 1 do
+            before = before + widths[index] + #gap
+        end
+        const room = (options.width as integer) - before
+        if room >= NARROWEST and widths[#columns] > room then
+            widths[#columns] = room
+        end
+    end
+
+    --- Cuts `value` to `room` and fades what remains toward the edge.
+    local function cut(value: string, room: integer, paint: function(string): string): string
+        if not dims then
+            const marker = "..."
+            if room <= #marker then
+                return paint(value:sub(1, room))
+            end
+
+            return paint(value:sub(1, room - #marker)) .. notePaint(marker)
+        end
+        local tail = FADE
+        if tail >= room then
+            tail = room
+        end
+
+        return paint(value:sub(1, room - tail)) .. notePaint(value:sub(room - tail + 1, room))
+    end
+
     -- Painted after padding, and the note painted apart from the text: an escape is
     -- bytes with no width on screen, so anything measured has to be measured before a
     -- colour is put on it. The last column carries no padding, because a trailing run
@@ -146,8 +200,23 @@ export function render(options: Options): string
         const value = cell ~= nil and cell.text or ""
         const note = cell ~= nil and cell.note or nil
         const align = column.align
+        const noteWidth = note ~= nil and #note or 0
+        const missing = widths[index] - #value - noteWidth
+        if missing < 0 then
+            -- Over the column's width, which only the clamped last column can be.
+            -- The note goes first, because it is the shorter and more particular of
+            -- the two and losing it silently would lose the whole of what it said.
+            if noteWidth > 0 and noteWidth <= widths[index] then
+                return cut(
+                    value,
+                    widths[index] - noteWidth,
+                    paint
+                ) .. (cell ~= nil and cell.notePaint or notePaint)(note as string)
+            end
+
+            return cut(value, widths[index], paint)
+        end
         local padding = ""
-        const missing = widths[index] - #value - (note ~= nil and #note or 0)
         if missing > 0 and (index < #columns or align == "right") then
             padding = (" "):rep(missing)
         end
@@ -185,9 +254,32 @@ export function render(options: Options): string
     return table.concat(lines, "\n") .. "\n"
 end
 
---- Renders the table straight to a stream.
+--- Renders the table straight to a stream, fitting it to that stream's width.
+---
+--- The width is taken from the stream rather than asked of the caller, so a command
+--- gets the fitting by printing through here and does not have to know it wanted it.
 export function write(stream: LuaFile, options: Options): nil
-    const rendered = render(options)
+    local fitted = options
+    if options.width == nil then
+        -- Asked only of a terminal. `columns` answers for anything, falling back to
+        -- `COLUMNS`, which a shell commonly exports -- so asking it about a pipe
+        -- would quietly shorten `nupp lints > file` to whatever the window was.
+        const console = require("nupp.cli.internal.terminal")
+        const available = console.isTerminal(stream) and console.columns(stream) or nil
+        if available ~= nil then
+            fitted = new Options(
+                columns = options.columns,
+                rows = options.rows,
+                style = options.style,
+                headingPaint = options.headingPaint,
+                gap = options.gap,
+                indent = options.indent,
+                showHeading = options.showHeading,
+                width = available
+            )
+        end
+    end
+    const rendered = render(fitted)
     if rendered ~= "" then
         stream:write(rendered)
     end
