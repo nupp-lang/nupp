@@ -334,11 +334,11 @@ the paired log ratios with an exact signed-rank interval.
 
 ```text
 Durations: candidate vs build/baseline/bin/nupp  (interleaved, paired)
-Benchmark                        Change                Interval  Verdict
-json-decode.large.nupp-peg       +18.4%       [+16.2%, +20.7%]   regressed
-soa.particle-update.generated     -9.7%       [-11.1%, -8.2%]    improved
-sum.floats.index:size=100         -0.4%        [-1.3%, +0.6%]    unchanged
-peg-kernels.single-span.lpeg      +6.2%        [-1.3%, +14.0%]   inconclusive
+Benchmark                      Change          Interval  Verdict
+json-decode.large.nupp-peg     +18.4%  [+16.2%, +20.7%]  regressed
+soa.particle-update.generated   -9.7%   [-11.1%, -8.2%]  improved
+sum.floats.index:size=100       -0.4%    [-1.3%, +0.6%]  unchanged
+peg-kernels.single-span.lpeg    +6.2%   [-1.3%, +14.0%]  inconclusive
 
 bench: 49 compared, equivalence margin +-2.0%, Benjamini-Hochberg adjusted
        1 regressed, 1 improved, 1 unchanged, 46 inconclusive

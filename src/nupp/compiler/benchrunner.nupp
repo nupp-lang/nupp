@@ -1139,16 +1139,10 @@ end
 
 --- Reports between-fork variance and the forks a target precision would need.
 local function reportPilot(merged: {any}, forks: integer, failures: {string}): integer
-    local width: integer = #"Benchmark"
-    for _, entry in ipairs(merged) do
-        if #entry.name > width then
-            width = #entry.name as integer
-        end
-    end
     local recommended: integer = statistics.MIN_INTERVAL_SAMPLES
     io.stdout:write(("\nbench: pilot over %d forks, one shuffled permutation per round\n\n"):format(forks))
-    local pattern = "%-" .. tostring(width) .. "s  %15s  %13s  %13s"
-    io.stdout:write(pattern:format("Benchmark", "Between-fork CV", "Forks for +-2%", "Forks for +-5%"), "\n")
+    local style = cli.style(io.stdout)
+    local rows: {{cli.Cell}} = {}
     for _, entry in ipairs(merged) do
         local summaries = entry.summary.forkSummariesSec or {}
         local variation = statistics.coefficientOfVariation(summaries)
@@ -1157,17 +1151,48 @@ local function reportPilot(merged: {any}, forks: integer, failures: {string}): i
         if tight > recommended then
             recommended = tight
         end
-        io.stdout:write(
-            pattern:format(entry.name, ("%.1f%%"):format(variation * 100.0), tostring(tight), tostring(loose)),
-            "\n"
-        )
+        rows[
+            #rows + 1
+        ] = {
+            cli.paintedCell(entry.name, style.strong),
+            cli.cell(("%.1f%%"):format(variation * 100.0)),
+            cli.cell(tostring(tight)),
+            cli.cell(tostring(loose)),
+        }
     end
+    cli.writeTable(
+        io.stdout,
+        {
+            columns = {
+                {heading = "Benchmark"},
+                {heading = "Between-fork CV", align = "right"},
+                {heading = "Forks for +-2%", align = "right"},
+                {heading = "Forks for +-5%", align = "right"},
+            },
+            rows = rows,
+            style = style,
+        } as cli.TableOptions
+    )
     io.stdout:write(("\nbench: --forks %d covers every selected benchmark at +-2%%\n"):format(recommended))
     for _, failure in ipairs(failures) do
         io.stderr:write("bench: " .. failure .. "\n")
     end
 
     return #failures > 0 and 1 or 0
+end
+
+-- A verdict is a severity in everything but name. A regression is the one worth
+-- catching an eye, an improvement is the one worth believing least, and the two that
+-- say nothing yet are painted as the notes they are.
+local VERDICT_SEVERITY = {regressed = "error", unchanged = "note", inconclusive = "note",}
+
+local function verdictPaint(style: cli.Style, verdict: string): function(string): string
+    if verdict == "improved" then
+        return style.green
+    end
+    local severity = VERDICT_SEVERITY[verdict]
+
+    return severity ~= nil and cli.severity(style, severity) or style.faint
 end
 
 --- The duration section, which reports and never gates.
@@ -1177,12 +1202,7 @@ end
 --- a run against a stored record does not, and a reader has to be told which they are
 --- looking at before the verdicts mean anything.
 local function formatVerdicts(verdicts: {any}, margin: number, source: string, paired: boolean): string
-    local width: integer = #"Benchmark"
-    for _, item in ipairs(verdicts) do
-        if #item.name > width then
-            width = #item.name as integer
-        end
-    end
+    local style = cli.style(io.stdout)
     local lines: {string} = {}
     lines[#lines + 1] = ""
     if paired then
@@ -1192,9 +1212,8 @@ local function formatVerdicts(verdicts: {any}, margin: number, source: string, p
         lines[#lines + 1] = "note: the baseline was recorded in another session; nothing controls for what"
         lines[#lines + 1] = "      changed on this machine between them. Use --against for a causal claim."
     end
-    local pattern = "%-" .. tostring(width) .. "s  %9s  %22s  %s"
-    lines[#lines + 1] = pattern:format("Benchmark", "Change", "Interval", "Verdict")
     local counts: {[string]: integer} = {}
+    local rows: {{cli.Cell}} = {}
     for _, item in ipairs(verdicts) do
         local interval = "-"
         if item.withheld == "trend-warning" then
@@ -1204,8 +1223,31 @@ local function formatVerdicts(verdicts: {any}, margin: number, source: string, p
         elseif item.interval then
             interval = ("[%s, %s]"):format(percent(item.interval.low), percent(item.interval.upper))
         end
-        lines[#lines + 1] = pattern:format(item.name, percent(item.change), interval, item.verdict)
+        rows[
+            #rows + 1
+        ] = {
+            cli.paintedCell(item.name, style.strong),
+            cli.cell(percent(item.change)),
+            cli.cell(interval),
+            cli.paintedCell(item.verdict, verdictPaint(style, item.verdict)),
+        }
         counts[item.verdict] = ((counts[item.verdict] or 0) + 1) as integer
+    end
+    -- Trailing newline dropped: these lines are joined with one at the end.
+    const table_ = cli.table(
+        {
+            columns = {
+                {heading = "Benchmark"},
+                {heading = "Change", align = "right"},
+                {heading = "Interval", align = "right"},
+                {heading = "Verdict"},
+            },
+            rows = rows,
+            style = style,
+        } as cli.TableOptions
+    )
+    for line in table_:gmatch("[^\n]+") do
+        lines[#lines + 1] = line
     end
     lines[#lines + 1] = ""
     lines[

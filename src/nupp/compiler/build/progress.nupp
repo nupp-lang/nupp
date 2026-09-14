@@ -427,20 +427,25 @@ record progress.Reporter
         if #measured.slowest == 0 or measured.totalMs < 1000 then
             return
         end
-        local widest = 0
-        for _, span in ipairs(measured.slowest) do
-            if #span.module > widest then
-                widest = #span.module
-            end
-        end
         self.stream:write(style.faint("  slowest") .. "\n")
-        for _, span in ipairs(measured.slowest) do
-            self.stream:write(
-                style.faint(
-                    ("    %-" .. widest .. "s  %s"):format(span.module, progress.duration(span.durationMs))
-                ) .. "\n"
-            )
+        local rows: {{ansi.Cell}} = {}
+        for index, span in ipairs(measured.slowest) do
+            rows[index] = {ansi.cell(span.module), ansi.cell(progress.duration(span.durationMs))}
         end
+        -- A breakdown under a heading that already named it, so the columns go
+        -- unheaded; what is shared is the measuring and the padding.
+        ansi.writeTable(
+            self.stream,
+            {
+                columns = {
+                    {heading = "module", paint = style.faint},
+                    {heading = "took", align = "right", paint = style.faint,}
+                },
+                rows = rows,
+                showHeading = false,
+                indent = "    ",
+            } as ansi.TableOptions
+        )
     end
 end
 
