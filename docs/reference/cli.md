@@ -568,6 +568,8 @@ Options:
   --dialect DIALECT  Source-lowering dialect.
   --target NAME      Check a named manifest target.
   --platform NAME    Check one configured binary platform, or all.
+  --progress[=WHEN], -q, --quiet
+                     When to report progress and timing.
   --format FORMAT, --json, --text
                      Select the report representation.
   --schema           Print the JSON Schema of JSON output and exit.
@@ -633,6 +635,36 @@ a diagnostic holds and [lints.md](lints.md#severity-levels) for the levels.
 project that reported an error and for a run that never got as far as checking:
 a manifest the command could not use ends the run before any file is read, and
 an empty `diagnostics` cannot tell that apart from a clean project on its own.
+
+#### Check progress
+
+Checking a project from a terminal names the module it is working on and how
+far through the source set it is, on one line it rewrites in place, and finishes
+with how long it took and where that time went:
+
+```text
+  [ 62%] [251/405] checking src/nupp/compiler/gen.nupp
+```
+
+```text
+checked compiler in 44.3s: 405 compiled, 0 reused
+  check 41.8s  scan 1.9s
+  slowest
+    nupp.compiler.gen        2.7s
+    nupp.compiler.parser     1.6s
+    nupp.compiler.aot.lower  1.3s
+```
+
+The count is what to compare between runs and the percentage is what says at a
+glance whether the wait is nearly over; neither passes its total, since a module
+can pull in a dependency the source set did not already hold.
+
+Nothing is written unless standard error is a terminal, so a check driven by a
+script is as quiet as it has always been, and a check that finds something wrong
+prints the diagnostics rather than a summary. `--progress=always` reports anyway,
+`-q` reports nothing, and `NUPP_PROGRESS` says the same thing with `always`,
+`never` or `auto`. `--json` reports nothing unless `--progress` asks for it, and
+carries the same numbers in the `timing` object below instead.
 
 #### Check timing
 

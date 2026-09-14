@@ -82,10 +82,10 @@ type project.BuildOptions = {
     --- How many modules were checked, generated and reused.
     stats: Stats?,
 
-    --- When to say what the build is doing and what it cost: "always", "never", or
+    --- When to say what the run is doing and what it cost: "always", "never", or
     --- "auto", which means only when standard error is a terminal. Absent, the answer
-    --- comes from `NUPP_PROGRESS` and failing that from "auto". A check reports nothing
-    --- whatever this says.
+    --- comes from `NUPP_PROGRESS` and failing that from "auto". A check narrates on the
+    --- same terms, saying "checked" where a build says "built".
     progress: string?,
 
     --- Every diagnostic, instead of printing them.
@@ -199,10 +199,11 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- from where the caller asked for one, and a reader timing it with a wristwatch is
     -- not going to exclude the parts this one thought were setup.
     --
-    -- A check is measured and says nothing: it shares this code path, but `nupp check`
-    -- answers a question about the program rather than reporting work done, and a
-    -- summary of how long the answer took belongs to the command that asked.
-    local report = progressMod.new(opts.checkOnly and "never" or opts.progress)
+    -- A check narrates on the same terms a build does. Checking a cold project is the
+    -- better part of a minute of work that used to look identical to a hang, and the
+    -- reason to stay quiet -- scripts read this output -- is already answered by
+    -- writing nothing unless the stream is a terminal.
+    local report = progressMod.new(opts.progress)
     local config, loadErr = project.loadManifest(root)
     if not config then
         io.stderr:write(tostring(loadErr) .. "\n");
@@ -580,6 +581,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         (result.effects as {[string]: any})["runtime.gpu"] = true
     end
     if opts.checkOnly then
+        report:finish("checked", targetKey)
         if opts.produced then
             opts.produced.target = target.name or opts.target or "default"
             opts.produced.dialect = dialect

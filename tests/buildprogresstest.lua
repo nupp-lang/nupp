@@ -282,6 +282,45 @@ function M.levelZeroDoesNotPlanOrCountProjectConstBodies()
     assert(not declaration:find("__nuppConst_accumulate_", 1, true), "-O0 never emits the optional private body")
 end
 
+function M.theStepLineSaysHowFarThroughTheSourceSetItIs()
+    local path = os.tmpname()
+    local report, stream = reporterTo(path, "always")
+    report:expect(4)
+    report:step("checking one.nupp")
+    report:resolved()
+    report:resolved()
+    -- Painting is throttled, and a file gets a line per step rather than a
+    -- rewrite, so the second line only arrives once the interval has passed.
+    report.paintedAt = 0
+    report:step("checking three.nupp")
+    -- The queue grows when a module pulls in a dependency the source set did not
+    -- already hold; neither the count nor the percentage goes past the total.
+    report:resolved()
+    report:resolved()
+    report:resolved()
+    report:resolved()
+    report.paintedAt = 0
+    report:step("checking extra.nupp")
+    stream:close()
+    local text = readAll(path)
+    assert(text:match("%[ 25%%%] %[1/4%] checking one%.nupp"), "the first module is a quarter of four: " .. text)
+    assert(text:match("%[ 75%%%] %[3/4%] checking three%.nupp"), "and the third is three quarters: " .. text)
+    assert(text:match("%[100%%%] %[4/4%] checking extra%.nupp"), "a grown queue stops at the total: " .. text)
+    os.remove(path)
+end
+
+function M.aStepLineWithNoTotalCountsNothing()
+    -- Before the source set is known there is nothing to be a fraction of, so the
+    -- line says what it is doing and claims no progress at all.
+    local path = os.tmpname()
+    local report, stream = reporterTo(path, "always")
+    report:step("resolving dependencies")
+    stream:close()
+    local text = readAll(path)
+    assertEq(text, "  resolving dependencies\n", "no counter and no percentage: " .. text)
+    os.remove(path)
+end
+
 function M.theSummarySaysHowLongAndWhatCostTheMost()
     local path = os.tmpname()
     local report, stream = reporterTo(path, "always")
@@ -353,6 +392,38 @@ function M.theEnvironmentSaysTheSameThingAndTheFlagOverrulesIt()
     assert(viaEnv:match("built app in %d"), "NUPP_PROGRESS=always: " .. viaEnv)
     local _, refused = run(dir, "build -q", "NUPP_PROGRESS=always ")
     assertEq(refused, "", "the flag overrules the environment: " .. refused)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.aCheckNarratesOnTheSameTermsABuildDoes()
+    -- A cold check of a real project is the better part of a minute of work that
+    -- used to look exactly like a hang. It reports on the terms a build does --
+    -- only to a terminal -- and says "checked" rather than "built", because what
+    -- it produced is an answer and not an artifact.
+    local dir = tempProject()
+    local narratedOut, narrated = run(dir, "check --progress=always")
+    assertEq(narratedOut, "", "nothing on standard output: " .. narratedOut)
+    assert(narrated:match("checked app in %d"), "the summary is on stderr: " .. narrated)
+    assert(narrated:match("compiled"), "and says what it checked: " .. narrated)
+    local out, quiet = run(dir, "check")
+    assertEq(out, "", "standard output stays clear: " .. out)
+    assertEq(quiet, "", "and a scripted check stays quiet: " .. quiet)
+    local _, reused = run(dir, "check --progress=always")
+    assert(reused:match("modules reused"), "a second check reports reuse: " .. reused)
+    local _, refused = run(dir, "check -q", "NUPP_PROGRESS=always ")
+    assertEq(refused, "", "the flag overrules the environment: " .. refused)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.aCheckIsNotNarratedAtInJsonUnlessAsked()
+    local dir = tempProject()
+    local out, err = run(dir, "check --json")
+    assertEq(err, "", "a machine reader is not narrated at: " .. err)
+    local decoded = require("testjson").decode(out)
+    assertEq(decoded.ok, true, "the check worked: " .. out)
+    assert(decoded.timing.totalMs > 0, "and carries the numbers in the document instead")
+    local _, narrated = run(dir, "check --json --progress=always")
+    assert(narrated:match("checked app in %d"), "--progress overrules the silence --json implies: " .. narrated)
     os.execute("rm -rf '" .. dir .. "'")
 end
 

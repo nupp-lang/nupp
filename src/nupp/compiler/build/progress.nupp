@@ -269,7 +269,16 @@ record progress.Reporter
             return
         end
         self.paintedAt = moment
-        local counted = self.total > 0 and ("[%d/%d] "):format(math.min(self.done + 1, self.total), self.total) or ""
+        -- A count answers "how much is left" only to a reader who knows how big the
+        -- project is; a percentage answers it to everybody. Both, because the two say
+        -- different things and together they cost one field: the count is what a reader
+        -- compares between runs, and the percentage is what tells them at a glance
+        -- whether waiting is worth it. Never past the total, since the queue can grow.
+        local counted = ""
+        if self.total > 0 then
+            local at = math.min(self.done + 1, self.total)
+            counted = ("[%3d%%] [%d/%d] "):format(math.floor(at / self.total * 100), at, self.total)
+        end
         local text = "  " .. counted .. label
         if #text > self.columns then
             text = text:sub(1, self.columns)

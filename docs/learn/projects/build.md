@@ -764,9 +764,15 @@ read the compiler waits for it.
 
 ## Build progress and timing
 
-A build run from a terminal names the module it is working on, on one line it
-rewrites in place, and finishes with how long it took, where that time went,
-and which modules cost the most of it:
+A build run from a terminal names the module it is working on and how far
+through the source set it is, on one line it rewrites in place:
+
+```text
+  [ 74%] [122/164] checking src/nupp/compiler/gen.nupp
+```
+
+It finishes with how long it took, where that time went, and which modules cost
+the most of it:
 
 ```text
 built compiler in 18.9s: 164 compiled, 0 reused
@@ -789,6 +795,9 @@ Per-module numbers are exclusive. A module's check reaches its imports through
 the query graph, so the time those take is charged to them rather than to
 whichever module reached them first. Otherwise the slowest module would be
 whichever one the build happened to start with.
+
+`nupp check` narrates on the same terms, saying `checked` where a build says
+`built`; see [cli.md](../../reference/cli.md#check-progress).
 
 Nothing is written unless standard error is a terminal, so a build driven by a
 script is as quiet as it has always been. `--progress=always` reports anyway,

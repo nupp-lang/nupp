@@ -261,7 +261,11 @@ function rock.test(root: string?, asked: string?): string?, string?
         removeTree(temp)
         return nil, writeErr
     end
-    local checked = require("nupp.compiler.build.project").build(consumer, {checkOnly = true})
+    -- Quiet whatever the terminal is doing: this consumer is scaffolding this command
+    -- wrote in a temporary directory to prove the packed rock installs, and a line
+    -- about how long checking it took describes a project the caller has never heard
+    -- of.
+    local checked = require("nupp.compiler.build.project").build(consumer, {checkOnly = true, progress = "never"})
     removeTree(temp)
     if checked ~= 0 then
         return nil, "the clean consumer could not check the installed rock"
