@@ -12,6 +12,15 @@ explicit selection overrides matching built-ins and may add names; unselected
 built-ins remain available. Lookup and context operations use the retained catalog
 without SPI resolution. Provider names identify implementations, independently
 of the algorithm names in their catalogs.
+
+## Builtin algorithms
+
+| Name | Width | Parameters |
+| --- | ---: | --- |
+| `adler32` | 32 | Adler-32 |
+| `crc32-ieee` | 32 | Reflected IEEE CRC-32 |
+| `crc32c` | 32 | Reflected Castagnoli CRC-32C |
+| `crc64-ecma` | 64 | ECMA-182, non-reflected, zero initialization and xor |
 ]]
 
 const span = require("nupp.mem.span")

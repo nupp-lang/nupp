@@ -746,6 +746,9 @@ select_host_features() {
             native-process|process)
                 host_cargo_features="$host_cargo_features,native-process"
                 ;;
+            native-compression|compression)
+                host_cargo_features="$host_cargo_features,native-compression"
+                ;;
             base) ;;
             *) die "unknown host feature $feature" ;;
         esac

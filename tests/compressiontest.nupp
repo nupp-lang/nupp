@@ -1,0 +1,179 @@
+local compression = require("nupp.compression")
+local io = require("nupp.io")
+local span = require("nupp.mem.span")
+local test = require("nupp.test")
+local M = {}
+
+local function writerOptions(name: string, workspace: integer?): compression.WriterOptions
+    local parameters: compression.EncoderParameters
+    if name == "gzip" then
+        parameters = new compression.GzipEncoderOptions(level = 6)
+    elseif name == "zlib" then
+        parameters = new compression.ZlibEncoderOptions(level = 6)
+    else
+        parameters = new compression.DeflateRawEncoderOptions(level = 6)
+    end
+
+    return new compression.WriterOptions(workspaceBytes = workspace, parameters = parameters)
+end
+
+function M.builtinFormatsRoundTripBinaryInput(): nil
+    assert(table.concat(compression.formats(), ",") == "deflate-raw,gzip,zlib")
+    local bytes = string.rep("abc\0\255", 2000)
+    for _, name in ipairs(compression.formats()) do
+        local format = compression.format(name)
+        assert(format.name == name)
+        local compressed = format:compress(bytes, writerOptions(name, 17))
+        assert(#compressed < #bytes)
+        assert(format:decompress(compressed, new compression.ReaderOptions(workspaceBytes = 13)) == bytes)
+    end
+end
+
+function M.emptyStreamsRoundTripAtOneByteBoundaries(): nil
+    for _, name in ipairs(compression.formats()) do
+        local format = compression.format(name)
+        local compressed = format:compress("", writerOptions(name, 1))
+        assert(format:decompress(compressed, new compression.ReaderOptions(workspaceBytes = 1)) == "")
+    end
+end
+
+function M.gzipUsesTheStandardWrapper(): nil
+    local gzip = compression.format("gzip")
+    local compressed = gzip:compress("hello")
+    assert(compressed:sub(1, 3) == "\31\139\8")
+    assert(gzip:decompress(compressed) == "hello")
+end
+
+function M.encoderLevelReachesTheFormatProvider(): nil
+    local gzip = compression.format("gzip")
+    local input = string.rep("compression-level", 1000)
+    local stored = gzip:compress(
+        input,
+        new compression.WriterOptions(parameters = new compression.GzipEncoderOptions(level = 0))
+    )
+    local compressed = gzip:compress(
+        input,
+        new compression.WriterOptions(parameters = new compression.GzipEncoderOptions(level = 9))
+    )
+    assert(#compressed < #stored)
+end
+
+function M.writerAndReaderComposeWithByteIo(): nil
+    local gzip = compression.format("gzip")
+    local encoded = io.newBuffer()
+    local sink = encoded:newWriter()
+    local writer = gzip:newWriter(sink, new compression.WriterOptions(workspaceBytes = 2))
+    assert(writer:write("hello "))
+    assert(writer:write("world"))
+    assert(writer:finish())
+
+    local source = io.newStringReader(encoded:getString())
+    local reader = gzip:newReader(source, new compression.ReaderOptions(workspaceBytes = 3))
+    local decoded = io.newBuffer()
+    local destination = decoded:newWriter()
+    assert(reader:transferTo(destination) == 11)
+    reader:close()
+    destination:close()
+    assert(decoded:getString() == "hello world")
+    decoded:close()
+    encoded:close()
+end
+
+function M.spanAndDestinationOverloadsReuseStorage(): nil
+    local gzip = compression.format("gzip")
+    local text = "span input"
+    local input = span.fromString(text)
+    local encoded = io.newBuffer()
+    gzip:compress(input, encoded)
+    local decoded = io.newBuffer()
+    do
+        local compressed = encoded:readSpan()
+        gzip:decompress(compressed, decoded)
+    end
+    assert(decoded:getString() == text)
+    decoded:close()
+    encoded:close()
+end
+
+function M.gzipConcatenatedMembersAreExplicitlyConfigurable(): nil
+    local gzip = compression.format("gzip")
+    local joined = gzip:compress("hello") .. gzip:compress(" world")
+    assert(gzip:decompress(joined) == "hello world")
+    test.raises(
+        function(): nil
+            gzip:decompress(
+                joined,
+                new compression.ReaderOptions(
+                    parameters = new compression.GzipDecoderOptions(concatenatedMembers = false)
+                )
+            )
+        end,
+        "trailing bytes"
+    )
+end
+
+function M.invalidStreamsLimitsAndParameterMismatchesFail(): nil
+    local gzip = compression.format("gzip")
+    local compressed = gzip:compress(string.rep("a", 4096))
+    test.raises(
+        function(): nil
+            gzip:decompress(compressed:sub(1, #compressed - 1))
+        end,
+        "before its trailer"
+    )
+    test.raises(
+        function(): nil
+            gzip:decompress(compressed, new compression.ReaderOptions(maxOutputBytes = 32))
+        end,
+        "maxOutputBytes"
+    )
+    test.raises(
+        function(): nil
+            gzip:decompress(compressed, new compression.ReaderOptions(maxExpansionRatio = 1))
+        end,
+        "maxExpansionRatio"
+    )
+    test.raises(
+        function(): nil
+            gzip:decompress(compressed, new compression.ReaderOptions(unbounded = true, maxOutputBytes = 4096))
+        end,
+        "cannot set both"
+    )
+    local zlib = compression.format("zlib")
+    local zlibBytes = zlib:compress("checksum")
+    local final = assert(zlibBytes:byte(#zlibBytes))
+    local damaged = zlibBytes:sub(1, #zlibBytes - 1) .. string.char((final + 1) % 256)
+    test.raises(
+        function(): nil
+            zlib:decompress(damaged)
+        end,
+        "compression decode failed"
+    )
+    test.raises(
+        function(): nil
+            gzip:compress("hello", new compression.WriterOptions(parameters = new compression.ZlibEncoderOptions()))
+        end,
+        "cannot configure gzip"
+    )
+    test.raises(
+        function(): nil
+            compression.format("unknown")
+        end,
+        "unknown compression format"
+    )
+end
+
+function M.closingAnUnfinishedWriterFails(): nil
+    local gzip = compression.format("gzip")
+    test.raises(
+        function(): nil
+            local destination = io.newBuffer()
+            local sink = destination:newWriter()
+            local writer = gzip:newWriter(sink)
+            writer:close()
+        end,
+        "closed without finish"
+    )
+end
+
+return M

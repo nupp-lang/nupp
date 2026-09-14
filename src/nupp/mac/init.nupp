@@ -2,7 +2,14 @@ module nupp.mac
 
 --[[Keyed message authentication. Keys are raw bytes. HMAC-SHA256 is built in;
 setup selects a typed catalog through nupp.runtime.services.mac before this
-module loads. Algorithm lookup and state creation use retained descriptors.]]
+module loads. Algorithm lookup and state creation use retained descriptors.
+
+## Builtin algorithms
+
+| Name | Output | Construction |
+| --- | ---: | --- |
+| `hmac-sha256` | 32 bytes | HMAC over SHA-256 |
+]]
 
 const context = require("nupp.digest.internal.context")
 const provider = require("nupp.runtime.services.mac")

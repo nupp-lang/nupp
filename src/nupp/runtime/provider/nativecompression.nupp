@@ -1,0 +1,267 @@
+@!internal
+module nupp.runtime.provider.nativecompression
+
+--[[Rust-native gzip, zlib and raw DEFLATE provider for compression API 1.]]
+
+const contract = require("nupp.runtime.services.compression")
+const native = require("nupp.runtime.native")
+const span = require("nupp.mem.span")
+
+native.ffi.cdef[[
+int32_t nuppNativeCompressionEncoderCreate(uint32_t, uint32_t, uint64_t *);
+int32_t nuppNativeCompressionEncoderWrite(
+    uint64_t, const uint8_t *, size_t, uint8_t *, size_t,
+    size_t *, size_t *, uint32_t *);
+int32_t nuppNativeCompressionEncoderFlush(
+    uint64_t, uint8_t *, size_t, size_t *, uint32_t *);
+int32_t nuppNativeCompressionEncoderFinish(
+    uint64_t, uint8_t *, size_t, size_t *, uint32_t *);
+int32_t nuppNativeCompressionEncoderRelease(uint64_t);
+int32_t nuppNativeCompressionDecoderCreate(uint32_t, int32_t, uint64_t *);
+int32_t nuppNativeCompressionDecoderRead(
+    uint64_t, const uint8_t *, size_t, uint8_t *, size_t,
+    size_t *, size_t *, uint32_t *);
+int32_t nuppNativeCompressionDecoderFinishInput(
+    uint64_t, uint8_t *, size_t, size_t *, uint32_t *);
+int32_t nuppNativeCompressionDecoderRelease(uint64_t);
+]]
+
+const C = native.C
+const COMPRESSION_FEATURE = 1024
+native.requireFeature(COMPRESSION_FEATURE, "compression")
+
+local function encoderWrite(
+    handle: uint64,
+    borrows input: const uint8[?],
+    inputLength: integer,
+    borrows output: uint8[?],
+    outputLength: integer,
+    consumed: any,
+    written: any,
+    status: any
+): integer
+    local call = C.nuppNativeCompressionEncoderWrite as function(
+        uint64,
+        borrows input: const uint8[?],
+        integer,
+        borrows output: uint8[?],
+        integer,
+        any,
+        any,
+        any
+    ): integer
+
+    return call(handle, input, inputLength, output, outputLength, consumed, written, status)
+end
+
+local function encoderOutput(
+    operation: any,
+    handle: uint64,
+    borrows output: uint8[?],
+    outputLength: integer,
+    written: any,
+    status: any
+): integer
+    local call = operation as function(uint64, borrows output: uint8[?], integer, any, any): integer
+    return call(handle, output, outputLength, written, status)
+end
+
+local function decoderRead(
+    handle: uint64,
+    borrows input: const uint8[?],
+    inputLength: integer,
+    borrows output: uint8[?],
+    outputLength: integer,
+    consumed: any,
+    written: any,
+    status: any
+): integer
+    local call = C.nuppNativeCompressionDecoderRead as function(
+        uint64,
+        borrows input: const uint8[?],
+        integer,
+        borrows output: uint8[?],
+        integer,
+        any,
+        any,
+        any
+    ): integer
+
+    return call(handle, input, inputLength, output, outputLength, consumed, written, status)
+end
+
+local function decoderFinishInput(
+    handle: uint64,
+    borrows output: uint8[?],
+    outputLength: integer,
+    written: any,
+    status: any
+): integer
+    local call = C.nuppNativeCompressionDecoderFinishInput as function(
+        uint64,
+        borrows output: uint8[?],
+        integer,
+        any,
+        any
+    ): integer
+
+    return call(handle, output, outputLength, written, status)
+end
+
+local function failure(prefix: string): string
+    return prefix .. ": " .. (native.ffi.string(C.nuppNativeLastError()) as string)
+end
+
+local record Encoder is contract.Encoder
+    private handle: uint64
+    private consumed: any
+    private written: any
+    private status: any
+
+    function close(takes self): nil
+        C.nuppNativeCompressionEncoderRelease(self.handle)
+    end
+
+    function write(
+        exclusive self,
+        borrows input: span.ByteSpan,
+        exclusive output: span.ByteWriteSpan
+    ): (integer?, integer?, integer?, string?)
+        local code = encoderWrite(
+            self.handle,
+            input:ref(),
+            #input,
+            output:ref(),
+            #output,
+            self.consumed,
+            self.written,
+            self.status
+        )
+        if code ~= 0 then
+            return nil, nil, nil, failure("compression encode failed")
+        end
+
+        return tonumber(
+            self.consumed[0]
+        ) as integer, tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
+    end
+
+    function flush(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
+        local code = encoderOutput(
+            C.nuppNativeCompressionEncoderFlush,
+            self.handle,
+            output:ref(),
+            #output,
+            self.written,
+            self.status
+        )
+        if code ~= 0 then
+            return nil, nil, failure("compression flush failed")
+        end
+
+        return tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
+    end
+
+    function finish(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
+        local code = encoderOutput(
+            C.nuppNativeCompressionEncoderFinish,
+            self.handle,
+            output:ref(),
+            #output,
+            self.written,
+            self.status
+        )
+        if code ~= 0 then
+            return nil, nil, failure("compression finish failed")
+        end
+
+        return tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
+    end
+end
+
+local record Decoder is contract.Decoder
+    private handle: uint64
+    private consumed: any
+    private written: any
+    private status: any
+
+    function close(takes self): nil
+        C.nuppNativeCompressionDecoderRelease(self.handle)
+    end
+
+    function read(
+        exclusive self,
+        borrows input: span.ByteSpan,
+        exclusive output: span.ByteWriteSpan
+    ): (integer?, integer?, integer?, string?)
+        local code = decoderRead(
+            self.handle,
+            input:ref(),
+            #input,
+            output:ref(),
+            #output,
+            self.consumed,
+            self.written,
+            self.status
+        )
+        if code ~= 0 then
+            return nil, nil, nil, failure("compression decode failed")
+        end
+
+        return tonumber(
+            self.consumed[0]
+        ) as integer, tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
+    end
+
+    function finishInput(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
+        local code = decoderFinishInput(self.handle, output:ref(), #output, self.written, self.status)
+        if code ~= 0 then
+            return nil, nil, failure("compression decode failed")
+        end
+
+        return tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
+    end
+end
+
+local record Format is contract.Format
+    readonly name: string
+    private id: integer
+
+    function createEncoder(self, parameters: contract.EncoderParameters?): contract.Encoder
+        local level = parameters ~= nil and (parameters as any).level or 6
+        local handle = native.ffi.new("uint64_t[1]")
+        native.succeeded(C.nuppNativeCompressionEncoderCreate(self.id, level, handle), 2)
+        return new Encoder(
+            handle = handle[0],
+            consumed = native.ffi.new("size_t[1]"),
+            written = native.ffi.new("size_t[1]"),
+            status = native.ffi.new("uint32_t[1]")
+        )
+    end
+
+    function createDecoder(self, parameters: contract.DecoderParameters?): contract.Decoder
+        local concatenatedMembers = self.name == "gzip" and (
+            parameters == nil or (parameters as any).concatenatedMembers ~= false
+        )
+        local handle = native.ffi.new("uint64_t[1]")
+        native.succeeded(C.nuppNativeCompressionDecoderCreate(self.id, concatenatedMembers and 1 or 0, handle), 2)
+
+        return new Decoder(
+            handle = handle[0],
+            consumed = native.ffi.new("size_t[1]"),
+            written = native.ffi.new("size_t[1]"),
+            status = native.ffi.new("uint32_t[1]")
+        )
+    end
+end
+
+local formats: {
+    [string]: contract.Format
+} = {
+    gzip = new Format(name = "gzip", id = 1),
+    zlib = new Format(name = "zlib", id = 2),
+    ["deflate-raw"] = new Format(name = "deflate-raw", id = 3),
+}
+
+local provider: contract.Provider = {formats = formats}
+export = provider

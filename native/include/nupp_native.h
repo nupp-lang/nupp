@@ -39,6 +39,7 @@
 #define NUPP_NATIVE_FEATURE_FILES (UINT64_C(1) << 7)
 #define NUPP_NATIVE_FEATURE_NET (UINT64_C(1) << 8)
 #define NUPP_NATIVE_FEATURE_TLS (UINT64_C(1) << 9)
+#define NUPP_NATIVE_FEATURE_COMPRESSION (UINT64_C(1) << 10)
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,6 +64,35 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeXxh64Digest(
     const uint8_t *data, size_t length, uint8_t *output, size_t capacity);
 NUPP_NATIVE_EXPORT int32_t nuppNativeTrailerDigest(
     const uint8_t *data, size_t length, uint8_t output[8]);
+
+/* Present when NUPP_NATIVE_FEATURE_COMPRESSION is set. Formats are 1 gzip,
+ * 2 zlib and 3 raw DEFLATE. Step states are 1 need input, 2 need output and
+ * 3 finished. Input and output ranges are borrowed only for one call. */
+NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionEncoderCreate(
+    uint32_t format, uint32_t level, uint64_t *output);
+NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionEncoderWrite(
+    uint64_t encoder, const uint8_t *input, size_t input_length,
+    uint8_t *output, size_t output_capacity, size_t *consumed,
+    size_t *written, uint32_t *state);
+NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionEncoderFlush(
+    uint64_t encoder, uint8_t *output, size_t output_capacity,
+    size_t *written, uint32_t *state);
+NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionEncoderFinish(
+    uint64_t encoder, uint8_t *output, size_t output_capacity,
+    size_t *written, uint32_t *state);
+NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionEncoderRelease(
+    uint64_t encoder);
+NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionDecoderCreate(
+    uint32_t format, int32_t concatenated_members, uint64_t *output);
+NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionDecoderRead(
+    uint64_t decoder, const uint8_t *input, size_t input_length,
+    uint8_t *output, size_t output_capacity, size_t *consumed,
+    size_t *written, uint32_t *state);
+NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionDecoderFinishInput(
+    uint64_t decoder, uint8_t *output, size_t output_capacity,
+    size_t *written, uint32_t *state);
+NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionDecoderRelease(
+    uint64_t decoder);
 
 /* Present when NUPP_NATIVE_FEATURE_FILESYSTEM is set. Path values are
  * length-delimited platform-native bytes and variable outputs are owned byte

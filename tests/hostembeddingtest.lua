@@ -9,7 +9,7 @@ if not HERE:match("^/") then
     pipe:close()
 end
 local ROOT = HERE .. "/.."
-local FEATURES = "lpeg,native-files,native-net,native-process,native-tls,workers"
+local FEATURES = "lpeg,native-compression,native-files,native-net,native-process,native-tls,workers"
 
 local M = {}
 

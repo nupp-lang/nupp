@@ -8,8 +8,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-FEATURES=lpeg,native-files,native-net,native-process,native-tls,workers
-HOST_FEATURES=lpeg,native-files,native-net,native-process,native-tls,workers
+FEATURES=lpeg,native-compression,native-files,native-net,native-process,native-tls,workers
+HOST_FEATURES=lpeg,native-compression,native-files,native-net,native-process,native-tls,workers
 
 cd "$ROOT"
 
@@ -44,6 +44,7 @@ NUPP_LPEG_PREFIX=$(./scripts/toolchain lpeg)
 export NUPP_LUAJIT_PREFIX NUPP_LPEG_PREFIX
 
 "$CARGO" test --locked --package nupp-native-files --features lane
+"$CARGO" test --locked --package nupp-native-compression
 "$CARGO" test --locked --package nupp-native-process
 "$CARGO" test --locked --package nupp-native-net
 "$CARGO" test --locked --package nupp-native-tls
@@ -60,7 +61,7 @@ sdk=$(./scripts/toolchain host-library "$FEATURES")
 [ -f "$host" ]
 [ -f "$sdk/libnupp.a" ]
 [ -f "$sdk/link.json" ]
-grep -F '"features": "lpeg,native-files,native-net,native-process,native-tls,workers"' \
+grep -F '"features": "lpeg,native-compression,native-files,native-net,native-process,native-tls,workers"' \
     "$sdk/link.json" >/dev/null
 case "$(uname -s 2>/dev/null || printf unknown)" in
     MINGW*|MSYS*|CYGWIN*)
@@ -75,6 +76,7 @@ TEMP=$(mktemp -d "${TMPDIR:-/tmp}/nupp-native-platform.XXXXXX")
 trap 'rm -rf "$TEMP"' EXIT HUP INT TERM
 cat > "$TEMP/host.lua" <<'LUA'
 assert(__nuppHost.hostFeatures.lpeg)
+assert(__nuppHost.hostFeatures["native-compression"])
 assert(__nuppHost.hostFeatures["native-files"])
 assert(__nuppHost.hostFeatures["native-net"])
 assert(__nuppHost.hostFeatures["native-process"])

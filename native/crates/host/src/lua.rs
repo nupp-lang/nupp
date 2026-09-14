@@ -304,6 +304,8 @@ impl Lua {
         }
         #[cfg(feature = "native-files")]
         self.add_feature(c"native-files")?;
+        #[cfg(feature = "native-compression")]
+        self.add_feature(c"native-compression")?;
         #[cfg(feature = "native-net")]
         self.add_feature(c"native-net")?;
         #[cfg(feature = "native-process")]

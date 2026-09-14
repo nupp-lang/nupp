@@ -22,6 +22,7 @@ net = ["base", "dep:nupp-native-net"]
 tls = ["net", "dep:nupp-native-tls"]
 filesystem = ["base", "dep:nupp-native-files"]
 files = ["filesystem", "nupp-native-files/lane"]
+compression = ["base", "dep:nupp-native-compression"]
 
 [dependencies]
 nupp-native-abi = { path = "../abi" }
@@ -33,4 +34,5 @@ nupp-native-files = { path = "../files", optional = true, default-features = fal
 nupp-native-platform = { path = "../platform" }
 nupp-native-process = { path = "../process", optional = true }
 nupp-native-runtime = { path = "../runtime" }
+nupp-native-compression = { path = "../compression", optional = true }
 url = { version = "2.5.7", optional = true }

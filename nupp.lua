@@ -312,6 +312,15 @@ local RESOURCES = {
     {source = "src/nupp/runtime/services/checksum.nupp", output = "nupp/compiler/nupp/runtime/services/checksum.nupp"},
     {source = "src/nupp/checksum/internal/builtin.nupp", output = "nupp/compiler/nupp/checksum/internal/builtin.nupp"},
     {source = "src/nupp/mac/init.nupp", output = "nupp/compiler/nupp/mac/init.nupp"},
+    {source = "src/nupp/compression/init.nupp", output = "nupp/compiler/nupp/compression/init.nupp"},
+    {
+        source = "src/nupp/runtime/services/compression.nupp",
+        output = "nupp/compiler/nupp/runtime/services/compression.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativecompression.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativecompression.nupp"
+    },
     {source = "src/nupp/hash.nupp", output = "nupp/compiler/nupp/hash.nupp"},
     {source = "src/nupp/uuid.nupp", output = "nupp/compiler/nupp/uuid.nupp"},
     {source = "src/nupp/codec/hex.nupp", output = "nupp/compiler/nupp/codec/hex.nupp"},

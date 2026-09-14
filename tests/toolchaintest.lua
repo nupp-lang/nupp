@@ -472,6 +472,7 @@ function M.staticHostsRetainTheRustApplicationArchive()
         driver:find('[ "$PLATFORM" != windows ] || [ -f "$out/libnupp-host-imports.a" ]', 1, true),
         "a completed Windows host cache can omit its import companion"
     )
+
     local function hasOneCodegenUnit(package)
         local profile = "%[profile%.release%.package%." .. package:gsub("%-", "%%-") .. "%]"
         return cargo:match(profile .. "%s+codegen%-units%s*=%s*1")
@@ -553,6 +554,10 @@ function M.networkAndTlsAreRustOnlyToolchainFeatures()
     assert(
         driver:find('host_cargo_features="$host_cargo_features,native-tls"', 1, true),
         "a TLS host does not select the Rust TLS crate"
+    )
+    assert(
+        driver:find('host_cargo_features="$host_cargo_features,native-compression"', 1, true),
+        "a compression host does not select the Rust compression crate"
     )
     for _, obsolete in ipairs({"libuv", "mbedtls"}) do
         assert(not driver:lower():find(obsolete, 1, true), "the toolchain still provisions " .. obsolete)

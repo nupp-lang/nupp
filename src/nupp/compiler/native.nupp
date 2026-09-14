@@ -615,6 +615,29 @@ local FEATURES: {[string]: native.Feature} = {
         },
     },
     [
+        "native.compression"
+    ] = {
+        name = "compression",
+        modules = {"nupp.runtime.provider.nativecompression"},
+        runtimeModule = "nupp.runtime.provider.nativecompression",
+        provider = "nupp_native",
+        providerDriver = "native-rust",
+        providerFeature = "compression",
+        host = "native-compression",
+        library = "nupp_native",
+        binary = true,
+        requires = {"runtime.native", "runtime.spanview", "stdlib.io"},
+    },
+    [
+        "runtime.compression"
+    ] = {
+        name = "compression_runtime",
+        module = "nupp.compression",
+        runtimeModule = "nupp.compression",
+        portableRuntime = true,
+        requires = {"runtime.spanview", "stdlib.io"},
+    },
+    [
         "native.sha256"
     ] = {
         name = "sha256",

@@ -27,6 +27,7 @@ export const facades = {
     ["nupp.digest"] = "nupp.digest",
     ["nupp.checksum"] = "nupp.checksum",
     ["nupp.mac"] = "nupp.mac",
+    ["nupp.compression"] = "nupp.compression",
     ["nupp.gpu"] = "host.gpu",
     ["nupp.io.http"] = "host.http",
     ["nupp.workers"] = "host.workers",
@@ -73,6 +74,15 @@ export const entries = {
         contract = "nupp.runtime.services.mac",
         export = "service",
         entry = "nupp.runtime.provider.mac"
+    },
+    {
+        service = "nupp.compression",
+        name = "nupp.native",
+        api = 1,
+        contract = "nupp.runtime.services.compression",
+        export = "service",
+        entry = "nupp.runtime.provider.nativecompression",
+        dialect = "luajit"
     },
     {
         service = "host.system",

@@ -787,10 +787,11 @@ function M.retainedPlatformsGateTheExactRustNativeArtifacts()
     )
     assert(gate:find("$channel-x86_64-pc-windows-gnu", 1, true), "the gate does not select Windows GNU Rust")
     assert(
-        gate:find("lpeg,native-files,native-net,native-process,native-tls,workers", 1, true),
+        gate:find("lpeg,native-compression,native-files,native-net,native-process,native-tls,workers", 1, true),
         "the gate does not select the production host feature set"
     )
     for _, package in ipairs({
+        "nupp-native-compression",
         "nupp-native-files",
         "nupp-native-process",
         "nupp-native-net",
