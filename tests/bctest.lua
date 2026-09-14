@@ -350,4 +350,53 @@ function M.jsonCarriesTheFindingAndItsCount()
    assert(found, "json names the instruction, not only the count")
 end
 
+-- Colour is a second rendering of the same listing, never a different one. The
+-- escapes go inside lines, so a listing stripped of them is the listing a pipe
+-- got -- which is what keeps the line numbering an editor maps against true of
+-- the coloured one as well.
+function M.colorRepaintsTheListingWithoutChangingIt()
+   local dir = project{["demo.g.nupp"] = SCALE}
+   -- A run that had to build the compiler first says so on stderr, which this
+   -- harness merges; that line belongs to neither listing.
+   local function listing(text)
+      return (text:gsub("nupp: [^\n]*\n", ""))
+   end
+   local plain, code = run(dir, "demo.g.nupp")
+   test.equal(code, 0, plain)
+   assert(not plain:find("\27", 1, true), "a pipe gets no escapes:\n" .. plain)
+
+   local painted, paintedCode = run(dir, "--color demo.g.nupp")
+   test.equal(paintedCode, 0, painted)
+   assert(painted:find("\27", 1, true), "--color paints the listing:\n" .. painted)
+   test.equal((listing(painted):gsub("\27%[[%d;]*m", "")), listing(plain))
+end
+
+-- The two languages the listing prints are told apart by what the colours mean,
+-- not by which half of the line they are on: `for` and the `FORI` it became are
+-- the same colour, and the hint naming a constant is as quiet as a comment.
+function M.colorPaintsSourceAndBytecodeAlike()
+   local dir = project{["demo.g.nupp"] = SCALE}
+   local out = run(dir, "--color demo.g.nupp")
+   assert(out:find("\27%[35mfor\27%[0m"), "a source keyword is painted as one:\n" .. out)
+   assert(out:find("\27%[35mFORI\27%[0m"), "a loop opcode is painted as control flow:\n" .. out)
+   assert(out:find("\27%[33mKSHORT\27%[0m") or out:find("\27%[33mKNUM\27%[0m"),
+      "a constant load is painted as a constant:\n" .. out)
+   assert(out:find("\27%[90m;"), "an instruction's hint is dimmed:\n" .. out)
+end
+
+function M.colorMarksAVerdictWithItsSeverity()
+   local dir = project{["bad.g.nupp"] = CAPTURING}
+   local out, code = run(dir, "--color --check bad.g.nupp")
+   test.equal(code, 1, out)
+   assert(out:find("\27%[31m   <%-%- this loop never compiles"),
+      "a loop that cannot compile is marked in red:\n" .. out)
+end
+
+function M.colorIsRefusedWhenTheEnvironmentRefusesIt()
+   local dir = project{["demo.g.nupp"] = SCALE}
+   local out, code = run(dir, "--no-color demo.g.nupp")
+   test.equal(code, 0, out)
+   assert(not out:find("\27", 1, true), "--no-color writes no escapes:\n" .. out)
+end
+
 return M

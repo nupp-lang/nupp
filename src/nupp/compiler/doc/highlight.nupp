@@ -34,7 +34,7 @@ const files = require("nupp.io.files")
 local lexer = require("nupp.compiler.lexer")
 local parser = require("nupp.compiler.parser")
 local semantic = require("nupp.compiler.lsp.semantic")
-local types = require("nupp.compiler.types")
+local syntaxstyle = require("nupp.compiler.syntaxstyle")
 local stringsMod = require("nupp.compiler.doc.strings")
 local filesMod = require("nupp.compiler.doc.files")
 
@@ -47,77 +47,6 @@ local highlight = {}
 --- the bundled Scintillua lexers were unpacked to.
 type highlight.Settings = {lexers: string?}
 
-local TYPE_NAMES = {borrowed = true, ctype = true, metatable = true, owned = true, pinned = true,}
-for name in pairs(types.builtins) do
-    TYPE_NAMES[name] = true
-end
-
-local CONTEXTUAL_KEYWORDS = {
-    ["as"] = true,
-    associated = true,
-    borrows = true,
-    cdef = true,
-    comptime = true,
-    constructor = true,
-    continue = true,
-    exclusive = true,
-    from = true,
-    takes = true,
-    const = true,
-    global = true,
-    interface = true,
-    handle = true,
-    ["is"] = true,
-    keyof = true,
-    satisfies = true,
-    ["new"] = true,
-    nosuspend = true,
-    out = true,
-    preserves = true,
-    record = true,
-    metamethod = true,
-    scoped = true,
-    ["sealed"] = true,
-    suspension = true,
-    unpackof = true,
-    where = true,
-    with = true,
-    writekeyof = true,
-    writeof = true,
-    readonly = true,
-    releases = true,
-    retains = true,
-    resumes = true,
-    struct = true,
-    type = true,
-    unsafe = true,
-    writeonly = true,
-    yields = true,
-}
-
-local LITERAL_KEYWORDS = {["false"] = true, ["nil"] = true, ["true"] = true}
-
--- `comptime` and `nosuspend` change when code runs rather than what it does, so they
--- get the directive colour used for annotations instead of blending into ordinary
--- control keywords -- matching the Scintillua and VS Code grammars.
-local DIRECTIVE_KEYWORDS = {comptime = true, nosuspend = true}
-
-local PUNCTUATION = {
-    ["("] = true,
-    [")"] = true,
-    ["["] = true,
-    ["]"] = true,
-    ["{"] = true,
-    ["}"] = true,
-    [","] = true,
-    [";"] = true,
-    [":"] = true,
-    ["."] = true,
-    ["@"] = true,
-}
-
-local TYPE_DECLARATIONS = {interface = true, record = true, struct = true, type = true,}
-
 local function qualifiedName(tokens, index)
     local name = tokens[index].text
     local cursor = index - 1
@@ -127,82 +56,6 @@ local function qualifiedName(tokens, index)
     end
 
     return name
-end
-
-local SYNTAX_STYLES = {
-    decorator = "meta",
-    keyword = "keyword",
-    type = "type",
-    struct = "type",
-    interface = "type",
-    typeParameter = "type",
-    ["function"] = "function",
-    method = "function",
-    property = "property",
-    parameter = "variable",
-    variable = "variable",
-}
-
-local function tokenStyle(tokens, index, syntaxKinds)
-    local token = tokens[index]
-    local previous = tokens[index - 1]
-    local following = tokens[index + 1]
-    if token.kind == "name" then
-        local syntaxKind = syntaxKinds[token]
-        -- The semantic layer calls a directive a keyword, which it is; the colour says
-        -- which kind of one, so the directive answers before that. It answers after the
-        -- other semantic kinds, so a binding that merely spells one of these names is
-        -- still coloured as the binding it is.
-        if syntaxKind == "keyword" and DIRECTIVE_KEYWORDS[token.text] then
-            return "meta"
-        end
-        local syntaxStyle = SYNTAX_STYLES[syntaxKind]
-        if syntaxStyle then
-            return syntaxStyle
-        end
-        if DIRECTIVE_KEYWORDS[token.text] then
-            return "meta"
-        end
-        if CONTEXTUAL_KEYWORDS[token.text] then
-            return "keyword"
-        end
-        if TYPE_NAMES[token.text] or token.text:match("^%u") then
-            return "type"
-        end
-        if previous and previous.text == "@" then
-            return "meta"
-        end
-        if previous and previous.kind == "function" then
-            return "function"
-        end
-        if previous and previous.text == "metamethod" then
-            return "function"
-        end
-        if previous and TYPE_DECLARATIONS[previous.text] then
-            return "type"
-        end
-        if following and following.text == "(" then
-            return "function"
-        end
-        if previous and (previous.text == "." or previous.text == ":") then
-            return "property"
-        end
-        return "variable"
-    elseif lexer.KEYWORDS[token.kind] then
-        return LITERAL_KEYWORDS[token.text] and "boolean" or "keyword"
-    elseif token.kind == "string"
-        or token.kind == "istringOpen"
-        or token.kind == "istringMid"
-        or token.kind == "istringClose"
-    then
-        return "string"
-    elseif token.kind == "number" then
-        return "number"
-    elseif PUNCTUATION[token.text] then
-        return token.text == "@" and "meta" or "punctuation"
-    end
-
-    return "operator"
 end
 
 local function tokenClasses(style, text)
@@ -222,7 +75,7 @@ end
 local function declarationName(tokens, index)
     local previous = tokens[index - 1]
     return previous and (
-        previous.kind == "function" or previous.text == "metamethod" or TYPE_DECLARATIONS[previous.text]
+        previous.kind == "function" or previous.text == "metamethod" or syntaxstyle.TYPE_DECLARATIONS[previous.text]
     )
 end
 
@@ -314,7 +167,7 @@ local function highlightNuppLines(source, links, memberLinks)
             end
         end
         if token.kind ~= "eof" then
-            local style = tokenStyle(tokens, index, syntaxKinds)
+            local style = syntaxstyle.token(tokens, index, syntaxKinds)
             local url = memberUrls[token]
             if not url and links and token.kind == "name" and not declarationName(tokens, index) then
                 url = links[qualifiedName(tokens, index)] or links[token.text]

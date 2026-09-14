@@ -33,22 +33,58 @@ type listing.Mapping = {
     role: listing.Role
 }
 
+--- How a rendering is coloured, for a client that has somewhere to put colour.
+---
+--- Every entry is a painter over text the listing would otherwise write plain,
+--- so a rendering without one is the same rendering: the escapes go inside a
+--- line and never change how many there are, which is what keeps the mappings
+--- below true of a coloured listing as well.
+---
+--- `source` is handed the line number as well as the text because a highlighter
+--- classifies the whole file at once -- Nupp needs the context -- and then
+--- answers per line.
+type listing.Palette = {
+    source: function(integer, string): string,
+    gutter: function(string): string,
+    instruction: function(string): string,
+    note: function(string, boolean): string,
+    header: function(string): string
+}
+
 --- What the renderer needs beyond the analysis and the source.
 ---
 --- `boundaryFunction` and `boundaryPc` name the instrumentation `bc` compiles in
 --- to find where generated preamble stops and authored code starts; without them
 --- nothing is folded, which is what `--prologue` asks for. `check` adds the
---- trace verdict against the instructions carrying one.
+--- trace verdict against the instructions carrying one. `palette` colours the
+--- result for a terminal; without it nothing is coloured.
 type listing.Options = {
     check: boolean?,
     boundaryFunction: any?,
-    boundaryPc: integer?
+    boundaryPc: integer?,
+    palette: listing.Palette?
 }
 
 --- The instrumentation literal a compile is asked to plant so that a listing can
 --- tell generated preamble from authored code. Nothing but a listing asks for it,
 --- and a build never carries it.
 listing.BOUNDARY = "__nupp_bc_preamble_boundary_v1__"
+
+local function asis(text: string): string
+    return text
+end
+
+local PLAIN: listing.Palette = {
+    source = function(_: integer, text: string): string
+        return text
+    end,
+    gutter = asis,
+    instruction = asis,
+    note = function(text: string, _: boolean): string
+        return text
+    end,
+    header = asis,
+}
 
 --- Where the generated preamble stops, as the planted marker reports it.
 ---
@@ -93,6 +129,10 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
     end
     local out: {string} = {}
     local mappings: {listing.Mapping} = {}
+
+    -- One palette or the other, chosen once: the alternative is a conditional at
+    -- every write, which is how a listing acquires a line that forgot to ask.
+    local palette = settings.palette or PLAIN
 
     -- The listing is built a whole line at a time so that the line a mapping
     -- names is the line the client will count. `write` is the only thing that
@@ -152,7 +192,9 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
         local fn = node.fn
         local indent = ("  "):rep(depth)
         write(
-            ("%s-- %s, lines %s-%s"):format(indent, fn.what, tostring(fn.firstLine), tostring(fn.lastLine)),
+            indent .. palette.header(
+                ("-- %s, lines %s-%s"):format(fn.what, tostring(fn.firstLine), tostring(fn.lastLine))
+            ),
             math.floor(tonumber(fn.firstLine) or 0),
             "derived"
         )
@@ -197,21 +239,24 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
         if folded > 0 then
             -- Every folded instruction is generated preamble, which lands on
             -- line 1 whatever it does.
-            local summary = ("%s     ... %d instructions of runtime preamble"):format(indent, folded)
+            local summary = ("     ... %d instructions of runtime preamble"):format(folded)
             if foldedFunctions > 0 then
                 summary = summary .. (", in %d function%s"):format(foldedFunctions, foldedFunctions == 1 and "" or "s")
             end
-            write(summary, 1, "synthetic")
+            write(indent .. palette.header(summary), 1, "synthetic")
         end
 
         local function writeInstruction(ins: any): nil
-            local text = indent .. "      " .. ins.text
+            local text = indent .. "      " .. palette.instruction(ins.text)
             if ins.traceReason and settings.check then
                 if ins.unrecordable then
-                    text = text .. "   <-- this loop never compiles: " .. ins.unrecordable
-                    text = text .. (" [%s, must-reach]"):format(ins.traceReason)
+                    local note = "   <-- this loop never compiles: " .. ins.unrecordable
+                    text = text .. palette.note(note .. (" [%s, must-reach]"):format(ins.traceReason), true)
                 else
-                    text = text .. ("   <-- this path aborts recording: %s [may-reach]"):format(ins.traceReason)
+                    text = text .. palette.note(
+                        ("   <-- this path aborts recording: %s [may-reach]"):format(ins.traceReason),
+                        false
+                    )
                 end
             end
             write(text, math.floor(tonumber(ins.line) or 0), "exact")
@@ -247,7 +292,7 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
         for _, at in ipairs(ordered) do
             local text = sourceLines[at]
             if text and text:match("%S") then
-                write(("%s%5d | %s"):format(indent, at, text), at, "source")
+                write(indent .. palette.gutter(("%5d | "):format(at)) .. palette.source(at, text), at, "source")
             end
             local bucket = byLine[at] or {}
             table.sort(bucket, byPc)
