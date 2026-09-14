@@ -130,6 +130,11 @@ function cliModule.paintedCell(value: string, paint: function(string): string): 
     return require("nupp.cli.internal.table").painted(value, paint)
 end
 
+--- A table cell carrying an aside, measured with the cell and painted apart from it.
+function cliModule.annotatedCell(value: string, note: string, paint: (function(string): string)?): cliModule.Cell
+    return require("nupp.cli.internal.table").annotated(value, note, paint)
+end
+
 --- Selects the color associated with a diagnostic severity.
 function cliModule.severity(styles: cliModule.Style, name: string?): function(string): string
     return require("nupp.cli.internal.terminal").forSeverity(styles, name)

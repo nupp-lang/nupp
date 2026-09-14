@@ -196,8 +196,9 @@ each build target, with the default one marked, the default or configured test
 command, the self-host action `nupp fixpoint` runs, and each named task.
 
 ```text [nupp task --list]
-release - Stamp a release archive
-tools (default) - Build the maintenance tools
+task             kind     what it does
+release          task     Stamp a release archive
+tools (default)  modules  Build the maintenance tools
 ```
 
 `nupp task --list <name>` prints that entry's effective configuration, filled in with

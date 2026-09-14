@@ -116,22 +116,39 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
     for line in coloured:gmatch("[^\n]+") do
         lines[#lines + 1] = line
     end
-    assert(lines[1]:find("\27%[1;35mname  \27%[0m"), "the heading is painted as a heading: " .. lines[1])
-    assert(lines[2]:find("\27%[1ma     \27%[0m", 1, false), "a short cell is padded inside its paint")
+    assert(lines[1]:find("\27%[1;35mname\27%[0m  "), "the heading is painted as a heading: " .. lines[1])
+    -- Padding sits outside the escape, not inside it: styled whitespace is invisible
+    -- under bold and very visible under anything that paints a background.
+    assert(lines[2]:find("\27%[1ma\27%[0m     ", 1, false), "a short cell is padded after its paint")
     assert(lines[3]:find("\27%[1mlonger\27%[0m", 1, false), "a full-width cell needs no padding")
 
-    -- A cell may paint itself whatever its column says, and may carry an already
-    -- styled annotation that is not measured.
+    -- A cell may paint itself whatever its column says, and may carry an aside that
+    -- is painted apart from its text and measured along with it -- so a column
+    -- carrying one still lines up with the column beside it.
     local mixed = ansi.table({
         columns = {{heading = "name", paint = painted.strong}, {heading = "note"}},
         rows = {
-            {ansi.paintedCell("a", painted.faint), {text = "x", trailing = painted.faint(" (extra)")}},
-            {ansi.cell("longer"), ansi.cell("y")},
+            {ansi.annotatedCell("a", " (extra)", painted.faint), ansi.cell("x")},
+            {ansi.cell("longer-still"), ansi.cell("y")},
         },
         style = painted,
     })
-    assert(mixed:find("\27%[2ma     \27%[0m", 1, false), "a cell overrides its column's paint")
-    assert(mixed:find("x\27%[2m %(extra%)\27%[0m", 1, false), "a trailing annotation follows the padded cell")
+    assert(mixed:find("\27%[2ma\27%[0m\27%[2m %(extra%)\27%[0m", 1, false), "a cell overrides its column's paint")
+    local noted, plainRow
+    for line in mixed:gmatch("[^\n]+") do
+        if line:find("extra", 1, true) then
+            noted = line
+        elseif line:find("longer%-still") then
+            plainRow = line
+        end
+    end
+    local function columnAt(line)
+        return #(line:gsub("\27%[[0-9;]*m", "")):match("^(.-)%s%s%S")
+    end
+    assert(
+        columnAt(noted) == columnAt(plainRow),
+        "an annotated cell is measured with its note, so the next column does not move"
+    )
 
     ansi.setColorMode("never")
     assert(

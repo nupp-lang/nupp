@@ -19,16 +19,22 @@ const {type Style} = require("nupp.cli.internal.terminal")
 export type Alignment = "left" | "right"
 
 --- One cell.
----
---- `text` is what the column is measured against and what gets padded. `paint`
---- overrides the column's painter for this cell alone, which is how one row can
---- report a level in its own severity colour. `trailing` is appended after
---- padding and is never measured, so an annotation that is already styled --
---- a parenthetical, a unit -- cannot skew the column it sits in.
 export record Cell
+    --- What the cell says.
     text: string
+
+    --- Paints the text, overriding the column's painter for this cell alone. How one
+    --- row reports a level in its own severity colour while its neighbours do not.
     paint: (function(string): string)?
-    trailing: string?
+
+    --- An aside after the text, in its own colour: a default a project moved off, a
+    --- unit, a "(default)" beside the name it belongs to. Written separately because
+    --- it is painted separately, and measured with the text rather than after it, so
+    --- a column carrying one still lines up with the column beside it.
+    note: string?
+
+    --- Paints the note. Defaults to the style's `faint`, which is what an aside is.
+    notePaint: (function(string): string)?
 end
 
 --- One column.
@@ -83,6 +89,11 @@ export function painted(value: string, paint: function(string): string): Cell
     return new Cell(text = value, paint = paint)
 end
 
+--- A cell carrying an aside.
+export function annotated(value: string, note: string, paint: (function(string): string)?): Cell
+    return new Cell(text = value, paint = paint, note = note)
+end
+
 local function identity(value: string): string
     return value
 end
@@ -115,36 +126,47 @@ export function render(options: Options): string
     for _, row in ipairs(rows) do
         for index = 1, #columns do
             const cell = row[index]
-            if cell ~= nil and #cell.text > widths[index] then
-                widths[index] = #cell.text
+            if cell ~= nil then
+                const measured = #cell.text + (cell.note ~= nil and #cell.note or 0)
+                if measured > widths[index] then
+                    widths[index] = measured
+                end
             end
         end
     end
 
-    -- The last column carries no padding: a trailing run of spaces is invisible in a
-    -- terminal and very visible in a file, a diff, or anything that trims lines.
-    local function laid(
-        value: string,
-        index: integer,
-        align: Alignment?,
-        paint: function(string): string,
-        trailing: string?
-    ): string
+    const notePaint = styles ~= nil and styles.faint or identity
+
+    -- Painted after padding, and the note painted apart from the text: an escape is
+    -- bytes with no width on screen, so anything measured has to be measured before a
+    -- colour is put on it. The last column carries no padding, because a trailing run
+    -- of spaces is invisible in a terminal and very visible in a file, a diff, or
+    -- anything that trims lines.
+    local function laid(cell: Cell?, index: integer, column: Column, paint: function(string): string): string
+        const value = cell ~= nil and cell.text or ""
+        const note = cell ~= nil and cell.note or nil
+        const align = column.align
         local padding = ""
-        const missing = widths[index] - #value
+        const missing = widths[index] - #value - (note ~= nil and #note or 0)
         if missing > 0 and (index < #columns or align == "right") then
             padding = (" "):rep(missing)
         end
-        const body = align == "right" and padding .. value or value .. padding
+        local body = paint(value)
+        if note ~= nil then
+            body = body .. (cell ~= nil and cell.notePaint or notePaint)(note)
+        end
+        if align == "right" then
+            return padding .. body
+        end
 
-        return paint(body) .. (trailing or "")
+        return body .. padding
     end
 
     local lines: {string} = {}
     if showHeading then
         local parts: {string} = {}
         for index, column in ipairs(columns) do
-            parts[index] = laid(column.heading, index, column.align, headingPaint, nil)
+            parts[index] = laid(new Cell(text = column.heading), index, column, headingPaint)
         end
         lines[#lines + 1] = indent .. table.concat(parts, gap)
     end
@@ -152,10 +174,7 @@ export function render(options: Options): string
         local parts: {string} = {}
         for index, column in ipairs(columns) do
             const cell = row[index]
-            const paint = cell ~= nil and cell.paint or column.paint or identity
-            parts[
-                index
-            ] = laid(cell ~= nil and cell.text or "", index, column.align, paint, cell ~= nil and cell.trailing or nil)
+            parts[index] = laid(cell, index, column, cell ~= nil and cell.paint or column.paint or identity)
         end
         lines[#lines + 1] = indent .. table.concat(parts, gap)
     end

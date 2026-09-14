@@ -1522,8 +1522,9 @@ Options:
 The list marks the default build target:
 
 ```text [nupp task --list]
-app (default) - Build the greeter
-greet - Print a greeting
+task           kind     what it does
+app (default)  modules  Build the greeter
+greet          task     Print a greeting
 ```
 
 Naming one after `--list` prints its effective configuration, inherited

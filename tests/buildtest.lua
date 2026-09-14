@@ -526,14 +526,35 @@ return {
 ]],
     })
     local listed = capture(("cd '%s' && '%s' task -l"):format(dir, NUPP))
+    -- The listing is a table, so a row is a name, a kind and a description separated
+    -- by runs of padding rather than by a fixed " - ".
+    local function row(name)
+        for line in listed:gmatch("[^\r\n]+") do
+            if line:match("^" .. name:gsub("%p", "%%%0") .. "%f[%s]") then
+                return line
+            end
+        end
+        return nil
+    end
+    assert(row("app (default)"), "text listing marks the default: " .. listed)
     assert(
-        listed:find("app (default) - Build the application", 1, true),
-        "text listing marks the default and includes its description: " .. listed
+        row("app (default)"):find("Build the application", 1, true),
+        "text listing includes the default's description: " .. listed
     )
-    assert(listed:find("tools", 1, true), "text listing includes every task: " .. listed)
-    assert(listed:find("test - Build and run", 1, true), "text listing includes the configured test task: " .. listed)
-    assert(listed:find("fixpoint - Verify", 1, true), "text listing includes the configured self-host task: " .. listed)
-    assert(listed:find("release - Run the release tool", 1, true), "text listing includes custom tasks: " .. listed)
+    assert(row("tools"), "text listing includes every task: " .. listed)
+    assert(
+        row("test") and row("test"):find("Build and run", 1, true),
+        "text listing includes the configured test task: " .. listed
+    )
+    assert(
+        row("fixpoint") and row("fixpoint"):find("Verify", 1, true),
+        "text listing includes the configured self-host task: " .. listed
+    )
+    assert(
+        row("release") and row("release"):find("Run the release tool", 1, true),
+        "text listing includes custom tasks: " .. listed
+    )
+    assert(row("app (default)"):find("modules", 1, true), "and says what kind of entry each one is: " .. listed)
     assert(
         listed:find("app", 1, true) < listed:find("tools", 1, true),
         "text listing is sorted by task name: " .. listed

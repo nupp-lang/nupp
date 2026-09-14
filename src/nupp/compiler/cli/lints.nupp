@@ -100,11 +100,11 @@ local function run(options: any): integer
     end
     local cells: {{cliModule.Cell}} = {}
     for _, row in ipairs(rows) do
-        -- The default a project moved a lint off is an annotation on the summary
-        -- rather than a column, because it is absent from nearly every row.
+        -- The default a project moved a lint off is an aside on the summary rather
+        -- than a column, because it is absent from nearly every row.
         local note: string? = nil
         if row.moved then
-            note = style.faint((" (default %s)"):format(row.default))
+            note = (" (default %s)"):format(row.default)
         end
         cells[
             #cells + 1
@@ -112,7 +112,7 @@ local function run(options: any): integer
             cliModule.paintedCell(row.name, style.strong),
             cliModule.paintedCell(row.category, style.faint),
             cliModule.paintedCell(row.level, levelPaint(style, row.level)),
-            new cliModule.Cell(text = row.summary, trailing = note),
+            new cliModule.Cell(text = row.summary, note = note),
         }
     end
     cliModule.writeTable(
