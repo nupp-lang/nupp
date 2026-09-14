@@ -197,8 +197,8 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
         rows = rows + 1
     end
     assert(rows == 3, "heading and two rows, none of them wrapped: " .. rows)
-    -- Without colour the cut needs a mark of its own, or it reads as a description
-    -- that simply ended there.
+    -- A cut says so, painted or not: unpainted the marker is the only thing saying
+    -- the description continues.
     assert(fitted:find("...", 1, true), "an unpainted cut says it was cut")
 
     ansi.setColorMode("always")
@@ -209,9 +209,11 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
             cut = line
         end
     end
-    assert(cut:find("\27%[2m"), "a painted cut fades toward the edge instead: " .. cut)
-    assert(not cut:find("...", 1, true), "and needs no marker")
-    assert(#(cut:gsub("\27%[[0-9;]*m", "")) == 40, "the fade is inside the width, not past it")
+    assert(cut:find("\27%[2m"), "a painted cut fades toward the edge: " .. cut)
+    -- The marker is inside the faded run rather than after it, so the line trails
+    -- off into the dots instead of stopping and then being labelled.
+    assert(cut:find("%.%.%.\27%[0m"), "the marker is the last of the fade, not a mark after it: " .. cut)
+    assert(#(cut:gsub("\27%[[0-9;]*m", "")) == 40, "the fade and marker are inside the width, not past it")
 
     -- A cell's aside survives the cut. It is the shorter and more particular half, so
     -- losing it silently would lose the whole of what it said.

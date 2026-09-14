@@ -89,9 +89,14 @@ export record Options
     width: integer?
 end
 
---- How many characters at a cut are dimmed. Enough to read as a fade rather than as
---- one odd-looking character, short enough to leave the words before it plain.
+--- How many characters at a cut are dimmed before the marker. Enough to read as a
+--- fade rather than as one odd-looking character, short enough to leave the words
+--- before it plain.
 local FADE = 8
+
+--- What a cut line ends in. Dimmed along with the text it follows, so it is the last
+--- of the fade rather than a mark stuck on the end of one.
+local MARKER = "..."
 
 --- Below this there is no room to cut usefully: what survives would be a few letters
 --- and a fade, which says less than the wrapped line it replaced.
@@ -155,11 +160,6 @@ export function render(options: Options): string
 
     const notePaint = styles ~= nil and styles.faint or identity
 
-    -- Whether dimming is actually visible. Under `--no-color`, or into anything that
-    -- is not a terminal, `faint` hands the text straight back, so a cut would be a
-    -- cut with nothing to mark it. There the marker is written instead.
-    const dims = notePaint("x") ~= "x"
-
     -- Only the last column is cut. The ones before it are keys -- a name, a level, a
     -- kind -- and a cut key is not a shorter key, it is the wrong one.
     if options.width ~= nil and #columns > 1 then
@@ -173,22 +173,24 @@ export function render(options: Options): string
         end
     end
 
-    --- Cuts `value` to `room` and fades what remains toward the edge.
+    --- Cuts `value` to `room`, dimming the last of what survives and ending in the
+    --- marker, so the line trails off into it rather than stopping at it.
+    ---
+    --- The marker is written whether or not the dimming shows. Painted, it is the end
+    --- of the fade and says the same thing twice, which costs three columns; unpainted
+    --- it is the only thing saying the description continues, and a cut with nothing
+    --- marking it reads as a description that simply ended there.
     local function cut(value: string, room: integer, paint: function(string): string): string
-        if not dims then
-            const marker = "..."
-            if room <= #marker then
-                return paint(value:sub(1, room))
-            end
-
-            return paint(value:sub(1, room - #marker)) .. notePaint(marker)
+        if room <= #MARKER then
+            return paint(value:sub(1, room))
         end
+        const kept = room - #MARKER
         local tail = FADE
-        if tail >= room then
-            tail = room
+        if tail > kept then
+            tail = kept
         end
 
-        return paint(value:sub(1, room - tail)) .. notePaint(value:sub(room - tail + 1, room))
+        return paint(value:sub(1, kept - tail)) .. notePaint(value:sub(kept - tail + 1, kept) .. MARKER)
     end
 
     -- Painted after padding, and the note painted apart from the text: an escape is
