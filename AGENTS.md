@@ -198,17 +198,20 @@ reports it is usually already testing somebody else's commit. `git push
 - `./bin/nupp fixpoint` verifies that the compiler rebuilds byte-identically,
   starting from the pinned stage zero.
 - What CI runs for a change is decided by `.github/scripts/classify-changes.lua`
-  from the paths it touches, and `required-ci` is the single status the trunk
-  requires. A path no rule classifies selects every job, which is the property
-  that makes the classifier safe to trust: adding a file in a new place cannot
-  quietly lose coverage. `tests/cichangeclassifiertest.lua` and
+  from the paths it touches, and `required-ci` is the single status that
+  summarises the run. A path no rule classifies selects every job, which is the
+  property that makes the classifier safe to trust: adding a file in a new place
+  cannot quietly lose coverage. `tests/cichangeclassifiertest.lua` and
   `.github/ci-coverage.json` hold the classifier, the workflow and the test
   groups to one account of what is covered.
-- The trunk ruleset admits a push to `main` only when `required-ci` is already
-  green for that exact commit. So push the task branch first, wait for it, then
-  push the same SHA to `main` -- the fast-forward in "Making changes" above is
-  unchanged, it just has somewhere to be tested first. There is no pull request
-  and no review in this; a commit nothing has tested is the only thing refused.
+- Push the finished work straight to `main`. Nothing gates it: no pull request,
+  no review, and no waiting on a run before the fast-forward in "Making
+  changes" above. CI runs on the push and says what it found; a red `main` is
+  fixed forward, by whoever is holding the thread. What stands in for the gate
+  is the run you did here, which is why "run the suites that cover what
+  changed" above is the part worth being strict about -- pushing a task branch
+  and waiting on a remote run is the slow way to learn something a focused
+  local run already knew.
 
 ## Speed
 
