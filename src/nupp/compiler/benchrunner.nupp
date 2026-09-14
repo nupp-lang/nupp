@@ -17,6 +17,7 @@ module nupp.compiler.benchrunner
 local json = require("nupp.codec.json")
 
 local buildProcess = require("nupp.compiler.build.process")
+local cli = require("nupp.cli")
 local files = require("nupp.io.files")
 local process = require("nupp.io.process")
 local random = require("nupp.random")
@@ -235,18 +236,40 @@ local function nuppRun(executable: string, path: string, extra: {string}, timeou
     return result:succeeded(), nil
 end
 
---- The case names a file defines, by asking it rather than by reading it.
-local function casesIn(executable: string, path: string, timeoutMs: integer): ({Benchmark}, string?)
-    local listing = "build/bench-cases.txt"
-    os.remove(listing)
-    local ok, problem = nuppRun(executable, path, {"--list-cases", "--cases-out", listing}, timeoutMs)
-    if not ok then
-        return {}, problem and "case listing " .. problem or "case listing failed"
+--- Where the listings of the last run are remembered.
+local CASES_CACHE = "build/bench-cases.json"
+
+--- Where a listing child is told to write. One file per child, because they run
+--- together and `--cases-out` appends.
+local CASES_DIR = "build/bench-cases"
+
+--- The null device, for the streams of a wave's children and watchdogs.
+local NOWHERE = package.config:sub(1, 1) == "\\" and "NUL" or "/dev/null"
+
+--- How many listing children run at once.
+---
+--- A listing child spends its seconds compiling the file's module graph, so this is
+--- bounded by cores rather than by anything the benchmarks do. Nothing here is being
+--- measured -- the measurement runs are still one process at a time -- so a listing
+--- may use the machine.
+local function listingWidth(count: integer): integer
+    if package.config:sub(1, 1) == "\\" then
+        -- No `wait`, so no wave. A slower answer, never a different one.
+        return 1
     end
-    local text = readFile(listing)
-    if not text then
-        return {}, "wrote no case listing"
+    local cores = system.availableParallelism()
+    if cores < 1 then
+        cores = 1
     end
+    if count < cores then
+        return count
+    end
+
+    return cores as integer
+end
+
+--- Reads one child's case listing into benchmarks, or says why it is not one.
+local function parseListing(text: string): ({Benchmark}, string?)
     local names: {Benchmark} = {}
     local seen: {[string]: boolean} = {}
     for line in text:gmatch("[^\r\n]+") do
@@ -271,6 +294,291 @@ local function casesIn(executable: string, path: string, timeoutMs: integer): ({
     end
 
     return names, nil
+end
+
+--- What a remembered listing is keyed on.
+---
+--- The compiler, because a case list is what a compiled program said, and every
+--- benchmark reaches the standard library through it. Then every Nupp and Lua file
+--- under `bench/`, not just the file being listed, because a case file may require a
+--- neighbour and the names it declares may come from there. Both are cheap beside one
+--- listing child, which is seconds.
+local function buildCache(): any?
+    local ok, loaded = pcall(require, "nupp.compiler.build.cache")
+    if not ok or not loaded then
+        return nil
+    end
+
+    return loaded
+end
+
+--- What one listed file's own contents come to. Nil when it cannot be read, which
+--- keeps it out of the cache rather than storing it under a key nothing can match.
+local function sourceDigest(path: string): string?
+    local cache = buildCache()
+    if cache == nil then
+        return nil
+    end
+
+    return cache.hashFile(path, cache.contentDigest(true))
+end
+
+local function listingKey(): string?
+    local cache = buildCache()
+    if cache == nil then
+        return nil
+    end
+    local digest = cache.contentDigest(true)
+    local parts: {string} = {cache.toolFingerprint(digest)}
+    local sources: {string} = {}
+    for _, pattern in ipairs({"bench/**/*.nupp", "bench/**/*.lua", "bench/*.nupp", "bench/*.lua"}) do
+        for _, path in ipairs(files.glob(pattern) or {}) do
+            sources[#sources + 1] = path
+        end
+    end
+    table.sort(sources)
+    local last: string? = nil
+    for _, path in ipairs(sources) do
+        if path ~= last then
+            parts[#parts + 1] = path .. "\0" .. (cache.hashFile(path, digest) or "missing")
+            last = path
+        end
+    end
+
+    return digest(table.concat(parts, "\0"))
+end
+
+--- The listings remembered under the current key, or nothing.
+---
+--- Two keys, because a listed file is not always one of the ones the key above
+--- covers: `--file` may name a program anywhere, and a fixture outside `bench/`
+--- would otherwise be served whatever it declared the last time it was listed. The
+--- shared key answers for the compiler and the benchmark tree; each entry answers
+--- for its own file.
+---
+--- Never load-bearing: a cache that is missing, stale or unreadable costs the
+--- listing children it would have saved and changes no answer.
+local function rememberedListings(key: string?): {[string]: any}
+    if key == nil then
+        return {}
+    end
+    local text = readFile(CASES_CACHE)
+    if not text then
+        return {}
+    end
+    local ok, decoded = pcall(json.decode, text)
+    if not ok or type(decoded) ~= "table" or decoded.key ~= key or type(decoded.files) ~= "table" then
+        return {}
+    end
+    local answer: {[string]: any} = {}
+    for path, entry in pairs(decoded.files as {[string]: any}) do
+        if type(entry) == "table" and type(entry.source) == "string" and type(entry.cases) == "table" then
+            answer[path] = entry
+        end
+    end
+
+    return answer
+end
+
+local function rememberListings(key: string?, listings: {[string]: any}): nil
+    if key == nil then
+        return
+    end
+    pcall(function(): nil
+        files.createDirectory("build")
+        writeFile(CASES_CACHE, json.encode({key = key, files = listings}))
+    end)
+end
+
+--- The case names every file defines, by asking them rather than by reading them.
+---
+--- A listing child pays for compiling the file's module graph before it can say what
+--- that file declares, which is seconds each, so nine of them in series was nearly all
+--- of what listing cost. They are independent -- nothing one listing produces is read
+--- by another -- so they run in waves, the same four lines of POSIX `sh` the
+--- ahead-of-time backend uses for translation units, and Windows keeps the serial path
+--- it already had. What each child said is then remembered under `listingKey`, so a
+--- repeat with nothing changed starts no children at all.
+---
+--- Failure is per file: one file that cannot be listed is one set of benchmarks
+--- missing from the answer, not an unanswerable question.
+local function casesFor(
+    executable: string,
+    paths: {string},
+    timeoutMs: integer
+): ({[string]: {Benchmark}}, {[string]: string})
+    local answers: {[string]: {Benchmark}} = {}
+    local problems: {[string]: string} = {}
+    local key = listingKey()
+    local remembered = rememberedListings(key)
+    local sources: {[string]: string} = {}
+    local wanted: {string} = {}
+    for _, path in ipairs(paths) do
+        local source = sourceDigest(path)
+        sources[path] = source or ""
+        local known = remembered[path]
+        if known ~= nil and source ~= nil and known.source == source then
+            answers[path] = known.cases as {Benchmark}
+        else
+            wanted[#wanted + 1] = path
+        end
+    end
+    if #wanted == 0 then
+        return answers, problems
+    end
+    files.createDirectory(CASES_DIR)
+
+    local function accept(path: string, listing: string, output: string, code: integer, timedOut: boolean): nil
+        if output ~= "" then
+            io.stderr:write(output)
+        end
+        if timedOut then
+            problems[path] = ("case listing timed out after %.3fs"):format(timeoutMs / 1000.0)
+
+            return
+        end
+        if code ~= 0 then
+            problems[path] = "case listing failed"
+
+            return
+        end
+        local text = readFile(listing)
+        if not text then
+            problems[path] = "wrote no case listing"
+
+            return
+        end
+        local listed, problem = parseListing(text)
+        if problem then
+            problems[path] = problem
+
+            return
+        end
+        answers[path] = listed
+        -- A file whose contents could not be digested is answered but not remembered:
+        -- there is nothing to compare a later run against, so storing it would only
+        -- ever miss.
+        if sources[path] ~= "" then
+            remembered[path] = {source = sources[path], cases = listed}
+        end
+    end
+
+    local function argumentsFor(path: string, listing: string): {string}
+        return buildProcess.isolatedArguments({
+            executable,
+            "run",
+            "-O1",
+            "--remarks-out",
+            path,
+            "--list-cases",
+            "--cases-out",
+            listing
+        })
+    end
+
+    local width = listingWidth(#wanted)
+    if width <= 1 then
+        for _, path in ipairs(wanted) do
+            local listing = CASES_DIR .. "/1.txt"
+            os.remove(listing)
+            local ok, problem = nuppRun(executable, path, {"--list-cases", "--cases-out", listing}, timeoutMs)
+            if not ok then
+                problems[path] = problem and "case listing " .. problem or "case listing failed"
+            else
+                accept(path, listing, "", 0, false)
+            end
+            os.remove(listing)
+        end
+        rememberListings(key, remembered)
+
+        return answers, problems
+    end
+
+    local first: integer = 1
+    while first <= #wanted do
+        local last: integer = first + width - 1
+        if last > #wanted then
+            last = #wanted
+        end
+        local parts: {string} = {}
+        local produced: {any} = {}
+        for index = first, last do
+            local stem = CASES_DIR .. "/" .. tostring(index)
+            local job = {
+                path = wanted[index],
+                listing = stem .. ".txt",
+                output = stem .. ".out",
+                status = stem .. ".rc",
+                expired = stem .. ".timeout",
+            }
+            produced[index] = job
+            os.remove(job.listing)
+            os.remove(job.output)
+            os.remove(job.status)
+            os.remove(job.expired)
+            -- A watchdog per job rather than a bound on the wave: the bound is what
+            -- stops one file that never finishes listing from holding every other
+            -- file's answer, and a wave-wide one would not. It waits in one-second
+            -- steps rather than in one long sleep, so it notices the job finishing
+            -- and leaves, and so that killing it kills something that is about to
+            -- end anyway. Its own streams go nowhere: a `sleep` holding the pipe
+            -- this command's output is being read through is a listing that has
+            -- printed everything and still will not end. It reports the kill by
+            -- writing a file, so a killed child reads as a timeout rather than as
+            -- whatever signal number the shell reports for it.
+            local seconds = math.ceil(timeoutMs / 1000.0)
+            parts[
+                #parts + 1
+            ] = "( { " .. buildProcess.command(
+                argumentsFor(job.path, job.listing)
+            ) .. " ; } <" .. NOWHERE .. " >" .. buildProcess.quote(
+                job.output
+            ) .. " 2>&1 & __nupp_job=$!; ( __nupp_n=0; while [ $__nupp_n -lt " .. tostring(
+                seconds
+            )
+                .. " ]; do sleep 1; __nupp_n=$((__nupp_n+1)); kill -0 $__nupp_job 2>/dev/null || exit 0; done; "
+                .. "kill -9 $__nupp_job 2>/dev/null && printf 1 >"
+                .. buildProcess.quote(
+                job.expired
+            )
+                .. " ) <"
+                .. NOWHERE
+                .. " >"
+                .. NOWHERE
+                .. " 2>&1 & __nupp_watch=$!; wait $__nupp_job; printf %d $? >"
+                .. buildProcess.quote(
+                job.status
+            ) .. "; kill $__nupp_watch 2>/dev/null ) &"
+        end
+        parts[#parts + 1] = "wait"
+        -- The wave's own standard error goes nowhere. Every job already captures its
+        -- own output into a file, so what is left on it is the shell announcing that
+        -- it killed something -- which the watchdog above already reported, in the
+        -- words this command uses for it.
+        os.execute("{\n" .. table.concat(parts, "\n") .. "\n} 2>" .. NOWHERE)
+        for index = first, last do
+            local job = produced[index]
+            -- A missing status file is a job the shell could not start at all, which is
+            -- this module failing rather than the listing failing; it reads as a
+            -- nonzero exit so the caller says what it always says about one.
+            local status = tonumber((readFile(job.status) or ""):match("%d+") or "")
+            accept(
+                job.path,
+                job.listing,
+                readFile(job.output) or "",
+                (status or 1) as integer,
+                readFile(job.expired) ~= nil
+            )
+            os.remove(job.listing)
+            os.remove(job.output)
+            os.remove(job.status)
+            os.remove(job.expired)
+        end
+        first = last + 1
+    end
+    rememberListings(key, remembered)
+
+    return answers, problems
 end
 
 --- Runs one named case in its own process and returns the record it wrote.
@@ -929,8 +1237,10 @@ local function planned(
     failures: {string}
 ): {any}
     local entries: {any} = {}
+    local listings, listingFailures = casesFor(executable, paths, timeoutMs)
     for _, path in ipairs(paths) do
-        local names, listingFailure = casesIn(executable, path, timeoutMs)
+        local names = listings[path] or {}
+        local listingFailure = listingFailures[path]
         if listingFailure then
             failures[#failures + 1] = path .. ": " .. listingFailure
         elseif #names == 0 then
@@ -1003,25 +1313,55 @@ function runner.run(options: runner.Options): integer
 
     if listOnly then
         local failed = false
-        local listed: integer = 0
         local paths = onlyFile and {onlyFile} or discover()
+        local listings, listingProblems = casesFor(executable, paths, timeoutMs)
+        local matched: {any} = {}
         for _, path in ipairs(paths) do
-            local names, problem = casesIn(executable, path, timeoutMs)
+            local problem = listingProblems[path]
             if problem then
                 io.stderr:write("bench: " .. path .. ": " .. problem .. "\n")
                 failed = true
             end
-            for _, benchmark in ipairs(names) do
+            for _, benchmark in ipairs(listings[path] or {}) do
                 if selected(benchmark, casePatterns, parameterPatterns, variantPatterns) then
-                    io.stdout:write(benchmark.name, "\t", path, "\n")
-                    listed = (listed + 1) as integer
+                    matched[#matched + 1] = {benchmark = benchmark, path = path}
                 end
             end
         end
-        if listed == 0 and not failed then
+        if #matched == 0 and not failed then
             io.stderr:write("bench: no benchmark matched the selection\n")
             failed = true
         end
+        if asJson then
+            local entries: {any} = {}
+            for index, entry in ipairs(matched) do
+                local benchmark = entry.benchmark
+                entries[
+                    index
+                ] = {
+                    name = benchmark.name,
+                    file = entry.path,
+                    suite = benchmark.suite,
+                    case = benchmark.caseName,
+                    variant = benchmark.variant,
+                    parameters = benchmark.parameters,
+                }
+            end
+            io.stdout:write(json.encode({benchmarks = entries}), "\n")
+
+            return failed and 1 or 0
+        end
+        local style = cli.style(io.stdout)
+        local rows: {{cli.Cell}} = {}
+        for index, entry in ipairs(matched) do
+            rows[
+                index
+            ] = {cli.paintedCell(entry.benchmark.name, style.strong), cli.paintedCell(entry.path, style.faint),}
+        end
+        cli.writeTable(
+            io.stdout,
+            {columns = {{heading = "benchmark"}, {heading = "file"}}, rows = rows, style = style} as cli.TableOptions
+        )
 
         return failed and 1 or 0
     end

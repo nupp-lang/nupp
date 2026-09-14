@@ -197,17 +197,23 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
         "one fork names why it carries no interval instead of leaving the field absent"
     )
 
+    -- Asked for as JSON rather than as the table: what is being asserted is which
+    -- benchmark the filters selected, and a table's column widths depend on the
+    -- longest name in it, so the text form would tie this to the fixture's spelling.
     local filtered = os.execute(
         (
-            "%q bench --list --file %q --case %q --case %q --variant %q --parameter %q > %q"
+            "%q bench --list --json --file %q --case %q --case %q --variant %q --parameter %q > %q"
         ):format(NUPP, fixture, "^absent$", "^work$", "^other$", "^size=2$", stdout)
     )
     assertEq(filtered, 0, "structured Lua-pattern filters select a benchmark")
+    local selection = json.decode(read(stdout))
+    assertEq(#selection.benchmarks, 1, "one benchmark survived every filter")
     assertEq(
-        read(stdout),
-        "protocol.work.other:size=2\t" .. fixture .. "\n",
+        selection.benchmarks[1].name,
+        "protocol.work.other:size=2",
         "case, variant and parameter filters combine while repeats are alternatives"
     )
+    assertEq(selection.benchmarks[1].file, fixture, "and the listing says which file declares it")
 
     local profiled = os.execute(
         (
@@ -327,9 +333,14 @@ function M.eachSelectorNarrowsOnItsOwn()
             0,
             "listing with " .. flags .. " exits successfully"
         )
+        -- The heading row is dropped rather than counted: the listing is a table now,
+        -- and every count below is a count of benchmarks.
         local names = {}
         for line in read(stdout):gmatch("[^\r\n]+") do
-            names[#names + 1] = line:match("^([^\t]+)")
+            local name = line:match("^(%S+)")
+            if name ~= "benchmark" then
+                names[#names + 1] = name
+            end
         end
 
         return names

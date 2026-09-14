@@ -11,6 +11,7 @@ const {type Entry} = require("nupp.derive")
 const parser = require("nupp.cli.internal.optparser")
 const {type DecodeError} = require("nupp.cli.internal.decode")
 const {type ColorMode, type Style} = require("nupp.cli.internal.terminal")
+const {type Alignment, type Cell, type Column, type Options as TableOptions} = require("nupp.cli.internal.table")
 const {type ApplicationOptions, type Application, type Invocation} = require("nupp.cli.internal.application")
 
 type cliModule.TokenKind = parser.TokenKind
@@ -23,6 +24,10 @@ type cliModule.OptParser = parser.OptParser
 type cliModule.DecodeError = DecodeError
 type cliModule.ColorMode = ColorMode
 type cliModule.Style = Style
+type cliModule.Alignment = Alignment
+type cliModule.Cell = Cell
+type cliModule.Column = Column
+type cliModule.TableOptions = TableOptions
 type cliModule.ApplicationOptions = ApplicationOptions
 type cliModule.Application = Application
 type cliModule.Invocation = Invocation
@@ -103,6 +108,26 @@ end
 --- Returns the generic styles selected for one stream.
 function cliModule.style(stream: LuaFile): cliModule.Style
     return require("nupp.cli.internal.terminal").style(stream)
+end
+
+--- Renders aligned columns, painting each cell after it is padded.
+function cliModule.table(options: cliModule.TableOptions): string
+    return require("nupp.cli.internal.table").render(options)
+end
+
+--- Renders aligned columns straight to a stream.
+function cliModule.writeTable(stream: LuaFile, options: cliModule.TableOptions): nil
+    return require("nupp.cli.internal.table").write(stream, options)
+end
+
+--- A plain table cell.
+function cliModule.cell(value: string): cliModule.Cell
+    return require("nupp.cli.internal.table").text(value)
+end
+
+--- A table cell that paints itself, whatever its column says.
+function cliModule.paintedCell(value: string, paint: function(string): string): cliModule.Cell
+    return require("nupp.cli.internal.table").painted(value, paint)
 end
 
 --- Selects the color associated with a diagnostic severity.

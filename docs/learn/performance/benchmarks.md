@@ -11,6 +11,7 @@ that declares cases through `nupp.bench` and ends in `bench.report()`.
 ```bash
 nupp bench                  # everything, one process per benchmark
 nupp bench --list           # names and files, without running
+nupp bench --list --json    # the same listing, for a script to read
 nupp bench --pilot          # how many processes a real answer would take
 nupp bench --forks 12       # that many, for an interval you can quote
 ```

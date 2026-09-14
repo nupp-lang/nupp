@@ -133,21 +133,21 @@ local function listBuiltins(): integer
     local template = require("nupp.compiler.template")
     local style = ansi.style(io.stdout)
     local names = template.builtins()
-    local width = 0
-    for _, name in ipairs(names) do
-        if #name > width then
-            width = #name
-        end
+    local rows: {{ansi.Cell}} = {}
+    for index, name in ipairs(names) do
+        rows[
+            index
+        ] = {ansi.paintedCell(name, ansi.severity(style, "note")), ansi.cell(template.builtinDescription(name)),}
     end
-    io.write(style.strong("Built-in templates:") .. "\n")
-    for _, name in ipairs(names) do
-        io.write(
-            "  " .. ansi.severity(
-                style,
-                "note"
-            )(name) .. (" "):rep(width - #name + 2) .. template.builtinDescription(name) .. "\n"
-        )
-    end
+    ansi.writeTable(
+        io.stdout,
+        {
+            columns = {{heading = "built-in template"}, {heading = "what it writes"}},
+            rows = rows,
+            style = style,
+            indent = "  ",
+        } as ansi.TableOptions
+    )
 
     return 0
 end

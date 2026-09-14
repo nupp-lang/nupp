@@ -50,6 +50,14 @@ local REPORT_SCHEMA = {
 -- levels that are not severities are the two that do not report anything.
 local LEVEL_SEVERITY = {error = "error", warning = "warning", note = "note",}
 
+--- A level that is not a severity is one that reports nothing, and is painted faint
+--- rather than in a colour that would claim it does.
+local function levelPaint(style: cliModule.Style, level: string): function(string): string
+    local severity = LEVEL_SEVERITY[level]
+
+    return severity ~= nil and ansi.severity(style, severity) or style.faint
+end
+
 local function run(options: any): integer
     local lints = require("nupp.compiler.lints")
     local project = require("nupp.compiler.build.project")
@@ -69,7 +77,6 @@ local function run(options: any): integer
     local lintConfig = config and config.lints or nil
     local style = ansi.style(io.stdout)
     local rows: {any} = {}
-    local nameWidth: integer, categoryWidth: integer = 4, 8
     for _, lint in ipairs(lints.all) do
         local level = lints.level(lint, lintConfig)
         rows[
@@ -83,12 +90,6 @@ local function run(options: any): integer
             default = lint.level,
             moved = level ~= lint.level,
         }
-        if #lint.name > nameWidth then
-            nameWidth = #lint.name
-        end
-        if #lint.category > categoryWidth then
-            categoryWidth = #lint.category
-        end
     end
     table.sort(rows, function(a: any, b: any): boolean
         return a.name < b.name
@@ -97,36 +98,36 @@ local function run(options: any): integer
         require("nupp.compiler.cli.report").write({lints = rows})
         return 0
     end
-    -- Padded before styling, since an escape code has width in bytes and none on
-    -- screen, and one write at the end rather than one per row.
-    local out: {string} = {}
-
-    local function pad(text: string, width: integer): string
-        return text .. (" "):rep(width - #text)
-    end
-
-    out[
-        #out + 1
-    ] = style.faint(
-        pad("lint", nameWidth) .. "  " .. pad("category", categoryWidth) .. "  " .. pad("level", 7) .. "  summary"
-    )
+    local cells: {{cliModule.Cell}} = {}
     for _, row in ipairs(rows) do
-        local summary = row.summary
+        -- The default a project moved a lint off is an annotation on the summary
+        -- rather than a column, because it is absent from nearly every row.
+        local note: string? = nil
         if row.moved then
-            summary = summary .. style.faint((" (default %s)"):format(row.default))
+            note = style.faint((" (default %s)"):format(row.default))
         end
-        local level = pad(row.level, 7)
-        local severity = LEVEL_SEVERITY[row.level]
-        if severity then
-            level = ansi.severity(style, severity)(level)
-        end
-        out[
-            #out + 1
-        ] = style.strong(
-            pad(row.name, nameWidth)
-        ) .. "  " .. style.faint(pad(row.category, categoryWidth)) .. "  " .. level .. "  " .. summary
+        cells[
+            #cells + 1
+        ] = {
+            cliModule.paintedCell(row.name, style.strong),
+            cliModule.paintedCell(row.category, style.faint),
+            cliModule.paintedCell(row.level, levelPaint(style, row.level)),
+            new cliModule.Cell(text = row.summary, trailing = note),
+        }
     end
-    io.write(table.concat(out, "\n"), "\n")
+    cliModule.writeTable(
+        io.stdout,
+        {
+            columns = {
+                {heading = "lint"},
+                {heading = "category"},
+                {heading = "level", minimumWidth = 7},
+                {heading = "summary"},
+            },
+            rows = cells,
+            style = style,
+        } as cliModule.TableOptions
+    )
 
     return 0
 end

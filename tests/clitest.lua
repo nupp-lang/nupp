@@ -79,6 +79,75 @@ function M.colourIsDecidedOncePerStreamAndOverriddenByMode()
     ansi.setColorMode("auto")
 end
 
+function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
+    ansi.setColorMode("never")
+    local plain = ansi.style(io.stdout)
+    local rendered = ansi.table({
+        columns = {{heading = "lint"}, {heading = "level"}, {heading = "summary"}},
+        rows = {
+            {ansi.cell("a"), ansi.cell("error"), ansi.cell("first")},
+            {ansi.cell("longer-name"), ansi.cell("off"), ansi.cell("second")},
+        },
+        style = plain,
+    })
+    assert(
+        rendered == "lint         level  summary\n"
+        .. "a            error  first\n"
+        .. "longer-name  off    second\n",
+        "columns are as wide as their widest cell, heading included:\n" .. rendered
+    )
+    -- The last column is not padded. A run of trailing spaces is invisible in a
+    -- terminal and very visible in anything that reads the output back.
+    for line in rendered:gmatch("[^\n]+") do
+        assert(not line:find("%s$"), "no line ends in padding: " .. line)
+    end
+
+    -- The point of the shared renderer: an escape is bytes with no width, so
+    -- padding has to happen before painting or the escapes line up and the text
+    -- does not. Both rows below carry a painted cell of a different length.
+    ansi.setColorMode("always")
+    local painted = ansi.style(io.stdout)
+    local coloured = ansi.table({
+        columns = {{heading = "name", paint = painted.strong}, {heading = "note"}},
+        rows = {{ansi.cell("a"), ansi.cell("x")}, {ansi.cell("longer"), ansi.cell("y")}},
+        style = painted,
+    })
+    local lines = {}
+    for line in coloured:gmatch("[^\n]+") do
+        lines[#lines + 1] = line
+    end
+    assert(lines[1]:find("\27%[1;35mname  \27%[0m"), "the heading is painted as a heading: " .. lines[1])
+    assert(lines[2]:find("\27%[1ma     \27%[0m", 1, false), "a short cell is padded inside its paint")
+    assert(lines[3]:find("\27%[1mlonger\27%[0m", 1, false), "a full-width cell needs no padding")
+
+    -- A cell may paint itself whatever its column says, and may carry an already
+    -- styled annotation that is not measured.
+    local mixed = ansi.table({
+        columns = {{heading = "name", paint = painted.strong}, {heading = "note"}},
+        rows = {
+            {ansi.paintedCell("a", painted.faint), {text = "x", trailing = painted.faint(" (extra)")}},
+            {ansi.cell("longer"), ansi.cell("y")},
+        },
+        style = painted,
+    })
+    assert(mixed:find("\27%[2ma     \27%[0m", 1, false), "a cell overrides its column's paint")
+    assert(mixed:find("x\27%[2m %(extra%)\27%[0m", 1, false), "a trailing annotation follows the padded cell")
+
+    ansi.setColorMode("never")
+    assert(
+        ansi.table({columns = {{heading = "only"}}, rows = {}}) == "",
+        "no rows prints nothing at all rather than a heading over nothing"
+    )
+    assert(
+        ansi.table({
+            columns = {{heading = "n", align = "right"}, {heading = "what"}},
+            rows = {{ansi.cell("7"), ansi.cell("a")}, {ansi.cell("1234"), ansi.cell("b")}},
+        }) == "   n  what\n   7  a\n1234  b\n",
+        "a right aligned column pads on the left"
+    )
+    ansi.setColorMode("auto")
+end
+
 local function capture(argv)
     -- This test defines automatic colour as a plain pipe, whatever the shell
     -- that launched the suite put in its environment.

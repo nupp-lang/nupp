@@ -1,0 +1,175 @@
+module nupp.cli.internal.table
+
+--[[
+Aligned columnar output for commands that print a list of things.
+
+A table is columns and rows of plain text. Width is measured here and styling is
+applied after padding, because an escape code is bytes with no width on screen:
+padding styled text aligns the escapes rather than the letters. That ordering is
+the whole reason this is shared rather than written again at each command.
+
+Nothing here wraps or truncates. A column is as wide as its widest cell, and a
+terminal narrower than the total is the terminal's business -- a listing that
+silently drops the end of a name is worse than one that wraps.
+]]
+
+const {type Style} = require("nupp.cli.internal.terminal")
+
+--- How a cell sits in its column.
+export type Alignment = "left" | "right"
+
+--- One cell.
+---
+--- `text` is what the column is measured against and what gets padded. `paint`
+--- overrides the column's painter for this cell alone, which is how one row can
+--- report a level in its own severity colour. `trailing` is appended after
+--- padding and is never measured, so an annotation that is already styled --
+--- a parenthetical, a unit -- cannot skew the column it sits in.
+export record Cell
+    text: string
+    paint: (function(string): string)?
+    trailing: string?
+end
+
+--- One column.
+export record Column
+    --- What prints above it. An empty heading still reserves the column's width.
+    heading: string
+
+    --- Which side the padding goes on. Numbers read as a column when they are
+    --- right aligned and as noise when they are not.
+    align: Alignment?
+
+    --- Paints every cell in this column that does not paint itself.
+    paint: (function(string): string)?
+
+    --- A floor on the width, for a column whose contents are shorter than what
+    --- they will be once a row appears that fills it.
+    minimumWidth: integer?
+end
+
+--- What to render.
+export record Options
+    columns: {Column}
+
+    --- Rows, each as many cells as there are columns. A short row is padded with
+    --- blanks rather than refused, so a caller may leave a trailing cell out.
+    rows: {{Cell}}
+
+    --- Where the heading colour and any cell colours come from. Supply the style
+    --- selected for the stream being written to; omit it and nothing is painted.
+    style: Style?
+
+    --- Paints the heading row. Defaults to the style's `heading` role.
+    headingPaint: (function(string): string)?
+
+    --- Printed between columns. Two spaces unless a caller says otherwise.
+    gap: string?
+
+    --- Printed before every line, heading included.
+    indent: string?
+
+    --- Whether to print the heading row at all.
+    showHeading: boolean?
+end
+
+--- A plain cell.
+export function text(value: string): Cell
+    return new Cell(text = value)
+end
+
+--- A cell that paints itself.
+export function painted(value: string, paint: function(string): string): Cell
+    return new Cell(text = value, paint = paint)
+end
+
+local function identity(value: string): string
+    return value
+end
+
+--- Renders the table, newline terminated, or the empty string when there are no rows.
+---
+--- No rows means no output at all, heading included: a heading standing over nothing
+--- says a table is coming and then does not deliver one, and every caller that has
+--- nothing to show would otherwise have to suppress it itself.
+export function render(options: Options): string
+    const columns = options.columns
+    const rows = options.rows
+    if #rows == 0 then
+        return ""
+    end
+    const gap = options.gap or "  "
+    const indent = options.indent or ""
+    const showHeading = options.showHeading ~= false
+    const styles = options.style
+    const headingPaint = options.headingPaint or (styles ~= nil and styles.heading or identity)
+
+    local widths: {integer} = {}
+    for index, column in ipairs(columns) do
+        local width = column.minimumWidth or 0
+        if showHeading and #column.heading > width then
+            width = #column.heading
+        end
+        widths[index] = width
+    end
+    for _, row in ipairs(rows) do
+        for index = 1, #columns do
+            const cell = row[index]
+            if cell ~= nil and #cell.text > widths[index] then
+                widths[index] = #cell.text
+            end
+        end
+    end
+
+    -- The last column carries no padding: a trailing run of spaces is invisible in a
+    -- terminal and very visible in a file, a diff, or anything that trims lines.
+    local function laid(
+        value: string,
+        index: integer,
+        align: Alignment?,
+        paint: function(string): string,
+        trailing: string?
+    ): string
+        local padding = ""
+        const missing = widths[index] - #value
+        if missing > 0 and (index < #columns or align == "right") then
+            padding = (" "):rep(missing)
+        end
+        const body = align == "right" and padding .. value or value .. padding
+
+        return paint(body) .. (trailing or "")
+    end
+
+    local lines: {string} = {}
+    if showHeading then
+        local parts: {string} = {}
+        for index, column in ipairs(columns) do
+            parts[index] = laid(column.heading, index, column.align, headingPaint, nil)
+        end
+        lines[#lines + 1] = indent .. table.concat(parts, gap)
+    end
+    for _, row in ipairs(rows) do
+        local parts: {string} = {}
+        for index, column in ipairs(columns) do
+            const cell = row[index]
+            const paint = cell ~= nil and cell.paint or column.paint or identity
+            parts[
+                index
+            ] = laid(cell ~= nil and cell.text or "", index, column.align, paint, cell ~= nil and cell.trailing or nil)
+        end
+        lines[#lines + 1] = indent .. table.concat(parts, gap)
+    end
+    if #lines == 0 then
+        return ""
+    end
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
+--- Renders the table straight to a stream.
+export function write(stream: LuaFile, options: Options): nil
+    const rendered = render(options)
+    if rendered ~= "" then
+        stream:write(rendered)
+    end
+end

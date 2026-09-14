@@ -89,8 +89,7 @@ local function run(options: any): integer
         return usageError("--accept needs --baseline PATH")
     end
     if values.list and (
-        values.json
-        or values.baseline
+        values.baseline
         or values.accept
         or values.history
         or values.label
@@ -202,6 +201,8 @@ end
 @derive(cliModule.Command)
 local record Bench
     --- List benchmark names and source files without running.
+    ---
+    --- An aligned table, or the same listing as JSON under `--json`.
     list: boolean = false
 
     --- Inspect and run only one benchmark program.
@@ -273,7 +274,7 @@ local record Bench
     @cli(value = "TEXT")
     label: string?
 
-    --- Write only the merged JSON record to stdout.
+    --- Write only the merged JSON record to stdout, or the listing under `--list`.
     json: boolean = false
 
     --- Print the JSON Schema of JSON output and exit.

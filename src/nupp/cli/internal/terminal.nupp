@@ -7,6 +7,12 @@ export type ColorMode = "auto" | "always" | "never"
 export record Style
     strong: function(string): string
     faint: function(string): string
+
+    --- A column heading, a section title: text that names what is beneath it rather
+    --- than saying anything itself. Named as a role rather than as a colour so the
+    --- one decision lives here instead of at every table that prints one.
+    heading: function(string): string
+
     red: function(string): string
     yellow: function(string): string
     green: function(string): string
@@ -19,7 +25,16 @@ export record Style
     severity: {[string]: function(string): string}
 end
 
-local CODES = {strong = "1", faint = "2", red = "1;31", yellow = "1;33", green = "1;32", cyan = "1;36", blue = "1;34",}
+local CODES = {
+    strong = "1",
+    faint = "2",
+    red = "1;31",
+    yellow = "1;33",
+    green = "1;32",
+    cyan = "1;36",
+    blue = "1;34",
+    heading = "1;35",
+}
 local RESET = "\27[0m"
 
 local function plain(text: string): string
@@ -42,6 +57,7 @@ end
 local PLAIN = new Style(
     strong = plain,
     faint = plain,
+    heading = plain,
     red = plain,
     yellow = plain,
     green = plain,
@@ -55,6 +71,7 @@ local PLAIN = new Style(
 local COLORED = new Style(
     strong = styler(CODES.strong),
     faint = styler(CODES.faint),
+    heading = styler(CODES.heading),
     red = styler(CODES.red),
     yellow = styler(CODES.yellow),
     green = styler(CODES.green),

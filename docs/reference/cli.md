@@ -207,9 +207,9 @@ The built-in templates travel inside the compiler, so this works with no network
 and no checkout:
 
 ```text [nupp init --list]
-Built-in templates:
-  app  A runnable program, with a test and a task to start it
-  lib  A typed library packaged as a LuaRocks rock
+  built-in template  what it writes
+  app                A runnable program, with a test and a task to start it
+  lib                A typed library packaged as a LuaRocks rock
 ```
 
 `nupp init` with no arguments writes the `app` template into a directory named
@@ -966,6 +966,8 @@ Usage:
 
 Options:
   --list                List benchmark names and source files without running.
+                        An aligned table, or the same listing as JSON under
+                        `--json`.
   --file PATH           Inspect and run only one benchmark program.
   --case PATTERN        Run logical case names matching a Lua pattern.
   --parameter PATTERN   Run parameter text matching a Lua pattern.
@@ -990,7 +992,8 @@ Options:
   --accept              Replace the named baseline after a complete run.
   --history PATH        Append the complete record as one NDJSON line.
   --label TEXT          Attach a label to the record and history entry.
-  --json                Write only the merged JSON record to stdout.
+  --json                Write only the merged JSON record to stdout, or the
+                        listing under `--list`.
   --schema              Print the JSON Schema of JSON output and exit.
   -h, --help            Show this help
   --color[=WHEN]        When to color output: always, never, or auto
