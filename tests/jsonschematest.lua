@@ -96,11 +96,13 @@ end
 
 --- Runs a command twice: once for its schema, once for real output, and checks
 --- the second against the first.
-local function agrees(dir, argv)
+-- `alreadyJson` is for a command whose only report is JSON, so there is no
+-- `--json` to ask for and passing one would be a usage error.
+local function agrees(dir, argv, alreadyJson)
     local schemaText = capture(dir, argv .. " --schema")
     local ok, schema = pcall(json.decode, schemaText)
     assert(ok and type(schema) == "table", argv .. " --schema did not produce a schema: " .. schemaText)
-    local outputText = capture(dir, argv .. " --json")
+    local outputText = capture(dir, alreadyJson and argv or argv .. " --json")
     local decoded
     ok, decoded = pcall(json.decode, outputText)
     assert(ok, argv .. " --json did not produce JSON: " .. outputText)
@@ -175,7 +177,7 @@ end
 
 function M.astOutputMatchesItsSchema()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["good.nupp"] = GOOD})
-    agrees(dir, "ast good.nupp")
+    agrees(dir, "ast good.nupp", true)
     os.execute("rm -rf '" .. dir .. "'")
 end
 

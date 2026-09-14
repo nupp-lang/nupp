@@ -7,6 +7,10 @@ The tree is lossless, so what is printed is not a summary of the file but the
 file itself in another shape, with every token, every piece of trivia, every
 position. A parse that failed still prints, since a recovered tree is what
 explains the failure.
+
+It prints as JSON, because a tree this literal is read by a program far more
+often than by a person; `--json-pretty` indents the same document for the
+times it is a person.
 ]]
 
 local usageError = require("nupp.compiler.cli.error").forCommand("ast")
@@ -111,39 +115,35 @@ local function run(options: any): integer
     local parser = require("nupp.compiler.parser")
     local cst = require("nupp.compiler.cst")
     local result = parser.parse(source, path)
-    if (options.format or "text") == "text" then
-        io.write(cst.pretty(result.root) .. "\n")
-    else
-        local errors: {any} = {}
-        for _, err in ipairs(result.errors) do
-            errors[
-                #errors + 1
-            ] = {
-                code = err.code,
-                message = err.msg,
-                offset = err.offset,
-                length = err.length,
-                line = err.line,
-                col = err.col,
-                help = err.help
-            }
-        end
-        io.write(report.encode({file = path, root = syntaxTreeValue(cst, result.root), errors = errors}) .. "\n")
+    local errors: {any} = {}
+    for _, err in ipairs(result.errors) do
+        errors[
+            #errors + 1
+        ] = {
+            code = err.code,
+            message = err.msg,
+            offset = err.offset,
+            length = err.length,
+            line = err.line,
+            col = err.col,
+            help = err.help
+        }
     end
+    local value = {file = path, root = syntaxTreeValue(cst, result.root), errors = errors}
+    io.write((options.jsonPretty and report.encodePretty(value) or report.encode(value)) .. "\n")
 
     return require("nupp.compiler.diagnostics").report(result.errors) and 1 or 0
 end
 
---- Dump a Nupp file's parsed syntax tree.
+--- Dump a Nupp file's parsed syntax tree as JSON.
 ---
 --- The lossless tree includes structural children, tokens, trivia, locations,
 --- and parse errors.
 @cli("ast")
 @derive(cliModule.Command)
 local record Ast
-    --- Select the report representation.
-    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
-    format: "text" | "json" = "text"
+    --- Indent the JSON instead of printing it on one line.
+    jsonPretty: boolean = false
 
     --- Print the JSON Schema of JSON output and exit.
     schema: boolean = false

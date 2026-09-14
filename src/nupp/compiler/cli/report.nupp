@@ -115,6 +115,72 @@ function report.encode(value: unknown): string
     return encoder.encode(withArrayEmpties(value))
 end
 
+--- Lays compact JSON out over lines, two spaces per level of nesting.
+---
+--- The document is walked rather than re-encoded, so the indented form is the compact
+--- form with whitespace in it and the two can never describe different values. Only
+--- structural punctuation outside a string is touched; the scan skips over strings
+--- whole, escapes included, so a brace or comma inside one is left alone.
+local function indented(compact: string): string
+    local out: {string} = {}
+    local depth = 0
+    local index = 1
+    while index <= #compact do
+        local at = compact:find("[%[%]{},:\"]", index)
+        if not at then
+            out[#out + 1] = compact:sub(index)
+            break
+        end
+        if at > index then
+            out[#out + 1] = compact:sub(index, at - 1)
+        end
+        local char = compact:sub(at, at)
+        index = at + 1
+        if char == "\"" then
+            local stop = index
+            while stop <= #compact do
+                local inner = compact:sub(stop, stop)
+                if inner == "\\" then
+                    stop = stop + 2
+                elseif inner == "\"" then
+                    break
+                else
+                    stop = stop + 1
+                end
+            end
+            out[#out + 1] = compact:sub(at, stop)
+            index = stop + 1
+        elseif char == "{" or char == "[" then
+            -- An empty container stays on one line; there is nothing to indent inside
+            -- it, and `{\n}` reads as though something went missing.
+            local closing = compact:sub(index, index)
+            if closing == "}" or closing == "]" then
+                out[#out + 1] = char .. closing
+                index = index + 1
+            else
+                depth = depth + 1
+                out[#out + 1] = char .. "\n" .. string.rep("  ", depth)
+            end
+        elseif char == "}" or char == "]" then
+            depth = depth - 1
+            out[#out + 1] = "\n" .. string.rep("  ", depth) .. char
+        elseif char == "," then
+            out[#out + 1] = ",\n" .. string.rep("  ", depth)
+        else
+            out[#out + 1] = ": "
+        end
+    end
+
+    return table.concat(out)
+end
+
+--- The same value `report.encode` produces, laid out over lines for a person reading
+--- it. Commands offer this behind a flag of its own: the default stays one line,
+--- because the default reader is a program.
+function report.encodePretty(value: unknown): string
+    return indented(report.encode(value))
+end
+
 --- Writes one line of JSON to stdout. Never coloured: the reader is a program, and an
 --- escape code in a JSON string is a bug in whatever printed it.
 function report.write(value: unknown): nil

@@ -374,17 +374,13 @@ function M.cliProvidesHelpForMainAndEverySubcommand()
     assert(removed:find("unknown command tasks", 1, true), "the standalone tasks command still exists: " .. removed)
 end
 
-function M.astCommandDumpsTextAndJsonSyntaxTrees()
+function M.astCommandDumpsJsonSyntaxTrees()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"."}}\n',
         ["sample.nupp"] = "local answer: number = 20 + 22\nreturn answer\n",
     })
-    local text = capture(("cd '%s' && '%s' ast sample.nupp"):format(dir, NUPP))
-    assert(text:find("chunk\n  block\n    localStmt\n", 1, true), "text dump indents nested nodes: " .. text)
-    assert(text:find('      local "local"\n', 1, true), "text dump identifies and quotes tokens: " .. text)
-    assert(text:find("      binop\n", 1, true), "text dump includes indented expressions: " .. text)
-
-    local encoded = capture(("cd '%s' && '%s' ast sample.nupp --json"):format(dir, NUPP))
+    local encoded = captureJson(("cd '%s' && '%s' ast sample.nupp"):format(dir, NUPP))
+    assertEq(select(2, encoded:gsub("\n", "")), 1, "the default report is one line")
     local decoded = require("testjson").decode(encoded)
     assertEq(decoded.file, "sample.nupp", "JSON identifies the input")
     assertEq(decoded.root.tag, "node", "JSON distinguishes nodes")
@@ -408,11 +404,53 @@ function M.astCommandDumpsTextAndJsonSyntaxTrees()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- The indented form is the same document with whitespace in it, so it is checked
+-- by decoding both and comparing what they describe rather than by matching text.
+function M.astJsonPrettyIndentsTheSameDocument()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        -- The string literal carries a quote, a brace and a comma, which is what
+        -- says the indenter steps over strings instead of punctuating inside them.
+        ["sample.nupp"] = 'local answer: string = "a {brace}, a quote \\" and more"\nreturn answer\n',
+    })
+    local json = require("testjson")
+    local compact = captureJson(("cd '%s' && '%s' ast sample.nupp"):format(dir, NUPP))
+    local pretty = captureJson(("cd '%s' && '%s' ast --json-pretty sample.nupp"):format(dir, NUPP))
+    assert(select(2, pretty:gsub("\n", "")) > 10, "the pretty report spans lines: " .. pretty)
+    assert(pretty:find('{\n  "', 1, true), "the pretty report indents members: " .. pretty)
+    assert(pretty:find('"errors": []', 1, true), "an empty list stays on one line: " .. pretty)
+
+    local function same(a, b)
+        if type(a) ~= type(b) then
+            return false
+        end
+        if type(a) ~= "table" then
+            return a == b
+        end
+        for key, value in pairs(a) do
+            if not same(value, b[key]) then
+                return false
+            end
+        end
+        for key in pairs(b) do
+            if a[key] == nil then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    assert(same(json.decode(pretty), json.decode(compact)), "both forms describe one tree:\n" .. pretty)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.astCommandDumpsRecoveredTreesOnParseErrors()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["broken.nupp"] = "local = 1\nreturn 2\n",})
-    local out = capture(("cd '%s' && '%s' ast broken.nupp"):format(dir, NUPP))
-    assert(out:find("chunk\n  block", 1, true), "recovered tree is printed: " .. out)
-    assert(out:find("error:", 1, true), "parse diagnostics are reported: " .. out)
+    local decoded = require("testjson").decode(captureJson(("cd '%s' && '%s' ast broken.nupp"):format(dir, NUPP)))
+    assertEq(decoded.root.kind, "chunk", "recovered tree is printed")
+    assert(#decoded.errors > 0, "parse diagnostics are reported")
+    assert(decoded.errors[1].message ~= nil, "a reported parse error carries its message")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

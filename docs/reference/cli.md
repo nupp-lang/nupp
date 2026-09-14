@@ -17,7 +17,7 @@ nupp run src/main.nupp
 The commands, in the order `nupp help` lists them:
 
 - [`init`](#init): create a project from a template
-- [`ast`](#ast): dump a Nupp file's parsed syntax tree
+- [`ast`](#ast): dump a Nupp file's parsed syntax tree as JSON
 - [`aot`](#aot): show what the `@aot` functions in a file compile to
 - [`bc`](#bc): show the bytecode a Nupp file compiles to
 - [`check`](#check): type-check source without emitting Lua
@@ -84,13 +84,14 @@ nupp check --json
 nupp check --schema
 ```
 
-`init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `clean`, `task`, `lints`,
+`init`, `aot`, `bc`, `check`, `fmt`, `build`, `clean`, `task`, `lints`,
 `ownership-audit`, `explain`, `doc`, `fixpoint`, `import-c`, `export-c` and
 `version` take all three, and so does every `lsp` operation. `reference` names its
 formats `markdown`, `skill` and `json` instead. `bench`, `test` and `run` take
 `--json` and `--schema` with no `--format`, because
 the JSON each writes is one particular artifact rather than a rendering of the
-whole result.
+whole result. [`ast`](#ast) has no `--format` either: a lossless syntax tree has
+only the one form, so it takes `--schema` and prints JSON whatever else is asked.
 `completions` and `rock` produce no structured result and take neither.
 
 A test runs each command for real and validates its output against that
@@ -100,9 +101,10 @@ command's own `--schema`, so a schema cannot drift from what the command emits.
 an error. No option repeats unless it says so, and three do: `--set` on `init`,
 and `-Zno-opt` on `build` and `run`.
 
-A command writes its JSON as one line with no ordering guarantee across keys.
-The `json` blocks on this page are indented so they can be read; the `text`
-blocks are the bytes the command wrote.
+A command writes its JSON as one line with no ordering guarantee across keys,
+and only [`ast`](#ast) offers an indented form, under `--json-pretty`. The
+`json` blocks on this page are indented so they can be read; the `text` blocks
+are the bytes the command wrote.
 
 ## Exit codes
 
@@ -316,7 +318,7 @@ decoration.
 ### `ast`
 
 ```text [nupp ast --help]
-Dump a Nupp file's parsed syntax tree.
+Dump a Nupp file's parsed syntax tree as JSON.
 
 The lossless tree includes structural children, tokens, trivia, locations,
 and parse errors.
@@ -328,8 +330,7 @@ Arguments:
   FILE  Source file to parse.
 
 Options:
-  --format FORMAT, --json, --text
-                  Select the report representation.
+  --json-pretty   Indent the JSON instead of printing it on one line.
   --schema        Print the JSON Schema of JSON output and exit.
   -h, --help      Show this help
   --color[=WHEN]  When to color output: always, never, or auto
@@ -337,49 +338,78 @@ Options:
 ```
 
 The tree is the one [grammar.md](grammar.md) defines, kept lossless down to
-trivia. A file that does not parse still prints the tree recovery reached, and
-then exits 1.
+trivia: every byte of the file is in exactly one token or one piece of trivia,
+so the report is the file in another shape rather than a summary of it. A file
+that does not parse still prints the tree recovery reached, with what went
+wrong in `errors`, and then exits 1.
 
-```text [nupp ast src/greet.nupp]
-chunk
-  block
-    localFuncStmt
-      local "local"
-      function "function"
-      name "greet"
-      funcbody
-        ( "("
-        param
-          name "name"
-          : ":"
-          tname
-            name "string"
-        ) ")"
-        : ":"
-        tname
-          name "string"
-        block
-          returnStmt
-            return "return"
-            binop
-              string
-                string "\"Hello, \""
-              .. ".."
-              name
-                name "name"
-        end "end"
-    returnStmt
-      return "return"
-      tableExpr
-        { "{"
-        fieldNamed
-          name "greet"
-          = "="
-          name
-            name "greet"
-        } "}"
-  eof ""
+There is no text form and no `--format`. A tree this literal is read by a
+program, and `--json-pretty` indents the same document for the times it is read
+by a person:
+
+```json [nupp ast --json-pretty src/tiny.nupp]
+{
+  "file": "src/tiny.nupp",
+  "root": {
+    "tag": "node",
+    "kind": "chunk",
+    "children": [
+      {
+        "tag": "node",
+        "kind": "block",
+        "children": [
+          {
+            "tag": "node",
+            "kind": "returnStmt",
+            "children": [
+              {
+                "tag": "token",
+                "kind": "return",
+                "text": "return",
+                "offset": 1,
+                "line": 1,
+                "col": 1,
+                "trivia": []
+              },
+              {
+                "tag": "node",
+                "kind": "number",
+                "children": [
+                  {
+                    "tag": "token",
+                    "kind": "number",
+                    "text": "1",
+                    "offset": 8,
+                    "line": 1,
+                    "col": 8,
+                    "trivia": [
+                      {"kind": "whitespace", "text": " ", "offset": 7, "line": 1, "col": 7}
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "token",
+        "kind": "eof",
+        "text": "",
+        "offset": 10,
+        "line": 2,
+        "col": 1,
+        "trivia": [
+          {"kind": "whitespace", "text": "\n", "offset": 9, "line": 1, "col": 9}
+        ]
+      }
+    ]
+  },
+  "errors": []
+}
 ```
+
+That is the whole of `return 1`, down to the newline the file ends with.
 
 ### `aot`
 
@@ -2121,7 +2151,7 @@ Usage:
 
 Commands:
   init             Create a project from a template.
-  ast              Dump a Nupp file's parsed syntax tree.
+  ast              Dump a Nupp file's parsed syntax tree as JSON.
   aot              Show what the @aot functions in a file compile to.
   bc               Show the bytecode a Nupp file compiles to.
   check            Type-check source without emitting Lua.
