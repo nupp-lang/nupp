@@ -4,7 +4,7 @@ These benchmarks exercise Nupp's native GPU architecture end to end:
 
 1. An ordinary checked `@aot(target = "gpu")` function lowers to canonical
    SPIR-V.
-2. Its generated typed binding loads the Rust `nupp_native_v2` provider.
+2. Its generated typed binding loads the Rust `nupp_native` provider.
 3. WGPU selects Metal, Vulkan, DX12, or GLES and owns the platform-specific
    translation and device API.
 4. Resident buffers are uploaded, dispatched, synchronized, and downloaded
@@ -30,7 +30,7 @@ bench/wgpu-spike/run-tiled-gemm.sh
 ```
 
 The launchers build the typed benchmark target, select
-`build/typed/lib/nupp_native_v2`, and run with the repository's Lua paths. WGPU
+`build/typed/lib/nupp_native`, and run with the repository's Lua paths. WGPU
 uses the best native adapter it can discover. Set `NUPP_REQUIRE_GPU=1` when an
 adapterless environment must fail instead of skipping an optional Rust probe.
 

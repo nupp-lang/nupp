@@ -12,7 +12,7 @@ native targets and is selected by nupp.crypto during module initialization.
 
 const native = require("nupp.runtime.native")
 native.ffi.cdef[[
-int32_t nuppNativeV2RandomBytes(uint8_t *, size_t);
+int32_t nuppNativeRandomBytes(uint8_t *, size_t);
 ]]
 
 --- Returns cryptographically secure random bytes from the selected host.
@@ -27,7 +27,7 @@ export function randomBytes(count: integer): string
         return ""
     end
     local output = native.ffi.new("uint8_t[?]", count)
-    native.succeeded(native.C.nuppNativeV2RandomBytes(output, count), 2)
+    native.succeeded(native.C.nuppNativeRandomBytes(output, count), 2)
 
     return native.ffi.string(output, count)
 end

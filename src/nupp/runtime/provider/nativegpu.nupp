@@ -26,25 +26,25 @@ local span = require("nupp.mem.span")
 local ffi = native.ffi
 local C = native.C
 native.ffi.cdef[[
-int32_t nuppNativeV2GpuContextCreate(uint64_t *);
-int32_t nuppNativeV2GpuContextDescription(uint64_t, uint8_t *, size_t, size_t *);
-int32_t nuppNativeV2GpuContextRelease(uint64_t);
-int32_t nuppNativeV2GpuBufferCreate(uint64_t, uint64_t, uint64_t *);
-int32_t nuppNativeV2GpuBufferRelease(uint64_t, uint64_t);
-int32_t nuppNativeV2GpuBufferUpload(uint64_t, uint64_t, uint64_t, const void *, size_t);
-int32_t nuppNativeV2GpuKernelCreate(
+int32_t nuppNativeGpuContextCreate(uint64_t *);
+int32_t nuppNativeGpuContextDescription(uint64_t, uint8_t *, size_t, size_t *);
+int32_t nuppNativeGpuContextRelease(uint64_t);
+int32_t nuppNativeGpuBufferCreate(uint64_t, uint64_t, uint64_t *);
+int32_t nuppNativeGpuBufferRelease(uint64_t, uint64_t);
+int32_t nuppNativeGpuBufferUpload(uint64_t, uint64_t, uint64_t, const void *, size_t);
+int32_t nuppNativeGpuKernelCreate(
     uint64_t, const uint8_t *, size_t, const char *, size_t,
     uint32_t, uint32_t, uint64_t, uint32_t, uint32_t, uint32_t, uint64_t *);
-int32_t nuppNativeV2GpuKernelRelease(uint64_t, uint64_t);
-int32_t nuppNativeV2GpuBindingsCreate(uint64_t, uint64_t, uint64_t *);
-int32_t nuppNativeV2GpuBindingsRelease(uint64_t, uint64_t);
-int32_t nuppNativeV2GpuBindingsSetBuffer(
+int32_t nuppNativeGpuKernelRelease(uint64_t, uint64_t);
+int32_t nuppNativeGpuBindingsCreate(uint64_t, uint64_t, uint64_t *);
+int32_t nuppNativeGpuBindingsRelease(uint64_t, uint64_t);
+int32_t nuppNativeGpuBindingsSetBuffer(
     uint64_t, uint64_t, int32_t, uint32_t, uint64_t, uint64_t, uint64_t);
-int32_t nuppNativeV2GpuDispatch(
+int32_t nuppNativeGpuDispatch(
     uint64_t, uint64_t, uint32_t, uint32_t, uint32_t, const uint8_t *, size_t);
-int32_t nuppNativeV2GpuDownloadQueue(uint64_t, uint64_t, uint64_t, uint64_t);
-int32_t nuppNativeV2GpuSynchronize(uint64_t);
-int32_t nuppNativeV2GpuDownloadRead(
+int32_t nuppNativeGpuDownloadQueue(uint64_t, uint64_t, uint64_t, uint64_t);
+int32_t nuppNativeGpuSynchronize(uint64_t);
+int32_t nuppNativeGpuDownloadRead(
     uint64_t, uint64_t, uint64_t, uint64_t, void *, size_t);
 ]]
 
@@ -207,7 +207,7 @@ local function uploadTyped<T>(
     offset: integer,
     bytes: integer
 ): integer
-    local call = C.nuppNativeV2GpuBufferUpload as function(
+    local call = C.nuppNativeGpuBufferUpload as function(
         any,
         any,
         integer,
@@ -225,7 +225,7 @@ local function readTyped<T>(
     offset: integer,
     bytes: integer
 ): integer
-    local call = C.nuppNativeV2GpuDownloadRead as function(
+    local call = C.nuppNativeGpuDownloadRead as function(
         any,
         any,
         integer,
@@ -244,7 +244,7 @@ local function dispatchNative(
     borrows uniforms: const uint8[?],
     bytes: integer
 ): integer
-    local call = C.nuppNativeV2GpuDispatch as function(
+    local call = C.nuppNativeGpuDispatch as function(
         any,
         any,
         integer,
@@ -262,9 +262,9 @@ local contextdestroy = require("nupp.runtime.provider.nativegpurelease").destroy
 function gpu.Context.driver(borrows self: gpu.Context): string
     local length = ffi.new("size_t[1]")
     local handle = live(self)
-    native.succeeded(C.nuppNativeV2GpuContextDescription(handle, nil, 0, length), 2)
+    native.succeeded(C.nuppNativeGpuContextDescription(handle, nil, 0, length), 2)
     local output = ffi.new("uint8_t[?]", length[0] + 1)
-    native.succeeded(C.nuppNativeV2GpuContextDescription(handle, output, length[0] + 1, length), 2)
+    native.succeeded(C.nuppNativeGpuContextDescription(handle, output, length[0] + 1, length), 2)
 
     return ffi.string(output, length[0])
 end
@@ -282,7 +282,7 @@ function gpu.Context.buffer<T>(
         error("nupp: GPU buffer must contain 1 through 4294967295 bytes", 2)
     end
     local output = ffi.new("uint64_t[1]")
-    native.succeeded(C.nuppNativeV2GpuBufferCreate(live(self), width * count, output), 2)
+    native.succeeded(C.nuppNativeGpuBufferCreate(live(self), width * count, output), 2)
     local handle = output[0]
 
     return new shared.Buffer(
@@ -326,7 +326,7 @@ function gpu.Context.compileGenerated(
     end
     local output = ffi.new("uint64_t[1]")
     native.succeeded(
-        C.nuppNativeV2GpuKernelCreate(
+        C.nuppNativeGpuKernelCreate(
             live(self),
             artifacts.spirv,
             #artifacts.spirv,
@@ -359,12 +359,12 @@ function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows bufferV
     if not buffer._root then
         error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
     end
-    native.succeeded(C.nuppNativeV2GpuBufferRelease(live(self), buffer._handle), 2)
+    native.succeeded(C.nuppNativeGpuBufferRelease(live(self), buffer._handle), 2)
 end
 
 function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernelValue: api.Kernel): nil
     local kernel = kernelValue as gpu.Kernel
-    native.succeeded(C.nuppNativeV2GpuKernelRelease(live(self), kernel._handle), 2)
+    native.succeeded(C.nuppNativeGpuKernelRelease(live(self), kernel._handle), 2)
 end
 
 function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive bindingValue: api.Binding): nil
@@ -372,7 +372,7 @@ function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive binding
     if binding._released then
         return
     end
-    native.succeeded(C.nuppNativeV2GpuBindingsRelease(live(self), binding._handle), 2)
+    native.succeeded(C.nuppNativeGpuBindingsRelease(live(self), binding._handle), 2)
     binding._released = true
 end
 
@@ -397,7 +397,7 @@ function gpu.Binding.setRead<T>(
         error("nupp: read binding slot is outside the compiled kernel", 2)
     end
     native.succeeded(
-        C.nuppNativeV2GpuBindingsSetBuffer(
+        C.nuppNativeGpuBindingsSetBuffer(
             self._context,
             self._handle,
             0,
@@ -437,7 +437,7 @@ function gpu.Binding.setWrite<T>(
         error("nupp: write binding slot is outside the compiled kernel", 2)
     end
     native.succeeded(
-        C.nuppNativeV2GpuBindingsSetBuffer(
+        C.nuppNativeGpuBindingsSetBuffer(
             self._context,
             self._handle,
             1,
@@ -498,7 +498,7 @@ function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffe
         error("nupp: GPU downloads require a dense tensor view", 2)
     end
     native.succeeded(
-        C.nuppNativeV2GpuDownloadQueue(
+        C.nuppNativeGpuDownloadQueue(
             live(self),
             buffer._handle,
             buffer._offset * buffer._width,
@@ -509,7 +509,7 @@ function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffe
 end
 
 function gpu.Context.synchronize(borrows self: gpu.Context): nil
-    native.succeeded(C.nuppNativeV2GpuSynchronize(live(self)), 2)
+    native.succeeded(C.nuppNativeGpuSynchronize(live(self)), 2)
 end
 
 function gpu.Context.readDownloaded<T>(
@@ -561,7 +561,7 @@ function gpu.Context.bindKernel(
     end
     local context = live(self)
     local output = ffi.new("uint64_t[1]")
-    native.succeeded(C.nuppNativeV2GpuBindingsCreate(context, kernel._handle, output), 2)
+    native.succeeded(C.nuppNativeGpuBindingsCreate(context, kernel._handle, output), 2)
     local handle = output[0]
     local spans = kernel._readonlyBuffers + kernel._writableBuffers
     local spanCounts: {integer} = {}
@@ -607,7 +607,7 @@ end
 function gpu.open(): affine(api.KernelContext, api.destroyContext)
     native.requireFeature(4, "GPU support")
     local output = ffi.new("uint64_t[1]")
-    native.succeeded(C.nuppNativeV2GpuContextCreate(output), 2)
+    native.succeeded(C.nuppNativeGpuContextCreate(output), 2)
     local handle = output[0]
 
     return new gpu.Context(_destroy = contextdestroy, _handle = handle, _closed = false)

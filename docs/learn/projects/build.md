@@ -255,7 +255,7 @@ uses record effects while Nupp checks the target's complete source set, and the
 build stages the matching providers automatically. For example, [](nupp.io.path)
 spells and transforms paths in Nupp, while calls that reach its working-directory
 and canonicalization provider record `native.path` and select the generic filesystem
-feature in `build/lib/nupp_native_v2`; a target with no resolved native use does not build
+feature in `build/lib/nupp_native`; a target with no resolved native use does not build
 or retain the library at all. The global [`nupp`
 standard-library namespace](../runtime/data/standard-library.md) itself is always
 created by generated code.
@@ -269,7 +269,7 @@ bounded queues. HTTP uses Reqwest over Tokio and Rustls, URI uses Rust's `url`
 parser, and UUID uses the Rust-native provider. Built-in message digests are
 written in Nupp and stage no native artifact. Installed digest services may
 bring their own declared native dependencies.
-The Rust facilities share the versioned `build/lib/nupp_native_v2` sidecar.
+The Rust facilities share the versioned `build/lib/nupp_native` sidecar.
 Generated or external C interop builds its own declared native dependencies;
 there is no unversioned compatibility provider beside the Rust provider.
 Each provider is built with the union of its selected features. Pure facilities

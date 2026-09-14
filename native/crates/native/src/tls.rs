@@ -1,4 +1,4 @@
-//! ABI-v2 translation for Rustls sessions over Rust-owned network streams.
+//! native ABI translation for Rustls sessions over Rust-owned network streams.
 
 use super::net::NetSlice;
 use nupp_native_abi::{Arena, Handle, Status};
@@ -112,7 +112,7 @@ fn insert(value: Arc<transport::Session>, output: *mut u64) -> i32 {
 /// # Safety
 /// `options` and `output` must point to caller-owned initialized storage. Every
 /// nested slice must remain readable for this call.
-pub unsafe extern "C" fn nuppNativeV2TlsCreate(
+pub unsafe extern "C" fn nuppNativeTlsCreate(
     raw_stream: u64,
     options: *const TlsOptions,
     output: *mut u64,
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn nuppNativeV2TlsCreate(
 #[unsafe(no_mangle)]
 /// # Safety
 /// `state` must be writable for one `u32`.
-pub unsafe extern "C" fn nuppNativeV2TlsHandshake(raw: u64, state: *mut u32) -> i32 {
+pub unsafe extern "C" fn nuppNativeTlsHandshake(raw: u64, state: *mut u32) -> i32 {
     if state.is_null() {
         return super::failed(Status::InvalidArgument, "TLS handshake output is null");
     }
@@ -222,7 +222,7 @@ pub unsafe extern "C" fn nuppNativeV2TlsHandshake(raw: u64, state: *mut u32) -> 
 #[unsafe(no_mangle)]
 /// # Safety
 /// Scalar outputs must be writable and output must have `capacity` bytes.
-pub unsafe extern "C" fn nuppNativeV2TlsRead(
+pub unsafe extern "C" fn nuppNativeTlsRead(
     raw: u64,
     output: *mut u8,
     capacity: usize,
@@ -257,7 +257,7 @@ pub unsafe extern "C" fn nuppNativeV2TlsRead(
 #[unsafe(no_mangle)]
 /// # Safety
 /// Input must remain readable and scalar outputs must be writable for this call.
-pub unsafe extern "C" fn nuppNativeV2TlsWrite(
+pub unsafe extern "C" fn nuppNativeTlsWrite(
     raw: u64,
     input_data: *const u8,
     input_length: usize,
@@ -303,7 +303,7 @@ fn boolean(raw: u64, output: *mut i32, operation: impl FnOnce(&transport::Sessio
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2TlsFlushed(raw: u64, output: *mut i32) -> i32 {
+pub extern "C" fn nuppNativeTlsFlushed(raw: u64, output: *mut i32) -> i32 {
     if output.is_null() {
         return super::failed(Status::InvalidArgument, "TLS flushed output is null");
     }
@@ -321,7 +321,7 @@ pub extern "C" fn nuppNativeV2TlsFlushed(raw: u64, output: *mut i32) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2TlsCloseNotify(raw: u64, output: *mut i32) -> i32 {
+pub extern "C" fn nuppNativeTlsCloseNotify(raw: u64, output: *mut i32) -> i32 {
     if output.is_null() {
         return super::failed(Status::InvalidArgument, "TLS close-notify output is null");
     }
@@ -339,17 +339,17 @@ pub extern "C" fn nuppNativeV2TlsCloseNotify(raw: u64, output: *mut i32) -> i32 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2TlsConnected(raw: u64, output: *mut i32) -> i32 {
+pub extern "C" fn nuppNativeTlsConnected(raw: u64, output: *mut i32) -> i32 {
     boolean(raw, output, transport::Session::is_connected)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2TlsVerified(raw: u64, output: *mut i32) -> i32 {
+pub extern "C" fn nuppNativeTlsVerified(raw: u64, output: *mut i32) -> i32 {
     boolean(raw, output, transport::Session::is_verified)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2TlsResumed(raw: u64, output: *mut i32) -> i32 {
+pub extern "C" fn nuppNativeTlsResumed(raw: u64, output: *mut i32) -> i32 {
     boolean(raw, output, transport::Session::is_resumed)
 }
 
@@ -359,7 +359,7 @@ pub extern "C" fn nuppNativeV2TlsResumed(raw: u64, output: *mut i32) -> i32 {
 /// # Safety
 /// `length` and `present` must be writable. A nonzero capacity requires a
 /// writable output buffer.
-pub unsafe extern "C" fn nuppNativeV2TlsProtocol(
+pub unsafe extern "C" fn nuppNativeTlsProtocol(
     raw: u64,
     output: *mut u8,
     capacity: usize,
@@ -391,7 +391,7 @@ pub unsafe extern "C" fn nuppNativeV2TlsProtocol(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2TlsRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeTlsRelease(raw: u64) -> i32 {
     let (handle, session) = match session(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -442,12 +442,12 @@ mod tests {
         };
         let mut listener = 0;
         assert_eq!(
-            unsafe { super::super::net::nuppNativeV2NetListenerCreate(&listen, &mut listener) },
+            unsafe { super::super::net::nuppNativeNetListenerCreate(&listen, &mut listener) },
             Status::Ok.code()
         );
         let mut port = 0;
         assert_eq!(
-            unsafe { super::super::net::nuppNativeV2NetListenerPort(listener, &mut port) },
+            unsafe { super::super::net::nuppNativeNetListenerPort(listener, &mut port) },
             Status::Ok.code()
         );
         let connect_options = super::super::net::NetConnectOptions {
@@ -458,7 +458,7 @@ mod tests {
         let mut connect = 0;
         assert_eq!(
             unsafe {
-                super::super::net::nuppNativeV2NetConnectCreate(&connect_options, &mut connect)
+                super::super::net::nuppNativeNetConnectCreate(&connect_options, &mut connect)
             },
             Status::Ok.code()
         );
@@ -470,7 +470,7 @@ mod tests {
             if client == 0 {
                 assert_eq!(
                     unsafe {
-                        super::super::net::nuppNativeV2NetConnectPoll(
+                        super::super::net::nuppNativeNetConnectPoll(
                             connect,
                             &mut state,
                             &mut output,
@@ -485,7 +485,7 @@ mod tests {
             if server == 0 {
                 assert_eq!(
                     unsafe {
-                        super::super::net::nuppNativeV2NetListenerAccept(
+                        super::super::net::nuppNativeNetListenerAccept(
                             listener,
                             &mut state,
                             &mut output,
@@ -533,24 +533,24 @@ mod tests {
         };
         let mut tls = 123;
         assert_eq!(
-            unsafe { nuppNativeV2TlsCreate(client, &options, &mut tls) },
+            unsafe { nuppNativeTlsCreate(client, &options, &mut tls) },
             Status::InvalidArgument.code()
         );
         assert_eq!(tls, 0);
         assert_eq!(
-            super::super::net::nuppNativeV2NetStreamRelease(client),
+            super::super::net::nuppNativeNetStreamRelease(client),
             Status::StaleHandle.code()
         );
         assert_eq!(
-            super::super::net::nuppNativeV2NetStreamRelease(server),
+            super::super::net::nuppNativeNetStreamRelease(server),
             Status::Ok.code()
         );
         assert_eq!(
-            super::super::net::nuppNativeV2NetConnectRelease(connect),
+            super::super::net::nuppNativeNetConnectRelease(connect),
             Status::Ok.code()
         );
         assert_eq!(
-            super::super::net::nuppNativeV2NetListenerRelease(listener),
+            super::super::net::nuppNativeNetListenerRelease(listener),
             Status::Ok.code()
         );
     }

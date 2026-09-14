@@ -15,7 +15,7 @@ case "$(uname -s 2>/dev/null || printf unknown)" in
     MINGW*|MSYS*|CYGWIN*)
         OUTPUT="$OUTPUT.exe"
         NET_OUTPUT="$NET_OUTPUT.exe"
-        IMPORT="$DIRECTORY/libnupp_native_v2.dll.a"
+        IMPORT="$DIRECTORY/libnupp_native.dll.a"
         SEARCH_DIRECTORY="$DIRECTORY"
         if command -v cygpath >/dev/null 2>&1; then
             SEARCH_DIRECTORY=$(cygpath -u "$DIRECTORY")

@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [lib]
-name = "nupp_native_v2"
+name = "nupp_native"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib", "staticlib"]
 

@@ -24,9 +24,9 @@ local suspension = require("nupp.suspension")
 
 native.ffi.cdef(
     dedent[[
-    uint64_t nuppNativeV2MonotonicNs(void);
-    uint64_t nuppNativeV2WallMs(void);
-    int32_t nuppNativeV2SleepMs(double);
+    uint64_t nuppNativeMonotonicNs(void);
+    uint64_t nuppNativeWallMs(void);
+    int32_t nuppNativeSleepMs(double);
     ]]
 )
 
@@ -68,14 +68,14 @@ end
 ---
 --- @return milliseconds since this process's clock origin
 function time.now(): number
-    return assert(tonumber(C.nuppNativeV2MonotonicNs())) / 1.0e6
+    return assert(tonumber(C.nuppNativeMonotonicNs())) / 1.0e6
 end
 
 --- Get number of milliseconds since the Unix epoch, 1970-01-01T00:00:00Z.
 ---
 --- @return milliseconds since the Unix epoch
 function time.wallTime(): number
-    return assert(tonumber(C.nuppNativeV2WallMs()))
+    return assert(tonumber(C.nuppNativeWallMs()))
 end
 
 ----------------------------------------------------------------------------
@@ -155,7 +155,7 @@ const function sleepUntilDue(maxMs: integer): integer
         slice = remaining
     end
     if slice > 0 then
-        native.succeeded(C.nuppNativeV2SleepMs(slice), 3)
+        native.succeeded(C.nuppNativeSleepMs(slice), 3)
     end
 
     return fireDue()

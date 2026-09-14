@@ -1,4 +1,4 @@
-//! ABI-v2 translation for the asynchronous Reqwest provider.
+//! native ABI translation for the asynchronous Reqwest provider.
 //!
 //! The transport keeps `Arc` pointers inside Rust. This facade gives LuaJIT only
 //! generational integers and copies every response byte into caller-owned storage.
@@ -230,7 +230,7 @@ unsafe fn copy_transport_error(
 ///
 /// # Safety
 /// `options` and `output` must point to initialized caller-owned storage.
-pub unsafe extern "C" fn nuppNativeV2HttpClientCreate(
+pub unsafe extern "C" fn nuppNativeHttpClientCreate(
     options: *const transport::NuppHttpClientOptions,
     output: *mut u64,
 ) -> i32 {
@@ -262,7 +262,7 @@ pub unsafe extern "C" fn nuppNativeV2HttpClientCreate(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2HttpClientRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeHttpClientRelease(raw: u64) -> i32 {
     let removed = match clients().lock() {
         Ok(mut arena) => arena.remove(Handle::from_raw(raw)),
         Err(_) => return failed(Status::Internal, "HTTP client store is poisoned"),
@@ -281,7 +281,7 @@ pub extern "C" fn nuppNativeV2HttpClientRelease(raw: u64) -> i32 {
 ///
 /// # Safety
 /// `request` and `output` must point to initialized caller-owned storage.
-pub unsafe extern "C" fn nuppNativeV2HttpClientSend(
+pub unsafe extern "C" fn nuppNativeHttpClientSend(
     client_raw: u64,
     request: *const transport::NuppHttpRequest,
     output: *mut u64,
@@ -331,7 +331,7 @@ pub unsafe extern "C" fn nuppNativeV2HttpClientSend(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2HttpClientPending(raw: u64, output: *mut usize) -> i32 {
+pub extern "C" fn nuppNativeHttpClientPending(raw: u64, output: *mut usize) -> i32 {
     if output.is_null() {
         return failed(Status::InvalidArgument, "HTTP pending output is null");
     }
@@ -347,7 +347,7 @@ pub extern "C" fn nuppNativeV2HttpClientPending(raw: u64, output: *mut usize) ->
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2HttpTransferCancel(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeHttpTransferCancel(raw: u64) -> i32 {
     let entry = match request(raw) {
         Ok(entry) => entry,
         Err(status) => return status,
@@ -358,7 +358,7 @@ pub extern "C" fn nuppNativeV2HttpTransferCancel(raw: u64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2HttpTransferRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeHttpTransferRelease(raw: u64) -> i32 {
     let removed = match transfers().lock() {
         Ok(mut arena) => arena.remove(Handle::from_raw(raw)),
         Err(_) => return failed(Status::Internal, "HTTP transfer store is poisoned"),
@@ -377,7 +377,7 @@ pub extern "C" fn nuppNativeV2HttpTransferRelease(raw: u64) -> i32 {
 ///
 /// # Safety
 /// When `length` is nonzero, `data` must be readable for `length` bytes.
-pub unsafe extern "C" fn nuppNativeV2HttpTransferOffer(
+pub unsafe extern "C" fn nuppNativeHttpTransferOffer(
     raw: u64,
     data: *const u8,
     length: usize,
@@ -404,7 +404,7 @@ pub unsafe extern "C" fn nuppNativeV2HttpTransferOffer(
 ///
 /// # Safety
 /// All non-null outputs must be writable for their declared capacities.
-pub unsafe extern "C" fn nuppNativeV2HttpTransferPollHead(
+pub unsafe extern "C" fn nuppNativeHttpTransferPollHead(
     raw: u64,
     output: *mut HttpHead,
     url: *mut u8,
@@ -464,7 +464,7 @@ pub unsafe extern "C" fn nuppNativeV2HttpTransferPollHead(
 ///
 /// # Safety
 /// Output pointers must be writable for their declared capacities.
-pub unsafe extern "C" fn nuppNativeV2HttpTransferError(
+pub unsafe extern "C" fn nuppNativeHttpTransferError(
     raw: u64,
     output: *mut u8,
     capacity: usize,
@@ -491,7 +491,7 @@ pub unsafe extern "C" fn nuppNativeV2HttpTransferError(
 ///
 /// # Safety
 /// `output` must be writable for one u64.
-pub unsafe extern "C" fn nuppNativeV2HttpTransferTakeBody(raw: u64, output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeHttpTransferTakeBody(raw: u64, output: *mut u64) -> i32 {
     if output.is_null() {
         return failed(Status::InvalidArgument, "HTTP body handle output is null");
     }
@@ -536,7 +536,7 @@ pub unsafe extern "C" fn nuppNativeV2HttpTransferTakeBody(raw: u64, output: *mut
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2HttpBodyArm(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeHttpBodyArm(raw: u64) -> i32 {
     let entry = match body(raw) {
         Ok(entry) => entry,
         Err(status) => return status,
@@ -554,7 +554,7 @@ pub extern "C" fn nuppNativeV2HttpBodyArm(raw: u64) -> i32 {
 ///
 /// # Safety
 /// `state` and `length` must be writable; output must hold `capacity` bytes.
-pub unsafe extern "C" fn nuppNativeV2HttpBodyRead(
+pub unsafe extern "C" fn nuppNativeHttpBodyRead(
     raw: u64,
     output: *mut u8,
     capacity: usize,
@@ -590,7 +590,7 @@ pub unsafe extern "C" fn nuppNativeV2HttpBodyRead(
 ///
 /// # Safety
 /// Output pointers must be writable for their declared capacities.
-pub unsafe extern "C" fn nuppNativeV2HttpBodyError(
+pub unsafe extern "C" fn nuppNativeHttpBodyError(
     raw: u64,
     output: *mut u8,
     capacity: usize,
@@ -692,7 +692,7 @@ unsafe fn poll_ready(
 ///
 /// # Safety
 /// Output pointers must be writable for their declared capacities.
-pub unsafe extern "C" fn nuppNativeV2HttpClientPoll(
+pub unsafe extern "C" fn nuppNativeHttpClientPoll(
     raw: u64,
     output: *mut HttpReady,
     capacity: usize,
@@ -712,7 +712,7 @@ pub unsafe extern "C" fn nuppNativeV2HttpClientPoll(
 ///
 /// # Safety
 /// Output pointers must be writable for their declared capacities.
-pub unsafe extern "C" fn nuppNativeV2HttpClientWait(
+pub unsafe extern "C" fn nuppNativeHttpClientWait(
     raw: u64,
     wait_ms: u64,
     output: *mut HttpReady,
@@ -779,18 +779,18 @@ mod tests {
         let options = options();
         // SAFETY: options and handle are live caller-owned storage.
         assert_eq!(
-            unsafe { nuppNativeV2HttpClientCreate(&options, &mut handle) },
+            unsafe { nuppNativeHttpClientCreate(&options, &mut handle) },
             Status::Ok.code()
         );
         assert_ne!(handle, 0);
-        assert_eq!(nuppNativeV2HttpClientRelease(handle), Status::Ok.code());
+        assert_eq!(nuppNativeHttpClientRelease(handle), Status::Ok.code());
         assert_eq!(
-            nuppNativeV2HttpClientRelease(handle),
+            nuppNativeHttpClientRelease(handle),
             Status::StaleHandle.code()
         );
         let mut pending = usize::MAX;
         assert_eq!(
-            nuppNativeV2HttpClientPending(handle, &mut pending),
+            nuppNativeHttpClientPending(handle, &mut pending),
             Status::StaleHandle.code()
         );
     }

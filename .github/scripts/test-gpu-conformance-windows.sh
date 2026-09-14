@@ -35,7 +35,7 @@ lua_root=$(cygpath -m "$root")
 lua_typed=$(cygpath -m "$typed")
 export LUA_PATH="$lua_typed/?.lua;$lua_typed/?/init.lua;$lua_root/build/?.lua;$lua_root/.rocks/share/lua/5.1/?.lua;$lua_root/.rocks/share/lua/5.1/?/init.lua;;"
 export LUA_CPATH="$lua_root/.rocks/lib/lua/5.1/?.dll;;"
-export NUPP_NATIVE_V2_LIBRARY="$lua_typed/lib/nupp_native_v2"
+export NUPP_NATIVE_LIBRARY="$lua_typed/lib/nupp_native"
 export GEMM_M=64 GEMM_N=64 GEMM_K=64
 
 "$luajit" "$bench/gemm-api.lua"

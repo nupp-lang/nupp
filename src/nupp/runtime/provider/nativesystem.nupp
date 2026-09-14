@@ -13,7 +13,7 @@ is packaged only for native targets and owns no persistent native resources.
 const ffi = require("ffi")
 const native = require("nupp.runtime.native")
 native.ffi.cdef[[
-size_t nuppNativeV2AvailableParallelism(void);
+size_t nuppNativeAvailableParallelism(void);
 ]]
 
 local platforms: {
@@ -28,5 +28,5 @@ export const pointerBits: integer = ffi.abi("64bit") and 64 or 32
 
 --- Estimates usable parallelism, always at least one, without opening a worker pool.
 export function availableParallelism(): integer
-    return tonumber(native.C.nuppNativeV2AvailableParallelism()) as integer
+    return tonumber(native.C.nuppNativeAvailableParallelism()) as integer
 end

@@ -6,7 +6,7 @@
 //! deduplicated client queue.
 
 #![allow(non_snake_case)]
-// These are crate-private transport primitives behind the documented ABI-v2
+// These are crate-private transport primitives behind the documented native ABI
 // facade; their pointer contracts are enforced and documented at that facade.
 #![allow(clippy::missing_safety_doc)]
 #![forbid(unsafe_op_in_unsafe_fn)]

@@ -21,16 +21,16 @@ local ffi, C = native.ffi, native.C
 local provider = {}
 
 ffi.cdef[[
-int32_t nuppNativeV2UriParse(const uint8_t *, size_t, uint64_t *);
-int32_t nuppNativeV2UriRelease(uint64_t);
-int32_t nuppNativeV2UriPart(uint64_t, uint32_t, uint8_t *, size_t, size_t *, int32_t *);
-int32_t nuppNativeV2UriPort(uint64_t, int32_t *);
+int32_t nuppNativeUriParse(const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeUriRelease(uint64_t);
+int32_t nuppNativeUriPart(uint64_t, uint32_t, uint8_t *, size_t, size_t *, int32_t *);
+int32_t nuppNativeUriPort(uint64_t, int32_t *);
 ]]
 
 local function part(handle: any, kind: integer): string?
     local length = ffi.new("size_t[1]")
     local present = ffi.new<int32[1]>()
-    native.succeeded(C.nuppNativeV2UriPart(handle[0], kind, nil, 0, length, present), 3)
+    native.succeeded(C.nuppNativeUriPart(handle[0], kind, nil, 0, length, present), 3)
     if present[0] == 0 then
         return nil
     end
@@ -38,21 +38,21 @@ local function part(handle: any, kind: integer): string?
         return ""
     end
     local bytes = ffi.new("uint8_t[?]", length[0])
-    native.succeeded(C.nuppNativeV2UriPart(handle[0], kind, bytes, length[0], length, present), 3)
+    native.succeeded(C.nuppNativeUriPart(handle[0], kind, bytes, length[0], length, present), 3)
 
     return ffi.string(bytes, length[0])
 end
 
 function provider.parse(text: string): (contracts.UriParts?, string?)
     local handle = ffi.new<uint64[1]>()
-    if C.nuppNativeV2UriParse(text, #text, handle) ~= 0 then
-        return nil, ffi.string(C.nuppNativeV2LastError())
+    if C.nuppNativeUriParse(text, #text, handle) ~= 0 then
+        return nil, ffi.string(C.nuppNativeLastError())
     end
     ffi.gc(handle, function(value: any): nil
-        C.nuppNativeV2UriRelease(value[0])
+        C.nuppNativeUriRelease(value[0])
     end)
     local rawPort = ffi.new<int32[1]>()
-    native.succeeded(C.nuppNativeV2UriPort(handle[0], rawPort), 2)
+    native.succeeded(C.nuppNativeUriPort(handle[0], rawPort), 2)
     local parts = new contracts.UriParts(
         text = part(handle, 0) as string,
         scheme = part(handle, 1) as string,
@@ -65,7 +65,7 @@ function provider.parse(text: string): (contracts.UriParts?, string?)
         fragment = part(handle, 8),
         port = rawPort[0] >= 0 and (tonumber(rawPort[0]) as integer) or nil
     )
-    C.nuppNativeV2UriRelease(handle[0])
+    C.nuppNativeUriRelease(handle[0])
     ffi.gc(handle, nil)
 
     return parts

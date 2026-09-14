@@ -362,11 +362,12 @@ source_tree() {
 stage0_runtime() {
     stage0_verified_file=$1
     stage0_runtime_root="$ROOT/build/stage0/$STAGE0_SHA256"
-    stage0_runtime_file="$stage0_runtime_root/nupp.lua"
     stage0_runtime_digest=$(sha256 "$ROOT/scripts/stage0-runtime.lua")
+    stage0_runtime_file="$stage0_runtime_root/nupp-$stage0_runtime_digest.lua"
+    stage0_verified_copy="$stage0_runtime_root/verified.lua"
     build_luajit
     mkdir -p "$stage0_runtime_root/scripts" "$stage0_runtime_root/bin"
-    [ -f "$stage0_runtime_file" ] || cp "$stage0_verified_file" "$stage0_runtime_file"
+    [ -f "$stage0_verified_copy" ] || cp "$stage0_verified_file" "$stage0_verified_copy"
     stage0_driver=$(printf '%s' "$ROOT/scripts/toolchain" | sed "s/'/'\\\\''/g")
     printf '#!/bin/sh\nexec '\''%s'\'' "$@"\n' "$stage0_driver" > "$stage0_runtime_root/scripts/toolchain"
     chmod +x "$stage0_runtime_root/scripts/toolchain"
@@ -377,6 +378,7 @@ stage0_runtime() {
     take_lock "stage0-runtime-$STAGE0_SHA256" "$stage0_runtime_stamp" || return 0
     "$PREFIX/luajit/bin/luajit" \
         "$(native_path "$ROOT/scripts/stage0-runtime.lua")" \
+        "$(native_path "$stage0_verified_file")" \
         "$(native_path "$stage0_runtime_file")" \
         "$(native_path "$stage0_runtime_root")" \
         "$(native_path "$stage0_runtime_stamp")"
@@ -615,9 +617,9 @@ normalize_rust_features() {
 
 rust_library_filename() {
     case "$PLATFORM" in
-        darwin)  printf '%s\n' libnupp_native_v2.dylib ;;
-        windows) printf '%s\n' nupp_native_v2.dll ;;
-        *)       printf '%s\n' libnupp_native_v2.so ;;
+        darwin)  printf '%s\n' libnupp_native.dylib ;;
+        windows) printf '%s\n' nupp_native.dll ;;
+        *)       printf '%s\n' libnupp_native.so ;;
     esac
 }
 
@@ -675,7 +677,7 @@ build_rust_native() {
     out="$RUST_BUILD_ROOT/native/$digest"
     filename=$(rust_library_filename)
     RUST_NATIVE_OUT="$out/target/release/$filename"
-    RUST_NATIVE_STATIC_OUT="$out/target/release/libnupp_native_v2.a"
+    RUST_NATIVE_STATIC_OUT="$out/target/release/libnupp_native.a"
 
     take_lock "rust-native-$digest" "$out/.complete" || return 0
     [ -f "$out/.complete" ] && [ -f "$RUST_NATIVE_OUT" ] \

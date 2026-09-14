@@ -71,12 +71,12 @@ pub(crate) fn input<'a>(data: *const u8, length: usize) -> Result<&'a [u8], i32>
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2AbiVersion() -> u32 {
+pub extern "C" fn nuppNativeAbiVersion() -> u32 {
     ABI_VERSION
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2Features() -> u64 {
+pub extern "C" fn nuppNativeFeatures() -> u64 {
     FEATURE_BASE
         | if cfg!(feature = "uuid") {
             FEATURE_UUID
@@ -126,7 +126,7 @@ pub extern "C" fn nuppNativeV2Features() -> u64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2LastError() -> *const c_char {
+pub extern "C" fn nuppNativeLastError() -> *const c_char {
     last_error_ptr()
 }
 
@@ -137,7 +137,7 @@ pub extern "C" fn nuppNativeV2LastError() -> *const c_char {
 ///
 /// When `length` is nonzero, `data` must be readable for `length` bytes.
 /// `output` must point to writable storage for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2BytesCreate(
+pub unsafe extern "C" fn nuppNativeBytesCreate(
     data: *const u8,
     length: usize,
     output: *mut u64,
@@ -165,7 +165,7 @@ pub unsafe extern "C" fn nuppNativeV2BytesCreate(
 ///
 /// `output_length` must be writable. When `capacity` is nonzero, `output_data`
 /// must be writable for `capacity` bytes.
-pub unsafe extern "C" fn nuppNativeV2BytesCopy(
+pub unsafe extern "C" fn nuppNativeBytesCopy(
     raw: u64,
     output_data: *mut u8,
     capacity: usize,
@@ -196,7 +196,7 @@ pub unsafe extern "C" fn nuppNativeV2BytesCopy(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2BytesRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeBytesRelease(raw: u64) -> i32 {
     match bytes().lock() {
         Ok(mut arena) => match arena.remove(Handle::from_raw(raw)) {
             Ok(_) => Status::Ok.code(),
@@ -207,12 +207,12 @@ pub extern "C" fn nuppNativeV2BytesRelease(raw: u64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2MonotonicNs() -> u64 {
+pub extern "C" fn nuppNativeMonotonicNs() -> u64 {
     nupp_native_platform::monotonic_ns()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2AvailableParallelism() -> usize {
+pub extern "C" fn nuppNativeAvailableParallelism() -> usize {
     std::thread::available_parallelism().map_or(1, usize::from)
 }
 
@@ -222,7 +222,7 @@ pub extern "C" fn nuppNativeV2AvailableParallelism() -> usize {
 ///
 /// When length is nonzero, output must be writable for length bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2RandomBytes(output: *mut u8, length: usize) -> i32 {
+pub unsafe extern "C" fn nuppNativeRandomBytes(output: *mut u8, length: usize) -> i32 {
     if length == 0 {
         return Status::Ok.code();
     }
@@ -238,12 +238,12 @@ pub unsafe extern "C" fn nuppNativeV2RandomBytes(output: *mut u8, length: usize)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2WallMs() -> u64 {
+pub extern "C" fn nuppNativeWallMs() -> u64 {
     nupp_native_platform::wall_ms()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2SleepMs(milliseconds: f64) -> i32 {
+pub extern "C" fn nuppNativeSleepMs(milliseconds: f64) -> i32 {
     match nupp_native_platform::sleep_ms(milliseconds) {
         Ok(()) => Status::Ok.code(),
         Err(message) => failed(Status::InvalidArgument, message),
@@ -257,7 +257,7 @@ pub extern "C" fn nuppNativeV2SleepMs(milliseconds: f64) -> i32 {
 ///
 /// When `length` is nonzero, `data` must be readable for `length` bytes.
 /// `output` must be writable for at least `capacity` bytes.
-pub unsafe extern "C" fn nuppNativeV2Xxh64Digest(
+pub unsafe extern "C" fn nuppNativeXxh64Digest(
     data: *const u8,
     length: usize,
     output: *mut u8,
@@ -282,7 +282,7 @@ pub unsafe extern "C" fn nuppNativeV2Xxh64Digest(
 ///
 /// When `length` is nonzero, `data` must be readable for `length` bytes.
 /// `output` must be writable for eight bytes.
-pub unsafe extern "C" fn nuppNativeV2TrailerDigest(
+pub unsafe extern "C" fn nuppNativeTrailerDigest(
     data: *const u8,
     length: usize,
     output: *mut u8,
@@ -327,7 +327,7 @@ unsafe fn write_uuid(
 /// # Safety
 ///
 /// `output` must be writable for at least `capacity` bytes.
-pub unsafe extern "C" fn nuppNativeV2Uuid4(output: *mut u8, capacity: usize) -> i32 {
+pub unsafe extern "C" fn nuppNativeUuid4(output: *mut u8, capacity: usize) -> i32 {
     unsafe { write_uuid(nupp_native_platform::uuid4, output, capacity) }
 }
 
@@ -338,7 +338,7 @@ pub unsafe extern "C" fn nuppNativeV2Uuid4(output: *mut u8, capacity: usize) -> 
 /// # Safety
 ///
 /// `output` must be writable for at least `capacity` bytes.
-pub unsafe extern "C" fn nuppNativeV2Uuid7(output: *mut u8, capacity: usize) -> i32 {
+pub unsafe extern "C" fn nuppNativeUuid7(output: *mut u8, capacity: usize) -> i32 {
     unsafe { write_uuid(nupp_native_platform::uuid7, output, capacity) }
 }
 
@@ -350,36 +350,36 @@ mod tests {
     fn bytes_are_validated_by_generation() {
         let mut handle = 0;
         assert_eq!(
-            unsafe { nuppNativeV2BytesCreate(b"abc".as_ptr(), 3, &mut handle) },
+            unsafe { nuppNativeBytesCreate(b"abc".as_ptr(), 3, &mut handle) },
             0
         );
         let mut data = [0; 3];
         let mut length = 0;
         assert_eq!(
-            unsafe { nuppNativeV2BytesCopy(handle, data.as_mut_ptr(), data.len(), &mut length,) },
+            unsafe { nuppNativeBytesCopy(handle, data.as_mut_ptr(), data.len(), &mut length,) },
             0
         );
         assert_eq!(&data[..length], b"abc");
-        assert_eq!(nuppNativeV2BytesRelease(handle), 0);
-        assert_eq!(nuppNativeV2BytesRelease(handle), Status::StaleHandle.code());
+        assert_eq!(nuppNativeBytesRelease(handle), 0);
+        assert_eq!(nuppNativeBytesRelease(handle), Status::StaleHandle.code());
     }
 
     #[test]
     fn digest_outputs_are_capacity_checked() {
         let mut short = [0; 31];
         assert_eq!(
-            unsafe { nuppNativeV2Xxh64Digest(ptr::null(), 0, short.as_mut_ptr(), short.len()) },
+            unsafe { nuppNativeXxh64Digest(ptr::null(), 0, short.as_mut_ptr(), short.len()) },
             Status::Capacity.code()
         );
         let mut output = [0; 32];
         assert_eq!(
-            unsafe { nuppNativeV2Xxh64Digest(ptr::null(), 0, output.as_mut_ptr(), output.len()) },
+            unsafe { nuppNativeXxh64Digest(ptr::null(), 0, output.as_mut_ptr(), output.len()) },
             0
         );
         assert_eq!(&output[..16], b"ef46db3751d8e999");
         let mut trailer = [0; 8];
         assert_eq!(
-            unsafe { nuppNativeV2TrailerDigest(ptr::null(), 0, trailer.as_mut_ptr()) },
+            unsafe { nuppNativeTrailerDigest(ptr::null(), 0, trailer.as_mut_ptr()) },
             0
         );
         assert_eq!(trailer, 0xef46_db37_51d8_e999_u64.to_le_bytes());
@@ -387,12 +387,9 @@ mod tests {
 
     #[test]
     fn sleep_rejects_non_finite_and_negative_durations() {
-        assert_eq!(nuppNativeV2SleepMs(0.0), 0);
-        assert_eq!(nuppNativeV2SleepMs(-1.0), Status::InvalidArgument.code());
-        assert_eq!(
-            nuppNativeV2SleepMs(f64::NAN),
-            Status::InvalidArgument.code()
-        );
+        assert_eq!(nuppNativeSleepMs(0.0), 0);
+        assert_eq!(nuppNativeSleepMs(-1.0), Status::InvalidArgument.code());
+        assert_eq!(nuppNativeSleepMs(f64::NAN), Status::InvalidArgument.code());
     }
 
     #[cfg(feature = "uuid")]
@@ -400,13 +397,13 @@ mod tests {
     fn uuid_outputs_are_canonical_and_checked() {
         let mut output = [0; 37];
         assert_eq!(
-            unsafe { nuppNativeV2Uuid4(output.as_mut_ptr(), output.len()) },
+            unsafe { nuppNativeUuid4(output.as_mut_ptr(), output.len()) },
             0
         );
         assert_eq!(output[14], b'4');
         assert_eq!(output[36], 0);
         assert_eq!(
-            unsafe { nuppNativeV2Uuid7(output.as_mut_ptr(), 36) },
+            unsafe { nuppNativeUuid7(output.as_mut_ptr(), 36) },
             Status::Capacity.code()
         );
     }

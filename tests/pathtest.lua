@@ -29,21 +29,21 @@ function M.beforeAll()
     math.randomseed(os.time())
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
-    local libraryPath = os.getenv("NUPP_NATIVE_V2_LIBRARY")
+    local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
     if not libraryPath then
         local staged, problem = nativeStage.build(root, "out", {["native.path"] = true})
         if not staged then
             unavailable = tostring(problem)
             return
         end
-        libraryPath = root .. "/out/lib/nupp_native_v2"
+        libraryPath = root .. "/out/lib/nupp_native"
     end
     local library = ("%q"):format(libraryPath)
     local source = stdlib.bootstrap({
         ["native.path"] = true,
         ["stdlib.io"] = true,
     }):gsub(
-        'os%.getenv%("NUPP_NATIVE_V2_LIBRARY"%)',
+        'os%.getenv%("NUPP_NATIVE_LIBRARY"%)',
         function()
             return library
         end
@@ -164,11 +164,11 @@ function M.pathStagesOnlyTheGenericFilesystemSlice()
     local feature = assert(native.feature("native.path"))
     test.equal(feature.providerFeature, "filesystem")
     test.equal(feature.providerDriver, "native-rust")
-    test.equal(feature.provider, "nupp_native_v2")
+    test.equal(feature.provider, "nupp_native")
     test.equal(feature.host, "native-files")
-    test.equal(feature.library, "nupp_native_v2")
+    test.equal(feature.library, "nupp_native")
     test.equal(feature.runtimeModule, "nupp.runtime.provider.nativepath")
-    test.equal(table.concat(feature.requires or {}, ","), "runtime.path,runtime.native_v2")
+    test.equal(table.concat(feature.requires or {}, ","), "runtime.path,runtime.native")
     local runtime = assert(native.feature("runtime.path"))
     test.equal(runtime.runtimeModule, "nupp.io.path")
     test.equal(runtime.portableRuntime, true)
@@ -184,9 +184,9 @@ function M.pathStagesOnlyTheGenericFilesystemSlice()
     local provider = assert(io.open("src/nupp/runtime/provider/nativepath.nupp", "rb"))
     local providerText = provider:read("*a")
     provider:close()
-    assert(providerText:find("nupp.runtime.native", 1, true), "the native path provider loads the ABI-v2 provider")
+    assert(providerText:find("nupp.runtime.native", 1, true), "the native path provider loads the native ABI provider")
     assert(
-        providerText:find("nuppNativeV2Files", 1, true),
+        providerText:find("nuppNativeFiles", 1, true),
         "the native path provider declares the Rust filesystem ABI it calls"
     )
 end

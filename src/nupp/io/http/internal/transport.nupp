@@ -31,8 +31,8 @@ end
 const native = require("nupp.runtime.native")
 
 native.ffi.cdef[[
-typedef struct { const uint8_t *data; size_t length; } NuppNativeV2HttpSlice;
-typedef struct { NuppNativeV2HttpSlice name; NuppNativeV2HttpSlice value; } NuppNativeV2HttpHeader;
+typedef struct { const uint8_t *data; size_t length; } NuppNativeHttpSlice;
+typedef struct { NuppNativeHttpSlice name; NuppNativeHttpSlice value; } NuppNativeHttpHeader;
 
 typedef struct {
     uint64_t connect_timeout_ms;
@@ -43,25 +43,25 @@ typedef struct {
     int compressed;
     int has_insecure_hosts;
     int proxy_mode;
-    NuppNativeV2HttpSlice proxy;
+    NuppNativeHttpSlice proxy;
     int no_proxy_set;
-    NuppNativeV2HttpSlice no_proxy;
-    NuppNativeV2HttpSlice proxy_credentials;
-} NuppNativeV2HttpClientOptions;
+    NuppNativeHttpSlice no_proxy;
+    NuppNativeHttpSlice proxy_credentials;
+} NuppNativeHttpClientOptions;
 
 typedef struct {
-    NuppNativeV2HttpSlice url;
-    NuppNativeV2HttpSlice method;
-    const NuppNativeV2HttpHeader *headers;
+    NuppNativeHttpSlice url;
+    NuppNativeHttpSlice method;
+    const NuppNativeHttpHeader *headers;
     size_t header_count;
-    NuppNativeV2HttpSlice body;
+    NuppNativeHttpSlice body;
     uint32_t body_kind;
     int64_t body_length;
     uint64_t timeout_ms;
     uint64_t stall_timeout_ms;
     uint64_t max_bytes;
     int insecure;
-} NuppNativeV2HttpRequest;
+} NuppNativeHttpRequest;
 
 typedef struct {
     uint32_t state;
@@ -69,28 +69,28 @@ typedef struct {
     uint8_t version;
     size_t url_length;
     size_t headers_length;
-} NuppNativeV2HttpHead;
+} NuppNativeHttpHead;
 
-typedef struct { uint64_t transfer; uint32_t tokens; } NuppNativeV2HttpReady;
+typedef struct { uint64_t transfer; uint32_t tokens; } NuppNativeHttpReady;
 
-int32_t nuppNativeV2HttpClientCreate(const NuppNativeV2HttpClientOptions *, uint64_t *);
-int32_t nuppNativeV2HttpClientRelease(uint64_t);
-int32_t nuppNativeV2HttpClientSend(uint64_t, const NuppNativeV2HttpRequest *, uint64_t *);
-int32_t nuppNativeV2HttpClientPending(uint64_t, size_t *);
-int32_t nuppNativeV2HttpTransferCancel(uint64_t);
-int32_t nuppNativeV2HttpTransferRelease(uint64_t);
-int32_t nuppNativeV2HttpTransferOffer(uint64_t, const uint8_t *, size_t, int32_t, int32_t *);
-int32_t nuppNativeV2HttpTransferPollHead(
-    uint64_t, NuppNativeV2HttpHead *, uint8_t *, size_t, uint8_t *, size_t);
-int32_t nuppNativeV2HttpTransferError(uint64_t, uint8_t *, size_t, size_t *);
-int32_t nuppNativeV2HttpTransferTakeBody(uint64_t, uint64_t *);
-int32_t nuppNativeV2HttpBodyArm(uint64_t);
-int32_t nuppNativeV2HttpBodyRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeV2HttpBodyError(uint64_t, uint8_t *, size_t, size_t *);
-int32_t nuppNativeV2HttpClientPoll(
-    uint64_t, NuppNativeV2HttpReady *, size_t, size_t *, int32_t *);
-int32_t nuppNativeV2HttpClientWait(
-    uint64_t, uint64_t, NuppNativeV2HttpReady *, size_t, size_t *, int32_t *);
+int32_t nuppNativeHttpClientCreate(const NuppNativeHttpClientOptions *, uint64_t *);
+int32_t nuppNativeHttpClientRelease(uint64_t);
+int32_t nuppNativeHttpClientSend(uint64_t, const NuppNativeHttpRequest *, uint64_t *);
+int32_t nuppNativeHttpClientPending(uint64_t, size_t *);
+int32_t nuppNativeHttpTransferCancel(uint64_t);
+int32_t nuppNativeHttpTransferRelease(uint64_t);
+int32_t nuppNativeHttpTransferOffer(uint64_t, const uint8_t *, size_t, int32_t, int32_t *);
+int32_t nuppNativeHttpTransferPollHead(
+    uint64_t, NuppNativeHttpHead *, uint8_t *, size_t, uint8_t *, size_t);
+int32_t nuppNativeHttpTransferError(uint64_t, uint8_t *, size_t, size_t *);
+int32_t nuppNativeHttpTransferTakeBody(uint64_t, uint64_t *);
+int32_t nuppNativeHttpBodyArm(uint64_t);
+int32_t nuppNativeHttpBodyRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeHttpBodyError(uint64_t, uint8_t *, size_t, size_t *);
+int32_t nuppNativeHttpClientPoll(
+    uint64_t, NuppNativeHttpReady *, size_t, size_t *, int32_t *);
+int32_t nuppNativeHttpClientWait(
+    uint64_t, uint64_t, NuppNativeHttpReady *, size_t, size_t *, int32_t *);
 ]]
 
 local ffi = native.ffi
@@ -142,7 +142,7 @@ const BODY_READ_BYTES = 64 * 1024
 --- the string itself is the pointer. Nothing is copied either way, so the value has to
 --- outlive the call, which it does, because every caller holds it across one.
 local function slice(value: any, pointer: any?, length: integer?): any
-    local out = native.ffi.new("NuppNativeV2HttpSlice")
+    local out = native.ffi.new("NuppNativeHttpSlice")
     if pointer ~= nil then
         out.data = pointer
         out.length = length
@@ -164,20 +164,20 @@ end
 
 local function releaseTransfer(handle: any): nil
     if handle[0] ~= 0 then
-        C.nuppNativeV2HttpTransferRelease(handle[0])
+        C.nuppNativeHttpTransferRelease(handle[0])
         handle[0] = 0
     end
 end
 
 local function releaseClient(handle: any): nil
     if handle[0] ~= 0 then
-        C.nuppNativeV2HttpClientRelease(handle[0])
+        C.nuppNativeHttpClientRelease(handle[0])
         handle[0] = 0
     end
 end
 
 local function lastError(): string
-    return ffi.string(C.nuppNativeV2LastError())
+    return ffi.string(C.nuppNativeLastError())
 end
 
 --- Copies an error retained by a transfer or body.
@@ -198,7 +198,7 @@ end
 
 local function pending(handle: any): integer
     local output = ffi.new("size_t[1]")
-    native.succeeded(C.nuppNativeV2HttpClientPending(raw(handle), output), 3)
+    native.succeeded(C.nuppNativeHttpClientPending(raw(handle), output), 3)
 
     return tonumber(output[0]) as integer
 end
@@ -311,7 +311,7 @@ local record Transfer is NativeTransfer
         -- without it a body that is already complete never produces another readiness
         -- event.
         if self._body ~= nil then
-            C.nuppNativeV2HttpBodyArm(raw(self._body))
+            C.nuppNativeHttpBodyArm(raw(self._body))
         end
 
         return forget
@@ -322,8 +322,8 @@ local record Transfer is NativeTransfer
     end
 
     function head(self: Transfer): (string, integer?, integer?, string?, string?, string?)
-        local out = native.ffi.new("NuppNativeV2HttpHead[1]")
-        local status = C.nuppNativeV2HttpTransferPollHead(raw(self._handle), out, nil, 0, nil, 0)
+        local out = native.ffi.new("NuppNativeHttpHead[1]")
+        local status = C.nuppNativeHttpTransferPollHead(raw(self._handle), out, nil, 0, nil, 0)
         local state = tonumber(out[0].state) as integer
         if status ~= 0 and status ~= ABI_CAPACITY then
             return "failed", nil, nil, nil, nil, lastError()
@@ -333,7 +333,7 @@ local record Transfer is NativeTransfer
         end
         if state == HEAD_FAILED then
             return "failed", nil, nil, nil, nil, copiedError(
-                C.nuppNativeV2HttpTransferError,
+                C.nuppNativeHttpTransferError,
                 self._handle,
                 "HTTP transfer failed"
             )
@@ -343,7 +343,7 @@ local record Transfer is NativeTransfer
         local headersLength = tonumber(head.headers_length) as integer
         local urlOutput = urlLength > 0 and ffi.new("uint8_t[?]", urlLength) or nil
         local headersOutput = headersLength > 0 and ffi.new("uint8_t[?]", headersLength) or nil
-        status = C.nuppNativeV2HttpTransferPollHead(
+        status = C.nuppNativeHttpTransferPollHead(
             raw(self._handle),
             out,
             urlOutput,
@@ -367,7 +367,7 @@ local record Transfer is NativeTransfer
             error("nupp: HTTP upload offer is outside its bytes", 2)
         end
         local answer = ffi.new<int32[1]>()
-        local status = C.nuppNativeV2HttpTransferOffer(raw(self._handle), bytes, length, 0, answer)
+        local status = C.nuppNativeHttpTransferOffer(raw(self._handle), bytes, length, 0, answer)
         if status ~= 0 then
             return "closed"
         end
@@ -383,7 +383,7 @@ local record Transfer is NativeTransfer
 
     function finishUpload(self: Transfer): string
         local answer = ffi.new<int32[1]>()
-        local status = C.nuppNativeV2HttpTransferOffer(raw(self._handle), nil, 0, 1, answer)
+        local status = C.nuppNativeHttpTransferOffer(raw(self._handle), nil, 0, 1, answer)
         if status == 0 and answer[0] == UPLOAD_ACCEPTED then
             return "accepted"
         end
@@ -394,7 +394,7 @@ local record Transfer is NativeTransfer
     function takeBody(self: Transfer): (boolean?, string?)
         if self._body == nil then
             local handle = outputHandle()
-            if C.nuppNativeV2HttpTransferTakeBody(raw(self._handle), handle) ~= 0 then
+            if C.nuppNativeHttpTransferTakeBody(raw(self._handle), handle) ~= 0 then
                 return nil, lastError()
             end
             self._body = ffi.gc(handle, releaseTransfer)
@@ -411,7 +411,7 @@ local record Transfer is NativeTransfer
         local data = ffi.new("uint8_t[?]", capacity)
         local length = ffi.new("size_t[1]")
         local state = ffi.new<uint32[1]>()
-        if C.nuppNativeV2HttpBodyRead(raw(self._body), data, capacity, state, length) ~= 0 then
+        if C.nuppNativeHttpBodyRead(raw(self._body), data, capacity, state, length) ~= 0 then
             return "failed", nil, lastError()
         end
         local kind = tonumber(state[0])
@@ -422,7 +422,7 @@ local record Transfer is NativeTransfer
             return "eof", nil, nil
         end
         if kind == BODY_FAILED then
-            return "failed", nil, copiedError(C.nuppNativeV2HttpBodyError, self._body, "HTTP response body failed")
+            return "failed", nil, copiedError(C.nuppNativeHttpBodyError, self._body, "HTTP response body failed")
         end
         if kind == BODY_CLOSED then
             return "closed", nil, "the body is closed"
@@ -434,7 +434,7 @@ local record Transfer is NativeTransfer
 
     function cancel(self: Transfer): nil
         if self._handle ~= nil then
-            C.nuppNativeV2HttpTransferCancel(raw(self._handle))
+            C.nuppNativeHttpTransferCancel(raw(self._handle))
         end
     end
 
@@ -455,7 +455,7 @@ local record Transfer is NativeTransfer
             ffi.gc(body, nil)
             releaseTransfer(body)
         else
-            C.nuppNativeV2HttpTransferCancel(raw(self._handle))
+            C.nuppNativeHttpTransferCancel(raw(self._handle))
         end
         local handle = self._handle
         self._handle = nil
@@ -496,7 +496,7 @@ local record Client is NativeClient
     function send(self: Client, descriptor: any): (NativeTransfer?, string?, boolean?)
         local headers = descriptor.headers or {}
         local count = #headers
-        local packed = count > 0 and native.ffi.new("NuppNativeV2HttpHeader[?]", count) or nil
+        local packed = count > 0 and native.ffi.new("NuppNativeHttpHeader[?]", count) or nil
         for index = 1, count do
             local item = headers[index]
             packed[index - 1].name = slice(item[1])
@@ -513,7 +513,7 @@ local record Client is NativeClient
             bodyPointer = value
             bodyLength = #(value as string)
         end
-        local request = native.ffi.new("NuppNativeV2HttpRequest")
+        local request = native.ffi.new("NuppNativeHttpRequest")
         request.url = slice(descriptor.uri:toString())
         request.method = slice(descriptor.method)
         request.headers = packed
@@ -526,7 +526,7 @@ local record Client is NativeClient
         request.max_bytes = descriptor.maxBytes
         request.insecure = descriptor.insecure and 1 or 0
         local handle = outputHandle()
-        local status = C.nuppNativeV2HttpClientSend(raw(self._handle), request, handle)
+        local status = C.nuppNativeHttpClientSend(raw(self._handle), request, handle)
         if status ~= 0 then
             local why = lastError()
 
@@ -552,16 +552,9 @@ local record Client is NativeClient
         local moved: integer = 0
         local status: integer
         if waitMs > 0 then
-            status = C.nuppNativeV2HttpClientWait(
-                raw(self._handle),
-                waitMs,
-                self._ready,
-                READY_SLOTS,
-                count,
-                self._more
-            )
+            status = C.nuppNativeHttpClientWait(raw(self._handle), waitMs, self._ready, READY_SLOTS, count, self._more)
         else
-            status = C.nuppNativeV2HttpClientPoll(raw(self._handle), self._ready, READY_SLOTS, count, self._more)
+            status = C.nuppNativeHttpClientPoll(raw(self._handle), self._ready, READY_SLOTS, count, self._more)
         end
         if status ~= 0 then
             error("nupp: " .. lastError(), 2)
@@ -635,7 +628,7 @@ export function newClient(options: any): (NativeClient?, string?)
     -- means deliberately none, which is not the same answer.
     local proxyMode = options.proxy == nil and 0 or (options.proxy == "" and 1 or 2)
     native.requireFeature(16, "HTTP support")
-    local settings = native.ffi.new("NuppNativeV2HttpClientOptions")
+    local settings = native.ffi.new("NuppNativeHttpClientOptions")
     settings.connect_timeout_ms = options.connectTimeoutMs
     settings.max_redirects = options.maxRedirects
     settings.max_pending_requests = options.maxPendingRequests
@@ -649,7 +642,7 @@ export function newClient(options: any): (NativeClient?, string?)
     settings.no_proxy = slice(options.noProxy or "")
     settings.proxy_credentials = slice(options.proxyCredentials or "")
     local handle = outputHandle()
-    if C.nuppNativeV2HttpClientCreate(settings, handle) ~= 0 then
+    if C.nuppNativeHttpClientCreate(settings, handle) ~= 0 then
         return nil, lastError()
     end
 
@@ -659,7 +652,7 @@ export function newClient(options: any): (NativeClient?, string?)
         _byHandle = {},
         _admissionWaiters = nil,
         _maxPending = options.maxPendingRequests,
-        _ready = native.ffi.new("NuppNativeV2HttpReady[?]", READY_SLOTS),
+        _ready = native.ffi.new("NuppNativeHttpReady[?]", READY_SLOTS),
         _more = ffi.new<int32[1]>()
     ), nil
 end

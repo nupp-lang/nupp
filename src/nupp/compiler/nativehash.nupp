@@ -8,7 +8,7 @@ module nupp.compiler.nativehash
 const native = require("nupp.runtime.native")
 
 native.ffi.cdef[[
-int32_t nuppNativeV2Xxh64Digest(const uint8_t *, size_t, uint8_t *, size_t);
+int32_t nuppNativeXxh64Digest(const uint8_t *, size_t, uint8_t *, size_t);
 ]]
 
 local ffi = native.ffi
@@ -19,7 +19,7 @@ local hash = {}
 --- The same 32 lowercase hex digits as `nupp.compiler.build.hash.digest`.
 function hash.digest(input: string): string
     local output = ffi.new<uint8[32]>()
-    native.succeeded(C.nuppNativeV2Xxh64Digest(input, #input, output, 32), 2)
+    native.succeeded(C.nuppNativeXxh64Digest(input, #input, output, 32), 2)
 
     return ffiString(ffi.cast<const uint8[?]>(output), 32)
 end

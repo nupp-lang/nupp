@@ -102,13 +102,13 @@ end
 
 local function artifactNames()
     if package.config:sub(1, 1) == "\\" then
-        return "nupp_native_v2.dll", "nupp-host-rust.exe"
+        return "nupp_native.dll", "nupp-host-rust.exe"
     end
     if jit.os == "OSX" then
-        return "libnupp_native_v2.dylib", "nupp-host-rust"
+        return "libnupp_native.dylib", "nupp-host-rust"
     end
 
-    return "libnupp_native_v2.so", "nupp-host-rust"
+    return "libnupp_native.so", "nupp-host-rust"
 end
 
 local function fakeRustTools(directory, version, identity, identityMarker)
@@ -158,7 +158,7 @@ mkdir -p "$target/release"
 case "$package" in
    nupp-native)
       artifact=$NUPP_TEST_RUST_LIBRARY
-      printf '%%s\n' built > "$target/release/libnupp_native_v2.a"
+      printf '%%s\n' built > "$target/release/libnupp_native.a"
       ;;
    nupp-native-host)
       [ "$binary" = nupp-host-rust ] || exit 4
@@ -362,7 +362,7 @@ esac
     )
     env.NUPP_CARGO = nil
     env.NUPP_RUSTC = nil
-    env.NUPP_TEST_RUST_LIBRARY = "libnupp_native_v2.so"
+    env.NUPP_TEST_RUST_LIBRARY = "libnupp_native.so"
     env.PATH = proxy .. ":$PATH"
 
     local status, output = run(env, "native-rust")

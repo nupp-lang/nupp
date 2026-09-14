@@ -108,7 +108,7 @@ fn require_handle_output(output: *mut u64) -> Result<(), (Status, String)> {
 ///
 /// # Safety
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2GpuContextCreate(output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeGpuContextCreate(output: *mut u64) -> i32 {
     boundary(|| {
         require_handle_output(output)?;
         let gpu = GpuContext::new().map_err(|error| (gpu_status(&error), error.to_string()))?;
@@ -132,7 +132,7 @@ pub unsafe extern "C" fn nuppNativeV2GpuContextCreate(output: *mut u64) -> i32 {
 /// `output_length` must be writable. When `capacity` is nonzero, `output` must
 /// be writable for that many bytes, including the trailing NUL. A null output
 /// with zero capacity performs a size query. The reported length excludes NUL.
-pub unsafe extern "C" fn nuppNativeV2GpuContextDescription(
+pub unsafe extern "C" fn nuppNativeGpuContextDescription(
     raw: u64,
     output: *mut u8,
     capacity: usize,
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn nuppNativeV2GpuContextDescription(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2GpuContextRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeGpuContextRelease(raw: u64) -> i32 {
     boundary(|| {
         let mut arena = contexts()
             .lock()
@@ -194,7 +194,7 @@ pub extern "C" fn nuppNativeV2GpuContextRelease(raw: u64) -> i32 {
 ///
 /// # Safety
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2GpuBufferCreate(
+pub unsafe extern "C" fn nuppNativeGpuBufferCreate(
     context: u64,
     size: u64,
     output: *mut u64,
@@ -208,7 +208,7 @@ pub unsafe extern "C" fn nuppNativeV2GpuBufferCreate(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2GpuBufferRelease(context: u64, buffer: u64) -> i32 {
+pub extern "C" fn nuppNativeGpuBufferRelease(context: u64, buffer: u64) -> i32 {
     boundary(|| with_context(context, |gpu| gpu.release_buffer(buffer)).map(|_| ()))
 }
 
@@ -217,7 +217,7 @@ pub extern "C" fn nuppNativeV2GpuBufferRelease(context: u64, buffer: u64) -> i32
 ///
 /// # Safety
 /// When `length` is nonzero, `data` must be readable for `length` bytes.
-pub unsafe extern "C" fn nuppNativeV2GpuBufferUpload(
+pub unsafe extern "C" fn nuppNativeGpuBufferUpload(
     context: u64,
     buffer: u64,
     offset: u64,
@@ -238,7 +238,7 @@ pub unsafe extern "C" fn nuppNativeV2GpuBufferUpload(
 /// The SPIR-V and entrypoint pointers must cover their named byte lengths;
 /// `output` must be writable for one `u64`.
 #[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn nuppNativeV2GpuKernelCreate(
+pub unsafe extern "C" fn nuppNativeGpuKernelCreate(
     context: u64,
     spirv: *const u8,
     spirv_length: usize,
@@ -280,7 +280,7 @@ pub unsafe extern "C" fn nuppNativeV2GpuKernelCreate(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2GpuKernelRelease(context: u64, kernel: u64) -> i32 {
+pub extern "C" fn nuppNativeGpuKernelRelease(context: u64, kernel: u64) -> i32 {
     boundary(|| with_context(context, |gpu| gpu.release_kernel(kernel)).map(|_| ()))
 }
 
@@ -289,7 +289,7 @@ pub extern "C" fn nuppNativeV2GpuKernelRelease(context: u64, kernel: u64) -> i32
 ///
 /// # Safety
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2GpuBindingsCreate(
+pub unsafe extern "C" fn nuppNativeGpuBindingsCreate(
     context: u64,
     kernel: u64,
     output: *mut u64,
@@ -303,13 +303,13 @@ pub unsafe extern "C" fn nuppNativeV2GpuBindingsCreate(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2GpuBindingsRelease(context: u64, bindings: u64) -> i32 {
+pub extern "C" fn nuppNativeGpuBindingsRelease(context: u64, bindings: u64) -> i32 {
     boundary(|| with_context(context, |gpu| gpu.release_bindings(bindings)).map(|_| ()))
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn nuppNativeV2GpuBindingsSetBuffer(
+pub extern "C" fn nuppNativeGpuBindingsSetBuffer(
     context: u64,
     bindings: u64,
     writable: i32,
@@ -340,7 +340,7 @@ pub extern "C" fn nuppNativeV2GpuBindingsSetBuffer(
 /// When `uniform_length` is nonzero, `uniforms` must be readable for that
 /// length.
 #[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn nuppNativeV2GpuDispatch(
+pub unsafe extern "C" fn nuppNativeGpuDispatch(
     context: u64,
     bindings: u64,
     work_items_x: u32,
@@ -363,7 +363,7 @@ pub unsafe extern "C" fn nuppNativeV2GpuDispatch(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2GpuDownloadQueue(
+pub extern "C" fn nuppNativeGpuDownloadQueue(
     context: u64,
     buffer: u64,
     offset: u64,
@@ -373,7 +373,7 @@ pub extern "C" fn nuppNativeV2GpuDownloadQueue(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2GpuSynchronize(context: u64) -> i32 {
+pub extern "C" fn nuppNativeGpuSynchronize(context: u64) -> i32 {
     boundary(|| with_context(context, GpuContext::synchronize))
 }
 
@@ -382,7 +382,7 @@ pub extern "C" fn nuppNativeV2GpuSynchronize(context: u64) -> i32 {
 ///
 /// # Safety
 /// `output` must be writable for `capacity` bytes when capacity is nonzero.
-pub unsafe extern "C" fn nuppNativeV2GpuDownloadRead(
+pub unsafe extern "C" fn nuppNativeGpuDownloadRead(
     context: u64,
     buffer: u64,
     offset: u64,
@@ -415,16 +415,13 @@ mod tests {
 
     #[test]
     fn invalid_contexts_are_reported_without_pointer_dereferences() {
-        assert_eq!(
-            nuppNativeV2GpuBufferRelease(0, 1),
-            Status::StaleHandle.code()
-        );
+        assert_eq!(nuppNativeGpuBufferRelease(0, 1), Status::StaleHandle.code());
         let mut output = [0_u8; 64];
         let mut length = 0_usize;
         // SAFETY: both outputs are valid for their declared capacities.
         assert_eq!(
             unsafe {
-                nuppNativeV2GpuContextDescription(0, output.as_mut_ptr(), output.len(), &mut length)
+                nuppNativeGpuContextDescription(0, output.as_mut_ptr(), output.len(), &mut length)
             },
             Status::StaleHandle.code()
         );

@@ -9,16 +9,16 @@ The loader for the versioned Rust-native provider.
 local ffi = require("ffi")
 
 ffi.cdef[[
-uint32_t nuppNativeV2AbiVersion(void);
-uint64_t nuppNativeV2Features(void);
-const char *nuppNativeV2LastError(void);
-int32_t nuppNativeV2BytesCopy(
+uint32_t nuppNativeAbiVersion(void);
+uint64_t nuppNativeFeatures(void);
+const char *nuppNativeLastError(void);
+int32_t nuppNativeBytesCopy(
     uint64_t handle,
     uint8_t *outputData,
     size_t capacity,
     size_t *outputLength
 );
-int32_t nuppNativeV2BytesRelease(uint64_t handle);
+int32_t nuppNativeBytesRelease(uint64_t handle);
 ]]
 
 local native = {}
@@ -28,16 +28,16 @@ local native = {}
 native.ffi = ffi
 
 const ABI_VERSION = 2
-const LIBRARY_KEY = "__nuppNativeV2Library"
+const LIBRARY_KEY = "__nuppNativeLibrary"
 
 local function open(): any
-    local wanted = os.getenv("NUPP_NATIVE_V2_LIBRARY")
+    local wanted = os.getenv("NUPP_NATIVE_LIBRARY")
     if wanted then
         return ffi.load(wanted)
     end
     local source = debug.getinfo(1, "S").source
     local root = source:match("^@(.+)/[^/]+$") or "."
-    local library = ffi.os == "Windows" and "/lib/nupp_native_v2.dll" or "/lib/nupp_native_v2"
+    local library = ffi.os == "Windows" and "/lib/nupp_native.dll" or "/lib/nupp_native"
     for _, base in ipairs({root, root .. "/..", root .. "/../.."}) do
         local found, value = pcall(ffi.load, base .. library)
         if found then
@@ -51,7 +51,7 @@ local function open(): any
     -- A standalone binary has no sidecar and falls through to its complete,
     -- statically linked provider here.
     local linked = pcall(function(): any
-        return ffi.C.nuppNativeV2AbiVersion
+        return ffi.C.nuppNativeAbiVersion
     end)
     if linked then
         return ffi.C
@@ -67,7 +67,7 @@ local function library(): any
     local value: any = rawget(_G, LIBRARY_KEY)
     if value == nil then
         local opened: any = open()
-        local version = opened.nuppNativeV2AbiVersion()
+        local version = opened.nuppNativeAbiVersion()
         if version ~= ABI_VERSION then
             error(
                 (
@@ -99,7 +99,7 @@ native.C = setmetatable({}, {
 --- @raises when status is nonzero
 function native.succeeded(status: integer, level: integer): nil
     if status ~= 0 then
-        error("nupp: " .. ffi.string(native.C.nuppNativeV2LastError()), level)
+        error("nupp: " .. ffi.string(native.C.nuppNativeLastError()), level)
     end
 end
 
@@ -107,7 +107,7 @@ end
 --- @export
 --- @raises when the provider lacks the feature bit
 function native.requireFeature(bit: integer, name: string): nil
-    if native.C.nuppNativeV2Features() & bit == 0 then
+    if native.C.nuppNativeFeatures() & bit == 0 then
         error("nupp: the Rust native provider was built without " .. name, 3)
     end
 end
@@ -117,10 +117,10 @@ end
 --- @raises when the result cannot be copied or released
 function native.bytes(handle: any): string
     local length = ffi.new("size_t[1]")
-    local status = native.C.nuppNativeV2BytesCopy(handle, nil, 0, length)
+    local status = native.C.nuppNativeBytesCopy(handle, nil, 0, length)
     local count = (tonumber(length[0]) or 0) as integer
     if count == 0 then
-        local released = native.C.nuppNativeV2BytesRelease(handle)
+        local released = native.C.nuppNativeBytesRelease(handle)
         native.succeeded(status, 3)
         native.succeeded(released, 3)
 
@@ -128,14 +128,14 @@ function native.bytes(handle: any): string
     end
     -- Capacity is the expected result of probing a nonempty value.
     if status ~= 2 then
-        local released = native.C.nuppNativeV2BytesRelease(handle)
+        local released = native.C.nuppNativeBytesRelease(handle)
         native.succeeded(status, 3)
         native.succeeded(released, 3)
     end
 
     local buffer = ffi.new("uint8_t[?]", count)
-    status = native.C.nuppNativeV2BytesCopy(handle, buffer, count, length)
-    local released = native.C.nuppNativeV2BytesRelease(handle)
+    status = native.C.nuppNativeBytesCopy(handle, buffer, count, length)
+    local released = native.C.nuppNativeBytesRelease(handle)
     native.succeeded(status, 3)
     native.succeeded(released, 3)
 

@@ -40,6 +40,7 @@ local function temporary()
 end
 
 local cachedSdk
+
 local function sdk()
     if cachedSdk then
         return cachedSdk
@@ -179,10 +180,10 @@ assert(__nuppHost.hostFeatures["native-net"])
 assert(require("lpeg").P("x"):match("x") == 2)
 local ffi = require("ffi")
 ffi.cdef([=[
-unsigned int nuppNativeV2AbiVersion(void);
+unsigned int nuppNativeAbiVersion(void);
 void *nupp_rust_worker_channel_new(void);
 ]=])
-assert(ffi.C.nuppNativeV2AbiVersion() == 2)
+assert(ffi.C.nuppNativeAbiVersion() == 2)
 assert(ffi.C.nupp_rust_worker_channel_new ~= nil)
 ]]
     )

@@ -35,7 +35,7 @@ measure_provider() {
    warm_finished=$(now_ms)
    [ "$provider" = "$warm_provider" ]
 
-   provider_static=$(dirname "$provider")/libnupp_native_v2.a
+   provider_static=$(dirname "$provider")/libnupp_native.a
    [ -f "$provider" ]
    [ -f "$provider_static" ]
 

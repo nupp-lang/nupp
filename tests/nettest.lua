@@ -6,6 +6,7 @@
 -- module supplies the behaviour. `netnativetest.lua` is the other half, where
 -- real sockets check that the provider means what this one assumes.
 local net
+
 local function install(provider)
     net = require("providerstate").load("net", provider)
 end
@@ -521,18 +522,18 @@ end
 
 function M.netAndTlsSelectTheUnifiedRustProvider()
     local netFeature = assert(native.feature("native.net"))
-    assertEq(netFeature.provider, "nupp_native_v2", "network provider")
+    assertEq(netFeature.provider, "nupp_native", "network provider")
     assertEq(netFeature.providerDriver, "native-rust", "network provider driver")
     assertEq(netFeature.providerFeature, "net", "network provider feature")
-    assertEq(netFeature.library, "nupp_native_v2", "network provider library")
+    assertEq(netFeature.library, "nupp_native", "network provider library")
     local tlsFeature = assert(native.feature("native.tls"))
-    assertEq(tlsFeature.provider, "nupp_native_v2", "TLS provider")
+    assertEq(tlsFeature.provider, "nupp_native", "TLS provider")
     assertEq(tlsFeature.providerDriver, "native-rust", "TLS provider driver")
     assertEq(tlsFeature.providerFeature, "tls", "TLS provider feature")
-    assertEq(tlsFeature.library, "nupp_native_v2", "TLS provider library")
+    assertEq(tlsFeature.library, "nupp_native", "TLS provider library")
     local expanded = native.expand({["native.tls"] = true})
     assertTrue(expanded["native.net"], "TLS omitted its Rust transport")
-    assertTrue(expanded["runtime.native_v2"], "networking omitted the ABI-v2 runtime")
+    assertTrue(expanded["runtime.native"], "networking omitted the native ABI runtime")
 end
 
 return M

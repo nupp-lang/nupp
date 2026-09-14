@@ -73,7 +73,8 @@ function M.thePinnedDigestDescribesTheFetchedCompiler()
 
     local path = stage0()
     assert(path, "no stage-zero compiler; run scripts/toolchain stage0")
-    local found = capture(("shasum -a 256 '%s' 2>/dev/null || sha256sum '%s'"):format(path, path))
+    local verified = assert(path:match("^(.*)/[^/]+$"), "the stage zero has no runtime directory") .. "/verified.lua"
+    local found = capture(("shasum -a 256 '%s' 2>/dev/null || sha256sum '%s'"):format(verified, verified))
     assert(found:match("^(%x+)") == pinned, "the installed stage zero does not have the pinned digest: " .. found)
 end
 
@@ -176,7 +177,7 @@ local function plantedTree(stage0Body)
     -- keyed on is newer than the library -- and the pins file above is one of
     -- those. Staged for real, this tree has no `rust-toolchain.toml` to name a
     -- toolchain with, so the build these cases are watching never starts.
-    for _, name in ipairs({"libnupp_native_v2_dev.dylib", "libnupp_native_v2_dev.so", "nupp_native_v2_dev.dll",}) do
+    for _, name in ipairs({"libnupp_native_dev.dylib", "libnupp_native_dev.so", "nupp_native_dev.dll",}) do
         plant("build/lib/" .. name, "")
     end
 

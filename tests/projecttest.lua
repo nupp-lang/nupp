@@ -1188,7 +1188,7 @@ function M.nativeFacilitiesSharingAProviderBuildAsOneUnion()
     -- writes; anything before that is progress.
     process.capture = function(argv)
         calls[#calls + 1] = argv
-        return 0, "/built/libnupp_native_v2.dylib\n"
+        return 0, "/built/libnupp_native.dylib\n"
     end
     fs.copyFile = function(source, destination)
         copies[#copies + 1] = {source, destination}
@@ -1206,11 +1206,8 @@ function M.nativeFacilitiesSharingAProviderBuildAsOneUnion()
     assertEq(#copies, 2, "the shared library and path runtime are staged")
     local command = "\n" .. table.concat(calls[1], "\n") .. "\n"
     assert(command:find("\nnative%-rust\nfilesystem,uuid\n"), "path and UUID select one sorted Rust feature union")
-    assertEq(copies[1][1], "/built/libnupp_native_v2.dylib", "the Rust provider union has one source artifact")
-    assert(
-        copies[1][2]:find("out/lib/nupp_native_v2", 1, true),
-        "the Rust provider union keeps its stable sidecar name"
-    )
+    assertEq(copies[1][1], "/built/libnupp_native.dylib", "the Rust provider union has one source artifact")
+    assert(copies[1][2]:find("out/lib/nupp_native", 1, true), "the Rust provider union keeps its stable sidecar name")
 end
 
 function M.nativeFacilityCanSelectItsProviderDriver()
@@ -1219,7 +1216,7 @@ function M.nativeFacilityCanSelectItsProviderDriver()
     local calls, copies = {}, {}
     process.capture = function(argv)
         calls[#calls + 1] = argv
-        return 0, "/built/libnupp_native_v2.dylib\n"
+        return 0, "/built/libnupp_native.dylib\n"
     end
     fs.copyFile = function(source, destination)
         copies[#copies + 1] = {source, destination}
@@ -1237,8 +1234,8 @@ function M.nativeFacilityCanSelectItsProviderDriver()
     local command = "\n" .. table.concat(calls[1], "\n") .. "\n"
     assert(command:find("\nnative%-rust\n"), "the feature's provider driver is passed to the toolchain")
     assert(command:find("\ngpu\n", 1, true), "the selected driver receives the provider feature union")
-    assertEq(copies[1][1], "/built/libnupp_native_v2.dylib")
-    assert(copies[1][2]:find("out/lib/nupp_native_v2", 1, true), "the Rust provider has an independent sidecar name")
+    assertEq(copies[1][1], "/built/libnupp_native.dylib")
+    assert(copies[1][2]:find("out/lib/nupp_native", 1, true), "the Rust provider has an independent sidecar name")
 end
 
 function M.aTargetKeepsTheRuntimeModuleItAlreadyBuilt()
@@ -2372,7 +2369,7 @@ print("rust-files-ok")
     assertEq(project.build(dir), 0)
     local output = executableName(dir .. "/out/app")
     assert(exists(output), "the standalone filesystem executable is emitted")
-    assert(not exists(dir .. "/out/lib/nupp_native_v2"), "the standalone filesystem build retains no Rust sidecar")
+    assert(not exists(dir .. "/out/lib/nupp_native"), "the standalone filesystem build retains no Rust sidecar")
     local code, text = process.capture({output})
     assertEq(code, 0, text)
     assertEq(

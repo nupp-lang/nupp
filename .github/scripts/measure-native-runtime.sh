@@ -62,7 +62,7 @@ warm_finished=$(now_ms)
 [ "$provider" = "$warm_provider" ]
 
 provider_dir=$(dirname "$provider")
-provider_static=$provider_dir/libnupp_native_v2.a
+provider_static=$provider_dir/libnupp_native.a
 [ -f "$provider" ]
 [ -f "$provider_static" ]
 
@@ -71,11 +71,11 @@ if [ -f "$benchmark.exe" ]; then
    benchmark=$benchmark.exe
 fi
 [ -f "$benchmark" ]
-benchmark_provider=bench/native-runtime/build/lib/nupp_native_v2
+benchmark_provider=bench/native-runtime/build/lib/nupp_native
 if [ ! -f "$benchmark_provider" ]; then
    benchmark_provider=$(find bench/native-runtime/build/lib -maxdepth 1 -type f \
-      \( -name 'nupp_native_v2.dll' -o -name 'libnupp_native_v2.so' \
-         -o -name 'libnupp_native_v2.dylib' \) -print | head -n 1)
+      \( -name 'nupp_native.dll' -o -name 'libnupp_native.so' \
+         -o -name 'libnupp_native.dylib' \) -print | head -n 1)
 fi
 [ -n "$benchmark_provider" ]
 

@@ -169,7 +169,7 @@ impl HostRuntime {
         // This call links the selected provider crate into every host. The
         // production build retains dead code and exports dynamic symbols so
         // LuaJIT FFI can resolve the provider's remaining C ABI by name.
-        let _ = nupp_native_v2::nuppNativeV2AbiVersion();
+        let _ = nupp_native::nuppNativeAbiVersion();
         let lane = NativeLane::new(HOST_LANE_CAPACITY)
             .map_err(|error| HostError::Lane(error.to_string()))?;
         let lua = Lua::new(open_libraries).map_err(HostError::Lua)?;

@@ -133,7 +133,7 @@ fn joined_path(left: &str, right: &str) -> String {
 /// # Safety
 /// When `length` is nonzero, `data` must be readable for `length` bytes.
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2UriParse(
+pub unsafe extern "C" fn nuppNativeUriParse(
     data: *const u8,
     length: usize,
     output: *mut u64,
@@ -150,7 +150,7 @@ pub unsafe extern "C" fn nuppNativeV2UriParse(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2UriRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeUriRelease(raw: u64) -> i32 {
     match uris().lock() {
         Ok(mut arena) => match arena.remove(Handle::from_raw(raw)) {
             Ok(_) => Status::Ok.code(),
@@ -166,7 +166,7 @@ pub extern "C" fn nuppNativeV2UriRelease(raw: u64) -> i32 {
 /// # Safety
 /// `length` and `present` must be writable. A nonzero `capacity` requires
 /// `output` to be writable for that many bytes.
-pub unsafe extern "C" fn nuppNativeV2UriPart(
+pub unsafe extern "C" fn nuppNativeUriPart(
     raw: u64,
     kind: u32,
     output: *mut u8,
@@ -210,7 +210,7 @@ pub unsafe extern "C" fn nuppNativeV2UriPart(
 ///
 /// # Safety
 /// `output` must be writable for one `i32`.
-pub unsafe extern "C" fn nuppNativeV2UriPort(raw: u64, output: *mut i32) -> i32 {
+pub unsafe extern "C" fn nuppNativeUriPort(raw: u64, output: *mut i32) -> i32 {
     if output.is_null() {
         return failed(Status::InvalidArgument, "URI port output is null");
     }
@@ -229,7 +229,7 @@ pub unsafe extern "C" fn nuppNativeV2UriPort(raw: u64, output: *mut i32) -> i32 
 /// # Safety
 /// When `length` is nonzero, `data` must be readable for `length` bytes.
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2UriWithText(
+pub unsafe extern "C" fn nuppNativeUriWithText(
     raw: u64,
     kind: u32,
     data: *const u8,
@@ -292,7 +292,7 @@ pub unsafe extern "C" fn nuppNativeV2UriWithText(
 ///
 /// # Safety
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2UriWithPort(raw: u64, port: i32, output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeUriWithPort(raw: u64, port: i32, output: *mut u64) -> i32 {
     if !(-1..=65535).contains(&port) {
         return failed(
             Status::InvalidArgument,
@@ -318,7 +318,7 @@ pub unsafe extern "C" fn nuppNativeV2UriWithPort(raw: u64, port: i32, output: *m
 /// # Safety
 /// When `length` is nonzero, `suffix` must be readable for `length` bytes.
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2UriConcatPath(
+pub unsafe extern "C" fn nuppNativeUriConcatPath(
     raw: u64,
     suffix: *const u8,
     length: usize,
@@ -342,7 +342,7 @@ pub unsafe extern "C" fn nuppNativeV2UriConcatPath(
 ///
 /// # Safety
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2UriWithEndpoint(
+pub unsafe extern "C" fn nuppNativeUriWithEndpoint(
     raw: u64,
     endpoint: u64,
     output: *mut u64,
@@ -368,7 +368,7 @@ pub unsafe extern "C" fn nuppNativeV2UriWithEndpoint(
 /// # Safety
 /// When `length` is nonzero, `reference` must be readable for `length` bytes.
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2UriResolve(
+pub unsafe extern "C" fn nuppNativeUriResolve(
     raw: u64,
     reference: *const u8,
     length: usize,
@@ -398,7 +398,7 @@ mod tests {
     fn parse(source: &str) -> u64 {
         let mut handle = 0;
         assert_eq!(
-            unsafe { nuppNativeV2UriParse(source.as_ptr(), source.len(), &mut handle) },
+            unsafe { nuppNativeUriParse(source.as_ptr(), source.len(), &mut handle) },
             Status::Ok.code()
         );
         handle
@@ -409,7 +409,7 @@ mod tests {
         let mut present = 0;
         assert_eq!(
             unsafe {
-                nuppNativeV2UriPart(handle, kind, ptr::null_mut(), 0, &mut length, &mut present)
+                nuppNativeUriPart(handle, kind, ptr::null_mut(), 0, &mut length, &mut present)
             },
             0
         );
@@ -419,7 +419,7 @@ mod tests {
         let mut output = vec![0; length];
         assert_eq!(
             unsafe {
-                nuppNativeV2UriPart(
+                nuppNativeUriPart(
                     handle,
                     kind,
                     output.as_mut_ptr(),
@@ -451,8 +451,8 @@ mod tests {
         assert_eq!(component(handle, 6).as_deref(), Some("/b"));
         assert_eq!(component(handle, 7).as_deref(), Some("q=1"));
         assert_eq!(component(handle, 8).as_deref(), Some("top"));
-        assert_eq!(nuppNativeV2UriRelease(handle), 0);
-        assert_eq!(nuppNativeV2UriRelease(handle), Status::StaleHandle.code());
+        assert_eq!(nuppNativeUriRelease(handle), 0);
+        assert_eq!(nuppNativeUriRelease(handle), Status::StaleHandle.code());
     }
 
     #[test]
@@ -463,8 +463,8 @@ mod tests {
         let file = parse("file:///tmp/x");
         assert_eq!(component(file, 2).as_deref(), Some(""));
         assert_eq!(component(file, 5), None);
-        assert_eq!(nuppNativeV2UriRelease(opaque), 0);
-        assert_eq!(nuppNativeV2UriRelease(file), 0);
+        assert_eq!(nuppNativeUriRelease(opaque), 0);
+        assert_eq!(nuppNativeUriRelease(file), 0);
     }
 
     #[test]
@@ -473,7 +473,7 @@ mod tests {
         let endpoint = parse("http://127.0.0.1:8080/prefix");
         let mut derived = 0;
         assert_eq!(
-            unsafe { nuppNativeV2UriWithEndpoint(source, endpoint, &mut derived) },
+            unsafe { nuppNativeUriWithEndpoint(source, endpoint, &mut derived) },
             0
         );
         assert_eq!(
@@ -485,7 +485,7 @@ mod tests {
             Some("https://example.com/api?q=1#top")
         );
         for handle in [source, endpoint, derived] {
-            assert_eq!(nuppNativeV2UriRelease(handle), 0);
+            assert_eq!(nuppNativeUriRelease(handle), 0);
         }
     }
 
@@ -498,7 +498,7 @@ mod tests {
         ] {
             let mut handle = 0;
             assert_eq!(
-                unsafe { nuppNativeV2UriParse(source.as_ptr(), source.len(), &mut handle) },
+                unsafe { nuppNativeUriParse(source.as_ptr(), source.len(), &mut handle) },
                 Status::InvalidArgument.code()
             );
             nupp_native_abi::with_last_error(|error| assert_eq!(error.to_str().unwrap(), reason));

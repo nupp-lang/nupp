@@ -28,38 +28,38 @@ const READ_SIZE = 65536
 
 const native = require("nupp.runtime.native")
 
-cdef struct NuppNativeV2TlsSlice
+cdef struct NuppNativeTlsSlice
     data: cstring
     length: uint64
 end
 
-cdef struct NuppNativeV2TlsOptions
-    hostname: NuppNativeV2TlsSlice
-    certificate: NuppNativeV2TlsSlice
-    private_key: NuppNativeV2TlsSlice
-    authority: NuppNativeV2TlsSlice
-    protocols: NuppNativeV2TlsSlice
+cdef struct NuppNativeTlsOptions
+    hostname: NuppNativeTlsSlice
+    certificate: NuppNativeTlsSlice
+    private_key: NuppNativeTlsSlice
+    authority: NuppNativeTlsSlice
+    protocols: NuppNativeTlsSlice
     authority_present: int32
     server: int32
     verify: int32
 end
 
 native.ffi.cdef[[
-int32_t nuppNativeV2TlsCreate(
-    uint64_t, const struct NuppNativeV2TlsOptions *, uint64_t *);
-int32_t nuppNativeV2TlsHandshake(uint64_t, uint32_t *);
-int32_t nuppNativeV2TlsRead(
+int32_t nuppNativeTlsCreate(
+    uint64_t, const struct NuppNativeTlsOptions *, uint64_t *);
+int32_t nuppNativeTlsHandshake(uint64_t, uint32_t *);
+int32_t nuppNativeTlsRead(
     uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeV2TlsWrite(
+int32_t nuppNativeTlsWrite(
     uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeV2TlsFlushed(uint64_t, int32_t *);
-int32_t nuppNativeV2TlsCloseNotify(uint64_t, int32_t *);
-int32_t nuppNativeV2TlsConnected(uint64_t, int32_t *);
-int32_t nuppNativeV2TlsVerified(uint64_t, int32_t *);
-int32_t nuppNativeV2TlsResumed(uint64_t, int32_t *);
-int32_t nuppNativeV2TlsProtocol(
+int32_t nuppNativeTlsFlushed(uint64_t, int32_t *);
+int32_t nuppNativeTlsCloseNotify(uint64_t, int32_t *);
+int32_t nuppNativeTlsConnected(uint64_t, int32_t *);
+int32_t nuppNativeTlsVerified(uint64_t, int32_t *);
+int32_t nuppNativeTlsResumed(uint64_t, int32_t *);
+int32_t nuppNativeTlsProtocol(
     uint64_t, uint8_t *, size_t, size_t *, int32_t *);
-int32_t nuppNativeV2TlsRelease(uint64_t);
+int32_t nuppNativeTlsRelease(uint64_t);
 ]]
 
 local ffi = native.ffi
@@ -77,7 +77,7 @@ local scratch: any = nil
 native.requireFeature(TLS_FEATURE, "tls")
 
 local function slice(text: string): any
-    local value = ffi.new<NuppNativeV2TlsSlice>()
+    local value = ffi.new<NuppNativeTlsSlice>()
     -- The slice points into the Lua string; every caller hands it to C and returns
     -- while `text` is still a live argument of its own, so the string outlives the
     -- call.
@@ -90,7 +90,7 @@ local function slice(text: string): any
 end
 
 local function lastError(prefix: string): string
-    return prefix .. ": " .. (ffi.string(C.nuppNativeV2LastError()) as string)
+    return prefix .. ": " .. (ffi.string(C.nuppNativeLastError()) as string)
 end
 
 local function readBuffer(): any
@@ -122,7 +122,7 @@ local function create(): contract.Provider
             verify: boolean
         ): (any?, string?)
 
-            local options = ffi.new<NuppNativeV2TlsOptions>()
+            local options = ffi.new<NuppNativeTlsOptions>()
             options.hostname = slice(hostname)
             options.certificate = slice(certificate)
             options.private_key = slice(privateKey)
@@ -131,7 +131,7 @@ local function create(): contract.Provider
             options.authority_present = authority ~= nil and 1 or 0
             options.server = server and 1 or 0
             options.verify = verify and 1 or 0
-            const status = C.nuppNativeV2TlsCreate(handle, options, handleOutput)
+            const status = C.nuppNativeTlsCreate(handle, options, handleOutput)
             if status ~= 0 then
                 return nil, lastError("nupp: could not start the session")
             end
@@ -140,7 +140,7 @@ local function create(): contract.Provider
         end,
 
         handshake = function(self: contract.Provider, session: any): (boolean?, string?)
-            const status = C.nuppNativeV2TlsHandshake(session, state)
+            const status = C.nuppNativeTlsHandshake(session, state)
             if status ~= 0 then
                 return nil, lastError("nupp: the handshake failed")
             end
@@ -149,7 +149,7 @@ local function create(): contract.Provider
         end,
 
         verified = function(self: contract.Provider, session: any): boolean
-            if C.nuppNativeV2TlsVerified(session, scalar) ~= 0 then
+            if C.nuppNativeTlsVerified(session, scalar) ~= 0 then
                 return false
             end
 
@@ -157,7 +157,7 @@ local function create(): contract.Provider
         end,
 
         resumed = function(self: contract.Provider, session: any): boolean
-            if C.nuppNativeV2TlsResumed(session, scalar) ~= 0 then
+            if C.nuppNativeTlsResumed(session, scalar) ~= 0 then
                 return false
             end
 
@@ -167,7 +167,7 @@ local function create(): contract.Provider
         read = function(self: contract.Provider, session: any, wanted: integer): (string?, string?)
             const taking = wanted < READ_SIZE and wanted or READ_SIZE
             const into = readBuffer()
-            const status = C.nuppNativeV2TlsRead(session, into, taking, state, length)
+            const status = C.nuppNativeTlsRead(session, into, taking, state, length)
             if status ~= 0 then
                 return nil, lastError("nupp: could not read")
             end
@@ -182,7 +182,7 @@ local function create(): contract.Provider
         end,
 
         write = function(self: contract.Provider, session: any, bytes: string): (integer?, string?)
-            const status = C.nuppNativeV2TlsWrite(session, bytes, #bytes, state, length)
+            const status = C.nuppNativeTlsWrite(session, bytes, #bytes, state, length)
             if status ~= 0 then
                 return nil, lastError("nupp: could not write")
             end
@@ -197,7 +197,7 @@ local function create(): contract.Provider
         end,
 
         flushed = function(self: contract.Provider, session: any): (boolean, string?)
-            const status = C.nuppNativeV2TlsFlushed(session, scalar)
+            const status = C.nuppNativeTlsFlushed(session, scalar)
             if status ~= 0 then
                 return false, lastError("nupp: could not flush")
             end
@@ -206,7 +206,7 @@ local function create(): contract.Provider
         end,
 
         closeNotify = function(self: contract.Provider, session: any): (boolean, string?)
-            const status = C.nuppNativeV2TlsCloseNotify(session, scalar)
+            const status = C.nuppNativeTlsCloseNotify(session, scalar)
             if status ~= 0 then
                 return false, lastError("nupp: could not send close_notify")
             end
@@ -215,11 +215,11 @@ local function create(): contract.Provider
         end,
 
         destroy = function(self: contract.Provider, session: any): nil
-            C.nuppNativeV2TlsRelease(session)
+            C.nuppNativeTlsRelease(session)
         end,
 
         connected = function(self: contract.Provider, session: any): boolean
-            if C.nuppNativeV2TlsConnected(session, scalar) ~= 0 then
+            if C.nuppNativeTlsConnected(session, scalar) ~= 0 then
                 return false
             end
 
@@ -227,7 +227,7 @@ local function create(): contract.Provider
         end,
 
         protocol = function(self: contract.Provider, session: any): string?
-            const status = C.nuppNativeV2TlsProtocol(session, protocolBuffer, PROTOCOL_SIZE, length, present)
+            const status = C.nuppNativeTlsProtocol(session, protocolBuffer, PROTOCOL_SIZE, length, present)
             if status ~= 0 or present[0] == 0 then
                 return nil
             end

@@ -302,60 +302,60 @@ const span = require("nupp.mem.span")
 -- writes it that way. The functions stay in the runtime declaration: they are reached
 -- through the handle `nupp.runtime.native` opened, not the default namespace a `cdef
 -- function` binds to.
-cdef struct NuppNativeV2FilesInfo
+cdef struct NuppNativeFilesInfo
     kind: uint32
     read_only: int32
     size: uint64
     modified: number
 end
 
-cdef struct NuppNativeV2FilesSlice
+cdef struct NuppNativeFilesSlice
     data: cstring
     length: uint64
 end
 
 native.ffi.cdef[[
-int32_t nuppNativeV2FilesInfo(
-    struct NuppNativeV2FilesSlice, int32_t, struct NuppNativeV2FilesInfo *);
-int32_t nuppNativeV2FilesReadLink(struct NuppNativeV2FilesSlice, uint64_t *);
-int32_t nuppNativeV2FilesCreateSymlink(
-    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice, int32_t);
-int32_t nuppNativeV2FilesSetReadOnly(struct NuppNativeV2FilesSlice, int32_t);
-int32_t nuppNativeV2FilesCreateDirectory(struct NuppNativeV2FilesSlice);
-int32_t nuppNativeV2FilesRemove(struct NuppNativeV2FilesSlice, int32_t);
-int32_t nuppNativeV2FilesRename(
-    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice);
-int32_t nuppNativeV2FilesList(struct NuppNativeV2FilesSlice, uint64_t *);
-int32_t nuppNativeV2FilesGlob(struct NuppNativeV2FilesSlice, uint64_t *);
-int32_t nuppNativeV2FilesCreateTemporary(
-    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice,
-    struct NuppNativeV2FilesSlice,
+int32_t nuppNativeFilesInfo(
+    struct NuppNativeFilesSlice, int32_t, struct NuppNativeFilesInfo *);
+int32_t nuppNativeFilesReadLink(struct NuppNativeFilesSlice, uint64_t *);
+int32_t nuppNativeFilesCreateSymlink(
+    struct NuppNativeFilesSlice, struct NuppNativeFilesSlice, int32_t);
+int32_t nuppNativeFilesSetReadOnly(struct NuppNativeFilesSlice, int32_t);
+int32_t nuppNativeFilesCreateDirectory(struct NuppNativeFilesSlice);
+int32_t nuppNativeFilesRemove(struct NuppNativeFilesSlice, int32_t);
+int32_t nuppNativeFilesRename(
+    struct NuppNativeFilesSlice, struct NuppNativeFilesSlice);
+int32_t nuppNativeFilesList(struct NuppNativeFilesSlice, uint64_t *);
+int32_t nuppNativeFilesGlob(struct NuppNativeFilesSlice, uint64_t *);
+int32_t nuppNativeFilesCreateTemporary(
+    struct NuppNativeFilesSlice, struct NuppNativeFilesSlice,
+    struct NuppNativeFilesSlice,
     int32_t, uint64_t *);
-int32_t nuppNativeV2FilesCurrentDirectory(uint64_t *);
-int32_t nuppNativeV2FilesUserFolder(uint32_t, uint64_t *);
+int32_t nuppNativeFilesCurrentDirectory(uint64_t *);
+int32_t nuppNativeFilesUserFolder(uint32_t, uint64_t *);
 
-int32_t nuppNativeV2FileOpen(struct NuppNativeV2FilesSlice, uint32_t, uint64_t *);
-int32_t nuppNativeV2FileRead(uint64_t, uint8_t *, size_t, size_t *);
-int32_t nuppNativeV2FileWrite(uint64_t, const uint8_t *, size_t, size_t *);
-int32_t nuppNativeV2FileSeek(uint64_t, int64_t, uint32_t, int64_t *);
-int32_t nuppNativeV2FileSize(uint64_t, int64_t *);
-int32_t nuppNativeV2FileFlush(uint64_t);
-int32_t nuppNativeV2FileRelease(uint64_t);
+int32_t nuppNativeFileOpen(struct NuppNativeFilesSlice, uint32_t, uint64_t *);
+int32_t nuppNativeFileRead(uint64_t, uint8_t *, size_t, size_t *);
+int32_t nuppNativeFileWrite(uint64_t, const uint8_t *, size_t, size_t *);
+int32_t nuppNativeFileSeek(uint64_t, int64_t, uint32_t, int64_t *);
+int32_t nuppNativeFileSize(uint64_t, int64_t *);
+int32_t nuppNativeFileFlush(uint64_t);
+int32_t nuppNativeFileRelease(uint64_t);
 
-int32_t nuppNativeV2FilesTransferSubmitRead(
-    struct NuppNativeV2FilesSlice, uint64_t *);
-int32_t nuppNativeV2FilesTransferSubmitWrite(
-    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice,
+int32_t nuppNativeFilesTransferSubmitRead(
+    struct NuppNativeFilesSlice, uint64_t *);
+int32_t nuppNativeFilesTransferSubmitWrite(
+    struct NuppNativeFilesSlice, struct NuppNativeFilesSlice,
     uint32_t, uint64_t *);
-int32_t nuppNativeV2FilesTransferSubmitCopy(
-    struct NuppNativeV2FilesSlice, struct NuppNativeV2FilesSlice, uint64_t *);
-int32_t nuppNativeV2FilesTransferStatus(uint64_t, uint32_t *);
-int32_t nuppNativeV2FilesTransferTakeBytes(uint64_t, uint64_t *);
-int32_t nuppNativeV2FilesTransferCancel(uint64_t);
-int32_t nuppNativeV2FilesTransferRelease(uint64_t);
-int32_t nuppNativeV2FilesTransferPoll(size_t *);
-int32_t nuppNativeV2FilesTransferWait(uint64_t, size_t *);
-int32_t nuppNativeV2FilesTransferPending(size_t *);
+int32_t nuppNativeFilesTransferSubmitCopy(
+    struct NuppNativeFilesSlice, struct NuppNativeFilesSlice, uint64_t *);
+int32_t nuppNativeFilesTransferStatus(uint64_t, uint32_t *);
+int32_t nuppNativeFilesTransferTakeBytes(uint64_t, uint64_t *);
+int32_t nuppNativeFilesTransferCancel(uint64_t);
+int32_t nuppNativeFilesTransferRelease(uint64_t);
+int32_t nuppNativeFilesTransferPoll(size_t *);
+int32_t nuppNativeFilesTransferWait(uint64_t, size_t *);
+int32_t nuppNativeFilesTransferPending(size_t *);
 ]]
 
 local ffi = native.ffi
@@ -372,7 +372,7 @@ end
 
 local function slice(text: string): any
     requireFiles()
-    local value = ffi.new<NuppNativeV2FilesSlice>()
+    local value = ffi.new<NuppNativeFilesSlice>()
     -- The slice points into the Lua string; every caller hands it to C and returns
     -- while `text` is still a live argument of its own, so the string outlives the
     -- call.
@@ -385,7 +385,7 @@ local function slice(text: string): any
 end
 
 local function fileRead(handle: any, borrows destination: uint8[?], count: integer, wrote: any): integer
-    local call = C.nuppNativeV2FileRead as function(
+    local call = C.nuppNativeFileRead as function(
         handle: any,
         borrows destination: uint8[?],
         count: integer,
@@ -396,7 +396,7 @@ local function fileRead(handle: any, borrows destination: uint8[?], count: integ
 end
 
 local function fileWrite(handle: any, borrows source: const uint8[?], count: integer, wrote: any): integer
-    local call = C.nuppNativeV2FileWrite as function(
+    local call = C.nuppNativeFileWrite as function(
         handle: any,
         borrows source: const uint8[?],
         count: integer,
@@ -566,14 +566,14 @@ local function done(status: integer): (boolean, string?)
         return true, nil
     end
 
-    return false, ffi.string(C.nuppNativeV2LastError())
+    return false, ffi.string(C.nuppNativeLastError())
 end
 
--- Dynamic answers cross as generic v2 byte handles. `native.bytes` copies their
+-- Dynamic answers cross as native byte handles. `native.bytes` copies their
 -- contents into a Lua string and releases the generational handle exactly once.
 local function answer(status: integer, output: any): (string?, string?)
     if status ~= 0 then
-        return nil, ffi.string(C.nuppNativeV2LastError())
+        return nil, ffi.string(C.nuppNativeLastError())
     end
 
     return native.bytes(output[0]), nil
@@ -583,9 +583,9 @@ end
 -- share this crossing; the iterator owns its file rather than borrowing a view.
 local function readBytes(handle: any, into: any, count: integer): (string?, string?)
     local output = ffi.new("size_t[1]")
-    local status = C.nuppNativeV2FileRead(handle, into, count, output)
+    local status = C.nuppNativeFileRead(handle, into, count, output)
     if status ~= 0 then
-        return nil, ffi.string(C.nuppNativeV2LastError())
+        return nil, ffi.string(C.nuppNativeLastError())
     end
     local got = tonumber(output[0]) as integer
     if got == 0 then
@@ -639,9 +639,9 @@ export record File
             error("nupp: io.files File is closed", 2)
         end
         local output = ffi.new("int64_t[1]")
-        local status = C.nuppNativeV2FileSize(self._handle, output)
+        local status = C.nuppNativeFileSize(self._handle, output)
         if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeV2LastError())
+            return nil, ffi.string(C.nuppNativeLastError())
         end
 
         return tonumber(output[0]) as integer, nil
@@ -663,9 +663,9 @@ export record File
             error("nupp: io.files has no seek origin named " .. tostring(origin), 2)
         end
         local output = ffi.new("int64_t[1]")
-        local status = C.nuppNativeV2FileSeek(self._handle, whole(offset or 0, "seek offset", 2), whence, output)
+        local status = C.nuppNativeFileSeek(self._handle, whole(offset or 0, "seek offset", 2), whence, output)
         if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeV2LastError())
+            return nil, ffi.string(C.nuppNativeLastError())
         end
 
         return tonumber(output[0]) as integer, nil
@@ -689,7 +689,7 @@ export record File
             error("nupp: io.files File is closed", 2)
         end
 
-        return done(C.nuppNativeV2FileFlush(self._handle))
+        return done(C.nuppNativeFileFlush(self._handle))
     end
 
     --- Whether this file has been closed.
@@ -727,7 +727,7 @@ function File.drop(takes self: File): nil
     state._closed = true
     local handle = state._handle
     state._handle = nil
-    C.nuppNativeV2FileRelease(handle)
+    C.nuppNativeFileRelease(handle)
 end
 
 -- Closes a file without consuming an owner, which is what the line iterator needs: it
@@ -739,7 +739,7 @@ local function closeFile(file: File): nil
     file._closed = true
     local handle = file._handle
     file._handle = nil
-    C.nuppNativeV2FileRelease(handle)
+    C.nuppNativeFileRelease(handle)
 end
 
 ----------------------------------------------------------------------------
@@ -790,7 +790,7 @@ export record FileReader is io.Reader
         local output = ffi.new("size_t[1]")
         local status = fileRead((file as File)._handle, pointer, wanted, output)
         if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeV2LastError())
+            return nil, ffi.string(C.nuppNativeLastError())
         end
 
         return tonumber(output[0]) as integer, nil
@@ -896,9 +896,9 @@ export record FileWriter is io.Writer
             error("nupp: io.files FileWriter:write needs a string", 2)
         end
         local output = ffi.new("size_t[1]")
-        local status = C.nuppNativeV2FileWrite((file as File)._handle, bytes, #bytes, output)
+        local status = C.nuppNativeFileWrite((file as File)._handle, bytes, #bytes, output)
         if status ~= 0 then
-            return false, ffi.string(C.nuppNativeV2LastError())
+            return false, ffi.string(C.nuppNativeLastError())
         end
 
         return true, nil
@@ -917,7 +917,7 @@ export record FileWriter is io.Writer
         local output = ffi.new("size_t[1]")
         local status = fileWrite((file as File)._handle, pointer, count, output)
         if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeV2LastError())
+            return nil, ffi.string(C.nuppNativeLastError())
         end
 
         return tonumber(output[0]) as integer, nil
@@ -975,7 +975,7 @@ export record TemporaryPath
             return false, "the temporary path is released"
         end
         local to = named(destination, "destination path", 2)
-        local moved, reason = done(C.nuppNativeV2FilesRename(slice(self._text), slice(to)))
+        local moved, reason = done(C.nuppNativeFilesRename(slice(self._text), slice(to)))
         if not moved then
             return false, reason
         end
@@ -1011,7 +1011,7 @@ export record TemporaryPath
         end
         state._closed = true
 
-        return C.nuppNativeV2FilesRemove(slice(state._text), state._directory and 1 or 0) == 0
+        return C.nuppNativeFilesRemove(slice(state._text), state._directory and 1 or 0) == 0
     end
 
     metamethod __tostring: function(self): string
@@ -1027,7 +1027,7 @@ function TemporaryPath.drop(takes self: TemporaryPath): nil
         return
     end
     state._closed = true
-    C.nuppNativeV2FilesRemove(slice(state._text), state._directory and 1 or 0)
+    C.nuppNativeFilesRemove(slice(state._text), state._directory and 1 or 0)
 end
 
     ;
@@ -1105,8 +1105,8 @@ end
 --- Describes one path, following symbolic links unless asked not to.
 local function described(path: string | paths.Path, follow: boolean, level: integer): any
     local text = named(path, "path", level + 1)
-    local record = ffi.new<NuppNativeV2FilesInfo[1]>()
-    if C.nuppNativeV2FilesInfo(slice(text), follow and 1 or 0, record) ~= 0 then
+    local record = ffi.new<NuppNativeFilesInfo[1]>()
+    if C.nuppNativeFilesInfo(slice(text), follow and 1 or 0, record) ~= 0 then
         return nil
     end
     local found: any = nil
@@ -1134,14 +1134,14 @@ local waits: {any} = {}
 
 local function transferState(handle: any): (integer, string?)
     local output = ffi.new("uint32_t[1]")
-    local status = C.nuppNativeV2FilesTransferStatus(handle, output)
+    local status = C.nuppNativeFilesTransferStatus(handle, output)
     if status ~= 0 then
-        return FAILED, ffi.string(C.nuppNativeV2LastError())
+        return FAILED, ffi.string(C.nuppNativeLastError())
     end
 
     local state = tonumber(output[0]) as integer
     if state == FAILED then
-        return state, ffi.string(C.nuppNativeV2LastError())
+        return state, ffi.string(C.nuppNativeLastError())
     end
 
     return state, nil
@@ -1172,14 +1172,14 @@ end
 
 local function polled(): integer
     local output = ffi.new("size_t[1]")
-    C.nuppNativeV2FilesTransferPoll(output)
+    C.nuppNativeFilesTransferPoll(output)
 
     return harvest()
 end
 
 local function slept(waitMs: integer): integer
     local output = ffi.new("size_t[1]")
-    C.nuppNativeV2FilesTransferWait(waitMs, output)
+    C.nuppNativeFilesTransferWait(waitMs, output)
 
     return harvest()
 end
@@ -1228,8 +1228,8 @@ local function await(handle: any): nil
             end
             cancelled = true
             forget(entry)
-            C.nuppNativeV2FilesTransferCancel(handle)
-            C.nuppNativeV2FilesTransferRelease(handle)
+            C.nuppNativeFilesTransferCancel(handle)
+            C.nuppNativeFilesTransferRelease(handle)
         end
     end)
 end
@@ -1238,13 +1238,13 @@ end
 -- request is destroyed here, because nothing else will read it.
 local function settled(handle: any): (any?, string?)
     if handle == nil or handle == 0 then
-        return nil, ffi.string(C.nuppNativeV2LastError())
+        return nil, ffi.string(C.nuppNativeLastError())
     end
     await(handle)
     local state, failure = transferState(handle)
     if state ~= READY then
         local reason = failure or (state == CANCELED and "file transfer was cancelled" or "file transfer failed")
-        C.nuppNativeV2FilesTransferRelease(handle)
+        C.nuppNativeFilesTransferRelease(handle)
 
         return nil, reason
     end
@@ -1257,7 +1257,7 @@ local function transferred(handle: any): (boolean, string?)
     if ready == nil then
         return false, reason
     end
-    C.nuppNativeV2FilesTransferRelease(ready)
+    C.nuppNativeFilesTransferRelease(ready)
 
     return true, nil
 end
@@ -1268,15 +1268,15 @@ local function fetched(handle: any): (string?, string?)
         return nil, reason
     end
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FilesTransferTakeBytes(ready, output)
+    local status = C.nuppNativeFilesTransferTakeBytes(ready, output)
     if status ~= 0 then
-        local failure = ffi.string(C.nuppNativeV2LastError())
-        C.nuppNativeV2FilesTransferRelease(ready)
+        local failure = ffi.string(C.nuppNativeLastError())
+        C.nuppNativeFilesTransferRelease(ready)
 
         return nil, failure
     end
     local out = native.bytes(output[0])
-    C.nuppNativeV2FilesTransferRelease(ready)
+    C.nuppNativeFilesTransferRelease(ready)
 
     return out as string, nil
 end
@@ -1306,7 +1306,7 @@ local function temporary(options: TemporaryOptions?, directory: boolean, level: 
     local suffix = optional(options, "suffix", level + 1)
 
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FilesCreateTemporary(
+    local status = C.nuppNativeFilesCreateTemporary(
         slice(root),
         slice(prefix),
         slice(suffix),
@@ -1349,7 +1349,7 @@ end
 export function info(path: string | paths.Path): (Info?, string?)
     local found = described(path, true, 2)
     if found == nil then
-        return nil, ffi.string(C.nuppNativeV2LastError())
+        return nil, ffi.string(C.nuppNativeLastError())
     end
 
     return new Info(
@@ -1407,7 +1407,7 @@ export function readLink(path: string | paths.Path): (string?, string?)
     local text = named(path, "path", 2)
     local output = ffi.new("uint64_t[1]")
 
-    return answer(C.nuppNativeV2FilesReadLink(slice(text), output), output)
+    return answer(C.nuppNativeFilesReadLink(slice(text), output), output)
 end
 
 --- Creates a symbolic link.
@@ -1432,7 +1432,7 @@ export function createSymlink(
         error("nupp: io.files symlink kind must be 'file' or 'directory'", 2)
     end
 
-    return done(C.nuppNativeV2FilesCreateSymlink(slice(to), slice(at), kind == "directory" and 1 or 0))
+    return done(C.nuppNativeFilesCreateSymlink(slice(to), slice(at), kind == "directory" and 1 or 0))
 end
 
 --- Sets or clears a path's read-only attribute.
@@ -1444,7 +1444,7 @@ end
 export function setReadOnly(path: string | paths.Path, readOnly: boolean): (boolean, string?)
     local text = named(path, "path", 2)
 
-    return done(C.nuppNativeV2FilesSetReadOnly(slice(text), readOnly and 1 or 0))
+    return done(C.nuppNativeFilesSetReadOnly(slice(text), readOnly and 1 or 0))
 end
 
 --- Creates a directory and every missing parent.
@@ -1457,7 +1457,7 @@ end
 export function createDirectory(path: string | paths.Path): (boolean, string?)
     local text = named(path, "path", 2)
 
-    return done(C.nuppNativeV2FilesCreateDirectory(slice(text)))
+    return done(C.nuppNativeFilesCreateDirectory(slice(text)))
 end
 
 --- Removes a file, a symbolic link, or a directory.
@@ -1469,7 +1469,7 @@ end
 export function remove(path: string | paths.Path, recursive: boolean?): (boolean, string?)
     local text = named(path, "path", 2)
 
-    return done(C.nuppNativeV2FilesRemove(slice(text), recursive and 1 or 0))
+    return done(C.nuppNativeFilesRemove(slice(text), recursive and 1 or 0))
 end
 
 --- Renames a path, replacing an existing destination.
@@ -1482,7 +1482,7 @@ export function rename(from: string | paths.Path, to: string | paths.Path): (boo
     local source = named(from, "source path", 2)
     local destination = named(to, "destination path", 2)
 
-    return done(C.nuppNativeV2FilesRename(slice(source), slice(destination)))
+    return done(C.nuppNativeFilesRename(slice(source), slice(destination)))
 end
 
 --- Lists a directory's immediate children.
@@ -1504,9 +1504,9 @@ end
 export function list(path: string | paths.Path): ({Entry}?, string?)
     local text = named(path, "path", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FilesList(slice(text), output)
+    local status = C.nuppNativeFilesList(slice(text), output)
     if status ~= 0 then
-        return nil, ffi.string(C.nuppNativeV2LastError())
+        return nil, ffi.string(C.nuppNativeLastError())
     end
     -- The library answers one blob: a kind byte, the name, and a NUL, repeated.
     local blob = native.bytes(output[0])
@@ -1545,9 +1545,9 @@ end
 export function glob(pattern: string | paths.Path): ({string}?, string?)
     local text = named(pattern, "glob pattern", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FilesGlob(slice(text), output)
+    local status = C.nuppNativeFilesGlob(slice(text), output)
     if status ~= 0 then
-        return nil, ffi.string(C.nuppNativeV2LastError())
+        return nil, ffi.string(C.nuppNativeLastError())
     end
     local blob = native.bytes(output[0])
     local matches: {string} = {}
@@ -1582,10 +1582,10 @@ end
 export function read(path: string | paths.Path): (string?, string?)
     local text = named(path, "path", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FilesTransferSubmitRead(slice(text), output)
+    local status = C.nuppNativeFilesTransferSubmitRead(slice(text), output)
 
     if status ~= 0 then
-        return nil, ffi.string(C.nuppNativeV2LastError())
+        return nil, ffi.string(C.nuppNativeLastError())
     end
 
     return fetched(output[0])
@@ -1601,10 +1601,10 @@ export function write(path: string | paths.Path, bytes: string | io.ByteView): (
     local text = named(path, "path", 2)
     local out = payload(bytes, "contents", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FilesTransferSubmitWrite(slice(text), slice(out), 0, output)
+    local status = C.nuppNativeFilesTransferSubmitWrite(slice(text), slice(out), 0, output)
 
     if status ~= 0 then
-        return false, ffi.string(C.nuppNativeV2LastError())
+        return false, ffi.string(C.nuppNativeLastError())
     end
 
     return transferred(output[0])
@@ -1620,10 +1620,10 @@ export function append(path: string | paths.Path, bytes: string | io.ByteView): 
     local text = named(path, "path", 2)
     local out = payload(bytes, "contents", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FilesTransferSubmitWrite(slice(text), slice(out), 1, output)
+    local status = C.nuppNativeFilesTransferSubmitWrite(slice(text), slice(out), 1, output)
 
     if status ~= 0 then
-        return false, ffi.string(C.nuppNativeV2LastError())
+        return false, ffi.string(C.nuppNativeLastError())
     end
 
     return transferred(output[0])
@@ -1643,10 +1643,10 @@ export function writeAtomic(path: string | paths.Path, bytes: string | io.ByteVi
     local text = named(path, "path", 2)
     local out = payload(bytes, "contents", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FilesTransferSubmitWrite(slice(text), slice(out), 2, output)
+    local status = C.nuppNativeFilesTransferSubmitWrite(slice(text), slice(out), 2, output)
 
     if status ~= 0 then
-        return false, ffi.string(C.nuppNativeV2LastError())
+        return false, ffi.string(C.nuppNativeLastError())
     end
 
     return transferred(output[0])
@@ -1662,10 +1662,10 @@ export function copy(from: string | paths.Path, to: string | paths.Path): (boole
     local source = named(from, "source path", 2)
     local destination = named(to, "destination path", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FilesTransferSubmitCopy(slice(source), slice(destination), output)
+    local status = C.nuppNativeFilesTransferSubmitCopy(slice(source), slice(destination), output)
 
     if status ~= 0 then
-        return false, ffi.string(C.nuppNativeV2LastError())
+        return false, ffi.string(C.nuppNativeLastError())
     end
 
     return transferred(output[0])
@@ -1681,7 +1681,7 @@ end
 export function pendingTransfers(): integer
     requireFiles()
     local output = ffi.new("size_t[1]")
-    if C.nuppNativeV2FilesTransferPending(output) ~= 0 then
+    if C.nuppNativeFilesTransferPending(output) ~= 0 then
         return 0
     end
 
@@ -1717,9 +1717,9 @@ export function open(path: string | paths.Path, mode: Mode?): (affine(File?, des
         error("nupp: io.files has no mode named " .. tostring(mode), 2)
     end
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FileOpen(slice(text), selected, output)
+    local status = C.nuppNativeFileOpen(slice(text), selected, output)
     if status ~= 0 then
-        return nil, ffi.string(C.nuppNativeV2LastError())
+        return nil, ffi.string(C.nuppNativeLastError())
     end
 
     return new File(_handle = output[0], _closed = false), nil
@@ -1744,9 +1744,9 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
     -- closing the file before the first line is read.
     local text = named(path, "path", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeV2FileOpen(slice(text), MODES.r, output)
+    local status = C.nuppNativeFileOpen(slice(text), MODES.r, output)
     if status ~= 0 then
-        return nil, ffi.string(C.nuppNativeV2LastError())
+        return nil, ffi.string(C.nuppNativeLastError())
     end
     local opened = new File(_handle = output[0], _closed = false)
     local into = ffi.new<uint8[?]>(READ_SIZE)
@@ -1855,7 +1855,7 @@ export function currentDirectory(): (string?, string?)
     requireFiles()
     local output = ffi.new("uint64_t[1]")
 
-    return answer(C.nuppNativeV2FilesCurrentDirectory(output), output)
+    return answer(C.nuppNativeFilesCurrentDirectory(output), output)
 end
 
 --- Answers a well-known user folder.
@@ -1873,5 +1873,5 @@ export function userFolder(which: UserFolder): (string?, string?)
     requireFiles()
     local output = ffi.new("uint64_t[1]")
 
-    return answer(C.nuppNativeV2FilesUserFolder(index, output), output)
+    return answer(C.nuppNativeFilesUserFolder(index, output), output)
 end

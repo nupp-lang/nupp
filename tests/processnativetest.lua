@@ -25,7 +25,7 @@ local function temporaryRoot()
 end
 
 -- The library the provider opens is chosen by `nupp.runtime.native`, which reads
--- `NUPP_NATIVE_V2_LIBRARY` on the first symbol it is asked for. A suite cannot set an
+-- `NUPP_NATIVE_LIBRARY` on the first symbol it is asked for. A suite cannot set an
 -- environment variable for its own process, so it preloads that module with the
 -- lookup already answered -- the same substitution this made against the bootstrap
 -- string back when the loader was generated into it.
@@ -34,7 +34,7 @@ local function preloadProvider(libraryPath)
         package.searchpath("nupp.runtime.native", package.path),
         "nupp.runtime.native is not on the path"
     )
-    local text = assert(io.open(found, "rb")):read("*a"):gsub('os%.getenv%("NUPP_NATIVE_V2_LIBRARY"%)', function()
+    local text = assert(io.open(found, "rb")):read("*a"):gsub('os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function()
         return ("%q"):format(libraryPath)
     end)
     package.loaded["nupp.runtime.native"] = nil
@@ -42,13 +42,14 @@ local function preloadProvider(libraryPath)
 end
 
 local SHELL = os.getenv("NUPP_TEST_SH") or "/bin/sh"
+
 local function shell(command)
     return {SHELL, "-c", command}
 end
 
 function M.beforeAll()
     math.randomseed(os.time())
-    local libraryPath = os.getenv("NUPP_NATIVE_V2_LIBRARY")
+    local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
     if not libraryPath then
         root = temporaryRoot()
         os.execute("mkdir -p '" .. root .. "'")
@@ -57,7 +58,7 @@ function M.beforeAll()
             unavailable = tostring(problem)
             return
         end
-        libraryPath = root .. "/out/lib/nupp_native_v2"
+        libraryPath = root .. "/out/lib/nupp_native"
     end
 
     priorPreload = package.preload["nupp.runtime.native"]
@@ -253,10 +254,10 @@ function M.thePublicModuleSelectsOnlyItsPrivateProvider()
     test.equal(native.forModule("nupp.io.process"), "runtime.process")
     local feature = assert(native.feature("native.process"))
     test.equal(feature.providerFeature, "process")
-    test.equal(feature.provider, "nupp_native_v2")
+    test.equal(feature.provider, "nupp_native")
     local expanded = native.expand({["native.process"] = true})
     assert(expanded["runtime.suspension"])
-    assert(expanded["runtime.native_v2"])
+    assert(expanded["runtime.native"])
 
     test.equal(feature.runtimeModule, "nupp.runtime.provider.nativeprocess")
     assert(

@@ -1,4 +1,4 @@
-//! ABI-v2 translation for the Rust network provider.
+//! native ABI translation for the Rust network provider.
 
 use nupp_native_abi::{Arena, Handle, Status, set_last_error};
 use nupp_native_net as transport;
@@ -300,7 +300,7 @@ fn insert(resource: Resource, output: *mut u64, what: &str) -> i32 {
 /// # Safety
 /// `options` and `output` must point to initialized caller-owned storage and
 /// the nested host slice must remain readable for this call.
-pub unsafe extern "C" fn nuppNativeV2NetListenerCreate(
+pub unsafe extern "C" fn nuppNativeNetListenerCreate(
     options: *const NetListenOptions,
     output: *mut u64,
 ) -> i32 {
@@ -338,7 +338,7 @@ pub unsafe extern "C" fn nuppNativeV2NetListenerCreate(
 /// # Safety
 /// `options` and `output` must point to initialized caller-owned storage and
 /// the nested path slice must remain readable for this call.
-pub unsafe extern "C" fn nuppNativeV2NetPathListenerCreate(
+pub unsafe extern "C" fn nuppNativeNetPathListenerCreate(
     options: *const NetPathListenOptions,
     output: *mut u64,
 ) -> i32 {
@@ -374,7 +374,7 @@ pub unsafe extern "C" fn nuppNativeV2NetPathListenerCreate(
 ///
 /// # Safety
 /// `output` must be writable for one `u16`.
-pub unsafe extern "C" fn nuppNativeV2NetListenerPort(raw: u64, output: *mut u16) -> i32 {
+pub unsafe extern "C" fn nuppNativeNetListenerPort(raw: u64, output: *mut u16) -> i32 {
     if output.is_null() {
         return super::failed(
             Status::InvalidArgument,
@@ -395,7 +395,7 @@ pub unsafe extern "C" fn nuppNativeV2NetListenerPort(raw: u64, output: *mut u16)
 ///
 /// # Safety
 /// `output` must be writable for one `u32`.
-pub unsafe extern "C" fn nuppNativeV2NetListenerKind(raw: u64, output: *mut u32) -> i32 {
+pub unsafe extern "C" fn nuppNativeNetListenerKind(raw: u64, output: *mut u32) -> i32 {
     if output.is_null() {
         return super::failed(
             Status::InvalidArgument,
@@ -422,7 +422,7 @@ pub unsafe extern "C" fn nuppNativeV2NetListenerKind(raw: u64, output: *mut u32)
 ///
 /// # Safety
 /// `state` and `output` must be writable.
-pub unsafe extern "C" fn nuppNativeV2NetListenerAccept(
+pub unsafe extern "C" fn nuppNativeNetListenerAccept(
     raw: u64,
     state: *mut u32,
     output: *mut u64,
@@ -464,7 +464,7 @@ pub unsafe extern "C" fn nuppNativeV2NetListenerAccept(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetListenerRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeNetListenerRelease(raw: u64) -> i32 {
     let (handle, listener) = match listener(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -479,7 +479,7 @@ pub extern "C" fn nuppNativeV2NetListenerRelease(raw: u64) -> i32 {
 /// # Safety
 /// `options` and `output` must point to initialized caller-owned storage and
 /// the nested host slice must remain readable for this call.
-pub unsafe extern "C" fn nuppNativeV2NetConnectCreate(
+pub unsafe extern "C" fn nuppNativeNetConnectCreate(
     options: *const NetConnectOptions,
     output: *mut u64,
 ) -> i32 {
@@ -520,7 +520,7 @@ pub unsafe extern "C" fn nuppNativeV2NetConnectCreate(
 /// # Safety
 /// `options` and `output` must point to initialized caller-owned storage and
 /// the nested path slice must remain readable for this call.
-pub unsafe extern "C" fn nuppNativeV2NetPathConnectCreate(
+pub unsafe extern "C" fn nuppNativeNetPathConnectCreate(
     options: *const NetPathConnectOptions,
     output: *mut u64,
 ) -> i32 {
@@ -556,7 +556,7 @@ pub unsafe extern "C" fn nuppNativeV2NetPathConnectCreate(
 ///
 /// # Safety
 /// `state` and `output` must be writable.
-pub unsafe extern "C" fn nuppNativeV2NetConnectPoll(
+pub unsafe extern "C" fn nuppNativeNetConnectPoll(
     raw: u64,
     state: *mut u32,
     output: *mut u64,
@@ -601,7 +601,7 @@ pub unsafe extern "C" fn nuppNativeV2NetConnectPoll(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetConnectCancel(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeNetConnectCancel(raw: u64) -> i32 {
     let (_, connect) = match connect(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -611,7 +611,7 @@ pub extern "C" fn nuppNativeV2NetConnectCancel(raw: u64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetConnectRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeNetConnectRelease(raw: u64) -> i32 {
     let (handle, connect) = match connect(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -645,7 +645,7 @@ fn stream_failed(stream: &transport::Stream, error: &str) -> i32 {
 /// # Safety
 /// `state` and `length` must be writable and `output` must be writable for
 /// `capacity` bytes.
-pub unsafe extern "C" fn nuppNativeV2NetStreamRead(
+pub unsafe extern "C" fn nuppNativeNetStreamRead(
     raw: u64,
     output: *mut u8,
     capacity: usize,
@@ -686,7 +686,7 @@ pub unsafe extern "C" fn nuppNativeV2NetStreamRead(
 /// # Safety
 /// `state` and `accepted` must be writable and input must remain readable for
 /// this call.
-pub unsafe extern "C" fn nuppNativeV2NetStreamWrite(
+pub unsafe extern "C" fn nuppNativeNetStreamWrite(
     raw: u64,
     input_data: *const u8,
     input_length: usize,
@@ -723,7 +723,7 @@ pub unsafe extern "C" fn nuppNativeV2NetStreamWrite(
 ///
 /// # Safety
 /// `output` must be writable for one `usize`.
-pub unsafe extern "C" fn nuppNativeV2NetStreamPendingWrite(raw: u64, output: *mut usize) -> i32 {
+pub unsafe extern "C" fn nuppNativeNetStreamPendingWrite(raw: u64, output: *mut usize) -> i32 {
     if output.is_null() {
         return super::failed(
             Status::InvalidArgument,
@@ -744,7 +744,7 @@ pub unsafe extern "C" fn nuppNativeV2NetStreamPendingWrite(raw: u64, output: *mu
 ///
 /// # Safety
 /// `output` must be writable for one `u32`.
-pub unsafe extern "C" fn nuppNativeV2NetStreamState(raw: u64, output: *mut u32) -> i32 {
+pub unsafe extern "C" fn nuppNativeNetStreamState(raw: u64, output: *mut u32) -> i32 {
     if output.is_null() {
         return super::failed(
             Status::InvalidArgument,
@@ -781,7 +781,7 @@ pub unsafe extern "C" fn nuppNativeV2NetStreamState(raw: u64, output: *mut u32) 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetStreamShutdownWrite(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeNetStreamShutdownWrite(raw: u64) -> i32 {
     let (_, stream) = match stream(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -793,7 +793,7 @@ pub extern "C" fn nuppNativeV2NetStreamShutdownWrite(raw: u64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetStreamClose(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeNetStreamClose(raw: u64) -> i32 {
     let (_, stream) = match stream(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -849,25 +849,19 @@ unsafe fn write_address(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2NetStreamLocalAddress(
-    raw: u64,
-    output: *mut NetAddress,
-) -> i32 {
+pub unsafe extern "C" fn nuppNativeNetStreamLocalAddress(raw: u64, output: *mut NetAddress) -> i32 {
     // SAFETY: write_address validates the caller-owned output pointer.
     unsafe { write_address(raw, output, transport::Stream::local_address) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2NetStreamPeerAddress(
-    raw: u64,
-    output: *mut NetAddress,
-) -> i32 {
+pub unsafe extern "C" fn nuppNativeNetStreamPeerAddress(raw: u64, output: *mut NetAddress) -> i32 {
     // SAFETY: write_address validates the caller-owned output pointer.
     unsafe { write_address(raw, output, transport::Stream::peer_address) }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetStreamSetNoDelay(raw: u64, enabled: i32) -> i32 {
+pub extern "C" fn nuppNativeNetStreamSetNoDelay(raw: u64, enabled: i32) -> i32 {
     let (_, stream) = match stream(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -879,7 +873,7 @@ pub extern "C" fn nuppNativeV2NetStreamSetNoDelay(raw: u64, enabled: i32) -> i32
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetStreamSetKeepAlive(
+pub extern "C" fn nuppNativeNetStreamSetKeepAlive(
     raw: u64,
     enabled: i32,
     delay_seconds: u32,
@@ -903,7 +897,7 @@ pub extern "C" fn nuppNativeV2NetStreamSetKeepAlive(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetStreamRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeNetStreamRelease(raw: u64) -> i32 {
     let (handle, stream) = match stream(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -936,7 +930,7 @@ fn socket_address(value: NetAddress, what: &str) -> Result<SocketAddr, i32> {
 ///
 /// # Safety
 /// The host slice must remain readable and `output` must be writable.
-pub unsafe extern "C" fn nuppNativeV2NetAddressParse(
+pub unsafe extern "C" fn nuppNativeNetAddressParse(
     host: NetSlice,
     port: u16,
     output: *mut NetAddress,
@@ -969,7 +963,7 @@ pub unsafe extern "C" fn nuppNativeV2NetAddressParse(
 /// # Safety
 /// `address` and `length` must be readable/writable respectively, and `output`
 /// must be writable for `capacity` bytes when capacity is nonzero.
-pub unsafe extern "C" fn nuppNativeV2NetAddressText(
+pub unsafe extern "C" fn nuppNativeNetAddressText(
     address: *const NetAddress,
     output: *mut u8,
     capacity: usize,
@@ -1004,7 +998,7 @@ pub unsafe extern "C" fn nuppNativeV2NetAddressText(
 /// # Safety
 /// `options` and `output` must point to initialized caller-owned storage and
 /// the nested host slice must remain readable for this call.
-pub unsafe extern "C" fn nuppNativeV2NetDatagramCreate(
+pub unsafe extern "C" fn nuppNativeNetDatagramCreate(
     options: *const NetDatagramOptions,
     output: *mut u64,
 ) -> i32 {
@@ -1040,7 +1034,7 @@ pub unsafe extern "C" fn nuppNativeV2NetDatagramCreate(
 ///
 /// # Safety
 /// `output` must be writable for one `u16`.
-pub unsafe extern "C" fn nuppNativeV2NetDatagramPort(raw: u64, output: *mut u16) -> i32 {
+pub unsafe extern "C" fn nuppNativeNetDatagramPort(raw: u64, output: *mut u16) -> i32 {
     if output.is_null() {
         return super::failed(
             Status::InvalidArgument,
@@ -1062,7 +1056,7 @@ pub unsafe extern "C" fn nuppNativeV2NetDatagramPort(raw: u64, output: *mut u16)
 /// # Safety
 /// `output` must be writable for `capacity` bytes and all scalar outputs must
 /// point to initialized caller-owned storage.
-pub unsafe extern "C" fn nuppNativeV2NetDatagramReceive(
+pub unsafe extern "C" fn nuppNativeNetDatagramReceive(
     raw: u64,
     output: *mut u8,
     capacity: usize,
@@ -1127,7 +1121,7 @@ pub unsafe extern "C" fn nuppNativeV2NetDatagramReceive(
 /// # Safety
 /// `address`, `state`, and `sent` must point to initialized caller-owned
 /// storage, and `input_data` must remain readable for `input_length` bytes.
-pub unsafe extern "C" fn nuppNativeV2NetDatagramSend(
+pub unsafe extern "C" fn nuppNativeNetDatagramSend(
     raw: u64,
     address: *const NetAddress,
     input_data: *const u8,
@@ -1185,17 +1179,17 @@ fn datagram_option(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetDatagramSetBroadcast(raw: u64, enabled: i32) -> i32 {
+pub extern "C" fn nuppNativeNetDatagramSetBroadcast(raw: u64, enabled: i32) -> i32 {
     datagram_option(raw, |datagram| datagram.set_broadcast(enabled != 0))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetDatagramSetMulticastTtl(raw: u64, ttl: u32) -> i32 {
+pub extern "C" fn nuppNativeNetDatagramSetMulticastTtl(raw: u64, ttl: u32) -> i32 {
     datagram_option(raw, |datagram| datagram.set_multicast_ttl(ttl))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetDatagramSetMulticastLoop(raw: u64, enabled: i32) -> i32 {
+pub extern "C" fn nuppNativeNetDatagramSetMulticastLoop(raw: u64, enabled: i32) -> i32 {
     datagram_option(raw, |datagram| datagram.set_multicast_loop(enabled != 0))
 }
 
@@ -1207,7 +1201,7 @@ pub extern "C" fn nuppNativeV2NetDatagramSetMulticastLoop(raw: u64, enabled: i32
 ///
 /// # Safety
 /// Both slices must remain readable for this call.
-pub unsafe extern "C" fn nuppNativeV2NetDatagramMembership(
+pub unsafe extern "C" fn nuppNativeNetDatagramMembership(
     raw: u64,
     group: NetSlice,
     interface_address: NetSlice,
@@ -1264,7 +1258,7 @@ pub unsafe extern "C" fn nuppNativeV2NetDatagramMembership(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2NetDatagramRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeNetDatagramRelease(raw: u64) -> i32 {
     let (handle, datagram) = match datagram(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -1278,7 +1272,7 @@ pub extern "C" fn nuppNativeV2NetDatagramRelease(raw: u64) -> i32 {
 ///
 /// # Safety
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2NetPoll(output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeNetPoll(output: *mut u64) -> i32 {
     if output.is_null() {
         return super::failed(Status::InvalidArgument, "network poll output is null");
     }
@@ -1292,7 +1286,7 @@ pub unsafe extern "C" fn nuppNativeV2NetPoll(output: *mut u64) -> i32 {
 ///
 /// # Safety
 /// `output` must be writable for one `u64`.
-pub unsafe extern "C" fn nuppNativeV2NetWait(
+pub unsafe extern "C" fn nuppNativeNetWait(
     generation: u64,
     timeout_ms: u64,
     output: *mut u64,
@@ -1332,10 +1326,10 @@ mod tests {
             .insert(ResourceEntry::new(Resource::Listener(listener)))
             .unwrap();
         let raw = handle.raw();
-        let status = std::thread::spawn(move || nuppNativeV2NetListenerRelease(raw))
+        let status = std::thread::spawn(move || nuppNativeNetListenerRelease(raw))
             .join()
             .unwrap();
         assert_eq!(status, Status::InvalidArgument.code());
-        assert_eq!(nuppNativeV2NetListenerRelease(raw), Status::Ok.code());
+        assert_eq!(nuppNativeNetListenerRelease(raw), Status::Ok.code());
     }
 }

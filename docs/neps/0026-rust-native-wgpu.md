@@ -47,7 +47,7 @@ surface rather than SDL objects or WGPU lifetimes.
 `@aot(target = "gpu")` continues to lower through Nupp's verified scalar IR.
 For a native target the compiler emits SPIR-V and a generated typed binding.
 The binding passes the bytes, entrypoint, buffer counts, uniform size, and
-workgroup shape to `nupp_native_v2`. The Rust provider validates those values,
+workgroup shape to `nupp_native`. The Rust provider validates those values,
 creates WGPU resources, and owns command submission and readback.
 
 The host-visible adapter description comes from WGPU, so a macOS context may

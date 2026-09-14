@@ -34,21 +34,21 @@ function M.beforeAll()
     math.randomseed(os.time())
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
-    local libraryPath = os.getenv("NUPP_NATIVE_V2_LIBRARY")
+    local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
     if not libraryPath then
         local staged, problem = nativeStage.build(root, "out", {["native.uri"] = true})
         if not staged then
             unavailable = tostring(problem)
             return
         end
-        libraryPath = root .. "/out/lib/nupp_native_v2"
+        libraryPath = root .. "/out/lib/nupp_native"
     end
     local library = ("%q"):format(libraryPath)
     local source = stdlib.bootstrap({
         ["native.uri"] = true,
         ["stdlib.io"] = true,
     }):gsub(
-        'os%.getenv%("NUPP_NATIVE_V2_LIBRARY"%)',
+        'os%.getenv%("NUPP_NATIVE_LIBRARY"%)',
         function()
             return library
         end

@@ -1,4 +1,4 @@
-//! ABI-v2 translation for the Rust child-process provider.
+//! native ABI translation for the Rust child-process provider.
 
 use nupp_native_abi::{Arena, Handle, Status};
 use nupp_native_process as transport;
@@ -164,7 +164,7 @@ fn mode(value: u8, stderr: bool) -> Result<transport::StdioMode, i32> {
 /// # Safety
 /// `descriptor` and `output` must point to initialized caller-owned storage;
 /// every nested slice must remain readable for this call.
-pub unsafe extern "C" fn nuppNativeV2ProcessSpawn(
+pub unsafe extern "C" fn nuppNativeProcessSpawn(
     descriptor: *const ProcessSpawn,
     output: *mut ProcessStarted,
 ) -> i32 {
@@ -309,7 +309,7 @@ pub unsafe extern "C" fn nuppNativeV2ProcessSpawn(
 ///
 /// # Safety
 /// `output` must be writable for one `ProcessExit`.
-pub unsafe extern "C" fn nuppNativeV2ProcessPollExit(raw: u64, output: *mut ProcessExit) -> i32 {
+pub unsafe extern "C" fn nuppNativeProcessPollExit(raw: u64, output: *mut ProcessExit) -> i32 {
     if output.is_null() {
         return super::failed(Status::InvalidArgument, "process exit output is null");
     }
@@ -337,7 +337,7 @@ pub unsafe extern "C" fn nuppNativeV2ProcessPollExit(raw: u64, output: *mut Proc
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2ProcessKill(raw: u64, force: i32) -> i32 {
+pub extern "C" fn nuppNativeProcessKill(raw: u64, force: i32) -> i32 {
     let (_, child) = match child(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -349,7 +349,7 @@ pub extern "C" fn nuppNativeV2ProcessKill(raw: u64, force: i32) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2ProcessRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeProcessRelease(raw: u64) -> i32 {
     let (handle, child) = match child(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -375,7 +375,7 @@ pub extern "C" fn nuppNativeV2ProcessRelease(raw: u64) -> i32 {
 /// # Safety
 /// `state` and `length` must be writable; a nonzero capacity requires writable
 /// `output` storage.
-pub unsafe extern "C" fn nuppNativeV2ProcessStreamRead(
+pub unsafe extern "C" fn nuppNativeProcessStreamRead(
     raw: u64,
     output: *mut u8,
     capacity: usize,
@@ -413,7 +413,7 @@ pub unsafe extern "C" fn nuppNativeV2ProcessStreamRead(
 ///
 /// # Safety
 /// `state` and `length` must be writable and input must remain readable for the call.
-pub unsafe extern "C" fn nuppNativeV2ProcessStreamWrite(
+pub unsafe extern "C" fn nuppNativeProcessStreamWrite(
     raw: u64,
     input_data: *const u8,
     input_length: usize,
@@ -449,7 +449,7 @@ pub unsafe extern "C" fn nuppNativeV2ProcessStreamWrite(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2ProcessStreamRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeProcessStreamRelease(raw: u64) -> i32 {
     let (handle, _, stream) = match stream(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -500,7 +500,7 @@ unsafe fn wait_streams(
 ///
 /// # Safety
 /// Handle arrays must remain readable and `ready` must be writable for this call.
-pub unsafe extern "C" fn nuppNativeV2ProcessWait(
+pub unsafe extern "C" fn nuppNativeProcessWait(
     child_raw: u64,
     readable: *const u64,
     readable_count: usize,
@@ -532,7 +532,7 @@ pub unsafe extern "C" fn nuppNativeV2ProcessWait(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2ProcessAbandonedTotal() -> usize {
+pub extern "C" fn nuppNativeProcessAbandonedTotal() -> usize {
     transport::uncollected_total()
 }
 

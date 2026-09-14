@@ -72,7 +72,7 @@ function M.beforeAll()
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
 
-    local libraryPath = os.getenv("NUPP_NATIVE_V2_LIBRARY")
+    local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
     if not libraryPath then
         local staged, problem = nativeStage.build(root, "out", {
             ["native.http"] = true,
@@ -86,13 +86,13 @@ function M.beforeAll()
             unavailable = tostring(problem)
             return
         end
-        libraryPath = root .. "/out/lib/nupp_native_v2"
+        libraryPath = root .. "/out/lib/nupp_native"
     end
 
     local effects = native.expand({["native.http"] = true, ["native.process"] = true, ["native.files"] = true,})
     priorPreload = package.preload["nupp.runtime.native"]
     priorLoaded = package.loaded["nupp.runtime.native"]
-    preloadProvider("nupp.runtime.native", "NUPP_NATIVE_V2_LIBRARY", libraryPath)
+    preloadProvider("nupp.runtime.native", "NUPP_NATIVE_LIBRARY", libraryPath)
     assert(loadstring(stdlib.bootstrap(effects)))()
     process = require("nupp.io.process")
     http = require("nupp.io.http")
@@ -548,7 +548,7 @@ function M.thePublicModuleAndNativeProviderHaveSeparateFeatureDependencies()
     local expanded = native.expand({["native.http"] = true})
     assert(expanded["runtime.suspension"])
     assert(expanded["stdlib.io"])
-    assert(not stdlib.bootstrap(expanded):find("nuppNativeV2HttpClientCreate", 1, true))
+    assert(not stdlib.bootstrap(expanded):find("nuppNativeHttpClientCreate", 1, true))
 end
 
 return M

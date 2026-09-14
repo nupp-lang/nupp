@@ -1,4 +1,4 @@
-//! ABI-v2 translation for the Rust filesystem provider.
+//! native ABI translation for the Rust filesystem provider.
 
 use nupp_native_abi::{Arena, Handle, Status};
 use nupp_native_files as filesystem;
@@ -154,7 +154,7 @@ fn modified(value: Option<SystemTime>) -> f64 {
 ///
 /// # Safety
 /// The path must remain readable and output must be writable for this call.
-pub unsafe extern "C" fn nuppNativeV2FilesInfo(
+pub unsafe extern "C" fn nuppNativeFilesInfo(
     input: FilesSlice,
     follow: i32,
     output: *mut FilesInfo,
@@ -189,7 +189,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesInfo(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesReadLink(input: FilesSlice, output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesReadLink(input: FilesSlice, output: *mut u64) -> i32 {
     let path = match unsafe { path(input, "path") } {
         Ok(value) => value,
         Err(status) => return status,
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesReadLink(input: FilesSlice, output: *m
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesCreateSymlink(
+pub unsafe extern "C" fn nuppNativeFilesCreateSymlink(
     target: FilesSlice,
     link: FilesSlice,
     directory: i32,
@@ -219,7 +219,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesCreateSymlink(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesSetReadOnly(input: FilesSlice, read_only: i32) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesSetReadOnly(input: FilesSlice, read_only: i32) -> i32 {
     let path = match unsafe { path(input, "path") } {
         Ok(value) => value,
         Err(status) => return status,
@@ -228,7 +228,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesSetReadOnly(input: FilesSlice, read_on
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesCreateDirectory(input: FilesSlice) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesCreateDirectory(input: FilesSlice) -> i32 {
     let path = match unsafe { path(input, "path") } {
         Ok(value) => value,
         Err(status) => return status,
@@ -237,7 +237,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesCreateDirectory(input: FilesSlice) -> 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesRemove(input: FilesSlice, recursive: i32) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesRemove(input: FilesSlice, recursive: i32) -> i32 {
     let path = match unsafe { path(input, "path") } {
         Ok(value) => value,
         Err(status) => return status,
@@ -246,7 +246,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesRemove(input: FilesSlice, recursive: i
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesRename(from: FilesSlice, to: FilesSlice) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesRename(from: FilesSlice, to: FilesSlice) -> i32 {
     let from = match unsafe { path(from, "source path") } {
         Ok(value) => value,
         Err(status) => return status,
@@ -259,7 +259,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesRename(from: FilesSlice, to: FilesSlic
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesList(input: FilesSlice, output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesList(input: FilesSlice, output: *mut u64) -> i32 {
     let path = match unsafe { path(input, "path") } {
         Ok(value) => value,
         Err(status) => return status,
@@ -283,7 +283,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesList(input: FilesSlice, output: *mut u
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesGlob(input: FilesSlice, output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesGlob(input: FilesSlice, output: *mut u64) -> i32 {
     let pattern = match unsafe { text(input, "glob pattern") } {
         Ok(value) => value,
         Err(status) => return status,
@@ -301,7 +301,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesGlob(input: FilesSlice, output: *mut u
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesCreateTemporary(
+pub unsafe extern "C" fn nuppNativeFilesCreateTemporary(
     directory: FilesSlice,
     prefix: FilesSlice,
     suffix: FilesSlice,
@@ -333,7 +333,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesCreateTemporary(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesCurrentDirectory(output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesCurrentDirectory(output: *mut u64) -> i32 {
     match filesystem::current_directory() {
         Ok(value) => store(value, output, "working directory output is null"),
         Err(error) => io_failed(error),
@@ -341,7 +341,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesCurrentDirectory(output: *mut u64) -> 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesCanonicalize(input: FilesSlice, output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesCanonicalize(input: FilesSlice, output: *mut u64) -> i32 {
     let path = match unsafe { path(input, "path") } {
         Ok(value) => value,
         Err(status) => return status,
@@ -353,7 +353,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesCanonicalize(input: FilesSlice, output
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesUserFolder(which: u32, output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesUserFolder(which: u32, output: *mut u64) -> i32 {
     match filesystem::user_folder(which) {
         Ok(value) => store(value, output, "user folder output is null"),
         Err(error) => io_failed(error),
@@ -373,11 +373,7 @@ fn open_mode(value: u32) -> Result<filesystem::OpenMode, i32> {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FileOpen(
-    input: FilesSlice,
-    mode: u32,
-    output: *mut u64,
-) -> i32 {
+pub unsafe extern "C" fn nuppNativeFileOpen(input: FilesSlice, mode: u32, output: *mut u64) -> i32 {
     let path = match unsafe { path(input, "path") } {
         Ok(value) => value,
         Err(status) => return status,
@@ -398,7 +394,7 @@ pub unsafe extern "C" fn nuppNativeV2FileOpen(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FileRead(
+pub unsafe extern "C" fn nuppNativeFileRead(
     raw: u64,
     output: *mut u8,
     capacity: usize,
@@ -428,7 +424,7 @@ pub unsafe extern "C" fn nuppNativeV2FileRead(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FileWrite(
+pub unsafe extern "C" fn nuppNativeFileWrite(
     raw: u64,
     input_data: *const u8,
     input_length: usize,
@@ -467,7 +463,7 @@ fn seek_origin(value: u32) -> Result<filesystem::SeekOrigin, i32> {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FileSeek(
+pub unsafe extern "C" fn nuppNativeFileSeek(
     raw: u64,
     offset: i64,
     origin: u32,
@@ -497,7 +493,7 @@ pub unsafe extern "C" fn nuppNativeV2FileSeek(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FileSize(raw: u64, output: *mut i64) -> i32 {
+pub unsafe extern "C" fn nuppNativeFileSize(raw: u64, output: *mut i64) -> i32 {
     if output.is_null() {
         return super::failed(Status::InvalidArgument, "file size output is null");
     }
@@ -518,7 +514,7 @@ pub unsafe extern "C" fn nuppNativeV2FileSize(raw: u64, output: *mut i64) -> i32
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2FileFlush(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeFileFlush(raw: u64) -> i32 {
     let (_, file) = match file(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -527,7 +523,7 @@ pub extern "C" fn nuppNativeV2FileFlush(raw: u64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2FileRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeFileRelease(raw: u64) -> i32 {
     let (handle, _) = match file(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -560,7 +556,7 @@ fn write_mode(value: u32) -> Result<filesystem::WriteMode, i32> {
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesTransferSubmitRead(
+pub unsafe extern "C" fn nuppNativeFilesTransferSubmitRead(
     input: FilesSlice,
     output: *mut u64,
 ) -> i32 {
@@ -581,7 +577,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesTransferSubmitRead(
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesTransferSubmitWrite(
+pub unsafe extern "C" fn nuppNativeFilesTransferSubmitWrite(
     path_input: FilesSlice,
     contents: FilesSlice,
     mode: u32,
@@ -612,7 +608,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesTransferSubmitWrite(
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesTransferSubmitCopy(
+pub unsafe extern "C" fn nuppNativeFilesTransferSubmitCopy(
     from: FilesSlice,
     to: FilesSlice,
     output: *mut u64,
@@ -638,7 +634,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesTransferSubmitCopy(
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesTransferStatus(raw: u64, output: *mut u32) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesTransferStatus(raw: u64, output: *mut u32) -> i32 {
     if output.is_null() {
         return super::failed(
             Status::InvalidArgument,
@@ -667,7 +663,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesTransferStatus(raw: u64, output: *mut 
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesTransferTakeBytes(raw: u64, output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesTransferTakeBytes(raw: u64, output: *mut u64) -> i32 {
     if output.is_null() {
         return super::failed(
             Status::InvalidArgument,
@@ -690,7 +686,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesTransferTakeBytes(raw: u64, output: *m
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2FilesTransferCancel(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeFilesTransferCancel(raw: u64) -> i32 {
     let (_, transfer) = match transfer(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -701,7 +697,7 @@ pub extern "C" fn nuppNativeV2FilesTransferCancel(raw: u64) -> i32 {
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2FilesTransferRelease(raw: u64) -> i32 {
+pub extern "C" fn nuppNativeFilesTransferRelease(raw: u64) -> i32 {
     let (handle, _) = match transfer(raw) {
         Ok(value) => value,
         Err(status) => return status,
@@ -721,7 +717,7 @@ pub extern "C" fn nuppNativeV2FilesTransferRelease(raw: u64) -> i32 {
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesTransferPoll(output: *mut usize) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesTransferPoll(output: *mut usize) -> i32 {
     if output.is_null() {
         return super::failed(Status::InvalidArgument, "file transfer poll output is null");
     }
@@ -732,7 +728,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesTransferPoll(output: *mut usize) -> i3
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesTransferWait(timeout_ms: u64, output: *mut usize) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesTransferWait(timeout_ms: u64, output: *mut usize) -> i32 {
     if output.is_null() {
         return super::failed(Status::InvalidArgument, "file transfer wait output is null");
     }
@@ -744,7 +740,7 @@ pub unsafe extern "C" fn nuppNativeV2FilesTransferWait(timeout_ms: u64, output: 
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeV2FilesTransferPending(output: *mut usize) -> i32 {
+pub unsafe extern "C" fn nuppNativeFilesTransferPending(output: *mut usize) -> i32 {
     if output.is_null() {
         return super::failed(
             Status::InvalidArgument,

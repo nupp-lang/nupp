@@ -36,73 +36,73 @@ native.ffi.cdef[[
 typedef struct {
     const uint8_t *data;
     size_t length;
-} NuppNativeV2NetSlice;
+} NuppNativeNetSlice;
 typedef struct {
-    NuppNativeV2NetSlice host;
+    NuppNativeNetSlice host;
     uint16_t port;
     uint32_t backlog;
     int32_t reuse_port;
-} NuppNativeV2NetListenOptions;
+} NuppNativeNetListenOptions;
 typedef struct {
-    NuppNativeV2NetSlice host;
+    NuppNativeNetSlice host;
     uint16_t port;
     uint64_t timeout_ms;
-} NuppNativeV2NetConnectOptions;
+} NuppNativeNetConnectOptions;
 typedef struct {
-    NuppNativeV2NetSlice path;
+    NuppNativeNetSlice path;
     uint32_t backlog;
-} NuppNativeV2NetPathListenOptions;
+} NuppNativeNetPathListenOptions;
 typedef struct {
-    NuppNativeV2NetSlice path;
+    NuppNativeNetSlice path;
     uint64_t timeout_ms;
-} NuppNativeV2NetPathConnectOptions;
+} NuppNativeNetPathConnectOptions;
 typedef struct {
-    NuppNativeV2NetSlice host;
+    NuppNativeNetSlice host;
     uint16_t port;
     int32_t reuse_port;
-} NuppNativeV2NetDatagramOptions;
+} NuppNativeNetDatagramOptions;
 typedef struct {
     uint8_t address[16];
     uint16_t port;
     uint8_t family;
-} NuppNativeV2NetAddress;
+} NuppNativeNetAddress;
 
-int32_t nuppNativeV2NetListenerCreate(const NuppNativeV2NetListenOptions *, uint64_t *);
-int32_t nuppNativeV2NetPathListenerCreate(const NuppNativeV2NetPathListenOptions *, uint64_t *);
-int32_t nuppNativeV2NetListenerPort(uint64_t, uint16_t *);
-int32_t nuppNativeV2NetListenerKind(uint64_t, uint32_t *);
-int32_t nuppNativeV2NetListenerAccept(uint64_t, uint32_t *, uint64_t *);
-int32_t nuppNativeV2NetListenerRelease(uint64_t);
-int32_t nuppNativeV2NetConnectCreate(const NuppNativeV2NetConnectOptions *, uint64_t *);
-int32_t nuppNativeV2NetPathConnectCreate(const NuppNativeV2NetPathConnectOptions *, uint64_t *);
-int32_t nuppNativeV2NetConnectPoll(uint64_t, uint32_t *, uint64_t *);
-int32_t nuppNativeV2NetConnectRelease(uint64_t);
-int32_t nuppNativeV2NetStreamRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeV2NetStreamWrite(uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeV2NetStreamPendingWrite(uint64_t, size_t *);
-int32_t nuppNativeV2NetStreamState(uint64_t, uint32_t *);
-int32_t nuppNativeV2NetStreamShutdownWrite(uint64_t);
-int32_t nuppNativeV2NetStreamLocalAddress(uint64_t, NuppNativeV2NetAddress *);
-int32_t nuppNativeV2NetStreamPeerAddress(uint64_t, NuppNativeV2NetAddress *);
-int32_t nuppNativeV2NetStreamSetNoDelay(uint64_t, int32_t);
-int32_t nuppNativeV2NetStreamSetKeepAlive(uint64_t, int32_t, uint32_t);
-int32_t nuppNativeV2NetStreamRelease(uint64_t);
-int32_t nuppNativeV2NetAddressParse(NuppNativeV2NetSlice, uint16_t, NuppNativeV2NetAddress *);
-int32_t nuppNativeV2NetAddressText(const NuppNativeV2NetAddress *, uint8_t *, size_t, size_t *);
-int32_t nuppNativeV2NetDatagramCreate(const NuppNativeV2NetDatagramOptions *, uint64_t *);
-int32_t nuppNativeV2NetDatagramPort(uint64_t, uint16_t *);
-int32_t nuppNativeV2NetDatagramReceive(
-    uint64_t, uint8_t *, size_t, uint32_t *, size_t *, NuppNativeV2NetAddress *, int32_t *);
-int32_t nuppNativeV2NetDatagramSend(
-    uint64_t, const NuppNativeV2NetAddress *, const uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeV2NetDatagramSetBroadcast(uint64_t, int32_t);
-int32_t nuppNativeV2NetDatagramSetMulticastTtl(uint64_t, uint32_t);
-int32_t nuppNativeV2NetDatagramSetMulticastLoop(uint64_t, int32_t);
-int32_t nuppNativeV2NetDatagramMembership(
-    uint64_t, NuppNativeV2NetSlice, NuppNativeV2NetSlice, uint32_t, uint8_t, int32_t);
-int32_t nuppNativeV2NetDatagramRelease(uint64_t);
-int32_t nuppNativeV2NetPoll(uint64_t *);
-int32_t nuppNativeV2NetWait(uint64_t, uint64_t, uint64_t *);
+int32_t nuppNativeNetListenerCreate(const NuppNativeNetListenOptions *, uint64_t *);
+int32_t nuppNativeNetPathListenerCreate(const NuppNativeNetPathListenOptions *, uint64_t *);
+int32_t nuppNativeNetListenerPort(uint64_t, uint16_t *);
+int32_t nuppNativeNetListenerKind(uint64_t, uint32_t *);
+int32_t nuppNativeNetListenerAccept(uint64_t, uint32_t *, uint64_t *);
+int32_t nuppNativeNetListenerRelease(uint64_t);
+int32_t nuppNativeNetConnectCreate(const NuppNativeNetConnectOptions *, uint64_t *);
+int32_t nuppNativeNetPathConnectCreate(const NuppNativeNetPathConnectOptions *, uint64_t *);
+int32_t nuppNativeNetConnectPoll(uint64_t, uint32_t *, uint64_t *);
+int32_t nuppNativeNetConnectRelease(uint64_t);
+int32_t nuppNativeNetStreamRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeNetStreamWrite(uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeNetStreamPendingWrite(uint64_t, size_t *);
+int32_t nuppNativeNetStreamState(uint64_t, uint32_t *);
+int32_t nuppNativeNetStreamShutdownWrite(uint64_t);
+int32_t nuppNativeNetStreamLocalAddress(uint64_t, NuppNativeNetAddress *);
+int32_t nuppNativeNetStreamPeerAddress(uint64_t, NuppNativeNetAddress *);
+int32_t nuppNativeNetStreamSetNoDelay(uint64_t, int32_t);
+int32_t nuppNativeNetStreamSetKeepAlive(uint64_t, int32_t, uint32_t);
+int32_t nuppNativeNetStreamRelease(uint64_t);
+int32_t nuppNativeNetAddressParse(NuppNativeNetSlice, uint16_t, NuppNativeNetAddress *);
+int32_t nuppNativeNetAddressText(const NuppNativeNetAddress *, uint8_t *, size_t, size_t *);
+int32_t nuppNativeNetDatagramCreate(const NuppNativeNetDatagramOptions *, uint64_t *);
+int32_t nuppNativeNetDatagramPort(uint64_t, uint16_t *);
+int32_t nuppNativeNetDatagramReceive(
+    uint64_t, uint8_t *, size_t, uint32_t *, size_t *, NuppNativeNetAddress *, int32_t *);
+int32_t nuppNativeNetDatagramSend(
+    uint64_t, const NuppNativeNetAddress *, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeNetDatagramSetBroadcast(uint64_t, int32_t);
+int32_t nuppNativeNetDatagramSetMulticastTtl(uint64_t, uint32_t);
+int32_t nuppNativeNetDatagramSetMulticastLoop(uint64_t, int32_t);
+int32_t nuppNativeNetDatagramMembership(
+    uint64_t, NuppNativeNetSlice, NuppNativeNetSlice, uint32_t, uint8_t, int32_t);
+int32_t nuppNativeNetDatagramRelease(uint64_t);
+int32_t nuppNativeNetPoll(uint64_t *);
+int32_t nuppNativeNetWait(uint64_t, uint64_t, uint64_t *);
 ]]
 
 const C = native.C
@@ -124,7 +124,7 @@ local scratch: any = nil
 native.requireFeature(NET_FEATURE, "net")
 
 local function slice(text: string): any
-    local value = native.ffi.new("NuppNativeV2NetSlice")
+    local value = native.ffi.new("NuppNativeNetSlice")
     -- The slice points into the Lua string; every caller hands it to C and returns
     -- while `text` is still a live argument of its own, so the string outlives the
     -- call.
@@ -137,7 +137,7 @@ local function slice(text: string): any
 end
 
 local function reason(prefix: string): string
-    return prefix .. ": " .. (native.ffi.string(C.nuppNativeV2LastError()) as string)
+    return prefix .. ": " .. (native.ffi.string(C.nuppNativeLastError()) as string)
 end
 
 local function readBuffer(): any
@@ -155,14 +155,14 @@ local function create(): contract.Provider
     const count = native.ffi.new("size_t[1]")
     const portOutput = native.ffi.new("uint16_t[1]")
     const scalar = native.ffi.new("int32_t[1]")
-    const addressOutput = native.ffi.new("NuppNativeV2NetAddress[1]")
+    const addressOutput = native.ffi.new("NuppNativeNetAddress[1]")
     const hostOutput = native.ffi.new("uint8_t[?]", HOST_SIZE)
     const generation = native.ffi.new("uint64_t[1]")
     const nextGeneration = native.ffi.new("uint64_t[1]")
     local generationReady = false
 
     local function streamFlags(stream: any): integer
-        if C.nuppNativeV2NetStreamState(stream, flags) ~= 0 then
+        if C.nuppNativeNetStreamState(stream, flags) ~= 0 then
             return STREAM_READ_FAILED | STREAM_WRITE_FAILED
         end
 
@@ -173,7 +173,7 @@ local function create(): contract.Provider
         if value[0].family == 0 then
             return nil
         end
-        const status = C.nuppNativeV2NetAddressText(value, hostOutput, HOST_SIZE, count)
+        const status = C.nuppNativeNetAddressText(value, hostOutput, HOST_SIZE, count)
         if status ~= 0 then
             return nil
         end
@@ -190,12 +190,12 @@ local function create(): contract.Provider
             reusePort: boolean
         ): (any?, string?)
 
-            local options = native.ffi.new("NuppNativeV2NetListenOptions")
+            local options = native.ffi.new("NuppNativeNetListenOptions")
             options.host = slice(host)
             options.port = port
             options.backlog = backlog
             options.reuse_port = reusePort and 1 or 0
-            if C.nuppNativeV2NetListenerCreate(options, handle) ~= 0 then
+            if C.nuppNativeNetListenerCreate(options, handle) ~= 0 then
                 return nil, reason("nupp: could not listen")
             end
 
@@ -204,10 +204,10 @@ local function create(): contract.Provider
 
         listenPath = function(self: contract.Provider, path: string, backlog: integer): (any?, string?)
 
-            local options = native.ffi.new("NuppNativeV2NetPathListenOptions")
+            local options = native.ffi.new("NuppNativeNetPathListenOptions")
             options.path = slice(path)
             options.backlog = backlog
-            if C.nuppNativeV2NetPathListenerCreate(options, handle) ~= 0 then
+            if C.nuppNativeNetPathListenerCreate(options, handle) ~= 0 then
                 return nil, reason("nupp: could not listen")
             end
 
@@ -215,10 +215,10 @@ local function create(): contract.Provider
         end,
 
         listenerPort = function(self: contract.Provider, listener: any): integer
-            if C.nuppNativeV2NetListenerKind(listener, state) ~= 0 or state[0] == LISTENER_PATH then
+            if C.nuppNativeNetListenerKind(listener, state) ~= 0 or state[0] == LISTENER_PATH then
                 return -1
             end
-            if C.nuppNativeV2NetListenerPort(listener, portOutput) ~= 0 then
+            if C.nuppNativeNetListenerPort(listener, portOutput) ~= 0 then
                 return -1
             end
 
@@ -226,7 +226,7 @@ local function create(): contract.Provider
         end,
 
         accept = function(self: contract.Provider, listener: any): (any?, string?)
-            if C.nuppNativeV2NetListenerAccept(listener, state, handle) ~= 0 then
+            if C.nuppNativeNetListenerAccept(listener, state, handle) ~= 0 then
                 return nil, reason("nupp: could not accept")
             end
             if state[0] == PENDING then
@@ -237,16 +237,16 @@ local function create(): contract.Provider
         end,
 
         closeListener = function(self: contract.Provider, listener: any): nil
-            C.nuppNativeV2NetListenerRelease(listener)
+            C.nuppNativeNetListenerRelease(listener)
         end,
 
         connect = function(self: contract.Provider, host: string, port: integer, timeoutMs: integer): (any?, string?)
 
-            local options = native.ffi.new("NuppNativeV2NetConnectOptions")
+            local options = native.ffi.new("NuppNativeNetConnectOptions")
             options.host = slice(host)
             options.port = port
             options.timeout_ms = timeoutMs
-            if C.nuppNativeV2NetConnectCreate(options, handle) ~= 0 then
+            if C.nuppNativeNetConnectCreate(options, handle) ~= 0 then
                 return nil, reason("nupp: could not connect")
             end
 
@@ -255,10 +255,10 @@ local function create(): contract.Provider
 
         connectPath = function(self: contract.Provider, path: string, timeoutMs: integer): (any?, string?)
 
-            local options = native.ffi.new("NuppNativeV2NetPathConnectOptions")
+            local options = native.ffi.new("NuppNativeNetPathConnectOptions")
             options.path = slice(path)
             options.timeout_ms = timeoutMs
-            if C.nuppNativeV2NetPathConnectCreate(options, handle) ~= 0 then
+            if C.nuppNativeNetPathConnectCreate(options, handle) ~= 0 then
                 return nil, reason("nupp: could not connect")
             end
 
@@ -266,7 +266,7 @@ local function create(): contract.Provider
         end,
 
         connectPoll = function(self: contract.Provider, request: any): (any?, string?)
-            if C.nuppNativeV2NetConnectPoll(request, state, handle) ~= 0 then
+            if C.nuppNativeNetConnectPoll(request, state, handle) ~= 0 then
                 return nil, reason("nupp: could not connect")
             end
             if state[0] == CONNECT_FAILED then
@@ -280,13 +280,13 @@ local function create(): contract.Provider
         end,
 
         closeConnect = function(self: contract.Provider, request: any): nil
-            C.nuppNativeV2NetConnectRelease(request)
+            C.nuppNativeNetConnectRelease(request)
         end,
 
         read = function(self: contract.Provider, stream: any, wanted: integer): (string?, string?)
             const taking = wanted < READ_SIZE and wanted or READ_SIZE
             const into = readBuffer()
-            if C.nuppNativeV2NetStreamRead(stream, into, taking, state, count) ~= 0 then
+            if C.nuppNativeNetStreamRead(stream, into, taking, state, count) ~= 0 then
                 return nil, reason("nupp: could not read")
             end
             if state[0] == PENDING or state[0] == READ_EOF then
@@ -301,7 +301,7 @@ local function create(): contract.Provider
         end,
 
         write = function(self: contract.Provider, stream: any, bytes: string): (integer?, string?)
-            if C.nuppNativeV2NetStreamWrite(stream, bytes, #bytes, state, count) ~= 0 then
+            if C.nuppNativeNetStreamWrite(stream, bytes, #bytes, state, count) ~= 0 then
                 return nil, reason("nupp: could not write")
             end
             if state[0] == 2 then
@@ -312,7 +312,7 @@ local function create(): contract.Provider
         end,
 
         pending = function(self: contract.Provider, stream: any): integer
-            if C.nuppNativeV2NetStreamPendingWrite(stream, count) ~= 0 then
+            if C.nuppNativeNetStreamPendingWrite(stream, count) ~= 0 then
                 return 0
             end
 
@@ -328,7 +328,7 @@ local function create(): contract.Provider
         end,
 
         shutdownWrite = function(self: contract.Provider, stream: any): (boolean, string?)
-            if C.nuppNativeV2NetStreamShutdownWrite(stream) ~= 0 then
+            if C.nuppNativeNetStreamShutdownWrite(stream) ~= 0 then
                 return false, reason("nupp: could not end the sending half")
             end
 
@@ -336,10 +336,10 @@ local function create(): contract.Provider
         end,
 
         address = function(self: contract.Provider, stream: any, peer: boolean): shared.Address?
-            const status = peer and C.nuppNativeV2NetStreamPeerAddress(
+            const status = peer and C.nuppNativeNetStreamPeerAddress(
                 stream,
                 addressOutput
-            ) or C.nuppNativeV2NetStreamLocalAddress(stream, addressOutput)
+            ) or C.nuppNativeNetStreamLocalAddress(stream, addressOutput)
             if status ~= 0 then
                 return nil
             end
@@ -352,7 +352,7 @@ local function create(): contract.Provider
         end,
 
         noDelay = function(self: contract.Provider, stream: any, enable: boolean): (boolean, string?)
-            if C.nuppNativeV2NetStreamSetNoDelay(stream, enable and 1 or 0) ~= 0 then
+            if C.nuppNativeNetStreamSetNoDelay(stream, enable and 1 or 0) ~= 0 then
                 return false, reason("nupp: could not set the delay option")
             end
 
@@ -365,7 +365,7 @@ local function create(): contract.Provider
             enable: boolean,
             delaySeconds: integer
         ): (boolean, string?)
-            if C.nuppNativeV2NetStreamSetKeepAlive(stream, enable and 1 or 0, delaySeconds) ~= 0 then
+            if C.nuppNativeNetStreamSetKeepAlive(stream, enable and 1 or 0, delaySeconds) ~= 0 then
                 return false, reason("nupp: could not set the keepalive option")
             end
 
@@ -373,7 +373,7 @@ local function create(): contract.Provider
         end,
 
         broadcast = function(self: contract.Provider, socket: any, enable: boolean): (boolean, string?)
-            if C.nuppNativeV2NetDatagramSetBroadcast(socket, enable and 1 or 0) ~= 0 then
+            if C.nuppNativeNetDatagramSetBroadcast(socket, enable and 1 or 0) ~= 0 then
                 return false, reason("nupp: could not set the broadcast option")
             end
 
@@ -381,7 +381,7 @@ local function create(): contract.Provider
         end,
 
         multicastTtl = function(self: contract.Provider, socket: any, ttl: integer): (boolean, string?)
-            if C.nuppNativeV2NetDatagramSetMulticastTtl(socket, ttl) ~= 0 then
+            if C.nuppNativeNetDatagramSetMulticastTtl(socket, ttl) ~= 0 then
                 return false, reason("nupp: could not set the multicast hop limit")
             end
 
@@ -389,7 +389,7 @@ local function create(): contract.Provider
         end,
 
         multicastLoop = function(self: contract.Provider, socket: any, enable: boolean): (boolean, string?)
-            if C.nuppNativeV2NetDatagramSetMulticastLoop(socket, enable and 1 or 0) ~= 0 then
+            if C.nuppNativeNetDatagramSetMulticastLoop(socket, enable and 1 or 0) ~= 0 then
                 return false, reason("nupp: could not set the multicast loop option")
             end
 
@@ -404,7 +404,7 @@ local function create(): contract.Provider
             join: boolean
         ): (boolean, string?)
             const interfaceKind = interfaceAddress == "" and 0 or 4
-            if C.nuppNativeV2NetDatagramMembership(
+            if C.nuppNativeNetDatagramMembership(
                 socket,
                 slice(group),
                 slice(interfaceAddress),
@@ -419,7 +419,7 @@ local function create(): contract.Provider
         end,
 
         closeStream = function(self: contract.Provider, stream: any): nil
-            C.nuppNativeV2NetStreamRelease(stream)
+            C.nuppNativeNetStreamRelease(stream)
         end,
 
         bindDatagram = function(
@@ -429,11 +429,11 @@ local function create(): contract.Provider
             reusePort: boolean
         ): (any?, string?)
 
-            local options = native.ffi.new("NuppNativeV2NetDatagramOptions")
+            local options = native.ffi.new("NuppNativeNetDatagramOptions")
             options.host = slice(host)
             options.port = port
             options.reuse_port = reusePort and 1 or 0
-            if C.nuppNativeV2NetDatagramCreate(options, handle) ~= 0 then
+            if C.nuppNativeNetDatagramCreate(options, handle) ~= 0 then
                 return nil, reason("nupp: could not bind")
             end
 
@@ -441,7 +441,7 @@ local function create(): contract.Provider
         end,
 
         datagramPort = function(self: contract.Provider, socket: any): integer
-            if C.nuppNativeV2NetDatagramPort(socket, portOutput) ~= 0 then
+            if C.nuppNativeNetDatagramPort(socket, portOutput) ~= 0 then
                 return -1
             end
 
@@ -455,7 +455,7 @@ local function create(): contract.Provider
         ): (string?, string?, integer?, boolean?, string?)
             const taking = maximum < READ_SIZE and maximum or READ_SIZE
             const into = readBuffer()
-            if C.nuppNativeV2NetDatagramReceive(socket, into, taking, state, count, addressOutput, scalar) ~= 0 then
+            if C.nuppNativeNetDatagramReceive(socket, into, taking, state, count, addressOutput, scalar) ~= 0 then
                 return nil, nil, nil, nil, reason("nupp: could not receive")
             end
             if state[0] ~= DATAGRAM_MESSAGE then
@@ -477,10 +477,10 @@ local function create(): contract.Provider
             port: integer,
             bytes: string
         ): (boolean, string?)
-            if C.nuppNativeV2NetAddressParse(slice(host), port, addressOutput) ~= 0 then
+            if C.nuppNativeNetAddressParse(slice(host), port, addressOutput) ~= 0 then
                 return false, reason("nupp: could not address the datagram")
             end
-            if C.nuppNativeV2NetDatagramSend(socket, addressOutput, bytes, #bytes, state, count) ~= 0 then
+            if C.nuppNativeNetDatagramSend(socket, addressOutput, bytes, #bytes, state, count) ~= 0 then
                 return false, reason("nupp: could not send")
             end
 
@@ -488,19 +488,19 @@ local function create(): contract.Provider
         end,
 
         closeDatagram = function(self: contract.Provider, socket: any): nil
-            C.nuppNativeV2NetDatagramRelease(socket)
+            C.nuppNativeNetDatagramRelease(socket)
         end,
 
         run = function(self: contract.Provider, timeoutMs: integer): nil
 
             if timeoutMs == 0 or not generationReady then
-                if C.nuppNativeV2NetPoll(generation) == 0 then
+                if C.nuppNativeNetPoll(generation) == 0 then
                     generationReady = true
                 end
 
                 return
             end
-            if C.nuppNativeV2NetWait(generation[0], timeoutMs, nextGeneration) ~= 0 then
+            if C.nuppNativeNetWait(generation[0], timeoutMs, nextGeneration) ~= 0 then
                 return
             end
             generation[0] = nextGeneration[0]

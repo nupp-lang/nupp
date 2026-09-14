@@ -290,7 +290,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "io_http_internal_transport",
         runtimeModule = "nupp.io.http.internal.transport",
-        requires = {"runtime.native_v2", "native.time"}
+        requires = {"runtime.native", "native.time"}
     },
 
     ["runtime.test"] = {name = "test", module = "nupp.test", runtimeModule = "nupp.test", portableRuntime = true,},
@@ -327,12 +327,12 @@ local FEATURES: {[string]: native.Feature} = {
         name = "gpu",
         modules = {"nupp.runtime.provider.nativegpu"},
         runtimeModule = "nupp.runtime.provider.nativegpu",
-        provider = "nupp_native_v2",
+        provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "gpu",
-        library = "nupp_native_v2",
+        library = "nupp_native",
         binary = true,
-        requires = {"runtime.native_v2", "runtime.spanview", "runtime.gpu_api", "runtime.gpu_layout"},
+        requires = {"runtime.native", "runtime.spanview", "runtime.gpu_api", "runtime.gpu_layout"},
     },
     -- UTF-8 itself, which is Nupp and so asks the host for nothing. The record
     -- exists to attribute the module rather than to select anything.
@@ -408,14 +408,14 @@ local FEATURES: {[string]: native.Feature} = {
         -- The public module records the facility at the call site; its internal
         -- provider records it when the module graph is followed directly.
         modules = {"nupp.runtime.provider.nativepath"},
-        provider = "nupp_native_v2",
+        provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "filesystem",
         host = "native-files",
-        library = "nupp_native_v2",
+        library = "nupp_native",
         binary = true,
         runtimeModule = "nupp.runtime.provider.nativepath",
-        requires = {"runtime.path", "runtime.native_v2"},
+        requires = {"runtime.path", "runtime.native"},
     },
     [
         "runtime.path"
@@ -433,12 +433,12 @@ local FEATURES: {[string]: native.Feature} = {
         name = "uri",
         modules = {"nupp.runtime.provider.nativeuri"},
         runtimeModule = "nupp.runtime.provider.nativeuri",
-        provider = "nupp_native_v2",
+        provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "uri",
-        library = "nupp_native_v2",
+        library = "nupp_native",
         binary = true,
-        requires = {"runtime.service_contracts", "runtime.uri", "runtime.native_v2"},
+        requires = {"runtime.service_contracts", "runtime.uri", "runtime.native"},
     },
     [
         "runtime.uri"
@@ -455,26 +455,26 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "uuid",
         modules = {"nupp.runtime.provider.nativeuuid"},
-        provider = "nupp_native_v2",
+        provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "uuid",
-        library = "nupp_native_v2",
+        library = "nupp_native",
         binary = true,
-        requires = {"runtime.native_v2"},
+        requires = {"runtime.native"},
     },
     ["native.files"] = {
         name = "files",
         modules = {"nupp.io.files"},
-        provider = "nupp_native_v2",
+        provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "files",
         host = "native-files",
-        library = "nupp_native_v2",
+        library = "nupp_native",
         binary = true,
         runtimeModule = "nupp.io.files",
         -- A file operation that waits performs `suspend`, so the runtime that
         -- answers it has to be in the target beside the program.
-        requires = {"native.path", "stdlib.io", "runtime.spanview", "runtime.suspension", "runtime.native_v2",},
+        requires = {"native.path", "stdlib.io", "runtime.spanview", "runtime.suspension", "runtime.native",},
     },
     ["runtime.suspension"] = {
         -- Not a native library: a compiler-provided Nupp module a target needs its
@@ -494,39 +494,39 @@ local FEATURES: {[string]: native.Feature} = {
         requires = {"runtime.suspension"},
         portableRuntime = true,
     },
-    ["runtime.native_v2"] = {name = "native_runtime_v2", runtimeModule = "nupp.runtime.native",},
+    ["runtime.native"] = {name = "native_runtime", runtimeModule = "nupp.runtime.native",},
     [
         "native.time"
     ] = {
         name = "time",
         module = "nupp.runtime.provider.nativetime",
         runtimeModule = "nupp.runtime.provider.nativetime",
-        provider = "nupp_native_v2",
+        provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "base",
-        library = "nupp_native_v2",
+        library = "nupp_native",
         binary = true,
-        requires = {"runtime.suspension", "runtime.native_v2"},
+        requires = {"runtime.suspension", "runtime.native"},
     },
     ["native.net"] = {
         name = "net",
         -- The public surface, and only that: listening, connecting, and the
         -- connections either produces. Rust owns every platform handle behind
-        -- the ABI-v2 resource boundary.
+        -- the native ABI resource boundary.
         module = "nupp.runtime.provider.nativenet",
         runtimeModule = "nupp.runtime.provider.nativenet",
-        provider = "nupp_native_v2",
+        provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "net",
         host = "native-net",
-        library = "nupp_native_v2",
+        library = "nupp_native",
         binary = true,
         requires = {
             "runtime.net_contract",
             "runtime.net_types",
             "runtime.net_internal",
             "runtime.suspension",
-            "runtime.native_v2"
+            "runtime.native"
         },
     },
     ["native.tls"] = {
@@ -536,19 +536,13 @@ local FEATURES: {[string]: native.Feature} = {
         -- descriptor from a second native stack.
         module = "nupp.runtime.provider.nativetls",
         runtimeModule = "nupp.runtime.provider.nativetls",
-        provider = "nupp_native_v2",
+        provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "tls",
         host = "native-tls",
-        library = "nupp_native_v2",
+        library = "nupp_native",
         binary = true,
-        requires = {
-            "runtime.tls_contract",
-            "runtime.tls_types",
-            "native.net",
-            "runtime.suspension",
-            "runtime.native_v2"
-        },
+        requires = {"runtime.tls_contract", "runtime.tls_types", "native.net", "runtime.suspension", "runtime.native"},
     },
     ["native.process"] = {
         name = "process",
@@ -559,13 +553,13 @@ local FEATURES: {[string]: native.Feature} = {
         -- backend ABI is not something to promise by accident.
         module = "nupp.runtime.provider.nativeprocess",
         runtimeModule = "nupp.runtime.provider.nativeprocess",
-        provider = "nupp_native_v2",
+        provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "process",
         host = "native-process",
-        library = "nupp_native_v2",
+        library = "nupp_native",
         binary = true,
-        requires = {"runtime.process_contract", "runtime.process_types", "runtime.suspension", "runtime.native_v2"},
+        requires = {"runtime.process_contract", "runtime.process_types", "runtime.suspension", "runtime.native"},
     },
     [
         "native.workers"
@@ -601,10 +595,10 @@ local FEATURES: {[string]: native.Feature} = {
         name = "http",
         module = "nupp.runtime.provider.nativehttp",
         runtimeModule = "nupp.runtime.provider.nativehttp",
-        provider = "nupp_native_v2",
+        provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "http",
-        library = "nupp_native_v2",
+        library = "nupp_native",
         binary = true,
         -- A request that races its upload against the response head performs one
         -- through `nupp.tasks`, so the task runtime travels with the client.
@@ -613,7 +607,7 @@ local FEATURES: {[string]: native.Feature} = {
             "runtime.io_http_internal_transport",
             "runtime.suspension",
             "runtime.tasks",
-            "runtime.native_v2",
+            "runtime.native",
             "native.path",
             "native.time",
             "native.uri",
@@ -633,10 +627,10 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {name = "system_runtime", module = "nupp.system", runtimeModule = "nupp.system", portableRuntime = true},
     [
         "native.system"
-    ] = {name = "system", module = "nupp.runtime.provider.nativesystem", requires = {"runtime.native_v2"},},
+    ] = {name = "system", module = "nupp.runtime.provider.nativesystem", requires = {"runtime.native"},},
     [
         "native.crypto"
-    ] = {name = "crypto", module = "nupp.runtime.provider.nativecrypto", requires = {"runtime.native_v2"},},
+    ] = {name = "crypto", module = "nupp.runtime.provider.nativecrypto", requires = {"runtime.native"},},
 }
 
 local byGlobal, byModule, byModuleMember, byName = {}, {}, {}, {}

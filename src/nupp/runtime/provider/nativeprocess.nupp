@@ -31,25 +31,25 @@ native.ffi.cdef[[
 typedef struct {
     const uint8_t *data;
     size_t length;
-} NuppNativeV2ProcessSlice;
+} NuppNativeProcessSlice;
 
 typedef struct {
-    NuppNativeV2ProcessSlice name;
-    NuppNativeV2ProcessSlice value;
-} NuppNativeV2ProcessEnv;
+    NuppNativeProcessSlice name;
+    NuppNativeProcessSlice value;
+} NuppNativeProcessEnv;
 
 typedef struct {
-    const NuppNativeV2ProcessSlice *args;
+    const NuppNativeProcessSlice *args;
     size_t arg_count;
-    const NuppNativeV2ProcessEnv *env;
+    const NuppNativeProcessEnv *env;
     size_t env_count;
-    NuppNativeV2ProcessSlice cwd;
+    NuppNativeProcessSlice cwd;
     int32_t cwd_present;
     int32_t clear_env;
     uint8_t stdin_mode;
     uint8_t stdout_mode;
     uint8_t stderr_mode;
-} NuppNativeV2ProcessSpawn;
+} NuppNativeProcessSpawn;
 
 typedef struct {
     uint64_t process;
@@ -57,28 +57,28 @@ typedef struct {
     uint64_t stdout_stream;
     uint64_t stderr_stream;
     uint32_t pid;
-} NuppNativeV2ProcessStarted;
+} NuppNativeProcessStarted;
 
 typedef struct {
     int32_t ready;
     int32_t code;
     int32_t killed;
-} NuppNativeV2ProcessExit;
+} NuppNativeProcessExit;
 
-int32_t nuppNativeV2ProcessSpawn(
-    const NuppNativeV2ProcessSpawn *, NuppNativeV2ProcessStarted *);
-int32_t nuppNativeV2ProcessPollExit(uint64_t, NuppNativeV2ProcessExit *);
-int32_t nuppNativeV2ProcessKill(uint64_t, int32_t);
-int32_t nuppNativeV2ProcessRelease(uint64_t);
-int32_t nuppNativeV2ProcessStreamRead(
+int32_t nuppNativeProcessSpawn(
+    const NuppNativeProcessSpawn *, NuppNativeProcessStarted *);
+int32_t nuppNativeProcessPollExit(uint64_t, NuppNativeProcessExit *);
+int32_t nuppNativeProcessKill(uint64_t, int32_t);
+int32_t nuppNativeProcessRelease(uint64_t);
+int32_t nuppNativeProcessStreamRead(
     uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeV2ProcessStreamWrite(
+int32_t nuppNativeProcessStreamWrite(
     uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeV2ProcessStreamRelease(uint64_t);
-int32_t nuppNativeV2ProcessWait(
+int32_t nuppNativeProcessStreamRelease(uint64_t);
+int32_t nuppNativeProcessWait(
     uint64_t, const uint64_t *, size_t, const uint64_t *, size_t,
     uint64_t, size_t *);
-size_t nuppNativeV2ProcessAbandonedTotal(void);
+size_t nuppNativeProcessAbandonedTotal(void);
 ]]
 
 const C = native.C
@@ -94,7 +94,7 @@ const READ_SIZE = 65536
 const INT32_MAX = 2147483647
 
 local function reason(prefix: string): string
-    return prefix .. ": " .. native.ffi.string(C.nuppNativeV2LastError())
+    return prefix .. ": " .. native.ffi.string(C.nuppNativeLastError())
 end
 
 local function configured(status: integer, what: string): nil
@@ -155,7 +155,7 @@ local function create(): contract.Provider
             end
 
             local arguments = options.args or {}
-            local argumentSlices = native.ffi.new("NuppNativeV2ProcessSlice[?]", #arguments)
+            local argumentSlices = native.ffi.new("NuppNativeProcessSlice[?]", #arguments)
             for index, argument in ipairs(arguments) do
                 argumentSlices[index - 1].data = argument
                 argumentSlices[index - 1].length = #argument
@@ -165,7 +165,7 @@ local function create(): contract.Provider
             for key, value in pairs(options.env or {}) do
                 environment[#environment + 1] = {name = key, value = value}
             end
-            local environmentEntries = native.ffi.new("NuppNativeV2ProcessEnv[?]", #environment)
+            local environmentEntries = native.ffi.new("NuppNativeProcessEnv[?]", #environment)
             for index, entry in ipairs(environment) do
                 environmentEntries[index - 1].name.data = entry.name
                 environmentEntries[index - 1].name.length = #entry.name
@@ -177,7 +177,7 @@ local function create(): contract.Provider
             if options.cwd ~= nil then
                 cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
             end
-            local descriptor = native.ffi.new("NuppNativeV2ProcessSpawn[1]")
+            local descriptor = native.ffi.new("NuppNativeProcessSpawn[1]")
             local cwdLength = 0
             if cwd ~= nil then
                 cwdLength = #cwd
@@ -194,8 +194,8 @@ local function create(): contract.Provider
             descriptor[0].stdout_mode = MODE[outputMode]
             descriptor[0].stderr_mode = MODE[errorMode]
 
-            local started = native.ffi.new("NuppNativeV2ProcessStarted[1]")
-            local status = C.nuppNativeV2ProcessSpawn(descriptor, started)
+            local started = native.ffi.new("NuppNativeProcessStarted[1]")
+            local status = C.nuppNativeProcessSpawn(descriptor, started)
             if status ~= 0 then
                 return nil, nil, nil, nil, 0, reason("nupp: could not start process")
             end
@@ -207,8 +207,8 @@ local function create(): contract.Provider
             return owner, input, output, err, tonumber(started[0].pid) as integer
         end,
         poll = function(self: contract.Provider, owner: any): shared.Exit?
-            local output = native.ffi.new("NuppNativeV2ProcessExit[1]")
-            configured(C.nuppNativeV2ProcessPollExit(owner.handle, output), "poll process")
+            local output = native.ffi.new("NuppNativeProcessExit[1]")
+            configured(C.nuppNativeProcessPollExit(owner.handle, output), "poll process")
             if output[0].ready == 0 then
                 return nil
             end
@@ -216,7 +216,7 @@ local function create(): contract.Provider
             return shared.exited(tonumber(output[0].code) as integer, output[0].killed ~= 0, false)
         end,
         kill = function(self: contract.Provider, owner: any, force: boolean): nil
-            configured(C.nuppNativeV2ProcessKill(owner.handle, force and 1 or 0), "kill process")
+            configured(C.nuppNativeProcessKill(owner.handle, force and 1 or 0), "kill process")
         end,
         read = function(self: contract.Provider, stream: any, limit: integer): string?
             local wanted = whole(limit)
@@ -232,7 +232,7 @@ local function create(): contract.Provider
             local state = native.ffi.new("uint32_t[1]")
             local length = native.ffi.new("size_t[1]")
             configured(
-                C.nuppNativeV2ProcessStreamRead(stream.handle, stream.scratch, wanted, state, length),
+                C.nuppNativeProcessStreamRead(stream.handle, stream.scratch, wanted, state, length),
                 "read process stream"
             )
             if state[0] == READ_DATA then
@@ -250,7 +250,7 @@ local function create(): contract.Provider
             local state = native.ffi.new("uint32_t[1]")
             local length = native.ffi.new("size_t[1]")
             configured(
-                C.nuppNativeV2ProcessStreamWrite(stream.handle, bytes, #bytes, state, length),
+                C.nuppNativeProcessStreamWrite(stream.handle, bytes, #bytes, state, length),
                 "write process stream"
             )
             if state[0] == WRITE_ACCEPTED then
@@ -268,7 +268,7 @@ local function create(): contract.Provider
             if stream.released then
                 return true, nil
             end
-            local status = C.nuppNativeV2ProcessStreamRelease(stream.handle)
+            local status = C.nuppNativeProcessStreamRelease(stream.handle)
             if status ~= 0 then
                 return false, reason("nupp: could not close process stream")
             end
@@ -281,7 +281,7 @@ local function create(): contract.Provider
             if owner.released then
                 return true, nil
             end
-            local status = C.nuppNativeV2ProcessRelease(owner.handle)
+            local status = C.nuppNativeProcessRelease(owner.handle)
             if status ~= 0 then
                 return false, reason("nupp: could not release process")
             end
@@ -304,7 +304,7 @@ local function create(): contract.Provider
             end
             local ready = native.ffi.new("size_t[1]")
             configured(
-                C.nuppNativeV2ProcessWait(
+                C.nuppNativeProcessWait(
                     interest.child.handle,
                     readable,
                     readCount,
