@@ -225,7 +225,7 @@ local mac = nupp.mac
 
 print(digest.hexDigest("sha256", "payload"))
 print(mac.hexDigest("hmac-sha256", "key", "payload"))
-print(nupp.uuid.v4(), nupp.uuid.v7())
+print(nupp.util.uuid.v4(), nupp.util.uuid.v7())
 ```
 
 Persistent storage maps string keys to string values. Each application package

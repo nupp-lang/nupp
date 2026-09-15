@@ -6,7 +6,7 @@ local storage = require("nupp.io.storage")
 local time = require("nupp.time")
 local mac = require("nupp.mac")
 local digests = require("nupp.digest")
-local uuid = require("nupp.uuid")
+local uuid = require("nupp.util.uuid")
 
 time.sleep(10)
 local key = uuid.v4()

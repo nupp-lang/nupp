@@ -62,7 +62,6 @@ intrinsic namespaces and the declared modules:
   numeric values; protocols choose their serialization byte order.
 - [](nupp.hash) provides general-purpose FNV-1a hashing.
 - [](nupp.mac) provides keyed authentication, including HMAC-SHA256.
-- [](nupp.uuid) generates version 4 and version 7 identifiers.
 - [](nupp.codec.json), [](nupp.codec.base64) and [](nupp.codec.hex) encode and
   decode representations. [](nupp.codec.valuebuilder) supports codec authors.
 - [](nupp.text.utf8) validates and walks UTF-8 text.
@@ -70,6 +69,8 @@ intrinsic namespaces and the declared modules:
 - [](nupp.util) owns the small general-purpose types: [](nupp.util.Bitset) is a
   growable set of bit positions, and [](nupp.util.Store) is a bag of values
   indexed by the typed keys [](nupp.util.newKey) hands out.
+  [](nupp.util.uuid) generates version 4 and version 7 identifiers, reached by its
+  own name so that a program using the types above declares none of its host ABI.
 - [](nupp.system) reports execution platform, architecture, endianness, pointer
   width and available parallelism, independently of the worker scheduler.
 - [](nupp.io.storage) provides persistent key-value storage through the require-time
@@ -116,7 +117,7 @@ A member's implementation is emitted only when checked source resolves that
 member, and an alias stays as precise as the name it came from:
 
 ```nupp
-local uuid = nupp.uuid
+local uuid = nupp.util.uuid
 print(uuid.v4()) -- selects UUID support
 ```
 

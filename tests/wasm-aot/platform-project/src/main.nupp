@@ -4,7 +4,7 @@ local browserTime = require("nupp.time")
 local digest = require("nupp.digest")
 local mac = require("nupp.mac")
 local checksum = require("nupp.checksum")
-local uuid = require("nupp.uuid")
+local uuid = require("nupp.util.uuid")
 local json = require("nupp.codec.json")
 local system = require("nupp.system")
 

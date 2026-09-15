@@ -21,6 +21,10 @@ store:set(theme, "dark")
 Unlike [](nupp.mem), which keeps every member a module of its own, the types are
 re-exported here, so reaching one loads both. That is affordable because both are
 small and neither resolves a provider while it loads.
+
+[](nupp.util.uuid) is the exception, and stays a module reached by its own name: it
+resolves a host service and declares a native ABI, neither of which a program that
+only wanted a bitset should carry.
 ]]
 
 local bitset = require("nupp.util.internal.bitset")

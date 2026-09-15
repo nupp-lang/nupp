@@ -31,7 +31,7 @@ local MODULES = {
     ["nupp.runtime.services.compression"] = {kind = "common"},
     ["nupp.runtime.provider.nativecompression"] = facility("runtime", "native.compression"),
     ["nupp.hash"] = facility("runtime", "runtime.bitops"),
-    ["nupp.uuid"] = facility("runtime", "runtime.uuid"),
+    ["nupp.util.uuid"] = facility("runtime", "runtime.uuid"),
     ["nupp.io.storage"] = facility("host", "runtime.storage", true),
     ["nupp.util"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.util.internal.bitset"] = {kind = "unavailable", capability = "cstorage"},

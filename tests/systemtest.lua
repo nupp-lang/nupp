@@ -1,6 +1,6 @@
 local system = require("nupp.system")
 local random = require("nupp.random")
-local uuid = require("nupp.uuid")
+local uuid = require("nupp.util.uuid")
 local ffi = require("ffi")
 local M = {}
 

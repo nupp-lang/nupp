@@ -1,4 +1,4 @@
-module nupp.uuid
+module nupp.util.uuid
 
 --[[UUID generation using the implementation retained when this module loads.
 

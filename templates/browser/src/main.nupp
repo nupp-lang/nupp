@@ -1,6 +1,6 @@
 local random = require("nupp.random")
 local digests = require("nupp.digest")
-local uuid = require("nupp.uuid")
+local uuid = require("nupp.util.uuid")
 local storage = require("nupp.io.storage")
 local time = require("nupp.time")
 local json = require("nupp.codec.json")

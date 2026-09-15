@@ -170,7 +170,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.uuid"
     ] = {
         name = "uuid_runtime",
-        exports = {"nupp.uuid.v4", "nupp.uuid.v7"},
+        exports = {"nupp.util.uuid.v4", "nupp.util.uuid.v7"},
         runtimeModule = "nupp.runtime.uuid",
         portableRuntime = true
     },
