@@ -751,7 +751,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         scalarWalk(load.index, values, scope)
     elseif op == "local" or op == "helper_param" then
         local named = node as scalarIR.Name
-        holds(values[named.name] == node.type, "invalid local value")
+        holds(
+            values[named.name] == node.type,
+            "invalid local value " .. named.name .. " of type " .. tostring(node.type)
+        )
         if named.lengthOf ~= nil then
             local bytes = scope.spans[named.lengthOf as string]
             holds(
@@ -910,9 +913,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                     args[2] == nil or args[2].type == args[1].type
                 ) and node.type == genericSimdScalar(
                     vectorElement
-                ) and admittedHorizontal[
-                    intrinsic
-                ] == true and (vectorElement == "f32" or vectorElement == "f64"),
+                ) and admittedHorizontal[intrinsic] == true and (vectorElement == "f32" or vectorElement == "f64"),
                 "invalid generic SIMD horizontal operation"
             )
         elseif op == "simd_bitmask_binary" or op == "simd_bitmask_compare" then
@@ -2214,7 +2215,11 @@ local function block(
                             inspectBlock(clause.body)
                         end
                         inspectBlock((nested as scalarIR.If).elseBody or {})
-                    elseif nested.op == "while" or nested.op == "fornum" or nested.op == "block" then
+                    elseif nested.op == "while"
+                        or nested.op == "repeat"
+                        or nested.op == "fornum"
+                        or nested.op == "block"
+                    then
                         inspectBlock((nested as any).body as {scalarIR.Statement})
                     end
                 end
@@ -2666,6 +2671,13 @@ local function block(
             })
             block(statement.body, values, nestedScope, stored)
             invalidateCursors(scope, nestedScope)
+        elseif statement.op == "repeat" then
+            local inner = inherit(values)
+            local nestedScope = derive(scope, {cursorBounds = inherit(scope.cursorBounds)})
+            block(statement.body, inner, nestedScope, stored, true)
+            holds(statement.condition.type == "bool", "non-boolean repeat condition")
+            scalarWalk(statement.condition, inner, nestedScope)
+            invalidateCursors(scope, nestedScope)
         elseif statement.op == "block" then
             block(statement.body, values, scope, stored)
         elseif statement.op == "return" then
@@ -2958,7 +2970,7 @@ local function regionLaneBlocks(
                 regionLaneBlocks(program, clause.body, values, scope)
             end
             regionLaneBlocks(program, (statement as scalarIR.If).elseBody or {}, values, scope)
-        elseif statement.op == "while" or statement.op == "block" then
+        elseif statement.op == "while" or statement.op == "repeat" or statement.op == "block" then
             regionLaneBlocks(program, (statement as any).body as {scalarIR.Statement}, values, scope)
         end
     end
@@ -3323,7 +3335,7 @@ local function constructionStack(statements: {scalarIR.Statement}, inLoop: boole
             local nestedRoots, nestedDepth = constructionStack(statement.elseBody or {}, inLoop)
             roots = roots + nestedRoots
             depth = math.max(depth, nestedDepth) as integer
-        elseif statement.op == "fornum" or statement.op == "while" then
+        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "repeat" then
             local nestedRoots, nestedDepth = constructionStack(statement.body, true)
             roots = roots + nestedRoots
             depth = math.max(depth, nestedDepth) as integer
@@ -3352,7 +3364,11 @@ local function streamBuilders(statements: {scalarIR.Statement}): number
                 count = count + streamBuilders(clause.body)
             end
             count = count + streamBuilders(statement.elseBody or {})
-        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+        elseif statement.op == "fornum"
+            or statement.op == "while"
+            or statement.op == "repeat"
+            or statement.op == "block"
+        then
             count = count + streamBuilders(statement.body)
         end
     end
@@ -3395,7 +3411,11 @@ local function stringBufferOrder(statements: {scalarIR.Statement}, seen: boolean
             local nestedSeen, nestedCount = stringBufferOrder(statement.elseBody or {}, seen)
             seen = seen or nestedSeen
             count = (count + nestedCount) as integer
-        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+        elseif statement.op == "fornum"
+            or statement.op == "while"
+            or statement.op == "repeat"
+            or statement.op == "block"
+        then
             local nestedSeen, nestedCount = stringBufferOrder(statement.body, seen)
             seen = seen or nestedSeen
             count = (count + nestedCount) as integer

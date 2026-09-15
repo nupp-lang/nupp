@@ -370,6 +370,45 @@ function M.mandelbrotGpuBenchmarkUsesTheCpuFmaRecurrence()
     end
 end
 
+function M.gpuRepeatKeepsItsTrailingTestAndBodyScope()
+    local dir = project({
+        [
+            "gpu.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function shrink(
+    exclusive output: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>
+): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    for i = 1, #output do
+        local value = input[i]
+        repeat
+            local done = value <= 1
+            if done then
+                continue
+            end
+            value = nupp.math.u32.sub(value, 1)
+        until done
+        output[i] = value
+    end
+end
+
+return {shrink = shrink}
+]],
+    })
+    local module, moduleCode = run(dir, "--emit spirv gpu.nupp")
+    test.equal(moduleCode, 0, module)
+    assertSpirvStructure(module)
+
+    local shader, shaderCode = run(dir, "--emit wgsl --target wasm32-unknown-emscripten gpu.nupp")
+    test.equal(shaderCode, 0, shader)
+    assert(shader:find("continuing {", 1, true), "WGSL repeat has a continuing block\n" .. shader)
+    assert(shader:find("break if ", 1, true), "WGSL repeat evaluates its trailing condition\n" .. shader)
+end
+
 function M.gpuTargetEmitsWebGpuIntegerArtifact()
     local dir = project({
         [
@@ -2105,6 +2144,51 @@ function M.mandelbrotUsesRequiredSimdWithLaneLocalEarlyExit()
     test.equal(code, 0, raw)
     assert(decoded.ir:find("vwhile any", 1, true), where .. ": Mandelbrot retains its varying loop")
     assert(decoded.ir:find("vbreak", 1, true), where .. ": each escaped point retires independently")
+end
+
+function M.requiredSimdRepeatTestsEachLaneAfterItsBody()
+    local source = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function refine(
+    exclusive output: span.WriteSpan<number>,
+    borrows input: span.Span<number>
+): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    @simd
+    for i = 1, #output do
+        local value = input[i]
+        repeat
+            local done = value <= 1.0
+            if done then
+                continue
+            end
+            value = value * 0.5
+            if value < input[i] * 0.1 then
+                break
+            end
+        until done
+        output[i] = value
+    end
+end
+
+return {refine = refine}
+]]
+    local dir = project{["repeat.nupp"] = source}
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json repeat.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("vwhile any", 1, true), where .. ": repeat becomes one lane-live loop")
+    assert(decoded.ir:find("vcontinue", 1, true), where .. ": continue reaches the trailing lane test")
+    assert(decoded.ir:find("vbreak", 1, true), where .. ": break retires only its lane")
+    local scalarOracle = decoded.c:match("ks_refine_forced_scalar.-\n}\n")
+    assert(scalarOracle ~= nil, where .. ": repeat retains an independent scalar oracle")
+    assert(
+        scalarOracle:find("goto ks_repeat_continue_", 1, true)
+            and scalarOracle:find("ks_repeat_continue_", 1, true)
+            and scalarOracle:find("if (v2_done) break;", 1, true),
+        where .. ": scalar continue evaluates a body-local trailing condition\n" .. scalarOracle
+    )
 end
 
 function M.requiredSimdReducersCarryTheirArithmeticContractAcrossTheRegion()

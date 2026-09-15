@@ -7017,6 +7017,9 @@ record emit.Body
 
     --- Backend-selected lane accumulators for algebraic loop reducers.
     algebraicReducers: {[string]: string}?
+
+    --- Fresh function-local labels for scalar `repeat` continuations.
+    repeatSerial: integer?
 end
 
 --- Pushes one verified construction value on the Lua stack.
@@ -7150,7 +7153,12 @@ end
 --- themselves never leave the stack, so every allocating API call sees all
 --- live construction values rooted.
 --- @raises when invalid IR mixes Lua string and scalar assignments
-function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: emit.Body): {string}
+function emit.luaBlock(
+    statements: {scalarIR.Statement},
+    depth: integer,
+    body: emit.Body,
+    repeatContinue: string?
+): {string}
     local lines: {string} = {}
     local prefix = string.rep("    ", depth)
 
@@ -7161,7 +7169,11 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
     end
 
     local function nested(inner: {scalarIR.Statement}): nil
-        append(emit.luaBlock(inner, depth + 1, body))
+        append(emit.luaBlock(inner, depth + 1, body, repeatContinue))
+    end
+
+    local function nestedLoop(inner: {scalarIR.Statement}): nil
+        append(emit.luaBlock(inner, depth + 1, body, nil))
     end
 
     for _, statement in ipairs(statements) do
@@ -7535,11 +7547,19 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
             ) .. "; " .. statement.binding.cName .. " <= (int32_t)" .. emit.scalar(
                 statement.to
             ) .. "; ++" .. statement.binding.cName .. ") {"
-            nested(statement.body)
+            nestedLoop(statement.body)
             lines[#lines + 1] = prefix .. "}"
         elseif statement.op == "while" then
             lines[#lines + 1] = prefix .. "while (" .. emit.scalar(statement.condition) .. ") {"
-            nested(statement.body)
+            nestedLoop(statement.body)
+            lines[#lines + 1] = prefix .. "}"
+        elseif statement.op == "repeat" then
+            body.repeatSerial = (body.repeatSerial or 0) + 1
+            local label = "ks_repeat_continue_" .. tostring(body.repeatSerial)
+            lines[#lines + 1] = prefix .. "while (true) {"
+            append(emit.luaBlock(statement.body, depth + 1, body, label))
+            lines[#lines + 1] = prefix .. "    " .. label .. ":"
+            lines[#lines + 1] = prefix .. "    if (" .. emit.scalar(statement.condition) .. ") break;"
             lines[#lines + 1] = prefix .. "}"
         elseif statement.op == "block" then
             lines[#lines + 1] = prefix .. "{"
@@ -7550,6 +7570,8 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
                 append(luaPush(value, prefix))
             end
             lines[#lines + 1] = prefix .. "return " .. tostring(#statement.values) .. ";"
+        elseif statement.op == "continue" and repeatContinue ~= nil then
+            lines[#lines + 1] = prefix .. "goto " .. (repeatContinue as string) .. ";"
         else
             lines[#lines + 1] = prefix .. statement.op .. ";"
         end
@@ -7714,7 +7736,7 @@ end
 --- One block of statements, scalar or lane, indented by `depth`.
 --- @raises when a multiple-result binding calls a helper the body does not
 ---   declare, which is malformed IR rather than anything about the source
-function emit.block(statements: {any}, depth: integer, body: emit.Body): {string}
+function emit.block(statements: {any}, depth: integer, body: emit.Body, repeatContinue: string?): {string}
     local lines: {string} = {}
     local prefix = string.rep("    ", depth)
     local temporary = 0
@@ -7722,7 +7744,13 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
 
     --- Appends the rendering of a nested block.
     local function nested(inner: {any}): nil
-        for _, line in ipairs(emit.block(inner, depth + 1, body)) do
+        for _, line in ipairs(emit.block(inner, depth + 1, body, repeatContinue)) do
+            lines[#lines + 1] = line
+        end
+    end
+
+    local function nestedLoop(inner: {any}): nil
+        for _, line in ipairs(emit.block(inner, depth + 1, body, nil)) do
             lines[#lines + 1] = line
         end
     end
@@ -8158,11 +8186,21 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
             ] = prefix .. "for (int32_t " .. counter .. " = " .. emit.lane(
                 statement.from
             ) .. "; " .. counter .. " <= (int32_t)" .. emit.lane(statement.to) .. "; ++" .. counter .. ") {"
-            nested(statement.body)
+            nestedLoop(statement.body)
             lines[#lines + 1] = prefix .. "}"
         elseif op == "while" then
             lines[#lines + 1] = prefix .. "while (" .. emit.lane(statement.condition) .. ") {"
-            nested(statement.body)
+            nestedLoop(statement.body)
+            lines[#lines + 1] = prefix .. "}"
+        elseif op == "repeat" then
+            body.repeatSerial = (body.repeatSerial or 0) + 1
+            local label = "ks_repeat_continue_" .. tostring(body.repeatSerial)
+            lines[#lines + 1] = prefix .. "while (true) {"
+            for _, line in ipairs(emit.block(statement.body, depth + 1, body, label)) do
+                lines[#lines + 1] = line
+            end
+            lines[#lines + 1] = prefix .. "    " .. label .. ":"
+            lines[#lines + 1] = prefix .. "    if (" .. emit.lane(statement.condition) .. ") break;"
             lines[#lines + 1] = prefix .. "}"
         elseif op == "block" then
             lines[#lines + 1] = prefix .. "{"
@@ -8182,6 +8220,8 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
             else
                 lines[#lines + 1] = prefix .. "return;"
             end
+        elseif op == "continue" and repeatContinue ~= nil then
+            lines[#lines + 1] = prefix .. "goto " .. (repeatContinue as string) .. ";"
         else
             lines[#lines + 1] = prefix .. op .. ";"
         end
@@ -8281,7 +8321,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                     regionLanes(clause.body, found)
                 end
                 regionLanes((statement as scalarIR.If).elseBody or {}, found)
-            elseif statement.op == "while" or statement.op == "block" then
+            elseif statement.op == "while" or statement.op == "repeat" or statement.op == "block" then
                 regionLanes((statement as any).body as {scalarIR.Statement}, found)
             end
         end

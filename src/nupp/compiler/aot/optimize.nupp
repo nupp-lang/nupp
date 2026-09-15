@@ -297,7 +297,7 @@ local function containsBreak(value: any): boolean
     end
     if value.op == "break" then
         return true
-    elseif value.op == "while" or value.op == "fornum" then
+    elseif value.op == "while" or value.op == "repeat" or value.op == "fornum" then
         return false
     end
     for key, child in pairs(value) do
@@ -333,7 +333,11 @@ local function pairedBreaks(statements: {scalarIR.Statement}, found: any): boole
                 return false
             end
             found.breaks = found.breaks + 1
-        elseif statement.op == "continue" or statement.op == "while" or statement.op == "fornum" then
+        elseif statement.op == "continue"
+            or statement.op == "while"
+            or statement.op == "repeat"
+            or statement.op == "fornum"
+        then
             return false
         elseif statement.op == "if" then
             for _, clause in ipairs(statement.clauses) do
@@ -566,7 +570,11 @@ propagateBlock = function(
             if statement.elseBody ~= nil then
                 propagateBlock(statement.elseBody as {scalarIR.Statement}, constants, mutated, state)
             end
-        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+        elseif statement.op == "fornum"
+            or statement.op == "while"
+            or statement.op == "repeat"
+            or statement.op == "block"
+        then
             propagateBlock(value.body as {scalarIR.Statement}, constants, mutated, state)
         end
     end
@@ -621,6 +629,10 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                 else
                     rewritten[#rewritten + 1] = statement
                 end
+            elseif statement.op == "repeat" then
+                local loop = statement as scalarIR.Repeat
+                loop.body = optimizeBlock(loop.body, state)
+                rewritten[#rewritten + 1] = statement
             elseif statement.op == "fornum" then
                 local loop = statement as scalarIR.Fornum
                 loop.body = optimizeBlock(loop.body, state)
@@ -732,6 +744,9 @@ local function removeDead(
             if statement.elseBody ~= nil then
                 statement.elseBody = removeDead(statement.elseBody as {scalarIR.Statement}, state)
             end
+        elseif statement.op == "repeat" then
+            local loop = statement as scalarIR.Repeat
+            loop.body = removeDead(loop.body, state, {loop.condition})
         elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
             (statement as any).body = removeDead((statement as any).body as {scalarIR.Statement}, state)
         end
@@ -783,7 +798,11 @@ local function foldWorkgroupStatements(statements: {scalarIR.Statement}, state: 
                 foldWorkgroupStatements(clause.body, state)
             end
             foldWorkgroupStatements((statement as scalarIR.If).elseBody or {}, state)
-        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+        elseif statement.op == "fornum"
+            or statement.op == "while"
+            or statement.op == "repeat"
+            or statement.op == "block"
+        then
             foldWorkgroupStatements((statement as any).body as {scalarIR.Statement}, state)
         end
     end
@@ -808,7 +827,11 @@ optimizePhaseBodies = function(statements: {scalarIR.Statement}, state: optimize
                 optimizePhaseBodies(clause.body, state)
             end
             optimizePhaseBodies((statement as scalarIR.If).elseBody or {}, state)
-        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+        elseif statement.op == "fornum"
+            or statement.op == "while"
+            or statement.op == "repeat"
+            or statement.op == "block"
+        then
             optimizePhaseBodies((statement as any).body as {scalarIR.Statement}, state)
         end
     end

@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 31
+const scalarIR.VERSION = 32
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -1102,6 +1102,15 @@ record scalarIR.While
     source: scalarIR.Source?
 end
 
+--- A post-tested loop. The condition is the source `until` condition, so the
+--- body repeats while it is false.
+record scalarIR.Repeat
+    op: 'repeat'
+    condition: scalarIR.Expr
+    body: {scalarIR.Statement}
+    source: scalarIR.Source?
+end
+
 record scalarIR.Fornum
     op: 'fornum'
     binding: scalarIR.Binding
@@ -1189,6 +1198,7 @@ type scalarIR.Statement = scalarIR.Simd
     | scalarIR.Phase
     | scalarIR.If
     | scalarIR.While
+    | scalarIR.Repeat
     | scalarIR.Fornum
     | scalarIR.Block
     | scalarIR.Break

@@ -4916,7 +4916,11 @@ local function sharedPhaseCollision(statements: {scalarIR.Statement}): string?
                     inspectBlock(clause.body)
                 end
                 inspectBlock((statement as scalarIR.If).elseBody or {})
-            elseif statement.op == "while" or statement.op == "fornum" or statement.op == "block" then
+            elseif statement.op == "while"
+                or statement.op == "repeat"
+                or statement.op == "fornum"
+                or statement.op == "block"
+            then
                 inspectBlock((statement as any).body as {scalarIR.Statement})
             end
         end
@@ -5502,6 +5506,20 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 cursorBounds = cursor ~= nil and {[cursor as string] = spanName as string} or nil,
                 source = lower.site(stat)
             )
+        elseif kind == "repeatStmt" then
+            -- A repeat body and its condition share one lexical scope: locals
+            -- declared by the body are visible to the trailing `until`.
+            local loop = stat as cst.RepeatStmt
+            local inner = inherit(environment)
+            local body = loop.body as cst.Block?
+            local lowered = lower.block(body ~= nil and (body as cst.Block).stats or {}, inner, kernel)
+            local condition = lower.expression(loop.cond as cst.Node, inner, kernel.index, kernel)
+            if condition.type ~= "bool" then
+                context.reject(lower.site(loop.cond), "native repeat conditions must be boolean")
+            end
+            out[
+                #out + 1
+            ] = new scalarIR.Repeat(op = "repeat", condition = condition, body = lowered, source = lower.site(stat))
         elseif kind == "doStmt" then
             out[
                 #out + 1
@@ -7094,7 +7112,11 @@ function lower.program(
                         countPhases(clause.body)
                     end
                     countPhases((statement as scalarIR.If).elseBody or {})
-                elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+                elseif statement.op == "fornum"
+                    or statement.op == "while"
+                    or statement.op == "repeat"
+                    or statement.op == "block"
+                then
                     countPhases((statement as any).body as {scalarIR.Statement})
                 end
             end

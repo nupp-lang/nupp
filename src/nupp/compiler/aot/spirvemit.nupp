@@ -837,6 +837,7 @@ function spirv.program(
                 })
                 name(pointer, statement.cName)
             elseif statement.op == "while"
+                or statement.op == "repeat"
                 or statement.op == "fornum"
                 or statement.op == "block"
                 or statement.op == "phase"
@@ -1373,6 +1374,29 @@ function spirv.program(
                 end
                 instruction(functions, OP.Label, {continuing})
                 instruction(functions, OP.Branch, {header})
+                instruction(functions, OP.Label, {merge})
+                terminated = false
+                readonlyReferenceValues = {}
+            elseif op == "repeat" then
+                readonlyReferenceValues = {}
+                local header, body, continuing, merge = id(), id(), id(), id()
+                instruction(functions, OP.Branch, {header})
+                instruction(functions, OP.Label, {header})
+                instruction(functions, OP.LoopMerge, {merge, continuing, 0})
+                instruction(functions, OP.Branch, {body})
+                instruction(functions, OP.Label, {body})
+                currentBreak[#currentBreak + 1] = merge
+                currentContinue[#currentContinue + 1] = continuing
+                terminated = false
+                statements(statement.body)
+                currentBreak[#currentBreak] = nil
+                currentContinue[#currentContinue] = nil
+                if not terminated then
+                    instruction(functions, OP.Branch, {continuing})
+                end
+                instruction(functions, OP.Label, {continuing})
+                local condition = expression(statement.condition)
+                instruction(functions, OP.BranchConditional, {condition, merge, header})
                 instruction(functions, OP.Label, {merge})
                 terminated = false
                 readonlyReferenceValues = {}

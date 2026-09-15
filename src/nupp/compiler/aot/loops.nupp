@@ -11,7 +11,7 @@ local loops = {}
 
 record loops.Report
     id: integer
-    kind: 'map' | 'fornum' | 'while'
+    kind: 'map' | 'fornum' | 'while' | 'repeat'
     line: integer
     column: integer
     nodes: integer
@@ -69,6 +69,7 @@ local STATEMENTS: {
     lua_builder_string_escapes = true,
     ["if"] = true,
     ["while"] = true,
+    ["repeat"] = true,
     fornum = true,
     block = true,
     ["break"] = true,
@@ -121,7 +122,7 @@ end
 
 local function append(
     reports: {loops.Report},
-    kind: 'map' | 'fornum' | 'while',
+    kind: 'map' | 'fornum' | 'while' | 'repeat',
     source: scalarIR.Source?,
     value: any,
     outcome: 'lowered' | 'declined' | 'refused' | 'explicit-simd' | 'scalar',
@@ -148,7 +149,7 @@ end
 
 local function structured(statements: {scalarIR.Statement}, reports: {loops.Report}): nil
     for _, statement in ipairs(statements) do
-        if statement.op == "while" or statement.op == "fornum" then
+        if statement.op == "while" or statement.op == "repeat" or statement.op == "fornum" then
             local counts = measurements(statement)
             local explicit = counts.simdOperations > 0
             local reason: string? = nil

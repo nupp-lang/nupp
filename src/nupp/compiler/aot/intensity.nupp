@@ -180,7 +180,7 @@ function intensity.estimate(program: scalarIR.Program): intensity.Estimate
                 countBlock(clause.body, weight)
             end
             countBlock(statement.elseBody, weight)
-            local inner = statement.op == "while" or statement.op == "fornum"
+            local inner = statement.op == "while" or statement.op == "repeat" or statement.op == "fornum"
             countBlock(statement.body, inner and weight * lane.INNER_LOOP_WEIGHT or weight)
         end
     end

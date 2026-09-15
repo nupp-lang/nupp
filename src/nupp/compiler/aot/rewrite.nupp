@@ -973,7 +973,7 @@ statementReads = function(statement: any, reads: {[string]: boolean}): nil
         for _, inner in ipairs(statement.elseBody or {}) do
             statementReads(inner, reads)
         end
-    elseif operation == "while" then
+    elseif operation == "while" or operation == "repeat" then
         exprReads(statement.condition, reads)
         for _, inner in ipairs(statement.body) do
             statementReads(inner, reads)
@@ -1220,7 +1220,7 @@ end
 --- lane can stop part way through an iteration and resume the next, so its state
 --- is live across that boundary and assigning to it unmasked would be observable.
 function rewrite.loopContext(
-    statement: scalarIR.While,
+    statement: scalarIR.While | scalarIR.Repeat,
     observable: {[string]: boolean},
     block: rewrite.BlockState,
     state: rewrite.State
@@ -1331,7 +1331,7 @@ function rewrite.markVarying(statements: {any}, state: rewrite.State): nil
                 if statement.elseBody ~= nil then
                     mark(statement.elseBody, branchControlled)
                 end
-            elseif op == "while" then
+            elseif op == "while" or op == "repeat" then
                 local diverges = rewrite.varying(statement.condition, state) or divergentExit(statement.body, false)
                 mark(statement.body, controlled or diverges)
             elseif op == "block" then
@@ -1858,6 +1858,76 @@ function rewrite.block(
                     source = statement.source
                 )
             end
+        elseif op == "repeat" then
+            -- Every reaching lane executes the body once. At the bottom, the
+            -- source `until` condition retires lanes for which it is true.
+            local repeated = statement as scalarIR.Repeat
+            local context = rewrite.loopContext(repeated, readsAfter[position] or {}, block, state)
+            local tested = rewrite.internalMask("until", repeated.source, block, state)
+            local untilMask = rewrite.conditionMask(repeated.condition, state)
+            local initial = rewrite.boolMask(
+                new scalarIR.Bool(op = "bool", value = true, type = "bool", source = repeated.source),
+                state
+            )
+            out[
+                #out + 1
+            ] = new lane.Let(
+                op = "let",
+                name = tested.name,
+                cName = tested.cName,
+                value = rewrite.boolMask(
+                    new scalarIR.Bool(op = "bool", value = false, type = "bool", source = repeated.source),
+                    state
+                ),
+                type = state.shape.mask,
+                source = repeated.source
+            )
+            local body = rewrite.block(
+                repeated.body,
+                rewrite.maskLocal(context.executing, repeated.source, state),
+                context,
+                nil,
+                block,
+                state
+            )
+            markRetirementExit(body)
+            local target = new lane.LocalTarget(kind = "local", name = tested.name, cName = tested.cName)
+            local live = rewrite.maskLocal(context.live, repeated.source, state)
+            local kept = rewrite.maskAnd(
+                rewrite.maskNot(live, repeated.source, state),
+                rewrite.maskLocal(tested, repeated.source, state),
+                repeated.source,
+                state
+            )
+            body[
+                #body + 1
+            ] = {
+                op = "vassign",
+                values = {
+                    {
+                        target = target,
+                        value = new lane.MaskOp(
+                            op = "vmask",
+                            verb = "or",
+                            args = {rewrite.maskAnd(live, untilMask, repeated.source, state), kept,},
+                            type = state.shape.mask,
+                            source = repeated.source
+                        ),
+                    },
+                },
+                source = repeated.source,
+            }
+            out[
+                #out + 1
+            ] = new lane.While(
+                op = "vwhile",
+                live = context.live,
+                executing = context.executing,
+                initial = rewrite.maskAnd(statementMask, initial, repeated.source, state),
+                condition = rewrite.maskNot(rewrite.maskLocal(tested, repeated.source, state), repeated.source, state),
+                body = body,
+                source = repeated.source
+            )
         elseif op == "fornum" then
             local varyingBounds = rewrite.varying(statement.from, state) or rewrite.varying(statement.to, state)
             if not varyingBounds and not rewrite.containsExit(statement.body) then

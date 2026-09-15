@@ -344,6 +344,7 @@ local CONTROL_OPS: {
     multi_let = true,
     ["if"] = true,
     ["while"] = true,
+    ["repeat"] = true,
     fornum = true,
     block = true,
     ["break"] = true,

@@ -389,6 +389,11 @@ function visit.statementExpressions(node: scalarIR.Statement, rewrite: visit.Sca
             value.condition = rewrite(value.condition)
             yield nil
         end
+        case "repeat" -> do
+            local value = node as scalarIR.Repeat
+            value.condition = rewrite(value.condition)
+            yield nil
+        end
         case "fornum" -> do
             local value = node as scalarIR.Fornum
             value.from = rewrite(value.from)
@@ -423,7 +428,12 @@ scalarStatement = function(node: scalarIR.Statement, visitor: visit.Visitor): ni
         if value.elseBody ~= nil then
             scalarBlock(value.elseBody as {scalarIR.Statement}, visitor)
         end
-    elseif node.op == "while" or node.op == "fornum" or node.op == "block" or node.op == "phase" then
+    elseif node.op == "while"
+        or node.op == "repeat"
+        or node.op == "fornum"
+        or node.op == "block"
+        or node.op == "phase"
+    then
         scalarBlock((node as any).body as {scalarIR.Statement}, visitor)
     end
 end
