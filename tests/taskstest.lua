@@ -81,7 +81,9 @@ function M.childrenRunConcurrentlyAndAwaitAnswersEachOne()
    local started = time.now()
    local first, second
    scoped(nil, function(scope)
-      local a = scope:spawnNamed("a", function() time.sleep(40) return "a" end)
+      -- Library order again: the named overload takes the callable first, and the
+      -- compiler routes it to this member so the two need no runtime test.
+      local a = scope:_spawnNamed(function() time.sleep(40) return "a" end, "a")
       local b = scope:spawn(function() time.sleep(40) return "b" end)
       first, second = a:await(), b:await()
    end)
@@ -483,10 +485,10 @@ function M.aNamedChildIsTheOperationAStuckHostSees()
    do
       local handling = suspension.install(handler)
       scoped(nil, function(scope)
-         local child = scope:spawnNamed("load the atlas", function()
+         local child = scope:_spawnNamed(function()
             time.sleep(10)
             return true
-         end)
+         end, "load the atlas")
          child:await()
       end)
       handling:drop()

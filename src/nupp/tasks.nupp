@@ -46,7 +46,7 @@ scope is cancelled.
 ```nupp
 local total = 0
 with scope = nupp.tasks.open(deadline = 1000) do
-    const sum = scope:spawnNamed("sum values", function(): integer
+    const sum = scope:spawn("sum values", function(): integer
         local answer = 0
         for value = 1, 1000 do
             nupp.tasks.checkpoint()
@@ -230,6 +230,14 @@ type tasks.Task<F> = TaskType(F)
 --- capability cannot be tracked through a runtime table: an owner would be consumed
 --- at the spawn and a borrow would outlive its proof. A plain value is what a child
 --- can be handed.
+--- A body a name may be given to: one taking no arguments, whatever it returns.
+---
+--- The named form of `spawn` and the ordinary one are told apart by this and nothing
+--- else. `scope:spawn(url, measure)` hands `url` to a body that takes one, and
+--- `scope:spawn("fetch page", body)` names a body that takes none, so no call can
+--- read as both.
+local type Nullary = function(): any
+
 local comptime function Parameters(F: type): typepack
     if nupp.types.kind(F) ~= "function" then
         return nupp.types.error("a task must name a function type")
@@ -256,15 +264,25 @@ record tasks.Scope
     --- what callers use, and a record needs somewhere to keep this.
     _state: any
 
-    --- Starts a child under this scope: `scope:spawn(arguments..., f)`.
+    --- Starts a child under this scope: `scope:spawn(arguments..., f)`, or
+    --- `scope:spawn(name, f)` to name one that takes no arguments.
     spawn: function<F>(
         borrows self: tasks.Scope,
         takes body: F,
         ...: unpackof Parameters(F)
     ): tasks.Task<F> borrows (self)
+        & function<F is Nullary>(borrows self: tasks.Scope, takes body: F, name: string): tasks.Task<F> borrows (self)
 
-    --- Starts a named child under this scope.
-    spawnNamed: function<F>(borrows self: tasks.Scope, name: string, takes body: F): tasks.Task<F> borrows (self)
+    --- Where the named overload of [](nupp.tasks.Scope.spawn) lands.
+    ---
+    --- The two forms are the same shape at run time -- a body and one more value --
+    --- so the compiler routes the named one here rather than leaving a type test in
+    --- everything that spawns.
+    _spawnNamed: function<F is Nullary>(
+        borrows self: tasks.Scope,
+        takes body: F,
+        name: string
+    ): tasks.Task<F> borrows (self)
 
     --- Starts a child on a worker lane: `scope:fork(arguments..., f)`.
     fork: function<F is Submittable>(
@@ -1061,10 +1079,10 @@ local spawnSurface: function<F>(
     takes body: F,
     ...: unpackof Parameters(F)
 ): tasks.Task<F> borrows (self)
-local spawnNamedSurface: function<F>(
+local spawnNamedSurface: function<F is Nullary>(
     borrows self: tasks.Scope,
-    name: string,
-    takes body: F
+    takes body: F,
+    name: string
 ): tasks.Task<F> borrows (self)
 local forkSurface: function<F is Submittable>(
     borrows self: tasks.Scope,
@@ -1080,7 +1098,7 @@ unsafe do
     spawnSurface = function(scope: tasks.Scope, body: any, ...: any): any
         return spawnChild(scope, "a task", body, select("#", ...) > 0 and pack(...) or nil)
     end as any
-    spawnNamedSurface = function(scope: tasks.Scope, name: string, body: any): any
+    spawnNamedSurface = function(scope: tasks.Scope, body: any, name: string): any
         return spawnChild(scope, name, body, nil)
     end as any
     forkSurface = forkImpl as any
@@ -1101,35 +1119,27 @@ end
 --- Where the scope was opened with a `limit`, this parks while that many children
 --- are live, so the loop that spawns is what the bound throttles.
 ---
+--- A body that takes no arguments may be given a name instead, which is what a stuck
+--- host reports for the child and what its cancellation renders. A name and an
+--- argument never read as each other, because only a body expecting nothing can be
+--- named and only a body expecting something can be given one.
+---
 --- ```nupp
 --- const page = scope:spawn(function(): string return fetchPage() end)
 --- const size = scope:spawn(url, measure)
+--- const report = scope:spawn("build report", buildReport)
 --- ```
 ---
 --- @param body what the child runs
---- @param ... what `body` is called with
+--- @param ... what `body` is called with, or the child's name where it takes nothing
 --- @return the handle for its result
 --- @raises the scope's failure, or its cancellation where a deadline passed
 unsafe do
     tasks.Scope.spawn = spawnSurface as any
 end
 
---- Starts a named child under this scope.
----
---- The name is what a stuck host reports for this child and what its cancellation
---- renders, which is the whole of its job: it is metadata rather than an input, so
---- it gets its own entry point instead of an overload that would answer arity
---- diagnostics about a name nobody meant to pass.
----
---- ```nupp
---- const page = scope:spawnNamed("fetch page", function(): string return fetchPage() end)
---- ```
----
---- @param name what this child is, for diagnostics and cancellation
---- @param body what the child runs
---- @return the handle for its result
 unsafe do
-    tasks.Scope.spawnNamed = spawnNamedSurface as any
+    tasks.Scope._spawnNamed = spawnNamedSurface as any
 end
 
 --- Starts a child on a worker lane.

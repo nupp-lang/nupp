@@ -86,7 +86,13 @@ local type CompilerSurface = {
 
     --- Whether that trailing callable is a sendable position, so an inline literal
     --- there is outlined for another Lua state without an annotation.
-    sendableLast: boolean?
+    sendableLast: boolean?,
+
+    --- The runtime member each overload after the first lands on, indexed the way the
+    --- declaration writes them. Two overloads of one name are the same shape at run
+    --- time here -- a callable and one more value -- so routing the selected one is
+    --- what keeps a type test out of the emitted call.
+    overloadMembers: {[integer]: string}?
 }
 
 --- The call surfaces the compiler owns on the standard library's behalf, by public
@@ -105,7 +111,10 @@ local COMPILER_SURFACES: {
     [
         "nupp.tasks"
     ] = {
-        Scope = {spawn = {rotate = true,}, fork = {effect = "runtime.workers", rotate = true, sendableLast = true,},},
+        Scope = {
+            spawn = {rotate = true, overloadMembers = {[2] = "_spawnNamed"},},
+            fork = {effect = "runtime.workers", rotate = true, sendableLast = true,},
+        },
     },
 }
 
@@ -2196,6 +2205,19 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             forwardProtocol(node)
             if rotated and originalExprs then
                 (callArgs as cst.Args).exprs = originalExprs
+            end
+            if rotated and surface and surface.overloadMembers then
+                -- Which candidate survived is the checker's answer, so the emitted
+                -- member follows it rather than a second reading of the arguments.
+                local chosen: any = (node as any).overloadWinner
+                for index, candidate in ipairs((node as any).overloadCandidates or {}) do
+                    if candidate == chosen then
+                        local routed = surface.overloadMembers[index]
+                        if routed ~= nil then
+                            (node as any).trailingCallableMember = routed
+                        end
+                    end
+                end
             end
             if nominal ~= nil and origin ~= nil and (
                 origin.moduleName or (nominal as T.Nominal).moduleName or origin.sealedModule

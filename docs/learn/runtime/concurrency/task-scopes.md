@@ -14,7 +14,7 @@ unfinished siblings and becomes the scope's failure.
 export function load(): string
     local loaded = ""
     with scope = nupp.tasks.open() do
-        const atlas = scope:spawnNamed("load atlas", function(): string
+        const atlas = scope:spawn("load atlas", function(): string
             return readAtlas()
         end)
         const settings = scope:spawn(function(): string
