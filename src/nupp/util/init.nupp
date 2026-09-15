@@ -7,7 +7,7 @@ A member here is one type and the few functions that hand it out, reached by the
 name of the type rather than by a module of its own: `nupp.util.Bitset` is a set
 of bit positions, `nupp.util.Store` is a bag of values indexed by typed keys, and
 `nupp.util.Pool` leases cleared record instances from a free list. `uuid4` and
-`uuid7` generate identifiers.
+`uuid7` generate identifiers, and `fnv1a64` hashes bytes.
 Nothing here holds state a program does not create itself, and only the two uuid
 functions reach a host provider at all.
 
@@ -39,6 +39,7 @@ built program declares its ABI even when it only wanted a bitset.
 ]]
 
 local bitset = require("nupp.util.internal.bitset")
+local hash = require("nupp.util.internal.hash")
 local pool = require("nupp.util.internal.pool")
 local uuid = require("nupp.util.internal.uuid")
 local store = require("nupp.util.internal.store")
@@ -82,6 +83,9 @@ export const registeredKeys = store.registeredKeys
 
 --- Creates an empty store.
 export const newStore = store.newStore
+
+--- Hashes bytes with FNV-1a over 64 bits, as sixteen hexadecimal digits.
+export const fnv1a64 = hash.fnv1a64
 
 --- Generates a random version 4 UUID, hyphenated and lowercase.
 export const uuid4 = uuid.uuid4

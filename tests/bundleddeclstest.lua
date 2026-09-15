@@ -73,21 +73,21 @@ function M.uuidUsesItsContractWithoutNativeCompilerServices()
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})
     local uuid = assert(env.resolveModule(env, "nupp.util"))
     local provider = assert(env.resolveModule(env, "nupp.runtime.uuid"))
-    assertEq(uuid.byname.v4.tag, "func", "v4 has a checked function signature")
-    assertEq(uuid.byname.v4.rets[1].tag, "string", "v4 returns a string")
+    assertEq(uuid.byname.uuid4.tag, "func", "uuid4 has a checked function signature")
+    assertEq(uuid.byname.uuid4.rets[1].tag, "string", "uuid4 returns a string")
     assertEq(
-        relations.isA(uuid.byname.v4, provider.byname.uuid4),
+        relations.isA(uuid.byname.uuid4, provider.byname.uuid4),
         true,
-        "v4 satisfies the canonical contract signature"
+        "uuid4 satisfies the canonical contract signature"
     )
     assertEq(
-        relations.isA(uuid.byname.v7, provider.byname.uuid7),
+        relations.isA(uuid.byname.uuid7, provider.byname.uuid7),
         true,
-        "v7 satisfies the canonical contract signature"
+        "uuid7 satisfies the canonical contract signature"
     )
     assertEq(uuid.byname.randomBytes, nil, "unrelated operations are absent")
     local exports = assert(env.resolveModuleExports(env, "nupp.util"))
-    assertEq(exports.values.v4, uuid.byname.v4, "module and export resolution agree")
+    assertEq(exports.values.uuid4, uuid.byname.uuid4, "module and export resolution agree")
     assertEq(rawget(env.bundled, "nupp.runtime.provider.nativeuuid"), nil, "the native implementation was not loaded")
 end
 

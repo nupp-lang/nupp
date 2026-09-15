@@ -1,4 +1,4 @@
-module nupp.hash
+module nupp.util.internal.hash
 
 --[[General-purpose noncryptographic hashing. For message digests use nupp.digest;
 for error-detection checksums use nupp.checksum.]]

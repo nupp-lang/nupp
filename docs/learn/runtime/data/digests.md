@@ -6,7 +6,7 @@ title: Digests and checksums
 # Digests and checksums
 
 Message digests produce fixed-size opaque bytes. Checksums produce numeric
-error-detection values. General-purpose hashes such as FNV live in `nupp.hash`.
+error-detection values. General-purpose hashes such as FNV are [](nupp.util.fnv1a64).
 Base64 and hexadecimal are reversible codecs.
 
 ## Incremental digests

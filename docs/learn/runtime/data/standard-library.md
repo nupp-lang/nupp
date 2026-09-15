@@ -60,7 +60,6 @@ intrinsic namespaces and the declared modules:
   provider lookup, output-size metadata and consuming finalization.
 - [](nupp.checksum) provides Adler-32 and explicitly named CRC variants as
   numeric values; protocols choose their serialization byte order.
-- [](nupp.hash) provides general-purpose FNV-1a hashing.
 - [](nupp.mac) provides keyed authentication, including HMAC-SHA256.
 - [](nupp.codec.json), [](nupp.codec.base64) and [](nupp.codec.hex) encode and
   decode representations. [](nupp.codec.valuebuilder) supports codec authors.
@@ -70,8 +69,9 @@ intrinsic namespaces and the declared modules:
   growable set of bit positions, and [](nupp.util.Store) is a bag of values
   indexed by the typed keys [](nupp.util.newKey) hands out.
   [](nupp.util.Pool) leases cleared record instances of one declared type from a
-  free list. [](nupp.util.uuid4) and [](nupp.util.uuid7) generate identifiers, and
-  are the only members here that reach a host provider.
+  free list. [](nupp.util.fnv1a64) hashes bytes with FNV-1a. [](nupp.util.uuid4) and
+  [](nupp.util.uuid7) generate identifiers, and are the only members here that reach
+  a host provider.
 - [](nupp.system) reports execution platform, architecture, endianness, pointer
   width and available parallelism, independently of the worker scheduler.
 - [](nupp.io.storage) provides persistent key-value storage through the require-time
