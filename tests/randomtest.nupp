@@ -93,8 +93,10 @@ function M.drawsRangesAndDeterministicPermutations(): nil
 
     local first = {1, 2, 3, 4, 5, 6, 7, 8}
     local second = {1, 2, 3, 4, 5, 6, 7, 8}
-    local returned = new random.Xoshiro128(99):shuffle(first)
-    new random.Xoshiro128(99):shuffle(second)
+    local shuffler = new random.Xoshiro128(99)
+    local returned = shuffler:shuffle(first)
+    local again = new random.Xoshiro128(99)
+    again:shuffle(second)
     assert(returned == first)
     assertSame(first, second)
 end
