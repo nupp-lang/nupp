@@ -191,7 +191,7 @@ assert(first == second and calls == 1)
 Metadata is supplied by a model builder or derive. Extensions differ by
 computing a derived value lazily from their host. Successful extension values
 and failures are cached, and recursive initialization reports an error. An
-extension key is an anonymous [`nupp.store.Key`](standard-library.md), and hosts
+extension key is an anonymous [`nupp.util.Key`](standard-library.md), and hosts
 cache extension state by its id rather than by key-object identity. Ids are
 acceleration values: their numbers may change with module initialization order
 and are never persistent metadata identifiers. JSON uses schema extensions for
@@ -200,7 +200,7 @@ not leak into the logical schema.
 
 ## Persisting a store
 
-A [`nupp.store.Store`](standard-library.md) holds live values under typed keys,
+A [`nupp.util.Store`](standard-library.md) holds live values under typed keys,
 and its keys persist by name. `serde.key` declares a named key whose value
 type comes from the binding that will carry it, so no annotation is needed,
 and `saveStore` and `loadStore` move the store through plain values:
@@ -216,13 +216,13 @@ end
 
 local settings = serde.key("game.settings", serde.of(Settings)) -- Key<Settings>
 
-local store = nupp.store.newStore()
+local store = nupp.util.newStore()
 store:set(settings, new Settings(volume = 0.5, fullscreen = false))
 local saved = serde.saveStore(store)
 assert(saved["game.settings"].volume == 0.5)
 local text = nupp.codec.json.encode(saved)
 
-local restored = nupp.store.newStore()
+local restored = nupp.util.newStore()
 serde.loadStore(restored, nupp.codec.json.decode(text) as {[string]: any})
 local back = restored:get(settings)
 assert(back ~= nil and back.volume == 0.5)
@@ -231,7 +231,7 @@ assert(back ~= nil and back.volume == 0.5)
 `saveStore` walks the occupied keys and encodes each value through its
 binding, under the key's name, into the document a JSON codec with default
 field names would write. An occupied key that is anonymous or was declared
-with `nupp.store.newKey` rather than `serde.key` raises, naming the key: a save
+with `nupp.util.newKey` rather than `serde.key` raises, naming the key: a save
 that silently drops state is worse than one that fails. `loadStore` looks each
 name up in this runtime state's registry, raises for one that is not
 registered or has no binding, decodes the value through that key's binding,

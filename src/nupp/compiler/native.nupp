@@ -195,8 +195,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.bitset"
     ] = {
         name = "bitset",
-        module = "nupp.bitset",
-        runtimeModule = "nupp.bitset",
+        module = "nupp.util.internal.bitset",
+        runtimeModule = "nupp.util.internal.bitset",
         portableRuntime = true,
         requires = {"runtime.cstorage", "runtime.bitops"},
     },

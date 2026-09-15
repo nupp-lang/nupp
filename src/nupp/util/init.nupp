@@ -1,0 +1,59 @@
+module nupp.util
+
+--[[
+Small general-purpose types that belong to no larger facility.
+
+A member here is one type and the few functions that hand it out, reached by the
+name of the type rather than by a module of its own: `nupp.util.Bitset` is a set
+of bit positions, and `nupp.util.Store` is a bag of values indexed by typed keys.
+Nothing here is a facade over a provider, and nothing here holds state a program
+does not create itself.
+
+```nupp
+local set = new nupp.util.Bitset(128)
+set:add(7)
+
+local store = nupp.util.newStore()
+const theme: nupp.util.Key<string> = nupp.util.newKey("app.theme")
+store:set(theme, "dark")
+```
+
+Unlike [](nupp.mem), which keeps every member a module of its own, the types are
+re-exported here, so reaching one loads both. That is affordable because both are
+small and neither resolves a provider while it loads.
+]]
+
+local bitset = require("nupp.util.internal.bitset")
+local store = require("nupp.util.internal.store")
+
+--- A growable set of bit positions counting from 0.
+export type Bitset = bitset.Bitset
+
+export const Bitset = bitset.Bitset
+
+--- The bits one word of a [](Bitset) holds.
+export const WORD_BITS = bitset.WORD_BITS
+
+--- A typed identity for one value in a [](Store).
+export type Key<T> = store.Key<T>
+
+--- An independent typed bag indexed by keys.
+export type Store = store.Store
+
+--- The step of [](registeredKeys).
+export type KeyStep = store.KeyStep
+
+--- The step of [](Store.entries).
+export type StoreStep = store.StoreStep
+
+--- Registers a new key, optionally under a name.
+export const newKey = store.newKey
+
+--- Answers the key registered under a name, or nil.
+export const findKey = store.findKey
+
+--- Walks every registered key ascending by id.
+export const registeredKeys = store.registeredKeys
+
+--- Creates an empty store.
+export const newStore = store.newStore

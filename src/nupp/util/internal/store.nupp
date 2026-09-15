@@ -1,4 +1,4 @@
-module nupp.store
+module nupp.util.internal.store
 
 --[[
 Typed keys and the stores they index.
@@ -12,7 +12,7 @@ in declaration order and identify a key inside this state only; the name is the
 identity that persists.
 ]]
 
---- A typed identity for one value in a [](nupp.store.Store).
+--- A typed identity for one value in a [](nupp.util.Store).
 ---
 --- `id` and `name` are all a key holds at runtime. `_valueType` is never
 --- present: it mentions `T` in both positions so that keys are invariant, which
@@ -91,7 +91,7 @@ export function findKey(name: string): unknown
     return named[name]
 end
 
---- The step of [](nupp.store.registeredKeys).
+--- The step of [](nupp.util.registeredKeys).
 ---
 --- Terminating on nil is the generic for's business, so the surface type
 --- promises what the loop delivers rather than what the last call returns.

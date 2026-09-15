@@ -37,7 +37,7 @@ const {type Buffer} = require("nupp.text.buffer")
 const {type Writer} = require("nupp.codec.json")
 
 local extensions = require("nupp.compiler.runtime.extensions")
-local store = require("nupp.store")
+local store = require("nupp.util.internal.store")
 
 ----------------------------------------------------------------------------
 -- The logical vocabulary
@@ -75,7 +75,7 @@ end
 
 --- A typed identity for format-neutral schema metadata.
 ---
---- It is a [](nupp.store.Key): its id is process-local, so applications retain
+--- It is a [](nupp.util.Key): its id is process-local, so applications retain
 --- the key, never its number, and may use the same key with static and run-time
 --- schemas.
 --- @export
@@ -1792,7 +1792,7 @@ local persistedKeys: {[integer]: any} = {}
 
 --- Declares a named key whose value type is fixed by the binding that persists it.
 ---
---- The key is registered as `nupp.store.newKey` registers one, so the name is
+--- The key is registered as `nupp.util.newKey` registers one, so the name is
 --- opaque and unique, and the binding is retained so `saveStore` and
 --- `loadStore` can carry the value under that name.
 --- @param name the opaque name to register

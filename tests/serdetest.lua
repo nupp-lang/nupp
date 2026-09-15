@@ -706,10 +706,10 @@ local record Settings
 end
 const serde = nupp.serde
 local settings = serde.key("fixture.persisted.settings", serde.of(Settings))
-local store = nupp.store.newStore()
+local store = nupp.util.newStore()
 store:set(settings, new Settings(volume = 0.5))
 store:set(settings, "loud")
-local widened: nupp.store.Key<string> = settings
+local widened: nupp.util.Key<string> = settings
 print(widened)
 ]=]
     )
@@ -735,11 +735,11 @@ local record Settings
 end
 const serde = nupp.serde
 local settings = serde.key("test.persisted.settings", serde.of(Settings))
-local sourceStore = nupp.store.newStore()
+local sourceStore = nupp.util.newStore()
 sourceStore:set(settings, new Settings(volume = 0.5, fullscreen = false))
 local saved = serde.saveStore(sourceStore)
 local text = nupp.codec.json.encode(saved)
-local restored = nupp.store.newStore()
+local restored = nupp.util.newStore()
 serde.loadStore(restored, nupp.codec.json.decode(text) as {[string]: any})
 local back = restored:get(settings)
 local decoded = nupp.codec.json.decode(text) as {[string]: any}
@@ -771,14 +771,14 @@ local record Settings
 end
 const serde = nupp.serde
 local settings = serde.key("test.persisted.unbound.settings", serde.of(Settings))
-local plain: nupp.store.Key<integer> = nupp.store.newKey("test.persisted.unbound.plain")
-local anonymous: nupp.store.Key<integer> = nupp.store.newKey(nil)
-local function saving(store: nupp.store.Store): (boolean, any)
+local plain: nupp.util.Key<integer> = nupp.util.newKey("test.persisted.unbound.plain")
+local anonymous: nupp.util.Key<integer> = nupp.util.newKey(nil)
+local function saving(store: nupp.util.Store): (boolean, any)
     return pcall(function(): {[string]: any}
         return serde.saveStore(store)
     end)
 end
-local store = nupp.store.newStore()
+local store = nupp.util.newStore()
 store:set(settings, new Settings(volume = 1))
 local okBound = saving(store)
 store:set(plain, 1)
@@ -805,8 +805,8 @@ function M.loadingRejectsUnregisteredNames()
     local result = run(
         [=[
 const serde = nupp.serde
-local store = nupp.store.newStore()
-local plain: nupp.store.Key<integer> = nupp.store.newKey("test.persisted.load.plain")
+local store = nupp.util.newStore()
+local plain: nupp.util.Key<integer> = nupp.util.newKey("test.persisted.load.plain")
 local function loading(saved: {[string]: any}): (boolean, any)
     return pcall(function(): nil
         serde.loadStore(store, saved)

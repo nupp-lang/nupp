@@ -1916,7 +1916,7 @@ record nupp.reflect
     --- A typed identity for data derived lazily from a reflection descriptor,
     --- schema, or binding.
     ---
-    --- It has the shape of `nupp.store.Key<T>`, declared here because the prelude
+    --- It has the shape of `nupp.util.Key<T>`, declared here because the prelude
     --- is read before any module is. `_valueType` is never present; it mentions
     --- `T` in both positions so that keys are invariant.
     interface ExtensionKey<T>

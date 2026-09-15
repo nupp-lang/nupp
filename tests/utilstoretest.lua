@@ -1,4 +1,4 @@
--- Behavioural tests for nupp.store keys and stores, and the checker fixtures
+-- Behavioural tests for nupp.util keys and stores, and the checker fixtures
 -- that hold a key to its value type.
 --
 -- A key is a phantom-typed identity over an integer id; a store is one table
@@ -8,7 +8,7 @@
 -- declaration every caller writes.
 
 local check = require("assert")
-local data = require("nupp.store")
+local data = require("nupp.util")
 local parser = require("nupp.compiler.parser")
 local fragment = require("fragment")
 local envMod = require("nupp.compiler.env")
@@ -199,9 +199,9 @@ local PRELUDE = [=[
 local record State
     frames: integer
 end
-local frames: nupp.store.Key<integer> = nupp.store.newKey("fixture.frames")
-local state: nupp.store.Key<State> = nupp.store.newKey("fixture.state")
-local store = nupp.store.newStore()
+local frames: nupp.util.Key<integer> = nupp.util.newKey("fixture.frames")
+local state: nupp.util.Key<State> = nupp.util.newKey("fixture.state")
+local store = nupp.util.newStore()
 ]=]
 
 function M.annotatedDeclarationsTypeTheKey()
@@ -235,14 +235,14 @@ end
 
 function M.keysNeitherWidenNorNarrow()
     check.equal(codes(PRELUDE .. [=[
-local wide: nupp.store.Key<number> = frames
+local wide: nupp.util.Key<number> = frames
 print(wide)
 ]=])[1], "NUPP2001")
     check.equal(
         codes(
             PRELUDE
             .. [=[
-local narrow: nupp.store.Key<integer> = nupp.store.newKey("fixture.number") as nupp.store.Key<number>
+local narrow: nupp.util.Key<integer> = nupp.util.newKey("fixture.number") as nupp.util.Key<number>
 print(narrow)
 ]=]
         )[1],
@@ -263,7 +263,7 @@ function M.lookupRequiresACast()
     check.equal(
         codes(
             PRELUDE .. [=[
-local direct: nupp.store.Key<integer>? = nupp.store.findKey("fixture.frames")
+local direct: nupp.util.Key<integer>? = nupp.util.findKey("fixture.frames")
 print(direct)
 ]=]
         )[1],
@@ -273,7 +273,7 @@ print(direct)
         #errors(
             PRELUDE
             .. [=[
-local found = nupp.store.findKey("fixture.frames") as nupp.store.Key<integer>
+local found = nupp.util.findKey("fixture.frames") as nupp.util.Key<integer>
 store:set(found, 2)
 print(store:get(found))
 ]=]
@@ -291,7 +291,7 @@ function M.anUnannotatedKeyIsGradual()
         #errors(
             PRELUDE
             .. [=[
-local loose = nupp.store.newKey("fixture.loose")
+local loose = nupp.util.newKey("fixture.loose")
 store:set(loose, 7)
 local text: string? = store:get(loose)
 print(text)

@@ -659,7 +659,7 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(aliased["runtime.system"], "requiring a facility records its feature")
     assert(not aliased["runtime.uuid"], "separate facilities do not share effects")
 
-    local namespaceOnly = effectsOf("local store = nupp.store")
+    local namespaceOnly = effectsOf("local store = nupp.util.newStore")
     assert(next(namespaceOnly) == nil, "reaching a namespace alone has no effect")
 end
 
@@ -869,7 +869,7 @@ function M.bitsetsReachTheCheckedModule()
     local chunk = assert(
         loadstring(
             [[
-      local data = require("nupp.bitset")
+      local data = require("nupp.util.internal.bitset")
       local function bitset(bits) return data.Bitset.__nuppCtor1(bits) end
       local set = bitset(64)
       assert(set:count() == 0)

@@ -67,7 +67,9 @@ intrinsic namespaces and the declared modules:
   decode representations. [](nupp.codec.valuebuilder) supports codec authors.
 - [](nupp.text.utf8) validates and walks UTF-8 text.
 - [](nupp.serde) binds application types to reusable serialization schemas.
-- [](nupp.store) owns typed keys and stores; [](nupp.bitset) owns bitsets.
+- [](nupp.util) owns the small general-purpose types: [](nupp.util.Bitset) is a
+  growable set of bit positions, and [](nupp.util.Store) is a bag of values
+  indexed by the typed keys [](nupp.util.newKey) hands out.
 - [](nupp.system) reports execution platform, architecture, endianness, pointer
   width and available parallelism, independently of the worker scheduler.
 - [](nupp.io.storage) provides persistent key-value storage through the require-time

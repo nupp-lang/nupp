@@ -9,7 +9,7 @@ whatever namespace the host chose, and on any other host it is whichever
 values are UTF-8 strings, so a structured value has to be encoded first --
 [](nupp.codec.json) is the usual choice.
 
-The near-neighbour in name is [](nupp.store), which is a different thing
+The near-neighbour in name is [](nupp.util.Store), which is a different thing
 entirely: an in-process bag indexed by typed keys, holding live values, gone
 when the program exits. This module persists untyped text between runs; that one
 holds typed values within one.

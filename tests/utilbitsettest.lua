@@ -1,4 +1,4 @@
--- Behavioural tests for nupp.bitset.Bitset.
+-- Behavioural tests for nupp.util.Bitset.
 --
 -- The set-algebra operations mark the population stale rather than tracking it
 -- per word, and `wordCount` is an upper bound rather than the exact high-water
@@ -8,7 +8,7 @@
 
 local check = require("assert")
 local bit = require("bit")
-local bitset = require("nupp.bitset")
+local bitset = require("nupp.util")
 
 local FAR = bit.lshift(1, 20)
 
