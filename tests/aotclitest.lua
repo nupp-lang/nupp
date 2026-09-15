@@ -2447,6 +2447,36 @@ return {inspect = inspect}
     assert(decoded.c:find("(uint32_t)lane - 1u", 1, true), where .. ": C uses the documented one-based lane convention")
 end
 
+function M.genericBitmasksReplaceTheFixedSixtyFourBitHelperSurface()
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function inspect(borrows input: span.Span<float>): (uint32, uint32, uint32, boolean)
+    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local values = species:load(input, 1, species:tail(#input))
+    local positive = (values > 0.0):bits()
+    local large = (values >= 4.0):bits()
+    local shift: uint32 = 1
+    local selected = ~((positive | large) & positive) << shift
+    local parity = selected:prefixXor(false)
+    return parity:lowBits(), parity:highBits(), parity:count(), parity:all()
+end
+
+return {inspect = inspect}
+]]
+    local dir = project{["bits.nupp"] = source}
+    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json bits.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("simd_bitmask_binary.or", 1, true), where .. ": bitmask union remains intrinsic")
+    assert(decoded.ir:find("simd_bitmask_unary.not", 1, true), where .. ": bitmask complement remains intrinsic")
+    assert(decoded.ir:find("simd_bitmask_shift.shl", 1, true), where .. ": bitmask shift remains intrinsic")
+    assert(decoded.ir:find("simd_bitmask_prefix_xor.prefix_xor", 1, true), where .. ": prefix parity remains intrinsic")
+    assert(decoded.c:find("ks_bits ^= ks_bits << 32u", 1, true), where .. ": the native contract executes all 64 bits")
+    assert(decoded.c:find("ks_inspect_forced_scalar", 1, true), where .. ": the independent scalar oracle remains")
+end
+
 function M.productAndDotReducersCarryDistinctArithmeticContracts()
     local source = [[
 local span = require("nupp.mem.span")

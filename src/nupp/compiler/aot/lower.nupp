@@ -1301,6 +1301,30 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
             type = left.type,
             source = source
         )
+    elseif leftFamily == "bitmask" then
+        if written == "<<" or written == ">>" then
+            return new scalarIR.Simd(
+                op = "simd_bitmask_shift",
+                args = {left, lower.convert(right, "u32", source, context)},
+                intrinsic = written == "<<" and "shl" or "shr",
+                type = left.type,
+                source = source
+            )
+        end
+        if right.type ~= left.type then
+            context.reject(source, "explicit SIMD bitmask operands need the same species")
+        end
+        local intrinsic = ({['&'] = "and", ['|'] = "or", ['~'] = "xor", ['=='] = "eq", ['~='] = "ne",})[written]
+        if intrinsic == nil then
+            context.reject(source, "operator " .. written .. " is not a bitmask intrinsic")
+        end
+        return new scalarIR.Simd(
+            op = (written == "==" or written == "~=") and "simd_bitmask_compare" or "simd_bitmask_binary",
+            args = {left, right},
+            intrinsic = intrinsic,
+            type = (written == "==" or written == "~=") and "bool" or left.type,
+            source = source
+        )
     end
 
     local arithmetic = admit.ARITHMETIC[written]
@@ -2726,11 +2750,26 @@ local function simdMethod(
                     source = source
                 )
             end
+        elseif genericFamily == "bitmask" and method == "prefixXor" and #raw == 1 then
+            local carry = lower.expression(raw[1], environment, activeIndex, kernel)
+            if carry.type ~= "bool" then
+                kernel.context.reject(source, "SIMD bitmask prefixXor takes one boolean carry")
+            end
+            return new scalarIR.Simd(
+                op = "simd_bitmask_prefix_xor",
+                args = {receiver as scalarIR.Expr, carry},
+                intrinsic = "prefix_xor",
+                type = "simd_bitmask_" .. tostring(genericElement) .. "_" .. tostring(genericShape),
+                source = source
+            )
         elseif genericFamily == "bitmask" and #raw == 0 then
             local reductions = {
                 any = {op = "simd_bitmask_any", type = "bool"},
+                all = {op = "simd_bitmask_all", type = "bool"},
                 count = {op = "simd_bitmask_count", type = "u32"},
                 first = {op = "simd_bitmask_first", type = "f64"},
+                lowBits = {op = "simd_bitmask_low", type = "u32"},
+                highBits = {op = "simd_bitmask_high", type = "u32"},
                 clearFirst = {
                     op = "simd_bitmask_clear_first",
                     type = "simd_bitmask_" .. tostring(genericElement) .. "_" .. tostring(genericShape)
@@ -3070,7 +3109,15 @@ local function unary(node: cst.Unop, value: scalarIR.Expr, kernel: lower.Kernel)
     local written = (node.op as lexer.Token).text
     local source = lower.site(node)
     local family = genericSimdParts(value.type)
-    if family == "vector" and (written == "-" or written == "~") or family == "mask" and written == "~" then
+    if family == "bitmask" and written == "~" then
+        return new scalarIR.Simd(
+            op = "simd_bitmask_unary",
+            args = {value},
+            intrinsic = "not",
+            type = value.type,
+            source = source
+        )
+    elseif family == "vector" and (written == "-" or written == "~") or family == "mask" and written == "~" then
         return new scalarIR.Simd(
             op = "simd_unary",
             args = {value},
