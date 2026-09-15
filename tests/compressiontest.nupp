@@ -5,16 +5,13 @@ local test = require("nupp.test")
 local M = {}
 
 local function writerOptions(name: string, workspace: integer?): compression.WriterOptions
-    local parameters: compression.EncoderParameters
     if name == "gzip" then
-        parameters = new compression.GzipEncoderOptions(level = 6)
+        return {workspaceBytes = workspace, gzip = {level = 6}}
     elseif name == "zlib" then
-        parameters = new compression.ZlibEncoderOptions(level = 6)
+        return {workspaceBytes = workspace, zlib = {level = 6}}
     else
-        parameters = new compression.DeflateRawEncoderOptions(level = 6)
+        return {workspaceBytes = workspace, deflateRaw = {level = 6}}
     end
-
-    return new compression.WriterOptions(workspaceBytes = workspace, parameters = parameters)
 end
 
 function M.builtinFormatsRoundTripBinaryInput(): nil
@@ -25,7 +22,7 @@ function M.builtinFormatsRoundTripBinaryInput(): nil
         assert(format.name == name)
         local compressed = format:compress(bytes, writerOptions(name, 17))
         assert(#compressed < #bytes)
-        assert(format:decompress(compressed, new compression.ReaderOptions(workspaceBytes = 13)) == bytes)
+        assert(format:decompress(compressed, {workspaceBytes = 13}) == bytes)
     end
 end
 
@@ -33,7 +30,7 @@ function M.emptyStreamsRoundTripAtOneByteBoundaries(): nil
     for _, name in ipairs(compression.formats()) do
         local format = compression.format(name)
         local compressed = format:compress("", writerOptions(name, 1))
-        assert(format:decompress(compressed, new compression.ReaderOptions(workspaceBytes = 1)) == "")
+        assert(format:decompress(compressed, {workspaceBytes = 1}) == "")
     end
 end
 
@@ -47,14 +44,8 @@ end
 function M.encoderLevelReachesTheFormatProvider(): nil
     local gzip = compression.format("gzip")
     local input = string.rep("compression-level", 1000)
-    local stored = gzip:compress(
-        input,
-        new compression.WriterOptions(parameters = new compression.GzipEncoderOptions(level = 0))
-    )
-    local compressed = gzip:compress(
-        input,
-        new compression.WriterOptions(parameters = new compression.GzipEncoderOptions(level = 9))
-    )
+    local stored = gzip:compress(input, {gzip = {level = 0}})
+    local compressed = gzip:compress(input, {gzip = {level = 9}})
     assert(#compressed < #stored)
 end
 
@@ -62,13 +53,13 @@ function M.writerAndReaderComposeWithByteIo(): nil
     local gzip = compression.format("gzip")
     local encoded = io.newBuffer()
     local sink = encoded:newWriter()
-    local writer = gzip:newWriter(sink, new compression.WriterOptions(workspaceBytes = 2))
+    local writer = gzip:newWriter(sink, {workspaceBytes = 2, gzip = {level = 6}})
     assert(writer:write("hello "))
     assert(writer:write("world"))
     assert(writer:finish())
 
     local source = io.newStringReader(encoded:getString())
-    local reader = gzip:newReader(source, new compression.ReaderOptions(workspaceBytes = 3))
+    local reader = gzip:newReader(source, {workspaceBytes = 3})
     local decoded = io.newBuffer()
     local destination = decoded:newWriter()
     assert(reader:transferTo(destination) == 11)
@@ -101,12 +92,7 @@ function M.gzipConcatenatedMembersAreExplicitlyConfigurable(): nil
     assert(gzip:decompress(joined) == "hello world")
     test.raises(
         function(): nil
-            gzip:decompress(
-                joined,
-                new compression.ReaderOptions(
-                    parameters = new compression.GzipDecoderOptions(concatenatedMembers = false)
-                )
-            )
+            gzip:decompress(joined, {gzip = {concatenatedMembers = false}})
         end,
         "trailing bytes"
     )
@@ -123,19 +109,19 @@ function M.invalidStreamsLimitsAndParameterMismatchesFail(): nil
     )
     test.raises(
         function(): nil
-            gzip:decompress(compressed, new compression.ReaderOptions(maxOutputBytes = 32))
+            gzip:decompress(compressed, {maxOutputBytes = 32})
         end,
         "maxOutputBytes"
     )
     test.raises(
         function(): nil
-            gzip:decompress(compressed, new compression.ReaderOptions(maxExpansionRatio = 1))
+            gzip:decompress(compressed, {maxExpansionRatio = 1})
         end,
         "maxExpansionRatio"
     )
     test.raises(
         function(): nil
-            gzip:decompress(compressed, new compression.ReaderOptions(unbounded = true, maxOutputBytes = 4096))
+            gzip:decompress(compressed, {unbounded = true, maxOutputBytes = 4096})
         end,
         "cannot set both"
     )
@@ -151,9 +137,15 @@ function M.invalidStreamsLimitsAndParameterMismatchesFail(): nil
     )
     test.raises(
         function(): nil
-            gzip:compress("hello", new compression.WriterOptions(parameters = new compression.ZlibEncoderOptions()))
+            gzip:compress("hello", {zlib = {level = 6}})
         end,
         "cannot configure gzip"
+    )
+    test.raises(
+        function(): nil
+            gzip:compress("hello", {gzip = {levle = 6}})
+        end,
+        "unknown gzip writer option levle"
     )
     test.raises(
         function(): nil

@@ -21,15 +21,8 @@ export const NEED_OUTPUT = 2
 --- The complete stream and its wrapper trailer have been processed.
 export const FINISHED = 3
 
---- Common identity carried by provider-specific encoder parameter records.
-export interface EncoderParameters
-    readonly format: string
-end
-
---- Common identity carried by provider-specific decoder parameter records.
-export interface DecoderParameters
-    readonly format: string
-end
+--- The selected format's structural option block.
+export type FormatOptions = {readonly [string]: any}
 
 --- Independent incremental compression state.
 export affine interface Encoder is nupp.Closeable
@@ -54,11 +47,11 @@ export affine interface Decoder is nupp.Closeable
     finishInput: function(exclusive self: Decoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
 end
 
---- Immutable format identity and typed state factories.
+--- Immutable format identity and state factories.
 export interface Format
     readonly name: string
-    createEncoder: function(self: Format, parameters: EncoderParameters?): Encoder
-    createDecoder: function(self: Format, parameters: DecoderParameters?): Decoder
+    createEncoder: function(self: Format, options: FormatOptions?): Encoder
+    createDecoder: function(self: Format, options: FormatOptions?): Decoder
 end
 
 --- A selectable implementation catalog.

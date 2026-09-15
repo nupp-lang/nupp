@@ -7,29 +7,32 @@ or wrap a `nupp.io.Reader` or `nupp.io.Writer`. Factories consume the wrapped
 reader or writer. A compression writer must be consumed with `finish()`; closing
 or dropping it unfinished aborts the stream and raises.
 
-Common adapter policy is separate from format-specific parameters. For example:
+Common adapter policy is separate from format-specific options. For example:
 
 ```nupp
 local compression = require("nupp.compression")
 local gzip = compression.format("gzip")
-local encoded = gzip:newWriter(destination, new compression.WriterOptions(
-    parameters = new compression.GzipEncoderOptions(level = 6)
-))
+local encoded = gzip:newWriter(destination, {
+    gzip = {level = 6}
+})
 encoded:write("hello")
 assert(encoded:finish())
 ```
 
 ## Builtin formats
 
-| Name | Container | Encoder parameters | Decoder parameters |
+| Name | Container | Writer options | Reader options |
 | --- | --- | --- | --- |
-| `gzip` | RFC 1952 gzip | `GzipEncoderOptions` | `GzipDecoderOptions` |
-| `zlib` | RFC 1950 zlib | `ZlibEncoderOptions` | `ZlibDecoderOptions` |
-| `deflate-raw` | RFC 1951 raw DEFLATE | `DeflateRawEncoderOptions` | `DeflateRawDecoderOptions` |
+| `gzip` | RFC 1952 gzip | `gzip = { level = 0..9 }` | `gzip = { concatenatedMembers = boolean }` |
+| `zlib` | RFC 1950 zlib | `zlib = { level = 0..9 }` | none |
+| `deflate-raw` | RFC 1951 raw DEFLATE | `deflateRaw = { level = 0..9 }` | none |
 
 All three formats encode levels zero through nine. Gzip validates CRC and size
 trailers and decodes concatenated members by default. Zlib validates its Adler-32
 trailer. Raw DEFLATE has no wrapper checksum. Trailing bytes are rejected.
+
+A provider-added format uses its canonical name as the option-block key. The
+`deflateRaw` key above is the built-in ergonomic name for `deflate-raw`.
 ]]
 
 const io = require("nupp.io")
@@ -41,65 +44,47 @@ local DEFAULT_WORKSPACE: integer = 65536
 local DEFAULT_MAX_OUTPUT: integer = 67108864
 local RATIO_ALLOWANCE: integer = 1024
 
---- Common identity carried by format-specific encoder parameter records.
-export type EncoderParameters = provider.EncoderParameters
-
---- Common identity carried by format-specific decoder parameter records.
-export type DecoderParameters = provider.DecoderParameters
-
---- Gzip encoder parameters.
-export record GzipEncoderOptions is EncoderParameters
-    readonly format: "gzip" = "gzip"
-
+--- Options in the `gzip` block passed to a compression writer.
+export interface GzipWriterOptions
     --- Compression level from zero through nine; six by default.
     level: integer?
 end
 
---- Zlib encoder parameters.
-export record ZlibEncoderOptions is EncoderParameters
-    readonly format: "zlib" = "zlib"
-
+--- Options in the `zlib` block passed to a compression writer.
+export interface ZlibWriterOptions
     --- Compression level from zero through nine; six by default.
     level: integer?
 end
 
---- Raw DEFLATE encoder parameters.
-export record DeflateRawEncoderOptions is EncoderParameters
-    readonly format: "deflate-raw" = "deflate-raw"
-
+--- Options in the `deflateRaw` block passed to a compression writer.
+export interface DeflateRawWriterOptions
     --- Compression level from zero through nine; six by default.
     level: integer?
 end
 
---- Gzip decoder parameters.
-export record GzipDecoderOptions is DecoderParameters
-    readonly format: "gzip" = "gzip"
-
+--- Options in the `gzip` block passed to a decompression reader.
+export interface GzipReaderOptions
     --- Whether to decode concatenated gzip members; true by default.
     concatenatedMembers: boolean?
 end
 
---- Zlib decoder parameters. Reserved fields can be added without weakening options.
-export record ZlibDecoderOptions is DecoderParameters
-    readonly format: "zlib" = "zlib"
-end
-
---- Raw DEFLATE decoder parameters. The format tag prevents mismatched use.
-export record DeflateRawDecoderOptions is DecoderParameters
-    readonly format: "deflate-raw" = "deflate-raw"
-end
-
 --- Common compression-writer policy.
-export record WriterOptions
+export interface WriterOptions
     --- Provider workspace in bytes; 65536 by default.
     workspaceBytes: integer?
 
-    --- Parameters whose format tag must match the retained descriptor.
-    parameters: EncoderParameters?
+    --- Gzip-specific options, accepted only by the gzip descriptor.
+    gzip: GzipWriterOptions?
+
+    --- Zlib-specific options, accepted only by the zlib descriptor.
+    zlib: ZlibWriterOptions?
+
+    --- Raw-DEFLATE-specific options, accepted only by the deflate-raw descriptor.
+    deflateRaw: DeflateRawWriterOptions?
 end
 
 --- Common decompression-reader policy.
-export record ReaderOptions
+export interface ReaderOptions
     --- Provider workspace in bytes; 65536 by default.
     workspaceBytes: integer?
 
@@ -112,8 +97,8 @@ export record ReaderOptions
     --- Explicitly removes the default output cap.
     unbounded: boolean?
 
-    --- Parameters whose format tag must match the retained descriptor.
-    parameters: DecoderParameters?
+    --- Gzip-specific options, accepted only by the gzip descriptor.
+    gzip: GzipReaderOptions?
 end
 
 local function positive(value: integer?, fallback: integer, what: string): integer
@@ -125,22 +110,74 @@ local function positive(value: integer?, fallback: integer, what: string): integ
     return answer
 end
 
-local function validateEncoderParameters(parameters: EncoderParameters?, name: string): nil
-    if parameters ~= nil and parameters.format ~= name then
-        error("nupp: " .. parameters.format .. " encoder parameters cannot configure " .. name, 3)
+local function optionKey(name: string): string
+    return name == "deflate-raw" and "deflateRaw" or name
+end
+
+local function validateKeys(options: provider.FormatOptions?, allowed: {[string]: boolean}, what: string): nil
+    if options == nil then
+        return
     end
-    if name == "gzip" or name == "zlib" or name == "deflate-raw" then
-        local level = parameters ~= nil and (parameters as any).level or 6
-        if type(level) ~= "number" or level < 0 or level > 9 or level ~= math.floor(level) then
-            error("nupp: compression level must be an integer from zero through nine", 3)
+    for name in pairs(options) do
+        if not allowed[name] then
+            error("nupp: unknown " .. what .. " option " .. name, 3)
         end
     end
 end
 
-local function validateDecoderParameters(parameters: DecoderParameters?, name: string): nil
-    if parameters ~= nil and parameters.format ~= name then
-        error("nupp: " .. parameters.format .. " decoder parameters cannot configure " .. name, 3)
+local function formatOptions(
+    settings: any,
+    name: string,
+    kind: string,
+    common: {[string]: boolean}
+): provider.FormatOptions?
+    local expected = optionKey(name)
+    local selected: any
+    for key, value in pairs(settings as {[string]: any}) do
+        if not common[key] then
+            if key ~= expected then
+                error("nupp: " .. key .. " " .. kind .. " options cannot configure " .. name, 3)
+            elseif type(value) ~= "table" then
+                error("nupp: " .. expected .. " " .. kind .. " options must be a table", 3)
+            end
+            selected = value
+        end
     end
+
+    return selected as provider.FormatOptions?
+end
+
+local WRITER_COMMON: {[string]: boolean} = {workspaceBytes = true}
+local READER_COMMON: {
+    [string]: boolean
+} = {workspaceBytes = true, maxOutputBytes = true, maxExpansionRatio = true, unbounded = true,}
+
+local function encoderOptions(settings: WriterOptions, name: string): provider.FormatOptions?
+    local options = formatOptions(settings, name, "writer", WRITER_COMMON)
+    if name == "gzip" or name == "zlib" or name == "deflate-raw" then
+        validateKeys(options, {level = true}, optionKey(name) .. " writer")
+        local level = options ~= nil and options.level or 6
+        if type(level) ~= "number" or level < 0 or level > 9 or level ~= math.floor(level) then
+            error("nupp: compression level must be an integer from zero through nine", 3)
+        end
+    end
+
+    return options
+end
+
+local function decoderOptions(settings: ReaderOptions, name: string): provider.FormatOptions?
+    local options = formatOptions(settings, name, "reader", READER_COMMON)
+    if name == "gzip" then
+        validateKeys(options, {concatenatedMembers = true}, "gzip reader")
+        local concatenatedMembers = options ~= nil and options.concatenatedMembers or nil
+        if concatenatedMembers ~= nil and type(concatenatedMembers) ~= "boolean" then
+            error("nupp: gzip concatenatedMembers must be a boolean", 3)
+        end
+    elseif name == "zlib" or name == "deflate-raw" then
+        validateKeys(options, {}, optionKey(name) .. " reader")
+    end
+
+    return options
 end
 
 local interface OwnedPair is nupp.Closeable
@@ -316,11 +353,11 @@ local function makeWriter(
     takes destination: io.Writer,
     options: WriterOptions?
 ): Writer
-    local settings = options or new WriterOptions()
+    local settings = options or {}
     local capacity = positive(settings.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
-    validateEncoderParameters(settings.parameters, name)
+    local formatSettings = encoderOptions(settings, name)
     return new Writer(
-        state = implementation:createEncoder(settings.parameters),
+        state = implementation:createEncoder(formatSettings),
         destination = destination,
         output = storage.allocateBytes(capacity),
         capacity = capacity
@@ -529,9 +566,9 @@ export record Format
     private implementation: provider.Format
 
     --- Wraps and owns a reader, validating the stream before EOF.
-    --- @raises when options are invalid or parameters name another format
+    --- @raises when options are invalid or a format block does not match
     function newReader(self, takes source: io.Reader, options: ReaderOptions?): io.Reader
-        local settings = options or new ReaderOptions()
+        local settings = options or {}
         local capacity = positive(settings.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
         if settings.unbounded and settings.maxOutputBytes ~= nil then
             error("nupp: compression ReaderOptions cannot set both unbounded and maxOutputBytes", 2)
@@ -545,10 +582,10 @@ export record Format
         if ratio ~= nil and (ratio <= 0 or ratio >= math.huge or ratio ~= ratio) then
             error("nupp: compression maxExpansionRatio must be positive and finite", 2)
         end
-        validateDecoderParameters(settings.parameters, self.name)
+        local formatSettings = decoderOptions(settings, self.name)
 
         return new Reader(
-            state = self.implementation:createDecoder(settings.parameters),
+            state = self.implementation:createDecoder(formatSettings),
             source = source,
             input = storage.allocateBytes(capacity),
             capacity = capacity,
@@ -564,7 +601,7 @@ export record Format
     end
 
     --- Wraps and owns a writer. Consume the result with `finish()`.
-    --- @raises when options are invalid or parameters name another format
+    --- @raises when options are invalid or a format block does not match
     function newWriter(self, takes destination: io.Writer, options: WriterOptions?): CompressionWriter
         return makeWriter(self.implementation, self.name, destination, options)
     end
@@ -669,7 +706,9 @@ local function validate(selected: provider.Provider): nil
             implementation
         ) ~= "table" or implementation.name ~= name or type(
             implementation.createEncoder
-        ) ~= "function" or type(implementation.createDecoder) ~= "function" then
+        ) ~= "function" or type(
+            implementation.createDecoder
+        ) ~= "function" or WRITER_COMMON[name] or READER_COMMON[name] then
             error("invalid compression format descriptor " .. tostring(name), 2)
         end
     end

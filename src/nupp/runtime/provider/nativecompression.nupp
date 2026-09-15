@@ -227,8 +227,8 @@ local record Format is contract.Format
     readonly name: string
     private id: integer
 
-    function createEncoder(self, parameters: contract.EncoderParameters?): contract.Encoder
-        local level = parameters ~= nil and (parameters as any).level or 6
+    function createEncoder(self, options: contract.FormatOptions?): contract.Encoder
+        local level = options ~= nil and options.level or 6
         local handle = native.ffi.new("uint64_t[1]")
         native.succeeded(C.nuppNativeCompressionEncoderCreate(self.id, level, handle), 2)
         return new Encoder(
@@ -239,10 +239,8 @@ local record Format is contract.Format
         )
     end
 
-    function createDecoder(self, parameters: contract.DecoderParameters?): contract.Decoder
-        local concatenatedMembers = self.name == "gzip" and (
-            parameters == nil or (parameters as any).concatenatedMembers ~= false
-        )
+    function createDecoder(self, options: contract.FormatOptions?): contract.Decoder
+        local concatenatedMembers = self.name == "gzip" and (options == nil or options.concatenatedMembers ~= false)
         local handle = native.ffi.new("uint64_t[1]")
         native.succeeded(C.nuppNativeCompressionDecoderCreate(self.id, concatenatedMembers and 1 or 0, handle), 2)
 
