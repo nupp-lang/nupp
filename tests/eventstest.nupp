@@ -342,6 +342,7 @@ end
 function M.stopObservingByNameRemovesThatRegistrationAndByCallbackEveryMatch(): nil
     local bus = newBus()
     local runs = 0
+
     -- A callback to remove by identity has to be a value the caller keeps: a
     -- short function written inline is a fresh object each time.
     local function shared(borrows event: Damage): nil
@@ -1050,6 +1051,7 @@ function M.warmEmissionOfARecordEventAllocatesNothing(): nil
     bus:observe(7, Damage, |event| -> do
         total = total + event.source
     end)
+
     local function churn(rounds: integer): nil
         for index = 1, rounds do
             bus:emit(7, Damage, amount = index, source = 1)
@@ -1075,6 +1077,7 @@ function M.warmEmissionOfAStructEventAllocatesNothing(): nil
     bus:observe(0, Contact, |event| -> do
         total = total + event.b + event.impulse
     end)
+
     local function churn(rounds: integer): nil
         for index = 1, rounds do
             bus:emit(0, Contact, index, 2, 0.5)

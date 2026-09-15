@@ -77,6 +77,7 @@ end
 
 function M.reserveThenAcquireWithinCapacityAllocatesNothing(): nil
     local events = newPool(Event, 64)
+
     local function churn(rounds: integer): nil
         for _ = 1, rounds do
             local event = events:acquire()
@@ -96,6 +97,7 @@ function M.reserveThenAcquireWithinCapacityAllocatesNothing(): nil
 
     -- A burst of the whole capacity out at once and back, also warm.
     local held: {Event} = {}
+
     local function burst(rounds: integer): nil
         for _ = 1, rounds do
             for index = 1, 64 do

@@ -322,7 +322,7 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/nativecompression.nupp"
     },
     {source = "src/nupp/hash.nupp", output = "nupp/compiler/nupp/hash.nupp"},
-    {source = "src/nupp/util/uuid.nupp", output = "nupp/compiler/nupp/util/uuid.nupp"},
+    {source = "src/nupp/util/internal/uuid.nupp", output = "nupp/compiler/nupp/util/internal/uuid.nupp"},
     {source = "src/nupp/codec/hex.nupp", output = "nupp/compiler/nupp/codec/hex.nupp"},
     {source = "src/nupp/system.nupp", output = "nupp/compiler/nupp/system.nupp"},
     {source = "src/nupp/runtime/browser/system.nupp", output = "nupp/compiler/nupp/runtime/browser/system.nupp"},

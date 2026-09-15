@@ -1,6 +1,6 @@
 local system = require("nupp.system")
 local random = require("nupp.random")
-local uuid = require("nupp.util.uuid")
+local uuid = require("nupp.util")
 local ffi = require("ffi")
 local M = {}
 
@@ -23,10 +23,10 @@ function M.secureRandomBytesSizesAndValidation()
     assert(random.sha256 == nil and random.uuid4 == nil and random.hmacSha256 == nil)
 end
 
-function M.identifiersHaveTheirOwnNamespace()
-    assert(uuid.v4():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
-    assert(uuid.v7():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-7%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
-    assert(uuid.uuid4 == nil and uuid.uuid7 == nil)
+function M.identifiersAreMembersOfTheUtilNamespace()
+    assert(uuid.uuid4():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
+    assert(uuid.uuid7():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-7%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
+    assert(uuid.v4 == nil and uuid.v7 == nil, "the old nested spelling is gone")
 end
 
 return M

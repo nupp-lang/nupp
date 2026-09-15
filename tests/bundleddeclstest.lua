@@ -71,7 +71,7 @@ local M = {}
 function M.uuidUsesItsContractWithoutNativeCompilerServices()
     local relations = require("nupp.compiler.relations")
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})
-    local uuid = assert(env.resolveModule(env, "nupp.util.uuid"))
+    local uuid = assert(env.resolveModule(env, "nupp.util"))
     local provider = assert(env.resolveModule(env, "nupp.runtime.uuid"))
     assertEq(uuid.byname.v4.tag, "func", "v4 has a checked function signature")
     assertEq(uuid.byname.v4.rets[1].tag, "string", "v4 returns a string")
@@ -86,7 +86,7 @@ function M.uuidUsesItsContractWithoutNativeCompilerServices()
         "v7 satisfies the canonical contract signature"
     )
     assertEq(uuid.byname.randomBytes, nil, "unrelated operations are absent")
-    local exports = assert(env.resolveModuleExports(env, "nupp.util.uuid"))
+    local exports = assert(env.resolveModuleExports(env, "nupp.util"))
     assertEq(exports.values.v4, uuid.byname.v4, "module and export resolution agree")
     assertEq(rawget(env.bundled, "nupp.runtime.provider.nativeuuid"), nil, "the native implementation was not loaded")
 end

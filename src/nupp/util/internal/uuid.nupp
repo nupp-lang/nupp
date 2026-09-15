@@ -1,4 +1,4 @@
-module nupp.util.uuid
+module nupp.util.internal.uuid
 
 --[[UUID generation using the implementation retained when this module loads.
 
@@ -10,9 +10,9 @@ local provider = require("nupp.runtime.uuid")
 --- Generates a random version 4 UUID.
 --- @return the UUID, hyphenated and lowercase
 --- @raises when the system cannot supply randomness
-export const v4 = provider.uuid4
+export const uuid4 = provider.uuid4
 
 --- Generates a time-ordered version 7 UUID.
 --- @return the UUID, hyphenated and lowercase
 --- @raises when the system cannot supply randomness
-export const v7 = provider.uuid7
+export const uuid7 = provider.uuid7

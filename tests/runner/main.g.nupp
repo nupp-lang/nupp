@@ -14,7 +14,7 @@ package.loaded["nupp.test"] = require("nupp.test")
 
 -- File-loaded suites share these host facilities in the parent and worker states.
 require("nupp.random")
-require("nupp.util.uuid")
+require("nupp.util")
 require("nupp.system")
 require("nupp.digest")
 require("nupp.checksum")

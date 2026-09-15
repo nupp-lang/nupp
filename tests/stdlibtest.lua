@@ -287,7 +287,7 @@ function M.aComputedRequireArgumentIsChecked()
         "a field no value has is reported inside the call"
     )
     assertEq((diagsOf("local n: integer = 5\nreturn require(n)")), "NUPP2006:2", "require takes a string")
-    assertEq((diagsOf("return require('nupp.util.uuid', 'extra')")), "NUPP2007:1", "and takes one of them")
+    assertEq((diagsOf("return require('nupp.util', 'extra')")), "NUPP2007:1", "and takes one of them")
 end
 
 function M.randomUsesPortableBitops()
@@ -624,7 +624,7 @@ function M.nativeFeaturesAreResolvedEffects()
         ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
         ["nupp.io.path.separator()"] = "runtime.path",
         ["nupp.io.uri.newURI('https://example.com')"] = "runtime.uri",
-        ["nupp.util.uuid.v7()"] = "runtime.uuid",
+        ["nupp.util.uuid7()"] = "runtime.uuid",
         ["nupp.system.availableParallelism()"] = "runtime.system",
     }
     for source, effect in pairs(expected) do
@@ -780,7 +780,7 @@ end
 
 function M.optimizedDeadCodeDropsItsNativeFeatures()
     local source = table.concat(
-        {"if false then", "    print(nupp.system.availableParallelism())", "else", "    print(nupp.util.uuid.v4())", "end",},
+        {"if false then", "    print(nupp.system.availableParallelism())", "else", "    print(nupp.util.uuid4())", "end",},
         "\n"
     )
     local result = parser.parse(source, "dead-native-feature")
@@ -794,7 +794,7 @@ end
 
 function M.generatedBootstrapFollowsWhatCodegenEmits()
     local source = table.concat(
-        {"if false then", "    print(nupp.system.availableParallelism())", "else", "    print(nupp.util.uuid.v4())", "end",},
+        {"if false then", "    print(nupp.system.availableParallelism())", "else", "    print(nupp.util.uuid4())", "end",},
         "\n"
     )
     local result = parser.parse(source, "generated-runtime-features")
@@ -846,13 +846,13 @@ function M.compilerProvidedPureLibraries()
       local hash = require("nupp.hash")
       local checksum = require("nupp.checksum")
       local digest = require("nupp.digest")
-      local uuid = require("nupp.util.uuid")
+      local uuid = require("nupp.util")
       assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
       assert(checksum.value("crc32-ieee", "123456789") == 3421780262ULL)
       assert(digest.hexDigest("sha256", "abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-      local uuid4 = uuid.v4()
-      local uuid7 = uuid.v7()
+      local uuid4 = uuid.uuid4()
+      local uuid7 = uuid.uuid7()
       assert(uuid4:match("^[0-9a-f]+%-[0-9a-f]+%-4[0-9a-f]+%-[89ab][0-9a-f]+%-[0-9a-f]+$")
          and #uuid4 == 36)
       assert(uuid7:match("^[0-9a-f]+%-[0-9a-f]+%-7[0-9a-f]+%-[89ab][0-9a-f]+%-[0-9a-f]+$")

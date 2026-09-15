@@ -6,9 +6,10 @@ Small general-purpose types that belong to no larger facility.
 A member here is one type and the few functions that hand it out, reached by the
 name of the type rather than by a module of its own: `nupp.util.Bitset` is a set
 of bit positions, `nupp.util.Store` is a bag of values indexed by typed keys, and
-`nupp.util.Pool` leases cleared record instances from a free list.
-Nothing here is a facade over a provider, and nothing here holds state a program
-does not create itself.
+`nupp.util.Pool` leases cleared record instances from a free list. `uuid4` and
+`uuid7` generate identifiers.
+Nothing here holds state a program does not create itself, and only the two uuid
+functions reach a host provider at all.
 
 ```nupp
 local record Damage
@@ -24,19 +25,22 @@ damage:release(damage:acquire())
 local store = nupp.util.newStore()
 const theme: nupp.util.Key<string> = nupp.util.newKey("app.theme")
 store:set(theme, "dark")
+
+print(nupp.util.uuid4())
 ```
 
 Unlike [](nupp.mem), which keeps every member a module of its own, the types are
-re-exported here, so reaching one loads them all. That is affordable because they
-are small and none resolves a provider while it loads.
+re-exported here, so reaching one loads them all, which is affordable because they
+are small.
 
-[](nupp.util.uuid) is the exception, and stays a module reached by its own name: it
-resolves a host service and declares a native ABI, neither of which a program that
-only wanted a bitset should carry.
+The one thing reaching any member here costs is the uuid service: [](uuid4) and
+[](uuid7) come from the host, so loading this module resolves that provider and a
+built program declares its ABI even when it only wanted a bitset.
 ]]
 
 local bitset = require("nupp.util.internal.bitset")
 local pool = require("nupp.util.internal.pool")
+local uuid = require("nupp.util.internal.uuid")
 local store = require("nupp.util.internal.store")
 
 --- A growable set of bit positions counting from 0.
@@ -78,3 +82,9 @@ export const registeredKeys = store.registeredKeys
 
 --- Creates an empty store.
 export const newStore = store.newStore
+
+--- Generates a random version 4 UUID, hyphenated and lowercase.
+export const uuid4 = uuid.uuid4
+
+--- Generates a time-ordered version 7 UUID, hyphenated and lowercase.
+export const uuid7 = uuid.uuid7

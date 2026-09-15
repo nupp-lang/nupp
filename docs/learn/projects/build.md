@@ -260,9 +260,10 @@ or retain the library at all. The global [`nupp`
 standard-library namespace](../runtime/data/standard-library.md) itself is always
 created by generated code.
 
-Nested members use the same exact resolution. `nupp.util.uuid.v4()` selects
-UUID support, while an alias such as `local uuid = nupp.util.uuid` followed by
-`uuid.v4()` selects the same feature without also selecting JSON or UTF-8.
+Nested members use the same exact resolution. `nupp.codec.json.encode(value)`
+selects JSON support, while an alias such as `local json = nupp.codec.json`
+followed by `json.encode(value)` selects the same feature without also selecting
+UUID or UTF-8.
 Files and filesystem-backed path operations use the Rust-native
 provider; whole-file transfers and processes share its Tokio executor and use
 bounded queues. HTTP uses Reqwest over Tokio and Rustls, URI uses Rust's `url`

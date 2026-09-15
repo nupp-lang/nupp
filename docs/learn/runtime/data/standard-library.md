@@ -70,9 +70,8 @@ intrinsic namespaces and the declared modules:
   growable set of bit positions, and [](nupp.util.Store) is a bag of values
   indexed by the typed keys [](nupp.util.newKey) hands out.
   [](nupp.util.Pool) leases cleared record instances of one declared type from a
-  free list. [](nupp.util.uuid) generates version 4 and version 7 identifiers,
-  reached by its own name so that a program using the types above declares none of
-  its host ABI.
+  free list. [](nupp.util.uuid4) and [](nupp.util.uuid7) generate identifiers, and
+  are the only members here that reach a host provider.
 - [](nupp.system) reports execution platform, architecture, endianness, pointer
   width and available parallelism, independently of the worker scheduler.
 - [](nupp.io.storage) provides persistent key-value storage through the require-time
@@ -118,8 +117,8 @@ A member's implementation is emitted only when checked source resolves that
 member, and an alias stays as precise as the name it came from:
 
 ```nupp
-local uuid = nupp.util.uuid
-print(uuid.v4()) -- selects UUID support
+const uuid4 = nupp.util.uuid4
+print(uuid4()) -- selects UUID support
 ```
 
 At `-O1` and above, feature effects are recomputed after constant folding, so a

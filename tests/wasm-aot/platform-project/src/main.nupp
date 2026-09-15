@@ -4,7 +4,7 @@ local browserTime = require("nupp.time")
 local digest = require("nupp.digest")
 local mac = require("nupp.mac")
 local checksum = require("nupp.checksum")
-local uuid = require("nupp.util.uuid")
+local uuid = require("nupp.util")
 local json = require("nupp.codec.json")
 local system = require("nupp.system")
 
@@ -30,7 +30,7 @@ return json.encode({
     crc32c = checksum.value("crc32c", "123456789") == 0xe3069283ULL,
     crc64 = checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL,
     hmac = mac.hexDigest("hmac-sha256", "key", "abc"),
-    uuid4 = uuid.v4(),
-    uuid7 = uuid.v7(),
+    uuid4 = uuid.uuid4(),
+    uuid7 = uuid.uuid7(),
     stored = stored,
 })
