@@ -1562,7 +1562,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local element = origin and origin.name == "Vector" and (
                 origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd"
             ) and nominal and nominal.typeArgs and nominal.typeArgs[1] or nil
-            if element and (element.tag == "float" or element.tag == "number") then
+            local operation = selectedExport.member:match("^horizontal%.(.+)$")
+            -- An extremum selects a lane rather than combining lanes, so it
+            -- rounds nothing and is defined at every element. The two that
+            -- answer a lane index answer it at the declared `integer` and take
+            -- their result from the declaration rather than from the element.
+            local named = (operation or "") as string
+            local extremum = named:match("^propagating") ~= nil or named:match("^number") ~= nil
+            local indexed = named:match("Arg") ~= nil
+            if element and indexed then
+                (node as any).simdHorizontal = selectedExport.member
+            elseif element and (extremum or element.tag == "float" or element.tag == "number") then
                 first, rets, pack = element, {element}, T.pack({element})
                 if element.tag == "float" then
                     c.fixedWidth.mark(node, element)

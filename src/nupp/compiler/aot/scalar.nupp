@@ -800,7 +800,7 @@ end
 --- Creates one closed floating-point reducer before its authored SIMD region.
 record scalarIR.ReducerInit
     op: 'reducer_init'
-    order: 'ordered' | 'pairwise' | 'algebraic'
+    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated'
     operation: 'sum' | 'product' | 'dot'
     initial: scalarIR.Expr
     type: scalarIR.Type
@@ -816,7 +816,7 @@ record scalarIR.ReducerAdd
     reducer: scalarIR.Expr
     value: scalarIR.Expr
     right: scalarIR.Expr?
-    order: 'ordered' | 'pairwise' | 'algebraic'
+    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated'
     operation: 'sum' | 'product' | 'dot'
     type: 'lua_effect'
     source: scalarIR.Source?
@@ -826,7 +826,7 @@ end
 record scalarIR.ReducerValue
     op: 'reducer_value'
     reducer: scalarIR.Expr
-    order: 'ordered' | 'pairwise' | 'algebraic'
+    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated'
     operation: 'sum' | 'product' | 'dot'
     type: 'f64'
     source: scalarIR.Source?

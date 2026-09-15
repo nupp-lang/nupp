@@ -905,15 +905,31 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 ordered_dot = true,
                 pairwise_dot = true,
                 algebraic_dot = true,
+                propagating_min = true,
+                propagating_max = true,
+                number_min = true,
+                number_max = true,
+                propagating_arg_min = true,
+                propagating_arg_max = true,
+                number_arg_min = true,
+                number_arg_max = true,
             }
+            -- An extremum selects a lane rather than combining lanes, so it
+            -- rounds nothing and is admitted at every element. The two that
+            -- answer a lane index answer it in the same binary64 a mask's
+            -- `first` does.
+            local indexed = intrinsic:match("_arg_m[ai][xn]$") ~= nil
+            local extremum = indexed or intrinsic:match("^propagating_m") ~= nil or intrinsic:match("^number_m") ~= nil
             holds(
                 vectorFamily == "vector" and #args == (
                     dot and 2 or 1
                 ) and (
                     args[2] == nil or args[2].type == args[1].type
-                ) and node.type == genericSimdScalar(
-                    vectorElement
-                ) and admittedHorizontal[intrinsic] == true and (vectorElement == "f32" or vectorElement == "f64"),
+                ) and node.type == (
+                    indexed and "f64" or genericSimdScalar(vectorElement)
+                ) and admittedHorizontal[
+                    intrinsic
+                ] == true and (extremum or vectorElement == "f32" or vectorElement == "f64"),
                 "invalid generic SIMD horizontal operation"
             )
         elseif op == "simd_bitmask_binary" or op == "simd_bitmask_compare" then

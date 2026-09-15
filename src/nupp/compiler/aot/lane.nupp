@@ -667,7 +667,7 @@ record aotLane.ReducerAdd
     value: aotLane.Expr
     right: aotLane.Expr?
     mask: aotLane.Expr?
-    order: 'ordered' | 'pairwise' | 'algebraic'
+    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated'
     operation: 'sum' | 'product' | 'dot'
     source: aotLane.Source?
 end

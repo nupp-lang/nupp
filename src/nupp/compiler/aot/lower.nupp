@@ -397,6 +397,7 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
         BlockU8x64 = "simd_block_u8x64",
         OrderedSum = "simd_reducer_ordered_sum",
         PairwiseSum = "simd_reducer_pairwise_sum",
+        CompensatedSum = "simd_reducer_compensated_sum",
         AlgebraicSum = "simd_reducer_algebraic_sum",
         OrderedProduct = "simd_reducer_ordered_product",
         PairwiseProduct = "simd_reducer_pairwise_product",
@@ -1257,6 +1258,17 @@ local function simdOperand(
     )
 end
 
+--- The elementwise extrema, by the method that names their NaN contract.
+---
+--- There is no unqualified `min`: the two disagree on every pair containing a
+--- NaN, and the call site is the only place that difference can be recorded.
+const VECTOR_EXTREMA = {
+    propagatingMin = "propagating_min",
+    propagatingMax = "propagating_max",
+    numberMin = "number_min",
+    numberMax = "number_max",
+}
+
 --- One binary operator.
 local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local context = kernel.context
@@ -1638,6 +1650,7 @@ local function call(
         )
     elseif identity == "nupp.simd.reducer.orderedSum"
         or identity == "nupp.simd.reducer.pairwiseSum"
+        or identity == "nupp.simd.reducer.compensatedSum"
         or identity == "nupp.simd.reducer.algebraicSum"
         or identity == "nupp.simd.reducer.orderedProduct"
         or identity == "nupp.simd.reducer.pairwiseProduct"
@@ -1675,6 +1688,17 @@ local function call(
             orderedDot = {arity = 2, order = "ordered", kind = "dot"},
             pairwiseDot = {arity = 2, order = "pairwise", kind = "dot"},
             algebraicDot = {arity = 2, order = "algebraic", kind = "dot"},
+            -- An extremum rounds nothing, so it takes no association order.
+            -- What it does take is the NaN contract, which occupies the same
+            -- position in the name that ordered, pairwise and algebraic do.
+            propagatingMin = {arity = 1, order = "propagating", kind = "min"},
+            propagatingMax = {arity = 1, order = "propagating", kind = "max"},
+            numberMin = {arity = 1, order = "number", kind = "min"},
+            numberMax = {arity = 1, order = "number", kind = "max"},
+            propagatingArgMin = {arity = 1, order = "propagating", kind = "arg_min"},
+            propagatingArgMax = {arity = 1, order = "propagating", kind = "arg_max"},
+            numberArgMin = {arity = 1, order = "number", kind = "arg_min"},
+            numberArgMax = {arity = 1, order = "number", kind = "arg_max"},
         }
         local horizontal = operations[operation]
         if horizontal == nil then
@@ -1690,15 +1714,21 @@ local function call(
         if #args == 2 and args[2].type ~= args[1].type then
             context.reject(lower.site(node), "explicit SIMD horizontal dot operands need the same element and species")
         end
-        if element ~= "f32" and element ~= "f64" then
+        local kind = (horizontal as any).kind
+        local extremum = kind == "min" or kind == "max" or kind == "arg_min" or kind == "arg_max"
+        -- Sums, products and dots are floating-point contracts: their named
+        -- orders exist because addition rounds. An extremum selects a lane it
+        -- was given, so it is defined at every element the species admits.
+        if not extremum and element ~= "f32" and element ~= "f64" then
             context.reject(lower.site(node), "explicit SIMD horizontal arithmetic requires a floating-point vector")
         end
         kernel.usesSimd = true
+        local indexed = kind == "arg_min" or kind == "arg_max"
         return new scalarIR.Simd(
             op = "simd_horizontal",
             args = args,
-            intrinsic = (horizontal as any).order .. "_" .. (horizontal as any).kind,
-            type = genericSimdScalar(element) as scalarIR.Type,
+            intrinsic = (horizontal as any).order .. "_" .. kind,
+            type = (indexed and "f64" or genericSimdScalar(element)) as scalarIR.Type,
             source = lower.site(node)
         )
     elseif identity == "nupp.simd.preferred" or identity == "nupp.simd.fixed" then
@@ -2745,6 +2775,19 @@ local function simdMethod(
                 op = "simd_permute",
                 args = {previous, receiver as scalarIR.Expr, count},
                 intrinsic = "align",
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "vector" and VECTOR_EXTREMA[method] ~= nil and #raw == 1 then
+            local other = lower.expression(raw[1], environment, activeIndex, kernel)
+            local otherFamily, otherElement, otherShape = genericSimdParts(other.type)
+            if otherFamily == "vector" and (otherElement ~= genericElement or otherShape ~= genericShape) then
+                kernel.context.reject(source, "explicit SIMD operands have different element or species identities")
+            end
+            return new scalarIR.Simd(
+                op = "simd_binary",
+                args = {receiver as scalarIR.Expr, simdOperand(other, vectorType, source, kernel)},
+                intrinsic = VECTOR_EXTREMA[method],
                 type = vectorType,
                 source = source
             )

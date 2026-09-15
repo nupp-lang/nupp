@@ -182,7 +182,7 @@ function aot.install(c: state.Checker): aot.Ops
                 if identity ~= nil then
                     order, operation = identity:match("^nupp%.simd%.reducer%.(%a+)(%u%l+)$")
                 end
-                if order ~= "ordered" and order ~= "pairwise" and order ~= "algebraic" then
+                if order ~= "ordered" and order ~= "pairwise" and order ~= "algebraic" and order ~= "compensated" then
                     return nil, nil
                 end
                 if operation ~= "Sum" and operation ~= "Product" and operation ~= "Dot" then

@@ -2494,6 +2494,140 @@ return {horizontal = horizontal}
     )
 end
 
+function M.horizontalExtremaNameTheirNanContractAndAreDefinedAtEveryElement()
+    local source = [[
+local simd = require("nupp.simd")
+
+@aot
+local function extrema(): (number, number, number, number)
+    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local values = species:iota(3.0, -1.0)
+    local smallest: float = simd.horizontal.propagatingMin(values)
+    local largest: float = simd.horizontal.propagatingMax(values)
+    local lowAt = simd.horizontal.propagatingArgMin(values)
+    local highAt = simd.horizontal.numberArgMax(values)
+    return smallest, largest, lowAt, highAt
+end
+
+@aot
+local function ignoringMissing(): (number, number)
+    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local values = species:iota(3.0, -1.0)
+    local other = species:splat(0.5)
+
+    return simd.horizontal.numberMin(values:numberMin(other)), simd.horizontal.numberArgMin(values)
+end
+
+@aot
+local function counted(): (number, number)
+    local species: simd.Species<int32, simd.Fixed<8>> = simd.fixed()
+    local values = species:iota(3, -1)
+    local clamped = values:propagatingMin(species:splat(1)):propagatingMax(species:splat(-1))
+    return simd.horizontal.propagatingMin(clamped), simd.horizontal.propagatingArgMax(clamped)
+end
+
+return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
+]]
+    local dir = project{["extrema.nupp"] = source}
+    local decoded, raw, code, where = lowered(
+        dir,
+        "--target aarch64-apple-darwin --features neon --json extrema.nupp"
+    )
+    test.equal(code, 0, raw)
+    for _, intrinsic in ipairs({
+        "simd_horizontal.propagating_min",
+        "simd_horizontal.propagating_max",
+        "simd_horizontal.propagating_arg_min",
+        "simd_horizontal.number_arg_max",
+        "simd_horizontal.number_min",
+        "simd_horizontal.number_arg_min",
+    }) do
+        assert(decoded.ir:find(intrinsic, 1, true), where .. ": missing intrinsic " .. intrinsic .. "\n" .. decoded.ir)
+    end
+    assert(
+        decoded.c:find("ks_exp_horizontal_propagating_min_f32x8", 1, true),
+        where .. ": the production extremum is emitted"
+    )
+    assert(
+        decoded.c:find("ks_scalar_exp_horizontal_number_arg_max_f32x8", 1, true),
+        where .. ": the scalar executable reference is emitted"
+    )
+    assert(
+        decoded.c:find("ks_exp_propagating_min2_f32x8", 1, true) and decoded.c:find("ks_exp_nan_f32x8", 1, true),
+        where .. ": the propagating contract answers a canonical NaN"
+    )
+    assert(
+        decoded.c:find("ks_exp_number_min2_f32x8", 1, true) and decoded.c:find("ks_exp_number_min_f32x8", 1, true),
+        where .. ": the number-preferring contract is a separate body"
+    )
+    assert(
+        decoded.c:find("signbit", 1, true),
+        where .. ": both contracts order the two zeros by sign"
+    )
+    assert(
+        decoded.ir:find("simd_horizontal.propagating_min", 1, true) and decoded.c:find("ks_exp_propagating_min_i32x", 1, true),
+        where .. ": an extremum is defined at an integer element a sum is refused at\n" .. decoded.c
+    )
+    assert(
+        not decoded.c:find("ks_exp_nan_i32x", 1, true),
+        where .. ": an integer extremum carries no NaN case"
+    )
+end
+
+function M.horizontalSumsStillRefuseANonFloatingElement()
+    local source = [[
+local simd = require("nupp.simd")
+
+@aot
+local function total(): number
+    local species: simd.Species<int32, simd.Fixed<8>> = simd.fixed()
+    return simd.horizontal.orderedSum(species:iota(1, 1))
+end
+
+return {total = total}
+]]
+    local dir = project{["total.nupp"] = source}
+    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --json total.nupp")
+    assert(code ~= 0, "an integer horizontal sum has no named rounding contract: " .. out)
+    assert(out:find("NUPP2006", 1, true), "the refusal names the element requirement: " .. out)
+    assert(out:find("floating%-point vector"), "the refusal names the element requirement: " .. out)
+end
+
+function M.compensatedReducerCarriesTheRoundingErrorEachAdditionDiscards()
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function total(borrows values: span.Span<number>): number
+    local exact = simd.reducer.compensatedSum(0.0)
+    @simd
+    for i = 1, #values do
+        exact:add(values[i])
+    end
+
+    return exact:value()
+end
+
+return {total = total}
+]]
+    local dir = project{["compensated.nupp"] = source}
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json compensated.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("reducer.compensated.sum", 1, true), where .. ": the exact contract is explicit\n" .. decoded.ir)
+    assert(
+        decoded.ir:find("vreducer.compensated.sum", 1, true),
+        where .. ": the contribution is lane IR\n" .. decoded.ir
+    )
+    assert(decoded.c:find("ks_compensated_f64_add", 1, true), where .. ": the compensated state has its own native form")
+    assert(decoded.c:find("KsCompensatedF64", 1, true), where .. ": the accumulator is more than one double")
+    test.equal(
+        decoded.functions[1].regions[1].reducers[1].serialized,
+        true,
+        where .. ": a compensated sum keeps its contribution edges"
+    )
+end
+
 function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity()
     local source = GENERIC_EXPLICIT_SIMD
         :gsub("simd%.Preferred", "simd.Fixed<8>", 1)

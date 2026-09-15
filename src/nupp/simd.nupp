@@ -131,6 +131,42 @@ record reducer.AlgebraicSum
     end
 end
 
+--- A floating-point sum carrying the rounding error each addition discards.
+---
+--- Ordered, pairwise and algebraic sums differ in how they associate, and each
+--- discards the low bits of every addition it makes. This one keeps them:
+--- the part that did not fit rides alongside the running total and is added
+--- back at the end, which recovers the totals an ordered sum loses entirely --
+--- `1 + 1e100 + 1 - 1e100` answers two here and zero there.
+---
+--- Compensating is not the same as exact. The answer is enormously closer to
+--- the correctly rounded total than the other three, and like them it still
+--- depends on the order the contributions arrived in, which is why its
+--- contribution edges stay serial rather than being reassociated.
+---
+--- Neumaier's form rather than Kahan's: it compensates the larger operand as
+--- well as the smaller, so a large value added to a small running total does
+--- not lose its correction, which is the case plain Kahan gets wrong.
+--- @export
+record reducer.CompensatedSum
+    total: number
+    compensation: number
+
+    function add(self, value: number): nil
+        local sum = self.total + value
+        if math.abs(self.total) >= math.abs(value) then
+            self.compensation = self.compensation + ((self.total - sum) + value)
+        else
+            self.compensation = self.compensation + ((value - sum) + self.total)
+        end
+        self.total = sum
+    end
+
+    function value(self): number
+        return self.total + self.compensation
+    end
+end
+
 --- A floating-point product committed in logical iteration order.
 --- @export
 record reducer.OrderedProduct
@@ -261,6 +297,12 @@ function reducer.algebraicSum(initial: number): reducer.AlgebraicSum
     return new reducer.AlgebraicSum(total = initial)
 end
 
+--- Constructs a compensated floating-point sum.
+--- @export
+function reducer.compensatedSum(initial: number): reducer.CompensatedSum
+    return new reducer.CompensatedSum(total = initial, compensation = 0.0)
+end
+
 --- Constructs an ordered floating-point product.
 --- @export
 function reducer.orderedProduct(initial: number): reducer.OrderedProduct
@@ -344,6 +386,35 @@ sealed interface simd.Vector<T, S>
     metamethod __eq: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Mask<T, S>
     metamethod __lt: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Mask<T, S>
     metamethod __le: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Mask<T, S>
+
+    --- The smaller of each lane pair, and the larger, under the contract the
+    --- name selects. There is no unqualified `min`: the two disagree on every
+    --- pair containing a NaN, and which one a program wanted is not
+    --- recoverable from the call.
+    ---
+    --- `propagatingMin` answers the canonical NaN whenever either operand is
+    --- NaN, which is `nupp.math.f32.min`'s contract and what makes a reduction
+    --- built on it independent of which lane the NaN landed in and of how many
+    --- lanes the target chose. `-0` is the smaller zero and `+0` the larger, so
+    --- an equal pair of zeros answers by sign rather than by position. `-inf`
+    --- and `+inf` are ordinary values at the ends of the order.
+    propagatingMin: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+
+    propagatingMax: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+
+    --- `numberMin` answers the operand that is not NaN, and the canonical NaN
+    --- only when both are, which is IEEE-754's `minNum`. It is the contract for
+    --- a scan looking for the smallest real measurement in data that carries
+    --- NaN for a missing one. Zeros and infinities behave as they do above.
+    ---
+    --- A reduction over it depends on how many lanes were NaN, which is the
+    --- price of ignoring them and the reason it is not the default.
+    ---
+    --- An integer element has no NaN, so the two contracts coincide there and
+    --- either spelling answers the same value.
+    numberMin: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+
+    numberMax: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
     --- Lane indices are one-based.
     extract: function(borrows self: simd.Vector<T, S>, lane: integer): T
@@ -498,6 +569,79 @@ end
 --- @export
 function horizontal.algebraicDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
     error("simd.horizontal.algebraicDot is available only inside an AOT-compiled function", 2)
+end
+
+--- The smallest lane, and the largest, under the contract the name selects.
+---
+--- These take no order where the sums and products above take three: min and
+--- max round nothing, so every association of them answers the same value and
+--- three names would have named one answer. What they do take is the NaN
+--- contract, for the same reason `Vector.propagatingMin` and `Vector.numberMin`
+--- are separate names -- and each is the elementwise operation of that name,
+--- folded over the lanes.
+---
+--- `propagatingMin` answers the canonical NaN when any lane is NaN, so its
+--- answer does not depend on how many lanes the target chose. `numberMin`
+--- answers the smallest lane that is not NaN, and the canonical NaN only when
+--- every lane is. `-0` is the smaller zero under both.
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.propagatingMin<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.propagatingMin is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.propagatingMax<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.propagatingMax is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.numberMin<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.numberMin is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.numberMax<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.numberMax is available only inside an AOT-compiled function", 2)
+end
+
+--- The one-based lane holding the matching reduction's answer.
+---
+--- The lowest such lane when several tie, which is the logical-index tie rule
+--- every lane-selecting operation here uses. `propagatingArgMin` answers the
+--- lowest NaN lane when any lane is NaN, because that is the lane whose element
+--- is what `propagatingMin` answers; `numberArgMin` skips NaN lanes and answers
+--- the lowest only when every lane is NaN. Either way the identity
+--- `value:extract(horizontal.<name>ArgMin(value))` holds against the reduction
+--- of the same name.
+---
+--- A lane index rather than a lane and its value, because an AOT expression
+--- answers one value and `extract` already spells the pair.
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.propagatingArgMin<T, S>(value: simd.Vector<T, S>): integer
+    error("simd.horizontal.propagatingArgMin is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.propagatingArgMax<T, S>(value: simd.Vector<T, S>): integer
+    error("simd.horizontal.propagatingArgMax is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.numberArgMin<T, S>(value: simd.Vector<T, S>): integer
+    error("simd.horizontal.numberArgMin is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.numberArgMax<T, S>(value: simd.Vector<T, S>): integer
+    error("simd.horizontal.numberArgMax is available only inside an AOT-compiled function", 2)
 end
 
 simd.horizontal = horizontal

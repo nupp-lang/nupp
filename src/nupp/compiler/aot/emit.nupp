@@ -350,6 +350,8 @@ function emit.cType(typeName: string): string
         or typeName == "simd_reducer_pairwise_dot"
     then
         return "KsPairwiseF64"
+    elseif typeName == "simd_reducer_compensated_sum" then
+        return "KsCompensatedF64"
     elseif typeName == "simd_reducer_ordered_sum"
         or typeName == "simd_reducer_algebraic_sum"
         or typeName == "simd_reducer_ordered_product"
@@ -423,6 +425,22 @@ local luaSite: function(source: scalarIR.Source?): string
 ---
 --- C's usual arithmetic conversions decide a mixed comparison by converting
 --- the signed operand to unsigned, or an integer operand to binary32, so the
+--- The C helper family a reducer whose state is more than one `double` uses.
+---
+--- Ordered and algebraic reducers accumulate into a bare `double`, so they have
+--- none and every site answering nil here emits an operator instead. Naming the
+--- two that do in one place keeps the six sites that construct, contribute to
+--- and finalize a reducer from each growing their own copy of the list.
+local function reducerHelper(order: string, operation: string): string?
+    if order == "pairwise" then
+        return operation == "product" and "ks_pairwise_f64_product_" or "ks_pairwise_f64_"
+    elseif order == "compensated" then
+        return "ks_compensated_f64_"
+    end
+
+    return nil
+end
+
 --- bare operator answers a different question than the source wrote and the
 --- constant folder answers. Pairings whose implicit conversion preserves the
 --- value keep the bare operator; the rest compare by value here.
@@ -501,23 +519,21 @@ function emit.scalar(node: scalarIR.Expr): string
         ).span .. ")" or "((double)count)"
     elseif operation == "reducer_init" then
         local reducer = node as scalarIR.ReducerInit
-        if reducer.order == "pairwise" then
-            local helper = reducer.operation == "product" and "ks_pairwise_f64_product_init(" or "ks_pairwise_f64_init("
-            return helper .. emit.scalar(reducer.initial) .. ")"
-        else
-            return emit.scalar(reducer.initial)
+        local helper = reducerHelper(reducer.order, reducer.operation)
+        if helper ~= nil then
+            return helper .. "init(" .. emit.scalar(reducer.initial) .. ")"
         end
+
+        return emit.scalar(reducer.initial)
     elseif operation == "reducer_value" then
         local reducer = node as scalarIR.ReducerValue
         local name = emit.scalar(reducer.reducer)
-        if reducer.order == "pairwise" then
-            local helper = reducer.operation == "product"
-                and "ks_pairwise_f64_product_value("
-                or "ks_pairwise_f64_value("
-            return helper .. name .. ")"
-        else
-            return name
+        local helper = reducerHelper(reducer.order, reducer.operation)
+        if helper ~= nil then
+            return helper .. "value(" .. name .. ")"
         end
+
+        return name
     elseif operation == "lua_string_length" then
         local bytes = (node as scalarIR.LuaBytes).bytes as scalarIR.Name
         return "ks_lua_string_length(L, ks_length_" .. tostring(bytes.cName) .. ")"
@@ -779,7 +795,13 @@ function emit.scalar(node: scalarIR.Expr): string
                     simd.span
                 ) .. ", " .. count .. ", " .. emit.scalar(args[2]) .. ", " .. active .. ")"
             elseif operation == "simd_binary" then
-                if explicitScalar or composite then
+                -- An extremum has no C operator and a contract a bare `<` would
+                -- not keep, so every representation calls the helper the prelude
+                -- generated for its lanes rather than only the two that call a
+                -- helper for everything.
+                local named = tostring(simd.intrinsic)
+                local extremum = named:match("_min$") ~= nil or named:match("_max$") ~= nil
+                if explicitScalar or composite or extremum then
                     local family = explicitType(args[1].type)
                     local name = family == "mask" and "mask_" .. tostring(simd.intrinsic) or tostring(simd.intrinsic)
                     return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(
@@ -1471,23 +1493,21 @@ function emit.lane(node: lane.Expr | scalarIR.Expr): string
 
     if operation == "reducer_init" then
         local reducer = node as scalarIR.ReducerInit
-        if reducer.order == "pairwise" then
-            local helper = reducer.operation == "product" and "ks_pairwise_f64_product_init(" or "ks_pairwise_f64_init("
-            return helper .. emit.lane(reducer.initial) .. ")"
-        else
-            return emit.lane(reducer.initial)
+        local helper = reducerHelper(reducer.order, reducer.operation)
+        if helper ~= nil then
+            return helper .. "init(" .. emit.lane(reducer.initial) .. ")"
         end
+
+        return emit.lane(reducer.initial)
     elseif operation == "reducer_value" then
         local reducer = node as scalarIR.ReducerValue
         local name = emit.lane(reducer.reducer)
-        if reducer.order == "pairwise" then
-            local helper = reducer.operation == "product"
-                and "ks_pairwise_f64_product_value("
-                or "ks_pairwise_f64_value("
-            return helper .. name .. ")"
-        else
-            return name
+        local helper = reducerHelper(reducer.order, reducer.operation)
+        if helper ~= nil then
+            return helper .. "value(" .. name .. ")"
         end
+
+        return name
     elseif operation == "vindex" then
         local index = node as lane.Index
         local parts: {string} = {}
@@ -4022,6 +4042,30 @@ local function scalarHelpers(): {string}
         "    return result;",
         "}",
         "",
+        "/* Neumaier's compensated sum: `compensation` carries the part of every",
+        " * addition that did not fit in `total`, and compensating the larger",
+        " * operand as well as the smaller is what makes a large value added to a",
+        " * small running total keep its correction. Compensated is not exact --",
+        " * the answer still depends on the order the lanes arrived in, which is",
+        " * why the contract keeps its contribution edges serial. */",
+        "typedef struct { double total; double compensation; } KsCompensatedF64;",
+        unused .. "void ks_compensated_f64_add(KsCompensatedF64 *state, double value) {",
+        "    double sum = state->total + value;",
+        "    double total = state->total;",
+        "    if ((total < 0.0 ? -total : total) >= (value < 0.0 ? -value : value)) {",
+        "        state->compensation += (total - sum) + value;",
+        "    } else {",
+        "        state->compensation += (value - sum) + total;",
+        "    }",
+        "    state->total = sum;",
+        "}",
+        unused .. "KsCompensatedF64 ks_compensated_f64_init(double initial) {",
+        "    KsCompensatedF64 out = {initial, 0.0}; return out;",
+        "}",
+        unused .. "double ks_compensated_f64_value(KsCompensatedF64 state) {",
+        "    return state.total + state.compensation;",
+        "}",
+        "",
         unused .. "double nupp_min2(double left, double right) {",
         "    return left < right ? left : right;",
         "}",
@@ -4273,6 +4317,192 @@ local function genericHorizontalPrelude(
             "left",
             "i"
         ) .. ", " .. access("right", "i") .. ", even); return even + odd; }"
+    end
+
+    --- One lane of a value being built, as a C statement.
+    ---
+    --- A native vector and the struct oracle are both lvalues per lane; a fixed
+    --- logical species spread over several of them is not, so it rebuilds
+    --- through the insert helper the rest of the composite path uses.
+    local function write(name: string, index: string, value: string): string
+        if scalar then
+            return name .. ".lane[" .. index .. "] = " .. value .. ";"
+        elseif composite then
+            return name
+                .. " = ks_exp_insert_"
+                .. suffix
+                .. "("
+                .. name
+                .. ", (double)(("
+                .. index
+                .. ") + 1u), "
+                .. value
+                .. ");"
+        end
+
+        return name .. "[" .. index .. "] = " .. value .. ";"
+    end
+
+    local float = element.name == "f32" or element.name == "f64"
+    local nan = prefix .. "nan_" .. suffix .. "()"
+    if float then
+        -- Self-contained rather than the scalar body's `nupp_f32_nan`: this
+        -- prelude is emitted for every species a program mentions and cannot
+        -- assume a program that mentions one also called binary32 math.
+        local bits = element.name == "f32" and "UINT32_C(0x7fc00000)" or "UINT64_C(0x7ff8000000000000)"
+        local bitsType = element.name == "f32" and "uint32_t" or "uint64_t"
+        lines[
+            #lines + 1
+        ] = unused
+            .. element.c
+            .. " "
+            .. prefix
+            .. "nan_"
+            .. suffix
+            .. "(void) { "
+            .. bitsType
+            .. " b = "
+            .. bits
+            .. "; "
+            .. element.c
+            .. " out; memcpy(&out, &b, sizeof out); return out; }"
+    end
+
+    -- Two named NaN contracts rather than one `min`. They disagree on every
+    -- pair containing a NaN and the choice is not recoverable from a call, so
+    -- the name carries it: `propagating` answers the canonical NaN, which keeps
+    -- a reduction over it independent of how many lanes the target chose, and
+    -- `number` answers the operand that is not one, which is IEEE `minNum` and
+    -- what a scan over data using NaN for a missing measurement wants.
+    --
+    -- Both order `-0` below `+0`, the way `nupp.math.f32.min` does: an equal
+    -- pair is where the two zeros have to be told apart by sign rather than by
+    -- position, and every other equal pair answers the same value either way.
+    -- An integer element has neither case, so both names reach one body.
+    for _, extremum in ipairs({{name = "min", c = "<", zero = "left"}, {name = "max", c = ">", zero = "right"}}) do
+        local other = extremum.zero == "left" and "right" or "left"
+        local zeros = "if (left == right) { return left != ("
+            .. element.c
+            .. ")0 ? left : (signbit(left) ? "
+            .. extremum.zero
+            .. " : "
+            .. other
+            .. "); }"
+        local ordered = "return left " .. extremum.c .. " right ? left : right;"
+        for _, contract in ipairs({"propagating", "number"}) do
+            local named = contract .. "_" .. extremum.name
+            local body = ordered
+            if float and contract == "propagating" then
+                body = "if (left != left || right != right) { return " .. nan .. "; } " .. zeros .. " " .. ordered
+            elseif float then
+                body = "if (left != left) { return right != right ? "
+                    .. nan
+                    .. " : right; } if (right != right) { return left; } "
+                    .. zeros
+                    .. " "
+                    .. ordered
+            end
+            local pair = prefix .. named .. "2_" .. suffix
+            lines[
+                #lines + 1
+            ] = unused
+                .. element.c
+                .. " "
+                .. pair
+                .. "("
+                .. element.c
+                .. " left, "
+                .. element.c
+                .. " right) { "
+                .. body
+                .. " }"
+
+            -- Elementwise, over one pair of registers.
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " "
+                .. prefix
+                .. named
+                .. "_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " left, "
+                .. vector
+                .. " right) { "
+                .. vector
+                .. " out = left; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) " .. write(
+                "out",
+                "i",
+                pair .. "(" .. access("left", "i") .. ", " .. access("right", "i") .. ")"
+            ) .. " return out; }"
+
+            -- Horizontal, over the lanes of one register. No association order
+            -- in the name: an extremum rounds nothing, so every association
+            -- answers the same value and three names would have named one.
+            lines[
+                #lines + 1
+            ] = signature(
+                named,
+                false
+            ) .. element.c .. " out = " .. access(
+                "left",
+                "0u"
+            ) .. "; for (uint32_t i = 1u; i < " .. tostring(
+                lanes
+            ) .. "u; ++i) out = " .. pair .. "(out, " .. access("left", "i") .. "); return out; }"
+
+            -- The lane holding that answer, one-based as every lane index is.
+            -- Written against `<` and the sign rule rather than by calling the
+            -- pair helper, because a tie has to keep the lane it first saw and
+            -- a helper answering an equal value cannot say which one that was.
+            local better = "value " .. extremum.c .. " best"
+            if float then
+                better = better .. " || (value == best && signbit(value) != signbit(best) && signbit(" .. (
+                    extremum.zero == "left" and "value" or "best"
+                ) .. "))"
+            end
+            local step = "if (" .. better .. ") { at = i; best = value; }"
+            if float and contract == "propagating" then
+                -- Once a NaN has been taken nothing replaces it, so the lowest
+                -- NaN lane is the answer whenever any lane is NaN.
+                step = "if (best == best) { if (value != value) { at = i; best = value; } else " .. step .. " }"
+            elseif float then
+                -- A NaN lane is skipped and only replaced by a real value, so
+                -- the answer is a NaN lane only when every lane is one.
+                step = "if (value == value) { if (best != best) { at = i; best = value; } else " .. step .. " }"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. "double "
+                .. prefix
+                .. "horizontal_"
+                .. contract
+                .. "_arg_"
+                .. extremum.name
+                .. "_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " left) { uint32_t at = 0u; "
+                .. element.c
+                .. " best = "
+                .. access(
+                "left",
+                "0u"
+            ) .. "; for (uint32_t i = 1u; i < " .. tostring(
+                lanes
+            ) .. "u; ++i) { " .. element.c .. " value = " .. access(
+                "left",
+                "i"
+            ) .. "; " .. step .. " } return (double)(at + 1u); }"
+        end
     end
 
     return lines
@@ -8068,14 +8298,19 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body, repeatCo
                     #lines + 1
                 ] = prefix .. algebraic .. (contribution.operation == "product" and " *= " or " += ") .. temp .. ";"
             else
+                local stateful = reducerHelper(contribution.order, contribution.operation)
                 for laneIndex = 0, width - 1 do
-                    if contribution.order == "pairwise" then
-                        local helper = contribution.operation == "product"
-                            and "ks_pairwise_f64_product_add(&"
-                            or "ks_pairwise_f64_add(&"
+                    if stateful ~= nil then
                         lines[
                             #lines + 1
-                        ] = prefix .. helper .. contribution.reducerCName .. ", (double)" .. temp .. "[" .. tostring(
+                        ] = prefix
+                            .. stateful
+                            .. "add(&"
+                            .. contribution.reducerCName
+                            .. ", (double)"
+                            .. temp
+                            .. "["
+                            .. tostring(
                             laneIndex
                         ) .. "]);"
                     else
@@ -8094,11 +8329,11 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body, repeatCo
             local contributed = contribution.right ~= nil and "(" .. emit.lane(
                 contribution.value
             ) .. " * " .. emit.lane(contribution.right as scalarIR.Expr) .. ")" or emit.lane(contribution.value)
-            if contribution.order == "pairwise" then
-                local helper = contribution.operation == "product"
-                    and "ks_pairwise_f64_product_add(&"
-                    or "ks_pairwise_f64_add(&"
-                lines[#lines + 1] = prefix .. helper .. tostring(named.cName) .. ", " .. contributed .. ");"
+            local stateful = reducerHelper(contribution.order, contribution.operation)
+            if stateful ~= nil then
+                lines[
+                    #lines + 1
+                ] = prefix .. stateful .. "add(&" .. tostring(named.cName) .. ", " .. contributed .. ");"
             else
                 local operator = contribution.operation == "product" and " *= " or " += "
                 lines[#lines + 1] = prefix .. tostring(named.cName) .. operator .. contributed .. ";"
