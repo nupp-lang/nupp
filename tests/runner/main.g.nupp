@@ -13,7 +13,7 @@ arg[0] = "tests/run.lua"
 package.loaded["nupp.test"] = require("nupp.test")
 
 -- File-loaded suites share these host facilities in the parent and worker states.
-require("nupp.crypto")
+require("nupp.random")
 require("nupp.uuid")
 require("nupp.system")
 require("nupp.digest")

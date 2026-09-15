@@ -1,5 +1,5 @@
 local system = require("nupp.system")
-local crypto = require("nupp.crypto")
+local random = require("nupp.random")
 local uuid = require("nupp.uuid")
 local ffi = require("ffi")
 local M = {}
@@ -15,12 +15,12 @@ end
 
 function M.secureRandomBytesSizesAndValidation()
     for _, count in ipairs({0, 1, 32, 4096}) do
-        assert(#crypto.randomBytes(count) == count)
+        assert(#random.randomBytes(count) == count)
     end
     for _, count in ipairs({-1, 0.5, 1048577, math.huge, 0 / 0}) do
-        assert(not pcall(crypto.randomBytes, count))
+        assert(not pcall(random.randomBytes, count))
     end
-    assert(crypto.sha256 == nil and crypto.uuid4 == nil and crypto.hmacSha256 == nil)
+    assert(random.sha256 == nil and random.uuid4 == nil and random.hmacSha256 == nil)
 end
 
 function M.identifiersHaveTheirOwnNamespace()

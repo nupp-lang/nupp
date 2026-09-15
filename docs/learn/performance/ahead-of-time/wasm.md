@@ -183,12 +183,12 @@ suspension, time, random bytes, UUIDs, and persistent string storage when
 required. SHA-256 and HMAC-SHA256 are ordinary portable functions:
 
 ```nupp
-local crypto = nupp.crypto
+local random = nupp.random
 local storage = nupp.io.storage
 local time = nupp.time
 
 time.sleep(10)
-local token = crypto.randomBytes(32)
+local token = random.randomBytes(32)
 storage.set("session", token)
 local restored = storage.get("session")
 print(restored and #restored or 0)

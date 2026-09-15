@@ -1,4 +1,4 @@
-local browserCrypto = require("nupp.crypto")
+local browserRandom = require("nupp.random")
 local browserStorage = require("nupp.io.storage")
 local browserTime = require("nupp.time")
 local digest = require("nupp.digest")
@@ -22,7 +22,7 @@ return json.encode({
     endianness = system.endianness,
     parallelism = system.availableParallelism(),
     elapsed = elapsed,
-    randomBytes = #browserCrypto.randomBytes(32),
+    randomBytes = #browserRandom.randomBytes(32),
     md5 = digest.hexDigest("md5", "abc"),
     sha1 = digest.hexDigest("sha1", "abc"),
     sha256 = digest.hexDigest("sha256", "abc"),

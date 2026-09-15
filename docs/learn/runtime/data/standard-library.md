@@ -62,7 +62,6 @@ intrinsic namespaces and the declared modules:
   numeric values; protocols choose their serialization byte order.
 - [](nupp.hash) provides general-purpose FNV-1a hashing.
 - [](nupp.mac) provides keyed authentication, including HMAC-SHA256.
-- [](nupp.crypto) provides cryptographically secure random bytes.
 - [](nupp.uuid) generates version 4 and version 7 identifiers.
 - [](nupp.codec.json), [](nupp.codec.base64) and [](nupp.codec.hex) encode and
   decode representations. [](nupp.codec.valuebuilder) supports codec authors.
@@ -92,8 +91,8 @@ intrinsic namespaces and the declared modules:
 - [](nupp.gpu) owns resident buffers, generated kernel dispatches, and
   tensor views. [](nupp.gpu.layout) owns the checked layout algebra.
   [](nupp.browser.gpu) supplies the bounded browser `xorU32` operation.
-- [](nupp.random) owns deterministic pseudo-random sequences with explicit,
-  serializable state.
+- [](nupp.random) provides cryptographically secure random bytes and owns
+  deterministic pseudo-random sequences with explicit, serializable state.
 - [](nupp.suspension), [](nupp.tasks), and [](nupp.workers) provide waiting,
   application task scopes, and isolated worker lanes.
 - [](nupp.time) owns monotonic time, wall time, sleeps, and deadlines.

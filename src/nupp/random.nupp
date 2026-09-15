@@ -1,7 +1,9 @@
 module nupp.random
 
 --[[
-Deterministic pseudo-random generation with explicit, serializable state.
+Random generation. `randomBytes` obtains cryptographically secure bytes from the
+host, while `Random` provides deterministic sequences with explicit, serializable
+state.
 
 Each `Random` owns an independent xoshiro128** sequence. A seed is always
 interpreted as one 32-bit word, and omitting it chooses a fixed seed rather
@@ -14,11 +16,28 @@ local random = require("nupp.random")
 local dice = random.newRandom(42)
 local d20 = dice:integer(20)
 local unit = dice:next()
+local nonce = random.randomBytes(32)
 ```
 
 `state` and `setState` copy the four signed 32-bit state words. They are the
 portable checkpoint format: preserving them preserves the next draw exactly.
 ]]
+
+local contracts = require("nupp.runtime.services.contracts")
+local provider = contracts.crypto:assemble(function(): contracts.CryptoProvider
+    local native = contracts.crypto:lookup("nupp.native")
+    if native ~= nil then
+        return native
+    end
+
+    return contracts.crypto:require("nupp.browser")
+end)
+
+--- Returns cryptographically secure random bytes from the selected host.
+--- @param count the requested byte count, from zero through 1048576
+--- @return the generated raw bytes
+--- @raises when the count is invalid or the host cannot supply randomness
+export const randomBytes = provider.randomBytes
 
 const INV32 = 1.0 / 4294967296.0
 const DEFAULT_SEED = 0x5EED1234

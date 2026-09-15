@@ -12,7 +12,6 @@ local MODULES = {
     ["nupp.codec.json.provider"] = facility("runtime", "native.json"),
     ["nupp"] = {kind = "common"},
     ["nupp.test"] = {kind = "common"},
-    ["nupp.crypto"] = facility("host", "runtime.crypto"),
     ["nupp.system"] = facility("host", "runtime.system"),
     ["nupp.services"] = {kind = "common"},
     ["nupp.codec.hex"] = {kind = "common"},
@@ -89,7 +88,7 @@ local MODULES = {
     -- Reaches the recorder through nupp.profile, so it is available exactly where that
     -- is.
     ["nupp.bench"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.random"] = {kind = "common"},
+    ["nupp.random"] = facility("host", "runtime.crypto"),
     ["nupp.simd"] = facility("compile", "runtime.simd"),
     ["nupp.suspension"] = {kind = "common"},
     ["nupp.tasks"] = {kind = "common"},

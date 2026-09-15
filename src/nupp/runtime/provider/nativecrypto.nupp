@@ -7,7 +7,7 @@ The native host fills a fresh temporary byte allocation from its secure random
 source. The result is copied into an owned Lua string; no pointer escapes. Counts
 are bounded to one MiB, and zero returns an empty string without calling the host.
 Native failure raises with the host diagnostic. This module is carried only by
-native targets and is selected by nupp.crypto during module initialization.
+native targets and is selected by nupp.random during module initialization.
 ]]
 
 const native = require("nupp.runtime.native")

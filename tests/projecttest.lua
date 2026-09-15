@@ -1844,10 +1844,10 @@ return {
         [
             "src/main.nupp"
         ] = [[
-local crypto = require("nupp.crypto")
+local random = require("nupp.random")
 local storage = require("nupp.io.storage")
 local time = require("nupp.time")
-return crypto, storage, time
+return random, storage, time
 ]],
     })
 

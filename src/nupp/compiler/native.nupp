@@ -50,7 +50,7 @@ local FEATURES: {[string]: native.Feature} = {
     },
     [
         "runtime.crypto"
-    ] = {name = "crypto_runtime", module = "nupp.crypto", runtimeModule = "nupp.crypto", portableRuntime = true},
+    ] = {name = "crypto_runtime", module = "nupp.random", runtimeModule = "nupp.random", portableRuntime = true},
     [
         "runtime.storage"
     ] = {
