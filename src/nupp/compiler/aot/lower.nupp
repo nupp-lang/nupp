@@ -1659,6 +1659,48 @@ local function call(
             type = "simd_reducer_" .. tostring(order) .. "_" .. operationName,
             source = lower.site(node)
         )
+    elseif identity ~= nil and identity:match("^nupp%.simd%.horizontal%.") ~= nil then
+        local operation = identity:match("^nupp%.simd%.horizontal%.(.+)$") as string
+        local operations: {[string]: {
+            arity: integer,
+            order: string,
+            kind: string
+        }} = {
+            orderedSum = {arity = 1, order = "ordered", kind = "sum"},
+            pairwiseSum = {arity = 1, order = "pairwise", kind = "sum"},
+            algebraicSum = {arity = 1, order = "algebraic", kind = "sum"},
+            orderedProduct = {arity = 1, order = "ordered", kind = "product"},
+            pairwiseProduct = {arity = 1, order = "pairwise", kind = "product"},
+            algebraicProduct = {arity = 1, order = "algebraic", kind = "product"},
+            orderedDot = {arity = 2, order = "ordered", kind = "dot"},
+            pairwiseDot = {arity = 2, order = "pairwise", kind = "dot"},
+            algebraicDot = {arity = 2, order = "algebraic", kind = "dot"},
+        }
+        local horizontal = operations[operation]
+        if horizontal == nil then
+            context.reject(lower.site(node), "unknown explicit SIMD horizontal operation " .. operation)
+        end
+        if #args ~= (horizontal as any).arity then
+            context.reject(lower.site(node), "simd.horizontal." .. operation .. " has an unsupported argument count")
+        end
+        local family, element = genericSimdParts(args[1].type)
+        if family ~= "vector" or element == nil then
+            context.reject(lower.site(node), "simd.horizontal." .. operation .. " needs an explicit SIMD vector")
+        end
+        if #args == 2 and args[2].type ~= args[1].type then
+            context.reject(lower.site(node), "explicit SIMD horizontal dot operands need the same element and species")
+        end
+        if element ~= "f32" and element ~= "f64" then
+            context.reject(lower.site(node), "explicit SIMD horizontal arithmetic requires a floating-point vector")
+        end
+        kernel.usesSimd = true
+        return new scalarIR.Simd(
+            op = "simd_horizontal",
+            args = args,
+            intrinsic = (horizontal as any).order .. "_" .. (horizontal as any).kind,
+            type = genericSimdScalar(element) as scalarIR.Type,
+            source = lower.site(node)
+        )
     elseif identity == "nupp.simd.preferred" or identity == "nupp.simd.fixed" then
         if #args ~= 0 then
             context.reject(lower.site(node), "a generic SIMD species constructor takes no arguments")

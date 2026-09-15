@@ -691,6 +691,7 @@ function emit.scalar(node: scalarIR.Expr): string
             or operation == "simd_compress"
             or operation == "simd_expand"
             or operation == "simd_prefix"
+            or operation == "simd_horizontal"
             or operation == "simd_bitmask_any"
             or operation == "simd_bitmask_all"
             or operation == "simd_bitmask_count"
@@ -735,6 +736,8 @@ function emit.scalar(node: scalarIR.Expr): string
             ].type or operation == "simd_bitmask_low" and args[
                 1
             ].type or operation == "simd_bitmask_high" and args[
+                1
+            ].type or operation == "simd_horizontal" and args[
                 1
             ].type or operation == "simd_bitmask_compare" and args[1].type or simd.type
             local _, element, lanes, shape = explicitType(shapedType)
@@ -841,6 +844,14 @@ function emit.scalar(node: scalarIR.Expr): string
                     rendered[#rendered + 1] = emit.scalar(argument)
                 end
                 return genericHelper .. tostring(
+                    simd.intrinsic
+                ) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
+            elseif operation == "simd_horizontal" then
+                local rendered: {string} = {}
+                for _, argument in ipairs(args) do
+                    rendered[#rendered + 1] = emit.scalar(argument)
+                end
+                return genericHelper .. "horizontal_" .. tostring(
                     simd.intrinsic
                 ) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
             elseif operation == "simd_bitmask_any" then
@@ -4094,6 +4105,179 @@ local function sseBits(width: integer): string
         .. "| ((uint32_t)(uint16_t)_mm_movemask_epi8(v1) << 16u);"
 end
 
+--- Scalar executable definitions for the named horizontal contracts.
+---
+--- `scalar` selects the independent struct oracle; `composite` selects a fixed
+--- logical species represented by several native vectors. Preferred vectors
+--- use direct lane indexing. The generated dependency graph, rather than the C
+--- compiler's reassociation policy, distinguishes ordered, pairwise and
+--- algebraic operations.
+local function genericHorizontalPrelude(
+    element: any,
+    suffix: string,
+    vector: string,
+    lanes: integer,
+    scalar: boolean,
+    composite: boolean
+): {string}
+    local lines: {string} = {}
+    local prefix = scalar and "ks_scalar_exp_" or "ks_exp_"
+    local unused = "static inline __attribute__((unused)) "
+
+    local function access(name: string, index: string): string
+        if scalar then
+            return name .. ".lane[" .. index .. "]"
+        elseif composite then
+            return "ks_exp_extract_" .. suffix .. "(" .. name .. ", (double)((" .. index .. ") + 1u))"
+        end
+
+        return name .. "[" .. index .. "]"
+    end
+
+    local function signature(name: string, dot: boolean): string
+        return unused
+            .. element.c
+            .. " "
+            .. prefix
+            .. "horizontal_"
+            .. name
+            .. "_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " left"
+            .. (
+            dot and ", " .. vector .. " right" or ""
+        ) .. ") { "
+    end
+
+    for _, operation in ipairs({"sum", "product"}) do
+        local operator = operation == "sum" and "+" or "*"
+        local identity = operation == "sum" and "0" or "1"
+        lines[
+            #lines + 1
+        ] = signature(
+            "ordered_" .. operation,
+            false
+        ) .. element.c .. " out = (" .. element.c .. ")" .. identity .. "; for (uint32_t i = 0u; i < " .. tostring(
+            lanes
+        ) .. "u; ++i) out = out " .. operator .. " " .. access("left", "i") .. "; return out; }"
+        lines[
+            #lines + 1
+        ] = signature(
+            "pairwise_" .. operation,
+            false
+        ) .. element.c .. " partials[" .. tostring(
+            lanes
+        ) .. "]; for (uint32_t i = 0u; i < " .. tostring(
+            lanes
+        ) .. "u; ++i) partials[i] = " .. access(
+            "left",
+            "i"
+        ) .. "; uint32_t n = " .. tostring(
+            lanes
+        )
+            .. "u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] "
+            .. operator
+            .. " partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; }"
+        lines[
+            #lines + 1
+        ] = signature(
+            "algebraic_" .. operation,
+            false
+        )
+            .. element.c
+            .. " even = ("
+            .. element.c
+            .. ")"
+            .. identity
+            .. ", odd = ("
+            .. element.c
+            .. ")"
+            .. identity
+            .. "; uint32_t i = 0u; for (; i + 1u < "
+            .. tostring(
+            lanes
+        ) .. "u; i += 2u) { even = even " .. operator .. " " .. access(
+            "left",
+            "i"
+        ) .. "; odd = odd " .. operator .. " " .. access(
+            "left",
+            "i + 1u"
+        ) .. "; } if (i < " .. tostring(
+            lanes
+        ) .. "u) even = even " .. operator .. " " .. access("left", "i") .. "; return even " .. operator .. " odd; }"
+    end
+
+    lines[
+        #lines + 1
+    ] = signature(
+        "ordered_dot",
+        true
+    ) .. element.c .. " out = (" .. element.c .. ")0; for (uint32_t i = 0u; i < " .. tostring(
+        lanes
+    ) .. "u; ++i) { " .. element.c .. " product = " .. access(
+        "left",
+        "i"
+    ) .. " * " .. access("right", "i") .. "; out = out + product; } return out; }"
+    lines[
+        #lines + 1
+    ] = signature(
+        "pairwise_dot",
+        true
+    ) .. element.c .. " partials[" .. tostring(
+        lanes
+    ) .. "]; for (uint32_t i = 0u; i < " .. tostring(
+        lanes
+    ) .. "u; ++i) partials[i] = " .. access(
+        "left",
+        "i"
+    ) .. " * " .. access(
+        "right",
+        "i"
+    ) .. "; uint32_t n = " .. tostring(
+        lanes
+    )
+        .. "u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] + partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; }"
+    local fused = element.name == "f32" and "fmaf" or element.name == "f64" and "fma" or nil
+    if fused ~= nil then
+        lines[
+            #lines + 1
+        ] = signature(
+            "algebraic_dot",
+            true
+        )
+            .. element.c
+            .. " even = ("
+            .. element.c
+            .. ")0, odd = ("
+            .. element.c
+            .. ")0; uint32_t i = 0u; for (; i + 1u < "
+            .. tostring(
+            lanes
+        ) .. "u; i += 2u) { even = " .. fused .. "(" .. access(
+            "left",
+            "i"
+        ) .. ", " .. access(
+            "right",
+            "i"
+        ) .. ", even); odd = " .. fused .. "(" .. access(
+            "left",
+            "i + 1u"
+        ) .. ", " .. access(
+            "right",
+            "i + 1u"
+        ) .. ", odd); } if (i < " .. tostring(
+            lanes
+        ) .. "u) even = " .. fused .. "(" .. access(
+            "left",
+            "i"
+        ) .. ", " .. access("right", "i") .. ", even); return even + odd; }"
+    end
+
+    return lines
+end
+
 --- General preferred-species types and their scalar executable semantics.
 ---
 --- The production type is a compiler vector. The separately named scalar type
@@ -4134,7 +4318,7 @@ local function genericSimdPrelude(width: integer): {string}
         {name = "ne", c = "!="},
     }
     for _, element in ipairs(elements) do
-        local lanes = width / element.bytes
+        local lanes = (width / element.bytes) as integer
         local suffix = element.name .. "x" .. tostring(lanes)
         local vector = "ks_exp_" .. suffix
         local mask = "ks_exp_mask_" .. suffix
@@ -4803,6 +4987,12 @@ local function genericSimdPrelude(width: integer): {string}
             .. tostring(
             lanes
         ) .. "u; ++i) value.lane[i] = ~value.lane[i]; return value; }"
+        for _, line in ipairs(genericHorizontalPrelude(element, suffix, vector, lanes, false, false)) do
+            lines[#lines + 1] = line
+        end
+        for _, line in ipairs(genericHorizontalPrelude(element, suffix, scalarVector, lanes, true, false)) do
+            lines[#lines + 1] = line
+        end
     end
 
     return lines
@@ -4824,16 +5014,16 @@ local function fixedSimdPrelude(width: integer): {string}
     table.sort(keys)
 
     local elements = {
-        f64 = {c = "double", mask = "int64_t", bytes = 8},
-        f32 = {c = "float", mask = "int32_t", bytes = 4},
-        i8 = {c = "int8_t", mask = "int8_t", bytes = 1},
-        u8 = {c = "uint8_t", mask = "int8_t", bytes = 1},
-        i16 = {c = "int16_t", mask = "int16_t", bytes = 2},
-        u16 = {c = "uint16_t", mask = "int16_t", bytes = 2},
-        i32 = {c = "int32_t", mask = "int32_t", bytes = 4},
-        u32 = {c = "uint32_t", mask = "int32_t", bytes = 4},
-        i64 = {c = "int64_t", mask = "int64_t", bytes = 8},
-        u64 = {c = "uint64_t", mask = "int64_t", bytes = 8},
+        f64 = {name = "f64", c = "double", mask = "int64_t", bytes = 8},
+        f32 = {name = "f32", c = "float", mask = "int32_t", bytes = 4},
+        i8 = {name = "i8", c = "int8_t", mask = "int8_t", bytes = 1},
+        u8 = {name = "u8", c = "uint8_t", mask = "int8_t", bytes = 1},
+        i16 = {name = "i16", c = "int16_t", mask = "int16_t", bytes = 2},
+        u16 = {name = "u16", c = "uint16_t", mask = "int16_t", bytes = 2},
+        i32 = {name = "i32", c = "int32_t", mask = "int32_t", bytes = 4},
+        u32 = {name = "u32", c = "uint32_t", mask = "int32_t", bytes = 4},
+        i64 = {name = "i64", c = "int64_t", mask = "int64_t", bytes = 8},
+        u64 = {name = "u64", c = "uint64_t", mask = "int64_t", bytes = 8},
     }
     local binaries = {
         {name = "add", c = "+"},
@@ -4863,6 +5053,7 @@ local function fixedSimdPrelude(width: integer): {string}
         if element == nil or lanes == nil or lanes < 2 or lanes > 64 then
             error("fixed explicit SIMD species needs between 2 and 64 lanes: " .. suffix, 0)
         end
+        lanes = lanes as integer
         local nativeLanes = width / element.bytes
         if lanes ~= nativeLanes then
             local chunks = math.ceil(lanes / nativeLanes) as integer
@@ -5638,6 +5829,14 @@ local function fixedSimdPrelude(width: integer): {string}
                 .. tostring(
                 lanes
             ) .. "u; ++i) value.lane[i] = ~value.lane[i]; return value; }"
+            for _, line in ipairs(genericHorizontalPrelude(element, suffix, vector, lanes as integer, false, true)) do
+                lines[#lines + 1] = line
+            end
+            for _, line in ipairs(
+                genericHorizontalPrelude(element, suffix, scalarVector, lanes as integer, true, false)
+            ) do
+                lines[#lines + 1] = line
+            end
         end
     end
 

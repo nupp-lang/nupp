@@ -1263,7 +1263,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             callee.callCallee = true
         end
         local calleeT = callee and c.infer(callee) or T.any
-        local selectedExport = callee and callee.exactCallExport or nil
+        local calleeDefinition = callee and callee.kind == "name" and callee.token and callee.token.definition or nil
+        local selectedExport = callee and (
+            callee.exactCallExport or calleeDefinition and calleeDefinition.exactCallExport
+        ) or nil
         if selectedExport
             and #c.functionBodies == 0
             and c.env
@@ -1535,6 +1538,31 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local first, rets, pack = c.inferCall(node, calleeT, node.args, knownAts)
         forwardProtocol(node)
+        if selectedExport and selectedExport.module == "nupp.simd" and selectedExport.member:match(
+            "^horizontal%."
+        ) ~= nil then
+            local vector = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
+            local nominal: T.Nominal? = nil
+            if vector and vector.tag == "nominal" then
+                nominal = vector
+            end
+            local origin: T.Nominal? = nil
+            if nominal then
+                origin = (nominal.origin or nominal) as T.Nominal
+            end
+            local element = origin and origin.name == "Vector" and (
+                origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd"
+            ) and nominal and nominal.typeArgs and nominal.typeArgs[1] or nil
+            if element and (element.tag == "float" or element.tag == "number") then
+                first, rets, pack = element, {element}, T.pack({element})
+                if element.tag == "float" then
+                    c.fixedWidth.mark(node, element)
+                end
+                (node as any).simdHorizontal = selectedExport.member
+            elseif element then
+                c.diag("NUPP2006", argExprs[1], "explicit SIMD horizontal arithmetic requires a floating-point vector")
+            end
+        end
         local globalsForAssert = c.env and c.env.globals
         local stableAssert = calleeName == "assert" and globalsForAssert and c.lookupEntry(
             "assert"

@@ -390,6 +390,70 @@ function simd.fixed<T, const N: integer>(): simd.Species<T, simd.Fixed<N>>
     error("simd.fixed is available only inside an AOT-compiled function", 2)
 end
 
+--- Named horizontal operations over one explicit register value.
+---
+--- Ordered operations follow logical lane order. Pairwise operations use the
+--- adjacent-pair tree. Algebraic operations permit reassociation; only
+--- `algebraicDot` additionally permits multiply-add contraction.
+--- @export
+local horizontal = {}
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.orderedSum<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.orderedSum is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.pairwiseSum<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.pairwiseSum is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.algebraicSum<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.algebraicSum is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.orderedProduct<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.orderedProduct is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.pairwiseProduct<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.pairwiseProduct is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.algebraicProduct<T, S>(value: simd.Vector<T, S>): T
+    error("simd.horizontal.algebraicProduct is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.orderedDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
+    error("simd.horizontal.orderedDot is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.pairwiseDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
+    error("simd.horizontal.pairwiseDot is available only inside an AOT-compiled function", 2)
+end
+
+--- @raises outside an AOT-compiled function
+--- @export
+function horizontal.algebraicDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
+    error("simd.horizontal.algebraicDot is available only inside an AOT-compiled function", 2)
+end
+
+simd.horizontal = horizontal
+
 --- One immutable packed value for the preferred target species.
 --- @export
 sealed interface simd.VectorU8

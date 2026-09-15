@@ -381,7 +381,17 @@ function index.install(c: state.Checker): state.ExprHandlers
         -- Keep the exact value identity beside the projection. Function types are
         -- intentionally not qualified with allocation/raising facts; a checked region
         -- can nevertheless ask for this one exported definition's sidecar entry.
-        if not node.writeContext and holderName ~= "" then
+        local targetDefinition = target.kind == "name" and target.token and target.token.definition or nil
+        local parentExport = not node.writeContext and (
+            (target as any).exactCallExport or targetDefinition and targetDefinition.exactCallExport
+        ) or nil
+        if parentExport ~= nil then
+            node.exactCallExport = {
+                module = parentExport.module,
+                member = parentExport.member .. "." .. memberName,
+                identity = parentExport.identity .. "." .. memberName,
+            }
+        elseif not node.writeContext and holderName ~= "" then
             local holder = c.lookupEntry(holderName)
             if holder and holder.requiredModule then
                 node.exactCallExport = {

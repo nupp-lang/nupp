@@ -572,6 +572,7 @@ local GENERIC_SIMD: {
     simd_compress = true,
     simd_expand = true,
     simd_prefix = true,
+    simd_horizontal = true,
     simd_bitmask_any = true,
     simd_bitmask_all = true,
     simd_bitmask_count = true,
@@ -883,6 +884,36 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                     simd.intrinsic == "prefix_sum_ordered" or simd.intrinsic == "prefix_xor"
                 ) and not (simd.intrinsic == "prefix_xor" and tostring(element):sub(1, 1) == "f"),
                 "invalid generic SIMD prefix operation"
+            )
+        elseif op == "simd_horizontal" then
+            local vectorFamily, vectorElement = nil, nil
+            if args[1] ~= nil then
+                vectorFamily, vectorElement = genericSimdType(args[1].type)
+            end
+            local intrinsic = tostring(simd.intrinsic)
+            local dot = intrinsic:match("_dot$") ~= nil
+            local admittedHorizontal = {
+                ordered_sum = true,
+                pairwise_sum = true,
+                algebraic_sum = true,
+                ordered_product = true,
+                pairwise_product = true,
+                algebraic_product = true,
+                ordered_dot = true,
+                pairwise_dot = true,
+                algebraic_dot = true,
+            }
+            holds(
+                vectorFamily == "vector" and #args == (
+                    dot and 2 or 1
+                ) and (
+                    args[2] == nil or args[2].type == args[1].type
+                ) and node.type == genericSimdScalar(
+                    vectorElement
+                ) and admittedHorizontal[
+                    intrinsic
+                ] == true and (vectorElement == "f32" or vectorElement == "f64"),
+                "invalid generic SIMD horizontal operation"
             )
         elseif op == "simd_bitmask_binary" or op == "simd_bitmask_compare" then
             local leftFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil

@@ -2360,6 +2360,56 @@ return {transform = transform}
     assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), "fixed structural operations retain real vector work: " .. asm)
 end
 
+function M.horizontalVectorOperationsNameTheirArithmeticContracts()
+    local source = [[
+local simd = require("nupp.simd")
+
+@aot
+local function horizontal(): (number, number, number)
+    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local left = species:iota(1.0, 1.0)
+    local right = species:splat(2.0)
+    local ordered: float = simd.horizontal.orderedSum(left)
+    local pairwise: float = simd.horizontal.pairwiseSum(left)
+    local algebraic: float = simd.horizontal.algebraicSum(left)
+    local product: float = simd.horizontal.orderedProduct(left)
+    local pairwiseDot: float = simd.horizontal.pairwiseDot(left, right)
+    local algebraicDot: float = simd.horizontal.algebraicDot(left, right)
+    return ordered + product, pairwise + pairwiseDot, algebraic + algebraicDot
+end
+
+return {horizontal = horizontal}
+]]
+    local dir = project{["horizontal.nupp"] = source}
+    local decoded, raw, code, where = lowered(
+        dir,
+        "--target aarch64-apple-darwin --features neon --json horizontal.nupp"
+    )
+    test.equal(code, 0, raw)
+    for _, intrinsic in ipairs({
+        "simd_horizontal.ordered_sum",
+        "simd_horizontal.pairwise_sum",
+        "simd_horizontal.algebraic_sum",
+        "simd_horizontal.ordered_product",
+        "simd_horizontal.pairwise_dot",
+        "simd_horizontal.algebraic_dot",
+    }) do
+        assert(decoded.ir:find(intrinsic, 1, true), where .. ": missing intrinsic " .. intrinsic .. "\n" .. decoded.ir)
+    end
+    assert(
+        decoded.c:find("ks_exp_horizontal_pairwise_sum_f32x8", 1, true),
+        where .. ": fixed production semantics are emitted"
+    )
+    assert(
+        decoded.c:find("ks_scalar_exp_horizontal_pairwise_sum_f32x8", 1, true),
+        where .. ": the scalar executable reference is emitted"
+    )
+    assert(
+        decoded.c:find("fmaf", 1, true),
+        where .. ": only the named algebraic dot helper requests contraction"
+    )
+end
+
 function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity()
     local source = GENERIC_EXPLICIT_SIMD
         :gsub("simd%.Preferred", "simd.Fixed<8>", 1)

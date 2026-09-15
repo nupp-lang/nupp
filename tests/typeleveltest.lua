@@ -1934,6 +1934,22 @@ function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
     assertEq(codes("local value: uint8 = 1\nreturn value\n"), "NUPP2012")
 end
 
+function M.simdHorizontalContractsPreserveTheirNestedIntrinsicIdentity()
+    clean(table.concat({
+        'local simd = require("nupp.simd")',
+        "local horizontal = simd.horizontal",
+        "local ordered = horizontal.orderedSum",
+        "local value: simd.Vector<float, simd.Fixed<8>> = nil as any",
+        "local result: float = ordered(value)",
+        "return result",
+    }, "\n"))
+    assertEq(codes(table.concat({
+        'local simd = require("nupp.simd")',
+        "local value: simd.Vector<uint32, simd.Fixed<8>> = nil as any",
+        "return simd.horizontal.orderedSum(value)",
+    }, "\n")), "NUPP2006")
+end
+
 function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
     clean(table.concat({
         'local simd = require("nupp.simd")',
