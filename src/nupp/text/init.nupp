@@ -32,4 +32,8 @@ end)
 export type Buffer = SharedBuffer
 
 --- Creates an empty FIFO byte buffer.
-export const newBuffer = provider.new
+---
+--- @param size a capacity hint, or the options table when it is the only argument
+--- @param options the host buffer library's options, where it has any
+--- @return the buffer, holding nothing
+export const newBuffer: function(size: (integer | table)?, options: table?): Buffer = provider.new

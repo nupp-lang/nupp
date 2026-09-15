@@ -105,6 +105,12 @@ type extract.Module = {
     imports: {[string]: string}?,
     moduleLocal: string?,
 
+    --- What a name plucked out of a require was called in the module it came from:
+    --- `local {type Buffer as SharedBuffer} = require("m")` records `Buffer` under
+    --- `SharedBuffer`, so an alias to it expands rather than rendering the private
+    --- name the file happened to choose.
+    importedMembers: {[string]: string}?,
+
     --- Set on a name that only holds other modules. There is no file behind one and
     --- nothing to require by that name, so it has no source and no declarations.
     namespace: boolean?
@@ -1534,10 +1540,35 @@ function extract.extract(
         documentationInternal = parsed.root.documentationInternal,
         imports = {},
         moduleLocal = cst.exportedLocal(parsed.root) or cst.returnedLocal(parsed.root),
+        importedMembers = {},
     }
     for _, block in ipairs(parsed.root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
-            if stat.kind == "localStmt" then
+            if stat.kind == "localStmt" and stat.pattern and stat.patternSource then
+                -- A declaration-only module has no runtime value, so its types are
+                -- plucked rather than required into a local. The require is still
+                -- where they came from.
+                local source = stat.patternSource
+                local args = source.kind == "call"
+                    and source.obj
+                    and source.obj.kind == "name"
+                    and source.obj.token
+                    and source.obj.token.text == "require"
+                    and (
+                    source.args as cst.Args?
+                ) or nil
+                local argument = args and args.exprs and args.exprs[1]
+                local literal = argument and argument.kind == "string" and argument.token and argument.token.text or nil
+                local imported = literal and (literal:match('^"(.*)"$') or literal:match("^'(.*)'$")) or nil
+                for _, entry in ipairs(imported and stat.pattern or {}) do
+                    local from = entry.sourceName and entry.sourceName.text
+                    local bound = entry.alias and entry.alias.text or from
+                    if from and bound then
+                        result.imports[bound] = imported
+                        result.importedMembers[bound] = from
+                    end
+                end
+            elseif stat.kind == "localStmt" then
                 for index, binding in ipairs(stat.names or {}) do
                     local value = stat.exprs and stat.exprs[index]
                     if value

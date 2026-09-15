@@ -463,6 +463,13 @@ local function loadModules(root, config, settings, requested)
         if not alias then
             alias, member = aliasText:match("=%s*([%w_]+)%.([%w_]+)%b<>%s*$")
         end
+        if not alias then
+            -- A name plucked straight out of a require stands for one the other
+            -- module exports, so it expands the same way a qualified one does.
+            local plucked = aliasText:match("=%s*([%w_]+)%s*$") or aliasText:match("=%s*([%w_]+)%b<>%s*$")
+            alias = plucked and module.importedMembers and module.importedMembers[plucked] and plucked or nil
+            member = alias and module.importedMembers[alias] or nil
+        end
         local origin = alias and module.imports and byName[module.imports[alias]] or nil
         if not origin or seen[item] then
             return item
