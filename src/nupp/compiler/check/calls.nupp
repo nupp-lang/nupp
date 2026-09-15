@@ -2168,7 +2168,35 @@ function calls.install(c: state.Checker): calls.Ops
             end
             unifyPack(paramPack, T.pack(unified, argPack.tail, argPack.modes), map)
             local expectedResult = (node as any).expectedResult
-            if expectedResult ~= nil and #retPack.head == 1 and retPack.tail == nil then
+            local expectedMayInfer = true
+            local expectedHasBinder = false
+            for _, binder in ipairs(calleeT.typeParams or {}) do
+                if map[binder] ~= nil or (binder as T.TypeVar).default ~= nil then
+                    expectedMayInfer = false
+                else
+                    expectedHasBinder = true
+                end
+            end
+            for _, binder in ipairs(calleeT.packParams or {}) do
+                if map[binder] ~= nil then
+                    expectedMayInfer = false
+                else
+                    expectedHasBinder = true
+                end
+            end
+            for _, binder in ipairs(calleeT.constParams or {}) do
+                if map[binder] ~= nil or (binder as any).default ~= nil then
+                    expectedMayInfer = false
+                else
+                    expectedHasBinder = true
+                end
+            end
+            if expectedResult ~= nil
+                and expectedMayInfer
+                and expectedHasBinder
+                and #retPack.head == 1
+                and retPack.tail == nil
+            then
                 unifyPack(retPack, T.pack({expectedResult}), map)
             end
             local constProblem = constInferenceProblem(calleeT, map)

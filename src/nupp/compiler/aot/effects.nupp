@@ -301,6 +301,12 @@ local NATIVE_WRITE_OPS: {
     [string]: boolean
 } = {store = true, assign = true, shared_store = true, reducer_add = true, simd_store = true,}
 
+--- Expression-shaped operations whose only valid use is as an effectful call
+--- statement. They belong to both vocabularies because `scalarIR.Simd` is an
+--- expression variant while the structured body executes the store as a
+--- statement.
+local NATIVE_WRITE_EXPRESSION_OPS: {[string]: boolean} = {simd_store = true,}
+
 local STATEMENT_LUA_MUTATE_OPS: {
     [string]: boolean
 } = {
@@ -358,6 +364,8 @@ function effects.expression(op: string): effects.Facts
         return LUA_ALLOCATE
     elseif LUA_MUTATE_OPS[op] == true then
         return LUA_MUTATE
+    elseif NATIVE_WRITE_EXPRESSION_OPS[op] == true then
+        return NATIVE_WRITE
     end
 
     error("unclassified AOT expression opcode " .. op, 2)
@@ -393,6 +401,7 @@ function effects.expressionOpcodes(): {[string]: boolean}
     merge(opcodes, LUA_READ_OPS)
     merge(opcodes, LUA_ALLOCATE_OPS)
     merge(opcodes, LUA_MUTATE_OPS)
+    merge(opcodes, NATIVE_WRITE_EXPRESSION_OPS)
 
     return opcodes
 end

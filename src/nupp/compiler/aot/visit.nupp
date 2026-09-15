@@ -320,6 +320,7 @@ function visit.statementExpressions(node: scalarIR.Statement, rewrite: visit.Sca
             local value = node as scalarIR.ReducerAdd
             value.reducer = rewrite(value.reducer)
             value.value = rewrite(value.value)
+            value.right = rewriteOptional(value.right, rewrite)
             yield nil
         end
         case "let" -> do
