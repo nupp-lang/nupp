@@ -32,7 +32,7 @@ merge.
 
 local json = require("nupp.codec.json")
 local profile = require("nupp.profile")
-local statistics = require("nupp.bench.statistics")
+local statistics = require("nupp.bench.internal.statistics")
 local time = require("nupp.time")
 
 local bench = {}

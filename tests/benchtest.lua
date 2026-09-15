@@ -443,7 +443,7 @@ local function closeTo(got, want, tolerance, label)
 end
 
 function M.signTestCoverageIsExactAtEverySize()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
     -- The widest interval the observations allow, and what it actually attains.
     closeTo(statistics.medianCoverage(3, 1), 0.75, 1e-12, "n=3 spans 75%")
     closeTo(statistics.medianCoverage(5, 1), 0.9375, 1e-12, "n=5 spans 93.75%")
@@ -454,7 +454,7 @@ function M.signTestCoverageIsExactAtEverySize()
 end
 
 function M.selectedOrderStatisticIsTheNarrowestThatStillCovers()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
     -- Below six, no interval over the observations reaches 95% at all, so there is
     -- nothing to select and the harness must not invent one.
     assertEq(statistics.selectK(3, 0.95), 0, "three observations support no 95% interval")
@@ -466,7 +466,7 @@ function M.selectedOrderStatisticIsTheNarrowestThatStillCovers()
 end
 
 function M.noIntervalBelowTheMinimumForkCount()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
     local nine = {}
     for index = 1, 9 do
         nine[index] = index + 0.0
@@ -485,7 +485,7 @@ function M.noIntervalBelowTheMinimumForkCount()
 end
 
 function M.outliersAreClassifiedWithoutMovingTheEstimate()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
     local clean = {10.0, 10.1, 9.9, 10.2, 9.8, 10.0, 10.1, 9.9, 10.0, 10.1}
     local planted = {}
     for index, value in ipairs(clean) do
@@ -511,7 +511,7 @@ end
 -- every verdict about it to inconclusive over a movement nobody would act on. That is
 -- the same error the verdict rule has a margin to avoid, so this has one too.
 function M.aTrendNeedsMagnitudeAndNotOnlySignificance()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
 
     -- A long, very slightly falling series: unmistakable to the test, worth nothing to
     -- a reader. Detectable and negligible at the same time is the case that matters.
@@ -546,7 +546,7 @@ function M.aTrendNeedsMagnitudeAndNotOnlySignificance()
 end
 
 function M.trendIsDetectedAndSteadyIsNeverClaimed()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
     -- The movements here clear the magnitude margin as well as the significance test,
     -- because a trend now needs both.
     local warming, drifting, flat = {}, {}, {}
@@ -565,7 +565,7 @@ function M.trendIsDetectedAndSteadyIsNeverClaimed()
 end
 
 function M.benjaminiHochbergAdjustsAcrossTheFamily()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
     local adjusted = statistics.benjaminiHochberg({0.001, 0.008, 0.039, 0.041, 0.042})
     closeTo(adjusted[1], 0.005, 1e-9, "the smallest scales by five")
     closeTo(adjusted[2], 0.020, 1e-9, "the second scales by five halves")
@@ -579,7 +579,7 @@ function M.benjaminiHochbergAdjustsAcrossTheFamily()
 end
 
 function M.verdictsSeparateEquivalenceFromIgnorance()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
     local function interval(low, upper)
         return {low = low, upper = upper, k = 2, attainedCoverage = 0.978515625}
     end
@@ -611,7 +611,7 @@ function M.verdictsSeparateEquivalenceFromIgnorance()
 end
 
 function M.pairedShiftIsDistributionFreeAndBracketsItsEstimate()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
     local differences = {}
     for index = 1, 12 do
         differences[index] = 0.10 + (index % 3) * 0.01
@@ -627,7 +627,7 @@ function M.pairedShiftIsDistributionFreeAndBracketsItsEstimate()
 end
 
 function M.forkCountRecommendationFollowsObservedVariance()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
     -- A quiet benchmark needs the floor; a noisy one needs far more, which is the whole
     -- reason the count is derived rather than fixed.
     assertEq(
@@ -764,7 +764,7 @@ end
 -- then reported `unchanged`, which is the single strongest claim this tool makes and
 -- exactly the one it had no grounds for.
 function M.aWithheldIntervalCannotProduceAConfidentVerdict()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
     local narrow = {low = -0.001, upper = 0.001, k = 2, attainedCoverage = 0.978515625}
 
     -- The interval on its own would be equivalence, and that is the point: the guard
@@ -799,7 +799,7 @@ end
 -- below the real cost, because half the samples excluded work their own allocations
 -- caused. Nothing in a score, a spread or a trend test says that is happening.
 function M.concentrationCatchesAMedianThatDescribesNoSample()
-    local statistics = require("nupp.bench.statistics")
+    local statistics = require("nupp.bench.internal.statistics")
 
     -- One rate, some noise: nearly everything sits near the middle.
     local tight = {}

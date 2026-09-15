@@ -216,7 +216,7 @@ function M.everyBenchmarkRunnerInputReachesTheMeasurementSurface()
     for _, path in ipairs({
         "bench/presize.bench.nupp",
         "src/nupp/bench/init.nupp",
-        "src/nupp/bench/statistics.nupp",
+        "src/nupp/bench/internal/statistics.nupp",
         "src/nupp/compiler/benchrunner.nupp",
         "src/nupp/compiler/cli/bench.nupp",
         "tests/benchrunnertest.lua",

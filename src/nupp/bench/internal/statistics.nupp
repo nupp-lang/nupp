@@ -1,4 +1,4 @@
-module nupp.bench.statistics
+module nupp.bench.internal.statistics
 
 --[[
 Distribution-free statistics for benchmark records.
