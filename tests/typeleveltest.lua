@@ -1880,6 +1880,36 @@ function M.aDefaultTypeArgumentIsCheckedAgainstItsBoundWhereDeclared()
     assertEq(codes(body .. "local function make<T is Named = integer>(): T?\n   return nil\nend\nreturn make\n"), "NUPP2116")
 end
 
+function M.expectedResultInfersANullaryGenericConstructor()
+    clean(table.concat({
+        "local interface Token<T>",
+        "end",
+        "local function make<T>(): Token<T>",
+        "   error('not executed')",
+        "end",
+        "local value: Token<number> = make()",
+        "return value",
+    }, "\n"))
+end
+
+function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
+    clean(table.concat({
+        'local simd = require("nupp.simd")',
+        "local species: simd.Species<float, simd.Preferred> = simd.preferred()",
+        "local left: simd.Vector<float, simd.Preferred> = nil as any",
+        "local right: simd.Vector<float, simd.Preferred> = nil as any",
+        "local selected: simd.Mask<float, simd.Preferred> = (left < right) & (left <= right)",
+        "return species, selected",
+    }, "\n"))
+    assertEq(codes(table.concat({
+        'local simd = require("nupp.simd")',
+        "local function wrong(value: simd.Vector<number, simd.Fixed<4>>): simd.Vector<number, simd.Fixed<8>>",
+        "   return value",
+        "end",
+        "return wrong",
+    }, "\n")), "NUPP2002")
+end
+
 -- A default body lives on the interface's table and reaches only a declaration
 -- that names the interface with `is`, so a shape has to carry the member itself:
 -- one that does not is refused, wherever the interface is wanted.

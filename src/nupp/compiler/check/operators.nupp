@@ -144,6 +144,23 @@ local function integral(t: Type): boolean
     return t ~= T.any and isA(t, T.integer)
 end
 
+--- Whether a checked type is one compiler-owned explicit SIMD family.
+local function simdFamily(t: Type): string?
+    if t.tag == "const" then
+        t = t.inner
+    end
+    if t.tag ~= "nominal" then
+        return nil
+    end
+    local origin = (t.origin or t) as T.Nominal
+    if origin.moduleName ~= "nupp.simd" and origin.sealedModule ~= "nupp.simd" then
+        return nil
+    end
+    local admitted = {Vector = true, Mask = true, Species = true, BitMask = true,}
+
+    return admitted[origin.name] == true and origin.name or nil
+end
+
 --- Reports `customary-operator` when an operator was written in its C spelling. The two
 --- forms mean exactly the same thing, so this is a house style question and nothing
 --- more: a project that prefers `&&` turns the lint off, and a file that wants it once
@@ -421,6 +438,11 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             return (t == T.any or fixedWidth.isValue(t)) and T.number or t
         elseif op == "~" then
+            local family = simdFamily(t)
+            if family == "Vector" or family == "Mask" then
+                (node as any).simdIntrinsic = op
+                return t
+            end
             local wide = t.tag == "int64" or t.tag == "uint64"
             capabilities.require(c, wide and "int64" or "bitops", opTok)
             if wide then
@@ -570,6 +592,17 @@ function operators.install(c: state.Checker): state.ExprHandlers
             node.plainConcat = plain
             return T.string
         elseif operators.bitops[op] then
+            local leftFamily, rightFamily = simdFamily(lt), simdFamily(rt)
+            if leftFamily == "Vector" or leftFamily == "Mask" then
+                if leftFamily ~= rightFamily or not isA(lt, rt) or not isA(rt, lt) then
+                    c.diag("NUPP2003", node, "explicit SIMD bitwise operands need the same vector or mask type")
+                end
+                (node as any).simdIntrinsic = op
+                return lt
+            elseif rightFamily ~= nil then
+                c.diag("NUPP2003", node, "explicit SIMD bitwise operands need the vector or mask on the left")
+                return T.any
+            end
             local wide = lt.tag == "int64"
                 and lt
                 or lt.tag == "uint64"
@@ -604,6 +637,22 @@ function operators.install(c: state.Checker): state.ExprHandlers
 
             return wide or T.integer
         elseif operators.compare[op] then
+            local leftFamily, rightFamily = simdFamily(lt), simdFamily(rt)
+            if leftFamily == "Vector" or rightFamily == "Vector" then
+                local mmName = (op == "==" or op == "~=") and "__eq" or (op == "<" or op == ">") and "__lt" or "__le"
+                local left, right = lt, rt
+                local leftNode, rightNode = lhs, rhs
+                if op == ">" or op == ">=" then
+                    left, right, leftNode, rightNode = rt, lt, rhs, lhs
+                end
+                local mm = c.metamethodOf(left, mmName) or c.metamethodOf(right, mmName)
+                if mm == nil then
+                    c.diag("NUPP2003", node, "explicit SIMD comparison needs compatible vector operands")
+                    return T.any
+                end
+                (node as any).simdIntrinsic = op
+                return c.applyContract(mm, {left, right}, {leftNode, rightNode}, node, mmName)
+            end
             if lt.tag == "int64" or lt.tag == "uint64" or rt.tag == "int64" or rt.tag == "uint64" then
                 capabilities.require(c, "int64", opTok)
             end

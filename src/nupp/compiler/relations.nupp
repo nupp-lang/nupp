@@ -1022,6 +1022,30 @@ local function check(a: Type, b: Type): boolean, string?
                 return false, ("%s and %s have different const argument %d"):format(T.tostring(a), T.tostring(b), j)
             end
         end
+        local origin = a.origin as T.Nominal
+        local intrinsicInvariant = (
+            origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd"
+        ) and (
+            origin.name == "Vector"
+            or origin.name == "Mask"
+            or origin.name == "Species"
+            or origin.name == "BitMask"
+            or origin.name == "Fixed"
+            or origin.name == "Preferred"
+        )
+        if intrinsicInvariant then
+            local aArgs, bArgs = a.typeArgs or {}, b.typeArgs or {}
+            if #aArgs ~= #bArgs or #aConsts ~= #bConsts then
+                return fail(a, b)
+            end
+            for j, have in ipairs(aArgs) do
+                local want = bArgs[j]
+                if want == nil or not isA(have, want) or not isA(want, have) then
+                    return false, ("%s is not a %s (invariant argument %d)"):format(T.tostring(a), T.tostring(b), j)
+                end
+            end
+            return true
+        end
         if next(a.byname or {}) or next(a.writeByname or {}) or a.indexReadValue or a.indexWriteValue then
             local ok, why = propertiesFit(a, b)
             if not ok then
@@ -1126,6 +1150,42 @@ local function check(a: Type, b: Type): boolean, string?
     -- member function's receiver is not compared, since each implementation names
     -- itself there.
     if btag == "nominal" and b.declKind == "interface" and b.byname then
+        -- Compiler-owned SIMD families are invariant in every type and const
+        -- argument. Their public interfaces intentionally carry no runtime
+        -- witness, so structural conformance must not erase species identity.
+        local bOrigin = (b.origin or b) as T.Nominal
+        local invariant = (
+            bOrigin.moduleName == "nupp.simd" or bOrigin.sealedModule == "nupp.simd"
+        ) and (
+            bOrigin.name == "Vector"
+            or bOrigin.name == "Mask"
+            or bOrigin.name == "Species"
+            or bOrigin.name == "BitMask"
+            or bOrigin.name == "Fixed"
+            or bOrigin.name == "Preferred"
+        )
+        if invariant then
+            if atag ~= "nominal" or (a.origin or a) ~= bOrigin then
+                return fail(a, b)
+            end
+            local aTypes, bTypes = a.typeArgs or {}, b.typeArgs or {}
+            local aConsts, bConsts = a.constArgs or {}, b.constArgs or {}
+            if #aTypes ~= #bTypes or #aConsts ~= #bConsts then
+                return fail(a, b)
+            end
+            for index, wanted in ipairs(bTypes) do
+                local have = aTypes[index]
+                if not isA(have, wanted) or not isA(wanted, have) then
+                    return fail(a, b)
+                end
+            end
+            for index, wanted in ipairs(bConsts) do
+                if aConsts[index].id ~= wanted.id then
+                    return fail(a, b)
+                end
+            end
+            return true
+        end
         if b.sealedModule and not declaresContract(a, b) then
             return false, (
                 "%s is not a %s (the interface is sealed by module %q)"

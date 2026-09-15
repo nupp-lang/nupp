@@ -8,6 +8,193 @@ const {type Span} = require("nupp.mem.span")
 local simd = {}
 local provider = require("nupp.runtime.provider.scalarsimd")
 
+--- Closed reduction values used to carry one contribution from each logical
+--- iteration of an `@simd` loop back into scalar code.
+--- @export
+local reducer = {}
+
+--- A floating-point sum committed in logical iteration order.
+--- @export
+record reducer.OrderedSum
+    total: number
+
+    function add(self, value: number): nil
+        self.total = self.total + value
+    end
+
+    function value(self): number
+        return self.total
+    end
+end
+
+--- A floating-point sum using the width-independent adjacent-pair tree.
+--- @export
+record reducer.PairwiseSum
+    partials: {number?}
+    count: integer
+
+    function add(self, value: number): nil
+        local carry = value
+        local occupied = self.count
+        local level: integer = 1
+        while occupied % 2 == 1 do
+            carry = (self.partials[level] as number) + carry
+            self.partials[level] = nil
+            occupied = (occupied // 2) as integer
+            level = level + 1
+        end
+        self.partials[level] = carry
+        self.count = self.count + 1
+    end
+
+    function value(self): number
+        local result: number? = nil
+        local level: integer = #self.partials
+        while level >= 1 do
+            local partial = self.partials[level]
+            if partial ~= nil then
+                if result == nil then
+                    result = partial
+                else
+                    result = (result as number) + partial
+                end
+            end
+            level = level - 1
+        end
+
+        return result as number
+    end
+end
+
+--- A floating-point sum whose named contract permits reassociation.
+---
+--- Ordinary Lua has no lane width to exploit, so its executable reference uses
+--- a left fold. Native lowering may use several accumulators.
+--- @export
+record reducer.AlgebraicSum
+    total: number
+
+    function add(self, value: number): nil
+        self.total = self.total + value
+    end
+
+    function value(self): number
+        return self.total
+    end
+end
+
+--- Constructs an ordered floating-point sum.
+--- @export
+function reducer.orderedSum(initial: number): reducer.OrderedSum
+    return new reducer.OrderedSum(total = initial)
+end
+
+--- Constructs a width-independent pairwise floating-point sum.
+--- @export
+function reducer.pairwiseSum(initial: number): reducer.PairwiseSum
+    local out = new reducer.PairwiseSum(partials = {}, count = 0)
+    out:add(initial)
+
+    return out
+end
+
+--- Constructs a reassociable floating-point sum.
+--- @export
+function reducer.algebraicSum(initial: number): reducer.AlgebraicSum
+    return new reducer.AlgebraicSum(total = initial)
+end
+
+simd.reducer = reducer
+
+--- Target-selected native species identity.
+--- @export
+sealed interface simd.Preferred
+end
+
+--- A target-neutral fixed logical lane count.
+--- @export
+sealed interface simd.Fixed<const N: integer>
+end
+
+--- One predicate bit per lane of `Vector<T, S>`.
+--- @export
+sealed interface simd.Mask<T, S>
+    metamethod __eq: function(left: simd.Mask<T, S>, right: simd.Mask<T, S>): simd.Mask<T, S>
+    metamethod __unm: function(value: simd.Mask<T, S>): simd.Mask<T, S>
+
+    select: function(
+        borrows self: simd.Mask<T, S>,
+        whenTrue: simd.Vector<T, S>,
+        whenFalse: simd.Vector<T, S>
+    ): simd.Vector<T, S>
+    any: function(borrows self: simd.Mask<T, S>): boolean
+    all: function(borrows self: simd.Mask<T, S>): boolean
+    count: function(borrows self: simd.Mask<T, S>): uint32
+    first: function(borrows self: simd.Mask<T, S>): integer?
+end
+
+--- An immutable register-as-data value.
+--- @export
+sealed interface simd.Vector<T, S>
+    metamethod __add: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Vector<T, S>
+    metamethod __sub: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Vector<T, S>
+    metamethod __mul: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Vector<T, S>
+    metamethod __div: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Vector<T, S>
+    metamethod __unm: function(value: simd.Vector<T, S>): simd.Vector<T, S>
+    metamethod __eq: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Mask<T, S>
+    metamethod __lt: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Mask<T, S>
+    metamethod __le: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Mask<T, S>
+
+    extract: function(borrows self: simd.Vector<T, S>, lane: integer): T
+    insert: function(borrows self: simd.Vector<T, S>, lane: integer, value: T): simd.Vector<T, S>
+end
+
+--- Opaque lane bits for one mask species. Bit zero denotes lane one.
+--- @export
+sealed interface simd.BitMask<T, S>
+    any: function(borrows self: simd.BitMask<T, S>): boolean
+    count: function(borrows self: simd.BitMask<T, S>): uint32
+    first: function(borrows self: simd.BitMask<T, S>): integer?
+end
+
+--- Operations whose lane count is selected from `T` and `S` at AOT lowering.
+--- @export
+sealed interface simd.Species<T, S>
+    readonly lanes: integer
+    splat: function(borrows self: simd.Species<T, S>, value: T): simd.Vector<T, S>
+    iota: function(borrows self: simd.Species<T, S>, first: T, step: T): simd.Vector<T, S>
+    tail: function(borrows self: simd.Species<T, S>, active: integer): simd.Mask<T, S>
+    load: function(
+        borrows self: simd.Species<T, S>,
+        borrows source: Span<T>,
+        offset: integer,
+        active: simd.Mask<T, S>?
+    ): simd.Vector<T, S>
+    store: function(
+        borrows self: simd.Species<T, S>,
+        exclusive destination: any,
+        offset: integer,
+        value: simd.Vector<T, S>,
+        active: simd.Mask<T, S>?
+    ): nil
+end
+
+--- Selects the preferred native species. `T` is inferred from the expected
+--- result type.
+--- @raises outside an AOT-compiled function
+--- @export
+function simd.preferred<T>(): simd.Species<T, simd.Preferred>
+    error("simd.preferred is available only inside an AOT-compiled function", 2)
+end
+
+--- Selects a fixed logical species. Both parameters are inferred from the
+--- expected result type.
+--- @raises outside an AOT-compiled function
+--- @export
+function simd.fixed<T, const N: integer>(): simd.Species<T, simd.Fixed<N>>
+    error("simd.fixed is available only inside an AOT-compiled function", 2)
+end
+
 --- One immutable packed value for the preferred target species.
 --- @export
 sealed interface simd.VectorU8

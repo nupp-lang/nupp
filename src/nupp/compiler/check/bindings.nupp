@@ -178,6 +178,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
             annotations[index] = annotation
             c.fixedWidth.storageOnly(typeNode, annotation, "a local value")
             local initializer = initializers[index]
+            if initializer ~= nil then
+                (initializer as any).expectedResult = annotation
+            end
             if initializer and initializer.kind == "comptimeExpr" then
                 initializer.materializationExpected = annotation
             end

@@ -291,6 +291,10 @@ function emit.cType(typeName: string): string
             error("explicit SIMD width was not selected", 0)
         end
         return (explicitScalar and "KsScalarBlockU8x64x" or "KsBlockU8x64x") .. tostring(explicitWidth)
+    elseif typeName == "simd_reducer_pairwise_sum" then
+        return "KsPairwiseF64"
+    elseif typeName == "simd_reducer_ordered_sum" or typeName == "simd_reducer_algebraic_sum" then
+        return "double"
     end
     local layout = typeName:match("^ref:(.+)$")
     if layout ~= nil then
@@ -432,6 +436,17 @@ function emit.scalar(node: scalarIR.Expr): string
         return independentSpanCounts and "((double)count_" .. (
             node as scalarIR.SpanCount
         ).span .. ")" or "((double)count)"
+    elseif operation == "reducer_init" then
+        local reducer = node as scalarIR.ReducerInit
+        if reducer.order == "pairwise" then
+            return "ks_pairwise_f64_init(" .. emit.scalar(reducer.initial) .. ")"
+        else
+            return emit.scalar(reducer.initial)
+        end
+    elseif operation == "reducer_value" then
+        local reducer = node as scalarIR.ReducerValue
+        local name = emit.scalar(reducer.reducer)
+        return reducer.order == "pairwise" and "ks_pairwise_f64_value(" .. name .. ")" or name
     elseif operation == "lua_string_length" then
         local bytes = (node as scalarIR.LuaBytes).bytes as scalarIR.Name
         return "ks_lua_string_length(L, ks_length_" .. tostring(bytes.cName) .. ")"
@@ -1075,7 +1090,18 @@ function emit.lane(node: lane.Expr | scalarIR.Expr): string
     local operation = node.op
     local vector = tostring(node.type)
 
-    if operation == "vindex" then
+    if operation == "reducer_init" then
+        local reducer = node as scalarIR.ReducerInit
+        if reducer.order == "pairwise" then
+            return "ks_pairwise_f64_init(" .. emit.lane(reducer.initial) .. ")"
+        else
+            return emit.lane(reducer.initial)
+        end
+    elseif operation == "reducer_value" then
+        local reducer = node as scalarIR.ReducerValue
+        local name = emit.lane(reducer.reducer)
+        return reducer.order == "pairwise" and "ks_pairwise_f64_value(" .. name .. ")" or name
+    elseif operation == "vindex" then
         local index = node as lane.Index
         local parts: {string} = {}
         local element = emit.vectorParts(vector)
@@ -3577,6 +3603,23 @@ local function scalarHelpers(): {string}
         "    return out;",
         "}",
         "",
+        "typedef struct { double partial[64]; uint64_t count; } KsPairwiseF64;",
+        unused .. "void ks_pairwise_f64_add(KsPairwiseF64 *state, double value) {",
+        "    uint64_t occupied = state->count; uint32_t level = 0u;",
+        "    while ((occupied & UINT64_C(1)) != 0u) { value = state->partial[level] + value; occupied >>= 1u; ++level; }",
+        "    state->partial[level] = value; ++state->count;",
+        "}",
+        unused .. "KsPairwiseF64 ks_pairwise_f64_init(double initial) {",
+        "    KsPairwiseF64 out = {{0}, 0u}; ks_pairwise_f64_add(&out, initial); return out;",
+        "}",
+        unused .. "double ks_pairwise_f64_value(KsPairwiseF64 state) {",
+        "    double result = 0.0; bool have = false;",
+        "    for (int32_t level = 63; level >= 0; --level) if (((state.count >> level) & UINT64_C(1)) != 0u) {",
+        "        result = have ? result + state.partial[level] : state.partial[level]; have = true;",
+        "    }",
+        "    return result;",
+        "}",
+        "",
         unused .. "double nupp_min2(double left, double right) {",
         "    return left < right ? left : right;",
         "}",
@@ -5753,6 +5796,48 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
             end
         elseif op == "vcontinue" then
             lines[#lines + 1] = prefix .. statement.executing.cName .. " &= ~(" .. emit.lane(statement.mask) .. ");"
+        elseif op == "vreducer_add" then
+            local contribution = statement as lane.ReducerAdd
+            temporary = temporary + 1
+            local vectorType = tostring(contribution.value.type)
+            local temp = "reduce" .. tostring(temporary)
+            lines[
+                #lines + 1
+            ] = prefix .. emit.cType(vectorType) .. " " .. temp .. " = " .. emit.lane(contribution.value) .. ";"
+            local _, width = emit.vectorParts(vectorType)
+            for laneIndex = 0, width - 1 do
+                if contribution.order == "pairwise" then
+                    lines[
+                        #lines + 1
+                    ] = prefix
+                        .. "ks_pairwise_f64_add(&"
+                        .. contribution.reducerCName
+                        .. ", (double)"
+                        .. temp
+                        .. "["
+                        .. tostring(
+                        laneIndex
+                    ) .. "]);"
+                else
+                    lines[
+                        #lines + 1
+                    ] = prefix .. contribution.reducerCName .. " += (double)" .. temp .. "[" .. tostring(
+                        laneIndex
+                    ) .. "];"
+                end
+            end
+        elseif op == "reducer_add" then
+            local contribution = statement as scalarIR.ReducerAdd
+            local named = contribution.reducer as scalarIR.Name
+            if contribution.order == "pairwise" then
+                lines[
+                    #lines + 1
+                ] = prefix .. "ks_pairwise_f64_add(&" .. tostring(
+                    named.cName
+                ) .. ", " .. emit.lane(contribution.value) .. ");"
+            else
+                lines[#lines + 1] = prefix .. tostring(named.cName) .. " += " .. emit.lane(contribution.value) .. ";"
+            end
         elseif op == "fornum" and statement.lanes ~= nil and body.forceScalar ~= true then
             local region = statement as scalarIR.Fornum
             local lanes = region.lanes as scalarIR.LaneBody

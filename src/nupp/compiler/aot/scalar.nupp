@@ -761,6 +761,40 @@ record scalarIR.Simd
     source: scalarIR.Source?
 end
 
+--- Creates one closed floating-point reducer before its authored SIMD region.
+record scalarIR.ReducerInit
+    op: 'reducer_init'
+    order: 'ordered' | 'pairwise' | 'algebraic'
+    operation: 'sum'
+    initial: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- Contributes exactly once for one logical outer iteration.
+---
+--- It is expression-shaped only so a source method call can travel through the
+--- ordinary call-statement lowering. Its `lua_effect` result is never read.
+record scalarIR.ReducerAdd
+    op: 'reducer_add'
+    reducer: scalarIR.Expr
+    value: scalarIR.Expr
+    order: 'ordered' | 'pairwise' | 'algebraic'
+    operation: 'sum'
+    type: 'lua_effect'
+    source: scalarIR.Source?
+end
+
+--- Consumes the scalar result after the reducer's SIMD region.
+record scalarIR.ReducerValue
+    op: 'reducer_value'
+    reducer: scalarIR.Expr
+    order: 'ordered' | 'pairwise' | 'algebraic'
+    operation: 'sum'
+    type: 'f64'
+    source: scalarIR.Source?
+end
+
 ----------------------------------------------------------------------------
 -- Every expression
 ----------------------------------------------------------------------------
@@ -811,6 +845,9 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.Convert
     | scalarIR.HelperCall
     | scalarIR.Simd
+    | scalarIR.ReducerInit
+    | scalarIR.ReducerAdd
+    | scalarIR.ReducerValue
 
 ----------------------------------------------------------------------------
 -- Assignments
@@ -1101,6 +1138,7 @@ end
 --- `simd_store4_u8` carries `lua_effect` and stands where a statement stands.
 --- Admitting it makes that sayable rather than merely emitted.
 type scalarIR.Statement = scalarIR.Simd
+    | scalarIR.ReducerAdd
     | scalarIR.Let
     | scalarIR.MultiLet
     | scalarIR.Assign

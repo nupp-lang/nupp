@@ -2167,6 +2167,10 @@ function calls.install(c: state.Checker): calls.Ops
                 unified[j] = param and widenedArgument(param, actual, slots) or actual
             end
             unifyPack(paramPack, T.pack(unified, argPack.tail, argPack.modes), map)
+            local expectedResult = (node as any).expectedResult
+            if expectedResult ~= nil and #retPack.head == 1 and retPack.tail == nil then
+                unifyPack(retPack, T.pack({expectedResult}), map)
+            end
             local constProblem = constInferenceProblem(calleeT, map)
             if constProblem then
                 constInferenceFailed = true

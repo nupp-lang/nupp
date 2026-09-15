@@ -2081,6 +2081,47 @@ function M.mandelbrotUsesRequiredSimdWithLaneLocalEarlyExit()
     assert(decoded.ir:find("vbreak", 1, true), where .. ": each escaped point retires independently")
 end
 
+function M.requiredSimdReducersCarryTheirArithmeticContractAcrossTheRegion()
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function totals(borrows values: span.Span<number>): (number, number, number)
+    local ordered = simd.reducer.orderedSum(1.0)
+    @simd
+    for i = 1, #values do
+        ordered:add(values[i])
+    end
+
+    local pairwise = simd.reducer.pairwiseSum(1.0)
+    @simd
+    for i = 1, #values do
+        pairwise:add(values[i])
+    end
+
+    local algebraic = simd.reducer.algebraicSum(1.0)
+    @simd
+    for i = 1, #values do
+        algebraic:add(values[i])
+    end
+
+    return ordered:value(), pairwise:value(), algebraic:value()
+end
+
+return {totals = totals}
+]]
+    local dir = project{["reducers.nupp"] = source}
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json reducers.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("reducer.ordered.sum", 1, true), where .. ": ordered contract is explicit\n" .. decoded.ir)
+    assert(decoded.ir:find("reducer.pairwise.sum", 1, true), where .. ": pairwise contract is explicit\n" .. decoded.ir)
+    assert(decoded.ir:find("reducer.algebraic.sum", 1, true), where .. ": algebraic contract is explicit\n" .. decoded.ir)
+    assert(decoded.ir:find("vreducer.pairwise.sum", 1, true), where .. ": pairwise contribution is lane IR\n" .. decoded.ir)
+    assert(decoded.c:find("ks_pairwise_f64_add", 1, true), where .. ": pairwise tree has its own native state")
+    assert(decoded.c:find("ks_totals_forced_scalar", 1, true), where .. ": reducers retain the scalar-source C oracle")
+end
+
 function M.aLoopThatWantedLanesAndDidNotGetThemFails()
     local dir = project{["refused.nupp"] = REFUSED}
     local out, code = run(dir, "--check refused.nupp")

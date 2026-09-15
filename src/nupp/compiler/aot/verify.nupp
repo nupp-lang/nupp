@@ -1241,6 +1241,36 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             holds(argument.type == helper.params[position].type, "invalid helper argument")
             scalarWalk(argument, values, scope)
         end
+    elseif op == "reducer_init" then
+        local reducer = node as scalarIR.ReducerInit
+        holds(
+            reducer.operation == "sum"
+            and reducer.initial.type == "f64"
+            and reducer.type == "simd_reducer_"
+            .. reducer.order
+            .. "_sum",
+            "invalid reducer construction"
+        )
+        scalarWalk(reducer.initial, values, scope)
+    elseif op == "reducer_add" then
+        local reducer = node as scalarIR.ReducerAdd
+        holds(reducer.reducer.op == "local" and reducer.value.type == "f64", "invalid reducer contribution")
+        local named = reducer.reducer as scalarIR.Name
+        holds(
+            values[named.name] == "simd_reducer_" .. reducer.order .. "_sum",
+            "reducer contribution does not match its scoped binding"
+        )
+        scalarWalk(reducer.reducer, values, scope)
+        scalarWalk(reducer.value, values, scope)
+    elseif op == "reducer_value" then
+        local reducer = node as scalarIR.ReducerValue
+        holds(reducer.reducer.op == "local" and reducer.type == "f64", "invalid reducer finalization")
+        local named = reducer.reducer as scalarIR.Name
+        holds(
+            values[named.name] == "simd_reducer_" .. reducer.order .. "_sum",
+            "reducer finalization does not match its scoped binding"
+        )
+        scalarWalk(reducer.reducer, values, scope)
     elseif verify.BINARY_OPCODES[tostring(op)] == true then
         binary(node as scalarIR.Binary, values, scope)
     else
@@ -2209,6 +2239,8 @@ local function block(
                     end
                 end
             end
+        elseif statement.op == "reducer_add" then
+            scalarWalk(statement as scalarIR.Expr, values, scope)
         elseif statement.op == "if" then
             local invalidated: {[string]: boolean} = {}
             if statement.nativeSwitch ~= nil then
@@ -2454,6 +2486,25 @@ local function laneBlock(
                 else
                     refuse("invalid lane IR: an unknown assignment target")
                 end
+            end
+        elseif statement.op == "vreducer_add" then
+            local contribution = statement as lane.ReducerAdd
+            laneHolds(
+                values[
+                    contribution.reducer
+                ] == "simd_reducer_"
+                .. contribution.order
+                .. "_sum"
+                and contribution.operation == "sum"
+                and contribution.value.type == context.shape.vectorFor[
+                    "f64"
+                ],
+                "invalid lane reducer contribution"
+            )
+            laneWalk(contribution.value, values, context)
+            if contribution.mask ~= nil then
+                laneWalk(contribution.mask as lane.Expr, values, context)
+                laneHolds((contribution.mask as lane.Expr).type == mask, "invalid reducer contribution mask")
             end
         elseif statement.op == "vwhile" then
             laneHolds(

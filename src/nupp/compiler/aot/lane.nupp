@@ -658,6 +658,18 @@ record aotLane.Continue
     source: aotLane.Source?
 end
 
+--- One contribution per active logical outer iteration.
+record aotLane.ReducerAdd
+    op: 'vreducer_add'
+    reducer: string
+    reducerCName: string
+    value: aotLane.Expr
+    mask: aotLane.Expr?
+    order: 'ordered' | 'pairwise' | 'algebraic'
+    operation: 'sum'
+    source: aotLane.Source?
+end
+
 --- Every lane statement.
 type aotLane.Statement = aotLane.Let
     | aotLane.Assign
@@ -665,6 +677,7 @@ type aotLane.Statement = aotLane.Let
     | aotLane.UniformWhile
     | aotLane.Break
     | aotLane.Continue
+    | aotLane.ReducerAdd
     | scalarIR.Fornum
 
 export = aotLane

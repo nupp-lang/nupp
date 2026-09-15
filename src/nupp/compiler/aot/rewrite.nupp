@@ -68,6 +68,10 @@ record rewrite.State
     --- estimate -- which counts operations, not instructions -- overstates what
     --- lanes will be worth for a body full of them.
     rounded: boolean?
+
+    --- Reducers already contributed to by this outer iteration. A second
+    --- contribution is a semantic error, not another lane statement.
+    reducerContributions: {[string]: boolean}
 end
 
 --- The scalar types that name a lane element.
@@ -1739,6 +1743,37 @@ function rewrite.block(
                 },
                 source = statement.source,
             }
+        elseif op == "reducer_add" then
+            local contribution = statement as scalarIR.ReducerAdd
+            local reducer = contribution.reducer
+            if reducer.op ~= "local" then
+                state.reject("a reducer contribution must name its scoped reducer binding")
+            end
+            if statementMask ~= nil or loopContext ~= nil then
+                state.reject(
+                    "a reducer receives exactly one unconditional contribution per logical outer iteration; select the operation identity for conditional work"
+                )
+            end
+            local named = reducer as scalarIR.Name
+            if state.reducerContributions[named.name] == true then
+                state.reject("a reducer receives exactly one contribution per logical outer iteration")
+            end
+            state.reducerContributions[named.name] = true
+            local value = rewrite.varying(
+                contribution.value,
+                state
+            ) and rewrite.expression(contribution.value, state) or rewrite.splat(contribution.value, "f64", state)
+            out[
+                #out + 1
+            ] = new lane.ReducerAdd(
+                op = "vreducer_add",
+                reducer = named.name,
+                reducerCName = tostring(named.cName),
+                value = value as lane.Expr,
+                order = contribution.order,
+                operation = contribution.operation,
+                source = contribution.source
+            )
         elseif op == "if" then
             -- Each arm's mask is captured into its own binding before the arm
             -- runs, so a body that assigns to a name the condition read cannot
@@ -2004,6 +2039,7 @@ local function regionBody(
 
             return byName
         end)(),
+        reducerContributions = {},
         reject = reject
     )
     rewrite.markVarying(statements, state)

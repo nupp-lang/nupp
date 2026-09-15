@@ -90,6 +90,9 @@ local PURE_OPS: {
     neg = true,
     ["not"] = true,
     bnot = true,
+    reducer_init = true,
+    reducer_add = true,
+    reducer_value = true,
     math = true,
     f32_add = true,
     f32_sub = true,
@@ -262,7 +265,7 @@ local LUA_MUTATE_OPS: {
     lua_scratch_u8_reset = true,
 }
 
-local NATIVE_WRITE_OPS: {[string]: boolean} = {store = true, assign = true, shared_store = true,}
+local NATIVE_WRITE_OPS: {[string]: boolean} = {store = true, assign = true, shared_store = true, reducer_add = true,}
 
 local STATEMENT_LUA_MUTATE_OPS: {
     [string]: boolean

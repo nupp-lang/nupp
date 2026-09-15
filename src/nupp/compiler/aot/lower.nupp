@@ -338,6 +338,9 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
         TableU8x16 = "simd_table_u8x16",
         PaddedStringU8 = "simd_padded_string_u8",
         BlockU8x64 = "simd_block_u8x64",
+        OrderedSum = "simd_reducer_ordered_sum",
+        PairwiseSum = "simd_reducer_pairwise_sum",
+        AlgebraicSum = "simd_reducer_algebraic_sum",
     }
 
     return simdTypes[origin.name]
@@ -1412,6 +1415,22 @@ local function call(
             type = "lua_string",
             source = lower.site(node)
         )
+    elseif identity == "nupp.simd.reducer.orderedSum"
+        or identity == "nupp.simd.reducer.pairwiseSum"
+        or identity == "nupp.simd.reducer.algebraicSum"
+    then
+        if #args ~= 1 then
+            context.reject(lower.site(node), "a floating-point sum reducer takes one initial value")
+        end
+        local order = identity:match("%.([^.]+)Sum$") as string
+        return new scalarIR.ReducerInit(
+            op = "reducer_init",
+            order = order as any,
+            operation = "sum",
+            initial = lower.convert(args[1], "f64", lower.site(node), context),
+            type = "simd_reducer_" .. order .. "_sum",
+            source = lower.site(node)
+        )
     elseif identity == "nupp.simd.preferredU8" then
         if #args ~= 0 then
             context.reject(lower.site(node), "simd.preferredU8 takes no arguments")
@@ -2139,6 +2158,36 @@ local function simdMethod(
     local args: {scalarIR.Expr} = {receiver as scalarIR.Expr}
     local source = lower.site(node)
     kernel.usesSimd = true
+
+    local reducerOrder = tostring(receiverType):match("^simd_reducer_(%a+)_sum$")
+    if reducerOrder ~= nil then
+        if method == "add" and #raw == 1 then
+            return new scalarIR.ReducerAdd(
+                op = "reducer_add",
+                reducer = receiver as scalarIR.Expr,
+                value = lower.convert(
+                    lower.expression(raw[1], environment, activeIndex, kernel),
+                    "f64",
+                    source,
+                    kernel.context
+                ),
+                order = reducerOrder as any,
+                operation = "sum",
+                type = "lua_effect",
+                source = source
+            )
+        elseif method == "value" and #raw == 0 then
+            return new scalarIR.ReducerValue(
+                op = "reducer_value",
+                reducer = receiver as scalarIR.Expr,
+                order = reducerOrder as any,
+                operation = "sum",
+                type = "f64",
+                source = source
+            )
+        end
+        kernel.context.reject(source, "sum reducer operation " .. method .. " is not admitted")
+    end
 
     --- The written argument at `position`, established as uint32.
     local function u32Arg(position: integer): scalarIR.Expr
@@ -4575,6 +4624,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     and effect.op ~= "lua_scratch_u8_set"
                     and effect.op ~= "lua_scratch_u8_set4"
                     and effect.op ~= "simd_store4_u8"
+                    and effect.op ~= "reducer_add"
                     and effect.op ~= "lua_scratch_u8_reset" then
                     context.reject(lower.site(stat), "native element stores use output[index] = value")
                 end

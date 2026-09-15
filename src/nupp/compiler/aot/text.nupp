@@ -295,6 +295,15 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
             },
             ", "
         ) .. ")"
+    elseif op == "reducer_init" then
+        local reducer = node as scalarIR.ReducerInit
+        return "reducer." .. reducer.order .. "." .. reducer.operation .. "(" .. text.expression(reducer.initial) .. ")"
+    elseif op == "reducer_add" then
+        local reducer = node as scalarIR.ReducerAdd
+        return "reducer.add " .. text.expression(reducer.reducer) .. " <- " .. text.expression(reducer.value)
+    elseif op == "reducer_value" then
+        local reducer = node as scalarIR.ReducerValue
+        return "reducer.value " .. text.expression(reducer.reducer)
     elseif tostring(op):match("^simd_") ~= nil then
         local simd = node as scalarIR.Simd
         local values: {string} = {}
@@ -475,6 +484,23 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             ] = prefix .. op .. (
                 statement.exitWhenEmpty == true and " exit-if-empty " or " "
             ) .. text.expression(statement.mask)
+        elseif op == "vreducer_add" then
+            local reducer = statement as lane.ReducerAdd
+            lines[
+                #lines + 1
+            ] = prefix
+                .. "vreducer."
+                .. reducer.order
+                .. "."
+                .. reducer.operation
+                .. " "
+                .. reducer.reducer
+                .. " <- "
+                .. text.expression(
+                reducer.value
+            )
+        elseif op == "reducer_add" then
+            lines[#lines + 1] = prefix .. text.expression(statement as scalarIR.ReducerAdd)
         elseif op == "if" then
             for position, clause in ipairs(statement.clauses) do
                 lines[

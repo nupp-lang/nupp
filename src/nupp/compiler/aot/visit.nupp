@@ -259,6 +259,22 @@ function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewr
         end
         case "math" -> rewriteExpressions((node as scalarIR.Math).args, rewrite)
         case "helper_call" -> rewriteExpressions((node as scalarIR.HelperCall).args, rewrite)
+        case "reducer_init" -> do
+            local value = node as scalarIR.ReducerInit
+            value.initial = rewrite(value.initial)
+            yield nil
+        end
+        case "reducer_add" -> do
+            local value = node as scalarIR.ReducerAdd
+            value.reducer = rewrite(value.reducer)
+            value.value = rewrite(value.value)
+            yield nil
+        end
+        case "reducer_value" -> do
+            local value = node as scalarIR.ReducerValue
+            value.reducer = rewrite(value.reducer)
+            yield nil
+        end
         case "f32_min", "f32_max", "f32_fma" -> do
             local value = node as scalarIR.Corrected
             value.left = rewriteOptional(value.left, rewrite)
@@ -299,6 +315,12 @@ end
 --- Rewrites direct statement expressions without entering nested block scopes.
 function visit.statementExpressions(node: scalarIR.Statement, rewrite: visit.ScalarRewrite): nil
     return switch node.op do
+        case "reducer_add" -> do
+            local value = node as scalarIR.ReducerAdd
+            value.reducer = rewrite(value.reducer)
+            value.value = rewrite(value.value)
+            yield nil
+        end
         case "let" -> do
             local value = node as scalarIR.Let
             value.value = rewrite(value.value)
@@ -496,6 +518,14 @@ laneStatement = function(node: lane.Statement, visitor: visit.Visitor): nil
         end
         case "vbreak" -> laneExpression((node as lane.Break).mask, visitor)
         case "vcontinue" -> laneExpression((node as lane.Continue).mask, visitor)
+        case "vreducer_add" -> do
+            local value = node as lane.ReducerAdd
+            laneExpression(value.value, visitor)
+            if value.mask ~= nil then
+                laneExpression(value.mask as lane.Expr, visitor)
+            end
+            yield nil
+        end
     end
 end
 
