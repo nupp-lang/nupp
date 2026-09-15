@@ -313,7 +313,8 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         if simd.span ~= nil then
             values[#values + 1] = "span:" .. (simd.span as string)
         end
-        return tostring(op) .. ":" .. simd.type .. "(" .. table.concat(values, ", ") .. ")"
+        local name = tostring(op) .. (simd.intrinsic ~= nil and "." .. (simd.intrinsic as string) or "")
+        return name .. ":" .. simd.type .. "(" .. table.concat(values, ", ") .. ")"
     elseif text.ONE_OPERAND[tostring(op)] == true then
         return op .. "(" .. text.expression((node as scalarIR.Unary).value) .. ")"
     end
@@ -501,6 +502,8 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             )
         elseif op == "reducer_add" then
             lines[#lines + 1] = prefix .. text.expression(statement as scalarIR.ReducerAdd)
+        elseif op == "simd_store" then
+            lines[#lines + 1] = prefix .. text.expression(statement as scalarIR.Simd)
         elseif op == "if" then
             for position, clause in ipairs(statement.clauses) do
                 lines[

@@ -694,6 +694,22 @@ end
 --- specialized to the selected artifact tier only when C is emitted.
 record scalarIR.Simd
     op: 'simd_species_u8'
+        | 'simd_species'
+        | 'simd_lanes_generic'
+        | 'simd_splat'
+        | 'simd_iota'
+        | 'simd_tail'
+        | 'simd_load'
+        | 'simd_store'
+        | 'simd_binary'
+        | 'simd_unary'
+        | 'simd_compare'
+        | 'simd_select'
+        | 'simd_mask_any'
+        | 'simd_mask_all'
+        | 'simd_mask_count'
+        | 'simd_mask_first'
+        | 'simd_mask_bits'
         | 'simd_lanes'
         | 'simd_load_u8'
         | 'simd_load_string_u8'
@@ -757,6 +773,7 @@ record scalarIR.Simd
         | 'simd_mask64_clear_first'
     args: {scalarIR.Expr}
     span: string?
+    intrinsic: string?
     type: scalarIR.Type
     source: scalarIR.Source?
 end

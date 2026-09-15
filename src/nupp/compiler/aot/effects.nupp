@@ -135,6 +135,20 @@ local PURE_OPS: {
     bf16_to_f32 = true,
     f32_to_bf16 = true,
     helper_call = true,
+    simd_species = true,
+    simd_lanes_generic = true,
+    simd_splat = true,
+    simd_iota = true,
+    simd_tail = true,
+    simd_binary = true,
+    simd_unary = true,
+    simd_compare = true,
+    simd_select = true,
+    simd_mask_any = true,
+    simd_mask_all = true,
+    simd_mask_count = true,
+    simd_mask_first = true,
+    simd_mask_bits = true,
     simd_species_u8 = true,
     simd_lanes = true,
     simd_splat_u8 = true,
@@ -190,7 +204,7 @@ local PURE_OPS: {
 
 local NATIVE_READ_OPS: {
     [string]: boolean
-} = {load = true, element_ref = true, field_load = true, shared_load = true, simd_load_u8 = true,}
+} = {load = true, element_ref = true, field_load = true, shared_load = true, simd_load_u8 = true, simd_load = true,}
 
 local LUA_READ_OPS: {
     [string]: boolean
@@ -265,7 +279,9 @@ local LUA_MUTATE_OPS: {
     lua_scratch_u8_reset = true,
 }
 
-local NATIVE_WRITE_OPS: {[string]: boolean} = {store = true, assign = true, shared_store = true, reducer_add = true,}
+local NATIVE_WRITE_OPS: {
+    [string]: boolean
+} = {store = true, assign = true, shared_store = true, reducer_add = true, simd_store = true,}
 
 local STATEMENT_LUA_MUTATE_OPS: {
     [string]: boolean

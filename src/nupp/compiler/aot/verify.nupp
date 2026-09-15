@@ -548,6 +548,30 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
     scalarWalk(node.right, values, rightScope)
 end
 
+local GENERIC_SIMD: {
+    [string]: boolean
+} = {
+    simd_species = true,
+    simd_lanes_generic = true,
+    simd_splat = true,
+    simd_iota = true,
+    simd_tail = true,
+    simd_load = true,
+    simd_binary = true,
+    simd_unary = true,
+    simd_compare = true,
+    simd_select = true,
+    simd_mask_any = true,
+    simd_mask_all = true,
+    simd_mask_count = true,
+    simd_mask_first = true,
+    simd_mask_bits = true,
+}
+
+local function genericSimdType(typeName: string): (string?, string?, string?)
+    return typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
+end
+
 scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: verify.Scope): nil
     holds(node ~= nil and node.type ~= nil, "untyped IR expression")
 
@@ -686,6 +710,93 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 ) and values[LENGTH_OF .. named.name] == named.lengthOf,
                 "invalid rooted length alias"
             )
+        end
+    elseif GENERIC_SIMD[tostring(op)] == true then
+        local simd = node as scalarIR.Simd
+        local args = simd.args
+        local family, element, shape = genericSimdType(node.type)
+        if op == "simd_species" then
+            holds(family == "species" and #args == 0, "invalid generic SIMD species")
+        elseif op == "simd_lanes_generic" then
+            local argFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
+            holds(node.type == "u32" and #args == 1 and argFamily == "species", "invalid generic SIMD lane count")
+        elseif op == "simd_splat" or op == "simd_iota" then
+            holds(family == "vector" and #args == (op == "simd_splat" and 1 or 2), "invalid generic SIMD construction")
+            for _, argument in ipairs(args) do
+                holds(argument.type == element, "generic SIMD construction has the wrong element")
+            end
+        elseif op == "simd_tail" then
+            holds(family == "mask" and #args == 1 and args[1].type == "u32", "invalid generic SIMD tail")
+        elseif op == "simd_load" then
+            holds(family == "vector" and (#args == 2 or #args == 3), "invalid generic SIMD load")
+            holds(
+                args[
+                    1
+                ].type == "simd_species_" .. tostring(
+                    element
+                ) .. "_" .. tostring(
+                    shape
+                ) and args[
+                    2
+                ].type == "f64" and (
+                    args[3] == nil or args[3].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
+                ),
+                "generic SIMD load operands do not match"
+            )
+            local span = simd.span ~= nil and scope.spans[simd.span as string] or nil
+            holds(
+                span ~= nil and (
+                    span as scalarIR.Param
+                ).kind == "read_span" and (span as scalarIR.Param).type == element,
+                "invalid generic SIMD load root"
+            )
+        elseif op == "simd_binary" or op == "simd_unary" then
+            holds(
+                (
+                    family == "vector" or family == "mask"
+                ) and #args == (
+                    op == "simd_unary" and 1 or 2
+                ) and args[1].type == node.type and (args[2] == nil or args[2].type == node.type),
+                "invalid generic SIMD operator"
+            )
+        elseif op == "simd_compare" then
+            local operandFamily, operandElement, operandShape = nil, nil, nil
+            if args[1] ~= nil then
+                operandFamily, operandElement, operandShape = genericSimdType(args[1].type)
+            end
+            holds(
+                family == "mask" and #args == 2 and args[
+                    1
+                ].type == args[
+                    2
+                ].type and (
+                    operandFamily == "vector" or operandFamily == "mask"
+                ) and element == operandElement and shape == operandShape,
+                "invalid generic SIMD comparison"
+            )
+        elseif op == "simd_select" then
+            holds(
+                family == "vector" and #args == 3 and args[
+                    1
+                ].type == "simd_mask_" .. tostring(
+                    element
+                ) .. "_" .. tostring(shape) and args[2].type == node.type and args[3].type == node.type,
+                "invalid generic SIMD select"
+            )
+        else
+            local maskFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
+            local result = (
+                op == "simd_mask_any" or op == "simd_mask_all"
+            ) and "bool" or op == "simd_mask_count" and "u32" or op == "simd_mask_first" and "f64" or nil
+            holds(
+                #args == 1 and maskFamily == "mask" and (
+                    node.type == result or op == "simd_mask_bits" and family == "bitmask"
+                ),
+                "invalid generic SIMD mask query"
+            )
+        end
+        for _, argument in ipairs(args) do
+            scalarWalk(argument, values, scope)
         end
     elseif tostring(op):match("^simd_") ~= nil then
         local simd = node as scalarIR.Simd
@@ -2013,6 +2124,36 @@ local function block(
             holds(appended.value.type == "lua_string", "string buffer appended a non-string")
             scalarWalk(appended.buffer, values, scope)
             scalarWalk(appended.value, values, scope)
+        elseif statement.op == "simd_store" then
+            local store = statement as scalarIR.Simd
+            local vectorFamily, element, shape = genericSimdType(store.args[3].type)
+            holds(store.type == "lua_effect" and (#store.args == 3 or #store.args == 4), "invalid generic SIMD store")
+            holds(
+                vectorFamily == "vector" and store.args[
+                    1
+                ].type == "simd_species_" .. tostring(
+                    element
+                ) .. "_" .. tostring(
+                    shape
+                ) and store.args[
+                    2
+                ].type == "f64" and (
+                    store.args[
+                        4
+                    ] == nil or store.args[4].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
+                ),
+                "generic SIMD store operands do not match"
+            )
+            local span = store.span ~= nil and scope.spans[store.span as string] or nil
+            holds(
+                span ~= nil and (
+                    span as scalarIR.Param
+                ).kind == "write_span" and (span as scalarIR.Param).type == element,
+                "invalid generic SIMD store root"
+            )
+            for _, argument in ipairs(store.args) do
+                scalarWalk(argument, values, scope)
+            end
         elseif statement.op == "simd_store4_u8" then
             local store = statement as scalarIR.Simd
             holds(

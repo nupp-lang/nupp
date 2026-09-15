@@ -259,6 +259,47 @@ local function nominal(t: any?): (any?, any?)
     return raw, raw.origin or raw
 end
 
+--- The target-neutral identity carried by one generic SIMD application.
+---
+--- Element and species are encoded in the IR type because legalization happens
+--- after semantic lowering. This is derived from nominal identities and const
+--- terms, never from source text.
+local function genericSimdType(t: any?): scalarIR.Type?
+    local raw, origin = nominal(t)
+    if raw == nil or origin == nil or origin.moduleName ~= "nupp.simd" then
+        return nil
+    end
+    local family = origin.name
+    if family ~= "Vector" and family ~= "Mask" and family ~= "BitMask" and family ~= "Species" then
+        return nil
+    end
+    local arguments = raw.typeArgs or {}
+    local element = semanticRaw(arguments[1])
+    local elementNames: {
+        [string]: string
+    } = {number = "f64", integer = "f64", float = "f32", int32 = "i32", uint32 = "u32", int64 = "i64", uint64 = "u64",}
+    local elementName = element ~= nil and elementNames[element.tag] or nil
+    local species, speciesOrigin = nominal(arguments[2])
+    local shape: string? = nil
+    if speciesOrigin ~= nil and speciesOrigin.moduleName == "nupp.simd" and speciesOrigin.name == "Preferred" then
+        shape = "preferred"
+    elseif species ~= nil
+        and speciesOrigin ~= nil
+        and speciesOrigin.moduleName == "nupp.simd"
+        and speciesOrigin.name == "Fixed"
+    then
+        local count = (species.constArgs or {})[1]
+        if count ~= nil and count.tag == "constLiteral" and count.domain == "integer" then
+            shape = "fixed" .. tostring(count.value)
+        end
+    end
+    if elementName == nil or shape == nil then
+        return nil
+    end
+
+    return "simd_" .. family:lower() .. "_" .. elementName .. "_" .. shape
+end
+
 --- The canonical source spelling of a checked type.
 ---
 --- Used only in the generated wrapper, never to decide admission. The wrapper
@@ -327,6 +368,10 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
     local _, origin = nominal(raw)
     if origin == nil or origin.moduleName ~= "nupp.simd" then
         return nil
+    end
+    local generic = genericSimdType(raw)
+    if generic ~= nil then
+        return generic
     end
     local simdTypes: {
         [string]: scalarIR.Type
@@ -1100,11 +1145,83 @@ local function fieldRead(node: cst.DotIndex, object: scalarIR.Expr, kernel: lowe
     )
 end
 
+--- Family, element, and species encoded in one generic SIMD IR type.
+local function genericSimdParts(typeName: string): (string?, scalarIR.Type?, string?)
+    local family, element, shape = typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
+
+    return family, element as scalarIR.Type?, shape
+end
+
+--- Makes one scalar operand lane-shaped for an intrinsic operator.
+local function simdOperand(
+    value: scalarIR.Expr,
+    vectorType: string,
+    source: scalarIR.Source,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    if value.type == vectorType then
+        return value
+    end
+    local _, element = genericSimdParts(vectorType)
+    if element == nil then
+        kernel.context.reject(source, "explicit SIMD operator has no element type")
+    end
+    local scalar = lower.convert(value, element as scalarIR.Type, source, kernel.context)
+
+    return new scalarIR.Simd(
+        op = "simd_splat",
+        args = {scalar},
+        intrinsic = "splat",
+        type = vectorType,
+        source = source
+    )
+end
+
 --- One binary operator.
 local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local context = kernel.context
     local written = (node.op as lexer.Token).text
     local source = lower.site(node)
+
+    local leftFamily, leftElement, leftShape = genericSimdParts(left.type)
+    if leftFamily == "vector" then
+        local rightFamily, rightElement, rightShape = genericSimdParts(right.type)
+        if rightFamily == "vector" and (rightElement ~= leftElement or rightShape ~= leftShape) then
+            context.reject(source, "explicit SIMD operands have different element or species identities")
+        end
+        right = simdOperand(right, left.type, source, kernel)
+        local arithmeticOps = {['+'] = "add", ['-'] = "sub", ['*'] = "mul", ['/'] = "div"}
+        local bitOps = {['&'] = "and", ['|'] = "or", ['~'] = "xor", ['<<'] = "shl", ['>>'] = "shr"}
+        local comparisonOps = {['<'] = "lt", ['<='] = "le", ['>'] = "gt", ['>='] = "ge", ['=='] = "eq", ['~='] = "ne",}
+        local intrinsic = arithmeticOps[written] or bitOps[written] or comparisonOps[written]
+        if intrinsic == nil then
+            context.reject(source, "operator " .. written .. " is not an explicit SIMD intrinsic")
+        end
+        local compared = comparisonOps[written] ~= nil
+        return new scalarIR.Simd(
+            op = compared and "simd_compare" or "simd_binary",
+            args = {left, right},
+            intrinsic = intrinsic,
+            type = compared and "simd_mask_" .. tostring(leftElement) .. "_" .. tostring(leftShape) or left.type,
+            source = source
+        )
+    elseif leftFamily == "mask" then
+        local rightFamily = genericSimdParts(right.type)
+        if rightFamily ~= "mask" or right.type ~= left.type then
+            context.reject(source, "explicit SIMD mask operands need the same species")
+        end
+        local intrinsic = ({['&'] = "and", ['|'] = "or", ['~'] = "xor", ['=='] = "eq", ['~='] = "ne",})[written]
+        if intrinsic == nil then
+            context.reject(source, "operator " .. written .. " is not a mask intrinsic")
+        end
+        return new scalarIR.Simd(
+            op = (written == "==" or written == "~=") and "simd_compare" or "simd_binary",
+            args = {left, right},
+            intrinsic = intrinsic,
+            type = left.type,
+            source = source
+        )
+    end
 
     local arithmetic = admit.ARITHMETIC[written]
     if arithmetic ~= nil then
@@ -1429,6 +1546,23 @@ local function call(
             operation = "sum",
             initial = lower.convert(args[1], "f64", lower.site(node), context),
             type = "simd_reducer_" .. order .. "_sum",
+            source = lower.site(node)
+        )
+    elseif identity == "nupp.simd.preferred" or identity == "nupp.simd.fixed" then
+        if #args ~= 0 then
+            context.reject(lower.site(node), "a generic SIMD species constructor takes no arguments")
+        end
+        local inferred = (node as any).inferredType
+        local resolved = semanticValueType(inferred)
+        if resolved == nil or not resolved:match("^simd_species_") then
+            context.reject(lower.site(node), "a SIMD species constructor needs an explicit expected result type")
+        end
+        kernel.usesSimd = true
+        return new scalarIR.Simd(
+            op = "simd_species",
+            args = {},
+            intrinsic = identity == "nupp.simd.preferred" and "preferred" or "fixed",
+            type = resolved as scalarIR.Type,
             source = lower.site(node)
         )
     elseif identity == "nupp.simd.preferredU8" then
@@ -2189,6 +2323,162 @@ local function simdMethod(
         kernel.context.reject(source, "sum reducer operation " .. method .. " is not admitted")
     end
 
+    local genericFamily, genericElement, genericShape = genericSimdParts(receiverType)
+    if genericFamily ~= nil then
+        local vectorType = "simd_vector_" .. tostring(genericElement) .. "_" .. tostring(genericShape)
+        local maskType = "simd_mask_" .. tostring(genericElement) .. "_" .. tostring(genericShape)
+        if genericFamily == "species" and method == "splat" and #raw == 1 then
+            local value = lower.convert(
+                lower.expression(raw[1], environment, activeIndex, kernel),
+                genericElement as scalarIR.Type,
+                source,
+                kernel.context
+            )
+            return new scalarIR.Simd(
+                op = "simd_splat",
+                args = {value},
+                intrinsic = "splat",
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "species" and method == "iota" and #raw == 2 then
+            for _, argument in ipairs(raw) do
+                args[
+                    #args + 1
+                ] = lower.convert(
+                    lower.expression(argument, environment, activeIndex, kernel),
+                    genericElement as scalarIR.Type,
+                    source,
+                    kernel.context
+                )
+            end
+            return new scalarIR.Simd(
+                op = "simd_iota",
+                args = {args[2], args[3]},
+                intrinsic = "iota",
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "species" and method == "tail" and #raw == 1 then
+            local active = lower.convert(
+                lower.expression(raw[1], environment, activeIndex, kernel),
+                "u32",
+                source,
+                kernel.context
+            )
+            return new scalarIR.Simd(
+                op = "simd_tail",
+                args = {active},
+                intrinsic = "tail",
+                type = maskType,
+                source = source
+            )
+        elseif genericFamily == "species" and (method == "load" or method == "store") then
+            local expected = method == "load" and (#raw == 2 or #raw == 3) or (#raw == 3 or #raw == 4)
+            if not expected then
+                kernel.context.reject(source, "SIMD " .. method .. " has an unsupported argument count")
+            end
+            local spanName = lower.nameOf(raw[1])
+            local span = spanName ~= nil and kernel.params[spanName as string] or nil
+            local wantedKind = method == "load" and "read_span" or "write_span"
+            if span == nil or span.kind ~= wantedKind or span.type ~= genericElement then
+                kernel.context.reject(
+                    source,
+                    "SIMD " .. method .. " needs a matching " .. (
+                        method == "load" and "borrowed Span" or "exclusive WriteSpan"
+                    )
+                )
+            end
+            local offset = lower.convert(
+                lower.expression(raw[2], environment, activeIndex, kernel),
+                "f64",
+                source,
+                kernel.context
+            )
+            if method == "load" then
+                local loadArgs: {scalarIR.Expr} = {receiver as scalarIR.Expr, offset}
+                if raw[3] ~= nil then
+                    local active = lower.expression(raw[3], environment, activeIndex, kernel)
+                    if active.type ~= maskType then
+                        kernel.context.reject(source, "SIMD load mask has a different species")
+                    end
+                    loadArgs[#loadArgs + 1] = active
+                end
+                return new scalarIR.Simd(
+                    op = "simd_load",
+                    args = loadArgs,
+                    span = spanName,
+                    intrinsic = "load",
+                    type = vectorType,
+                    source = source
+                )
+            else
+                local stored = lower.expression(raw[3], environment, activeIndex, kernel)
+                if stored.type ~= vectorType then
+                    kernel.context.reject(source, "SIMD store value has a different element or species type")
+                end
+                local storeArgs: {scalarIR.Expr} = {receiver as scalarIR.Expr, offset, stored}
+                if raw[4] ~= nil then
+                    local active = lower.expression(raw[4], environment, activeIndex, kernel)
+                    if active.type ~= maskType then
+                        kernel.context.reject(source, "SIMD store mask has a different species")
+                    end
+                    storeArgs[#storeArgs + 1] = active
+                end
+                return new scalarIR.Simd(
+                    op = "simd_store",
+                    args = storeArgs,
+                    span = spanName,
+                    intrinsic = "store",
+                    type = "lua_effect",
+                    source = source
+                )
+            end
+        elseif genericFamily == "mask" and method == "select" and #raw == 2 then
+            local trueValue = simdOperand(
+                lower.expression(raw[1], environment, activeIndex, kernel),
+                vectorType,
+                source,
+                kernel
+            )
+            local falseValue = simdOperand(
+                lower.expression(raw[2], environment, activeIndex, kernel),
+                vectorType,
+                source,
+                kernel
+            )
+            return new scalarIR.Simd(
+                op = "simd_select",
+                args = {receiver as scalarIR.Expr, trueValue, falseValue},
+                intrinsic = "select",
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "mask" and #raw == 0 then
+            local reductions = {
+                any = {op = "simd_mask_any", type = "bool"},
+                all = {op = "simd_mask_all", type = "bool"},
+                count = {op = "simd_mask_count", type = "u32"},
+                first = {op = "simd_mask_first", type = "f64"},
+                bits = {
+                    op = "simd_mask_bits",
+                    type = "simd_bitmask_" .. tostring(genericElement) .. "_" .. tostring(genericShape)
+                },
+            }
+            local reduction = reductions[method]
+            if reduction ~= nil then
+                return new scalarIR.Simd(
+                    op = reduction.op as any,
+                    args = {receiver as scalarIR.Expr},
+                    intrinsic = method,
+                    type = reduction.type,
+                    source = source
+                )
+            end
+        end
+        kernel.context.reject(source, "SIMD operation " .. method .. " is not admitted for " .. receiverType)
+    end
+
     --- The written argument at `position`, established as uint32.
     local function u32Arg(position: integer): scalarIR.Expr
         return lower.convert(
@@ -2508,6 +2798,16 @@ end
 local function unary(node: cst.Unop, value: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local written = (node.op as lexer.Token).text
     local source = lower.site(node)
+    local family = genericSimdParts(value.type)
+    if family == "vector" and (written == "-" or written == "~") or family == "mask" and written == "~" then
+        return new scalarIR.Simd(
+            op = "simd_unary",
+            args = {value},
+            intrinsic = written == "-" and "neg" or "not",
+            type = value.type,
+            source = source
+        )
+    end
     -- Negation is binary64 arithmetic like the binary operators, so a fixed-width
     -- or binary32 operand widens into it the same way `binary` promotes one.
     local negated = written == "-" and lower.conversion(value, "f64", value.source) or nil
@@ -2973,7 +3273,19 @@ function lower.expression(
         end
         local objectName = lower.nameOf(indexed.obj)
         local object = objectName ~= nil and environment[objectName as string] or nil
-        if object ~= nil and object.type == "simd_species_u8" and (indexed.name as lexer.Token).text == "lanes" then
+        if object ~= nil
+            and tostring(object.type):match("^simd_species_")
+            and object.type ~= "simd_species_u8"
+            and (indexed.name as lexer.Token).text == "lanes" then
+            kernel.usesSimd = true
+            return new scalarIR.Simd(
+                op = "simd_lanes_generic",
+                args = {lower.expression(indexed.obj as cst.Node, environment, activeIndex, kernel)},
+                intrinsic = "lanes",
+                type = "u32",
+                source = lower.site(node)
+            )
+        elseif object ~= nil and object.type == "simd_species_u8" and (indexed.name as lexer.Token).text == "lanes" then
             kernel.usesSimd = true
             return new scalarIR.Simd(
                 op = "simd_lanes",
@@ -4624,6 +4936,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     and effect.op ~= "lua_scratch_u8_set"
                     and effect.op ~= "lua_scratch_u8_set4"
                     and effect.op ~= "simd_store4_u8"
+                    and effect.op ~= "simd_store"
                     and effect.op ~= "reducer_add"
                     and effect.op ~= "lua_scratch_u8_reset" then
                     context.reject(lower.site(stat), "native element stores use output[index] = value")

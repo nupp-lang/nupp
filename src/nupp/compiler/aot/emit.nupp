@@ -259,6 +259,23 @@ const emit.SOURCE_C = {
 --- The C element type behind each vector.
 const emit.VECTOR_ELEMENT_C = {["f64"] = "double", ["f32"] = "float", ["i32"] = "int32_t", ["u32"] = "uint32_t",}
 
+--- Resolves one target-neutral explicit SIMD type for the selected tier.
+local function explicitType(typeName: string): (string?, string?, integer?)
+    local family, element, shape = typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
+    if family == nil or element == nil or shape == nil then
+        return nil, nil, nil
+    end
+    local bits = tonumber((element as string):match("%d+"))
+    local lanes: integer? = nil
+    if shape == "preferred" and bits ~= nil and bits > 0 then
+        lanes = math.floor(explicitWidth * 8 / bits) as integer
+    else
+        lanes = tonumber((shape as string):match("^fixed(%d+)$")) as integer?
+    end
+
+    return family, element, lanes
+end
+
 --- The C type of one IR type.
 ---
 --- A vector renders as the typedef the prelude emitted for it, and a pointer to
@@ -269,6 +286,25 @@ function emit.cType(typeName: string): string
     local scalar = emit.SCALAR_C[typeName]
     if scalar ~= nil then
         return scalar as string
+    end
+    local explicitFamily, explicitElement, explicitLanes = explicitType(typeName)
+    if explicitFamily ~= nil then
+        if explicitWidth ~= 16 and explicitWidth ~= 32 then
+            error("explicit SIMD width was not selected", 0)
+        end
+        if not typeName:match("_preferred$") then
+            error("fixed explicit SIMD species are not legal for this target yet", 0)
+        end
+        local suffix = tostring(explicitElement) .. "x" .. tostring(explicitLanes)
+        if explicitFamily == "species" then
+            return "uint32_t"
+        elseif explicitFamily == "vector" then
+            return (explicitScalar and "ks_scalar_exp_" or "ks_exp_") .. suffix
+        elseif explicitFamily == "mask" then
+            return (explicitScalar and "ks_scalar_exp_mask_" or "ks_exp_mask_") .. suffix
+        elseif explicitFamily == "bitmask" then
+            return "uint64_t"
+        end
     end
     if typeName == "simd_species_u8" then
         return "uint32_t"
@@ -599,7 +635,131 @@ function emit.scalar(node: scalarIR.Expr): string
         local args = simd.args
         local suffix = "u8x" .. tostring(explicitWidth)
         local helper = explicitScalar and "ks_scalar_" or "ks_"
-        if operation == "simd_species_u8" or operation == "simd_lanes" then
+        if operation == "simd_species"
+            or operation == "simd_lanes_generic"
+            or operation == "simd_splat"
+            or operation == "simd_iota"
+            or operation == "simd_tail"
+            or operation == "simd_load"
+            or operation == "simd_binary"
+            or operation == "simd_unary"
+            or operation == "simd_compare"
+            or operation == "simd_select"
+            or operation == "simd_mask_any"
+            or operation == "simd_mask_all"
+            or operation == "simd_mask_count"
+            or operation == "simd_mask_first"
+            or operation == "simd_mask_bits"
+        then
+            local shapedType = operation == "simd_species" and simd.type or operation == "simd_lanes_generic" and args[
+                1
+            ].type
+                or operation == "simd_load"
+                and simd.type
+                or operation == "simd_select"
+                and simd.type
+                or operation == "simd_mask_any"
+                and args[
+                1
+            ].type or operation == "simd_mask_all" and args[
+                1
+            ].type or operation == "simd_mask_count" and args[
+                1
+            ].type or operation == "simd_mask_first" and args[
+                1
+            ].type or operation == "simd_mask_bits" and args[1].type or simd.type
+            local _, element, lanes = explicitType(shapedType)
+            if element == nil or lanes == nil then
+                error("generic SIMD operation has no resolved species", 0)
+            end
+            local genericSuffix = element .. "x" .. tostring(lanes)
+            local genericHelper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
+            if operation == "simd_species" or operation == "simd_lanes_generic" then
+                return "UINT32_C(" .. tostring(lanes) .. ")"
+            elseif operation == "simd_splat" then
+                return genericHelper .. "splat_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
+            elseif operation == "simd_iota" then
+                return genericHelper .. "iota_" .. genericSuffix .. "(" .. emit.scalar(
+                    args[1]
+                ) .. ", " .. emit.scalar(args[2]) .. ")"
+            elseif operation == "simd_tail" then
+                return genericHelper .. "tail_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
+            elseif operation == "simd_load" then
+                local count = independentSpanCounts and "count_" .. tostring(simd.span) or "count"
+                local active = args[
+                    3
+                ] ~= nil and emit.scalar(
+                    args[3]
+                ) or genericHelper .. "tail_" .. genericSuffix .. "(UINT32_C(" .. tostring(lanes) .. "))"
+                return genericHelper .. "load_" .. genericSuffix .. "(p_" .. tostring(
+                    simd.span
+                ) .. ", " .. count .. ", " .. emit.scalar(args[2]) .. ", " .. active .. ")"
+            elseif operation == "simd_binary" then
+                if explicitScalar then
+                    local family = explicitType(args[1].type)
+                    local name = family == "mask" and "mask_" .. tostring(simd.intrinsic) or tostring(simd.intrinsic)
+                    return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(
+                        args[1]
+                    ) .. ", " .. emit.scalar(args[2]) .. ")"
+                end
+                local operator = ({
+                    add = "+",
+                    sub = "-",
+                    mul = "*",
+                    div = "/",
+                    ['and'] = "&",
+                    ['or'] = "|",
+                    xor = "^",
+                    shl = "<<",
+                    shr = ">>",
+                })[tostring(simd.intrinsic)]
+                return "(" .. emit.scalar(args[1]) .. " " .. tostring(operator) .. " " .. emit.scalar(args[2]) .. ")"
+            elseif operation == "simd_unary" then
+                if explicitScalar then
+                    local family = explicitType(simd.type)
+                    local name = family == "mask" and "mask_not" or tostring(simd.intrinsic)
+                    return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
+                end
+                return "(" .. (simd.intrinsic == "neg" and "-" or "~") .. emit.scalar(args[1]) .. ")"
+            elseif operation == "simd_compare" then
+                if explicitScalar then
+                    local family = explicitType(args[1].type)
+                    local name = family == "mask" and "mask_" .. tostring(simd.intrinsic) or tostring(simd.intrinsic)
+                    return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(
+                        args[1]
+                    ) .. ", " .. emit.scalar(args[2]) .. ")"
+                end
+                local comparisonOperators: {
+                    [string]: string
+                } = {lt = "<", le = "<=", gt = ">", ge = ">=", eq = "==", ne = "!=",}
+                local operator = comparisonOperators[tostring(simd.intrinsic)]
+                return "(" .. emit.scalar(args[1]) .. " " .. tostring(operator) .. " " .. emit.scalar(args[2]) .. ")"
+            elseif operation == "simd_select" then
+                return genericHelper .. "select_" .. genericSuffix .. "(" .. emit.scalar(
+                    args[1]
+                ) .. ", " .. emit.scalar(args[2]) .. ", " .. emit.scalar(args[3]) .. ")"
+            else
+                local bits = genericHelper .. "bits_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
+                if operation == "simd_mask_bits" then
+                    return bits
+                elseif operation == "simd_mask_any" then
+                    return "(" .. bits .. " != UINT64_C(0))"
+                elseif operation == "simd_mask_all" then
+                    local all = lanes == 64 and "UINT64_MAX" or "((UINT64_C(1) << " .. tostring(
+                        lanes
+                    ) .. "u) - UINT64_C(1))"
+                    return "(" .. bits .. " == " .. all .. ")"
+                elseif operation == "simd_mask_count" then
+                    return "((uint32_t)__builtin_popcountll(" .. bits .. "))"
+                else
+                    return "((double)("
+                        .. bits
+                        .. " == UINT64_C(0) ? 0u : (uint32_t)__builtin_ctzll("
+                        .. bits
+                        .. ") + 1u))"
+                end
+            end
+        elseif operation == "simd_species_u8" or operation == "simd_lanes" then
             return "UINT32_C(" .. tostring(explicitWidth) .. ")"
         elseif operation == "simd_load_u8" then
             local count = independentSpanCounts and "count_" .. tostring(simd.span) or "count"
@@ -3703,6 +3863,420 @@ local function sseBits(width: integer): string
         .. "| ((uint32_t)(uint16_t)_mm_movemask_epi8(v1) << 16u);"
 end
 
+--- General preferred-species types and their scalar executable semantics.
+---
+--- The production type is a compiler vector. The separately named scalar type
+--- exists only for the generated correctness oracle and deliberately performs
+--- every primitive by lane.
+local function genericSimdPrelude(width: integer): {string}
+    local lines: {string} = {}
+    local unused = "static inline __attribute__((unused)) "
+    local elements = {
+        {name = "f64", c = "double", mask = "int64_t", bytes = 8},
+        {name = "f32", c = "float", mask = "int32_t", bytes = 4},
+        {name = "i32", c = "int32_t", mask = "int32_t", bytes = 4},
+        {name = "u32", c = "uint32_t", mask = "int32_t", bytes = 4},
+        {name = "i64", c = "int64_t", mask = "int64_t", bytes = 8},
+        {name = "u64", c = "uint64_t", mask = "int64_t", bytes = 8},
+    }
+    local binaries = {
+        {name = "add", c = "+"},
+        {name = "sub", c = "-"},
+        {name = "mul", c = "*"},
+        {name = "div", c = "/"},
+        {name = "and", c = "&"},
+        {name = "or", c = "|"},
+        {name = "xor", c = "^"},
+        {name = "shl", c = "<<"},
+        {name = "shr", c = ">>"},
+    }
+    local comparisons = {
+        {name = "lt", c = "<"},
+        {name = "le", c = "<="},
+        {name = "gt", c = ">"},
+        {name = "ge", c = ">="},
+        {name = "eq", c = "=="},
+        {name = "ne", c = "!="},
+    }
+    for _, element in ipairs(elements) do
+        local lanes = width / element.bytes
+        local suffix = element.name .. "x" .. tostring(lanes)
+        local vector = "ks_exp_" .. suffix
+        local mask = "ks_exp_mask_" .. suffix
+        local scalarVector = "ks_scalar_exp_" .. suffix
+        local scalarMask = "ks_scalar_exp_mask_" .. suffix
+        local vectorValues, maskValues, iotaValues = {}, {}, {}
+        for laneIndex = 1, lanes do
+            vectorValues[laneIndex] = "value"
+            maskValues[laneIndex] = "(" .. element.mask .. ")-1"
+            iotaValues[laneIndex] = "first + (" .. element.c .. ")" .. tostring(laneIndex - 1) .. " * step"
+        end
+        lines[
+            #lines + 1
+        ] = "typedef " .. element.c .. " " .. vector .. " __attribute__((vector_size(" .. tostring(width) .. ")));"
+        lines[
+            #lines + 1
+        ] = "typedef " .. element.mask .. " " .. mask .. " __attribute__((vector_size(" .. tostring(width) .. ")));"
+        lines[
+            #lines + 1
+        ] = "typedef struct { " .. element.c .. " lane[" .. tostring(lanes) .. "]; } " .. scalarVector .. ";"
+        lines[
+            #lines + 1
+        ] = "typedef struct { " .. element.mask .. " lane[" .. tostring(lanes) .. "]; } " .. scalarMask .. ";"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_splat_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " value) { return ("
+            .. vector
+            .. "){ "
+            .. table.concat(
+            vectorValues,
+            ", "
+        ) .. " }; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_iota_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " first, "
+            .. element.c
+            .. " step) { return ("
+            .. vector
+            .. "){ "
+            .. table.concat(
+            iotaValues,
+            ", "
+        ) .. " }; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. mask
+            .. " ks_exp_tail_"
+            .. suffix
+            .. "(uint32_t active) { "
+            .. mask
+            .. " out = ("
+            .. mask
+            .. "){0}; if (active > "
+            .. tostring(
+            lanes
+        ) .. "u) active = " .. tostring(
+            lanes
+        ) .. "u; for (uint32_t i = 0u; i < active; ++i) out[i] = (" .. element.mask .. ")-1; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_load_"
+            .. suffix
+            .. "(const "
+            .. element.c
+            .. " *source, size_t count, double offset, "
+            .. mask
+            .. " active) { "
+            .. vector
+            .. " out = ("
+            .. vector
+            .. "){0}; if (!(offset >= 1.0) || offset != floor(offset)) return out; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (active[i] && first + i < count) out[i] = source[first + i]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. "void ks_exp_store_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " *destination, size_t count, double offset, "
+            .. vector
+            .. " value, "
+            .. mask
+            .. " active) { if (!(offset >= 1.0) || offset != floor(offset)) return; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (active[i] && first + i < count) destination[first + i] = value[i]; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_select_"
+            .. suffix
+            .. "("
+            .. mask
+            .. " active, "
+            .. vector
+            .. " yes, "
+            .. vector
+            .. " no) { return ("
+            .. vector
+            .. ")((active & ("
+            .. mask
+            .. ")yes) | (~active & ("
+            .. mask
+            .. ")no)); }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. "uint64_t ks_exp_bits_"
+            .. suffix
+            .. "("
+            .. mask
+            .. " value) { uint64_t out = 0u; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (value[i]) out |= UINT64_C(1) << i; return out; }"
+
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_splat_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " value) { "
+            .. scalarVector
+            .. " out; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) out.lane[i] = value; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_iota_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " first, "
+            .. element.c
+            .. " step) { "
+            .. scalarVector
+            .. " out; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) out.lane[i] = first + (" .. element.c .. ")i * step; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarMask
+            .. " ks_scalar_exp_tail_"
+            .. suffix
+            .. "(uint32_t active) { "
+            .. scalarMask
+            .. " out; if (active > "
+            .. tostring(
+            lanes
+        ) .. "u) active = " .. tostring(
+            lanes
+        ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+            lanes
+        ) .. "u; ++i) out.lane[i] = i < active ? (" .. element.mask .. ")-1 : 0; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_load_"
+            .. suffix
+            .. "(const "
+            .. element.c
+            .. " *source, size_t count, double offset, "
+            .. scalarMask
+            .. " active) { "
+            .. scalarVector
+            .. " out = {{0}}; if (!(offset >= 1.0) || offset != floor(offset)) return out; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (active.lane[i] && first + i < count) out.lane[i] = source[first + i]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. "void ks_scalar_exp_store_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " *destination, size_t count, double offset, "
+            .. scalarVector
+            .. " value, "
+            .. scalarMask
+            .. " active) { if (!(offset >= 1.0) || offset != floor(offset)) return; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (active.lane[i] && first + i < count) destination[first + i] = value.lane[i]; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_select_"
+            .. suffix
+            .. "("
+            .. scalarMask
+            .. " active, "
+            .. scalarVector
+            .. " yes, "
+            .. scalarVector
+            .. " no) { for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (!active.lane[i]) yes.lane[i] = no.lane[i]; return yes; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. "uint64_t ks_scalar_exp_bits_"
+            .. suffix
+            .. "("
+            .. scalarMask
+            .. " value) { uint64_t out = 0u; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (value.lane[i]) out |= UINT64_C(1) << i; return out; }"
+        for _, operation in ipairs(binaries) do
+            if operation.name == "add"
+                or operation.name == "sub"
+                or operation.name == "mul"
+                or operation.name == "div"
+                or element.name:sub(
+                1,
+                1
+            ) ~= "f" then
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. scalarVector
+                    .. " ks_scalar_exp_"
+                    .. operation.name
+                    .. "_"
+                    .. suffix
+                    .. "("
+                    .. scalarVector
+                    .. " left, "
+                    .. scalarVector
+                    .. " right) { for (uint32_t i = 0u; i < "
+                    .. tostring(
+                    lanes
+                ) .. "u; ++i) left.lane[i] = left.lane[i] " .. operation.c .. " right.lane[i]; return left; }"
+            end
+        end
+        for _, operation in ipairs(comparisons) do
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarMask
+                .. " ks_scalar_exp_"
+                .. operation.name
+                .. "_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " left, "
+                .. scalarVector
+                .. " right) { "
+                .. scalarMask
+                .. " out; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            )
+                .. "u; ++i) out.lane[i] = left.lane[i] "
+                .. operation.c
+                .. " right.lane[i] ? ("
+                .. element.mask
+                .. ")-1 : 0; return out; }"
+        end
+        for _, operation in ipairs({{name = "and", c = "&"}, {name = "or", c = "|"}, {name = "xor", c = "^"},}) do
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarMask
+                .. " ks_scalar_exp_mask_"
+                .. operation.name
+                .. "_"
+                .. suffix
+                .. "("
+                .. scalarMask
+                .. " left, "
+                .. scalarMask
+                .. " right) { for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) left.lane[i] = left.lane[i] " .. operation.c .. " right.lane[i]; return left; }"
+        end
+        for _, operation in ipairs({{name = "eq", c = "=="}, {name = "ne", c = "!="},}) do
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarMask
+                .. " ks_scalar_exp_mask_"
+                .. operation.name
+                .. "_"
+                .. suffix
+                .. "("
+                .. scalarMask
+                .. " left, "
+                .. scalarMask
+                .. " right) { "
+                .. scalarMask
+                .. " out; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            )
+                .. "u; ++i) out.lane[i] = left.lane[i] "
+                .. operation.c
+                .. " right.lane[i] ? ("
+                .. element.mask
+                .. ")-1 : 0; return out; }"
+        end
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_neg_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " value) { for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) value.lane[i] = -value.lane[i]; return value; }"
+        if element.name:sub(1, 1) ~= "f" then
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_not_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " value) { for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) value.lane[i] = ~value.lane[i]; return value; }"
+        end
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarMask
+            .. " ks_scalar_exp_mask_not_"
+            .. suffix
+            .. "("
+            .. scalarMask
+            .. " value) { for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) value.lane[i] = ~value.lane[i]; return value; }"
+    end
+
+    return lines
+end
+
 --- Packed-byte helpers whose semantics are independent of the instruction set.
 --- Clang/GCC lower the vector comparisons and bitwise expressions; the short
 --- loops here are fixed-width scalar oracles for safe tails and mask order.
@@ -4731,6 +5305,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         lines[#lines + 1] = "#endif"
     end
 
+    for _, line in ipairs(genericSimdPrelude(width)) do
+        lines[#lines + 1] = line
+    end
+
     return lines
 end
 
@@ -5121,7 +5699,7 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
             ] = prefix .. emit.cType(
                 statement.type
             ) .. " " .. statement.cName .. " = " .. emit.scalar(statement.value) .. ";"
-            if statement.type == "simd_species_u8" then
+            if statement.type == "simd_species_u8" or statement.type:match("^simd_species_") ~= nil then
                 lines[#lines + 1] = prefix .. "(void)" .. statement.cName .. ";"
             end
         elseif statement.op == "lua_set_index" then
@@ -5144,6 +5722,27 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
             lines[#lines + 1] = scratchWrite("ks_lua_scratch_u32_set", statement, prefix)
         elseif statement.op == "lua_scratch_u8_set" then
             lines[#lines + 1] = scratchWrite("ks_lua_scratch_u8_set", statement, prefix)
+        elseif statement.op == "simd_store" then
+            local store = statement as scalarIR.Simd
+            local _, element, lanes = explicitType(store.args[3].type)
+            if element == nil or lanes == nil then
+                error("generic SIMD store has no resolved species", 0)
+            end
+            local suffix = element .. "x" .. tostring(lanes)
+            local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
+            local active = store.args[
+                4
+            ] ~= nil and emit.scalar(
+                store.args[4]
+            ) or helper .. "tail_" .. suffix .. "(UINT32_C(" .. tostring(lanes) .. "))"
+            local count = independentSpanCounts and "count_" .. tostring(store.span) or "count"
+            lines[
+                #lines + 1
+            ] = prefix .. helper .. "store_" .. suffix .. "(p_" .. tostring(
+                store.span
+            ) .. ", " .. count .. ", " .. emit.scalar(
+                store.args[2]
+            ) .. ", " .. emit.scalar(store.args[3]) .. ", " .. active .. ");"
         elseif statement.op == "simd_store4_u8" then
             local store = statement as scalarIR.Simd
             local operands: {string} = {"L", "&" .. tostring((store.args[1] as scalarIR.Name).cName)}
@@ -5603,7 +6202,7 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
                 ) .. statement.cName .. " = " .. emit.lane(statement.value) .. ";"
                 lines[#lines + 1] = prefix .. "#endif"
                 pairedPrevious = true
-            elseif statement.type ~= "simd_species_u8" then
+            elseif statement.type ~= "simd_species_u8" and statement.type:match("^simd_species_") == nil then
                 lines[
                     #lines + 1
                 ] = prefix .. localCType(
@@ -5796,6 +6395,27 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
             end
         elseif op == "vcontinue" then
             lines[#lines + 1] = prefix .. statement.executing.cName .. " &= ~(" .. emit.lane(statement.mask) .. ");"
+        elseif op == "simd_store" then
+            local store = statement as scalarIR.Simd
+            local _, element, lanes = explicitType(store.args[3].type)
+            if element == nil or lanes == nil then
+                error("generic SIMD store has no resolved species", 0)
+            end
+            local suffix = element .. "x" .. tostring(lanes)
+            local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
+            local active = store.args[
+                4
+            ] ~= nil and emit.scalar(
+                store.args[4]
+            ) or helper .. "tail_" .. suffix .. "(UINT32_C(" .. tostring(lanes) .. "))"
+            local count = independentSpanCounts and "count_" .. tostring(store.span) or "count"
+            lines[
+                #lines + 1
+            ] = prefix .. helper .. "store_" .. suffix .. "(p_" .. tostring(
+                store.span
+            ) .. ", " .. count .. ", " .. emit.scalar(
+                store.args[2]
+            ) .. ", " .. emit.scalar(store.args[3]) .. ", " .. active .. ");"
         elseif op == "vreducer_add" then
             local contribution = statement as lane.ReducerAdd
             temporary = temporary + 1

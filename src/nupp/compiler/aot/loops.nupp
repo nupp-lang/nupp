@@ -62,6 +62,7 @@ local STATEMENTS: {
     lua_builder_boolean = true,
     lua_builder_null = true,
     lua_builder_close = true,
+    simd_store = true,
     lua_builder_key_scratch = true,
     lua_builder_string_scratch = true,
     lua_builder_key_escapes = true,

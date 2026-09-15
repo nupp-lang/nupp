@@ -1383,6 +1383,32 @@ end
 return {varying = varying}
 ]]
 
+local GENERIC_EXPLICIT_SIMD = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function saxpy(
+    exclusive output: span.WriteSpan<float>,
+    borrows x: span.Span<float>,
+    borrows y: span.Span<float>,
+    scale: float
+): nil
+    local species: simd.Species<float, simd.Preferred> = simd.preferred()
+    local offset: integer = 1
+    while offset <= #output do
+        local active = species:tail(#output - offset + 1)
+        local xv = species:load(x, offset, active)
+        local yv = species:load(y, offset, active)
+        local result = xv * scale + yv
+        species:store(output, offset, result, active)
+        offset = offset + species.lanes
+    end
+end
+
+return {saxpy = saxpy}
+]]
+
 -- Lanes asked for around a real native entry call. A compiled entry has one
 -- scalar ABI call, not one invocation per lane, so it remains a hard refusal.
 local REFUSED = STREAMING:gsub(
@@ -2120,6 +2146,28 @@ return {totals = totals}
     assert(decoded.ir:find("vreducer.pairwise.sum", 1, true), where .. ": pairwise contribution is lane IR\n" .. decoded.ir)
     assert(decoded.c:find("ks_pairwise_f64_add", 1, true), where .. ": pairwise tree has its own native state")
     assert(decoded.c:find("ks_totals_forced_scalar", 1, true), where .. ": reducers retain the scalar-source C oracle")
+end
+
+function M.genericExplicitSimdKeepsIntrinsicTypesAndAnIndependentOracle()
+    local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json vectors.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("simd_species.preferred:simd_species_f32_preferred", 1, true), where .. ": species identity is in IR\n" .. decoded.ir)
+    assert(decoded.ir:find("simd_binary.mul:simd_vector_f32_preferred", 1, true), where .. ": vector multiplication is intrinsic\n" .. decoded.ir)
+    assert(decoded.ir:find("simd_binary.add:simd_vector_f32_preferred", 1, true), where .. ": vector addition is intrinsic\n" .. decoded.ir)
+    assert(decoded.ir:find("simd_store.store:lua_effect", 1, true), where .. ": the masked store is intrinsic\n" .. decoded.ir)
+    assert(decoded.c:find("typedef float ks_exp_f32x8", 1, true), where .. ": AVX2 selects eight binary32 lanes")
+    assert(decoded.c:find("ks_saxpy_forced_scalar", 1, true), where .. ": the scalar-source oracle remains separate")
+    assert(decoded.c:find("ks_scalar_exp_mul_f32x8", 1, true), where .. ": oracle primitives execute lane by lane")
+end
+
+function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
+    local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
+    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit asm vectors.nupp")
+    test.equal(code, 0, out)
+    assert(out:find("fmul.4s", 1, true), "binary32 multiplication remains a vector operation: " .. out)
+    assert(out:find("fadd.4s", 1, true), "binary32 addition remains a vector operation: " .. out)
+    assert(out:find("0 vector", 1, true), "the separately reported scalar oracle has no vector instructions: " .. out)
 end
 
 function M.aLoopThatWantedLanesAndDidNotGetThemFails()

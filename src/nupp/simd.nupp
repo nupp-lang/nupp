@@ -1,6 +1,6 @@
 module nupp.simd
 
-const {type Span} = require("nupp.mem.span")
+const {type Span, type WriteSpan} = require("nupp.mem.span")
 
 -- Packed operations use the target's AOT instructions inside compiled entries.
 -- Ordinary calls use the scalar implementation.
@@ -124,13 +124,14 @@ sealed interface simd.Mask<T, S>
 
     select: function(
         borrows self: simd.Mask<T, S>,
-        whenTrue: simd.Vector<T, S>,
-        whenFalse: simd.Vector<T, S>
+        whenTrue: simd.Vector<T, S> | T,
+        whenFalse: simd.Vector<T, S> | T
     ): simd.Vector<T, S>
     any: function(borrows self: simd.Mask<T, S>): boolean
     all: function(borrows self: simd.Mask<T, S>): boolean
     count: function(borrows self: simd.Mask<T, S>): uint32
     first: function(borrows self: simd.Mask<T, S>): integer?
+    bits: function(borrows self: simd.Mask<T, S>): simd.BitMask<T, S>
 end
 
 --- An immutable register-as-data value.
@@ -172,7 +173,7 @@ sealed interface simd.Species<T, S>
     ): simd.Vector<T, S>
     store: function(
         borrows self: simd.Species<T, S>,
-        exclusive destination: any,
+        exclusive destination: WriteSpan<T>,
         offset: integer,
         value: simd.Vector<T, S>,
         active: simd.Mask<T, S>?
