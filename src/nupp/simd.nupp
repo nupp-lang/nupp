@@ -477,7 +477,11 @@ end
 sealed interface simd.BitMask<T, S>
     metamethod __eq: function(left: simd.BitMask<T, S>, right: simd.BitMask<T, S>): boolean
 
+    --- These read as duplicates of `Mask`'s and are not. `prefixXor` and
+    --- `clearFirst` answer bitmasks no mask stands behind, and asking how many
+    --- lanes one of those has set is a question only this value can answer.
     any: function(borrows self: simd.BitMask<T, S>): boolean
+
     all: function(borrows self: simd.BitMask<T, S>): boolean
     count: function(borrows self: simd.BitMask<T, S>): uint32
 
@@ -519,20 +523,26 @@ sealed interface simd.Species<T, S>
     ): nil
 end
 
---- Selects the preferred native species. `T` is inferred from the expected
---- result type.
+--- Selects the species the result annotation names.
+---
+--- One constructor rather than one per shape: the shape is already written in
+--- the type this is assigned to, and `Preferred` and `Fixed<N>` are the two
+--- ways of writing it. `T` and `S` are both inferred from that annotation, so
+--- there are no explicit type arguments at the call.
+---
+--- ```nupp
+--- local wide: simd.Species<float, simd.Preferred> = simd.species()
+--- local four: simd.Species<float, simd.Fixed<4>> = simd.species()
+--- ```
+---
+--- `Preferred` takes the target's own lane count, so a program written against
+--- it runs a different number of lanes per tier and says nothing about which.
+--- `Fixed<N>` names a lane count the algorithm needs without naming an
+--- instruction set, and may occupy several native registers to get it.
 --- @raises outside an AOT-compiled function
 --- @export
-function simd.preferred<T>(): simd.Species<T, simd.Preferred>
-    error("simd.preferred is available only inside an AOT-compiled function", 2)
-end
-
---- Selects a fixed logical species. Both parameters are inferred from the
---- expected result type.
---- @raises outside an AOT-compiled function
---- @export
-function simd.fixed<T, const N: integer>(): simd.Species<T, simd.Fixed<N>>
-    error("simd.fixed is available only inside an AOT-compiled function", 2)
+function simd.species<T, S>(): simd.Species<T, S>
+    error("simd.species is available only inside an AOT-compiled function", 2)
 end
 
 --- Named horizontal operations over one explicit register value.

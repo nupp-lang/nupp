@@ -1731,7 +1731,7 @@ local function call(
             type = (indexed and "f64" or genericSimdScalar(element)) as scalarIR.Type,
             source = lower.site(node)
         )
-    elseif identity == "nupp.simd.preferred" or identity == "nupp.simd.fixed" then
+    elseif identity == "nupp.simd.species" then
         if #args ~= 0 then
             context.reject(lower.site(node), "a generic SIMD species constructor takes no arguments")
         end
@@ -1744,7 +1744,11 @@ local function call(
         return new scalarIR.Simd(
             op = "simd_species",
             args = {},
-            intrinsic = identity == "nupp.simd.preferred" and "preferred" or "fixed",
+            -- The resolved type already carries the shape --
+            -- `simd_species_f32_preferred` beside `simd_species_f32_fixed8` -- and
+            -- every consumer reads it from there, so there is nothing for a second
+            -- spelling to record.
+            intrinsic = "species",
             type = resolved as scalarIR.Type,
             source = lower.site(node)
         )

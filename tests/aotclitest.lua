@@ -1433,7 +1433,7 @@ local function saxpy(
     borrows y: span.Span<float>,
     scale: float
 ): nil
-    local species: simd.Species<float, simd.Preferred> = simd.preferred()
+    local species: simd.Species<float, simd.Preferred> = simd.species()
     local offset: integer = 1
     while offset <= #output do
         local active = species:tail(#output - offset + 1)
@@ -2338,7 +2338,12 @@ function M.genericExplicitSimdKeepsIntrinsicTypesAndAnIndependentOracle()
     local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json vectors.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.ir:find("simd_species.preferred:simd_species_f32_preferred", 1, true), where .. ": species identity is in IR\n" .. decoded.ir)
+    -- The shape is said once, by the type. The intrinsic beside it used to
+    -- repeat it and nothing read the repetition.
+    assert(
+        decoded.ir:find("simd_species.species:simd_species_f32_preferred", 1, true),
+        where .. ": species identity is in IR\n" .. decoded.ir
+    )
     assert(decoded.ir:find("simd_binary.mul:simd_vector_f32_preferred", 1, true), where .. ": vector multiplication is intrinsic\n" .. decoded.ir)
     assert(decoded.ir:find("simd_binary.add:simd_vector_f32_preferred", 1, true), where .. ": vector addition is intrinsic\n" .. decoded.ir)
     assert(decoded.ir:find("simd_store.store:lua_effect", 1, true), where .. ": the masked store is intrinsic\n" .. decoded.ir)
@@ -2366,7 +2371,7 @@ local function increment(
     exclusive output: span.WriteSpan<uint8>,
     borrows input: span.Span<uint8>
 ): nil
-    local species: simd.Species<uint8, simd.Preferred> = simd.preferred()
+    local species: simd.Species<uint8, simd.Preferred> = simd.species()
     local active = species:tail(#input)
     local values = species:load(input, 1, active)
     species:store(output, 1, values + 1, active)
@@ -2399,7 +2404,7 @@ local function transform(
     exclusive output: span.WriteSpan<uint8>,
     borrows input: span.Span<uint8>
 ): uint32
-    local species: simd.Species<uint8, simd.Fixed<8>> = simd.fixed()
+    local species: simd.Species<uint8, simd.Fixed<8>> = simd.species()
     local active = species:tail(#input)
     local values = species:load(input, 1, active)
     local selected = values > 4
@@ -2450,7 +2455,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function horizontal(): (number, number, number)
-    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
     local left = species:iota(1.0, 1.0)
     local right = species:splat(2.0)
     local ordered: float = simd.horizontal.orderedSum(left)
@@ -2500,7 +2505,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function lookup(): (number, number, number)
-    local species: simd.Species<uint8, simd.Fixed<16>> = simd.fixed()
+    local species: simd.Species<uint8, simd.Fixed<16>> = simd.species()
     -- A table is a vector, so there is no table type and no constructor
     -- taking one entry per argument. Entry k here is ten times k.
     local table = species:iota(0, 10)
@@ -2538,7 +2543,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function joined(): (number, number, number, number)
-    local species: simd.Species<uint8, simd.Fixed<16>> = simd.fixed()
+    local species: simd.Species<uint8, simd.Fixed<16>> = simd.species()
     local first = species:splat(1)
     local second = species:splat(2)
     -- Lane 1 reads first, lane 17 the first lane of second, 99 neither.
@@ -2573,7 +2578,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function bad(): number
-    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
     local values = species:iota(1.0, 1.0)
 
     return values:swizzle(values):extract(1)
@@ -2593,7 +2598,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function extrema(): (number, number, number, number)
-    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
     local values = species:iota(3.0, -1.0)
     local smallest: float = simd.horizontal.propagatingMin(values)
     local largest: float = simd.horizontal.propagatingMax(values)
@@ -2604,7 +2609,7 @@ end
 
 @aot
 local function ignoringMissing(): (number, number)
-    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
     local values = species:iota(3.0, -1.0)
     local other = species:splat(0.5)
 
@@ -2613,7 +2618,7 @@ end
 
 @aot
 local function counted(): (number, number)
-    local species: simd.Species<int32, simd.Fixed<8>> = simd.fixed()
+    local species: simd.Species<int32, simd.Fixed<8>> = simd.species()
     local values = species:iota(3, -1)
     local clamped = values:propagatingMin(species:splat(1)):propagatingMax(species:splat(-1))
     return simd.horizontal.propagatingMin(clamped), simd.horizontal.propagatingArgMax(clamped)
@@ -2673,7 +2678,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function total(): number
-    local species: simd.Species<int32, simd.Fixed<8>> = simd.fixed()
+    local species: simd.Species<int32, simd.Fixed<8>> = simd.species()
     return simd.horizontal.orderedSum(species:iota(1, 1))
 end
 
@@ -2722,9 +2727,9 @@ return {total = total}
 end
 
 function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity()
-    local source = GENERIC_EXPLICIT_SIMD
-        :gsub("simd%.Preferred", "simd.Fixed<8>", 1)
-        :gsub("simd%.preferred%(%)", "simd.fixed()", 1)
+    -- Only the annotation changes. One constructor serves both shapes, which
+    -- is the point: the call site says nothing about which one it built.
+    local source = GENERIC_EXPLICIT_SIMD:gsub("simd%.Preferred", "simd.Fixed<8>", 1)
     local dir = project{["vectors.nupp"] = source}
     local c, cCode = run(dir, "--target aarch64-apple-darwin --features neon --emit c vectors.nupp")
     test.equal(cCode, 0, c)
@@ -2742,7 +2747,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function leaked(): simd.Vector<float, simd.Preferred>
-    local species: simd.Species<float, simd.Preferred> = simd.preferred()
+    local species: simd.Species<float, simd.Preferred> = simd.species()
     return species:splat(1.0)
 end
 
@@ -2768,7 +2773,7 @@ local function apply(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<float>
 ): nil
-    local species: simd.Species<float, simd.Preferred> = simd.preferred()
+    local species: simd.Species<float, simd.Preferred> = simd.species()
     local active = species:tail(#input)
     species:store(output, 1, twice(species:load(input, 1, active)), active)
 end
@@ -2789,7 +2794,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function inspect(borrows input: span.Span<float>): (float, uint32, integer)
-    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
     local active = species:tail(#input)
     local values = species:load(input, 1, active):insert(2, 3.0)
     local bits = (values > 0.0):bits()
@@ -2815,7 +2820,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function inspect(borrows input: span.Span<float>): (uint32, uint32, uint32, boolean)
-    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
     local values = species:load(input, 1, species:tail(#input))
     local positive = (values > 0.0):bits()
     local large = (values >= 4.0):bits()
