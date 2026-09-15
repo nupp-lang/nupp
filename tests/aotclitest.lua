@@ -2147,6 +2147,11 @@ return {totals = totals}
     assert(decoded.c:find("ks_pairwise_f64_add", 1, true), where .. ": pairwise tree has its own native state")
     assert(decoded.c:find("reduce_acc_", 1, true), where .. ": algebraic sum uses lane accumulators rather than an ordered chain")
     assert(decoded.c:find("ks_totals_forced_scalar", 1, true), where .. ": reducers retain the scalar-source C oracle")
+    test.equal(decoded.functions[1].outcome, "lowered", where .. ": required regions are the function outcome")
+    test.equal(#decoded.functions[1].regions, 3, where .. ": each authored region is reported")
+    test.equal(decoded.functions[1].regions[1].gang.lanes, 4, where .. ": the selected gang is reported")
+    test.equal(decoded.functions[1].regions[1].reducers[1].serialized, true, where .. ": ordered edges are visible")
+    test.equal(decoded.functions[1].regions[3].reducers[1].serialized, false, where .. ": algebraic freedom is visible")
 end
 
 function M.requiredSimdReducersHaveOneRegionAndOneFinalization()

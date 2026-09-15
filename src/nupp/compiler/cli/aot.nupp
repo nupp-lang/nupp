@@ -114,6 +114,47 @@ local REPORT_SCHEMA = {
                             },
                         },
                     },
+                    regions = {
+                        type = "array",
+                        description = "Authored required SIMD regions in source order.",
+                        items = {
+                            type = "object",
+                            properties = {
+                                ordinal = {type = "integer"},
+                                line = {type = "integer"},
+                                column = {type = "integer"},
+                                bounds = {
+                                    type = "object",
+                                    properties = {
+                                        first = {type = "string"},
+                                        last = {type = "string"},
+                                        step = {type = "string"},
+                                    },
+                                },
+                                gang = {
+                                    type = "object",
+                                    properties = {
+                                        shape = {type = "string"},
+                                        lanes = {type = "integer"},
+                                        rounded = {type = "boolean"},
+                                    },
+                                },
+                                tail = {type = "string", enum = {"masked"}},
+                                reducers = {
+                                    type = "array",
+                                    items = {
+                                        type = "object",
+                                        properties = {
+                                            binding = {type = "string"},
+                                            order = {type = "string"},
+                                            operation = {type = "string"},
+                                            serialized = {type = "boolean"},
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
                     intensity = {
                         type = "object",
                         description = "Arithmetic per byte the loop body touches, and the two counts behind it.",
@@ -237,6 +278,79 @@ local REPORT_SCHEMA = {
     },
 }
 
+--- Authored SIMD regions in source order.
+local function simdRegions(program: any): {any}
+    local answer: {any} = {}
+
+    local function reducers(value: any, found: {any}, seen: {[string]: boolean}): nil
+        if type(value) ~= "table" then
+            return
+        end
+        if value.op == "vreducer_add" then
+            local key = tostring(value.reducer) .. ":" .. tostring(value.order) .. ":" .. tostring(value.operation)
+            if not seen[key] then
+                seen[key] = true
+                found[
+                    #found + 1
+                ] = {
+                    binding = value.reducer,
+                    order = value.order,
+                    operation = value.operation,
+                    serialized = value.order ~= "algebraic",
+                }
+            end
+        end
+        for key, child in pairs(value) do
+            if key ~= "source" then
+                reducers(child, found, seen)
+            end
+        end
+    end
+
+    local function visit(statements: {any}): nil
+        for _, statement in ipairs(statements) do
+            if statement.op == "fornum" then
+                if statement.simdRequired == true then
+                    local reduced: {any} = {}
+                    reducers(statement.lanes and statement.lanes.statements or {}, reduced, {})
+                    answer[
+                        #answer + 1
+                    ] = {
+                        ordinal = #answer + 1,
+                        line = statement.source and statement.source.line or 1,
+                        column = statement.source and statement.source.column or 1,
+                        bounds = {
+                            first = statement.from and statement.from.op or "unknown",
+                            last = statement.to and statement.to.op or "unknown",
+                            step = "positive-unit",
+                        },
+                        gang = statement.lanes and {
+                            shape = statement.lanes.shape,
+                            lanes = statement.lanes.lanes,
+                            rounded = statement.lanes.rounded == true,
+                        } or nil,
+                        tail = "masked",
+                        reducers = reduced,
+                    }
+                else
+                    visit(statement.body or {})
+                end
+            elseif statement.op == "if" then
+                for _, clause in ipairs(statement.clauses or {}) do
+                    visit(clause.body or {})
+                end
+                visit(statement.elseBody or {})
+            elseif statement.op == "while" or statement.op == "block" then
+                visit(statement.body or {})
+            end
+        end
+    end
+
+    visit(program.body or {})
+
+    return answer
+end
+
 --- Which of the three outcomes this body had.
 ---
 --- `declined` and `refused` are deliberately not one answer. A loop nobody
@@ -244,6 +358,16 @@ local REPORT_SCHEMA = {
 --- facts, and a check that conflated them would either fail on the first or stay
 --- quiet about the second.
 local function outcome(program: any, artifacts: any): string
+    local regions = simdRegions(program)
+    if #regions > 0 then
+        for _, region in ipairs(regions) do
+            if region.gang == nil then
+                return "refused"
+            end
+        end
+
+        return "lowered"
+    end
     if program.lanes ~= nil then
         return "lowered"
     end
@@ -251,6 +375,9 @@ local function outcome(program: any, artifacts: any): string
     -- `vectorizeDeclined` stay unset; its compiled artifact is the evidence it
     -- lowered rather than refusing.
     if artifacts and artifacts.gpu and artifacts.gpu[program.symbol] ~= nil then
+        return "lowered"
+    end
+    if program.usesSimd == true then
         return "lowered"
     end
     if program.vectorizeDeclined == true then
@@ -263,7 +390,12 @@ end
 --- One line saying what happened, for a person.
 local function summarise(path: string, program: any, artifacts: any): string
     local gpu = artifacts and artifacts.gpu and artifacts.gpu[program.symbol] ~= nil
-    local shape = program.lanes ~= nil and program.lanes.shape or (gpu and "gpu" or "none")
+    local regions = simdRegions(program)
+    local shape = program.lanes ~= nil and program.lanes.shape or (
+        #regions > 0 and tostring(
+            #regions
+        ) .. " @simd region" .. (#regions == 1 and "" or "s") or gpu and "gpu" or "none"
+    )
     local how = outcome(program, artifacts)
     local why = ""
     if gpu then
@@ -522,6 +654,7 @@ local function run(options: any): integer
                 registrar = program.registrar,
                 optimization = artifacts.optimizations[position],
                 loops = artifacts.loops[position],
+                regions = simdRegions(program),
                 intensity = {
                     perByte = program.intensity,
                     operations = program.operations,
