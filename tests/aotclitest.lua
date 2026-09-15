@@ -2170,6 +2170,21 @@ function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
     assert(out:find("0 vector", 1, true), "the separately reported scalar oracle has no vector instructions: " .. out)
 end
 
+function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity()
+    local source = GENERIC_EXPLICIT_SIMD
+        :gsub("simd%.Preferred", "simd.Fixed<8>", 1)
+        :gsub("simd%.preferred%(%)", "simd.fixed()", 1)
+    local dir = project{["vectors.nupp"] = source}
+    local c, cCode = run(dir, "--target aarch64-apple-darwin --features neon --emit c vectors.nupp")
+    test.equal(cCode, 0, c)
+    assert(c:find("ks_exp_f32x4 chunk[2]", 1, true), "Fixed<8> is two native NEON registers: " .. c)
+
+    local asm, asmCode = run(dir, "--target aarch64-apple-darwin --features neon --emit asm vectors.nupp")
+    test.equal(asmCode, 0, asm)
+    local _, adds = asm:gsub("fadd%.4s", "")
+    assert(adds >= 2, "both logical halves execute as vector additions: " .. asm)
+end
+
 function M.aLoopThatWantedLanesAndDidNotGetThemFails()
     local dir = project{["refused.nupp"] = REFUSED}
     local out, code = run(dir, "--check refused.nupp")

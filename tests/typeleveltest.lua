@@ -1896,10 +1896,11 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
     clean(table.concat({
         'local simd = require("nupp.simd")',
         "local species: simd.Species<float, simd.Preferred> = simd.preferred()",
+        "local fixed: simd.Species<float, simd.Fixed<8>> = simd.fixed()",
         "local left: simd.Vector<float, simd.Preferred> = nil as any",
         "local right: simd.Vector<float, simd.Preferred> = nil as any",
         "local selected: simd.Mask<float, simd.Preferred> = (left < right) & (left <= right)",
-        "return species, selected",
+        "return species, fixed, selected",
     }, "\n"))
     assertEq(codes(table.concat({
         'local simd = require("nupp.simd")',

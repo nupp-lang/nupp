@@ -1947,6 +1947,29 @@ local function sequenceElement(t: Type): Type?
     return nil
 end
 
+--- Binds const terms nested in a nominal application.
+---
+--- Result-directed inference reaches `Fixed<N>` through an enclosing result
+--- such as `Species<T, Fixed<N>>`; treating only the nominal's type arguments
+--- would bind `T` and silently strand `N`.
+local function unifyConst(param: T.ConstTerm, arg: T.ConstTerm, map: Bindings): nil
+    if param.tag == "constVar" then
+        local prior = map[param]
+        if prior ~= nil and prior.id ~= arg.id then
+            map[param] = T.constOp("conflict", {prior as T.ConstTerm, arg})
+        else
+            map[param] = arg
+        end
+    elseif param.tag == "constOp" and arg.tag == "constOp" and param.operation == arg.operation then
+        for index, operand in ipairs(param.operands) do
+            local actual = arg.operands[index]
+            if actual ~= nil then
+                unifyConst(operand, actual, map)
+            end
+        end
+    end
+end
+
 function generics.unify(param: Type, arg: Type, map: Bindings): nil
     param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
     if not T.hasTypevar(param) then
@@ -2118,6 +2141,12 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
                     local a = nominalArg and nominalArg.packArgs and nominalArg.packArgs[j]
                     if a then
                         generics.unifyPack(p, a, map)
+                    end
+                end
+                for j, p in ipairs(param.constArgs or {}) do
+                    local a = nominalArg and nominalArg.constArgs and nominalArg.constArgs[j]
+                    if a then
+                        unifyConst(p, a, map)
                     end
                 end
             end

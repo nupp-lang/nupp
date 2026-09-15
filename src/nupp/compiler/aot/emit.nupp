@@ -28,6 +28,7 @@ local emit = {}
 local explicitWidth = 0
 local explicitScalar = false
 local independentSpanCounts = true
+local explicitFixedTypes: {[string]: boolean} = {}
 
 --- The C operator each single-rounded binary32 operation is.
 const F32_OPERATORS = {["f32_add"] = "+", ["f32_sub"] = "-", ["f32_mul"] = "*", ["f32_div"] = "/",}
@@ -260,10 +261,10 @@ const emit.SOURCE_C = {
 const emit.VECTOR_ELEMENT_C = {["f64"] = "double", ["f32"] = "float", ["i32"] = "int32_t", ["u32"] = "uint32_t",}
 
 --- Resolves one target-neutral explicit SIMD type for the selected tier.
-local function explicitType(typeName: string): (string?, string?, integer?)
+local function explicitType(typeName: string): (string?, string?, integer?, string?)
     local family, element, shape = typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
     if family == nil or element == nil or shape == nil then
-        return nil, nil, nil
+        return nil, nil, nil, nil
     end
     local bits = tonumber((element as string):match("%d+"))
     local lanes: integer? = nil
@@ -273,7 +274,7 @@ local function explicitType(typeName: string): (string?, string?, integer?)
         lanes = tonumber((shape as string):match("^fixed(%d+)$")) as integer?
     end
 
-    return family, element, lanes
+    return family, element, lanes, shape
 end
 
 --- The C type of one IR type.
@@ -291,9 +292,6 @@ function emit.cType(typeName: string): string
     if explicitFamily ~= nil then
         if explicitWidth ~= 16 and explicitWidth ~= 32 then
             error("explicit SIMD width was not selected", 0)
-        end
-        if not typeName:match("_preferred$") then
-            error("fixed explicit SIMD species are not legal for this target yet", 0)
         end
         local suffix = tostring(explicitElement) .. "x" .. tostring(explicitLanes)
         if explicitFamily == "species" then
@@ -668,12 +666,15 @@ function emit.scalar(node: scalarIR.Expr): string
             ].type or operation == "simd_mask_first" and args[
                 1
             ].type or operation == "simd_mask_bits" and args[1].type or simd.type
-            local _, element, lanes = explicitType(shapedType)
-            if element == nil or lanes == nil then
+            local _, element, lanes, shape = explicitType(shapedType)
+            if element == nil or lanes == nil or shape == nil then
                 error("generic SIMD operation has no resolved species", 0)
             end
             local genericSuffix = element .. "x" .. tostring(lanes)
             local genericHelper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
+            local elementBits = tonumber(element:match("%d+")) or 0
+            local nativeLanes = elementBits > 0 and math.floor(explicitWidth * 8 / elementBits) or 0
+            local composite = shape ~= "preferred" and lanes ~= nativeLanes
             if operation == "simd_species" or operation == "simd_lanes_generic" then
                 return "UINT32_C(" .. tostring(lanes) .. ")"
             elseif operation == "simd_splat" then
@@ -695,7 +696,7 @@ function emit.scalar(node: scalarIR.Expr): string
                     simd.span
                 ) .. ", " .. count .. ", " .. emit.scalar(args[2]) .. ", " .. active .. ")"
             elseif operation == "simd_binary" then
-                if explicitScalar then
+                if explicitScalar or composite then
                     local family = explicitType(args[1].type)
                     local name = family == "mask" and "mask_" .. tostring(simd.intrinsic) or tostring(simd.intrinsic)
                     return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(
@@ -715,14 +716,14 @@ function emit.scalar(node: scalarIR.Expr): string
                 })[tostring(simd.intrinsic)]
                 return "(" .. emit.scalar(args[1]) .. " " .. tostring(operator) .. " " .. emit.scalar(args[2]) .. ")"
             elseif operation == "simd_unary" then
-                if explicitScalar then
+                if explicitScalar or composite then
                     local family = explicitType(simd.type)
                     local name = family == "mask" and "mask_not" or tostring(simd.intrinsic)
                     return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
                 end
                 return "(" .. (simd.intrinsic == "neg" and "-" or "~") .. emit.scalar(args[1]) .. ")"
             elseif operation == "simd_compare" then
-                if explicitScalar then
+                if explicitScalar or composite then
                     local family = explicitType(args[1].type)
                     local name = family == "mask" and "mask_" .. tostring(simd.intrinsic) or tostring(simd.intrinsic)
                     return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(
@@ -1200,7 +1201,48 @@ function emit.begin(): nil
     luaTemporary = 0
     explicitWidth = 0
     explicitScalar = false
+    explicitFixedTypes = {}
     fpTranscendentals = false
+end
+
+--- Records the fixed logical SIMD shapes used by one emitted unit.
+---
+--- Fixed vectors are emitted on demand so an artifact does not carry helper
+--- families for source types it never mentions. The semantic IR type is the
+--- authority; source aliases and local names cannot affect this inventory.
+local function collectExplicitFixed(programs: {scalarIR.Program}): nil
+    local function remember(typeName: string?): nil
+        if typeName == nil or typeName:match("_fixed%d+$") == nil then
+            return
+        end
+        local _, element, lanes = explicitType(typeName)
+        if element ~= nil and lanes ~= nil then
+            explicitFixedTypes[element .. "x" .. tostring(lanes)] = true
+        end
+    end
+
+    local visitor = new visit.Visitor(
+        scalarExpression = function(node: scalarIR.Expr): nil
+            remember(node.type)
+        end,
+        scalarStatement = function(node: scalarIR.Statement): nil
+            remember((node as any).type)
+        end
+    )
+    for _, program in ipairs(programs) do
+        for _, param in ipairs(program.params) do
+            remember(param.type)
+        end
+        for _, helper in ipairs(program.helpers or {}) do
+            for _, param in ipairs(helper.params) do
+                remember(param.type)
+            end
+            for _, result in ipairs(helper.resultTypes) do
+                remember(result)
+            end
+        end
+        visit.program(program, visitor)
+    end
 end
 
 --- Expands a vector operation one lane at a time, each operand evaluated once.
@@ -4277,6 +4319,544 @@ local function genericSimdPrelude(width: integer): {string}
     return lines
 end
 
+--- Fixed logical species whose size differs from one native register.
+---
+--- Each production value is an aggregate of preferred native vectors. This
+--- keeps `Fixed<N>` target-neutral and still guarantees vector execution when
+--- the logical width is smaller, larger, or not an exact register multiple.
+--- The scalar twin is emitted only for the independent correctness oracle.
+--- @raises when a fixed species has fewer than two or more than 64 lanes
+local function fixedSimdPrelude(width: integer): {string}
+    local lines: {string} = {}
+    local keys: {string} = {}
+    for key in pairs(explicitFixedTypes) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+
+    local elements = {
+        f64 = {c = "double", mask = "int64_t", bytes = 8},
+        f32 = {c = "float", mask = "int32_t", bytes = 4},
+        i32 = {c = "int32_t", mask = "int32_t", bytes = 4},
+        u32 = {c = "uint32_t", mask = "int32_t", bytes = 4},
+        i64 = {c = "int64_t", mask = "int64_t", bytes = 8},
+        u64 = {c = "uint64_t", mask = "int64_t", bytes = 8},
+    }
+    local binaries = {
+        {name = "add", c = "+"},
+        {name = "sub", c = "-"},
+        {name = "mul", c = "*"},
+        {name = "div", c = "/"},
+        {name = "and", c = "&"},
+        {name = "or", c = "|"},
+        {name = "xor", c = "^"},
+        {name = "shl", c = "<<"},
+        {name = "shr", c = ">>"},
+    }
+    local comparisons = {
+        {name = "lt", c = "<"},
+        {name = "le", c = "<="},
+        {name = "gt", c = ">"},
+        {name = "ge", c = ">="},
+        {name = "eq", c = "=="},
+        {name = "ne", c = "!="},
+    }
+    local unused = "static inline __attribute__((unused)) "
+
+    for _, suffix in ipairs(keys) do
+        local elementName, laneText = suffix:match("^([fiu]%d+)x(%d+)$")
+        local element = elementName ~= nil and elements[elementName] or nil
+        local lanes = tonumber(laneText)
+        if element == nil or lanes == nil or lanes < 2 or lanes > 64 then
+            error("fixed explicit SIMD species needs between 2 and 64 lanes: " .. suffix, 0)
+        end
+        local nativeLanes = width / element.bytes
+        if lanes ~= nativeLanes then
+            local chunks = math.ceil(lanes / nativeLanes) as integer
+            local nativeSuffix = tostring(elementName) .. "x" .. tostring(nativeLanes)
+            local vector = "ks_exp_" .. suffix
+            local mask = "ks_exp_mask_" .. suffix
+            local scalarVector = "ks_scalar_exp_" .. suffix
+            local scalarMask = "ks_scalar_exp_mask_" .. suffix
+            lines[
+                #lines + 1
+            ] = "typedef struct { ks_exp_" .. nativeSuffix .. " chunk[" .. tostring(chunks) .. "]; } " .. vector .. ";"
+            lines[
+                #lines + 1
+            ] = "typedef struct { ks_exp_mask_" .. nativeSuffix .. " chunk[" .. tostring(
+                chunks
+            ) .. "]; } " .. mask .. ";"
+            lines[
+                #lines + 1
+            ] = "typedef struct { " .. element.c .. " lane[" .. tostring(lanes) .. "]; } " .. scalarVector .. ";"
+            lines[
+                #lines + 1
+            ] = "typedef struct { " .. element.mask .. " lane[" .. tostring(lanes) .. "]; } " .. scalarMask .. ";"
+
+            local chunkSplats, chunkIotas = {}, {}
+            for chunk = 0, chunks - 1 do
+                chunkSplats[chunk + 1] = "ks_exp_splat_" .. nativeSuffix .. "(value)"
+                chunkIotas[
+                    chunk + 1
+                ] = "ks_exp_iota_" .. nativeSuffix .. "(first + (" .. element.c .. ")" .. tostring(
+                    chunk * nativeLanes
+                ) .. " * step, step)"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_splat_"
+                .. suffix
+                .. "("
+                .. element.c
+                .. " value) { return ("
+                .. vector
+                .. "){{ "
+                .. table.concat(
+                chunkSplats,
+                ", "
+            ) .. " }}; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_iota_"
+                .. suffix
+                .. "("
+                .. element.c
+                .. " first, "
+                .. element.c
+                .. " step) { return ("
+                .. vector
+                .. "){{ "
+                .. table.concat(
+                chunkIotas,
+                ", "
+            ) .. " }}; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. mask
+                .. " ks_exp_tail_"
+                .. suffix
+                .. "(uint32_t active) { "
+                .. mask
+                .. " out; if (active > "
+                .. tostring(
+                lanes
+            ) .. "u) active = " .. tostring(
+                lanes
+            ) .. "u; for (uint32_t c = 0u; c < " .. tostring(
+                chunks
+            ) .. "u; ++c) { uint32_t base = c * " .. tostring(
+                nativeLanes
+            )
+                .. "u; uint32_t remaining = active > base ? active - base : 0u; out.chunk[c] = ks_exp_tail_"
+                .. nativeSuffix
+                .. "(remaining); } return out; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_load_"
+                .. suffix
+                .. "(const "
+                .. element.c
+                .. " *source, size_t count, double offset, "
+                .. mask
+                .. " active) { "
+                .. vector
+                .. " out; for (uint32_t c = 0u; c < "
+                .. tostring(
+                chunks
+            )
+                .. "u; ++c) out.chunk[c] = ks_exp_load_"
+                .. nativeSuffix
+                .. "(source, count, offset + (double)(c * "
+                .. tostring(
+                nativeLanes
+            ) .. "u), active.chunk[c]); return out; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. "void ks_exp_store_"
+                .. suffix
+                .. "("
+                .. element.c
+                .. " *destination, size_t count, double offset, "
+                .. vector
+                .. " value, "
+                .. mask
+                .. " active) { for (uint32_t c = 0u; c < "
+                .. tostring(
+                chunks
+            ) .. "u; ++c) ks_exp_store_" .. nativeSuffix .. "(destination, count, offset + (double)(c * " .. tostring(
+                nativeLanes
+            ) .. "u), value.chunk[c], active.chunk[c]); }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_select_"
+                .. suffix
+                .. "("
+                .. mask
+                .. " active, "
+                .. vector
+                .. " yes, "
+                .. vector
+                .. " no) { for (uint32_t c = 0u; c < "
+                .. tostring(
+                chunks
+            )
+                .. "u; ++c) yes.chunk[c] = ks_exp_select_"
+                .. nativeSuffix
+                .. "(active.chunk[c], yes.chunk[c], no.chunk[c]); return yes; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. "uint64_t ks_exp_bits_"
+                .. suffix
+                .. "("
+                .. mask
+                .. " value) { uint64_t out = 0u; for (uint32_t c = 0u; c < "
+                .. tostring(
+                chunks
+            ) .. "u; ++c) out |= ks_exp_bits_" .. nativeSuffix .. "(value.chunk[c]) << (c * " .. tostring(
+                nativeLanes
+            ) .. "u); " .. (
+                lanes == 64 and "" or "out &= (UINT64_C(1) << " .. tostring(lanes) .. "u) - UINT64_C(1); "
+            ) .. "return out; }"
+
+            for _, operation in ipairs(binaries) do
+                if operation.name == "add"
+                    or operation.name == "sub"
+                    or operation.name == "mul"
+                    or operation.name == "div"
+                    or tostring(elementName):sub(1, 1) ~= "f" then
+                    lines[
+                        #lines + 1
+                    ] = unused
+                        .. vector
+                        .. " ks_exp_"
+                        .. operation.name
+                        .. "_"
+                        .. suffix
+                        .. "("
+                        .. vector
+                        .. " left, "
+                        .. vector
+                        .. " right) { for (uint32_t c = 0u; c < "
+                        .. tostring(
+                        chunks
+                    ) .. "u; ++c) left.chunk[c] = left.chunk[c] " .. operation.c .. " right.chunk[c]; return left; }"
+                end
+            end
+            for _, operation in ipairs(comparisons) do
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. mask
+                    .. " ks_exp_"
+                    .. operation.name
+                    .. "_"
+                    .. suffix
+                    .. "("
+                    .. vector
+                    .. " left, "
+                    .. vector
+                    .. " right) { "
+                    .. mask
+                    .. " out; for (uint32_t c = 0u; c < "
+                    .. tostring(
+                    chunks
+                ) .. "u; ++c) out.chunk[c] = left.chunk[c] " .. operation.c .. " right.chunk[c]; return out; }"
+            end
+            for _, operation in ipairs({
+                {name = "and", c = "&"},
+                {name = "or", c = "|"},
+                {name = "xor", c = "^"},
+                {name = "eq", c = "=="},
+                {name = "ne", c = "!="},
+            }) do
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. mask
+                    .. " ks_exp_mask_"
+                    .. operation.name
+                    .. "_"
+                    .. suffix
+                    .. "("
+                    .. mask
+                    .. " left, "
+                    .. mask
+                    .. " right) { for (uint32_t c = 0u; c < "
+                    .. tostring(
+                    chunks
+                ) .. "u; ++c) left.chunk[c] = left.chunk[c] " .. operation.c .. " right.chunk[c]; return left; }"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_neg_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " value) { for (uint32_t c = 0u; c < "
+                .. tostring(
+                chunks
+            ) .. "u; ++c) value.chunk[c] = -value.chunk[c]; return value; }"
+            if tostring(elementName):sub(1, 1) ~= "f" then
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. vector
+                    .. " ks_exp_not_"
+                    .. suffix
+                    .. "("
+                    .. vector
+                    .. " value) { for (uint32_t c = 0u; c < "
+                    .. tostring(
+                    chunks
+                ) .. "u; ++c) value.chunk[c] = ~value.chunk[c]; return value; }"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. mask
+                .. " ks_exp_mask_not_"
+                .. suffix
+                .. "("
+                .. mask
+                .. " value) { for (uint32_t c = 0u; c < "
+                .. tostring(
+                chunks
+            ) .. "u; ++c) value.chunk[c] = ~value.chunk[c]; return value; }"
+
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_splat_"
+                .. suffix
+                .. "("
+                .. element.c
+                .. " value) { "
+                .. scalarVector
+                .. " out; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) out.lane[i] = value; return out; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_iota_"
+                .. suffix
+                .. "("
+                .. element.c
+                .. " first, "
+                .. element.c
+                .. " step) { "
+                .. scalarVector
+                .. " out; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) out.lane[i] = first + (" .. element.c .. ")i * step; return out; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarMask
+                .. " ks_scalar_exp_tail_"
+                .. suffix
+                .. "(uint32_t active) { "
+                .. scalarMask
+                .. " out; if (active > "
+                .. tostring(
+                lanes
+            ) .. "u) active = " .. tostring(
+                lanes
+            ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+                lanes
+            ) .. "u; ++i) out.lane[i] = i < active ? (" .. element.mask .. ")-1 : 0; return out; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_load_"
+                .. suffix
+                .. "(const "
+                .. element.c
+                .. " *source, size_t count, double offset, "
+                .. scalarMask
+                .. " active) { "
+                .. scalarVector
+                .. " out = {{0}}; if (!(offset >= 1.0) || offset != floor(offset)) return out; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) if (active.lane[i] && first + i < count) out.lane[i] = source[first + i]; return out; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. "void ks_scalar_exp_store_"
+                .. suffix
+                .. "("
+                .. element.c
+                .. " *destination, size_t count, double offset, "
+                .. scalarVector
+                .. " value, "
+                .. scalarMask
+                .. " active) { if (!(offset >= 1.0) || offset != floor(offset)) return; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) if (active.lane[i] && first + i < count) destination[first + i] = value.lane[i]; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_select_"
+                .. suffix
+                .. "("
+                .. scalarMask
+                .. " active, "
+                .. scalarVector
+                .. " yes, "
+                .. scalarVector
+                .. " no) { for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) if (!active.lane[i]) yes.lane[i] = no.lane[i]; return yes; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. "uint64_t ks_scalar_exp_bits_"
+                .. suffix
+                .. "("
+                .. scalarMask
+                .. " value) { uint64_t out = 0u; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) if (value.lane[i]) out |= UINT64_C(1) << i; return out; }"
+            for _, operation in ipairs(binaries) do
+                if operation.name == "add"
+                    or operation.name == "sub"
+                    or operation.name == "mul"
+                    or operation.name == "div"
+                    or tostring(elementName):sub(1, 1) ~= "f" then
+                    lines[
+                        #lines + 1
+                    ] = unused
+                        .. scalarVector
+                        .. " ks_scalar_exp_"
+                        .. operation.name
+                        .. "_"
+                        .. suffix
+                        .. "("
+                        .. scalarVector
+                        .. " left, "
+                        .. scalarVector
+                        .. " right) { for (uint32_t i = 0u; i < "
+                        .. tostring(
+                        lanes
+                    ) .. "u; ++i) left.lane[i] = left.lane[i] " .. operation.c .. " right.lane[i]; return left; }"
+                end
+            end
+            for _, operation in ipairs(comparisons) do
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. scalarMask
+                    .. " ks_scalar_exp_"
+                    .. operation.name
+                    .. "_"
+                    .. suffix
+                    .. "("
+                    .. scalarVector
+                    .. " left, "
+                    .. scalarVector
+                    .. " right) { "
+                    .. scalarMask
+                    .. " out; for (uint32_t i = 0u; i < "
+                    .. tostring(
+                    lanes
+                )
+                    .. "u; ++i) out.lane[i] = left.lane[i] "
+                    .. operation.c
+                    .. " right.lane[i] ? ("
+                    .. element.mask
+                    .. ")-1 : 0; return out; }"
+            end
+            for _, operation in ipairs({
+                {name = "and", c = "&"},
+                {name = "or", c = "|"},
+                {name = "xor", c = "^"},
+                {name = "eq", c = "=="},
+                {name = "ne", c = "!="},
+            }) do
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. scalarMask
+                    .. " ks_scalar_exp_mask_"
+                    .. operation.name
+                    .. "_"
+                    .. suffix
+                    .. "("
+                    .. scalarMask
+                    .. " left, "
+                    .. scalarMask
+                    .. " right) { for (uint32_t i = 0u; i < "
+                    .. tostring(
+                    lanes
+                ) .. "u; ++i) left.lane[i] = left.lane[i] " .. operation.c .. " right.lane[i]; return left; }"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_neg_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " value) { for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) value.lane[i] = -value.lane[i]; return value; }"
+            if tostring(elementName):sub(1, 1) ~= "f" then
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. scalarVector
+                    .. " ks_scalar_exp_not_"
+                    .. suffix
+                    .. "("
+                    .. scalarVector
+                    .. " value) { for (uint32_t i = 0u; i < "
+                    .. tostring(
+                    lanes
+                ) .. "u; ++i) value.lane[i] = ~value.lane[i]; return value; }"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarMask
+                .. " ks_scalar_exp_mask_not_"
+                .. suffix
+                .. "("
+                .. scalarMask
+                .. " value) { for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) value.lane[i] = ~value.lane[i]; return value; }"
+        end
+    end
+
+    return lines
+end
+
 --- Packed-byte helpers whose semantics are independent of the instruction set.
 --- Clang/GCC lower the vector comparisons and bitwise expressions; the short
 --- loops here are fixed-width scalar oracles for safe tails and mask order.
@@ -5306,6 +5886,9 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
     end
 
     for _, line in ipairs(genericSimdPrelude(width)) do
+        lines[#lines + 1] = line
+    end
+    for _, line in ipairs(fixedSimdPrelude(width)) do
         lines[#lines + 1] = line
     end
 
@@ -6556,6 +7139,7 @@ end
 --- @raises when passed malformed or unverified IR
 function emit.program(programs: {scalarIR.Program}, tier: string?): string
     emit.begin()
+    collectExplicitFixed(programs)
 
     local lines = emit.includes()
     local hasBuilder = false
