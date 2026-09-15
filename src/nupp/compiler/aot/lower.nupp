@@ -3045,9 +3045,9 @@ local function simdMethod(
             source = source
         )
     elseif receiverType == "simd_block_u8x64" and (
-        method == "equal" or method == "equalAny6" or method == "inRange" or method == "outsideRange"
+        method == "equal" or method == "inRange" or method == "outsideRange"
     ) then
-        local expected = method == "equal" and 1 or method == "equalAny6" and 6 or 2
+        local expected = method == "equal" and 1 or 2
         if #raw ~= expected then
             kernel.context.reject(source, "SIMD block " .. method .. " has an unsupported argument count")
         end
@@ -3064,8 +3064,6 @@ local function simdMethod(
         return new scalarIR.Simd(
             op = method == "equal"
             and "simd_block64_eq_u8"
-            or method == "equalAny6"
-            and "simd_block64_eq_any6_u8"
             or method == "inRange"
             and "simd_block64_range_u8"
             or "simd_block64_outside_range_u8",

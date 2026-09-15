@@ -781,15 +781,6 @@ sealed interface simd.BlockU8x64
     ): simd.MaskBits64
 
     equal: function(borrows self: BlockU8x64, value: uint32): simd.MaskBits64
-    equalAny6: function(
-        borrows self: BlockU8x64,
-        v0: uint32,
-        v1: uint32,
-        v2: uint32,
-        v3: uint32,
-        v4: uint32,
-        v5: uint32
-    ): simd.MaskBits64
     inRange: function(borrows self: BlockU8x64, low: uint32, high: uint32): simd.MaskBits64
     outsideRange: function(borrows self: BlockU8x64, low: uint32, high: uint32): simd.MaskBits64
 end

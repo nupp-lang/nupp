@@ -111,9 +111,6 @@ const BLOCK64_CALLS = {
     ["simd_block64_last_u8"] = {"block64_last_", ""},
     ["simd_block64_utf8_errors_u8"] = {"block64_utf8_errors_", "", "", "", "", ""},
     ["simd_block64_eq_u8"] = {"block64_eq_", "", "(uint8_t)"},
-    [
-        "simd_block64_eq_any6_u8"
-    ] = {"block64_eq_any6_", "", "(uint8_t)", "(uint8_t)", "(uint8_t)", "(uint8_t)", "(uint8_t)", "(uint8_t)",},
     ["simd_block64_range_u8"] = {"block64_range_", "", "(uint8_t)", "(uint8_t)"},
     ["simd_block64_outside_range_u8"] = {"block64_outside_range_", "", "(uint8_t)", "(uint8_t)"},
 }
@@ -6640,37 +6637,6 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
             width
         ) .. " } return out;",
         "}",
-        "static inline __attribute__((unused)) KsMaskBits64 ks_block64_eq_any6_"
-        .. suffix
-        .. "(KsBlockU8x64x"
-        .. tostring(
-            width
-        ) .. " block, uint8_t v0, uint8_t v1, uint8_t v2, uint8_t v3, uint8_t v4, uint8_t v5) {",
-        "    KsMaskBits64 out = {0u, 0u};",
-        "    for (uint32_t i = 0u; i < " .. tostring(
-            64 / width
-        )
-        .. "u; ++i) { "
-        .. vector
-        .. " bytes = block.part[i]; uint32_t bits = ks_bits_"
-        .. suffix
-        .. "((((((bytes == ks_splat_"
-        .. suffix
-        .. "(v0)) | (bytes == ks_splat_"
-        .. suffix
-        .. "(v1))) | (bytes == ks_splat_"
-        .. suffix
-        .. "(v2))) | (bytes == ks_splat_"
-        .. suffix
-        .. "(v3))) | (bytes == ks_splat_"
-        .. suffix
-        .. "(v4))) | (bytes == ks_splat_"
-        .. suffix
-        .. "(v5))); "
-        .. collectBits(
-            width
-        ) .. " } return out;",
-        "}",
         "static inline __attribute__((unused)) KsMaskBits64 ks_block64_range_"
         .. suffix
         .. "(KsBlockU8x64x"
@@ -6969,15 +6935,6 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         width
     )
         .. "u - 3u + i]; uint8_t special = byte1_high.lane[p1 >> 4u] & byte1_low.lane[p1 & 15u] & byte2_high.lane[block.bytes[i] >> 4u], required = (p2 >= 224u || p3 >= 240u) ? 128u : 0u; if (required != special) { if (i < 32u) { out.low |= UINT32_C(1) << i; } else { out.high |= UINT32_C(1) << (i - 32u); } } } return out; }"
-    lines[
-        #lines + 1
-    ] = "static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_eq_any6_"
-        .. suffix
-        .. "(KsScalarBlockU8x64x"
-        .. tostring(
-        width
-    )
-        .. " block, uint8_t v0, uint8_t v1, uint8_t v2, uint8_t v3, uint8_t v4, uint8_t v5) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 32u; ++i) { uint8_t a = block.bytes[i], b = block.bytes[i + 32u]; out.low |= (uint32_t)(a == v0 || a == v1 || a == v2 || a == v3 || a == v4 || a == v5) << i; out.high |= (uint32_t)(b == v0 || b == v1 || b == v2 || b == v3 || b == v4 || b == v5) << i; } return out; }"
     lines[
         #lines + 1
     ] = "static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_range_"

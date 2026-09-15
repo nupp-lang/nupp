@@ -756,7 +756,6 @@ record scalarIR.Simd
         | 'simd_block64_last_u8'
         | 'simd_block64_utf8_errors_u8'
         | 'simd_block64_eq_u8'
-        | 'simd_block64_eq_any6_u8'
         | 'simd_block64_range_u8'
         | 'simd_block64_outside_range_u8'
         | 'simd_tail_u8'
