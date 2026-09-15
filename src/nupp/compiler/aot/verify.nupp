@@ -577,6 +577,37 @@ local function genericSimdType(typeName: string): (string?, string?, string?)
     return typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
 end
 
+--- The ordinary scalar carrier for one packed element identity.
+local function genericSimdScalar(element: string?): string?
+    if element == "u8" or element == "u16" then
+        return "u32"
+    elseif element == "i8" or element == "i16" then
+        return "i32"
+    end
+
+    return element
+end
+
+--- The packed element identity retained by physical span storage.
+local function genericSimdSpanElement(param: scalarIR.Param): string
+    local physical: {
+        [string]: string
+    } = {
+        int8 = "i8",
+        uint8 = "u8",
+        int16 = "i16",
+        uint16 = "u16",
+        float = "f32",
+        int32 = "i32",
+        uint32 = "u32",
+        int64 = "i64",
+        uint64 = "u64",
+        number = "f64",
+    }
+
+    return physical[param.sourceType or ""] or param.type
+end
+
 scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: verify.Scope): nil
     holds(node ~= nil and node.type ~= nil, "untyped IR expression")
 
@@ -728,7 +759,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         elseif op == "simd_splat" or op == "simd_iota" then
             holds(family == "vector" and #args == (op == "simd_splat" and 1 or 2), "invalid generic SIMD construction")
             for _, argument in ipairs(args) do
-                holds(argument.type == element, "generic SIMD construction has the wrong element")
+                holds(argument.type == genericSimdScalar(element), "generic SIMD construction has the wrong element")
             end
         elseif op == "simd_tail" then
             holds(family == "mask" and #args == 1 and args[1].type == "u32", "invalid generic SIMD tail")
@@ -752,7 +783,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             holds(
                 span ~= nil and (
                     span as scalarIR.Param
-                ).kind == "read_span" and (span as scalarIR.Param).type == element,
+                ).kind == "read_span" and genericSimdSpanElement(span as scalarIR.Param) == element,
                 "invalid generic SIMD load root"
             )
         elseif op == "simd_binary" or op == "simd_unary" then
@@ -794,14 +825,16 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 vectorFamily, vectorElement = genericSimdType(args[1].type)
             end
             holds(
-                #args == 2 and vectorFamily == "vector" and node.type == vectorElement and args[2].type == "f64",
+                #args == 2 and vectorFamily == "vector" and node.type == genericSimdScalar(
+                    vectorElement
+                ) and args[2].type == "f64",
                 "invalid generic SIMD extract"
             )
         elseif op == "simd_insert" then
             holds(
                 family == "vector" and #args == 3 and args[
                     1
-                ].type == node.type and args[2].type == "f64" and args[3].type == element,
+                ].type == node.type and args[2].type == "f64" and args[3].type == genericSimdScalar(element),
                 "invalid generic SIMD insert"
             )
         elseif op == "simd_bitmask_any" or op == "simd_bitmask_count" or op == "simd_bitmask_first" then
@@ -2184,7 +2217,7 @@ local function block(
             holds(
                 span ~= nil and (
                     span as scalarIR.Param
-                ).kind == "write_span" and (span as scalarIR.Param).type == element,
+                ).kind == "write_span" and genericSimdSpanElement(span as scalarIR.Param) == element,
                 "invalid generic SIMD store root"
             )
             for _, argument in ipairs(store.args) do

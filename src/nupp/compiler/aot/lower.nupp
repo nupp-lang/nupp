@@ -277,7 +277,19 @@ local function genericSimdType(t: any?): scalarIR.Type?
     local element = semanticRaw(arguments[1])
     local elementNames: {
         [string]: string
-    } = {number = "f64", integer = "f64", float = "f32", int32 = "i32", uint32 = "u32", int64 = "i64", uint64 = "u64",}
+    } = {
+        number = "f64",
+        integer = "f64",
+        float = "f32",
+        int8 = "i8",
+        uint8 = "u8",
+        int16 = "i16",
+        uint16 = "u16",
+        int32 = "i32",
+        uint32 = "u32",
+        int64 = "i64",
+        uint64 = "u64",
+    }
     local elementName = element ~= nil and elementNames[element.tag] or nil
     local species, speciesOrigin = nominal(arguments[2])
     local shape: string? = nil
@@ -1161,6 +1173,40 @@ local function genericSimdParts(typeName: string): (string?, scalarIR.Type?, str
     return family, element as scalarIR.Type?, shape
 end
 
+--- The scalar value carrier for one packed element. Narrow integers remain
+--- physical widths inside vectors while ordinary Nupp values use their
+--- established 32-bit carrier.
+local function genericSimdScalar(element: scalarIR.Type?): scalarIR.Type?
+    if element == "u8" or element == "u16" then
+        return "u32"
+    elseif element == "i8" or element == "i16" then
+        return "i32"
+    end
+
+    return element
+end
+
+--- The packed element identity of one span parameter. Narrow storage retains
+--- its physical width here even though an ordinary scalar load widens it.
+local function genericSimdSpanElement(param: scalarIR.Param): string
+    local physical: {
+        [string]: string
+    } = {
+        int8 = "i8",
+        uint8 = "u8",
+        int16 = "i16",
+        uint16 = "u16",
+        float = "f32",
+        int32 = "i32",
+        uint32 = "u32",
+        int64 = "i64",
+        uint64 = "u64",
+        number = "f64",
+    }
+
+    return physical[param.sourceType or ""] or param.type
+end
+
 --- Makes one scalar operand lane-shaped for an intrinsic operator.
 local function simdOperand(
     value: scalarIR.Expr,
@@ -1175,7 +1221,7 @@ local function simdOperand(
     if element == nil then
         kernel.context.reject(source, "explicit SIMD operator has no element type")
     end
-    local scalar = lower.convert(value, element as scalarIR.Type, source, kernel.context)
+    local scalar = lower.convert(value, genericSimdScalar(element) as scalarIR.Type, source, kernel.context)
 
     return new scalarIR.Simd(
         op = "simd_splat",
@@ -2366,7 +2412,7 @@ local function simdMethod(
         if genericFamily == "species" and method == "splat" and #raw == 1 then
             local value = lower.convert(
                 lower.expression(raw[1], environment, activeIndex, kernel),
-                genericElement as scalarIR.Type,
+                genericSimdScalar(genericElement) as scalarIR.Type,
                 source,
                 kernel.context
             )
@@ -2383,7 +2429,7 @@ local function simdMethod(
                     #args + 1
                 ] = lower.convert(
                     lower.expression(argument, environment, activeIndex, kernel),
-                    genericElement as scalarIR.Type,
+                    genericSimdScalar(genericElement) as scalarIR.Type,
                     source,
                     kernel.context
                 )
@@ -2417,7 +2463,9 @@ local function simdMethod(
             local spanName = lower.nameOf(raw[1])
             local span = spanName ~= nil and kernel.params[spanName as string] or nil
             local wantedKind = method == "load" and "read_span" or "write_span"
-            if span == nil or span.kind ~= wantedKind or span.type ~= genericElement then
+            if span == nil or span.kind ~= wantedKind or genericSimdSpanElement(
+                span as scalarIR.Param
+            ) ~= genericElement then
                 kernel.context.reject(
                     source,
                     "SIMD " .. method .. " needs a matching " .. (
@@ -2505,7 +2553,7 @@ local function simdMethod(
                 op = "simd_extract",
                 args = {receiver as scalarIR.Expr, laneIndex},
                 intrinsic = "extract",
-                type = genericElement as scalarIR.Type,
+                type = genericSimdScalar(genericElement) as scalarIR.Type,
                 source = source
             )
         elseif genericFamily == "vector" and method == "insert" and #raw == 2 then
@@ -2526,7 +2574,7 @@ local function simdMethod(
                     laneIndex,
                     lower.convert(
                         lower.expression(raw[2], environment, activeIndex, kernel),
-                        genericElement as scalarIR.Type,
+                        genericSimdScalar(genericElement) as scalarIR.Type,
                         source,
                         kernel.context
                     ),

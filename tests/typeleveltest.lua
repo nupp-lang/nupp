@@ -1918,6 +1918,17 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
     }, "\n")), "NUPP2003")
 end
 
+function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
+    clean(table.concat({
+        'local simd = require("nupp.simd")',
+        "local species: simd.Species<uint8, simd.Preferred> = simd.preferred()",
+        "local vector: simd.Vector<uint8, simd.Preferred> = nil as any",
+        "local mask: simd.Mask<uint8, simd.Preferred> = vector == vector",
+        "return species, mask",
+    }, "\n"))
+    assertEq(codes("local value: uint8 = 1\nreturn value\n"), "NUPP2012")
+end
+
 -- A default body lives on the interface's table and reaches only a declaration
 -- that names the interface with `is`, so a shape has to carry the member itself:
 -- one that does not is refused, wherever the interface is wanted.

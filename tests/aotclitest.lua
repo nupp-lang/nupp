@@ -2171,6 +2171,39 @@ function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
     assert(out:find("0 vector", 1, true), "the separately reported scalar oracle has no vector instructions: " .. out)
 end
 
+function M.narrowIntegerVectorsRetainPhysicalLaneWidth()
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function increment(
+    exclusive output: span.WriteSpan<uint8>,
+    borrows input: span.Span<uint8>
+): nil
+    local species: simd.Species<uint8, simd.Preferred> = simd.preferred()
+    local active = species:tail(#input)
+    local values = species:load(input, 1, active)
+    species:store(output, 1, values + 1, active)
+end
+
+return {increment = increment}
+]]
+    local dir = project{["narrow.nupp"] = source}
+    local decoded, raw, code, where = lowered(
+        dir,
+        "--target aarch64-apple-darwin --features neon --json narrow.nupp"
+    )
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("simd_vector_u8_preferred", 1, true), where .. ": physical byte identity reaches IR")
+    assert(decoded.c:find("typedef uint8_t ks_exp_u8x16", 1, true), where .. ": NEON retains sixteen byte lanes")
+
+    local asm, asmCode = run(dir, "--target aarch64-apple-darwin --features neon --emit asm narrow.nupp")
+    test.equal(asmCode, 0, asm)
+    assert(asm:find("add.16b", 1, true), "byte addition remains a vector operation: " .. asm)
+    assert(asm:find("0 vector", 1, true), "the narrow scalar oracle has no vector instructions: " .. asm)
+end
+
 function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity()
     local source = GENERIC_EXPLICIT_SIMD
         :gsub("simd%.Preferred", "simd.Fixed<8>", 1)

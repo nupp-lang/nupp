@@ -258,7 +258,18 @@ const emit.SOURCE_C = {
 }
 
 --- The C element type behind each vector.
-const emit.VECTOR_ELEMENT_C = {["f64"] = "double", ["f32"] = "float", ["i32"] = "int32_t", ["u32"] = "uint32_t",}
+const emit.VECTOR_ELEMENT_C = {
+    ["f64"] = "double",
+    ["f32"] = "float",
+    ["i8"] = "int8_t",
+    ["u8"] = "uint8_t",
+    ["i16"] = "int16_t",
+    ["u16"] = "uint16_t",
+    ["i32"] = "int32_t",
+    ["u32"] = "uint32_t",
+    ["i64"] = "int64_t",
+    ["u64"] = "uint64_t",
+}
 
 --- Resolves one target-neutral explicit SIMD type for the selected tier.
 local function explicitType(typeName: string): (string?, string?, integer?, string?)
@@ -4005,6 +4016,10 @@ local function genericSimdPrelude(width: integer): {string}
     local elements = {
         {name = "f64", c = "double", mask = "int64_t", bytes = 8},
         {name = "f32", c = "float", mask = "int32_t", bytes = 4},
+        {name = "i8", c = "int8_t", mask = "int8_t", bytes = 1},
+        {name = "u8", c = "uint8_t", mask = "int8_t", bytes = 1},
+        {name = "i16", c = "int16_t", mask = "int16_t", bytes = 2},
+        {name = "u16", c = "uint16_t", mask = "int16_t", bytes = 2},
         {name = "i32", c = "int32_t", mask = "int32_t", bytes = 4},
         {name = "u32", c = "uint32_t", mask = "int32_t", bytes = 4},
         {name = "i64", c = "int64_t", mask = "int64_t", bytes = 8},
@@ -4466,6 +4481,10 @@ local function fixedSimdPrelude(width: integer): {string}
     local elements = {
         f64 = {c = "double", mask = "int64_t", bytes = 8},
         f32 = {c = "float", mask = "int32_t", bytes = 4},
+        i8 = {c = "int8_t", mask = "int8_t", bytes = 1},
+        u8 = {c = "uint8_t", mask = "int8_t", bytes = 1},
+        i16 = {c = "int16_t", mask = "int16_t", bytes = 2},
+        u16 = {c = "uint16_t", mask = "int16_t", bytes = 2},
         i32 = {c = "int32_t", mask = "int32_t", bytes = 4},
         u32 = {c = "uint32_t", mask = "int32_t", bytes = 4},
         i64 = {c = "int64_t", mask = "int64_t", bytes = 8},
