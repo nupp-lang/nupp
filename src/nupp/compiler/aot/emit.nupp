@@ -277,6 +277,15 @@ local function explicitType(typeName: string): (string?, string?, integer?, stri
     return family, element, lanes, shape
 end
 
+--- Whether an IR type is one general explicit SIMD family application.
+local function genericSimdType(typeName: string): boolean
+    return typeName:match(
+        "^simd_vector_"
+    ) ~= nil or typeName:match(
+        "^simd_mask_"
+    ) ~= nil or typeName:match("^simd_species_") ~= nil or typeName:match("^simd_bitmask_") ~= nil
+end
+
 --- The C type of one IR type.
 ---
 --- A vector renders as the typedef the prelude emitted for it, and a pointer to
@@ -1120,7 +1129,13 @@ function emit.scalarBits(node: scalarIR.Expr): string
             parts[position] = emit.scalar(argument)
         end
 
-        return call.cName .. "(" .. table.concat(parts, ", ") .. ")"
+        local genericSimd = genericSimdType(tostring(call.type))
+        for _, argument in ipairs(call.args) do
+            genericSimd = genericSimd or genericSimdType(tostring(argument.type))
+        end
+        local name = explicitScalar and genericSimd and call.cName .. "_forced_scalar" or call.cName
+
+        return name .. "(" .. table.concat(parts, ", ") .. ")"
     elseif operation == "math" then
         return emit.math(node as scalarIR.Math)
     end
@@ -5909,6 +5924,29 @@ local function helperParams(helper: scalarIR.Helper): string
     return table.concat(parts, ", ")
 end
 
+--- Whether one helper signature carries target-neutral explicit SIMD values.
+local function helperHasGenericSimd(helper: scalarIR.Helper): boolean
+    for _, param in ipairs(helper.params) do
+        if genericSimdType(tostring(param.type)) then
+            return true
+        end
+    end
+    for _, result in ipairs(helper.resultTypes) do
+        if genericSimdType(tostring(result)) then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- The C symbol and optional result struct for one helper rendering.
+local function helperNames(helper: scalarIR.Helper, scalar: boolean): (string, string?)
+    local name = helper.cName .. (scalar and "_forced_scalar" or "")
+
+    return name, #helper.resultTypes > 1 and name .. "_result" or nil
+end
+
 --- The visible pure helpers, as C.
 ---
 --- Result structs first, then every prototype, then every definition, so a
@@ -5918,55 +5956,67 @@ end
 function emit.helpers(helpers: {scalarIR.Helper}): {string}
     local lines: {string} = {}
     for _, helper in ipairs(helpers) do
-        if #helper.resultTypes > 1 then
-            helper.cResult = helper.cName .. "_result"
-            lines[#lines + 1] = "typedef struct {"
-            for position, resultType in ipairs(helper.resultTypes) do
-                lines[#lines + 1] = "    " .. emit.cType(resultType) .. " v" .. tostring(position) .. ";"
-            end
-            lines[#lines + 1] = "} " .. tostring(helper.cResult) .. ";"
-        end
-    end
-    if #helpers > 0 then
-        lines[#lines + 1] = ""
-    end
-
-    for _, helper in ipairs(helpers) do
-        local result = helper.cResult or emit.cType(helper.resultType)
-        -- A native call names another entry in this same translation unit, which
-        -- may be defined further down it. The prototype is what lets the caller
-        -- stand above the callee; the definition is the callee's own.
-        local linkage = helper.native == true and "" or "static inline "
-        lines[#lines + 1] = linkage .. result .. " " .. helper.cName .. "(" .. helperParams(helper) .. ");"
-    end
-    if #helpers > 0 then
-        lines[#lines + 1] = ""
-    end
-
-    for _, helper in ipairs(helpers) do
-        local result = helper.cResult or emit.cType(helper.resultType)
-        -- A native call has no definition to write here: the entry it names writes
-        -- its own, further down this same file.
-        if helper.native ~= true then
-            lines[
-                #lines + 1
-            ] = "static inline " .. result .. " " .. helper.cName .. "(" .. helperParams(helper) .. ") {"
-            if helper.cResult ~= nil then
-                local values: {string} = {}
-                for position, value in ipairs(helper.values) do
-                    values[position] = emit.lane(value)
+        local variants = (helper.native == true or not helperHasGenericSimd(helper)) and {false} or {false, true}
+        for _, scalar in ipairs(variants) do
+            local _, resultName = helperNames(helper, scalar)
+            if resultName ~= nil then
+                explicitScalar = scalar
+                if not scalar then
+                    helper.cResult = resultName
                 end
-                lines[
-                    #lines + 1
-                ] = "    " .. tostring(helper.cResult) .. " result = {" .. table.concat(values, ", ") .. "};"
-                lines[#lines + 1] = "    return result;"
-            else
-                lines[#lines + 1] = "    return " .. emit.lane(helper.values[1]) .. ";"
+                lines[#lines + 1] = "typedef struct {"
+                for position, resultType in ipairs(helper.resultTypes) do
+                    lines[#lines + 1] = "    " .. emit.cType(resultType) .. " v" .. tostring(position) .. ";"
+                end
+                lines[#lines + 1] = "} " .. resultName .. ";"
             end
-            lines[#lines + 1] = "}"
-            lines[#lines + 1] = ""
         end
     end
+    if #helpers > 0 then
+        lines[#lines + 1] = ""
+    end
+
+    for _, helper in ipairs(helpers) do
+        local variants = (helper.native == true or not helperHasGenericSimd(helper)) and {false} or {false, true}
+        for _, scalar in ipairs(variants) do
+            explicitScalar = scalar
+            local name, resultName = helperNames(helper, scalar)
+            local result = resultName or emit.cType(helper.resultType)
+            -- A native call names another entry in this same translation unit,
+            -- which may be defined further down it.
+            local linkage = helper.native == true and "" or "static inline "
+            lines[#lines + 1] = linkage .. result .. " " .. name .. "(" .. helperParams(helper) .. ");"
+        end
+    end
+    if #helpers > 0 then
+        lines[#lines + 1] = ""
+    end
+
+    for _, helper in ipairs(helpers) do
+        if helper.native ~= true then
+            local variants = not helperHasGenericSimd(helper) and {false} or {false, true}
+            for _, scalar in ipairs(variants) do
+                explicitScalar = scalar
+                local name, resultName = helperNames(helper, scalar)
+                local result = resultName or emit.cType(helper.resultType)
+                lines[#lines + 1] = "static inline " .. result .. " " .. name .. "(" .. helperParams(helper) .. ") {"
+                if resultName ~= nil then
+                    local values: {string} = {}
+                    for position, value in ipairs(helper.values) do
+                        values[position] = emit.lane(value)
+                    end
+                    lines[#lines + 1] = "    " .. resultName .. " result = {" .. table.concat(values, ", ") .. "};"
+                    lines[#lines + 1] = "    return result;"
+                else
+                    lines[#lines + 1] = "    return " .. emit.lane(helper.values[1]) .. ";"
+                end
+                lines[#lines + 1] = "}"
+                lines[#lines + 1] = ""
+            end
+        end
+    end
+
+    explicitScalar = false
 
     return lines
 end
@@ -6802,7 +6852,8 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
             local result: string? = nil
             for _, candidate in ipairs(body.helpers) do
                 if candidate.name == statement.call.helper then
-                    result = tostring(candidate.cResult)
+                    local _, resultName = helperNames(candidate, explicitScalar and helperHasGenericSimd(candidate))
+                    result = resultName
                 end
             end
             if result == nil then

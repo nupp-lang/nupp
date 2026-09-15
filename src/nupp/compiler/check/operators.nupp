@@ -161,6 +161,31 @@ local function simdFamily(t: Type): string?
     return admitted[origin.name] == true and origin.name or nil
 end
 
+--- The scalar element named by a compiler-owned SIMD family application.
+local function simdElement(t: Type): Type?
+    if t.tag == "const" then
+        t = t.inner
+    end
+    if simdFamily(t) == nil or t.tag ~= "nominal" then
+        return nil
+    end
+
+    return (t.typeArgs or {})[1]
+end
+
+--- Whether a SIMD element has a closed fixed-width bit representation.
+local function simdIntegerElement(t: Type): boolean
+    local element = simdElement(t)
+    if element == nil then
+        return false
+    end
+    element = T.unwrapOwnership(element)
+
+    return fixedWidth.isValue(
+        element
+    ) and fixedWidth.widenedName(element) == "integer" or element.tag == "int64" or element.tag == "uint64"
+end
+
 --- Reports `customary-operator` when an operator was written in its C spelling. The two
 --- forms mean exactly the same thing, so this is a house style question and nothing
 --- more: a project that prefers `&&` turns the lint off, and a file that wants it once
@@ -440,6 +465,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
         elseif op == "~" then
             local family = simdFamily(t)
             if family == "Vector" or family == "Mask" then
+                if family == "Vector" and not simdIntegerElement(t) then
+                    c.diag("NUPP2003", node, "bitwise SIMD operators require an integer vector element")
+                end
                 (node as any).simdIntrinsic = op
                 return t
             end
@@ -596,6 +624,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
             if leftFamily == "Vector" or leftFamily == "Mask" then
                 if leftFamily ~= rightFamily or not isA(lt, rt) or not isA(rt, lt) then
                     c.diag("NUPP2003", node, "explicit SIMD bitwise operands need the same vector or mask type")
+                end
+                if leftFamily == "Vector" and not simdIntegerElement(lt) then
+                    c.diag("NUPP2003", node, "bitwise SIMD operators require an integer vector element")
                 end
                 (node as any).simdIntrinsic = op
                 return lt

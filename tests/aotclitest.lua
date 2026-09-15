@@ -2185,6 +2185,52 @@ function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity(
     assert(adds >= 2, "both logical halves execute as vector additions: " .. asm)
 end
 
+function M.explicitSimdValuesCannotCrossAnEntryAbi()
+    local source = [[
+local simd = require("nupp.simd")
+
+@aot
+local function leaked(): simd.Vector<float, simd.Preferred>
+    local species: simd.Species<float, simd.Preferred> = simd.preferred()
+    return species:splat(1.0)
+end
+
+return {leaked = leaked}
+]]
+    local dir = project{["leaked.nupp"] = source}
+    local out, code = run(dir, "leaked.nupp")
+    test.equal(code, 1, out)
+    assert(out:find("cannot cross an AOT entry result ABI", 1, true), out)
+end
+
+function M.genericHelpersPreserveSpeciesAndKeepASeparateScalarTwin()
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+local function twice<T, S>(value: simd.Vector<T, S>): simd.Vector<T, S>
+    return value + value
+end
+
+@aot
+local function apply(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    local species: simd.Species<float, simd.Preferred> = simd.preferred()
+    local active = species:tail(#input)
+    species:store(output, 1, twice(species:load(input, 1, active)), active)
+end
+
+return {apply = apply}
+]]
+    local dir = project{["helper.nupp"] = source}
+    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json helper.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("twice_simd_vector_f32_preferred", 1, true), where .. ": helper specialization retains species")
+    assert(decoded.c:find("twice_simd_vector_f32_preferred_returns_simd_vector_f32_preferred_forced_scalar", 1, true), where .. ": scalar oracle gets a type-correct helper twin")
+end
+
 function M.aLoopThatWantedLanesAndDidNotGetThemFails()
     local dir = project{["refused.nupp"] = REFUSED}
     local out, code = run(dir, "--check refused.nupp")

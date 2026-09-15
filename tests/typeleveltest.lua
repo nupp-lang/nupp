@@ -1909,6 +1909,12 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
         "end",
         "return wrong",
     }, "\n")), "NUPP2002")
+    assertEq(codes(table.concat({
+        'local simd = require("nupp.simd")',
+        "local left: simd.Vector<float, simd.Preferred> = nil as any",
+        "local right: simd.Vector<float, simd.Preferred> = nil as any",
+        "return left & right",
+    }, "\n")), "NUPP2003")
 end
 
 -- A default body lives on the interface's table and reaches only a declaration

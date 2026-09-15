@@ -3390,11 +3390,6 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
         context.reject(lower.site(at), "recursive native helpers are not admitted")
     end
 
-    local known = kernel.helpers[name]
-    if known ~= nil then
-        return known as scalarIR.Helper
-    end
-
     local declaration = kernel.helperDecls[name]
     -- Another `@aot` declaration in the same file is a call rather than a body to
     -- inline: it is compiled once, keeps its own contract, and the caller reaches
@@ -3411,16 +3406,14 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
     kernel.helperState[name] = "lowering"
 
     local body = declaration.body
-    if body == nil
-        or body.generics ~= nil
-        or body.varargParam ~= nil
-        or body.captureTakes ~= nil
-        or body.captureBorrows ~= nil
-    then
-        context.reject(lower.site(declaration), "native helpers must be non-generic, non-variadic, and non-capturing")
+    if body == nil or body.varargParam ~= nil or body.captureTakes ~= nil or body.captureBorrows ~= nil then
+        context.reject(lower.site(declaration), "native helpers must be non-variadic and non-capturing")
     end
 
-    local checkedSignature = context.checked and body.signatureType or nil
+    local generic = body.generics ~= nil
+    local checkedSignature = context.checked and (
+        generic and at ~= nil and (at as any).signatureType or body.signatureType
+    ) or nil
     if context.checked and checkedSignature == nil then
         context.reject(lower.site(body), "the checker did not publish this native helper signature")
     end
@@ -3491,6 +3484,21 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
         environment[paramName as string] = param
     end
 
+    local keyParts: {string} = {name}
+    for _, param in ipairs(params) do
+        keyParts[#keyParts + 1] = param.type
+    end
+    keyParts[#keyParts + 1] = "returns"
+    for _, result in ipairs(resultTypes) do
+        keyParts[#keyParts + 1] = result
+    end
+    local helperKey = generic and table.concat(keyParts, "_") or name
+    local known = kernel.helpers[helperKey]
+    if known ~= nil then
+        kernel.helperState[name] = "done"
+        return known as scalarIR.Helper
+    end
+
     if native and #resultTypes ~= 1 then
         context.reject(lower.site(declaration), "a compiled entry called from another returns one value")
     end
@@ -3505,7 +3513,7 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
             native = true,
             source = lower.site(declaration)
         )
-        kernel.helpers[name] = called
+        kernel.helpers[helperKey] = called
         kernel.helperState[name] = "done"
         kernel.helperOrder[#kernel.helperOrder + 1] = called
 
@@ -3522,15 +3530,15 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
     end
 
     local helper = new scalarIR.Helper(
-        name = name,
-        cName = kernel.symbol .. "_helper_" .. scalarIR.privateSymbol(name):sub(4),
+        name = helperKey,
+        cName = kernel.symbol .. "_helper_" .. scalarIR.privateSymbol(helperKey):sub(4),
         params = params,
         values = {},
         resultType = resultTypes[1],
         resultTypes = resultTypes,
         source = lower.site(declaration)
     )
-    kernel.helpers[name] = helper
+    kernel.helpers[helperKey] = helper
 
     for position, result in ipairs((returned as cst.ReturnStmt).exprs or {}) do
         local value = lower.expression(result, environment, nil, kernel)
@@ -5226,6 +5234,12 @@ function lower.parameters(
         local at = raw.type or raw
         local writeElement = lower.spanElement(spelling, resolved, "WriteSpan", at, declarations, layouts, context)
         local readElement = lower.spanElement(spelling, resolved, "Span", at, declarations, layouts, context)
+        if writeElement ~= nil
+            and tostring((writeElement as lower.Element).type):match("^simd_") ~= nil
+            or readElement ~= nil
+            and tostring((readElement as lower.Element).type):match("^simd_") ~= nil then
+            context.reject(lower.site(raw), "explicit SIMD values cannot be stored in an AOT entry span")
+        end
         local region = "r" .. tostring(#signature.spans)
 
         local param: scalarIR.Param
@@ -6524,6 +6538,9 @@ function lower.program(
         end
         if resultType == nil then
             context.reject(lower.site(result), "AOT entry results are admitted scalar values or fresh tables")
+        end
+        if tostring(resultType):match("^simd_") ~= nil then
+            context.reject(lower.site(result), "explicit SIMD values cannot cross an AOT entry result ABI")
         end
         resultTypes[position] = resultType as scalarIR.Type
         resultSourceTypes[position] = sourceType
