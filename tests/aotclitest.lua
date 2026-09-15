@@ -2494,6 +2494,64 @@ return {horizontal = horizontal}
     )
 end
 
+function M.aSwizzleIsTheTableLookupAndReachesTheTargetsTableInstruction()
+    local source = [[
+local simd = require("nupp.simd")
+
+@aot
+local function lookup(): (number, number, number)
+    local species: simd.Species<uint8, simd.Fixed<16>> = simd.fixed()
+    -- A table is a vector, so there is no table type and no constructor
+    -- taking one entry per argument. Entry k here is ten times k.
+    local table = species:iota(0, 10)
+    local looked = table:swizzle(species:iota(1, 1))
+
+    return looked:extract(1), looked:extract(16), table:swizzle(species:splat(200)):extract(3)
+end
+
+return {lookup = lookup}
+]]
+    local dir = project{["swizzle.nupp"] = source}
+    local decoded, raw, code, where = lowered(
+        dir,
+        "--target aarch64-apple-darwin --features neon --json swizzle.nupp"
+    )
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("simd_permute.swizzle", 1, true), where .. ": the lookup is one permutation\n" .. decoded.ir)
+    assert(
+        decoded.c:find("ks_exp_swizzle_u8x16", 1, true) and decoded.c:find("ks_scalar_exp_swizzle_u8x16", 1, true),
+        where .. ": production and oracle bodies are both emitted"
+    )
+    assert(
+        decoded.c:find("vqtbl1q_u8", 1, true),
+        where .. ": a byte table reaches the target instruction rather than a lane loop"
+    )
+    assert(
+        decoded.c:find("indices - 1", 1, true),
+        where .. ": one-based lane numbering is adapted once, not per lane"
+    )
+end
+
+function M.aSwizzleNeedsLaneNumbersRatherThanAFloatingElement()
+    local source = [[
+local simd = require("nupp.simd")
+
+@aot
+local function bad(): number
+    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local values = species:iota(1.0, 1.0)
+
+    return values:swizzle(values):extract(1)
+end
+
+return {bad = bad}
+]]
+    local dir = project{["badswizzle.nupp"] = source}
+    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --json badswizzle.nupp")
+    assert(code ~= 0, "a float vector has no lane numbering to offer: " .. out)
+    assert(out:find("integer vector", 1, true), "the refusal names what it needed: " .. out)
+end
+
 function M.horizontalExtremaNameTheirNanContractAndAreDefinedAtEveryElement()
     local source = [[
 local simd = require("nupp.simd")

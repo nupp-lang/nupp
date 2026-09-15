@@ -4703,6 +4703,69 @@ local function genericSimdPrelude(width: integer): {string}
             .. " value, double lane, "
             .. element.c
             .. " replacement) { value[(uint32_t)lane - 1u] = replacement; return value; }"
+        -- The byte table every target has an instruction for, and the portable
+        -- loop everywhere else. Each instruction is already zero-for-out-of-
+        -- range, and each is zero-based where this is one-based, so subtracting
+        -- one first is the whole adaptation: lane index zero wraps to 255, which
+        -- every one of them already answers zero for.
+        local byteTable = (element.name == "u8" or element.name == "i8") and (lanes == 16 or lanes == 32)
+        local portable = "for (uint32_t i = 0u; i < " .. tostring(
+            lanes
+        ) .. "u; ++i) { uint32_t at = (uint32_t)indices[i]; out[i] = (at - 1u) < " .. tostring(
+            lanes
+        ) .. "u ? value[at - 1u] : (" .. element.c .. ")0; }"
+        if not byteTable then
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_swizzle_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " value, "
+                .. vector
+                .. " indices) { "
+                .. vector
+                .. " out; "
+                .. portable
+                .. " return out; }"
+        else
+            local half = lanes == 16
+            for _, line in ipairs({
+                unused
+                .. vector
+                .. " ks_exp_swizzle_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " value, "
+                .. vector
+                .. " indices) {",
+                "    " .. vector .. " out; " .. vector .. " zeroBased = indices - 1;",
+                "#if defined(__aarch64__)",
+                half
+                and "    uint8x16_t t, x; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u); x = vqtbl1q_u8(t, x); memcpy(&out, &x, 16u);"
+                or "    uint8x16x2_t t; memcpy(&t.val[0], &value, 16u); memcpy(&t.val[1], ((const uint8_t *)&value) + 16u, 16u); uint8x16_t lo, hi; memcpy(&lo, &zeroBased, 16u); memcpy(&hi, ((const uint8_t *)&zeroBased) + 16u, 16u); lo = vqtbl2q_u8(t, lo); hi = vqtbl2q_u8(t, hi); memcpy(&out, &lo, 16u); memcpy(((uint8_t *)&out) + 16u, &hi, 16u);",
+                "#elif defined(__SSSE3__) && " .. tostring(lanes) .. " == 16",
+                "    __m128i t, x, high, shuffled; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u); high = _mm_and_si128(x, _mm_set1_epi8((char)0xf0)); shuffled = _mm_shuffle_epi8(t, x); shuffled = _mm_and_si128(shuffled, _mm_cmpeq_epi8(high, _mm_setzero_si128())); memcpy(&out, &shuffled, 16u);",
+                "#elif defined(__wasm_simd128__) && " .. tostring(lanes) .. " == 16",
+                "    /* `i8x16.swizzle` is exactly this, zero for out of range. */",
+                "    KsSwizzle t, x, y; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u);",
+                "    y = __builtin_wasm_swizzle_i8x16(t, x); memcpy(&out, &y, 16u);",
+                "#else",
+                -- A 32-byte x86 table is not one instruction: `vpshufb` shuffles
+                -- within each 128-bit half, so a lane reaching across the halves
+                -- needs both halves blended. The portable loop stands in until
+                -- that composition is written and differentialled.
+                "    " .. portable,
+                "#endif",
+                "    return out;",
+                "}",
+            }) do
+                lines[#lines + 1] = line
+            end
+        end
         lines[
             #lines + 1
         ] = unused
@@ -4956,6 +5019,24 @@ local function genericSimdPrelude(width: integer): {string}
             .. " value, double lane, "
             .. element.c
             .. " replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_swizzle_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " value, "
+            .. scalarVector
+            .. " indices) { "
+            .. scalarVector
+            .. " out; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) { uint32_t at = (uint32_t)indices.lane[i]; out.lane[i] = (at - 1u) < " .. tostring(
+            lanes
+        ) .. "u ? value.lane[at - 1u] : (" .. element.c .. ")0; } return out; }"
         lines[
             #lines + 1
         ] = unused
@@ -5469,6 +5550,37 @@ local function fixedSimdPrelude(width: integer): {string}
                 nativeLanes
             ) .. "u][index % " .. tostring(nativeLanes) .. "u] = replacement; return value; }"
 
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_swizzle_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " value, "
+                .. vector
+                .. " indices) { "
+                .. vector
+                .. " out = ks_exp_splat_"
+                .. suffix
+                .. "(("
+                .. element.c
+                .. ")0); for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            )
+                .. "u; ++i) { uint32_t at = (uint32_t)ks_exp_extract_"
+                .. suffix
+                .. "(indices, (double)(i + 1u)); if ((at - 1u) < "
+                .. tostring(
+                lanes
+            )
+                .. "u) out = ks_exp_insert_"
+                .. suffix
+                .. "(out, (double)(i + 1u), ks_exp_extract_"
+                .. suffix
+                .. "(value, (double)at)); } return out; }"
             for _, permutation in ipairs({"reverse", "rotate_left", "rotate_right"}) do
                 local index = permutation == "reverse" and tostring(
                     lanes
@@ -5840,6 +5952,24 @@ local function fixedSimdPrelude(width: integer): {string}
                 .. " value, double lane, "
                 .. element.c
                 .. " replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_swizzle_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " value, "
+                .. scalarVector
+                .. " indices) { "
+                .. scalarVector
+                .. " out; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) { uint32_t at = (uint32_t)indices.lane[i]; out.lane[i] = (at - 1u) < " .. tostring(
+                lanes
+            ) .. "u ? value.lane[at - 1u] : (" .. element.c .. ")0; } return out; }"
             lines[
                 #lines + 1
             ] = unused

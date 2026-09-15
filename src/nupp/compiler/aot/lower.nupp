@@ -2791,6 +2791,24 @@ local function simdMethod(
                 type = vectorType,
                 source = source
             )
+        elseif genericFamily == "vector" and method == "swizzle" and #raw == 1 then
+            local indices = lower.expression(raw[1], environment, activeIndex, kernel)
+            if indices.type ~= vectorType then
+                kernel.context.reject(source, "SIMD swizzle indices have a different element or species")
+            end
+            if tostring(genericElement):sub(1, 1) == "f" then
+                kernel.context.reject(
+                    source,
+                    "SIMD swizzle reads its indices as lane numbers and needs an integer vector"
+                )
+            end
+            return new scalarIR.Simd(
+                op = "simd_permute",
+                args = {receiver as scalarIR.Expr, indices},
+                intrinsic = "swizzle",
+                type = vectorType,
+                source = source
+            )
         elseif genericFamily == "vector" and (method == "compress" or method == "expand") and #raw == 1 then
             local selected = lower.expression(raw[1], environment, activeIndex, kernel)
             if selected.type ~= maskType then

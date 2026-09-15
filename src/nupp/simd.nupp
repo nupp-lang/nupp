@@ -434,6 +434,22 @@ sealed interface simd.Vector<T, S>
     --- the beginning. The offset is compile-time constant.
     align: function(borrows self: simd.Vector<T, S>, previous: simd.Vector<T, S>, offset: integer): simd.Vector<T, S>
 
+    --- Every lane read from another lane this vector names at run time.
+    ---
+    --- Lane `i` answers `self:extract(indices:extract(i))`, and zero where that
+    --- index is outside `1..lanes`. Zero rather than a refusal because the
+    --- native instructions answer zero for an out-of-range byte and a check per
+    --- lane would cost more than the lookup.
+    ---
+    --- This is the table lookup: a table is a vector, so there is no table type
+    --- and no constructor taking one entry per argument. A sixteen-entry byte
+    --- table is a `Fixed<16>` vector of constants, or a preferred-width one
+    --- with those sixteen entries repeated, and looking up in it is this.
+    ---
+    --- The indices are read as lane numbers, so the element must be an integer
+    --- one. A float vector has no lane numbering to offer.
+    swizzle: function(borrows self: simd.Vector<T, S>, indices: simd.Vector<T, S>): simd.Vector<T, S>
+
     --- Packs selected lanes toward lane one and zeroes the remainder.
     compress: function(borrows self: simd.Vector<T, S>, selected: simd.Mask<T, S>): simd.Vector<T, S>
 

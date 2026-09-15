@@ -864,6 +864,14 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                     #args == 2 and args[1].type == node.type and args[2].op == "constant",
                     "invalid generic SIMD rotation"
                 )
+            elseif intrinsic == "swizzle" then
+                holds(
+                    #args == 2
+                    and args[1].type == node.type
+                    and args[2].type == node.type
+                    and tostring(element):sub(1, 1) ~= "f",
+                    "invalid generic SIMD swizzle"
+                )
             elseif intrinsic == "align" then
                 holds(
                     #args == 3 and args[1].type == node.type and args[2].type == node.type and args[3].op == "constant",
