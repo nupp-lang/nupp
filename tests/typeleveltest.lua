@@ -1930,6 +1930,46 @@ function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
     assertEq(codes("local value: uint8 = 1\nreturn value\n"), "NUPP2012")
 end
 
+function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
+    clean(table.concat({
+        'local simd = require("nupp.simd")',
+        "@aot",
+        "local function total(): number",
+        "   local sum = simd.reducer.orderedSum(0.0)",
+        "   @simd",
+        "   for i = 1, 4 do",
+        "      sum:add(i)",
+        "   end",
+        "   return sum:value()",
+        "end",
+        "return total",
+    }, "\n"))
+
+    local found = diagnostics(table.concat({
+        'local simd = require("nupp.simd")',
+        "@aot",
+        "local function total(): number",
+        "   local sum = simd.reducer.orderedSum(0.0)",
+        "   local copy = sum",
+        "   @simd",
+        "   for i = 1, 4 do",
+        "      copy:add(i)",
+        "   end",
+        "   return copy:value()",
+        "end",
+        "return total",
+    }, "\n"))
+    local lifecycle = false
+    for _, diagnostic in ipairs(found) do
+        lifecycle = lifecycle or diagnostic.msg:find(
+            "a reducer cannot be copied or passed through another value",
+            1,
+            true
+        ) ~= nil
+    end
+    assert(lifecycle, "nupp check did not enforce reducer ownership")
+end
+
 -- A default body lives on the interface's table and reaches only a declaration
 -- that names the interface with `is`, so a shape has to carry the member itself:
 -- one that does not is refused, wherever the interface is wanted.

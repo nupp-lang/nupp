@@ -133,10 +133,14 @@ function aot.install(c: state.Checker): aot.Ops
             if exact == nil and callee ~= nil and callee.kind == "dotIndex" then
                 local indexed = callee as cst.DotIndex
                 local base = indexed.obj
+                local baseExact = base ~= nil and (base as any).exactCallExport or nil
+                if baseExact ~= nil and indexed.name ~= nil then
+                    exact = {identity = baseExact.identity .. "." .. indexed.name.text,}
+                end
                 local token = base ~= nil and base.kind == "name" and (base as cst.NameExpr).token or nil
                 local definition = token ~= nil and (token as any).definition or nil
                 local moduleName = definition ~= nil and definition.requiredModule or nil
-                if moduleName ~= nil and indexed.name ~= nil then
+                if exact == nil and moduleName ~= nil and indexed.name ~= nil then
                     exact = {identity = moduleName .. "." .. indexed.name.text,}
                 end
             end
@@ -147,6 +151,180 @@ function aot.install(c: state.Checker): aot.Ops
             end
 
             return exact
+        end
+
+        --- The declaration identity of a local name expression.
+        local function localIdentity(current: any): any?
+            if current == nil or current.kind ~= "name" then
+                return nil
+            end
+            local token = (current as cst.NameExpr).token
+
+            return token ~= nil and ((token as any).definition or token) or nil
+        end
+
+        --- Checks reducer ownership while the source tree and lexical binding
+        --- identities are still available. Target lowering repeats these rules
+        --- defensively, but `nupp check` owns the source-level contract.
+        local function reducers(): nil
+            local states: {[any]: any} = {}
+            local ordered: {any} = {}
+            local nextRegion: integer = 0
+
+            local function constructor(current: any): (string?, string?)
+                if current == nil or current.kind ~= "call" then
+                    return nil, nil
+                end
+                local exact = exactCall(current as cst.Call)
+                local identity = exact ~= nil and exact.identity or nil
+                local order: string?
+                local operation: string?
+                if identity ~= nil then
+                    order, operation = identity:match("^nupp%.simd%.reducer%.(%a+)(%u%l+)$")
+                end
+                if order ~= "ordered" and order ~= "pairwise" and order ~= "algebraic" then
+                    return nil, nil
+                end
+                if operation ~= "Sum" and operation ~= "Product" and operation ~= "Dot" then
+                    return nil, nil
+                end
+
+                return order, operation == "Product" and "multiply" or "add"
+            end
+
+            local function diagnose(current: any, message: string): nil
+                c.diag("NUPP2904", cst.firstToken(current) or current, message)
+            end
+
+            local function use(call: cst.MethodCall, region: integer?, direct: boolean): nil
+                local identity = localIdentity(call.obj)
+                local state_ = identity ~= nil and states[identity] or nil
+                if state_ == nil or call.name == nil then
+                    return
+                end
+                local method = call.name.text
+                if method == state_.contribution then
+                    if region == nil then
+                        diagnose(call, "a reducer contribution belongs directly inside one @simd loop")
+                        return
+                    elseif not direct then
+                        diagnose(
+                            call,
+                            "a reducer receives exactly one unconditional contribution per logical iteration"
+                        )
+                    end
+                    if state_.region ~= nil and state_.region ~= region then
+                        diagnose(call, "a reducer is scoped to exactly one @simd loop")
+                    else
+                        state_.region = region
+                    end
+                    state_.contributions = state_.contributions + 1
+                    if state_.contributions > 1 then
+                        diagnose(call, "a reducer receives exactly one contribution per logical iteration")
+                    end
+                elseif method == "value" then
+                    if region ~= nil then
+                        diagnose(call, "a reducer is finalized after its @simd loop")
+                    elseif state_.region == nil then
+                        diagnose(call, "a reducer must receive its contribution before it is finalized")
+                    elseif state_.finalized then
+                        diagnose(call, "a reducer is finalized exactly once")
+                    else
+                        state_.finalized = true
+                    end
+                end
+            end
+
+            local scan: function(any, integer?, boolean): nil
+            scan = function(current: any, region: integer?, direct: boolean): nil
+                if current == nil or cst.isToken(current) then
+                    return
+                end
+                if current.kind == "methodCall" then
+                    use(current as cst.MethodCall, region, direct)
+                    direct = false
+                end
+                for _, child in ipairs(current as {any}) do
+                    scan(child, region, false)
+                end
+            end
+
+            local function simdLoop(loop: any, nested: boolean): nil
+                nextRegion = nextRegion + 1
+                local region = nextRegion
+                if nested then
+                    diagnose(loop, "an @simd loop cannot be nested in another @simd loop")
+                end
+                local loopBody = loop.body
+                for _, statement in ipairs(loopBody ~= nil and loopBody.stats or {}) do
+                    local actual = statement
+                    while actual ~= nil and actual.kind == "pragmaStmt" do
+                        actual = actual.stat
+                    end
+                    if actual ~= nil and actual.kind == "fornumStmt" and actual.simdRequired == true then
+                        simdLoop(actual, true)
+                    elseif statement.kind == "callStmt"
+                        and statement.expr ~= nil
+                        and statement.expr.kind == "methodCall"
+                    then
+                        use(statement.expr as cst.MethodCall, region, true)
+                        for _, argument in ipairs((
+                            statement.expr as cst.MethodCall
+                        ).args ~= nil and (((statement.expr as cst.MethodCall).args as cst.Args).exprs or {}) or {}) do
+                            scan(argument, region, false)
+                        end
+                    else
+                        scan(statement, region, false)
+                    end
+                end
+            end
+
+            for _, statement in ipairs(body and body.stats or {}) do
+                local actual = statement
+                while actual ~= nil and actual.kind == "pragmaStmt" do
+                    actual = actual.stat
+                end
+                if actual ~= nil and actual.kind == "localStmt" then
+                    local local_ = actual as cst.LocalStmt
+                    local names, expressions = local_.names or {}, local_.exprs or {}
+                    if #names == 1 and #expressions == 1 then
+                        local order, contribution = constructor(expressions[1])
+                        if order ~= nil then
+                            local identity = (names[1] as any).definition or names[1]
+                            local state_ = {
+                                identity = identity,
+                                source = names[1],
+                                contribution = contribution,
+                                contributions = 0,
+                                finalized = false,
+                            }
+                            states[identity] = state_
+                            ordered[#ordered + 1] = state_
+                        else
+                            local copied = localIdentity(expressions[1])
+                            if copied ~= nil and states[copied] ~= nil then
+                                diagnose(actual, "a reducer cannot be copied or passed through another value")
+                            end
+                        end
+                    end
+                    scan(actual, nil, false)
+                elseif actual ~= nil and actual.kind == "fornumStmt" and actual.simdRequired == true then
+                    simdLoop(actual, false)
+                else
+                    scan(actual, nil, false)
+                end
+            end
+
+            for _, state_ in ipairs(ordered) do
+                if state_.region == nil then
+                    diagnose(
+                        state_.source,
+                        "a reducer belongs to exactly one @simd loop and must receive one contribution"
+                    )
+                elseif not state_.finalized then
+                    diagnose(state_.source, "a reducer is finalized exactly once after its @simd loop")
+                end
+            end
         end
 
         local walk: function(any, boolean?): nil
@@ -210,6 +388,7 @@ function aot.install(c: state.Checker): aot.Ops
             end
         end
 
+        reducers()
         walk(node, false)
     end
 
