@@ -446,9 +446,19 @@ sealed interface simd.Vector<T, S>
     --- table is a `Fixed<16>` vector of constants, or a preferred-width one
     --- with those sixteen entries repeated, and looking up in it is this.
     ---
+    --- With `other`, the lanes of both are numbered in one run: an index in
+    --- `1..lanes` reads `self` and one in `lanes+1..2*lanes` reads `other`.
+    --- That is the shape `align` needs and one vector cannot reach, and it is
+    --- what makes this one operation rather than a family of them. It is last
+    --- and optional on the same terms `load`'s mask is.
+    ---
     --- The indices are read as lane numbers, so the element must be an integer
     --- one. A float vector has no lane numbering to offer.
-    swizzle: function(borrows self: simd.Vector<T, S>, indices: simd.Vector<T, S>): simd.Vector<T, S>
+    swizzle: function(
+        borrows self: simd.Vector<T, S>,
+        indices: simd.Vector<T, S>,
+        other: simd.Vector<T, S>?
+    ): simd.Vector<T, S>
 
     --- Packs selected lanes toward lane one and zeroes the remainder.
     compress: function(borrows self: simd.Vector<T, S>, selected: simd.Mask<T, S>): simd.Vector<T, S>

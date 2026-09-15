@@ -2532,6 +2532,41 @@ return {lookup = lookup}
     )
 end
 
+function M.aPairedSwizzleNumbersBothVectorsInOneRun()
+    local source = [[
+local simd = require("nupp.simd")
+
+@aot
+local function joined(): (number, number, number, number)
+    local species: simd.Species<uint8, simd.Fixed<16>> = simd.fixed()
+    local first = species:splat(1)
+    local second = species:splat(2)
+    -- Lane 1 reads first, lane 17 the first lane of second, 99 neither.
+    local pick = species:iota(1, 1):insert(2, 17):insert(3, 99)
+    local out = first:swizzle(pick, second)
+
+    return out:extract(1), out:extract(2), out:extract(3), species.lanes
+end
+
+return {joined = joined}
+]]
+    local dir = project{["pair.nupp"] = source}
+    local decoded, raw, code, where = lowered(
+        dir,
+        "--target aarch64-apple-darwin --features neon --json pair.nupp"
+    )
+    test.equal(code, 0, raw)
+    assert(
+        decoded.ir:find("simd_permute.swizzle_pair", 1, true),
+        where .. ": the paired form is its own intrinsic\n" .. decoded.ir
+    )
+    assert(
+        decoded.c:find("ks_exp_swizzle_pair_u8x16", 1, true)
+            and decoded.c:find("ks_scalar_exp_swizzle_pair_u8x16", 1, true),
+        where .. ": production and oracle bodies are both emitted"
+    )
+end
+
 function M.aSwizzleNeedsLaneNumbersRatherThanAFloatingElement()
     local source = [[
 local simd = require("nupp.simd")

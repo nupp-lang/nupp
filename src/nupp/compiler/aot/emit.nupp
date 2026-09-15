@@ -4705,6 +4705,34 @@ local function genericSimdPrelude(width: integer): {string}
         -- range, and each is zero-based where this is one-based, so subtracting
         -- one first is the whole adaptation: lane index zero wraps to 255, which
         -- every one of them already answers zero for.
+        -- Both vectors numbered in one run, which is what an alignment across a
+        -- block boundary needs. aarch64 has a two-register table for the
+        -- sixteen-byte case; everywhere else this is the lane loop until a
+        -- composition is written and differentialled.
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_swizzle_pair_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " first, "
+            .. vector
+            .. " second, "
+            .. vector
+            .. " indices) { "
+            .. vector
+            .. " out; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; out[i] = at < " .. tostring(
+            lanes
+        ) .. "u ? first[at] : (at - " .. tostring(
+            lanes
+        ) .. "u) < " .. tostring(
+            lanes
+        ) .. "u ? second[at - " .. tostring(lanes) .. "u] : (" .. element.c .. ")0; } return out; }"
         local byteTable = (element.name == "u8" or element.name == "i8") and (lanes == 16 or lanes == 32)
         local portable = "for (uint32_t i = 0u; i < " .. tostring(
             lanes
@@ -5016,6 +5044,30 @@ local function genericSimdPrelude(width: integer): {string}
             .. " value, double lane, "
             .. element.c
             .. " replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_swizzle_pair_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " first, "
+            .. scalarVector
+            .. " second, "
+            .. scalarVector
+            .. " indices) { "
+            .. scalarVector
+            .. " out; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) { uint32_t at = (uint32_t)indices.lane[i] - 1u; out.lane[i] = at < " .. tostring(
+            lanes
+        ) .. "u ? first.lane[at] : (at - " .. tostring(
+            lanes
+        ) .. "u) < " .. tostring(
+            lanes
+        ) .. "u ? second.lane[at - " .. tostring(lanes) .. "u] : (" .. element.c .. ")0; } return out; }"
         lines[
             #lines + 1
         ] = unused
@@ -5551,6 +5603,51 @@ local function fixedSimdPrelude(width: integer): {string}
                 #lines + 1
             ] = unused
                 .. vector
+                .. " ks_exp_swizzle_pair_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " first, "
+                .. vector
+                .. " second, "
+                .. vector
+                .. " indices) { "
+                .. vector
+                .. " out = ks_exp_splat_"
+                .. suffix
+                .. "(("
+                .. element.c
+                .. ")0); for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            )
+                .. "u; ++i) { uint32_t at = (uint32_t)ks_exp_extract_"
+                .. suffix
+                .. "(indices, (double)(i + 1u)) - 1u; "
+                .. element.c
+                .. " picked = ("
+                .. element.c
+                .. ")0; bool found = false; if (at < "
+                .. tostring(
+                lanes
+            )
+                .. "u) { picked = ks_exp_extract_"
+                .. suffix
+                .. "(first, (double)(at + 1u)); found = true; } else if ((at - "
+                .. tostring(
+                lanes
+            ) .. "u) < " .. tostring(
+                lanes
+            ) .. "u) { picked = ks_exp_extract_" .. suffix .. "(second, (double)(at - " .. tostring(
+                lanes
+            )
+                .. "u + 1u)); found = true; } if (found) { out = ks_exp_insert_"
+                .. suffix
+                .. "(out, (double)(i + 1u), picked); } } return out; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
                 .. " ks_exp_swizzle_"
                 .. suffix
                 .. "("
@@ -5949,6 +6046,30 @@ local function fixedSimdPrelude(width: integer): {string}
                 .. " value, double lane, "
                 .. element.c
                 .. " replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_swizzle_pair_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " first, "
+                .. scalarVector
+                .. " second, "
+                .. scalarVector
+                .. " indices) { "
+                .. scalarVector
+                .. " out; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) { uint32_t at = (uint32_t)indices.lane[i] - 1u; out.lane[i] = at < " .. tostring(
+                lanes
+            ) .. "u ? first.lane[at] : (at - " .. tostring(
+                lanes
+            ) .. "u) < " .. tostring(
+                lanes
+            ) .. "u ? second.lane[at - " .. tostring(lanes) .. "u] : (" .. element.c .. ")0; } return out; }"
             lines[
                 #lines + 1
             ] = unused

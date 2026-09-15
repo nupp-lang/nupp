@@ -864,14 +864,13 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                     #args == 2 and args[1].type == node.type and args[2].op == "constant",
                     "invalid generic SIMD rotation"
                 )
-            elseif intrinsic == "swizzle" then
-                holds(
-                    #args == 2
-                    and args[1].type == node.type
-                    and args[2].type == node.type
-                    and tostring(element):sub(1, 1) ~= "f",
-                    "invalid generic SIMD swizzle"
-                )
+            elseif intrinsic == "swizzle" or intrinsic == "swizzle_pair" then
+                local operands = intrinsic == "swizzle_pair" and 3 or 2
+                local sameShape = #args == operands
+                for position = 1, operands do
+                    sameShape = sameShape and args[position] ~= nil and args[position].type == node.type
+                end
+                holds(sameShape and tostring(element):sub(1, 1) ~= "f", "invalid generic SIMD swizzle")
             elseif intrinsic == "align" then
                 holds(
                     #args == 3 and args[1].type == node.type and args[2].type == node.type and args[3].op == "constant",
