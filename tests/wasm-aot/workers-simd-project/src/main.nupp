@@ -21,11 +21,4 @@ with scope = workers.scope() do
     end
 end
 
-return ("{%q:%s,%q:%d,%q:%d}"):format(
-    "kernelAgreed",
-    agreed and "true" or "false",
-    "tasks",
-    lanes,
-    "values",
-    #expected
-)
+return ("{%q:%s,%q:%d,%q:%d}"):format("kernelAgreed", agreed and "true" or "false", "tasks", lanes, "values", #expected)

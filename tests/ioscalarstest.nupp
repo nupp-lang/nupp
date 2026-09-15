@@ -1,9 +1,14 @@
+const {type Reader} = require("nupp.io")
+const {type Buffer} = require("nupp.io")
+const {type Writer} = require("nupp.io")
+const io2 = require("nupp.io")
+
 local text = require("nupp.text")
 local span = require("nupp.mem.span")
 
 local M = {}
 
-local record ProbeReader is nupp.io.Reader
+local record ProbeReader is Reader
     state: any
 
     function read(self, count: integer): (string?, string?)
@@ -14,16 +19,11 @@ local record ProbeReader is nupp.io.Reader
         return 0
     end
 
-    function readInto(
-        self,
-        exclusive destination: nupp.io.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
+    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
         return 0
     end
 
-    function transferTo(self, exclusive destination: nupp.io.Writer): (integer?, string?)
+    function transferTo(self, exclusive destination: Writer): (integer?, string?)
         return 0
     end
 
@@ -32,7 +32,7 @@ local record ProbeReader is nupp.io.Reader
     end
 end
 
-local record ProbeWriter is nupp.io.Writer
+local record ProbeWriter is Writer
     state: any
 
     function write(exclusive self, bytes: string): (boolean, string?)
@@ -53,7 +53,7 @@ local record ProbeWriter is nupp.io.Writer
 end
 
 function M.roundTripsEveryCScalar(): nil
-    local writer = nupp.io.newScalarWriter()
+    local writer = io2.newScalarWriter()
     writer:writeUint8(255)
     writer:writeInt8(nupp.math.i32.wrap(-128))
     writer:writeUint16(65535)
@@ -67,7 +67,7 @@ function M.roundTripsEveryCScalar(): nil
 
     local stored = writer:buffer()
     assert(stored ~= nil)
-    local reader = nupp.io.newScalarReader(stored as nupp.io.Buffer)
+    local reader = io2.newScalarReader(stored as Buffer)
     assert(reader:remaining() == 42)
     assert(reader:readUint8() == 255)
     assert(reader:readInt8() == -128)
@@ -84,7 +84,7 @@ function M.roundTripsEveryCScalar(): nil
 end
 
 function M.movesRawBytesAndTracksTheCursor(): nil
-    local reader = nupp.io.newScalarReader("abcdef")
+    local reader = io2.newScalarReader("abcdef")
     assert(reader:readBytes(2) == "ab")
     assert(reader:skip(2) == reader)
     assert(reader:remaining() == 2)
@@ -93,16 +93,16 @@ function M.movesRawBytesAndTracksTheCursor(): nil
 end
 
 function M.appendsToABufferItWasGiven(): nil
-    local destination = nupp.io.newBuffer("head")
-    local writer = nupp.io.newScalarWriter(destination)
+    local destination = io2.newBuffer("head")
+    local writer = io2.newScalarWriter(destination)
     assert(writer:buffer() == destination)
     assert(writer:writeBytes(":"):writeUint8(33) == writer)
     assert(destination:getString() == "head:!")
 end
 
 function M.writesThroughSomebodyElsesWriter(): nil
-    local destination = nupp.io.newBuffer()
-    local writer = nupp.io.newScalarWriter(destination:newWriter())
+    local destination = io2.newBuffer()
+    local writer = io2.newScalarWriter(destination:newWriter())
     assert(writer:buffer() == nil)
     writer:writeUint16(513)
     assert(writer:flush())
@@ -110,7 +110,7 @@ function M.writesThroughSomebodyElsesWriter(): nil
 end
 
 function M.readsThroughAnyReader(): nil
-    local reader = nupp.io.newScalarReader(nupp.io.newStringReader("\1\2\3\4rest"))
+    local reader = io2.newScalarReader(io2.newStringReader("\1\2\3\4rest"))
     assert(reader:remaining() == nil)
     assert(reader:readUint32() == 67305985)
     assert(reader:readBytes(4) == "rest")
@@ -122,7 +122,7 @@ function M.readsAStringBufferInPlace(): nil
     queue:put("head:")
     queue:put("!")
 
-    local reader = nupp.io.newScalarReader(queue)
+    local reader = io2.newScalarReader(queue)
     assert(reader:remaining() == 6)
     assert(reader:readBytes(5) == "head:")
     assert(queue:tostring() == "!")
@@ -134,15 +134,15 @@ function M.bridgesAStringBufferIntoTheReaderContract(): nil
     local queue = text.newBuffer()
     queue:put("payload")
 
-    local destination = nupp.io.newBuffer()
-    local reader = nupp.io.newQueueReader(queue)
+    local destination = io2.newBuffer()
+    local reader = io2.newQueueReader(queue)
     assert(reader:transferTo(destination:newWriter()) == 7)
     assert(destination:getString() == "payload")
     assert(reader:read(8) == "")
 end
 
 function M.shortReadsRaiseBeforeConsuming(): nil
-    local reader = nupp.io.newScalarReader("x")
+    local reader = io2.newScalarReader("x")
     local ok, reason = pcall(function(): nil
         reader:readUint16()
     end)
@@ -152,7 +152,7 @@ function M.shortReadsRaiseBeforeConsuming(): nil
 end
 
 function M.bufferWriteLeasesCommitAtomically(): nil
-    local destination = nupp.io.newBuffer("head")
+    local destination = io2.newBuffer("head")
     do
         local lease = destination:reserveWrite(4, 4)
         do
@@ -175,20 +175,20 @@ function M.bufferWriteLeasesCommitAtomically(): nil
 end
 
 function M.readerCountsArePositiveAndEofDoesNotGrowBuffers(): nil
-    local reader = nupp.io.newStringReader("x")
+    local reader = io2.newStringReader("x")
     assert(
         not pcall(function(): nil
             reader:read(0)
         end)
     )
-    local destination = nupp.io.newBuffer("kept")
+    local destination = io2.newBuffer("kept")
     assert(reader:readInto(destination, 4, 1) == 1)
     assert(destination:getString() == "keptx")
     assert(reader:readInto(destination, 20, 1) == 0)
     assert(destination:getString() == "keptx")
     assert(
         not pcall(function(): nil
-            local other = nupp.io.newBuffer()
+            local other = io2.newBuffer()
             reader:readInto(other, 0, 0)
         end)
     )
@@ -197,26 +197,26 @@ end
 function M.scalarAdaptersFinishTakenEndpointsExactlyOnce(): nil
     local readerDrop = {drops = 0, closes = 0}
     do
-        local scalar = nupp.io.newScalarReader(new ProbeReader(state = readerDrop))
+        local scalar = io2.newScalarReader(new ProbeReader(state = readerDrop))
     end
     assert(readerDrop.closes == 1)
 
     local readerClose = {drops = 0, closes = 0}
     do
-        local scalar = nupp.io.newScalarReader(new ProbeReader(state = readerClose))
+        local scalar = io2.newScalarReader(new ProbeReader(state = readerClose))
         assert(scalar:close())
     end
     assert(readerClose.closes == 1)
 
     local writerDrop = {drops = 0, closes = 0}
     do
-        local scalar = nupp.io.newScalarWriter(new ProbeWriter(state = writerDrop))
+        local scalar = io2.newScalarWriter(new ProbeWriter(state = writerDrop))
     end
     assert(writerDrop.closes == 1)
 
     local writerClose = {drops = 0, closes = 0}
     do
-        local scalar = nupp.io.newScalarWriter(new ProbeWriter(state = writerClose))
+        local scalar = io2.newScalarWriter(new ProbeWriter(state = writerClose))
         assert(scalar:close())
     end
     assert(writerClose.closes == 1)

@@ -113,6 +113,7 @@ end
 -- And the caller is refused before anything is submitted at all.
 with scope = workers.scope() do
     local shared = {name = "a"}
+
     local function submitAnAlias(): nil
         scope:spawn({shared, shared}, jobs.count)
     end
@@ -178,6 +179,7 @@ end
 with scope = workers.scope() do
     local submitted: integer = 0
     local refused: string? = nil
+
     local function submit(): nil
         scope:spawn("x", 1, jobs.checksum)
     end
@@ -238,6 +240,7 @@ boolean("taskScopeOwnsWorkers", owned == jobs.checksum("browser-worker", 1))
 
 -- The scope's deadline reaches the lane, and the checkpoint is where it lands.
 local deadlineStarted = time.now()
+
 local function bounded(): nil
     with inner = tasks.open(deadline = 250) do
         inner:fork(400, 25, jobs.cooperative):await()
