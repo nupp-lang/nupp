@@ -576,6 +576,7 @@ type aotLane.Target = aotLane.LocalTarget | aotLane.FieldTarget | aotLane.SpanTa
 record aotLane.Assignment
     target: aotLane.Target
     value: aotLane.Expr
+    right: aotLane.Expr?
 end
 
 --- Simultaneous assignment, as the source wrote it.
@@ -664,9 +665,10 @@ record aotLane.ReducerAdd
     reducer: string
     reducerCName: string
     value: aotLane.Expr
+    right: aotLane.Expr?
     mask: aotLane.Expr?
     order: 'ordered' | 'pairwise' | 'algebraic'
-    operation: 'sum'
+    operation: 'sum' | 'product' | 'dot'
     source: aotLane.Source?
 end
 

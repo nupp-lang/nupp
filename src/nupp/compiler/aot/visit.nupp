@@ -268,6 +268,7 @@ function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewr
             local value = node as scalarIR.ReducerAdd
             value.reducer = rewrite(value.reducer)
             value.value = rewrite(value.value)
+            value.right = rewriteOptional(value.right, rewrite)
             yield nil
         end
         case "reducer_value" -> do
@@ -521,6 +522,9 @@ laneStatement = function(node: lane.Statement, visitor: visit.Visitor): nil
         case "vreducer_add" -> do
             local value = node as lane.ReducerAdd
             laneExpression(value.value, visitor)
+            if value.right ~= nil then
+                laneExpression(value.right as lane.Expr, visitor)
+            end
             if value.mask ~= nil then
                 laneExpression(value.mask as lane.Expr, visitor)
             end

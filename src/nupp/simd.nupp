@@ -83,6 +83,115 @@ record reducer.AlgebraicSum
     end
 end
 
+--- A floating-point product committed in logical iteration order.
+--- @export
+record reducer.OrderedProduct
+    total: number
+
+    function multiply(self, value: number): nil
+        self.total = self.total * value
+    end
+
+    function value(self): number
+        return self.total
+    end
+end
+
+--- A floating-point product using the width-independent adjacent-pair tree.
+--- @export
+record reducer.PairwiseProduct
+    partials: {number?}
+    count: integer
+
+    function multiply(self, value: number): nil
+        local carry = value
+        local occupied = self.count
+        local level: integer = 1
+        while occupied % 2 == 1 do
+            carry = (self.partials[level] as number) * carry
+            self.partials[level] = nil
+            occupied = (occupied // 2) as integer
+            level = level + 1
+        end
+        self.partials[level] = carry
+        self.count = self.count + 1
+    end
+
+    function value(self): number
+        local result: number? = nil
+        local level: integer = #self.partials
+        while level >= 1 do
+            local partial = self.partials[level]
+            if partial ~= nil then
+                if result == nil then
+                    result = partial
+                else
+                    result = (result as number) * partial
+                end
+            end
+            level = level - 1
+        end
+
+        return result as number
+    end
+end
+
+--- A floating-point product whose named contract permits reassociation.
+--- @export
+record reducer.AlgebraicProduct
+    total: number
+
+    function multiply(self, value: number): nil
+        self.total = self.total * value
+    end
+
+    function value(self): number
+        return self.total
+    end
+end
+
+--- A dot product committed in logical iteration order without contraction.
+--- @export
+record reducer.OrderedDot
+    total: number
+
+    function add(self, left: number, right: number): nil
+        self.total = self.total + left * right
+    end
+
+    function value(self): number
+        return self.total
+    end
+end
+
+--- A non-contracting dot product using the adjacent-pair sum tree.
+--- @export
+record reducer.PairwiseDot
+    sum: reducer.PairwiseSum
+
+    function add(self, left: number, right: number): nil
+        self.sum:add(left * right)
+    end
+
+    function value(self): number
+        return self.sum:value()
+    end
+end
+
+--- A dot product permitting reassociation and multiply-add contraction.
+--- @export
+record reducer.AlgebraicDot
+    total: number
+
+    function add(self, left: number, right: number): nil
+        self.total = self.total + left * right
+    end
+
+    function value(self): number
+        return self.total
+    end
+end
+
 --- Constructs an ordered floating-point sum.
 --- @export
 function reducer.orderedSum(initial: number): reducer.OrderedSum
@@ -102,6 +211,45 @@ end
 --- @export
 function reducer.algebraicSum(initial: number): reducer.AlgebraicSum
     return new reducer.AlgebraicSum(total = initial)
+end
+
+--- Constructs an ordered floating-point product.
+--- @export
+function reducer.orderedProduct(initial: number): reducer.OrderedProduct
+    return new reducer.OrderedProduct(total = initial)
+end
+
+--- Constructs a width-independent pairwise floating-point product.
+--- @export
+function reducer.pairwiseProduct(initial: number): reducer.PairwiseProduct
+    local out = new reducer.PairwiseProduct(partials = {}, count = 0)
+    out:multiply(initial)
+
+    return out
+end
+
+--- Constructs a reassociable floating-point product.
+--- @export
+function reducer.algebraicProduct(initial: number): reducer.AlgebraicProduct
+    return new reducer.AlgebraicProduct(total = initial)
+end
+
+--- Constructs an ordered, non-contracting floating-point dot product.
+--- @export
+function reducer.orderedDot(initial: number): reducer.OrderedDot
+    return new reducer.OrderedDot(total = initial)
+end
+
+--- Constructs a pairwise, non-contracting floating-point dot product.
+--- @export
+function reducer.pairwiseDot(initial: number): reducer.PairwiseDot
+    return new reducer.PairwiseDot(sum = reducer.pairwiseSum(initial))
+end
+
+--- Constructs a reassociable, contractible floating-point dot product.
+--- @export
+function reducer.algebraicDot(initial: number): reducer.AlgebraicDot
+    return new reducer.AlgebraicDot(total = initial)
 end
 
 simd.reducer = reducer

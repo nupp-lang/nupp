@@ -1763,6 +1763,18 @@ function rewrite.block(
                 contribution.value,
                 state
             ) and rewrite.expression(contribution.value, state) or rewrite.splat(contribution.value, "f64", state)
+            local right: lane.Expr? = nil
+            if contribution.right ~= nil then
+                right = (
+                    rewrite.varying(
+                        contribution.right as scalarIR.Expr,
+                        state
+                    ) and rewrite.expression(
+                        contribution.right as scalarIR.Expr,
+                        state
+                    ) or rewrite.splat(contribution.right as scalarIR.Expr, "f64", state)
+                ) as lane.Expr
+            end
             out[
                 #out + 1
             ] = new lane.ReducerAdd(
@@ -1770,6 +1782,7 @@ function rewrite.block(
                 reducer = named.name,
                 reducerCName = tostring(named.cName),
                 value = value as lane.Expr,
+                right = right,
                 order = contribution.order,
                 operation = contribution.operation,
                 source = contribution.source

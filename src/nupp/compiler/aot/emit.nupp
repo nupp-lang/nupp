@@ -334,9 +334,18 @@ function emit.cType(typeName: string): string
             error("explicit SIMD width was not selected", 0)
         end
         return (explicitScalar and "KsScalarBlockU8x64x" or "KsBlockU8x64x") .. tostring(explicitWidth)
-    elseif typeName == "simd_reducer_pairwise_sum" then
+    elseif typeName == "simd_reducer_pairwise_sum"
+        or typeName == "simd_reducer_pairwise_product"
+        or typeName == "simd_reducer_pairwise_dot"
+    then
         return "KsPairwiseF64"
-    elseif typeName == "simd_reducer_ordered_sum" or typeName == "simd_reducer_algebraic_sum" then
+    elseif typeName == "simd_reducer_ordered_sum"
+        or typeName == "simd_reducer_algebraic_sum"
+        or typeName == "simd_reducer_ordered_product"
+        or typeName == "simd_reducer_algebraic_product"
+        or typeName == "simd_reducer_ordered_dot"
+        or typeName == "simd_reducer_algebraic_dot"
+    then
         return "double"
     end
     local layout = typeName:match("^ref:(.+)$")
@@ -482,14 +491,22 @@ function emit.scalar(node: scalarIR.Expr): string
     elseif operation == "reducer_init" then
         local reducer = node as scalarIR.ReducerInit
         if reducer.order == "pairwise" then
-            return "ks_pairwise_f64_init(" .. emit.scalar(reducer.initial) .. ")"
+            local helper = reducer.operation == "product" and "ks_pairwise_f64_product_init(" or "ks_pairwise_f64_init("
+            return helper .. emit.scalar(reducer.initial) .. ")"
         else
             return emit.scalar(reducer.initial)
         end
     elseif operation == "reducer_value" then
         local reducer = node as scalarIR.ReducerValue
         local name = emit.scalar(reducer.reducer)
-        return reducer.order == "pairwise" and "ks_pairwise_f64_value(" .. name .. ")" or name
+        if reducer.order == "pairwise" then
+            local helper = reducer.operation == "product"
+                and "ks_pairwise_f64_product_value("
+                or "ks_pairwise_f64_value("
+            return helper .. name .. ")"
+        else
+            return name
+        end
     elseif operation == "lua_string_length" then
         local bytes = (node as scalarIR.LuaBytes).bytes as scalarIR.Name
         return "ks_lua_string_length(L, ks_length_" .. tostring(bytes.cName) .. ")"
@@ -1344,14 +1361,22 @@ function emit.lane(node: lane.Expr | scalarIR.Expr): string
     if operation == "reducer_init" then
         local reducer = node as scalarIR.ReducerInit
         if reducer.order == "pairwise" then
-            return "ks_pairwise_f64_init(" .. emit.lane(reducer.initial) .. ")"
+            local helper = reducer.operation == "product" and "ks_pairwise_f64_product_init(" or "ks_pairwise_f64_init("
+            return helper .. emit.lane(reducer.initial) .. ")"
         else
             return emit.lane(reducer.initial)
         end
     elseif operation == "reducer_value" then
         local reducer = node as scalarIR.ReducerValue
         local name = emit.lane(reducer.reducer)
-        return reducer.order == "pairwise" and "ks_pairwise_f64_value(" .. name .. ")" or name
+        if reducer.order == "pairwise" then
+            local helper = reducer.operation == "product"
+                and "ks_pairwise_f64_product_value("
+                or "ks_pairwise_f64_value("
+            return helper .. name .. ")"
+        else
+            return name
+        end
     elseif operation == "vindex" then
         local index = node as lane.Index
         local parts: {string} = {}
@@ -3870,6 +3895,21 @@ local function scalarHelpers(): {string}
         "    }",
         "    return result;",
         "}",
+        unused .. "void ks_pairwise_f64_product_add(KsPairwiseF64 *state, double value) {",
+        "    uint64_t occupied = state->count; uint32_t level = 0u;",
+        "    while ((occupied & UINT64_C(1)) != 0u) { value = state->partial[level] * value; occupied >>= 1u; ++level; }",
+        "    state->partial[level] = value; ++state->count;",
+        "}",
+        unused .. "KsPairwiseF64 ks_pairwise_f64_product_init(double initial) {",
+        "    KsPairwiseF64 out = {{0}, 0u}; ks_pairwise_f64_product_add(&out, initial); return out;",
+        "}",
+        unused .. "double ks_pairwise_f64_product_value(KsPairwiseF64 state) {",
+        "    double result = 1.0; bool have = false;",
+        "    for (int32_t level = 63; level >= 0; --level) if (((state.count >> level) & UINT64_C(1)) != 0u) {",
+        "        result = have ? result * state.partial[level] : state.partial[level]; have = true;",
+        "    }",
+        "    return result;",
+        "}",
         "",
         unused .. "double nupp_min2(double left, double right) {",
         "    return left < right ? left : right;",
@@ -6163,6 +6203,9 @@ record emit.Body
     --- Erase required lane regions while emitting the independent scalar
     --- oracle from the same scalar IR.
     forceScalar: boolean?
+
+    --- Backend-selected lane accumulators for algebraic loop reducers.
+    algebraicReducers: {[string]: string}?
 end
 
 --- Pushes one verified construction value on the Lua stack.
@@ -7175,55 +7218,84 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
             temporary = temporary + 1
             local vectorType = tostring(contribution.value.type)
             local temp = "reduce" .. tostring(temporary)
-            lines[
-                #lines + 1
-            ] = prefix .. emit.cType(vectorType) .. " " .. temp .. " = " .. emit.lane(contribution.value) .. ";"
+            local contributed = contribution.right ~= nil and "(" .. emit.lane(
+                contribution.value
+            ) .. " * " .. emit.lane(contribution.right as lane.Expr) .. ")" or emit.lane(contribution.value)
+            lines[#lines + 1] = prefix .. emit.cType(vectorType) .. " " .. temp .. " = " .. contributed .. ";"
             local _, width = emit.vectorParts(vectorType)
-            for laneIndex = 0, width - 1 do
-                if contribution.order == "pairwise" then
-                    lines[
-                        #lines + 1
-                    ] = prefix
-                        .. "ks_pairwise_f64_add(&"
-                        .. contribution.reducerCName
-                        .. ", (double)"
-                        .. temp
-                        .. "["
-                        .. tostring(
-                        laneIndex
-                    ) .. "]);"
-                else
-                    lines[
-                        #lines + 1
-                    ] = prefix .. contribution.reducerCName .. " += (double)" .. temp .. "[" .. tostring(
-                        laneIndex
-                    ) .. "];"
+            local algebraic = body.algebraicReducers ~= nil and body.algebraicReducers[contribution.reducer] or nil
+            if contribution.order == "algebraic" and algebraic ~= nil then
+                lines[
+                    #lines + 1
+                ] = prefix .. algebraic .. (contribution.operation == "product" and " *= " or " += ") .. temp .. ";"
+            else
+                for laneIndex = 0, width - 1 do
+                    if contribution.order == "pairwise" then
+                        local helper = contribution.operation == "product"
+                            and "ks_pairwise_f64_product_add(&"
+                            or "ks_pairwise_f64_add(&"
+                        lines[
+                            #lines + 1
+                        ] = prefix .. helper .. contribution.reducerCName .. ", (double)" .. temp .. "[" .. tostring(
+                            laneIndex
+                        ) .. "]);"
+                    else
+                        local operator = contribution.operation == "product" and " *= " or " += "
+                        lines[
+                            #lines + 1
+                        ] = prefix .. contribution.reducerCName .. operator .. "(double)" .. temp .. "[" .. tostring(
+                            laneIndex
+                        ) .. "];"
+                    end
                 end
             end
         elseif op == "reducer_add" then
             local contribution = statement as scalarIR.ReducerAdd
             local named = contribution.reducer as scalarIR.Name
+            local contributed = contribution.right ~= nil and "(" .. emit.lane(
+                contribution.value
+            ) .. " * " .. emit.lane(contribution.right as scalarIR.Expr) .. ")" or emit.lane(contribution.value)
             if contribution.order == "pairwise" then
-                lines[
-                    #lines + 1
-                ] = prefix .. "ks_pairwise_f64_add(&" .. tostring(
-                    named.cName
-                ) .. ", " .. emit.lane(contribution.value) .. ");"
+                local helper = contribution.operation == "product"
+                    and "ks_pairwise_f64_product_add(&"
+                    or "ks_pairwise_f64_add(&"
+                lines[#lines + 1] = prefix .. helper .. tostring(named.cName) .. ", " .. contributed .. ");"
             else
-                lines[#lines + 1] = prefix .. tostring(named.cName) .. " += " .. emit.lane(contribution.value) .. ";"
+                local operator = contribution.operation == "product" and " *= " or " += "
+                lines[#lines + 1] = prefix .. tostring(named.cName) .. operator .. contributed .. ";"
             end
         elseif op == "fornum" and statement.lanes ~= nil and body.forceScalar ~= true then
             local region = statement as scalarIR.Fornum
             local lanes = region.lanes as scalarIR.LaneBody
             local width = tostring(lanes.lanes)
+            local algebraicReducers: {[string]: string} = {}
+            local algebraicOrder: {lane.ReducerAdd} = {}
+            for _, laneStatement in ipairs(lanes.statements) do
+                if laneStatement.op == "vreducer_add" and laneStatement.order == "algebraic" then
+                    local contribution = laneStatement as lane.ReducerAdd
+                    algebraicOrder[#algebraicOrder + 1] = contribution
+                    algebraicReducers[contribution.reducer] = "reduce_acc_" .. tostring(temporary + #algebraicOrder)
+                end
+            end
             local laneBody = new emit.Body(
                 helpers = body.helpers,
                 lanes = lanes.lanes,
                 layouts = body.layouts,
                 resultStruct = body.resultStruct,
-                forceScalar = false
+                forceScalar = false,
+                algebraicReducers = algebraicReducers
             )
             lines[#lines + 1] = prefix .. "{"
+            for _, contribution in ipairs(algebraicOrder) do
+                local accumulator = algebraicReducers[contribution.reducer] as string
+                lines[
+                    #lines + 1
+                ] = prefix .. "    " .. emit.cType(
+                    contribution.value.type
+                ) .. " " .. accumulator .. " = ks_splat_" .. tostring(
+                    contribution.value.type
+                ) .. (contribution.operation == "product" and "(1.0);" or "(0.0);")
+            end
             lines[#lines + 1] = prefix .. "    size_t i = (size_t)((int32_t)(" .. emit.lane(region.from) .. ") - 1);"
             lines[#lines + 1] = prefix .. "    size_t end = (size_t)(int32_t)(" .. emit.lane(region.to) .. ");"
             lines[
@@ -7234,6 +7306,24 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
                 lines[#lines + 1] = line
             end
             lines[#lines + 1] = prefix .. "    }"
+            for _, contribution in ipairs(algebraicOrder) do
+                local accumulator = algebraicReducers[contribution.reducer] as string
+                for laneIndex = 0, lanes.lanes - 1 do
+                    local operator = contribution.operation == "product" and " *= " or " += "
+                    lines[
+                        #lines + 1
+                    ] = prefix
+                        .. "    "
+                        .. contribution.reducerCName
+                        .. operator
+                        .. "(double)"
+                        .. accumulator
+                        .. "["
+                        .. tostring(
+                        laneIndex
+                    ) .. "];"
+                end
+            end
             lines[
                 #lines + 1
             ] = prefix

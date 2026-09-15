@@ -386,6 +386,12 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
         OrderedSum = "simd_reducer_ordered_sum",
         PairwiseSum = "simd_reducer_pairwise_sum",
         AlgebraicSum = "simd_reducer_algebraic_sum",
+        OrderedProduct = "simd_reducer_ordered_product",
+        PairwiseProduct = "simd_reducer_pairwise_product",
+        AlgebraicProduct = "simd_reducer_algebraic_product",
+        OrderedDot = "simd_reducer_ordered_dot",
+        PairwiseDot = "simd_reducer_pairwise_dot",
+        AlgebraicDot = "simd_reducer_algebraic_dot",
     }
 
     return simdTypes[origin.name]
@@ -802,6 +808,9 @@ record lower.Kernel
     modules: {[string]: string}
 
     intrinsicAliases: {[string]: string}
+
+    --- Whether source is currently inside an authored outer SIMD region.
+    simdSource: boolean?
 
     --- Ordinary local strings proven to be append-only accumulators.
     stringAccumulators: {[string]: boolean}
@@ -1535,17 +1544,24 @@ local function call(
     elseif identity == "nupp.simd.reducer.orderedSum"
         or identity == "nupp.simd.reducer.pairwiseSum"
         or identity == "nupp.simd.reducer.algebraicSum"
+        or identity == "nupp.simd.reducer.orderedProduct"
+        or identity == "nupp.simd.reducer.pairwiseProduct"
+        or identity == "nupp.simd.reducer.algebraicProduct"
+        or identity == "nupp.simd.reducer.orderedDot"
+        or identity == "nupp.simd.reducer.pairwiseDot"
+        or identity == "nupp.simd.reducer.algebraicDot"
     then
         if #args ~= 1 then
-            context.reject(lower.site(node), "a floating-point sum reducer takes one initial value")
+            context.reject(lower.site(node), "a floating-point reducer takes one initial value")
         end
-        local order = identity:match("%.([^.]+)Sum$") as string
+        local order, operation = identity:match("%.([^.]+)(%u%l+)$")
+        local operationName = operation == "Sum" and "sum" or operation == "Product" and "product" or "dot"
         return new scalarIR.ReducerInit(
             op = "reducer_init",
             order = order as any,
-            operation = "sum",
+            operation = operationName,
             initial = lower.convert(args[1], "f64", lower.site(node), context),
-            type = "simd_reducer_" .. order .. "_sum",
+            type = "simd_reducer_" .. tostring(order) .. "_" .. operationName,
             source = lower.site(node)
         )
     elseif identity == "nupp.simd.preferred" or identity == "nupp.simd.fixed" then
@@ -2293,9 +2309,25 @@ local function simdMethod(
     local source = lower.site(node)
     kernel.usesSimd = true
 
-    local reducerOrder = tostring(receiverType):match("^simd_reducer_(%a+)_sum$")
-    if reducerOrder ~= nil then
-        if method == "add" and #raw == 1 then
+    local reducerOrder, reducerOperation = tostring(receiverType):match("^simd_reducer_(%a+)_(%a+)$")
+    if reducerOrder ~= nil and (
+        reducerOperation == "sum" or reducerOperation == "product" or reducerOperation == "dot"
+    ) then
+        local contributionMethod = reducerOperation == "product" and "multiply" or "add"
+        local argumentCount = reducerOperation == "dot" and 2 or 1
+        if method == contributionMethod and #raw == argumentCount then
+            if kernel.simdSource ~= true then
+                kernel.context.reject(source, "a reducer contribution belongs directly inside one @simd loop")
+            end
+            local right: scalarIR.Expr? = nil
+            if reducerOperation == "dot" then
+                right = lower.convert(
+                    lower.expression(raw[2], environment, activeIndex, kernel),
+                    "f64",
+                    source,
+                    kernel.context
+                )
+            end
             return new scalarIR.ReducerAdd(
                 op = "reducer_add",
                 reducer = receiver as scalarIR.Expr,
@@ -2305,22 +2337,26 @@ local function simdMethod(
                     source,
                     kernel.context
                 ),
+                right = right,
                 order = reducerOrder as any,
-                operation = "sum",
+                operation = reducerOperation as any,
                 type = "lua_effect",
                 source = source
             )
         elseif method == "value" and #raw == 0 then
+            if kernel.simdSource == true then
+                kernel.context.reject(source, "a reducer is finalized after its @simd loop")
+            end
             return new scalarIR.ReducerValue(
                 op = "reducer_value",
                 reducer = receiver as scalarIR.Expr,
                 order = reducerOrder as any,
-                operation = "sum",
+                operation = reducerOperation as any,
                 type = "f64",
                 source = source
             )
         end
-        kernel.context.reject(source, "sum reducer operation " .. method .. " is not admitted")
+        kernel.context.reject(source, reducerOperation .. " reducer operation " .. method .. " is not admitted")
     end
 
     local genericFamily, genericElement, genericShape = genericSimdParts(receiverType)
@@ -5118,7 +5154,10 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 end
             end
             kernel.cursorBounds = loopBounds
+            local previousSimdSource = kernel.simdSource
+            kernel.simdSource = simdRequired or (loop as any).simdRequired == true
             local loopBody = lower.block(loop.body ~= nil and (loop.body as cst.Block).stats or {}, inner, kernel)
+            kernel.simdSource = previousSimdSource
             for name in pairs(previousBounds) do
                 if loopBounds[name] == nil then
                     previousBounds[name] = nil

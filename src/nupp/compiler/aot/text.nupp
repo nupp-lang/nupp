@@ -300,7 +300,11 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         return "reducer." .. reducer.order .. "." .. reducer.operation .. "(" .. text.expression(reducer.initial) .. ")"
     elseif op == "reducer_add" then
         local reducer = node as scalarIR.ReducerAdd
-        return "reducer.add " .. text.expression(reducer.reducer) .. " <- " .. text.expression(reducer.value)
+        return "reducer.add " .. text.expression(
+            reducer.reducer
+        ) .. " <- " .. text.expression(
+            reducer.value
+        ) .. (reducer.right ~= nil and ", " .. text.expression(reducer.right as scalarIR.Expr) or "")
     elseif op == "reducer_value" then
         local reducer = node as scalarIR.ReducerValue
         return "reducer.value " .. text.expression(reducer.reducer)
@@ -499,7 +503,7 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
                 .. " <- "
                 .. text.expression(
                 reducer.value
-            )
+            ) .. (reducer.right ~= nil and ", " .. text.expression(reducer.right as lane.Expr) or "")
         elseif op == "reducer_add" then
             lines[#lines + 1] = prefix .. text.expression(statement as scalarIR.ReducerAdd)
         elseif op == "simd_store" then

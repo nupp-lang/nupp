@@ -787,7 +787,7 @@ end
 record scalarIR.ReducerInit
     op: 'reducer_init'
     order: 'ordered' | 'pairwise' | 'algebraic'
-    operation: 'sum'
+    operation: 'sum' | 'product' | 'dot'
     initial: scalarIR.Expr
     type: scalarIR.Type
     source: scalarIR.Source?
@@ -801,8 +801,9 @@ record scalarIR.ReducerAdd
     op: 'reducer_add'
     reducer: scalarIR.Expr
     value: scalarIR.Expr
+    right: scalarIR.Expr?
     order: 'ordered' | 'pairwise' | 'algebraic'
-    operation: 'sum'
+    operation: 'sum' | 'product' | 'dot'
     type: 'lua_effect'
     source: scalarIR.Source?
 end
@@ -812,7 +813,7 @@ record scalarIR.ReducerValue
     op: 'reducer_value'
     reducer: scalarIR.Expr
     order: 'ordered' | 'pairwise' | 'algebraic'
-    operation: 'sum'
+    operation: 'sum' | 'product' | 'dot'
     type: 'f64'
     source: scalarIR.Source?
 end

@@ -2145,6 +2145,7 @@ return {totals = totals}
     assert(decoded.ir:find("reducer.algebraic.sum", 1, true), where .. ": algebraic contract is explicit\n" .. decoded.ir)
     assert(decoded.ir:find("vreducer.pairwise.sum", 1, true), where .. ": pairwise contribution is lane IR\n" .. decoded.ir)
     assert(decoded.c:find("ks_pairwise_f64_add", 1, true), where .. ": pairwise tree has its own native state")
+    assert(decoded.c:find("reduce_acc_", 1, true), where .. ": algebraic sum uses lane accumulators rather than an ordered chain")
     assert(decoded.c:find("ks_totals_forced_scalar", 1, true), where .. ": reducers retain the scalar-source C oracle")
 end
 
@@ -2255,6 +2256,39 @@ return {inspect = inspect}
     assert(decoded.ir:find("simd_bitmask_count.count", 1, true), where .. ": bitmask count remains intrinsic")
     assert(decoded.ir:find("simd_bitmask_first.first", 1, true), where .. ": bit zero maps back to lane one")
     assert(decoded.c:find("(uint32_t)lane - 1u", 1, true), where .. ": C uses the documented one-based lane convention")
+end
+
+function M.productAndDotReducersCarryDistinctArithmeticContracts()
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function reductions(borrows values: span.Span<number>): (number, number)
+    local product = simd.reducer.pairwiseProduct(1.0)
+    @simd
+    for i = 1, #values do
+        product:multiply(values[i])
+    end
+
+    local dot = simd.reducer.algebraicDot(0.0)
+    @simd
+    for i = 1, #values do
+        dot:add(values[i], values[i])
+    end
+    return product:value(), dot:value()
+end
+
+
+return {reductions = reductions}
+]]
+    local dir = project{["reducers.nupp"] = source}
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json reducers.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("vreducer.pairwise.product", 1, true), where .. ": product order and operation are explicit")
+    assert(decoded.ir:find("vreducer.algebraic.dot", 1, true), where .. ": dot contraction permission is distinct")
+    assert(decoded.c:find("ks_pairwise_f64_product_add", 1, true), where .. ": product uses a multiplication tree")
+    assert(decoded.c:find("reduce_acc_", 1, true), where .. ": algebraic dot uses lane accumulators")
 end
 
 function M.aLoopThatWantedLanesAndDidNotGetThemFails()

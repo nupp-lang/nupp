@@ -1380,30 +1380,41 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif op == "reducer_init" then
         local reducer = node as scalarIR.ReducerInit
         holds(
-            reducer.operation == "sum"
+            (
+                reducer.operation == "sum" or reducer.operation == "product" or reducer.operation == "dot"
+            )
             and reducer.initial.type == "f64"
             and reducer.type == "simd_reducer_"
             .. reducer.order
-            .. "_sum",
+            .. "_"
+            .. reducer.operation,
             "invalid reducer construction"
         )
         scalarWalk(reducer.initial, values, scope)
     elseif op == "reducer_add" then
         local reducer = node as scalarIR.ReducerAdd
-        holds(reducer.reducer.op == "local" and reducer.value.type == "f64", "invalid reducer contribution")
+        holds(
+            reducer.reducer.op == "local" and reducer.value.type == "f64" and (
+                reducer.operation == "dot"
+            ) == (reducer.right ~= nil) and (reducer.right == nil or (reducer.right as scalarIR.Expr).type == "f64"),
+            "invalid reducer contribution"
+        )
         local named = reducer.reducer as scalarIR.Name
         holds(
-            values[named.name] == "simd_reducer_" .. reducer.order .. "_sum",
+            values[named.name] == "simd_reducer_" .. reducer.order .. "_" .. reducer.operation,
             "reducer contribution does not match its scoped binding"
         )
         scalarWalk(reducer.reducer, values, scope)
         scalarWalk(reducer.value, values, scope)
+        if reducer.right ~= nil then
+            scalarWalk(reducer.right as scalarIR.Expr, values, scope)
+        end
     elseif op == "reducer_value" then
         local reducer = node as scalarIR.ReducerValue
         holds(reducer.reducer.op == "local" and reducer.type == "f64", "invalid reducer finalization")
         local named = reducer.reducer as scalarIR.Name
         holds(
-            values[named.name] == "simd_reducer_" .. reducer.order .. "_sum",
+            values[named.name] == "simd_reducer_" .. reducer.order .. "_" .. reducer.operation,
             "reducer finalization does not match its scoped binding"
         )
         scalarWalk(reducer.reducer, values, scope)
@@ -2658,16 +2669,27 @@ local function laneBlock(
             laneHolds(
                 values[
                     contribution.reducer
-                ] == "simd_reducer_"
-                .. contribution.order
-                .. "_sum"
-                and contribution.operation == "sum"
-                and contribution.value.type == context.shape.vectorFor[
+                ] == "simd_reducer_" .. contribution.order .. "_" .. contribution.operation and (
+                    contribution.operation == "sum"
+                    or contribution.operation == "product"
+                    or contribution.operation == "dot"
+                ) and contribution.value.type == context.shape.vectorFor[
                     "f64"
-                ],
+                ] and (
+                    contribution.operation == "dot"
+                ) == (
+                    contribution.right ~= nil
+                ) and (
+                    contribution.right == nil or (
+                        contribution.right as lane.Expr
+                    ).type == context.shape.vectorFor["f64"]
+                ),
                 "invalid lane reducer contribution"
             )
             laneWalk(contribution.value, values, context)
+            if contribution.right ~= nil then
+                laneWalk(contribution.right as lane.Expr, values, context)
+            end
             if contribution.mask ~= nil then
                 laneWalk(contribution.mask as lane.Expr, values, context)
                 laneHolds((contribution.mask as lane.Expr).type == mask, "invalid reducer contribution mask")
