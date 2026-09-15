@@ -2319,76 +2319,32 @@ cannot stall. None of these operations allocates match records or result tuples.
 
 ### Writing expressions
 
-The notation is byte-oriented. Whitespace is ignored between expressions and
-`--` comments run to the end of their line. Precedence runs from tightest to
-loosest as primary expressions, suffixes, predicates, sequence, then ordered
-choice.
+The notation is LPeg 1.1 `re`, operator for operator, and the test suite runs
+the official `re` module as a differential oracle. Its own reference is the one
+to read: <https://www.inf.puc-rio.br/~roberto/lpeg/re.html>. Everything below is
+what Nupp adds to it or holds it to.
 
-| Form | Meaning |
-| --- | --- |
-| `'text'`, `"text"` | exact literal bytes |
-| `.` | any one byte |
-| `[a-z_]`, `[^0-9]` | one byte inside or outside a class |
-| `%a`, `%d`, `%s`, `%w`, `%x` | ASCII letter, digit, space, alphanumeric, or hex byte |
-| `%name` | pattern supplied by `CompileOptions.definitions` |
-| `p q` | sequence |
-| `p / q` | ordered choice, trying `p` before `q` |
-| `p?`, `p*`, `p+` | optional, zero or more, or one or more |
-| `p^n`, `p^+n`, `p^-n` | exactly, at least, or at most n repetitions |
-| `&p`, `!p` | positive or negative predicate without consumption |
-| `{ p }` | substring capture |
-| `{}` | current byte-position capture |
-| `{\| p \|}` | collect the captures made by `p` into an array |
-| `{: name: p :}` | group captures under name, which is optional |
-| `{~ p ~}` | substitution capture |
-| `=name` | match the text in named group name |
-| `p -> {}` | collect captures into a table |
-| `p -> n`, `p -> 'text'` | select capture n, or format captures into text |
-| `p -> name` | transform captures through definition name |
-| `p => name` | match-time definition name |
-| `p >> name`, `p ~> name` | accumulator and fold definitions |
-| `name <- p` | rule definition; the first rule is the start rule |
-| `name`, `<name>` | rule reference inside a grammar |
-| `!.` | end-of-input assertion |
+A matcher has one result pack, inferred from the grammar's captures. Adjacent
+captures are adjacent native Lua results, so `{ [a-z]+ } ':' {}` is
+`Peg<(string, integer)>` and answers two values with nothing allocated between
+them; wrap repeated or open-ended captures in `{| ... |}` or `p -> {}` so the
+table comes from the grammar rather than the matcher. Every arm of an ordered
+choice must produce the same capture shape, which is what keeps the inferred
+pack true whichever arm matched.
 
-Quoted strings contain literal bytes and do not process backslash escapes. A
-class may contain ranges and predefined classes. The long predefined names are
-`%alpha`, `%cntrl`, `%digit`, `%graph`, `%lower`, `%nl`, `%punct`, `%space`,
-`%upper`, `%alnum`, and `%xdigit`; an uppercase one-letter form such as `%D`
-means the complement of its lowercase class.
+A `%name`, `-> name`, `=> name`, `>> name`, or `~> name` reads a value the
+caller supplies. A runtime grammar takes them in `{definitions = values}`. A
+static one cannot, because a `comptime` value closes over nothing, so it
+materializes as a factory whose parameter is a closed record holding exactly the
+names it used -- which makes a missing or misspelled one a compile error rather
+than a nil call mid-parse. `CompileOptions.actions` is a deprecated alias for
+`definitions`.
 
-PEG choice is ordered rather than symmetric, so put a longer literal before its
-prefix: `'integer' / 'in'`, not `'in' / 'integer'`. Repetition is possessive and
-its body must consume input whenever it succeeds, so a nullable expression such
-as `('')*` is rejected. Parentheses group an expression before a suffix or make
-precedence explicit.
-
-### Captures and definitions
-
-`{ p }` returns its matched substring, `{}` returns the current byte position,
-and `{| p |}` or `p -> {}` makes several captures one explicit table result.
-Named groups assign table fields, substitution captures rewrite their matched
-substring, and `=name` matches a prior named capture. A Nupp matcher has one
-top-level result, so wrap multiple or repeated captures in a table, and every
-ordinary ordered-choice arm must have the same capture shape.
-
-`p -> name` is an ordinary transformation deferred until the complete match
-succeeds, so a discarded PEG alternative cannot cause user-code side effects.
-`p => name` is a true LPeg match-time capture: its function receives the subject
-and current position, may inspect captures, and returns the next position plus
-new captures. `>>` accumulates and `~>` folds captures, and `%name` obtains an
-external pattern. Runtime values live in `{definitions = values}`, while a
-static grammar materializes as a factory whose closed parameter record contains
-exactly the referenced names.
-
-### Rules and validation
-
-Recursive grammars use `name <- p` definitions and `name` or `<name>`
-references. Every reference must resolve, a repetition may not contain a
-nullable expression, ordered-choice capture shapes must agree, and left
-recursion is rejected. Those invalid grammars are `NUPP2417`, while the common
-materialization boundary and size diagnostics remain `NUPP2414` through
-`NUPP2416`.
+A rejected grammar is `NUPP2417`: a reference that resolves to nothing, a
+duplicate rule name, a repetition whose body can match the empty string, arms of
+one choice disagreeing about captures, direct or indirect left recursion, or
+nesting past 256 levels. The materialization boundary and size limits stay
+`NUPP2414` through `NUPP2416`.
 
 ### Compilation and backends
 

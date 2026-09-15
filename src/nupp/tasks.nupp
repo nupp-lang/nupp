@@ -1,29 +1,14 @@
 module nupp.tasks
 
 --[[
-An application task scope.
+A place to put work that is discovered as you go.
 
-`nupp.suspension`'s combinators own a family that is complete when the call is
-written: `all` cannot be handed a fourth body once it is running. `create` makes
-a coroutine that inherits a handler and says nothing about its result, failure
-or lifetime. Neither is what a server, a loading pipeline or a scene needs,
-which is a place to put children discovered over time and one answer to what
-happens when the body returns, a child fails, or the whole thing is cancelled.
-
-`nupp.workers` has that shape already for CPU work, and its terminal cleanup
-cannot suspend, so leaving its scope blocks the thread until unawaited children
-finish. Correct for a worker scope, wrong inside a frame. A task scope owns one
-lazily and closes it through the suspension-aware path before the task scope
-returns.
-
-The scheduling contract is with the host, not with each child. A host sees one
-aggregate and decides when it runs; this decides which of its children run then,
-in FIFO order, up to a bounded number of activations per host turn. Nesting
-divides that bound rather than multiplying it, because the token belongs to the
-turn rather than to a scope.
+Open a scope, spawn children into it, and the block that holds it does not end
+until every one of them has run, been cancelled, or unwound.
 
 ```nupp
 local greeting = ""
+
 with scope = nupp.tasks.open() do
     const hello = scope:spawn(function(): string
         return "hello"
@@ -31,20 +16,20 @@ with scope = nupp.tasks.open() do
     const world = scope:spawn(function(): string
         return "world"
     end)
+
     greeting = hello:await() .. " " .. world:await()
 end
 
 assert(greeting == "hello world")
 ```
 
-A scope is opened with `open`, held by a `with`, and settled when the block ends:
-every child has run, been cancelled, or unwound by then. `open` takes a `limit`,
-which parks `spawn` and `fork` while that many children are live, and a `deadline`.
-A running child cooperates by calling `checkpoint`, so it can stop promptly when the
-scope is cancelled.
+`open` takes a `limit`, which parks `spawn` and `fork` while that many children
+are live, and a `deadline`. A running child cooperates by calling `checkpoint`,
+which is where it learns the scope was cancelled or the deadline passed.
 
 ```nupp
 local total = 0
+
 with scope = nupp.tasks.open(deadline = 1000) do
     const sum = scope:spawn("sum values", function(): integer
         local answer = 0
@@ -52,13 +37,36 @@ with scope = nupp.tasks.open(deadline = 1000) do
             nupp.tasks.checkpoint()
             answer = answer + value
         end
+
         return answer
     end)
+
     total = sum:await()
 end
 
 assert(total == 500500)
 ```
+
+## Why this and not the others
+
+[](nupp.suspension)'s combinators own a family that is complete when the call is
+written: `all` cannot be handed a fourth body once it is running. `create` makes
+a coroutine that inherits a handler and says nothing about its result, failure,
+or lifetime. A server, a loading pipeline, or a scene needs somewhere to put
+children found over time and one answer to what happens when the body returns, a
+child fails, or the whole thing is cancelled.
+
+[](nupp.workers) has that shape already, for CPU work on other threads, but its
+cleanup cannot suspend: leaving a worker scope blocks the thread until unawaited
+children finish. Right for a worker scope, wrong inside a frame. A task scope
+owns one lazily and closes it through the suspension-aware path first, which is
+what `fork` is.
+
+The scheduling contract is with the host rather than with each child. The host
+sees one aggregate and decides when it runs; this decides which children run
+then, in FIFO order, up to a bounded number of activations per host turn.
+Nesting divides that bound rather than multiplying it, because the token belongs
+to the turn.
 ]]
 
 local suspension = require("nupp.suspension")

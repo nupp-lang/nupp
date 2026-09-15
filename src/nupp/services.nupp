@@ -1,45 +1,53 @@
 module nupp.services
 
 --[[
-Typed service definitions and named implementations within one Lua state.
+Names an interface, so something else can supply it.
 
-A declaration module owns one invariant Service<T> handle. Register checked
-loaders or discover them through static package metadata; neither action executes
-a provider. Setup selects names before requiring consuming facades. Each facade
-assembles its implementation during top-level initialization and retains its
-actual methods for direct calls.
+A declaration module defines the contract once. Whoever implements it registers
+under a name, setup picks the name, and the facade that uses it asks for it.
 
 ```nupp
 local services = require("nupp.services")
+
 interface Codec
     readonly encode: function(value: string): string
 end
+
 local service: services.Service<Codec> = services.define("example.codec", 1)
+
 service:register("plain", function(): Codec
-    return {encode = function(value: string): string return value end}
+    return {
+        encode = function(value: string): string
+            return value
+        end,
+    }
 end)
+
 service:select("plain")
+
 local codec = service:require()
+
 assert(codec.encode("hello") == "hello")
 ```
 
-The variable annotation supplies generic inference. Service<T> is invariant:
-register accepts T while lookup returns T, so a handle cannot be reassigned to a
-different provider interface. Import canonical handles rather than redefining an
-existing ID. Provider exports may have extra members, but their required members,
-generics, ownership, and suspension behavior must satisfy the declared contract.
+Registering does not run the provider; `require` does, once, and the facade keeps
+the methods it got so later calls are direct. Do the lookup while a facade is
+loading and never in a hot call or a cleanup path.
 
-Successful named loads are cached by name. Unnamed resolution fixes the default
-selection, including optional absence. Failed loads are not cached as successful
-values; diagnostics include provider identity and dependency cycles. Named lookup
-does not itself select or freeze the default. All state is local to one Lua state.
+The annotation on the variable is what infers `T`. `Service<T>` is invariant --
+`register` takes a `T` and `lookup` answers one -- so a handle cannot be pointed
+at a different contract. Import the canonical handle rather than redefining an
+ID. A provider may export more than the contract asks for, but what the contract
+does ask for has to match, down to generics, ownership, and whether it suspends.
 
-Use assembly only while requiring a facade, then call retained operations.
-Applications must not perform service lookups in hot calls or resource cleanup.
-Worker configuration carries catalog names and setup modules, never provider
-instances or captured closures. See
-[Service Providers](docs/learn/projects/service-providers.md) for packaging and
-setup module examples.
+A successful named load is cached under its name, and an unnamed one fixes the
+default, absence included. A failed load is not cached, and what it reports names
+the provider and any dependency cycle. All of this is one Lua state's: worker
+configuration carries catalog names and setup modules across a lane boundary,
+never an instance or a closure.
+
+See [Service Providers](docs/learn/projects/service-providers.md) for packaging
+and setup modules.
 ]]
 
 const _DYNAMIC_PROVIDERS = "@requires-dynamically nupp.runtime.services.* @requires-dynamically nupp.runtime.provider.* @requires-dynamically nupp.runtime.browser.* @requires-dynamically nupp.codec.json.aot"

@@ -148,10 +148,12 @@ local function dot(
     const first = left
     const second = right
     const indexes = indexed.range(1, #first, first, second)
+
     local total: integer = 0
     for index = indexes.first, indexes.last do
         total = total + first[index].n * second[index].n
     end
+
     return total
 end
 
@@ -754,6 +756,7 @@ end
 ---     writable[1] = new Value(42)
 ---     drop writable
 --- end
+---
 --- const values = span.fromCarray(storage, 4)
 --- assert(values[1].n == 42)
 --- ```

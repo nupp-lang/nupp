@@ -1,5 +1,45 @@
 module nupp.workers
 
+--[[
+Runs functions in parallel, on real threads.
+
+A worker scope hands work to a pool of lanes and settles every child when the
+block ends.
+
+```nupp
+module main
+
+const jobs = require("jobs")
+
+export function hashes(left: string, right: string): (string, string)
+    with scope = nupp.workers.scope() do
+        const first = scope:spawn(left, jobs.hash)
+        const second = scope:spawn(right, jobs.hash)
+
+        return first:await(), second:await()
+    end
+end
+```
+
+`jobs.hash` is an ordinary function. Calling it runs it here; handing it to
+`spawn` runs it on a lane. There is no parallel version of it to write.
+
+A lane is a thread with its own LuaJIT state, so nothing is shared: arguments
+and results cross as copies, and the two sides never see each other's tables,
+globals, userdata, or module state. What may cross is the whole of what makes
+this safe, and the type says it. A function `spawn` accepts is a
+`sendable function`: a member of a loaded module, which carries no captures at
+all, or a literal whose captures are each initialized once, never reassigned,
+and copyable. The checker holds every capture to its declared type; what an
+`any` or a table turns out to hold is verified when the message is built, and a
+closure or a cycle found in there is refused at the spawn, naming where it was.
+
+`nupp reference --section sendable-callables` is the whole rule, and
+[workers.md](docs/learn/runtime/concurrency/workers.md) is the guide. For
+concurrency without threads -- one Lua state, children that interleave at their
+waits -- reach for [](nupp.tasks) instead.
+]]
+
 local contracts = require("nupp.runtime.services.workers")
 local provider = assert(
     require("nupp.runtime.workersprovider").provider,
@@ -13,7 +53,7 @@ type workers.Job<F is Callable> = contracts.Job<F>
 type workers.ScopeToken = contracts.ScopeToken
 type workers.Scope = contracts.PublicScope
 
---- Opens a family of isolated worker tasks with structured cleanup.
+--- Opens a family of lanes, settled when the block that holds it ends.
 const workers.scope = provider.scope
 
 rawset(workers, "__scope", provider.openScope)

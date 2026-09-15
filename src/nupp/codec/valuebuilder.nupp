@@ -3,27 +3,9 @@ module nupp.codec.valuebuilder
 --[[
 Builds ordinary Lua values straight out of parsed bytes.
 
-A parser written against this module never assembles Lua tables itself. It
-reports the shape it found, opening an array, taking this source range as a key
-and that one as a number, and the module assembles the value behind it. The
-ordinary implementation here does that with plain Lua state and is the
-`aot = "off"` behavioral oracle. Under `require`, the same calls inside an
-`@aot` function lower to one native construction pass: tables are presized from
-the capacities the parser authored, every unfinished container stays rooted in a
-Lua stack slot across allocations, writes go through the raw-set API so barriers
-stay correct, and each string is copied exactly once into Lua-owned storage.
-
-That lowering is the whole reason the module exists. It is the one construction
-boundary an AOT builder may cross, and it stays a narrow one: no `lua_State`, no
-stack index, no collector object appears in any signature here. Outside `@aot`
-the ordinary implementation provides the same protocol and may run under the
-LuaJIT compiler; under AOT, the resolved calls lower to VM-aware construction.
-That makes one parser portable across both execution modes. See
-[ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what the generated code
-is allowed to do.
-
-The module exposes a streaming shape. Values are reported as the parser reaches
-them, so no intermediate representation is required:
+A parser written against this module never builds a table itself. It says what
+it found -- an array opens here, this byte range is a key, that one is a number
+-- and the module builds the value behind it.
 
 ```nupp
 local valuebuilder = nupp.codec.valuebuilder
@@ -33,6 +15,7 @@ local valuebuilder = nupp.codec.valuebuilder
 @aot
 local function decode(source: string, nullValue: any): any
     local builder = valuebuilder.new(nullValue)
+
     valuebuilder.openObject(builder, 1)
     valuebuilder.key(builder, source, 2, 2, false)
     valuebuilder.numberSlice(builder, source, 7, 2)
@@ -42,12 +25,26 @@ local function decode(source: string, nullValue: any): any
 end
 ```
 
-Every offset, length, and index this module takes is zero-based, because they
-address the parser's own bytes rather than a Lua string.
+Values are reported as the parser reaches them, so there is no intermediate
+representation. Every offset, length, and index here counts from zero, because
+they address the parser's bytes rather than a Lua string.
 
-Under AOT a stream handle and a scratch buffer are local construction state.
-Neither can be returned, reassigned, stored in a table, or passed to an ordinary
-call; only the operations in this module admit them.
+The lowering is why the module exists. Inside an `@aot` function these calls
+become one native construction pass: tables are presized from the capacities the
+parser authored, every unfinished container stays rooted in a Lua stack slot
+across allocations, writes go through the raw-set API so the barriers stay
+correct, and each string is copied once into Lua-owned storage. Outside `@aot`
+the same calls run as plain Lua, which is the `aot = "off"` oracle the lowering
+is checked against -- so one parser is portable across both.
+
+It is the one construction boundary an AOT builder may cross, and a narrow one:
+no `lua_State`, no stack index, and no collector object appears in a signature
+here. A stream handle and a scratch buffer are local construction state under
+AOT, so neither can be returned, reassigned, stored in a table, or handed to an
+ordinary call.
+
+See [ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what
+generated code is allowed to do.
 ]]
 const utf8 = require("nupp.text.utf8")
 
@@ -182,6 +179,7 @@ end
 --- @aot
 --- local function pair(nullValue: any): any
 ---     local builder = valuebuilder.new(nullValue)
+---
 ---     valuebuilder.openArray(builder, 2)
 ---     valuebuilder.boolean(builder, true)
 ---     valuebuilder.null(builder)
