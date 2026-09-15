@@ -778,6 +778,20 @@ record lower.GuardForm
     discarded: cst.Node?
 end
 
+--- The compile-time lifecycle of one source-visible reducer binding.
+---
+--- Reducers are region capabilities, not ordinary copyable values: one binding
+--- belongs to one authored SIMD loop and is consumed by one finalization after
+--- that loop. The IR still carries the binding so the scalar and lane lowerings
+--- can implement the selected arithmetic contract independently.
+record lower.ReducerState
+    name: string
+    cName: string
+    region: integer?
+    finalized: boolean
+    source: scalarIR.Source
+end
+
 --- What lowering one kernel's body needs to know.
 record lower.Kernel
     --- Span and uniform parameters by name, as the signature admitted them.
@@ -823,6 +837,17 @@ record lower.Kernel
 
     --- Whether source is currently inside an authored outer SIMD region.
     simdSource: boolean?
+
+    --- Identity of that authored region. Unmarked nested loops deliberately
+    --- clear it, which keeps reducer contributions directly in the region body.
+    simdRegion: integer?
+
+    nextSimdRegion: integer
+
+    --- Reducer lifecycle state, keyed by the compiler-owned local identity.
+    reducers: {[string]: lower.ReducerState}
+
+    reducerOrder: {lower.ReducerState}
 
     --- Ordinary local strings proven to be append-only accumulators.
     stringAccumulators: {[string]: boolean}
@@ -2359,12 +2384,31 @@ local function simdMethod(
     if reducerOrder ~= nil and (
         reducerOperation == "sum" or reducerOperation == "product" or reducerOperation == "dot"
     ) then
+        if receiver == nil or (receiver as scalarIR.Expr).op ~= "local" then
+            kernel.context.reject(source, "a reducer operation must name its scoped reducer binding")
+        end
+        local reducerName = (receiver as scalarIR.Name).cName
+        if reducerName == nil then
+            kernel.context.reject(source, "a reducer operation must name its scoped reducer binding")
+        end
+        local reducerState = kernel.reducers[reducerName as string]
+        if reducerState == nil then
+            kernel.context.reject(source, "a reducer cannot be copied or passed through another value")
+        end
         local contributionMethod = reducerOperation == "product" and "multiply" or "add"
         local argumentCount = reducerOperation == "dot" and 2 or 1
         if method == contributionMethod and #raw == argumentCount then
-            if kernel.simdSource ~= true then
+            if kernel.simdSource ~= true or kernel.simdRegion == nil then
                 kernel.context.reject(source, "a reducer contribution belongs directly inside one @simd loop")
             end
+            if (reducerState as lower.ReducerState).finalized then
+                kernel.context.reject(source, "a finalized reducer cannot receive another contribution")
+            end
+            local region = (reducerState as lower.ReducerState).region
+            if region ~= nil and region ~= kernel.simdRegion then
+                kernel.context.reject(source, "a reducer is scoped to exactly one @simd loop")
+            end
+            (reducerState as lower.ReducerState).region = kernel.simdRegion
             local right: scalarIR.Expr? = nil
             if reducerOperation == "dot" then
                 right = lower.convert(
@@ -2393,6 +2437,13 @@ local function simdMethod(
             if kernel.simdSource == true then
                 kernel.context.reject(source, "a reducer is finalized after its @simd loop")
             end
+            if (reducerState as lower.ReducerState).region == nil then
+                kernel.context.reject(source, "a reducer must receive its contribution before it is finalized")
+            end
+            if (reducerState as lower.ReducerState).finalized then
+                kernel.context.reject(source, "a reducer is finalized exactly once")
+            end
+            (reducerState as lower.ReducerState).finalized = true
             return new scalarIR.ReducerValue(
                 op = "reducer_value",
                 reducer = receiver as scalarIR.Expr,
@@ -3669,6 +3720,9 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
         if resultType == nil then
             context.reject(lower.site(result), "native helper results are scalar or SIMD values")
         end
+        if tostring(resultType):match("^simd_reducer_") ~= nil then
+            context.reject(lower.site(result), "reducers cannot cross a native helper result boundary")
+        end
         resultTypes[#resultTypes + 1] = resultType as scalarIR.Type
     end
     if #resultTypes == 0 then
@@ -3688,6 +3742,9 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
         ] or raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text or nil
         if paramName == nil or paramType == nil or mode ~= nil and mode ~= "plain" then
             context.reject(lower.site(raw), "native helper parameters are unowned scalar or SIMD values")
+        end
+        if tostring(paramType):match("^simd_reducer_") ~= nil then
+            context.reject(lower.site(raw), "reducers cannot cross a native helper parameter boundary")
         end
         if environment[paramName as string] ~= nil then
             context.reject(lower.site(raw), "duplicate helper parameter " .. (paramName as string))
@@ -4399,6 +4456,9 @@ local function localStmt(
         end
 
         local value = lower.convert(values[position], expected as scalarIR.Type, lower.site(stat), context)
+        if tostring(expected):match("^simd_reducer_") ~= nil and value.op ~= "reducer_init" then
+            context.reject(lower.site(stat), "a reducer cannot be copied or passed through another value")
+        end
         local binding = bind(
             token.text,
             expected as scalarIR.Type,
@@ -4408,6 +4468,19 @@ local function localStmt(
             kernel
         )
         noteBinding(token.text, value, binding, kernel)
+        if value.op == "reducer_init" then
+            if kernel.simdSource == true then
+                context.reject(lower.site(stat), "a reducer is created before its @simd loop")
+            end
+            local state = new lower.ReducerState(
+                name = token.text,
+                cName = binding.cName,
+                finalized = false,
+                source = lower.site(stat)
+            )
+            kernel.reducers[binding.cName] = state
+            kernel.reducerOrder[#kernel.reducerOrder + 1] = state
+        end
         out[
             #out + 1
         ] = new scalarIR.Let(
@@ -4431,6 +4504,9 @@ local function assignTarget(target: cst.Node, environment: {[string]: any}, kern
         end
         if tostring(binding.type):match("^lua_") ~= nil and binding.type ~= "lua_string" then
             context.reject(lower.site(target), "Lua construction handles cannot be reassigned")
+        end
+        if tostring(binding.type):match("^simd_reducer_") ~= nil then
+            context.reject(lower.site(target), "a reducer binding cannot be reassigned")
         end
 
         return new scalarIR.Target(kind = "local", name = binding.name, cName = binding.cName, type = binding.type)
@@ -5278,9 +5354,21 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             end
             kernel.cursorBounds = loopBounds
             local previousSimdSource = kernel.simdSource
-            kernel.simdSource = simdRequired or (loop as any).simdRequired == true
+            local previousSimdRegion = kernel.simdRegion
+            local authoredSimd = simdRequired or (loop as any).simdRequired == true
+            if authoredSimd and previousSimdSource == true then
+                context.reject(lower.site(stat), "an @simd loop cannot be nested in another @simd loop")
+            end
+            kernel.simdSource = authoredSimd
+            if authoredSimd then
+                kernel.nextSimdRegion = kernel.nextSimdRegion + 1
+                kernel.simdRegion = kernel.nextSimdRegion
+            else
+                kernel.simdRegion = nil
+            end
             local loopBody = lower.block(loop.body ~= nil and (loop.body as cst.Block).stats or {}, inner, kernel)
             kernel.simdSource = previousSimdSource
+            kernel.simdRegion = previousSimdRegion
             for name in pairs(previousBounds) do
                 if loopBounds[name] == nil then
                     previousBounds[name] = nil
@@ -5300,7 +5388,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 to = to,
                 body = loopBody,
                 boundSpan = bounding,
-                simdRequired = simdRequired or (loop as any).simdRequired == true,
+                simdRequired = authoredSimd,
                 source = lower.site(stat)
             )
         elseif kind == "whileStmt" then
@@ -6671,6 +6759,9 @@ local function newKernel(
         modules = declarations.modules,
         intrinsicAliases = declarations.intrinsicAliases,
         stringAccumulators = {},
+        reducers = {},
+        reducerOrder = {},
+        nextSimdRegion = 0,
         symbol = symbol,
         index = "",
         indexCName = "",
@@ -6690,6 +6781,23 @@ local function newKernel(
     end
 
     return kernel
+end
+
+--- Reject incomplete reducer capabilities after the whole entry has lowered.
+--- Source order establishes contribution-before-finalization; the region id
+--- establishes that no second authored loop can reuse the binding.
+local function validateReducers(kernel: lower.Kernel): nil
+    for _, reducer in ipairs(kernel.reducerOrder) do
+        if reducer.region == nil then
+            kernel.context.reject(
+                reducer.source,
+                "a reducer belongs to exactly one @simd loop and must receive one contribution"
+            )
+        end
+        if not reducer.finalized then
+            kernel.context.reject(reducer.source, "a reducer is finalized exactly once after its @simd loop")
+        end
+    end
 end
 
 --- Lowers one whole `@aot` function to AOT IR.
@@ -7031,6 +7139,7 @@ function lower.program(
         })
         local environment = loweringEnvironment(signature, specialization)
         local lowered = lower.block(statements, environment, kernel)
+        validateReducers(kernel)
         if #lowered == 0 then
             context.reject(lower.site(body.body or body), "an AOT block body may not be empty")
         end

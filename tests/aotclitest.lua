@@ -2149,6 +2149,102 @@ return {totals = totals}
     assert(decoded.c:find("ks_totals_forced_scalar", 1, true), where .. ": reducers retain the scalar-source C oracle")
 end
 
+function M.requiredSimdReducersHaveOneRegionAndOneFinalization()
+    local prefix = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function total(borrows values: span.Span<number>): number
+    local sum = simd.reducer.orderedSum(0.0)
+]]
+    local suffix = [[
+end
+
+return {total = total}
+]]
+    local cases = {
+        {
+            name = "reused.nupp",
+            body = [[
+    @simd
+    for i = 1, #values do
+        sum:add(values[i])
+    end
+    @simd
+    for i = 1, #values do
+        sum:add(values[i])
+    end
+    return sum:value()
+]],
+            message = "a reducer is scoped to exactly one @simd loop",
+        },
+        {
+            name = "early.nupp",
+            body = [[
+    return sum:value()
+]],
+            message = "a reducer must receive its contribution before it is finalized",
+        },
+        {
+            name = "unfinished.nupp",
+            body = [[
+    @simd
+    for i = 1, #values do
+        sum:add(values[i])
+    end
+    return 0.0
+]],
+            message = "a reducer is finalized exactly once after its @simd loop",
+        },
+        {
+            name = "copied.nupp",
+            body = [[
+    local other = sum
+    @simd
+    for i = 1, #values do
+        other:add(values[i])
+    end
+    return other:value()
+]],
+            message = "a reducer cannot be copied or passed through another value",
+        },
+        {
+            name = "twice.nupp",
+            body = [[
+    @simd
+    for i = 1, #values do
+        sum:add(values[i])
+    end
+    local first = sum:value()
+    return first + sum:value()
+]],
+            message = "a reducer is finalized exactly once",
+        },
+        {
+            name = "nested.nupp",
+            body = [[
+    @simd
+    for i = 1, #values do
+        @simd
+        for j = 1, #values do
+            sum:add(values[j])
+        end
+    end
+    return sum:value()
+]],
+            message = "an @simd loop cannot be nested in another @simd loop",
+        },
+    }
+
+    for _, case in ipairs(cases) do
+        local dir = project{[case.name] = prefix .. case.body .. suffix}
+        local out, code = run(dir, case.name)
+        test.equal(code, 1, case.name .. " must fail\n" .. out)
+        assert(out:find(case.message, 1, true), case.name .. ": " .. out)
+    end
+end
+
 function M.genericExplicitSimdKeepsIntrinsicTypesAndAnIndependentOracle()
     local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json vectors.nupp")
