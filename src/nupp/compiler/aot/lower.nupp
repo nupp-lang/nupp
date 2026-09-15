@@ -2278,7 +2278,7 @@ local function simdMethod(
     local binding = receiverName ~= nil and environment[receiverName as string] or nil
     local receiver: scalarIR.Expr? = nil
     local receiverType = binding ~= nil and binding.type or ""
-    if binding == nil and node.obj ~= nil and node.obj.kind == "methodCall" then
+    if binding == nil and node.obj ~= nil then
         receiver = lower.expression(node.obj as cst.Node, environment, activeIndex, kernel)
         receiverType = (receiver as scalarIR.Expr).type
     end
@@ -2454,6 +2454,51 @@ local function simdMethod(
                 type = vectorType,
                 source = source
             )
+        elseif genericFamily == "vector" and method == "extract" and #raw == 1 then
+            local laneIndex = lower.convert(
+                lower.expression(raw[1], environment, activeIndex, kernel),
+                "f64",
+                source,
+                kernel.context
+            )
+            local constantLane = laneIndex.op == "constant" and tonumber((laneIndex as scalarIR.Constant).value) or nil
+            if constantLane == nil or constantLane < 1 or constantLane % 1 ~= 0 then
+                kernel.context.reject(source, "SIMD lane extraction needs a positive compile-time lane index")
+            end
+            return new scalarIR.Simd(
+                op = "simd_extract",
+                args = {receiver as scalarIR.Expr, laneIndex},
+                intrinsic = "extract",
+                type = genericElement as scalarIR.Type,
+                source = source
+            )
+        elseif genericFamily == "vector" and method == "insert" and #raw == 2 then
+            local laneIndex = lower.convert(
+                lower.expression(raw[1], environment, activeIndex, kernel),
+                "f64",
+                source,
+                kernel.context
+            )
+            local constantLane = laneIndex.op == "constant" and tonumber((laneIndex as scalarIR.Constant).value) or nil
+            if constantLane == nil or constantLane < 1 or constantLane % 1 ~= 0 then
+                kernel.context.reject(source, "SIMD lane insertion needs a positive compile-time lane index")
+            end
+            return new scalarIR.Simd(
+                op = "simd_insert",
+                args = {
+                    receiver as scalarIR.Expr,
+                    laneIndex,
+                    lower.convert(
+                        lower.expression(raw[2], environment, activeIndex, kernel),
+                        genericElement as scalarIR.Type,
+                        source,
+                        kernel.context
+                    ),
+                },
+                intrinsic = "insert",
+                type = vectorType,
+                source = source
+            )
         elseif genericFamily == "mask" and #raw == 0 then
             local reductions = {
                 any = {op = "simd_mask_any", type = "bool"},
@@ -2464,6 +2509,22 @@ local function simdMethod(
                     op = "simd_mask_bits",
                     type = "simd_bitmask_" .. tostring(genericElement) .. "_" .. tostring(genericShape)
                 },
+            }
+            local reduction = reductions[method]
+            if reduction ~= nil then
+                return new scalarIR.Simd(
+                    op = reduction.op as any,
+                    args = {receiver as scalarIR.Expr},
+                    intrinsic = method,
+                    type = reduction.type,
+                    source = source
+                )
+            end
+        elseif genericFamily == "bitmask" and #raw == 0 then
+            local reductions = {
+                any = {op = "simd_bitmask_any", type = "bool"},
+                count = {op = "simd_bitmask_count", type = "u32"},
+                first = {op = "simd_bitmask_first", type = "f64"},
             }
             local reduction = reductions[method]
             if reduction ~= nil then

@@ -671,18 +671,17 @@ function operators.install(c: state.Checker): state.ExprHandlers
             local leftFamily, rightFamily = simdFamily(lt), simdFamily(rt)
             if leftFamily == "Vector" or rightFamily == "Vector" then
                 local mmName = (op == "==" or op == "~=") and "__eq" or (op == "<" or op == ">") and "__lt" or "__le"
-                local left, right = lt, rt
-                local leftNode, rightNode = lhs, rhs
-                if op == ">" or op == ">=" then
-                    left, right, leftNode, rightNode = rt, lt, rhs, lhs
+                if leftFamily ~= "Vector" then
+                    c.diag("NUPP2003", node, "an explicit SIMD comparison needs the vector on the left")
+                    return T.any
                 end
-                local mm = c.metamethodOf(left, mmName) or c.metamethodOf(right, mmName)
+                local mm = c.metamethodOf(lt, mmName)
                 if mm == nil then
                     c.diag("NUPP2003", node, "explicit SIMD comparison needs compatible vector operands")
                     return T.any
                 end
                 (node as any).simdIntrinsic = op
-                return c.applyContract(mm, {left, right}, {leftNode, rightNode}, node, mmName)
+                return c.applyContract(mm, {lt, rt}, {lhs, rhs}, node, mmName)
             end
             if lt.tag == "int64" or lt.tag == "uint64" or rt.tag == "int64" or rt.tag == "uint64" then
                 capabilities.require(c, "int64", opTok)

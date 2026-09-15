@@ -657,6 +657,11 @@ function emit.scalar(node: scalarIR.Expr): string
             or operation == "simd_mask_count"
             or operation == "simd_mask_first"
             or operation == "simd_mask_bits"
+            or operation == "simd_extract"
+            or operation == "simd_insert"
+            or operation == "simd_bitmask_any"
+            or operation == "simd_bitmask_count"
+            or operation == "simd_bitmask_first"
         then
             local shapedType = operation == "simd_species" and simd.type or operation == "simd_lanes_generic" and args[
                 1
@@ -674,7 +679,15 @@ function emit.scalar(node: scalarIR.Expr): string
                 1
             ].type or operation == "simd_mask_first" and args[
                 1
-            ].type or operation == "simd_mask_bits" and args[1].type or simd.type
+            ].type or operation == "simd_mask_bits" and args[
+                1
+            ].type or operation == "simd_extract" and args[
+                1
+            ].type or operation == "simd_bitmask_any" and args[
+                1
+            ].type or operation == "simd_bitmask_count" and args[
+                1
+            ].type or operation == "simd_bitmask_first" and args[1].type or simd.type
             local _, element, lanes, shape = explicitType(shapedType)
             if element == nil or lanes == nil or shape == nil then
                 error("generic SIMD operation has no resolved species", 0)
@@ -684,6 +697,12 @@ function emit.scalar(node: scalarIR.Expr): string
             local elementBits = tonumber(element:match("%d+")) or 0
             local nativeLanes = elementBits > 0 and math.floor(explicitWidth * 8 / elementBits) or 0
             local composite = shape ~= "preferred" and lanes ~= nativeLanes
+            if operation == "simd_extract" or operation == "simd_insert" then
+                local laneIndex = tonumber((args[2] as scalarIR.Constant).value)
+                if laneIndex == nil or laneIndex > lanes then
+                    error("explicit SIMD lane index exceeds the selected species", 0)
+                end
+            end
             if operation == "simd_species" or operation == "simd_lanes_generic" then
                 return "UINT32_C(" .. tostring(lanes) .. ")"
             elseif operation == "simd_splat" then
@@ -748,6 +767,21 @@ function emit.scalar(node: scalarIR.Expr): string
                 return genericHelper .. "select_" .. genericSuffix .. "(" .. emit.scalar(
                     args[1]
                 ) .. ", " .. emit.scalar(args[2]) .. ", " .. emit.scalar(args[3]) .. ")"
+            elseif operation == "simd_extract" then
+                return genericHelper .. "extract_" .. genericSuffix .. "(" .. emit.scalar(
+                    args[1]
+                ) .. ", " .. emit.scalar(args[2]) .. ")"
+            elseif operation == "simd_insert" then
+                return genericHelper .. "insert_" .. genericSuffix .. "(" .. emit.scalar(
+                    args[1]
+                ) .. ", " .. emit.scalar(args[2]) .. ", " .. emit.scalar(args[3]) .. ")"
+            elseif operation == "simd_bitmask_any" then
+                return "(" .. emit.scalar(args[1]) .. " != UINT64_C(0))"
+            elseif operation == "simd_bitmask_count" then
+                return "((uint32_t)__builtin_popcountll(" .. emit.scalar(args[1]) .. "))"
+            elseif operation == "simd_bitmask_first" then
+                local bits = emit.scalar(args[1])
+                return "((double)(" .. bits .. " == UINT64_C(0) ? 0u : (uint32_t)__builtin_ctzll(" .. bits .. ") + 1u))"
             else
                 local bits = genericHelper .. "bits_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
                 if operation == "simd_mask_bits" then
@@ -4091,6 +4125,26 @@ local function genericSimdPrelude(width: integer): {string}
             .. tostring(
             lanes
         ) .. "u; ++i) if (value[i]) out |= UINT64_C(1) << i; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. element.c
+            .. " ks_exp_extract_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " value, double lane) { return value[(uint32_t)lane - 1u]; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_insert_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " value, double lane, "
+            .. element.c
+            .. " replacement) { value[(uint32_t)lane - 1u] = replacement; return value; }"
 
         lines[
             #lines + 1
@@ -4196,6 +4250,26 @@ local function genericSimdPrelude(width: integer): {string}
             .. tostring(
             lanes
         ) .. "u; ++i) if (value.lane[i]) out |= UINT64_C(1) << i; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. element.c
+            .. " ks_scalar_exp_extract_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " value, double lane) { return value.lane[(uint32_t)lane - 1u]; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_insert_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " value, double lane, "
+            .. element.c
+            .. " replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; }"
         for _, operation in ipairs(binaries) do
             if operation.name == "add"
                 or operation.name == "sub"
@@ -4543,6 +4617,32 @@ local function fixedSimdPrelude(width: integer): {string}
             ) .. "u); " .. (
                 lanes == 64 and "" or "out &= (UINT64_C(1) << " .. tostring(lanes) .. "u) - UINT64_C(1); "
             ) .. "return out; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. element.c
+                .. " ks_exp_extract_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " value, double lane) { uint32_t index = (uint32_t)lane - 1u; return value.chunk[index / "
+                .. tostring(
+                nativeLanes
+            ) .. "u][index % " .. tostring(nativeLanes) .. "u]; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_insert_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " value, double lane, "
+                .. element.c
+                .. " replacement) { uint32_t index = (uint32_t)lane - 1u; value.chunk[index / "
+                .. tostring(
+                nativeLanes
+            ) .. "u][index % " .. tostring(nativeLanes) .. "u] = replacement; return value; }"
 
             for _, operation in ipairs(binaries) do
                 if operation.name == "add"
@@ -4755,6 +4855,26 @@ local function fixedSimdPrelude(width: integer): {string}
                 .. tostring(
                 lanes
             ) .. "u; ++i) if (value.lane[i]) out |= UINT64_C(1) << i; return out; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. element.c
+                .. " ks_scalar_exp_extract_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " value, double lane) { return value.lane[(uint32_t)lane - 1u]; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_insert_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " value, double lane, "
+                .. element.c
+                .. " replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; }"
             for _, operation in ipairs(binaries) do
                 if operation.name == "add"
                     or operation.name == "sub"

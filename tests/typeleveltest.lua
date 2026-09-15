@@ -1900,7 +1900,8 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
         "local left: simd.Vector<float, simd.Preferred> = nil as any",
         "local right: simd.Vector<float, simd.Preferred> = nil as any",
         "local selected: simd.Mask<float, simd.Preferred> = (left < right) & (left <= right)",
-        "return species, fixed, selected",
+        "local positive: simd.Mask<float, simd.Preferred> = left > 0.0",
+        "return species, fixed, selected, positive",
     }, "\n"))
     assertEq(codes(table.concat({
         'local simd = require("nupp.simd")',

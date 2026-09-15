@@ -2231,6 +2231,32 @@ return {apply = apply}
     assert(decoded.c:find("twice_simd_vector_f32_preferred_returns_simd_vector_f32_preferred_forced_scalar", 1, true), where .. ": scalar oracle gets a type-correct helper twin")
 end
 
+function M.explicitLaneAndBitmaskOperationsKeepOneBasedLaneIdentity()
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function inspect(borrows input: span.Span<float>): (float, uint32, integer)
+    local species: simd.Species<float, simd.Fixed<8>> = simd.fixed()
+    local active = species:tail(#input)
+    local values = species:load(input, 1, active):insert(2, 3.0)
+    local bits = (values > 0.0):bits()
+    return values:extract(2), bits:count(), bits:first()
+end
+
+return {inspect = inspect}
+]]
+    local dir = project{["inspect.nupp"] = source}
+    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json inspect.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("simd_insert.insert", 1, true), where .. ": insertion remains intrinsic")
+    assert(decoded.ir:find("simd_extract.extract", 1, true), where .. ": extraction remains intrinsic")
+    assert(decoded.ir:find("simd_bitmask_count.count", 1, true), where .. ": bitmask count remains intrinsic")
+    assert(decoded.ir:find("simd_bitmask_first.first", 1, true), where .. ": bit zero maps back to lane one")
+    assert(decoded.c:find("(uint32_t)lane - 1u", 1, true), where .. ": C uses the documented one-based lane convention")
+end
+
 function M.aLoopThatWantedLanesAndDidNotGetThemFails()
     local dir = project{["refused.nupp"] = REFUSED}
     local out, code = run(dir, "--check refused.nupp")

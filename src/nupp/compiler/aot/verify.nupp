@@ -566,6 +566,11 @@ local GENERIC_SIMD: {
     simd_mask_count = true,
     simd_mask_first = true,
     simd_mask_bits = true,
+    simd_extract = true,
+    simd_insert = true,
+    simd_bitmask_any = true,
+    simd_bitmask_count = true,
+    simd_bitmask_first = true,
 }
 
 local function genericSimdType(typeName: string): (string?, string?, string?)
@@ -783,6 +788,26 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 ) .. "_" .. tostring(shape) and args[2].type == node.type and args[3].type == node.type,
                 "invalid generic SIMD select"
             )
+        elseif op == "simd_extract" then
+            local vectorFamily, vectorElement = nil, nil
+            if args[1] ~= nil then
+                vectorFamily, vectorElement = genericSimdType(args[1].type)
+            end
+            holds(
+                #args == 2 and vectorFamily == "vector" and node.type == vectorElement and args[2].type == "f64",
+                "invalid generic SIMD extract"
+            )
+        elseif op == "simd_insert" then
+            holds(
+                family == "vector" and #args == 3 and args[
+                    1
+                ].type == node.type and args[2].type == "f64" and args[3].type == element,
+                "invalid generic SIMD insert"
+            )
+        elseif op == "simd_bitmask_any" or op == "simd_bitmask_count" or op == "simd_bitmask_first" then
+            local bitFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
+            local result = op == "simd_bitmask_any" and "bool" or op == "simd_bitmask_count" and "u32" or "f64"
+            holds(#args == 1 and bitFamily == "bitmask" and node.type == result, "invalid generic SIMD bitmask query")
         else
             local maskFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
             local result = (

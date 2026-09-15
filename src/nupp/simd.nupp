@@ -130,7 +130,10 @@ sealed interface simd.Mask<T, S>
     any: function(borrows self: simd.Mask<T, S>): boolean
     all: function(borrows self: simd.Mask<T, S>): boolean
     count: function(borrows self: simd.Mask<T, S>): uint32
-    first: function(borrows self: simd.Mask<T, S>): integer?
+
+    --- Returns the first set lane, or zero when the mask is empty.
+    first: function(borrows self: simd.Mask<T, S>): integer
+
     bits: function(borrows self: simd.Mask<T, S>): simd.BitMask<T, S>
 end
 
@@ -146,7 +149,9 @@ sealed interface simd.Vector<T, S>
     metamethod __lt: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Mask<T, S>
     metamethod __le: function(left: simd.Vector<T, S>, right: simd.Vector<T, S> | T): simd.Mask<T, S>
 
+    --- Lane indices are one-based.
     extract: function(borrows self: simd.Vector<T, S>, lane: integer): T
+
     insert: function(borrows self: simd.Vector<T, S>, lane: integer, value: T): simd.Vector<T, S>
 end
 
@@ -155,7 +160,9 @@ end
 sealed interface simd.BitMask<T, S>
     any: function(borrows self: simd.BitMask<T, S>): boolean
     count: function(borrows self: simd.BitMask<T, S>): uint32
-    first: function(borrows self: simd.BitMask<T, S>): integer?
+
+    --- Returns the first set lane, or zero when the bitmask is empty.
+    first: function(borrows self: simd.BitMask<T, S>): integer
 end
 
 --- Operations whose lane count is selected from `T` and `S` at AOT lowering.
