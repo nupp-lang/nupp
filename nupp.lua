@@ -283,7 +283,7 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/wasmstorage.nupp",
     },
     {source = "src/nupp/mem/array.nupp", output = "nupp/compiler/nupp/mem/array.nupp"},
-    {source = "src/nupp/mem/pool.nupp", output = "nupp/compiler/nupp/mem/pool.nupp"},
+    {source = "src/nupp/util/internal/pool.nupp", output = "nupp/compiler/nupp/util/internal/pool.nupp"},
     {source = "src/nupp/mem/arena.nupp", output = "nupp/compiler/nupp/mem/arena.nupp"},
     {source = "src/nupp/events.nupp", output = "nupp/compiler/nupp/events.nupp"},
     {source = "src/nupp/text/utf8.nupp", output = "nupp/compiler/nupp/text/utf8.nupp"},

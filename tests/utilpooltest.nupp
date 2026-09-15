@@ -1,5 +1,5 @@
--- nupp.mem.pool: record instances leased from a free list, cleared on release.
-local pool = require("nupp.mem.pool")
+-- nupp.util.Pool: record instances leased from a free list, cleared on release.
+const {type Pool, newPool} = require("nupp.util")
 local test = require("nupp.test")
 
 local M = {}
@@ -52,21 +52,21 @@ local function hasNoFields(value: Event): boolean
 end
 
 function M.newReservesTheCapacityUpFront(): nil
-    local events = pool.new(Event, 4)
+    local events = newPool(Event, 4)
     test.equal(events.capacity, 4)
     test.equal(events:free(), 4)
     test.equal(events:live(), 0)
-    test.equal(pool.new(Event).capacity, 32)
+    test.equal(newPool(Event).capacity, 32)
     test.raises(
         function()
-            pool.new(Event, -1)
+            newPool(Event, -1)
         end,
         "negative"
     )
 end
 
 function M.acquireStampsTheDeclarationWithNoFieldsSet(): nil
-    local events = pool.new(Event, 2)
+    local events = newPool(Event, 2)
     local event = events:acquire()
     assert(event is Event, "the instance carries the record's metatable")
     assert(hasNoFields(event), "a fresh instance has no fields")
@@ -76,7 +76,7 @@ function M.acquireStampsTheDeclarationWithNoFieldsSet(): nil
 end
 
 function M.reserveThenAcquireWithinCapacityAllocatesNothing(): nil
-    local events = pool.new(Event, 64)
+    local events = newPool(Event, 64)
     local function churn(rounds: integer): nil
         for _ = 1, rounds do
             local event = events:acquire()
@@ -117,7 +117,7 @@ function M.reserveThenAcquireWithinCapacityAllocatesNothing(): nil
 end
 
 function M.releaseClearsEveryField(): nil
-    local events = pool.new(Event, 1)
+    local events = newPool(Event, 1)
     local event = events:acquire()
     event.x = 7
     event.name = "seven"
@@ -131,7 +131,7 @@ function M.releaseClearsEveryField(): nil
 end
 
 function M.instancesAreDistinctWhileLive(): nil
-    local events = pool.new(Event, 3)
+    local events = newPool(Event, 3)
     local seen: {[Event]: boolean} = {}
     local held: {Event} = {}
     for index = 1, 8 do
@@ -152,7 +152,7 @@ function M.instancesAreDistinctWhileLive(): nil
 end
 
 function M.releaseDiscardsPastCapacity(): nil
-    local events = pool.new(Event, 2)
+    local events = newPool(Event, 2)
     local held: {Event} = {}
     for index = 1, 5 do
         held[index] = events:acquire()
@@ -165,7 +165,7 @@ function M.releaseDiscardsPastCapacity(): nil
 end
 
 function M.reserveTopsTheFreeListUp(): nil
-    local events = pool.new(Event, 4)
+    local events = newPool(Event, 4)
     local held: {Event} = {}
     for index = 1, 4 do
         held[index] = events:acquire()
@@ -190,7 +190,7 @@ function M.reserveTopsTheFreeListUp(): nil
 end
 
 function M.resetWithLiveInstancesRaisesAndChangesNothing(): nil
-    local events = pool.new(Event, 3)
+    local events = newPool(Event, 3)
     local event = events:acquire()
     test.raises(
         function()
@@ -211,7 +211,7 @@ function M.resetWithLiveInstancesRaisesAndChangesNothing(): nil
 end
 
 function M.releaseRefusesWhatThePoolDidNotStamp(): nil
-    local events = pool.new(Event, 1)
+    local events = newPool(Event, 1)
     test.raises(
         function()
             events:release(new Event(x = 1))

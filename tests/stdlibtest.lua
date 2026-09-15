@@ -221,11 +221,11 @@ function M.poolIsOrdinaryTablesOnEveryDialect()
     assertClean(
         table.concat(
             {
-                "local pool = require('nupp.mem.pool')",
+                "local pool = require('nupp.util')",
                 "local record Event",
                 "    id: integer",
                 "end",
-                "local events = pool.new(Event, 4)",
+                "local events = pool.newPool(Event, 4)",
                 "local event = events:acquire()",
                 "event.id = 1",
                 "events:release(event)",

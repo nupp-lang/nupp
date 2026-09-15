@@ -96,7 +96,7 @@ local MODULES = {
     ["nupp.time"] = facility("host", "runtime.time"),
     ["nupp.workers"] = facility("host", "runtime.workers"),
     ["nupp.mem.array"] = {kind = "unavailable", capability = "cstorage"},
-    ["nupp.mem.pool"] = {kind = "common"},
+    ["nupp.util.internal.pool"] = {kind = "common"},
     ["nupp.mem.arena"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.events"] = {kind = "unavailable", capability = "cstorage"},
 }

@@ -31,7 +31,7 @@ that is out is never handed out twice.
 
 Storage comes from the `cstorage` capability, so the module is available on
 native LuaJIT and on the Wasm and browser backends, and refused by `portable`.
-Table-backed record instances are [](nupp.mem.pool).
+Table-backed record instances are [](nupp.util.Pool).
 ]]
 
 local storage = require("nupp.runtime.storage")

@@ -5,13 +5,21 @@ Small general-purpose types that belong to no larger facility.
 
 A member here is one type and the few functions that hand it out, reached by the
 name of the type rather than by a module of its own: `nupp.util.Bitset` is a set
-of bit positions, and `nupp.util.Store` is a bag of values indexed by typed keys.
+of bit positions, `nupp.util.Store` is a bag of values indexed by typed keys, and
+`nupp.util.Pool` leases cleared record instances from a free list.
 Nothing here is a facade over a provider, and nothing here holds state a program
 does not create itself.
 
 ```nupp
+local record Damage
+    amount: integer
+end
+
 local set = new nupp.util.Bitset(128)
 set:add(7)
+
+local damage = nupp.util.newPool(Damage, 64)
+damage:release(damage:acquire())
 
 local store = nupp.util.newStore()
 const theme: nupp.util.Key<string> = nupp.util.newKey("app.theme")
@@ -19,8 +27,8 @@ store:set(theme, "dark")
 ```
 
 Unlike [](nupp.mem), which keeps every member a module of its own, the types are
-re-exported here, so reaching one loads both. That is affordable because both are
-small and neither resolves a provider while it loads.
+re-exported here, so reaching one loads them all. That is affordable because they
+are small and none resolves a provider while it loads.
 
 [](nupp.util.uuid) is the exception, and stays a module reached by its own name: it
 resolves a host service and declares a native ABI, neither of which a program that
@@ -28,6 +36,7 @@ only wanted a bitset should carry.
 ]]
 
 local bitset = require("nupp.util.internal.bitset")
+local pool = require("nupp.util.internal.pool")
 local store = require("nupp.util.internal.store")
 
 --- A growable set of bit positions counting from 0.
@@ -37,6 +46,14 @@ export const Bitset = bitset.Bitset
 
 --- The bits one word of a [](Bitset) holds.
 export const WORD_BITS = bitset.WORD_BITS
+
+--- A pool of instances stamped with one record declaration.
+export type Pool<T is table> = pool.Pool<T>
+
+export const Pool = pool.Pool
+
+--- Creates a pool of instances of one record type.
+export const newPool = pool.new
 
 --- A typed identity for one value in a [](Store).
 export type Key<T> = store.Key<T>

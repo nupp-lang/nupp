@@ -1,7 +1,7 @@
 -- nupp.events: addressed synchronous delivery over pooled and arena-backed storage.
 local arena = require("nupp.mem.arena")
 local events = require("nupp.events")
-local pool = require("nupp.mem.pool")
+const {type Pool, newPool} = require("nupp.util")
 local test = require("nupp.test")
 
 local M = {}
@@ -54,7 +54,7 @@ end
 
 --- An allocator that counts what the bus asks of it, over a pool of its own.
 local record Counting is events.Allocator<Damage>
-    inner: pool.Pool<Damage>
+    inner: Pool<Damage>
     acquires: integer
     releases: integer
     live: integer
@@ -73,7 +73,7 @@ local record Counting is events.Allocator<Damage>
 end
 
 local function newCounting(): Counting
-    return new Counting(inner = pool.new(Damage, 8), acquires = 0, releases = 0, live = 0)
+    return new Counting(inner = newPool(Damage, 8), acquires = 0, releases = 0, live = 0)
 end
 
 --- An arena-backed allocator that records what a row held when it was leased.

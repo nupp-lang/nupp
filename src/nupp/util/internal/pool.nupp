@@ -1,4 +1,4 @@
-module nupp.mem.pool
+module nupp.util.internal.pool
 
 --[[
 A pool of record instances of one declared type.
@@ -8,14 +8,12 @@ fields, and comes back cleared, so a hot path that would otherwise build a
 table per event reuses the ones it already built.
 
 ```nupp
-local pool = nupp.mem.pool
-
 local record Damage
     amount: integer
     source: string
 end
 
-local damage = pool.new(Damage, 64)
+local damage = nupp.util.newPool(Damage, 64)
 local hit = damage:acquire()
 hit.amount = 12
 hit.source = "trap"
@@ -28,7 +26,8 @@ release onto a full free list lets the collector have the instance. Within
 capacity, once the free list is warm, neither operation allocates.
 
 Nothing here reaches C storage: the pool is ordinary tables, so it is available
-on every backend. Struct rows are [](nupp.mem.arena).
+on every backend, which is why it sits here rather than beside the views in
+[](nupp.mem). Struct rows are [](nupp.mem.arena).
 ]]
 
 local pool = {}
