@@ -86,6 +86,17 @@ not yours to decide are finished.
 Answer directly and keep the bottom line up front. Do not label it explicitly
 as "BLUF" or bottom line up front. Just say the answer, then give details.
 
+Be brief. A yes-or-no question is answered by the first word. Finished work
+needs a sentence, not a report: no file-by-file enumeration, no list of which
+suites passed, no "what I did" and "what I verified" sections. The diff and
+the test output already say those things, and repeating them buries the part
+that is actually worth reading.
+
+Spend the words where they earn their place -- a failure, a surprise, a
+decision that went against the obvious choice, or something found along the
+way that changes what to do next. Compress the successes and report the
+problems in full.
+
 ## Language tools
 
 Source positions are 1-based byte line and column numbers. Prefer `--json`
