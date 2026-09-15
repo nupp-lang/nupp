@@ -37,7 +37,7 @@ function frontmatter.parse(source: string): {[string]: string}, string
         local key, value = line:match("^([%w_-]+)%s*:%s*(.-)%s*$")
         if key and value then
             -- A value written with quotes is a value that had to be, because YAML would
-            -- have read the colon in `NEP 0: Index` as a second key. Nothing here reads
+            -- have read the colon in `ADR 0: Index` as a second key. Nothing here reads
             -- it as YAML, but the quotes are what an editor's highlighting expects, so
             -- they are accepted and dropped rather than rendered.
             local quoted = value:match('^"(.*)"$') or value:match("^'(.*)'$")

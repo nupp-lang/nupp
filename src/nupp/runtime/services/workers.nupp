@@ -45,7 +45,7 @@ type workers.Submittable = sendable function(...: any): any
 --- copies: a [](nupp.mem.heap) array of a fixed-width element. The storage lives in
 --- neither Lua heap, so handing its pointer to another lane is sound, and the affine
 --- layer consumes the sender's binding where the move is written. The element names
---- here must agree with the runtime tag map in `nupp.mem.heap`. See NEP 21.
+--- here must agree with the runtime tag map in `nupp.mem.heap`.
 local comptime function movableOwner(T: type): boolean
     local described = nupp.types.describe(T) as {[string]: any}
     if described.kind ~= "reference" then

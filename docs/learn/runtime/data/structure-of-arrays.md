@@ -45,7 +45,6 @@ large array wants its columns contiguous. Annotating the declaration would make
 one nominal identity cover two incompatible physical meanings, so a value's
 memory layout would depend invisibly on where the value came from.
 
-See [NEP 10](../../../neps/0010-structure-of-arrays.md) for more information.
 :::
 
 ### Nested fields stay whole
@@ -326,5 +325,4 @@ refuses.
 - [performance.md](../../performance/index.md#opt-6-indexed-views) for the
   indexed-view lowering
 - [reflection.md](../../language/reflection.md) for the comptime description of a struct
-- [NEP 10](../../../neps/0010-structure-of-arrays.md) for the design record
 :::

@@ -391,8 +391,7 @@ collector may not collect the storage a C pointer names while C still holds
 it. Folding them together would mean every pinned pointer also acquired a
 terminal, which is wrong for the common case of a callback that C releases on
 its own schedule, and it would leave a pointer into a collected buffer as the
-first thing a program discovers with a segfault. See [NEP
-4](../../../neps/0004-ownership.md) for more information.
+first thing a program discovers with a segfault.
 :::
 
 ## Public capability contracts
@@ -661,8 +660,7 @@ makes the caller responsible for the resource from that line on.
 
 Relationships name ordinary values, so there are no named lifetimes, lifetime
 parameters, or read-only shared references. Everything not carrying a
-capability stays freely aliased and garbage collected. See [NEP
-4](../../../neps/0004-ownership.md) for the design record.
+capability stays freely aliased and garbage collected.
 
 ### Can an owner be held across a suspension?
 
@@ -689,6 +687,4 @@ capability.
   its exact extent
 - [c-interop.md](../c-interop/index.md#describe-lifetime-behavior) for the
   native side of a lifetime contract
-- [NEP 4](../../../neps/0004-ownership.md) for the record of why the model is shaped
-  this way
 :::

@@ -152,7 +152,7 @@ sha256() { sha256_stdin < "$1"; }
 # The pins that decide a native artifact, which is every pin but the stage-zero
 # one. That one names a Nupp release and a bundle of Lua; no C compiler ever
 # sees it, and keying LuaJIT, LPeg and every Rust crate on it would make the
-# one-line pin bump NEP 28 asks for a from-scratch native rebuild on every
+# one-line pin bump a stage-zero move asks for a from-scratch native rebuild on
 # machine that pulls it. Assignments only, so a comment is documentation rather
 # than a cache generation.
 pins_digest() {
@@ -357,8 +357,8 @@ source_tree() {
 # compiler-pair key, and every worktree of every checkout on this machine that
 # pins the same release shares the one copy.
 #
-# NEP 28 says why this is fetched rather than committed, and the pin says why the
-# digest is of the decompressed file.
+# This is fetched rather than committed, and the pin says why the digest is of
+# the decompressed file.
 stage0_runtime() {
     stage0_verified_file=$1
     stage0_runtime_root="$ROOT/build/stage0/$STAGE0_SHA256"

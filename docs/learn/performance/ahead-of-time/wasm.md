@@ -318,5 +318,4 @@ call must remain outside a call to a C function such as
   numeric guarantees
 - [portable-compiler.md](../../projects/portability/compiler.md) for the separate compiler bundle
   used by the playground
-- [NEP 13](../../../neps/0013-lua-in-wasm-aot.md) for the binding decision
 :::

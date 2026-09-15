@@ -167,7 +167,7 @@ ordinary first-order application, and `preserves` supplies the conservation
 proof beside it, which is why none of this needs higher-kinded generics. HKT
 would only be relevant to an API abstracting over the container itself as a type
 constructor, and it would still not supply the proof that the obligation moved
-exactly once. See [NEP 4](../../../neps/0004-ownership.md) for more information.
+exactly once.
 :::
 
 ## FAQ
@@ -218,6 +218,4 @@ representation, so a C pointer remains a C pointer and a struct keeps the
 - [ownership.md](index.md) for the annotations a caller writes
 - [c-interop.md](../c-interop/index.md#describe-lifetime-behavior) for
   stating an imported function's lifetime behavior
-- [NEP 4](../../../neps/0004-ownership.md) for the record of why the model is shaped
-  this way
 :::

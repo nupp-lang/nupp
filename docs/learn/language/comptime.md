@@ -56,7 +56,6 @@ result, runs at every optimization level, and owes a diagnostic when it cannot
 produce a value. Anything whose meaning depends on a compile-time value could
 never be a fold, because `-O0` still has to compile the program.
 
-See [NEP 3](../../neps/0003-comptime.md) for more information.
 :::
 
 ## Values checked at their destination
@@ -140,7 +139,6 @@ selecting different code. The value cannot observe the program, because it is
 assembled through a sealed typed constructor API. And the block does not choose
 the emitter; the declared type does.
 
-See [NEP 3](../../neps/0003-comptime.md#quotable-set) for more information.
 :::
 
 ## Compile-time environment
@@ -204,8 +202,6 @@ declaration ran to 254 lines of recursive type-state machine, because type
 position had no loop. Making types values in the language that already had
 loops removed the second compile-time language rather than adding a third.
 
-See [NEP 3](../../neps/0003-comptime.md#there-were-two-compile-time-languages) for
-more information.
 :::
 
 ## FAQ

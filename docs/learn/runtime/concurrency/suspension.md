@@ -83,7 +83,6 @@ the handler installed around the task, and it costs one construct in the grammar
 and one fact in the checker rather than an effect system every signature has to
 carry.
 
-See [NEP 5](../../../neps/0005-suspension.md) for more information.
 :::
 
 ### Waits park one coroutine
@@ -284,8 +283,6 @@ behavior, and the invariant being trusted is not that a wait completes, which it
 may legitimately never do, but that the continuation is never abandoned without
 being woken far enough to run its cleanup.
 
-See [NEP 5](../../../neps/0005-suspension.md#handled-suspension-is-not-a-raw-coroutine-yield)
-for more information.
 :::
 
 ## Running several waits together
@@ -527,5 +524,4 @@ so affine files, locks, and native allocations do not become stranded.
 - [workers.md](workers.md) for CPU parallelism on native threads
 - [](nupp.io) for the library these examples wait on
 - [ownership.md](../ownership/index.md) for the cleanup a cancelled park unwinds
-- [NEP 5](../../../neps/0005-suspension.md) for the record of the design
 :::

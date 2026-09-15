@@ -82,8 +82,7 @@ A module is its own public declaration. No ambient table and no companion
 declaration file repeats that surface, and this one constraint rejected most of
 the design space: any option that produced a second description of a module's
 surface was ruled out however cheap it was to build, because the second copy is
-the one that goes stale. See [NEP
-7](../../neps/0007-modules-and-lazy-loading.md) for more information.
+the one that goes stale.
 :::
 
 ## Internal modules

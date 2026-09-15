@@ -355,8 +355,7 @@ width, masks and divergent control flow, exact scalar tails, one source form
 that works with the backend off, and the freedom to change gang shape later.
 
 What replaced the boxed design is [explicit SIMD](#explicit-simd), whose values
-exist only inside an `@aot` body and cannot escape it. See
-[NEP 11](../../../neps/0011-simd.md) for more information.
+exist only inside an `@aot` body and cannot escape it.
 
 ::: deepdive
 A boxed vector type would mostly restate a map loop, while adding decisions

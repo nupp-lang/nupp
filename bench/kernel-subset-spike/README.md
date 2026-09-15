@@ -368,7 +368,7 @@ anything about single-precision arithmetic being cheaper. Both LuaJIT rows are
 ten to forty times off every compiled one, which is the gap AOT exists to close
 and the reason a kernel of this shape is worth annotating at all. And
 contraction is worth only a few percent here, against the 2.38x it is worth to
-the scalar kernel that `docs/neps/0009-ahead-of-time-compilation.md` measured --
+the scalar kernel that the AOT gates measured --
 once the loop is lane-parallel, fusing a multiply-add stops being where the time
 goes.
 

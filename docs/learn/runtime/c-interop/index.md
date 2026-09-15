@@ -125,7 +125,6 @@ The header supplies physical facts only. What a call borrows, takes, retains,
 or releases is not written in it, so deriving those facts would be invention at
 exactly the boundary where invention is most expensive.
 
-See [NEP 8](../../../neps/0008-c-interop-and-embedding.md) for more information.
 :::
 
 ### Included headers
@@ -813,5 +812,4 @@ of the pointer and count.
 - [build.md](../../projects/build.md#c-dependencies) for C and Cargo dependency provider
   configuration
 - [embedding.md](../../projects/embedding.md) for calling Nupp from a C or C++ application
-- [NEP 8](../../../neps/0008-c-interop-and-embedding.md) for the design record
 :::

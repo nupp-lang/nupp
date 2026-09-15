@@ -581,11 +581,6 @@ return {
                 -- the site does not publish.
                 pages = {
                     {glob = "docs/**.md", exclude = {"docs/style.md"}},
-                    -- A directory rather than a glob: an enhancement proposal is
-                    -- published by being written, and its index -- the numbers, the
-                    -- titles, and the statuses -- is generated from the proposals
-                    -- rather than kept beside them.
-                    {path = "reference/neps", title = "NEPs", directory = "docs/neps",},
                     -- What deriving adds to a declaration reads as one page
                     -- whether a reader arrives from the reference or from the
                     -- module route, so the reference page is also the overview
@@ -623,9 +618,9 @@ return {
         -- The compiler this tree's first stage is compiled by. It is the previous
         -- release's, fetched and verified against the digest pinned in
         -- `scripts/toolchain.pins`, which is also what `bin/nupp` starts from in a
-        -- checkout that has never been built. NEP 28 says why it is fetched rather
-        -- than committed, and what that costs: the sources below may only use a
-        -- language feature the pinned release already understands.
+        -- checkout that has never been built. It is fetched rather than committed,
+        -- and that costs: the sources below may only use a language feature the
+        -- pinned release already understands.
         --
         -- Run through `sh`, because this is a shell script and the command is
         -- spawned rather than handed to a shell: Windows cannot execute it by name

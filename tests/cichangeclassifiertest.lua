@@ -128,7 +128,7 @@ function M.anEmptyChangeSelectsEverything()
 end
 
 function M.documentationOnlyChangesProvisionNoPlatform()
-    for _, path in ipairs({"docs/reference/language.md", "README.md", "docs/neps/0028-fetched-stage-zero.md"}) do
+    for _, path in ipairs({"docs/reference/language.md", "README.md", "docs/learn/projects/build.md"}) do
         selects(path, {"docs-site"})
         doesNotSelect(path, {
             "fast-checks",

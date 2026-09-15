@@ -5,9 +5,8 @@
 -- than code. This one is the opposite and is here for that reason. Each pixel
 -- reads sixteen bytes once and then runs a bounded loop over four live doubles
 -- that touches no memory at all, so what it measures is how well the inner loop
--- was compiled. That is the register-resident arithmetic chain
--- docs/neps/0009-ahead-of-time-compilation.md asks for in its performance gates, written as ordinary
--- Nupp.
+-- was compiled. That is the register-resident arithmetic chain the AOT
+-- performance gates ask for, written as ordinary Nupp.
 --
 -- The complex plane is an input rather than something the kernel derives from a
 -- pixel index, which keeps this a map over two spans and leaves the grid the

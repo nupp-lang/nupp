@@ -89,7 +89,6 @@ declaration pays for every format on every record that mentions it, whether or
 not a value is ever encoded, and the cost lands in the binary rather than in the
 program that asked for the format.
 
-See [NEP 3](../../neps/0003-comptime.md) for more information.
 :::
 
 ## Type witnesses
@@ -254,5 +253,4 @@ which report against the build's `layoutTarget`.
   descriptors
 - [records.md](types/records-and-structs.md#names-hold-their-table) for the type
   witness in the type system
-- [NEP 3](../../neps/0003-comptime.md) for the record of the design
 :::

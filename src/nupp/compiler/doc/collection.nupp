@@ -50,7 +50,7 @@ end
 
 --- The directory a manifest asked for, the route it publishes under, and the name its
 --- navigation section carries. The section name also prefixes a numbered document's
---- title, singularised, so a section called `NEPs` titles its pages `NEP 3`.
+--- title, singularised, so a section called `ADRs` titles its pages `ADR 3`.
 type collection.Settings = {
     directory: string?,
     path: string,

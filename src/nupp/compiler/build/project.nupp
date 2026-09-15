@@ -1558,8 +1558,7 @@ end
 --- point of itself rather than of whatever built it.
 ---
 --- What it no longer says anything about is a tracked file. Stage zero is pinned to a
---- release and is meant to differ from the current compiler; see
---- [NEP 28](docs/neps/0028-fetched-stage-zero.md).
+--- release and is meant to differ from the current compiler.
 function project.fixpoint(root: string?, opts: project.FixpointOptions?): integer
     root, opts = root or ".", (opts or {}) as project.FixpointOptions
     local config, err = project.loadManifest(root)

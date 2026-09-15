@@ -420,6 +420,4 @@ A distributed binary is deliberately none of these things.
 - [embedding.md](../learn/projects/embedding.md) for running Nupp inside a host you own
   rather than one the packager stamps
 - [native-runtime.md](native-runtime.md) for the exact Rust/native boundary
-- [NEP 8](../neps/0008-c-interop-and-embedding.md) for the design record behind
-  the C boundary a stub sits on
 :::

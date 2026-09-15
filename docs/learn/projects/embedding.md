@@ -380,7 +380,6 @@ tempted to cross and the one that would constrain the runtime permanently: a
 published address is a promise about object layout that every later change to
 the runtime has to keep.
 
-See [NEP 8](../../neps/0008-c-interop-and-embedding.md) for more information.
 :::
 
 ## Errors

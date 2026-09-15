@@ -225,7 +225,6 @@ A section opens with a sentence, not with a list. A reader arriving at a
 heading needs to know what the list is a list of before the first item means
 anything, and one sentence is usually the whole cost.
 
-
 ## Layering
 
 Do not explain a concept completely and then illustrate it. Alternate.
@@ -316,10 +315,11 @@ Link generously. A page is a node, not a document.
   [ownership.md](learn/runtime/ownership/borrowing.md) for the complete contract reference`.
   Never a bare "see here" or a naked URL.
 - **Send the reader; do not describe the destination.** A cross-reference is an
-  instruction, so write it as one: "See [NEP 5](neps/0005-suspension.md) for
-  more information." A sentence about the target instead, as in "NEP 5 has the
-  full record" or "the ownership page covers this", leaves the reader to work
-  out that they were being sent somewhere.
+  instruction, so write it as one: "See
+  [suspension.md](learn/runtime/concurrency/suspension.md) for more
+  information." A sentence about the target instead, as in "the suspension page
+  has the full record" or "the ownership page covers this", leaves the reader to
+  work out that they were being sent somewhere.
 - A `::: seealso` block collects the links a section would otherwise scatter.
   See [Admonitions](#see-also) for when one earns its place.
 - **Prose does not name diagnostic codes.** A page says what the rule is and
@@ -354,7 +354,6 @@ so let a long cell be long rather than padding every other row to meet it.
 Tables are for comparing several things across several axes, or for a closed
 enumeration of surface syntax. Two columns of key to value is a list, not a
 table. A table with one row is a sentence.
-
 
 ## Admonitions
 
@@ -407,12 +406,10 @@ it was weighed against, and what that cost.
   to describe.
 
 A deep dive carries the *current* design only. A rejected alternative, a
-superseded form, or an attempt that was withdrawn belongs in the
-[proposal](neps/). This page is rewritten when behavior changes, and anything
-about a design that no longer exists is rewritten with it, which is the whole
-reason proposals are separate files. Where a proposal covers the decision, end
-with a link to it; most decisions have none, and then the block is the whole
-record.
+superseded form, or an attempt that was withdrawn stays off the page: it is
+rewritten when behavior changes, and anything about a design that no longer
+exists is rewritten with it. The block is the whole record of a decision, so
+where the reasoning behind one is worth keeping, keep it there.
 
 A deep dive that grows past a few paragraphs was proposal content. Move it, do
 not expand it.

@@ -96,7 +96,6 @@ is then the behavior of no version of the source. The host owns the commit
 boundary because there is no generally safe moment to swap an implementation,
 and only the program knows which one it is in.
 
-See [NEP 6](../../neps/0006-hot-reload.md) for more information.
 :::
 
 ### C declarations
@@ -272,5 +271,4 @@ so declare the function and pass the name, as
 - [build.md](build.md) for the ordinary optimized build that ships
 - [c-interop.md](../runtime/c-interop/index.md) for the C declarations a watch
   session tracks
-- [NEP 6](../../neps/0006-hot-reload.md) for the design record
 :::

@@ -210,6 +210,5 @@ See [tooling](learn/tooling/index.md) for the guided map and
 - [Lints](reference/lints.md)
 - [Grammar](reference/grammar.md)
 - [Distribution](reference/distribution.md)
-- [NEPs](neps/index.md)
 
 :::

@@ -90,8 +90,6 @@ diagnostics, so removing the annotation changes performance and artifacts but
 never the source-level result. There is no silent per-function fallback, because
 a contract that degrades quietly is a comment.
 
-See [NEP 9](../../../neps/0009-ahead-of-time-compilation.md) for more
-information.
 :::
 
 ## Next pages
@@ -142,6 +140,4 @@ applications](wasm.md).
   can compile the loop you were about to annotate
 - [performance.md](../index.md) for the rewrites applied to ordinary Nupp
 - [](nupp.mem.span) for the span types a kernel takes
-- [NEP 9](../../../neps/0009-ahead-of-time-compilation.md) for the AOT design
-  record
 :::

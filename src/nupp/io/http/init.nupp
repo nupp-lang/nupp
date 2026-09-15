@@ -20,8 +20,7 @@ client:close()
 
 Calls suspend through [`nupp.suspension`](docs/learn/runtime/concurrency/suspension.md): a CLI
 blocks on the provider's condvar, while a scheduler or frame host only drives the
-nonblocking source. See [0005-suspension.md](docs/neps/0005-suspension.md) for
-why waiting is a suspension rather than a block.
+nonblocking source.
 
 A response status is an answer, 4xx and 5xx included. Transport and body
 failures are returned as reasons instead. Response bodies and generic request

@@ -538,6 +538,3 @@ Everything else is the same, [application task scopes](task-scopes.md) included:
 `scope:fork` gives a browser page the fail-fast form, a scope deadline reaches a
 lane, and `nupp.tasks.checkpoint()` is where a running lane observes that its
 cancellation was requested.
-
-See [NEP 16](../../../neps/0016-structured-worker-tasks.md) for the design tradeoffs
-behind structured worker tasks.

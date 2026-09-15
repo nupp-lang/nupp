@@ -645,9 +645,9 @@ manifest when one is written.
 
 ```lua
 {
-   path = "neps",
-   title = "NEPs",
-   directory = "docs/neps"
+   path = "adrs",
+   title = "ADRs",
+   directory = "docs/adrs"
 }
 ```
 
@@ -660,7 +660,7 @@ written into the prose. A value may be quoted, and the quotes are dropped.
 A file name beginning with digits and a hyphen, such as `0001-process.md`,
 carries that number as the document's identity. The number is shown without its
 padding and prefixed with the entry's `title` made singular, so a collection
-titled `NEPs` titles its first document `NEP 1`.
+titled `ADRs` titles its first document `ADR 1`.
 
 `index.md` is the collection's own page rather than a document in it. Its prose
 opens the index and the table of documents is generated below it. Links between
@@ -669,7 +669,7 @@ routes like links in any other handwritten page.
 
 Only the index appears in the navigation; its documents are reached from it. A
 collection may therefore sit inside an existing section, so
-`path = "reference/neps"` puts one under Reference without filling that
+`path = "reference/adrs"` puts one under Reference without filling that
 section's sidebar with every document it holds.
 
 ## Cache and failure behavior
@@ -1202,9 +1202,7 @@ This repository's `selfHost.bootstrap` is `scripts/toolchain stage0`, which
 fetches the release pinned in `scripts/toolchain.pins` and verifies it against
 the digest committed beside it. The cost of that is a rule on these sources:
 they may only use language features the pinned release already understands, and
-a feature reaches them a release later. [NEP
-28](https://github.com/nupp-lang/nupp/blob/main/docs/neps/0028-fetched-stage-zero.md)
-records why that trade was made.
+a feature reaches them a release later.
 
 The build system's own implementation lives under the internal
 `nupp.compiler.build.*` namespace in `src/nupp/compiler/build/`: `project` owns

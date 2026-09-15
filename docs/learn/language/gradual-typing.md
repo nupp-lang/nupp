@@ -82,7 +82,6 @@ A manifest `strict` key is refused for the same reason, with an error naming
 the extensions that replaced it. A manifest key and a file name can disagree,
 and then the file lies to the person reading it.
 
-See [NEP 2](../../neps/0002-gradual-typing.md) for more information.
 :::
 
 ## Strict floor rules

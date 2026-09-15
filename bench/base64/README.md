@@ -7,7 +7,7 @@ none of them.
 Nothing here is on a hot path. `nupp.runtime.browser.base64` is the only base64
 Nupp ships, it is browser-only, and its cost is the Lua layer rather than the
 codec. Deleting this directory removes the experiment and no compiler feature,
-which is the test [NEP 11](../../docs/neps/0011-simd.md) sets for a workload.
+which is the test a workload here has to pass.
 
 ```sh
 ./run.sh

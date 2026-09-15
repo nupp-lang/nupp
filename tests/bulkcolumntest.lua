@@ -1,4 +1,5 @@
--- The bulk path NEP 10 was written around: what tecs does on its hot side.
+-- The bulk path the SoA layout was designed around: what tecs does on its hot
+-- side.
 --
 -- `internal/snapshot.tl` writes a whole archetype column as one `putcdata` of
 -- `structSize * count` bytes and reads it back into the column's memory. The only

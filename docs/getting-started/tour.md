@@ -349,8 +349,7 @@ them.
 
 Suspension is one handled effect rather than general algebraic effects. One
 effect with handlers covers the case, and a language where any operation can be
-declared and handled is a much larger language than this needs. See [NEP
-5](../neps/0005-suspension.md) for more information.
+declared and handled is a much larger language than this needs.
 :::
 
 See [suspension](../learn/runtime/concurrency/suspension.md) for the runtime paths, cancellation

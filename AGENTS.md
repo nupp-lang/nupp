@@ -34,7 +34,7 @@ them: **they may only use language features the pinned release already
 understands.** A feature you add today reaches the compiler's own sources a
 release later, once a tag carrying it is published and the pin moves to it.
 `nupp fixpoint` is what catches a violation, because its first stage is built by
-that release. [NEP 28](docs/neps/0028-fetched-stage-zero.md) records the trade.
+that release.
 
 The same rule reaches `nupp.lua`: the pinned release reads that manifest, so a
 manifest key it does not know about fails every build before anything is
@@ -142,20 +142,7 @@ whenever output is not a terminal, so piped output never carries escapes.
 - `./bin/nupp lsp actions --json FILE LINE COLUMN` lists code actions. Use
   `--only quickfix` or `--only refactor` to narrow the results.
 
-## Proposals are not documentation
-
-`docs/neps/` holds Nupp Enhancement Proposals: numbered records of why a design
-is the way it is. `docs/` says how Nupp behaves today and wins wherever the two
-disagree. A proposal states its status in frontmatter — read it before believing
-the body, which may describe something that was never built.
-
-A proposal records reasoning, not behaviour. Never write a sentence describing
-what the compiler does today into one; link to the page that owns it. Reasoning
-about a decision made on a date stays true after the code moves.
-
-When work lands, change the status in the same commit and leave the body alone.
-[NEP 1](docs/neps/0001-nep-process.md) says how to write one; adding a proposal
-is writing `docs/neps/NNNN-slug.md` and nothing else.
+## Finishing work
 
 Generally do not leave behind unfinished work for a task. Rather than reporting
 unfinished work that was asked to be completed, complete it. For work that

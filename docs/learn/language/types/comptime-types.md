@@ -436,6 +436,4 @@ that a declaration owns.
   side of compile-time evaluation
 - [generics.md](generics.md) for the binders an open call waits on
 - [packs.md](packs.md) for `typepack` results and where they may appear
-- [NEP 3](../../../neps/0003-comptime.md) for the record of why the design is one
-  language rather than two
 :::

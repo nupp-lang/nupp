@@ -247,6 +247,3 @@ and `@json` policy. It is not silently redirected through Serde. Serde is the
 language-wide abstraction for new codecs and dynamic clients; compatibility
 derives can migrate only after their complete format behavior and diagnostics
 have matching prepared implementations.
-
-See [NEP 14](../../../neps/0014-schema-driven-serde.md) for the design reasoning and
-the alternatives it rejected.

@@ -588,8 +588,8 @@ jobs:
       # The bundle the next checkout starts from, composed by the compiler this
       # same command just verified. Producing it any other way would publish a
       # stage zero nothing had proved is a fixed point of itself, which is the
-      # one claim a bootstrap compiler has to make. NEP 28 says why this is an
-      # asset rather than a file in the tree.
+      # one claim a bootstrap compiler has to make. It is an asset rather than a
+      # file in the tree.
       #
       # The digest is of the file inside the archive, not of the archive: two
       # gzips write different bytes for identical input, and what a checkout

@@ -2426,13 +2426,13 @@ function M.aPageDirectoryPublishesEveryDocumentAndGeneratesItsIndex()
     local dir = tempProject({
         ["src/math.nupp"] = SOURCE,
         [
-            "docs/neps/index.md"
+            "docs/adrs/index.md"
         ] = table.concat(
-            {"---", 'title: "NEP 0: Index"', "---", "", "# NEP 0: Index", "", "Why things are the way they are.",},
+            {"---", 'title: "ADR 0: Index"', "---", "", "# ADR 0: Index", "", "Why things are the way they are.",},
             "\n"
         ) .. "\n",
         [
-            "docs/neps/0001-process.md"
+            "docs/adrs/0001-process.md"
         ] = table.concat(
             {
                 "---",
@@ -2451,20 +2451,20 @@ function M.aPageDirectoryPublishesEveryDocumentAndGeneratesItsIndex()
         -- a document is published by existing, which is the whole point of a
         -- directory entry over a list of pages.
         [
-            "docs/neps/0002-widgets.md"
+            "docs/adrs/0002-widgets.md"
         ] = table.concat(
             {"---", "title: Widgets", "status: Draft", "---", "", "## Summary", "", "Widgets.",},
             "\n"
         ) .. "\n",
     })
     local config = {include = {"src"}}
-    local settings = {sources = {"src"}, pages = {{path = "neps", title = "NEPs", directory = "docs/neps"},}}
+    local settings = {sources = {"src"}, pages = {{path = "adrs", title = "ADRs", directory = "docs/adrs"},}}
     assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
 
-    local index = readFile(dir .. "/site/neps/index.html")
+    local index = readFile(dir .. "/site/adrs/index.html")
     assert(index:find("Why things are the way they are.", 1, true), "the index lost the prose it was written with")
     assert(
-        index:find('<a href="../neps/0001-process/index.html">Proposal process</a>', 1, true),
+        index:find('<a href="../adrs/0001-process/index.html">Proposal process</a>', 1, true),
         "the generated index did not list and link a document"
     )
     assert(index:find(">Widgets</a>", 1, true), "a document nothing named was left out of the index")
@@ -2474,11 +2474,11 @@ function M.aPageDirectoryPublishesEveryDocumentAndGeneratesItsIndex()
         "a collection document was listed in the sidebar beside its index"
     )
 
-    local first = readFile(dir .. "/site/neps/0001-process/index.html")
-    assert(first:find(">NEP 1: Proposal process<", 1, true), "the number and title were not generated into the heading")
+    local first = readFile(dir .. "/site/adrs/0001-process/index.html")
+    assert(first:find(">ADR 1: Proposal process<", 1, true), "the number and title were not generated into the heading")
     assert(first:find("Status:", 1, true) and first:find("Active", 1, true), "the frontmatter status was not rendered")
     assert(
-        first:find('href="../../neps/0002-widgets/index.html"', 1, true),
+        first:find('href="../../adrs/0002-widgets/index.html"', 1, true),
         "a link between two documents was not rewritten to its route"
     )
     assert(not first:find("title: Proposal process", 1, true), "the frontmatter block was rendered as prose")
@@ -2557,23 +2557,23 @@ function M.aPageTreeLeavesACollectionToItsOwnEntry()
     local dir = tempProject({
         ["src/math.nupp"] = SOURCE,
         ["docs/index.md"] = "# Welcome\n",
-        ["docs/neps/index.md"] = "# Proposals\n",
-        ["docs/neps/0001-process.md"] = "---\ntitle: Process\n---\n\n## Summary\n",
+        ["docs/adrs/index.md"] = "# Proposals\n",
+        ["docs/adrs/0001-process.md"] = "---\ntitle: Process\n---\n\n## Summary\n",
     })
     local config = {include = {"src"}}
     local settings = {
         sources = {"src"},
-        pages = {{glob = "docs/**.md"}, {path = "reference/neps", title = "NEPs", directory = "docs/neps"},}
+        pages = {{glob = "docs/**.md"}, {path = "reference/adrs", title = "ADRs", directory = "docs/adrs"},}
     }
     assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
 
     assert(
-        io.open(dir .. "/site/reference/neps/0001-process/index.html", "rb"),
+        io.open(dir .. "/site/reference/adrs/0001-process/index.html", "rb"),
         "the collection publishes its documents"
     )
         :close()
     assert(
-        not io.open(dir .. "/site/neps/0001-process/index.html", "rb"),
+        not io.open(dir .. "/site/adrs/0001-process/index.html", "rb"),
         "the sweep published a collection document a second time"
     )
     os.execute("rm -rf '" .. dir .. "'")
@@ -3402,14 +3402,14 @@ end
 function M.collectionFrontmatterSurvivesWindowsLineEndings()
     local collection = require("nupp.compiler.doc.collection")
     local dir = tempProject({
-        ["docs/neps/0001-example.md"] = "---\r\ntitle: Example\r\nstatus: Draft\r\n" .. "---\r\n\r\n## Why\r\n",
+        ["docs/adrs/0001-example.md"] = "---\r\ntitle: Example\r\nstatus: Draft\r\n" .. "---\r\n\r\n## Why\r\n",
     })
-    local pages = assert(collection.expand(dir, {directory = "docs/neps", path = "neps", title = "NEPs",}))
+    local pages = assert(collection.expand(dir, {directory = "docs/adrs", path = "adrs", title = "ADRs",}))
     local page = pages[2]
     assert(page, "the collection published no document")
     assert(page.name == "Example", page.name)
     assert(page.status == "Draft", tostring(page.status))
-    assert(page.title == "NEP 1: Example", page.title)
+    assert(page.title == "ADR 1: Example", page.title)
     os.execute("rm -rf '" .. dir .. "'")
 end
 

@@ -4,7 +4,7 @@
 --   LUA_CPATH='./.rocks/lib/lua/5.1/?.so;;' luajit bench/comptime-materialization.lua
 --
 -- This file deliberately records its thresholds before any result is measured,
--- which is the discipline NEP 13 records. The reference column is a small flat
+-- which is the discipline this spike follows. The reference column is a small flat
 -- parsing machine in the shape M4 originally proposed. The specialized column
 -- is handwritten Lua in the shape M6 would emit. This is a historical lowering
 -- spike, not the shipped Nupp matcher architecture; LPeg 1.1 is its independent

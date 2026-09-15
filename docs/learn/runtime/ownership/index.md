@@ -72,8 +72,7 @@ Cleanup attaches to a producer rather than to a type alone. One `File` type
 covers a handle that has to be closed and a handle that must not be, so putting
 the obligation on the type would close `stdout`. A function returning
 `affine(File, closeFile)` states which of the two it made, and a function
-returning a plain `File` states that nothing is owed. See [NEP
-4](../../../neps/0004-ownership.md) for more information.
+returning a plain `File` states that nothing is owed.
 :::
 
 ## `nupp.Closeable` resources
