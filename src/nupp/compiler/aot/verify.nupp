@@ -283,6 +283,7 @@ end)()
 --- comparison ones a shape generates.
 const verify.LANE_OPCODES = {
     ["local"] = true,
+    ["vindex"] = true,
     ["vsplat"] = true,
     ["vbool_splat"] = true,
     ["vfield_load"] = true,
@@ -1367,6 +1368,11 @@ laneWalk = function(node: lane.Expr, values: {[string]: string}, context: verify
     -- and read like a table.
     if node.op == "local" then
         laneHolds(values[node.name] == node.type, "a lane local of the wrong type")
+    elseif node.op == "vindex" then
+        laneHolds(
+            node.lanes == shape.lanes and shape.vectorFor[node.element] == node.type,
+            "a lane index that does not match its gang"
+        )
     elseif node.op == "vsplat" then
         laneHolds(
             #node.args == 1 and node.type ~= mask and shape.vectorFor[node.element] == node.type,
@@ -2496,8 +2502,82 @@ local function laneBlock(
                 and direct == true,
                 "invalid immediate lane-loop exit"
             )
+        elseif statement.op == "fornum" then
+            for _, bound in ipairs({statement.from, statement.to}) do
+                scalarWalk(bound, values, context.scope)
+                laneHolds(
+                    bound.type == "i32" or bound.type == "u32" or bound.type == "f64",
+                    "non-numeric uniform lane-loop bound"
+                )
+            end
+            laneHolds(statement.binding.type == "i32", "invalid uniform lane-loop induction variable")
+            local inner = inherit(values)
+            inner[statement.binding.name] = statement.binding.type
+            laneBlock(statement.body, inner, context, loopContext, false)
         else
             refuse("unknown lane statement opcode " .. tostring(statement.op))
+        end
+    end
+end
+
+local function regionLaneBlocks(
+    program: scalarIR.Program,
+    statements: {scalarIR.Statement},
+    inherited: {[string]: string},
+    scope: verify.Scope
+): nil
+    local values = inherit(inherited)
+    for _, statement in ipairs(statements) do
+        if statement.op == "let" then
+            values[(statement as scalarIR.Let).name] = (statement as scalarIR.Let).type
+        elseif statement.op == "multi_let" then
+            for _, binding in ipairs((statement as scalarIR.MultiLet).bindings) do
+                values[binding.name] = binding.type
+            end
+        elseif statement.op == "fornum" then
+            local region = statement as scalarIR.Fornum
+            if region.lanes ~= nil then
+                local body = region.lanes as scalarIR.LaneBody
+                local shape = lane.SHAPE_BY_NAME[body.shape]
+                laneHolds(
+                    region.simdRequired == true
+                    and program.vectorizeAttempted == true
+                    and shape ~= nil
+                    and body.lanes == (
+                        shape as lane.Shape
+                    ).lanes,
+                    "invalid SIMD region width or missing required contract"
+                )
+                local binaries, unaries = laneSignatures(shape as lane.Shape)
+                laneBlock(
+                    body.statements,
+                    values,
+                    new verify.Context(
+                        shape = shape as lane.Shape,
+                        scope = derive(scope, {
+                            index = region.binding.name,
+                            boundSpan = region.boundSpan,
+                            mapIndex = false,
+                        }),
+                        admitted = laneTypes(shape as lane.Shape),
+                        binaries = binaries,
+                        unaries = unaries
+                    ),
+                    nil,
+                    false
+                )
+            else
+                local inner = inherit(values)
+                inner[region.binding.name] = region.binding.type
+                regionLaneBlocks(program, region.body, inner, scope)
+            end
+        elseif statement.op == "if" then
+            for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                regionLaneBlocks(program, clause.body, values, scope)
+            end
+            regionLaneBlocks(program, (statement as scalarIR.If).elseBody or {}, values, scope)
+        elseif statement.op == "while" or statement.op == "block" then
+            regionLaneBlocks(program, (statement as any).body as {scalarIR.Statement}, values, scope)
         end
     end
 end
@@ -3132,6 +3212,9 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         block(phased.statements, uniforms, scope, stored, true)
     else
         block(loop ~= nil and (loop as scalarIR.Loop).statements or body or {}, uniforms, scope, stored)
+    end
+    if body ~= nil then
+        regionLaneBlocks(program, body as {scalarIR.Statement}, uniforms, scope)
     end
     if loop ~= nil or workgroup ~= nil then
         for output in pairs(writes) do

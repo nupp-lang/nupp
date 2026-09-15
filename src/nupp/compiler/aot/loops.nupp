@@ -98,7 +98,7 @@ local function count(value: any, counts: loops.Counts): nil
         counts.mayRaise = counts.mayRaise or facts.mayRaise
     end
     for key, child in pairs(value) do
-        if key ~= "source" and key ~= "cursorBounds" then
+        if key ~= "source" and key ~= "cursorBounds" and key ~= "lanes" then
             count(child, counts)
         end
     end
@@ -151,10 +151,19 @@ local function structured(statements: {scalarIR.Statement}, reports: {loops.Repo
             local counts = measurements(statement)
             local explicit = counts.simdOperations > 0
             local reason: string? = nil
-            if not explicit then
+            local required = statement.op == "fornum" and (statement as scalarIR.Fornum).simdRequired == true
+            local lowered = required and (statement as scalarIR.Fornum).lanes ~= nil
+            if not explicit and not lowered then
                 reason = "structured loop has no automatic lane rewrite"
             end
-            append(reports, statement.op, statement.source, statement, explicit and "explicit-simd" or "scalar", reason)
+            append(
+                reports,
+                statement.op,
+                statement.source,
+                statement,
+                lowered and "lowered" or explicit and "explicit-simd" or "scalar",
+                reason
+            )
             structured(statement.body, reports)
         elseif statement.op == "if" then
             for _, clause in ipairs(statement.clauses) do

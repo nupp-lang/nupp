@@ -221,7 +221,7 @@ function rewrite.varying(node: scalarIR.Expr, state: rewrite.State): boolean
     elseif operation == "local" then
         local name = (node as scalarIR.Name).name
 
-        return state.varyingLocals[name] == true or state.refBindings[name] ~= nil
+        return name == state.index or state.varyingLocals[name] == true or state.refBindings[name] ~= nil
     elseif operation == "helper_param" then
         return state.helperBindings[(node as scalarIR.Name).name] ~= nil
     elseif operation == "uniform"
@@ -327,12 +327,33 @@ local function expression(node: scalarIR.Expr, state: rewrite.State): rewrite.Va
     local operation = node.op
 
     if operation == "loop_index" then
-        state.reject("the authored map index has no lane-parallel form")
+        local vector = shape.vectorFor["f64"]
+        if vector == nil then
+            state.reject("the authored loop index needs binary64 lanes")
+        end
+
+        return new lane.Index(
+            op = "vindex",
+            lanes = shape.lanes,
+            element = "f64",
+            type = vector as string,
+            source = node.source
+        )
     elseif operation == "local" then
         local name = node as scalarIR.Name
         local vector = shape.vectorFor[rewrite.asElement(node.type) or "bool"]
         if vector == nil then
             state.reject("a varying local of a type no lane carries")
+        end
+
+        if name.name == state.index then
+            return new lane.Index(
+                op = "vindex",
+                lanes = shape.lanes,
+                element = rewrite.asElement(node.type) or "f64",
+                type = vector as string,
+                source = node.source
+            )
         end
 
         return new lane.Local(
@@ -1790,7 +1811,151 @@ function rewrite.block(
                 )
             end
         elseif op == "fornum" then
-            state.reject("a nested numeric loop is not lane-controlled yet")
+            local varyingBounds = rewrite.varying(statement.from, state) or rewrite.varying(statement.to, state)
+            if not varyingBounds and not rewrite.containsExit(statement.body) then
+                out[
+                    #out + 1
+                ] = new scalarIR.Fornum(
+                    op = "fornum",
+                    binding = statement.binding,
+                    from = statement.from,
+                    to = statement.to,
+                    body = rewrite.block(
+                        statement.body,
+                        statementMask,
+                        loopContext,
+                        readsAfter[position],
+                        block,
+                        state
+                    ),
+                    boundSpan = statement.boundSpan,
+                    source = statement.source
+                )
+            else
+                local function counterValue(value: scalarIR.Expr): scalarIR.Expr
+                    if value.type == "i32" then
+                        return value
+                    end
+
+                    return new scalarIR.Convert(
+                        op = "numeric_cast",
+                        value = value,
+                        type = "i32",
+                        source = statement.source
+                    )
+                end
+
+                local binding = statement.binding as scalarIR.Binding
+                local previousVarying = state.varyingLocals[binding.name]
+                state.varyingLocals[binding.name] = true
+                local initial = rewrite.numericVector(counterValue(statement.from), "i32", state)
+                out[
+                    #out + 1
+                ] = new lane.Let(
+                    op = "let",
+                    name = binding.name,
+                    cName = binding.cName,
+                    value = initial,
+                    type = initial.type,
+                    source = statement.source
+                )
+
+                local current = new scalarIR.Name(
+                    op = "local",
+                    name = binding.name,
+                    cName = binding.cName,
+                    type = "i32",
+                    source = statement.source
+                )
+                local condition = new scalarIR.Binary(
+                    op = "le",
+                    left = current,
+                    right = counterValue(statement.to),
+                    type = "bool",
+                    source = statement.source
+                )
+                local context = rewrite.loopContext(statement as any, readsAfter[position] or {}, block, state)
+                local conditionMask = rewrite.conditionMask(condition, state)
+                local body_ = rewrite.block(
+                    statement.body,
+                    rewrite.maskLocal(context.executing, statement.source, state),
+                    context,
+                    nil,
+                    block,
+                    state
+                )
+                local increment: scalarIR.Expr
+                if rewrite.carriesExactly(state, "i32") then
+                    increment = new scalarIR.Fixed(
+                        op = "i32_add",
+                        left = current,
+                        right = new scalarIR.IntConstant(
+                            op = "constant_i32",
+                            value = "1",
+                            type = "i32",
+                            source = statement.source
+                        ),
+                        type = "i32",
+                        source = statement.source
+                    )
+                else
+                    increment = new scalarIR.Binary(
+                        op = "add",
+                        left = new scalarIR.Convert(
+                            op = "int_to_f64",
+                            value = current,
+                            type = "f64",
+                            source = statement.source
+                        ),
+                        right = new scalarIR.Constant(
+                            op = "constant",
+                            value = "1.0",
+                            type = "f64",
+                            source = statement.source
+                        ),
+                        type = "f64",
+                        source = statement.source
+                    )
+                end
+                local live = rewrite.maskLocal(context.live, statement.source, state)
+                body_[
+                    #body_ + 1
+                ] = {
+                    op = "vassign",
+                    values = {
+                        laneAssignment(
+                            {
+                                target = new scalarIR.Target(
+                                    kind = "local",
+                                    name = binding.name,
+                                    cName = binding.cName,
+                                    type = "i32"
+                                ),
+                                value = increment,
+                            },
+                            statement,
+                            live,
+                            live,
+                            context,
+                            state
+                        ),
+                    },
+                    source = statement.source,
+                }
+                out[
+                    #out + 1
+                ] = new lane.While(
+                    op = "vwhile",
+                    live = context.live,
+                    executing = context.executing,
+                    initial = rewrite.maskAnd(statementMask, conditionMask, statement.source, state),
+                    condition = conditionMask,
+                    body = body_,
+                    source = statement.source
+                )
+                local varying = state.varyingLocals as any
+                varying[binding.name] = previousVarying
+            end
         elseif op == "break" or op == "continue" then
             if loopContext == nil then
                 state.reject(tostring(op) .. " applies to the outer map loop and is not admitted")
@@ -1810,8 +1975,13 @@ end
 --- and leaves no state behind for the next shape to trip over.
 ---
 --- @param reject reports a construct this pass cannot represent
-function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: function(string): nil): scalarIR.LaneBody
-    local loop = program.loop as scalarIR.Loop
+local function regionBody(
+    program: scalarIR.Program,
+    index: string,
+    statements: {scalarIR.Statement},
+    shape: lane.Shape,
+    reject: function(string): nil
+): scalarIR.LaneBody
     local helpers: {[string]: any} = {}
     for _, helper in ipairs(program.helpers or {}) do
         helpers[helper.name] = helper
@@ -1819,7 +1989,7 @@ function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: func
 
     local state = new rewrite.State(
         shape = shape,
-        index = loop.index,
+        index = index,
         varyingLocals = {},
         refBindings = {},
         helperBindings = {},
@@ -1836,16 +2006,22 @@ function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: func
         end)(),
         reject = reject
     )
-    rewrite.markVarying(loop.statements, state)
+    rewrite.markVarying(statements, state)
 
-    local statements = rewrite.block(loop.statements, nil, nil, nil, new rewrite.BlockState(serial = 0), state)
+    local lowered = rewrite.block(statements, nil, nil, nil, new rewrite.BlockState(serial = 0), state)
 
     return new scalarIR.LaneBody(
         lanes = shape.lanes,
         shape = shape.name,
-        statements = statements,
+        statements = lowered,
         rounded = state.rounded == true
     )
+end
+
+function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: function(string): nil): scalarIR.LaneBody
+    local loop = program.loop as scalarIR.Loop
+
+    return regionBody(program, loop.index, loop.statements, shape, reject)
 end
 
 ----------------------------------------------------------------------------
@@ -1923,6 +2099,53 @@ function rewrite.select(program: scalarIR.Program, shapes: {lane.Shape}): {rewri
         end)
         if ok then
             program.lanes = lowered
+
+            return attempts
+        end
+        if problem ~= REFUSED then
+            error(problem, 0)
+        end
+        attempts[#attempts + 1] = new rewrite.Attempt(shape = shape.name, refusals = refusals)
+    end
+
+    return attempts
+end
+
+--- Lowers one authored counted-loop region without searching the rest of its
+--- function. The containing scalar body remains in source order around it.
+--- @raises when an attempt fails for any reason other than refusing the region
+function rewrite.selectRegion(
+    program: scalarIR.Program,
+    region: scalarIR.Fornum,
+    shapes: {lane.Shape}
+): {rewrite.Attempt}
+    local ordered: {lane.Shape} = {}
+    for _, shape in ipairs(shapes) do
+        ordered[#ordered + 1] = shape
+    end
+    table.sort(ordered, function(a: lane.Shape, b: lane.Shape): boolean
+        if a.lanes ~= b.lanes then
+            return a.lanes > b.lanes
+        end
+        if a.bytes ~= b.bytes then
+            return a.bytes < b.bytes
+        end
+
+        return a.name < b.name
+    end)
+
+    local attempts: {rewrite.Attempt} = {}
+    for _, shape in ipairs(ordered) do
+        local refusals: {string} = {}
+        local lowered: scalarIR.LaneBody? = nil
+        local ok, problem = pcall(function(): nil
+            lowered = regionBody(program, region.binding.name, region.body, shape, function(why: string): nil
+                refusals[#refusals + 1] = why
+                error(REFUSED, 0)
+            end)
+        end)
+        if ok then
+            region.lanes = lowered
 
             return attempts
         end

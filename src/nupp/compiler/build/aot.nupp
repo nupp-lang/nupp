@@ -1362,7 +1362,7 @@ function aot.emitC(
     roots: {string},
     previous: {[string]: string},
     session: Session,
-    features: string?,
+    features: any,
     triple: string?,
     staticLinkage: boolean?,
     reporter: Reporter?
@@ -1471,9 +1471,40 @@ function aot.emitC(
                     -- source, so only the first can discover that case.
                     local first = diagnostics[1]
                     if first ~= nil and first.message ~= "no @aot function was found" then
-                        return nil, compile.renderDiagnostic(
-                            first
-                        ), produced, authoredUnused, constSelection, gpuSources
+                        local rendered = "feature tier " .. tierTarget.tier .. ": " .. compile.renderDiagnostic(first)
+                        if text:find("@simd", 1, true) then
+                            local known = targets.tiers(tierTarget.architecture)
+                            local afterFailure = false
+                            for _, tier in ipairs(known) do
+                                if afterFailure then
+                                    local candidate = targets.select(tierTarget.triple, tier)
+                                    if candidate ~= nil then
+                                        local probe = compile.artifacts(
+                                            text,
+                                            source,
+                                            tree,
+                                            "<object>",
+                                            candidate as targets.Target,
+                                            tier,
+                                            constPlans,
+                                            staticLinkage
+                                        )
+                                        if probe ~= nil then
+                                            rendered = rendered
+                                                .. "\nthis complete SIMD source lowers at "
+                                                .. tier
+                                                .. "; set aotFeatures.minimum = \""
+                                                .. tier
+                                                .. "\" to require that host tier"
+                                            break
+                                        end
+                                    end
+                                elseif tier == tierTarget.tier then
+                                    afterFailure = true
+                                end
+                            end
+                        end
+                        return nil, rendered, produced, authoredUnused, constSelection, gpuSources
                     end
                     break
                 else
@@ -1873,7 +1904,7 @@ function aot.apply(
     previous: {[string]: string},
     previousLibraryKey: string?,
     session: Session,
-    features: string?,
+    features: any,
     triple: string?,
     cflags: {string}?,
     linkage: string?,

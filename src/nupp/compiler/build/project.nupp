@@ -488,7 +488,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             (oldState.aot or {}) as {[string]: string},
             oldState.aotLibrary,
             session,
-            target.aotFeatures as string?,
+            target.aotFeatures,
             target.aotTarget as string?,
             target.aotCflags as {string}?,
             aotLinkage,

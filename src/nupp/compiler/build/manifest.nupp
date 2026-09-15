@@ -858,17 +858,32 @@ local function validateTarget(target, label, dependencies)
         end
     end
     if target.aotFeatures ~= nil then
-        -- The widest optional tier an x86-64 build carries. Baseline remains in
-        -- the library and the destination chooses at load; other architectures
-        -- retain their one selected tier.
-        local valid, err = validateString(target.aotFeatures, label .. ".aotFeatures")
-        if not valid then
-            return nil, err
+        -- The inclusive feature range every emitted tier must satisfy. The
+        -- string form is accepted only across the stage-zero transition and
+        -- retains its former ceiling behavior.
+        if type(target.aotFeatures) == "table" then
+            local valid, err = validateKeys(target.aotFeatures, {"minimum", "maximum"}, label .. ".aotFeatures")
+            if not valid then
+                return nil, err
+            end
+            valid, err = validateString(target.aotFeatures.minimum, label .. ".aotFeatures.minimum")
+            if not valid then
+                return nil, err
+            end
+            valid, err = validateString(target.aotFeatures.maximum, label .. ".aotFeatures.maximum")
+            if not valid then
+                return nil, err
+            end
+        else
+            local valid, err = validateString(target.aotFeatures, label .. ".aotFeatures")
+            if not valid then
+                return nil, err
+            end
         end
         local featureTarget = (
             target.aot == "emit-wasm" or target.aot == "require-wasm"
         ) and "wasm32-unknown-emscripten" or target.aotTarget as string?
-        local _, tierErr = aotTargets.select(featureTarget, target.aotFeatures as string)
+        local _, tierErr = aotTargets.buildTiers(featureTarget, target.aotFeatures)
         if tierErr ~= nil then
             return nil, label .. ".aotFeatures: " .. tostring(tierErr)
         end

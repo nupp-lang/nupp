@@ -1075,7 +1075,17 @@ function emit.lane(node: lane.Expr | scalarIR.Expr): string
     local operation = node.op
     local vector = tostring(node.type)
 
-    if operation == "vmask" then
+    if operation == "vindex" then
+        local index = node as lane.Index
+        local parts: {string} = {}
+        local element = emit.vectorParts(vector)
+        local cType = tostring(emit.VECTOR_ELEMENT_C[element])
+        for position = 0, index.lanes - 1 do
+            parts[position + 1] = "(" .. cType .. ")(i + " .. tostring(position + 1) .. ")"
+        end
+
+        return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
+    elseif operation == "vmask" then
         local mask = node as lane.MaskOp
         if mask.verb == "not" then
             return "(~" .. emit.lane(mask.args[1]) .. ")"
@@ -4775,6 +4785,10 @@ record emit.Body
 
     --- The private aggregate returned by a multi-result entry.
     resultStruct: string?
+
+    --- Erase required lane regions while emitting the independent scalar
+    --- oracle from the same scalar IR.
+    forceScalar: boolean?
 end
 
 --- Pushes one verified construction value on the Lua stack.
@@ -5739,6 +5753,44 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
             end
         elseif op == "vcontinue" then
             lines[#lines + 1] = prefix .. statement.executing.cName .. " &= ~(" .. emit.lane(statement.mask) .. ");"
+        elseif op == "fornum" and statement.lanes ~= nil and body.forceScalar ~= true then
+            local region = statement as scalarIR.Fornum
+            local lanes = region.lanes as scalarIR.LaneBody
+            local width = tostring(lanes.lanes)
+            local laneBody = new emit.Body(
+                helpers = body.helpers,
+                lanes = lanes.lanes,
+                layouts = body.layouts,
+                resultStruct = body.resultStruct,
+                forceScalar = false
+            )
+            lines[#lines + 1] = prefix .. "{"
+            lines[#lines + 1] = prefix .. "    size_t i = (size_t)((int32_t)(" .. emit.lane(region.from) .. ") - 1);"
+            lines[#lines + 1] = prefix .. "    size_t end = (size_t)(int32_t)(" .. emit.lane(region.to) .. ");"
+            lines[
+                #lines + 1
+            ] = prefix .. "    size_t groups = (end > i) ? ((end - i) / " .. width .. ") * " .. width .. " + i : i;"
+            lines[#lines + 1] = prefix .. "    for (; i < groups; i += " .. width .. ") {"
+            for _, line in ipairs(emit.block(lanes.statements, depth + 2, laneBody)) do
+                lines[#lines + 1] = line
+            end
+            lines[#lines + 1] = prefix .. "    }"
+            lines[
+                #lines + 1
+            ] = prefix
+                .. "    for (int32_t "
+                .. region.binding.cName
+                .. " = (int32_t)i + 1; "
+                .. region.binding.cName
+                .. " <= (int32_t)"
+                .. "end; ++"
+                .. region.binding.cName
+                .. ") {"
+            for _, line in ipairs(emit.block(region.body, depth + 2, body)) do
+                lines[#lines + 1] = line
+            end
+            lines[#lines + 1] = prefix .. "    }"
+            lines[#lines + 1] = prefix .. "}"
         elseif op == "fornum" then
             local counter = statement.binding.cName
             lines[
@@ -5854,16 +5906,42 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
     -- gang was chosen for -- and on a target whose register class is narrower
     -- than the widest shape, a 32-byte vector returned by value is exactly the
     -- `-Wpsabi` the target model exists to avoid.
+    local function regionLanes(statements: {scalarIR.Statement}, found: {scalarIR.LaneBody}): nil
+        for _, statement in ipairs(statements) do
+            if statement.op == "fornum" then
+                local loop = statement as scalarIR.Fornum
+                if loop.lanes ~= nil then
+                    found[#found + 1] = loop.lanes as scalarIR.LaneBody
+                else
+                    regionLanes(loop.body, found)
+                end
+            elseif statement.op == "if" then
+                for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                    regionLanes(clause.body, found)
+                end
+                regionLanes((statement as scalarIR.If).elseBody or {}, found)
+            elseif statement.op == "while" or statement.op == "block" then
+                regionLanes((statement as any).body as {scalarIR.Statement}, found)
+            end
+        end
+    end
+
     local emitted: {[string]: boolean} = {}
     for _, program in ipairs(programs) do
-        local lanes = program.lanes
-        local shape = lanes ~= nil and lane.SHAPE_BY_NAME[(lanes as scalarIR.LaneBody).shape] or nil
-        if shape ~= nil then
-            local named = (shape as lane.Shape).name
-            if not emitted[named] then
-                emitted[named] = true
-                for _, line in ipairs(emit.prelude(shape as lane.Shape)) do
-                    lines[#lines + 1] = line
+        local bodies: {scalarIR.LaneBody} = {}
+        if program.lanes ~= nil then
+            bodies[#bodies + 1] = program.lanes as scalarIR.LaneBody
+        end
+        regionLanes(program.body or {}, bodies)
+        for _, lanes in ipairs(bodies) do
+            local shape = lane.SHAPE_BY_NAME[lanes.shape]
+            if shape ~= nil then
+                local named = (shape as lane.Shape).name
+                if not emitted[named] then
+                    emitted[named] = true
+                    for _, line in ipairs(emit.prelude(shape as lane.Shape)) do
+                        lines[#lines + 1] = line
+                    end
                 end
             end
         end
@@ -5984,6 +6062,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
             --- One C definition of the kernel.
             local function implementation(symbol: string, forced: boolean): nil
                 explicitScalar = forced and program.usesSimd == true
+                body.forceScalar = forced
                 independentSpanCounts = independentCounts
                 if forced and general then
                     -- The block may declare locals before its first loop, so a
@@ -6035,7 +6114,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                 lines[#lines + 1] = ""
             end
 
-            if not general or program.usesSimd == true then
+            if not general or program.usesSimd == true or program.simdRequired == true then
                 implementation(physicalSymbol(program.symbol .. "_forced_scalar", tier), true)
             end
             implementation(physicalSymbol(program.symbol, tier), false)

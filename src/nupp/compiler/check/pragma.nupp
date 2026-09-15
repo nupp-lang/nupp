@@ -436,6 +436,30 @@ function pragma.install(c: state.Checker): state.StatHandlers
             end
             return
 
+        elseif written == "simd" then
+            if valid and target then
+                local functionBody: any = c.functionBodies[#c.functionBodies]
+                if targetKind ~= "fornumStmt" then
+                    c.diag("NUPP2904", annotationName, "@simd requires a numeric for loop")
+                elseif functionBody == nil or functionBody.aotRequired ~= true then
+                    c.diag("NUPP2904", annotationName, "@simd is valid only inside an @aot function")
+                elseif functionBody.aotTarget == "gpu" then
+                    c.diag(
+                        "NUPP2904",
+                        annotationName,
+                        "@simd is a CPU lane contract and is not valid inside @aot(target = \"gpu\")"
+                    )
+                else
+                    targetAny.simdRequired = true
+                    targetAny.simdAnnotation = stat
+                    functionBody.simdRequired = true
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+
         elseif written == "derive" then
             if valid and target and target.kind == "recordDecl" then
                 target.deriveApplications = target.deriveApplications or {}

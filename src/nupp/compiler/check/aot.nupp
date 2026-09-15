@@ -117,7 +117,11 @@ function aot.install(c: state.Checker): aot.Ops
         local body = (node as any).body
         local loops = 0
         for _, statement in ipairs(body and body.stats or {}) do
-            if statement.kind == "fornumStmt" then
+            local actual = statement
+            while actual ~= nil and actual.kind == "pragmaStmt" do
+                actual = actual.stat
+            end
+            if actual ~= nil and actual.kind == "fornumStmt" then
                 loops = loops + 1
             end
         end

@@ -417,7 +417,7 @@ laneExpression = function(node: lane.Expr, visitor: visit.Visitor): nil
     end
 
     return switch node.op do
-        case "local", "vfield_load", "vspan_load" -> nil
+        case "local", "vindex", "vfield_load", "vspan_load" -> nil
         case "vsplat" -> scalarExpressions((node as lane.Splat).args, visitor)
         case "vbool_splat" -> scalarExpression((node as lane.BoolSplat).args[1] as scalarIR.Expr, visitor)
         case "vbinary" -> laneExpressions((node as lane.Binary).args, visitor)
@@ -485,6 +485,12 @@ laneStatement = function(node: lane.Statement, visitor: visit.Visitor): nil
         case "vwhile_uniform" -> do
             local value = node as lane.UniformWhile
             scalarExpression(value.condition as scalarIR.Expr, visitor)
+            laneBlock(value.body, visitor)
+            yield nil
+        end
+        case "fornum" -> do
+            local value = node as scalarIR.Fornum
+            scalarExpressions({value.from, value.to}, visitor)
             laneBlock(value.body, visitor)
             yield nil
         end

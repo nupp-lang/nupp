@@ -136,19 +136,19 @@ end
 
 --- The tiers a project build carries, narrowest first.
 ---
---- x86-64 is multiversioned. A named tier is its ceiling rather than a promise
---- every destination machine satisfies: baseline remains in the library and
---- the generated wrapper selects no wider than the machine reports. With no
---- ceiling every known tier travels. Other architectures retain their one
---- selected tier; in particular, the i686 baseline contract is not widened by
---- an x86-64 feature whose fallback guarantee it does not share.
-function target.buildTiers(triple: string?, ceiling: string?): ({target.Target}?, string?)
+--- A range is an explicit inclusive host contract. The temporary string form
+--- retains the former x86-64 ceiling semantics until the stage-zero pin moves;
+--- other architectures continue to read it as one exact tier.
+function target.buildTiers(triple: string?, features: any): ({target.Target}?, string?)
     local base, baseErr = target.select(triple, nil)
     if base == nil then
         return nil, baseErr
     end
-    if (base as target.Target).architecture ~= "x86_64" then
-        local selected, selectedErr = target.select((base as target.Target).triple, ceiling)
+
+    local actual = base as target.Target
+    local architecture = actual.architecture
+    if type(features) ~= "table" and architecture ~= "x86_64" then
+        local selected, selectedErr = target.select(actual.triple, features as string?)
         if selected == nil then
             return nil, selectedErr
         end
@@ -156,19 +156,42 @@ function target.buildTiers(triple: string?, ceiling: string?): ({target.Target}?
         return {selected as target.Target}, nil
     end
 
-    local known = target.tiers("x86_64")
-    local last = ceiling or known[#known]
-    local _, ceilingErr = target.select((base as target.Target).triple, last)
-    if ceilingErr ~= nil then
-        return nil, ceilingErr
+    local known = target.tiers(architecture)
+    local first = known[1]
+    local last = known[#known]
+    if type(features) == "string" then
+        last = features
+    elseif type(features) == "table" then
+        first = features.minimum as string
+        last = features.maximum as string
+    end
+    local _, firstErr = target.select(actual.triple, first)
+    if firstErr ~= nil then
+        return nil, firstErr
+    end
+    local _, lastErr = target.select(actual.triple, last)
+    if lastErr ~= nil then
+        return nil, lastErr
+    end
+
+    local firstIndex, lastIndex = nil, nil
+    for index, tier in ipairs(known) do
+        if tier == first then
+            firstIndex = index
+        end
+        if tier == last then
+            lastIndex = index
+        end
+    end
+    if (firstIndex as integer) > (lastIndex as integer) then
+        return nil, "feature tier minimum " .. first .. " is wider than maximum " .. last
     end
 
     local selected: {target.Target} = {}
-    for _, tier in ipairs(known) do
-        local one = target.select((base as target.Target).triple, tier)
-        selected[#selected + 1] = one as target.Target
-        if tier == last then
-            break
+    for index = firstIndex as integer, lastIndex as integer do
+        local one = target.select(actual.triple, known[index])
+        if one ~= nil then
+            selected[#selected + 1] = one as target.Target
         end
     end
 

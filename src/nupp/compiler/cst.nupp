@@ -125,6 +125,14 @@ interface cst.Hints
     --- established CPU target; `gpu` is consumed by the GPU emitter.
     aotTarget: string?
 
+    --- `@simd` marks a numeric loop in a CPU AOT body as requiring lane
+    --- lowering. On a function body this records that at least one such loop
+    --- exists; on the loop it records the authored region itself.
+    simdRequired: boolean?
+
+    --- The annotation application that made this node a required SIMD region.
+    simdAnnotation: any
+
     --- The prelude guard intrinsic this checked call resolved to. A local with
     --- the same name has no marker and cannot establish AOT guard facts.
     aotGuardBuiltin: ('assert' | 'error')?

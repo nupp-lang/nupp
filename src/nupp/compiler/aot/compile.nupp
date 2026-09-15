@@ -199,6 +199,59 @@ local function loopDiagnostic(program: scalarIR.Program, filename: string, messa
     )
 end
 
+local function regionDiagnostic(region: scalarIR.Fornum, filename: string, message: string): compile.Diagnostic
+    local at = region.source
+
+    return new compile.Diagnostic(
+        file = filename,
+        line = at ~= nil and (at as scalarIR.Source).line or 1,
+        column = at ~= nil and (at as scalarIR.Source).column or 1,
+        message = message
+    )
+end
+
+local function requiredRegions(statements: {scalarIR.Statement}, out: {scalarIR.Fornum}): nil
+    for _, statement in ipairs(statements) do
+        if statement.op == "fornum" then
+            local loop = statement as scalarIR.Fornum
+            if loop.simdRequired == true then
+                out[#out + 1] = loop
+            else
+                requiredRegions(loop.body, out)
+            end
+        elseif statement.op == "if" then
+            for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                requiredRegions(clause.body, out)
+            end
+            requiredRegions((statement as scalarIR.If).elseBody or {}, out)
+        elseif statement.op == "while" or statement.op == "block" then
+            requiredRegions((statement as any).body as {scalarIR.Statement}, out)
+        end
+    end
+end
+
+local function missingRequiredLanes(program: scalarIR.Program): boolean
+    if program.simdRequired ~= true then
+        return false
+    end
+    if program.loop ~= nil then
+        return program.lanes == nil
+    end
+
+    local regions: {scalarIR.Fornum} = {}
+    requiredRegions(program.body or {}, regions)
+    if #regions == 0 then
+        return true
+    end
+    for _, region in ipairs(regions) do
+        if region.lanes == nil then
+            return true
+        end
+    end
+
+    return false
+end
+
 --- Lowers one source to verified scalar IR.
 ---
 --- @param source the text, used when `parsed` is not supplied
@@ -644,7 +697,16 @@ function compile.constSpecializations(
         return nil, diagnostics
     end
 
-    return answer as compile.Artifacts, diagnostics
+    local artifacts = answer as compile.Artifacts
+    for _, program in ipairs(artifacts.programs) do
+        if missingRequiredLanes(program) then
+            return nil, program.laneRefusals or {
+                loopDiagnostic(program, filename, "the required @simd loop did not produce lane code")
+            }
+        end
+    end
+
+    return artifacts, diagnostics
 end
 
 --- Decides whether to run the loop several iterations at once, and does it.
@@ -659,6 +721,37 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
     if program.usesSimd == true then
         program.simdWidth = (selected.tier == "avx2" or selected.tier == "avx512f") and 32 or 16
     end
+    local regions: {scalarIR.Fornum} = {}
+    requiredRegions(program.body or {}, regions)
+    if #regions > 0 then
+        program.vectorizeAttempted = true
+        program.vectorizeDeclined = false
+        local shapes = targets.gangs(selected)
+        if #shapes == 0 then
+            program.laneRefusals = {regionDiagnostic(regions[1], filename, targets.noGangReason(selected))}
+            return
+        end
+        for _, region in ipairs(regions) do
+            if region.boundSpan == nil then
+                program.laneRefusals = {
+                    regionDiagnostic(region, filename, "@simd currently requires bounds of the form 1, #span")
+                }
+                return
+            end
+            local attempts = rewrite.selectRegion(program, region, shapes)
+            if region.lanes == nil then
+                local last = attempts[#attempts]
+                local refusals: {compile.Diagnostic} = {}
+                for _, why in ipairs(last ~= nil and last.refusals or {}) do
+                    refusals[#refusals + 1] = regionDiagnostic(region, filename, why)
+                end
+                program.laneRefusals = refusals
+                return
+            end
+        end
+        verify.program(program)
+        return
+    end
     if program.loop == nil then
         program.vectorizeAttempted = false
         program.vectorizeDeclined = true
@@ -669,7 +762,7 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
     program.operations = estimate.operations
     program.touchedBytes = estimate.bytes
     program.stridedFields = estimate.fieldAccesses > 0
-    if program.vectorizeRequest ~= "prefer" and not estimate.worthwhile then
+    if program.simdRequired ~= true and program.vectorizeRequest ~= "prefer" and not estimate.worthwhile then
         program.vectorizeAttempted = false
         program.thin = true
     end
@@ -795,6 +888,11 @@ function compile.artifacts(
             gpu[program.symbol] = artifact as gpuartifact.Artifact
         else
             compile.lanes(program, filename, selected)
+            if missingRequiredLanes(program) then
+                return nil, program.laneRefusals or {
+                    loopDiagnostic(program, filename, "the required @simd loop did not produce lane code")
+                }
+            end
             cpuPrograms[#cpuPrograms + 1] = program
         end
         loopReports[position] = loopAnalysis.program(program)

@@ -1655,6 +1655,50 @@ function M.aFeatureCeilingKeepsItsBaselineFallback()
     test.equal(read(tieredC(dir, "avx512f")), nil, "nothing wider than the ceiling travels")
 end
 
+function M.aFeatureRangeCarriesOnlyItsInclusiveTiers()
+    local dir = project("emit-c")
+    withKeys(
+        dir,
+        'aotTarget = "x86_64-unknown-linux-gnu", ' .. 'aotFeatures = {minimum = "avx2", maximum = "avx512f"},'
+    )
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    test.equal(read(tieredC(dir, "baseline")), nil, "the range does not claim baseline hardware")
+    assert(read(tieredC(dir, "avx2")), "the inclusive minimum travels")
+    assert(read(tieredC(dir, "avx512f")), "the inclusive maximum travels")
+end
+
+function M.aFeatureRangeRequiresBothClosedBounds()
+    local dir = project("emit-c")
+    withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {minimum = "avx2"},')
+    local out, code = build(dir)
+    test.equal(code, 1, out)
+    assert(out:find("aotFeatures.maximum", 1, true), out)
+end
+
+function M.aFeatureRangeRejectsUnknownKeys()
+    local dir = project("emit-c")
+    withKeys(
+        dir,
+        'aotTarget = "x86_64-unknown-linux-gnu", '
+        .. 'aotFeatures = {minimum = "avx2", maximum = "avx512f", preferred = "avx2"},'
+    )
+    local out, code = build(dir)
+    test.equal(code, 1, out)
+    assert(out:find('has no key "preferred"', 1, true), out)
+end
+
+function M.aFeatureRangeRejectsAMinimumWiderThanItsMaximum()
+    local dir = project("emit-c")
+    withKeys(
+        dir,
+        'aotTarget = "x86_64-unknown-linux-gnu", ' .. 'aotFeatures = {minimum = "avx512f", maximum = "avx2"},'
+    )
+    local out, code = build(dir)
+    test.equal(code, 1, out)
+    assert(out:find("minimum avx512f is wider than maximum avx2", 1, true), out)
+end
+
 function M.multiversioningOwnsInstructionFlags()
     local dir = project("emit-c")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotCflags = {"-march=native"},')

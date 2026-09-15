@@ -347,6 +347,14 @@ local BUILTINS = {
         doc = "Reserves a required whole-function ahead-of-time compilation contract. A build's `aot` policy decides what happens with it: off (default), emit-c, or require.",
         docsPath = "guides/ahead-of-time",
     },
+    {
+        name = "simd",
+        arguments = "none",
+        targets = {"loop"},
+        builtin = true,
+        doc = "Requires a numeric loop in a CPU `@aot` function to lower to SIMD lanes; compilation fails when the selected target cannot satisfy it.",
+        docsPath = "guides/ahead-of-time/vectorization",
+    },
 }
 
 function annotations.new(withBuiltins: boolean?): annotations.Registry

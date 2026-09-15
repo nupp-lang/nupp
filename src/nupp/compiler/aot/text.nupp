@@ -126,7 +126,9 @@ end
 --- One expression, and everything under it.
 function text.expression(node: scalarIR.Expr | lane.Expr): string
     local op = node.op
-    if op == "load" then
+    if op == "vindex" then
+        return "vindex:" .. node.type
+    elseif op == "load" then
         local index = node.cursor ~= nil and node.cursor .. "+1" or node.index
         return "load:" .. node.type .. " " .. node.span .. "[" .. index .. "]"
     elseif op == "span_count" then
@@ -486,12 +488,22 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             end
             lines[#lines + 1] = prefix .. "end"
         elseif op == "fornum" then
+            local region = statement as scalarIR.Fornum
             lines[
                 #lines + 1
-            ] = prefix .. "for " .. statement.binding.name .. " = " .. text.expression(
+            ] = prefix .. (
+                region.simdRequired == true and "@simd " or ""
+            ) .. "for " .. statement.binding.name .. " = " .. text.expression(
                 statement.from
             ) .. " .. " .. text.expression(statement.to)
             nested(statement.body)
+            if region.lanes ~= nil then
+                local body = region.lanes as scalarIR.LaneBody
+                lines[#lines + 1] = prefix .. "simd lanes(" .. tostring(body.lanes) .. ") shape(" .. body.shape .. ")"
+                for _, line in ipairs(text.block(body.statements, depth + 1, body.lanes)) do
+                    lines[#lines + 1] = line
+                end
+            end
             lines[#lines + 1] = prefix .. "end"
         elseif op == "while" then
             lines[#lines + 1] = prefix .. "while " .. text.expression(statement.condition)

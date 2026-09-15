@@ -4283,7 +4283,16 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         return lowered
     end
 
-    for _, stat in ipairs(statements) do
+    for _, authored in ipairs(statements) do
+        local stat = authored
+        local simdRequired = false
+        while stat.kind == "pragmaStmt" do
+            local pragma = stat as cst.PragmaStmt
+            simdRequired = simdRequired or pragma.name ~= nil and (
+                pragma.name as lexer.Token
+            ).text == "simd" or (pragma.stat as any).simdRequired == true
+            stat = pragma.stat as cst.Node
+        end
         local kind = stat.kind
         if kind == "localStmt" then
             localStmt(stat as cst.LocalStmt, out, environment, kernel)
@@ -4697,6 +4706,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 to = to,
                 body = loopBody,
                 boundSpan = bounding,
+                simdRequired = simdRequired or (loop as any).simdRequired == true,
                 source = lower.site(stat)
             )
         elseif kind == "whileStmt" then
@@ -5423,6 +5433,17 @@ record lower.LoopShape
     stopSpan: string?
 end
 
+--- The statement beneath any source annotations. The checker has already
+--- validated those applications and attached their semantic facts to this
+--- innermost statement; the wrappers have no AOT operation of their own.
+local function annotatedStatement(node: cst.Node?): cst.Node?
+    while node ~= nil and node.kind == "pragmaStmt" do
+        node = (node as cst.PragmaStmt).stat
+    end
+
+    return node
+end
+
 --- The loop one map kernel is, if the final statement is one.
 ---
 --- Two admitted forms: the whole of a span, and a range named by two uniforms.
@@ -5430,6 +5451,7 @@ end
 --- is not this shape, which is a fact about the loop rather than a failed proof
 --- and so declines the map path rather than refusing the kernel.
 function lower.loopShape(loop: cst.Node?, signature: lower.Signature): lower.LoopShape?
+    loop = annotatedStatement(loop)
     if loop == nil or loop.kind ~= "fornumStmt" then
         return nil
     end
@@ -5894,6 +5916,9 @@ record lower.Contract
     --- What the source asked for: `"prefer"`, `"decline"`, or nothing at all
     --- to leave the arithmetic-intensity estimate to decide.
     vectorizeRequest: string?
+
+    --- Whether the source requires lane lowering for an authored loop.
+    simdRequired: boolean
 end
 
 --- Reads one application's contract.
@@ -5912,7 +5937,8 @@ function lower.contract(
         target = body.aotTarget == "gpu" and "gpu" or "cpu",
         fpContract = relaxed ~= nil and relaxed["fp-contract"] == true,
         fpTranscendentals = relaxed ~= nil and relaxed["fp-transcendentals"] == true,
-        vectorizeRequest = body.vectorizeRequest
+        vectorizeRequest = body.vectorizeRequest,
+        simdRequired = body.simdRequired == true
     )
     if checked then
         return contract
@@ -6375,7 +6401,7 @@ function lower.program(
     local mapShape = admission.shape ~= nil
 
     if not mapShape then
-        if contract.vectorizeRequest == "prefer" then
+        if contract.vectorizeRequest == "prefer" and not contract.simdRequired then
             context.reject(
                 admission.declinedAt or lower.site(body),
                 "required scalar-source lanes need the admitted map-loop shape: " .. tostring(admission.declined)
@@ -6418,7 +6444,8 @@ function lower.program(
             registrar = kernel.usesLua and symbol .. "_register" or nil,
             fpContract = contract.fpContract,
             fpTranscendentals = contract.fpTranscendentals,
-            vectorizeAttempted = false,
+            simdRequired = contract.simdRequired,
+            vectorizeAttempted = contract.simdRequired,
             params = signature.params,
             layouts = layouts.ordered,
             regions = regions,
@@ -6446,7 +6473,7 @@ function lower.program(
 
     local guards = admission.guards
     local rangeGuard = admission.rangeGuard
-    local loop = statements[#statements]
+    local loop = annotatedStatement(statements[#statements]) as cst.Node
     local index = (admission.shape as lower.LoopShape).index
     local kernel = newKernel(signature, declarations, layouts, symbol, context, {
         loopSource = lower.site(loop),
@@ -6493,7 +6520,8 @@ function lower.program(
         fpContract = contract.fpContract,
         fpTranscendentals = contract.fpTranscendentals,
         vectorizeRequest = contract.vectorizeRequest,
-        vectorizeAttempted = contract.vectorizeRequest ~= "decline",
+        simdRequired = contract.simdRequired,
+        vectorizeAttempted = contract.simdRequired or contract.vectorizeRequest ~= "decline",
         params = signature.params,
         layouts = layouts.ordered,
         regions = regions,

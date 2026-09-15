@@ -1301,18 +1301,105 @@ end
 return {copy = copy}
 ]]
 
--- Lanes asked for, and a construct the rewrite has no lane form for. This is the one
--- outcome `--check` fails on: the loop wanted to run several iterations at once and did
--- not, which is what an ordinary edit can take away without any test noticing.
-local REFUSED = STREAMING:gsub("@aot\n", "@aot(vectorize = true)\n")
+local REQUIRED_CONTIGUOUS = CONTIGUOUS_STREAMING:gsub(
+    "    for index = first, last do",
+    "    @simd\n    for index = first, last do",
+    1
+)
+
+local REQUIRED_REGIONS = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function process(
+    exclusive output: span.WriteSpan<number>,
+    scale: number
+): number
+    local adjusted = scale + 1.0
+    @simd
+    for i = 1, #output do
+        output[i] = adjusted * 2.0
+    end
+
+    local result = adjusted + 3.0
+    @simd
+    for i = 1, #output do
+        output[i] = output[i] + result
+    end
+    return result
+end
+
+return {process = process}
+]]
+
+local REQUIRED_THRESHOLD = [[
+local span = require("nupp.mem.span")
+
+local function refine(value: number, sample: integer): number
+    return value + sample * 0.25
+end
+
+@aot
+local function thresholded(
+    exclusive output: span.WriteSpan<number>,
+    borrows input: span.Span<number>,
+    threshold: number,
+    sampleCount: integer
+): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    @simd
+    for pixel = 1, #output do
+        local value = input[pixel]
+        if value > threshold then
+            for sample = 1, sampleCount do
+                value = refine(value, sample)
+            end
+        end
+        output[pixel] = value
+    end
+end
+
+return {thresholded = thresholded}
+]]
+
+local REQUIRED_VARYING_FOR = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function varying(exclusive output: span.WriteSpan<number>): nil
+    @simd
+    for pixel = 1, #output do
+        local value = 0.0
+        for sample = 1, pixel do
+            if sample > 2 then
+                break
+            end
+            value = value + sample
+        end
+        output[pixel] = value
+    end
+end
+
+return {varying = varying}
+]]
+
+-- Lanes asked for around a real native entry call. A compiled entry has one
+-- scalar ABI call, not one invocation per lane, so it remains a hard refusal.
+local REFUSED = STREAMING:gsub(
+    "@aot\nlocal function advance",
+    "@aot\nlocal function compiledScale(value: float): float\n"
+    .. "    return value\n"
+    .. "end\n\n"
+    .. "@aot(vectorize = true)\nlocal function advance",
+    1
+)
     :gsub(
     "        local position = positions%[i%]",
-    "        local scale = dt\n"
-    .. "        for step = 1, 5 do\n"
-    .. "            scale = scale\n"
-    .. "        end\n"
-    .. "        local position = positions[i]"
+    "        local position = positions[i]\n        local scale = compiledScale(position.x)",
+    1
 )
+    :gsub("velocity%.vx %* dt", "velocity.vx * scale", 1)
+    :gsub("velocity%.vy %* dt", "velocity.vy * scale", 1)
 
 local FIXED_MIX = [[
 local span = require("nupp.mem.span")
@@ -1908,13 +1995,99 @@ function M.aContiguousStreamingLoopDoesNotReceiveAnAoSLayoutSuggestion()
     assert(not out:find("nupp.mem.soa", 1, true), "contiguous spans need no layout suggestion: " .. out)
 end
 
+function M.aRequiredSimdLoopLowersDespiteTheProfitabilityEstimate()
+    local dir = project{["required.nupp"] = REQUIRED_CONTIGUOUS}
+    local out, code = run(dir, PINNED .. "required.nupp")
+    test.equal(code, 0, out)
+    assert(out:find("f32x8", 1, true), "the required gang is named: " .. out)
+    assert(out:find("8 lanes", 1, true), "the required width is named: " .. out)
+    assert(not out:find("too little arithmetic", 1, true), "the estimate cannot decline @simd: " .. out)
+end
+
+function M.aRequiredSimdLoopFailsWithoutLaneCode()
+    local required = REFUSED:gsub("@aot%(vectorize = true%)", "@aot", 1)
+        :gsub("    for i = first, last do", "    @simd\n    for i = first, last do", 1)
+    local dir = project{["required.nupp"] = required}
+    local out, code = run(dir, PINNED .. "required.nupp")
+    test.equal(code, 1, "required SIMD cannot fall back to scalar execution\n" .. out)
+    assert(out:find("cannot call a compiled entry", 1, true), "the failed construct is named: " .. out)
+    assert(
+        not out:find("ran one iteration at a time", 1, true),
+        "required SIMD is a build error, not a report: " .. out
+    )
+end
+
+function M.requiredSimdRegionsKeepScalarSetupTeardownAndOrder()
+    local dir = project{["required.nupp"] = REQUIRED_REGIONS}
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json required.nupp")
+    test.equal(code, 0, raw)
+    local ir = decoded.ir
+    local _, regions = ir:gsub("simd lanes%(", "")
+    test.equal(regions, 2, where .. ": both authored regions have lane bodies\n" .. ir)
+    assert(
+        ir:find(
+            "let adjusted",
+            1,
+            true
+        ) < ir:find(
+            "@simd for",
+            1,
+            true
+        ) and ir:find(
+            "let result",
+            1,
+            true
+        ) > ir:find("simd lanes", 1, true) and ir:find("return local:f64 result", 1, true) > ir:match(".*()simd lanes"),
+        where .. ": scalar setup, between-region work, and teardown remain ordered\n" .. ir
+    )
+    local _, loops = decoded.c:gsub("for %(%s*; i < groups;", "")
+    test.equal(loops, 2, where .. ": each region emits its own required gang loop")
+    local scalarOracle = decoded.c:match("ks_process_forced_scalar.-\n}\n")
+    assert(scalarOracle ~= nil, where .. ": required regions retain a scalar-source C oracle")
+    assert(
+        not scalarOracle:find("groups", 1, true),
+        where .. ": the scalar-source oracle erases lane regions instead of sharing their lowering"
+    )
+end
+
+function M.requiredSimdKeepsUniformNestedLoopsInsideLaneBranches()
+    local dir = project{["required.nupp"] = REQUIRED_THRESHOLD}
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json required.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("for sample", 1, true), where .. ": the uniform inner loop remains structured")
+    assert(decoded.ir:find("vselect", 1, true), where .. ": its assignment is masked by the outer condition")
+end
+
+function M.requiredSimdControlsVaryingNestedForAndBreakPerLane()
+    local dir = project{["required.nupp"] = REQUIRED_VARYING_FOR}
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json required.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("vwhile any", 1, true), where .. ": varying bounds become a live-mask loop")
+    assert(decoded.ir:find("vbreak", 1, true), where .. ": break retires only participating lanes")
+    assert(decoded.ir:find("vindex", 1, true), where .. ": the authored outer index is a lane value")
+end
+
+function M.mandelbrotUsesRequiredSimdWithLaneLocalEarlyExit()
+    local handle = assert(io.open(HERE .. "/../bench/simd-mandelbrot/mandelbrot.nupp", "rb"))
+    local source = handle:read("*a")
+    handle:close()
+    source = source
+        :gsub("@aot%(vectorize = true%)", "@aot", 1)
+        :gsub("    for i = first, last do", "    @simd\n    for i = first, last do", 1)
+    local dir = project{["mandelbrot.nupp"] = source}
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json mandelbrot.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("vwhile any", 1, true), where .. ": Mandelbrot retains its varying loop")
+    assert(decoded.ir:find("vbreak", 1, true), where .. ": each escaped point retires independently")
+end
+
 function M.aLoopThatWantedLanesAndDidNotGetThemFails()
     local dir = project{["refused.nupp"] = REFUSED}
     local out, code = run(dir, "--check refused.nupp")
     test.equal(code, 1, "wanting lanes and not getting them is the failure\n" .. out)
     assert(out:find("ran one iteration at a time", 1, true), "the outcome is named: " .. out)
     assert(
-        out:find("nested numeric loop", 1, true),
+        out:find("cannot call a compiled entry", 1, true),
         "the construct that stopped it is named, not only that it stopped: " .. out
     )
 end
@@ -2643,13 +2816,13 @@ function M.jsonNamesWhatRefusedTheLoop()
     local out, code = run(dir, "--json --check refused.nupp")
     test.equal(code, 1, out)
     local decoded = require("testjson").decode(out:match("^(%b{})"))
-    local only = decoded.functions[1]
+    local only = decoded.functions[#decoded.functions]
     test.equal(only.outcome, "refused")
     test.equal(only.loops[1].outcome, "refused")
     test.equal(only.lanes, nil, "there is no gang to report")
     assert(#only.refusals >= 1, "the refusal is data, not only a message")
     assert(
-        only.refusals[1].message:find("nested numeric loop", 1, true),
+        only.refusals[1].message:find("cannot call a compiled entry", 1, true),
         "and it names the construct: " .. only.refusals[1].message
     )
     assert(only.refusals[1].line > 0, "at a position")

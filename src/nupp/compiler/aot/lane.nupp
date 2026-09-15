@@ -494,7 +494,16 @@ const aotLane.INNER_LOOP_WEIGHT = 8
 ---
 --- A scalar expression may appear where a uniform value is wanted; it is not in
 --- this union, and the verifier hands it to the scalar rules instead.
-type aotLane.Expr = aotLane.Splat
+record aotLane.Index
+    op: 'vindex'
+    lanes: integer
+    element: aotLane.Element
+    type: string
+    source: aotLane.Source?
+end
+
+type aotLane.Expr = aotLane.Index
+    | aotLane.Splat
     | aotLane.BoolSplat
     | aotLane.FieldLoad
     | aotLane.SpanLoad
@@ -656,5 +665,6 @@ type aotLane.Statement = aotLane.Let
     | aotLane.UniformWhile
     | aotLane.Break
     | aotLane.Continue
+    | scalarIR.Fornum
 
 export = aotLane

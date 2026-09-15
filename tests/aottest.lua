@@ -106,6 +106,116 @@ return {accumulate = accumulate}
     )
 end
 
+function M.simdRequiresANumericLoopInsideCpuAot()
+    reports(
+        [[
+local span = require("nupp.mem.span")
+
+@aot
+local function copy(
+    exclusive output: span.WriteSpan<number>,
+    borrows input: span.Span<number>
+): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    @simd
+    for i = 1, #output do
+        output[i] = input[i]
+    end
+end
+
+return {copy = copy}
+]],
+        "",
+        "a numeric loop in a CPU AOT body may require SIMD"
+    )
+
+    reports(
+        [[
+local function ordinary(count: integer): integer
+    @simd
+    for i = 1, count do
+        print(i)
+    end
+    return count
+end
+return ordinary
+]],
+        "NUPP2904",
+        "SIMD is not a contract for an ordinary Lua function"
+    )
+
+    reports(
+        [[
+@aot
+local function wrong(count: integer): number
+    local i = 0
+    @simd
+    while i < count do
+        i = i + 1
+    end
+    return i
+end
+return wrong
+]],
+        "NUPP2904",
+        "SIMD requires a numeric for loop rather than another loop kind"
+    )
+
+    reports(
+        [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function wrong(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    @simd
+    for i = 1, #output do
+        output[i] = input[i]
+    end
+end
+return {wrong = wrong}
+]],
+        "NUPP2904",
+        "CPU SIMD lanes are not GPU invocations"
+    )
+end
+
+function M.simdTakesNoArgumentsAndAttachesOnlyToLoops()
+    reports(
+        [[
+@simd
+local function wrong(value: number): number
+    return value
+end
+return wrong
+]],
+        "NUPP2112",
+        "SIMD attaches only to loops"
+    )
+
+    reports(
+        [[
+local span = require("nupp.mem.span")
+
+@aot
+local function wrong(
+    exclusive output: span.WriteSpan<number>,
+    borrows input: span.Span<number>
+): nil
+    @simd(true)
+    for i = 1, #output do
+        output[i] = input[i]
+    end
+end
+return {wrong = wrong}
+]],
+        "NUPP2112",
+        "required SIMD has no preference argument"
+    )
+end
+
 function M.numericSwitchLocalIsAdmitted()
     reports(
         [[
