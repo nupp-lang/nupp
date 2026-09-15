@@ -1,9 +1,44 @@
 --[[
-Typed command-line parsing, command derivation, help, completion, and terminal
-styles.
+Command-line arguments, from raw tokens up to a whole application.
 
-`optParser` and `getopt` are the syntax-only foundation. The typed derive and
-application layers are built on the same token stream in this module.
+The usual way in is a record: the types decide the conversion, the doc comments
+become the help text.
+
+```nupp
+local cli = require("nupp.cli")
+
+@derive(cli.Arguments)
+local record Options
+    --- Print more detail.
+    @cli(short = "v")
+    verbose: boolean = false
+
+    --- Output path.
+    @cli(short = "o", value = "PATH")
+    output: string?
+
+    --- Input files.
+    @cli(positional = "FILE")
+    files: {string} = {}
+end
+
+const options, problem = Options.fromCLI(arg)
+
+assert(options ~= nil, problem and problem.message)
+```
+
+`@derive(cli.Command)` goes further and adds metadata, help, and shell
+completion, with a parent naming its children in `subcommands` so the tree reads
+from the top down. Underneath both, `optParser` and `getopt` are the
+syntax-only foundation: a token stream with no types attached, for when the
+shape of the command line is not a record.
+
+This module also holds the terminal side of a command-line program -- colour
+modes, styles, and tables -- so what a command prints lines up with what it
+parsed.
+
+See
+[command-line-applications.md](docs/learn/projects/command-line-applications.md).
 ]]
 local cliModule = {}
 const {type Entry} = require("nupp.derive")

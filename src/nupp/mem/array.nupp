@@ -1,6 +1,26 @@
 module nupp.mem.array
 
---[[Owned contiguous arrays. Views use the ordinary nupp.mem.span contracts.]]
+--[[
+Owned contiguous arrays of one scalar or struct type.
+
+```nupp
+const array = nupp.mem.array
+
+do
+    const values = array.scalar(array.uint32, 4)
+    const writable = values:write()
+
+    writable[1] = 42
+    drop writable
+
+    print(values:read()[1])
+end -- the array is released here
+```
+
+The array owns its storage and releases it at the end of the scope that holds
+it. Reading and writing it are the [](nupp.mem.span) operations, so every index
+is checked against the count the array carries.
+]]
 local span = require("nupp.mem.span")
 local storage = require("nupp.runtime.storage")
 local array = {}

@@ -1,25 +1,33 @@
 module nupp.compression
 
---[[Streaming compression and decompression over ordinary byte I/O.
+--[[
+Compressing and decompressing a stream of bytes.
 
-Acquire a retained descriptor with `format(name)`, then use its one-shot helpers
-or wrap a `nupp.io.Reader` or `nupp.io.Writer`. Factories consume the wrapped
-reader or writer. A compression writer must be consumed with `finish()`; closing
-or dropping it unfinished aborts the stream and raises.
-
-Common adapter policy is separate from format-specific options. For example:
+Ask for a format, then use its one-shot helpers or wrap a [](nupp.io) reader or
+writer:
 
 ```nupp
 local compression = require("nupp.compression")
-local gzip = compression.format("gzip")
-local encoded = gzip:newWriter(destination, {
-    gzip = {level = 6}
+
+const gzip = compression.format("gzip")
+
+const encoded = gzip:newWriter(destination, {
+    gzip = {level = 6},
 })
+
 encoded:write("hello")
+
 assert(encoded:finish())
 ```
 
-## Builtin formats
+A factory consumes the reader or writer it wraps. A compression writer has to
+end in `finish()`; closing or dropping one unfinished aborts the stream and
+raises, because a truncated member is worse than a loud failure.
+
+Adapter policy and format options are separate, which is why the options table
+is keyed by format name.
+
+## Built-in formats
 
 | Name | Container | Writer options | Reader options |
 | --- | --- | --- | --- |
@@ -27,12 +35,12 @@ assert(encoded:finish())
 | `zlib` | RFC 1950 zlib | `zlib = { level = 0..9 }` | none |
 | `deflate-raw` | RFC 1951 raw DEFLATE | `deflateRaw = { level = 0..9 }` | none |
 
-All three formats encode levels zero through nine. Gzip validates CRC and size
-trailers and decodes concatenated members by default. Zlib validates its Adler-32
-trailer. Raw DEFLATE has no wrapper checksum. Trailing bytes are rejected.
+All three take levels zero through nine. Gzip checks its CRC and size trailers
+and reads concatenated members by default, zlib checks its Adler-32 trailer, and
+raw DEFLATE has no checksum at all. Trailing bytes are rejected in every case.
 
-A provider-added format uses its canonical name as the option-block key. The
-`deflateRaw` key above is the built-in ergonomic name for `deflate-raw`.
+A provider-added format keys its options by its own canonical name;
+`deflateRaw` above is the built-in ergonomic spelling of `deflate-raw`.
 ]]
 
 const io = require("nupp.io")

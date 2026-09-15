@@ -1,26 +1,32 @@
 module nupp.random
 
 --[[
-Random generation. `randomBytes` obtains cryptographically secure bytes from the
-host, while `Xoshiro128` provides deterministic sequences with explicit,
-serializable state.
-
-Each `Xoshiro128` owns an independent xoshiro128** sequence. A seed is always
-interpreted as one 32-bit word, and omitting it chooses a fixed seed rather
-than consulting a clock, so every sequence is reproducible. Generators are
-mutable and intentionally not safe to share between concurrent workers.
+Two kinds of random: unpredictable, and reproducible.
 
 ```nupp
 local random = require("nupp.random")
 
-local dice = new random.Xoshiro128(42)
-local d20 = dice:integer(20)
-local unit = dice:next()
-local nonce = random.randomBytes(32)
+const nonce = random.randomBytes(32)
+
+const dice = new random.Xoshiro128(42)
+
+print(dice:integer(20))
+print(dice:next())
 ```
 
-`state` and `setState` copy the four signed 32-bit state words. They are the
-portable checkpoint format: preserving them preserves the next draw exactly.
+`randomBytes` asks the host for cryptographically secure bytes, and is what a
+key, a nonce, or a token wants. A `Xoshiro128` is the opposite: an independent
+xoshiro128** sequence with nothing hidden in it, so the same seed always draws
+the same numbers. Omitting the seed picks a fixed one rather than reading a
+clock, which is deliberate -- a sequence that varies run to run is something you
+ask for.
+
+A seed is one 32-bit word. A generator is mutable and is not safe to share
+between workers; give each lane its own.
+
+`state` and `setState` copy the four signed 32-bit state words. That is the
+portable checkpoint format: keep them and the next draw is exactly the one that
+was coming.
 ]]
 
 local contracts = require("nupp.runtime.services.contracts")
