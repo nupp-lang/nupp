@@ -562,7 +562,6 @@ docs = {
    logo = "images/project.svg",
    public = "docs/public",
    customCss = "docs/site.css",
-   constructorPattern = "^new",
    pages = {
       { glob = "docs/**.md" }
    }
@@ -586,7 +585,6 @@ The keys the target itself reads:
 | `customCss` | Stylesheet appended after the default theme |
 | `lexers` | Directory of project Scintillua lexers, searched before the bundled ones |
 | `includePrivate` | Renders the declarations privacy rules hide |
-| `constructorPattern` | Lua pattern a constructor's last name segment matches |
 | `pages` | Handwritten pages: a `glob` over a tree, a `directory`, or one `source` at one `path` |
 | `diagnostics` | The generated diagnostic index, and the page it is appended to |
 | `stdlib` | The generated LuaJIT standard library page |

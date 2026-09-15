@@ -31,10 +31,6 @@ type api.ItemGroup = {
     items: {extractMod.Item}
 }
 
--- The default a manifest that names no `constructorPattern` gets, matched against the
--- last dotted segment of a name.
-local DEFAULT_CONSTRUCTOR_PATTERN = "^new"
-
 local function kindClass(kind)
     return htmlEscape((kind:gsub("[^%w_-]+", "-")))
 end
@@ -71,26 +67,12 @@ local function htag(level)
     return "h" .. math.min(level, 6)
 end
 
--- A constructor is a plain function whose name says it is one. Deciding by result type
--- instead, a function returning a type this module declares, files every accessor and
--- every query under Constructors as well, which is why the name is what answers.
-local function isConstructor(item, pattern)
-    if pattern == "" or item.kind ~= "function" or item.comptimeKind then
-        return false
-    end
-
-    return (item.name:match("([^.]+)$") or item.name):match(pattern) ~= nil
-end
-
--- The parser quite rightly extracts a constructor as a function: that is its Nupp
--- type. The documentation kind is semantic, though, and should agree with the group
--- the reader found it under rather than exposing that implementation detail.
-local function displayKind(item: extractMod.Item, constructorPattern: string?): string
+-- Construction is what `new` does, and a `constructor` declaration documents inside the
+-- record it belongs to. A module-level function that hands back an instance is a
+-- function whatever it is called, so nothing here reads a naming convention as a kind.
+local function displayKind(item: extractMod.Item): string
     if item.comptimeKind then
         return "comptime " .. item.comptimeKind
-    end
-    if isConstructor(item, constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN) then
-        return "constructor"
     end
 
     return item.kind
@@ -110,24 +92,20 @@ end
 -- page outline, the HTML details and the companion Markdown from each inventing a
 -- slightly different hierarchy (records versus interfaces, or variables versus
 -- values). Items are alphabetized inside a group just as they are on a Tealdoc page.
-local function itemGroups(items: {extractMod.Item}, constructorPattern: string?): {api.ItemGroup}
-    local pattern = constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN
+local function itemGroups(items: {extractMod.Item}): {api.ItemGroup}
     local groups: {
         api.ItemGroup
     } = {
-        {title = "Constructors", path = "constructors", kinds = false, items = {}},
         {title = "Types", path = "types", kinds = true, items = {}},
         {title = "Functions", path = "functions", kinds = true, items = {}},
         {title = "Values", path = "values", kinds = true, items = {}},
     }
     for _, item in ipairs(items) do
-        local group = groups[2]
-        if isConstructor(item, pattern) then
-            group = groups[1]
-        elseif item.kind == "function" or item.kind == "method" then
-            group = groups[3]
+        local group = groups[1]
+        if item.kind == "function" or item.kind == "method" then
+            group = groups[2]
         elseif item.kind == "variable" then
-            group = groups[4]
+            group = groups[3]
         end
         group.items[#group.items + 1] = item
     end
@@ -187,8 +165,8 @@ local function nestedModules(children: {extractMod.Module}, prefix: string, modu
     ) .. "</section>"
 end
 
-local function moduleSummary(module: extractMod.Module, constructorPattern: string?): string
-    local groups = itemGroups(module.items, constructorPattern)
+local function moduleSummary(module: extractMod.Module): string
+    local groups = itemGroups(module.items)
     local out = {'<section class="nuppdoc-module-summary"><h2 id="module-contents">Module contents</h2>'}
     for _, group in ipairs(groups) do
         if #group.items > 0 then
@@ -199,10 +177,8 @@ local function moduleSummary(module: extractMod.Module, constructorPattern: stri
                         item.path
                     ) .. '"><code>' .. htmlEscape(unqualifiedName(module.name, item.name)) .. '</code></a>'
                 }
-                -- A constructor's kind is the word "function" on every row of the
-                -- table, which says nothing the heading has not said already.
                 if group.kinds then
-                    row[#row + 1] = kindBadge(displayKind(item, constructorPattern))
+                    row[#row + 1] = kindBadge(displayKind(item))
                 end
                 row[#row + 1] = inlineHtml(summaryText(item.doc.text))
                 rows[#rows + 1] = row
@@ -372,8 +348,8 @@ local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, l
     end
 end
 
-local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links?, constructorPattern: string?): nil
-    local kind = displayKind(item, constructorPattern)
+local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links?): nil
+    local kind = displayKind(item)
     out[
         #out + 1
     ] = '<section class="nuppdoc-api-item" id="' .. htmlEscape(

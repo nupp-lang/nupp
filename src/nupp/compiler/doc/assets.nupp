@@ -281,7 +281,16 @@ local SCRIPT = [[
                 else break;
             }
             for (const link of outlineLinks) {
-                link.toggleAttribute("aria-current", link.hash === `#${current?.id}`);
+                const active = link.hash === `#${current?.id}`;
+                link.toggleAttribute("aria-current", active);
+                // A declaration's members are folded away until the reader is
+                // inside them, so reaching one has to unfold it.
+                if (active) {
+                    for (let node = link.closest("details"); node;
+                        node = node.parentElement?.closest("details")) {
+                        node.open = true;
+                    }
+                }
             }
         };
         addEventListener("scroll", update, {passive: true});

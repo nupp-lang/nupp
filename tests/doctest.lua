@@ -561,9 +561,9 @@ function M.documentsMethodImplementationsUnderTheirOwnType()
     assert(stop and stop.text == "Stops it.", "the implementation supplies what it lacked")
     assert(stop.raises[1] == "when it already stopped", "raises must fold in too")
     assert(#worker.members == 2, "folding must not duplicate a declared method")
-    -- A type this module does not document has nowhere to fold into, and dropping the
-    -- method would lose it entirely.
-    assert(listed["Elsewhere:extend"], "an orphan method stays a listed function")
+    -- A method hung off a table this module never hands back has no spelling a reader
+    -- could call it through, so listing it would only be noise.
+    assert(not listed["Elsewhere:extend"], "a method on an unreachable table is not listed")
 end
 
 function M.foldsMethodsWrittenWithAnExplicitReceiverAndHidesAPrivateTypesOwn()
@@ -2014,7 +2014,10 @@ function M.hoistsQualifiedTypesOutOfHiddenDeclarationModules()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.constructorPatternDecidesTheConstructorsGroup()
+function M.aNamingConventionIsNotAConstructor()
+    -- Construction is `new`, and a `constructor` declaration documents inside the
+    -- record it belongs to. A module function is a function whatever it is named,
+    -- so nothing reads `newEngine` as a kind of its own.
     local files = {
         [
             "src/engine.nupp"
@@ -2033,88 +2036,20 @@ function M.constructorPatternDecidesTheConstructorsGroup()
             "\n"
         ) .. "\n",
     }
-    local config = {include = {"src"}}
-    local function render(settings, out)
-        local dir = tempProject(files)
-        settings.sources = {"src"}
-        assert(doc.build(dir, config, settings, {format = "site", output = out}) == 0)
-        local page = readFile(dir .. "/" .. out .. "/modules/engine/index.html")
-        local markdown = readFile(dir .. "/" .. out .. "/modules/engine.md")
-        os.execute("rm -rf '" .. dir .. "'")
+    local dir = tempProject(files)
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "site", output = "site"}) == 0)
+    local page = readFile(dir .. "/site/modules/engine/index.html")
+    local markdown = readFile(dir .. "/site/modules/engine.md")
+    os.execute("rm -rf '" .. dir .. "'")
 
-        return page, markdown
-    end
-
-    local function constructors(page)
-        return page:match("<h3>Constructors</h3>(.-)</table>")
-    end
-
-    local function functions(page)
-        return page:match("<h3>Functions</h3>(.-)</table>")
-    end
-
-    local default, defaultMarkdown = render({}, "site")
-    assert(constructors(default):find("newEngine", 1, true), default)
-    assert(functions(default):find("makeEngine", 1, true), default)
-    local defaultConstructorsAt = assert(default:find('<h2 id="constructors">Constructors', 1, true))
-    local defaultFunctionsAt = assert(default:find('<h2 id="functions">Functions', defaultConstructorsAt, true))
-    assert(default:find('id="engine.newEngine"><h3>', defaultConstructorsAt, true) < defaultFunctionsAt, default)
-    assert(
-        default:find(
-            'id="engine.newEngine"><h3><code>newEngine</code>'
-            .. '<span class="nuppdoc-kind-badge nuppdoc-kind-constructor">constructor</span>',
-            defaultConstructorsAt,
-            true
-        ),
-        default
-    )
-    assert(default:find('id="engine.makeEngine"><h3>', defaultFunctionsAt, true), default)
-    local defaultMarkdownConstructorsAt = assert(defaultMarkdown:find("\n## Constructors\n", 1, true))
-    local defaultMarkdownFunctionsAt = assert(
-        defaultMarkdown:find("\n## Functions\n", defaultMarkdownConstructorsAt, true)
-    )
-    assert(
-        defaultMarkdown:find("`newEngine`", defaultMarkdownConstructorsAt, true) < defaultMarkdownFunctionsAt,
-        defaultMarkdown
-    )
-    assert(defaultMarkdown:find("### `newEngine` _constructor_", defaultMarkdownConstructorsAt, true), defaultMarkdown)
-    assert(defaultMarkdown:find("`makeEngine`", defaultMarkdownFunctionsAt, true), defaultMarkdown)
-
-    local renamed, renamedMarkdown = render({constructorPattern = "^make"}, "renamed")
-    assert(constructors(renamed):find("<th>Constructor</th><th>Description</th>", 1, true), renamed)
-    assert(constructors(renamed):find("makeEngine", 1, true), renamed)
-    assert(
-        renamed:find(
-            'id="engine.makeEngine"><h3><code>makeEngine</code>'
-            .. '<span class="nuppdoc-kind-badge nuppdoc-kind-constructor">constructor</span>',
-            1,
-            true
-        ),
-        renamed
-    )
-    assert(
-        renamed:find(
-            'id="engine.newEngine"><h3><code>newEngine</code>'
-            .. '<span class="nuppdoc-kind-badge nuppdoc-kind-function">function</span>',
-            1,
-            true
-        ),
-        renamed
-    )
-    assert(functions(renamed):find("newEngine", 1, true), renamed)
-    local renamedConstructorsAt = assert(renamedMarkdown:find("\n## Constructors\n", 1, true))
-    local renamedFunctionsAt = assert(renamedMarkdown:find("\n## Functions\n", renamedConstructorsAt, true))
-    assert(renamedMarkdown:find("`makeEngine`", renamedConstructorsAt, true) < renamedFunctionsAt, renamedMarkdown)
-    assert(renamedMarkdown:find("`newEngine`", renamedFunctionsAt, true), renamedMarkdown)
-
-    -- an empty pattern is how a project says its functions are just functions
-    local none, noneMarkdown = render({constructorPattern = ""}, "none")
-    assert(not none:find("<h3>Constructors</h3>", 1, true), none)
-    assert(none:find("<h3>Functions</h3>", 1, true), none)
-    assert(not none:find('<h2 id="constructors">', 1, true), none)
-    assert(none:find('<h2 id="functions">Functions', 1, true), none)
-    assert(not noneMarkdown:find("\n## Constructors\n", 1, true), noneMarkdown)
-    assert(noneMarkdown:find("\n## Functions\n", 1, true), noneMarkdown)
+    assert(not page:find("Constructors", 1, true), page)
+    assert(not markdown:find("Constructors", 1, true), markdown)
+    assert(not page:find("nuppdoc-kind-constructor", 1, true), page)
+    local functionsAt = assert(page:find('<h2 id="functions">Functions', 1, true))
+    assert(page:find('id="engine.newEngine"><h3>', functionsAt, true), page)
+    assert(page:find('id="engine.makeEngine"><h3>', functionsAt, true), page)
+    assert(markdown:find("### `newEngine` _function_", 1, true), markdown)
+    assert(markdown:find("### `makeEngine` _function_", 1, true), markdown)
 end
 
 function M.markdownLinksNestedModulesAndReferences()
@@ -3010,11 +2945,16 @@ function M.siteMatchesTheNuppdocPageModel()
         module:find('href="../../modules/math/index.html#math.Point.x"', 1, true),
         "record members in the complete signature must link to their docs"
     )
+    -- A declaration that documents members is a section of the outline in its own
+    -- right, closed until the reader is inside it, so a record's fields and methods
+    -- are reachable from the contents rather than only by scrolling.
     assert(
         module:find(
             '<li class="nuppdoc-outline-section"><details open><summary>'
-            .. '<a href="#types" title="Types">Types</a></summary><ol><li>'
-            .. '<a href="#math.Point" title="Point">Point</a>',
+            .. '<a href="#types" title="Types">Types</a></summary><ol>'
+            .. '<li class="nuppdoc-outline-section"><details><summary>'
+            .. '<a href="#math.Point" title="Point">Point</a></summary><ol>'
+            .. '<li><a href="#math.Point.x" title="x">x</a></li>',
             1,
             true
         ),
@@ -3149,17 +3089,8 @@ function M.siteMatchesTheNuppdocPageModel()
     end
     assert(not stub, "a namespace was given a legacy redirect")
 
-    -- a constructor is grouped apart from the functions, and its kind is the
-    -- word "function" on every row, so that column is left off
-    assert(
-        branchModule:find(
-            "<h3>Constructors</h3><table><thead><tr>" .. "<th>Constructor</th><th>Description</th>",
-            1,
-            true
-        ),
-        branchModule
-    )
-    assert(branchModule:find('<a href="#engine.newEngine"><code>newEngine</code></a>', 1, true), branchModule)
+    -- a function that hands back an instance is a function, whatever it is named
+    assert(not branchModule:find("<h3>Constructors</h3>", 1, true), branchModule)
     assert(
         branchModule:find(
             "<h3>Functions</h3><table><thead><tr>" .. "<th>Function</th><th>Kind</th><th>Description</th>",
@@ -3168,6 +3099,7 @@ function M.siteMatchesTheNuppdocPageModel()
         ),
         branchModule
     )
+    assert(branchModule:find('<a href="#engine.newEngine"><code>newEngine</code></a>', 1, true), branchModule)
     assert(branchModule:find('<a href="#engine.boot"><code>boot</code></a>', 1, true), branchModule)
 
     -- a markdown link whose target names a module, a declaration, or a member is

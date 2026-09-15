@@ -94,7 +94,6 @@ type doc.Page = {
 --- read as one of these too, which is why `kind` and `targetName` are here.
 type doc.Settings = {
     all: boolean?,
-    constructorPattern: string?,
     customCss: string?,
     description: string?,
     diagnostics: diagnosticsMod.Settings?,
@@ -177,10 +176,9 @@ function doc.markdown(
     modules: {extractMod.Module},
     title: string?,
     all: {extractMod.Module}?,
-    overview: string?,
-    constructorPattern: string?
+    overview: string?
 ): string
-    return markdownMod.render(modules, title, all, overview, constructorPattern)
+    return markdownMod.render(modules, title, all, overview)
 end
 
 --- Renders the parse-only documentation model for external generators. The envelope
@@ -1061,15 +1059,32 @@ end
 -- section is listed under that section, so a long generated page -- every diagnostic
 -- code, every LuaJIT declaration -- opens as the handful of sections it is made of
 -- instead of a list of two hundred names with no shape.
+-- What a declaration contributes below its own name: every member it documents, and
+-- for a nested type the members of that in turn. The page already gives each of them a
+-- heading and an anchor, so the outline that omitted them was the one place a record's
+-- methods could not be found without scrolling.
+local memberOutline: function({extractMod.Member}?): {pageMod.Entry}?
+
+memberOutline = function(members: {extractMod.Member}?): {pageMod.Entry}?
+    local entries: {pageMod.Entry} = {}
+    for _, member in ipairs(members or {}) do
+        entries[
+            #entries + 1
+        ] = new pageMod.Entry(path = member.path, name = member.name, items = memberOutline(member.members))
+    end
+
+    return #entries > 0 and entries or nil
+end
+
 local function appendOutline(items: {pageMod.Entry}, markdown: string?)
     for _, heading in ipairs(markdownOutline(markdown)) do
         local parent = items[#items]
         if heading.level > 2 and parent then
             local children = parent.items or {}
-            children[#children + 1] = {path = heading.path, name = heading.name}
+            children[#children + 1] = new pageMod.Entry(path = heading.path, name = heading.name)
             parent.items = children
         else
-            items[#items + 1] = {path = heading.path, name = heading.name}
+            items[#items + 1] = new pageMod.Entry(path = heading.path, name = heading.name)
         end
     end
 end
@@ -1171,22 +1186,24 @@ local function renderSite(root, outDir, modules, title, settings)
             -- it, so whichever of the two is rendered is the one the outline lists.
             appendOutline(items, overview ~= "" and overview or module.text)
             if #children > 0 then
-                items[#items + 1] = {path = "modules", name = "Submodules"}
+                items[#items + 1] = new pageMod.Entry(path = "modules", name = "Submodules")
             end
             if #module.items > 0 then
-                items[#items + 1] = {path = "module-contents", name = "Module contents"}
+                items[#items + 1] = new pageMod.Entry(path = "module-contents", name = "Module contents")
             end
-            local groups = itemGroups(module.items, settings.constructorPattern)
+            local groups = itemGroups(module.items)
             for _, group in ipairs(groups) do
                 if #group.items > 0 then
-                    local entries = {}
+                    local entries: {pageMod.Entry} = {}
                     for _, item in ipairs(group.items) do
-                        entries[#entries + 1] = {path = item.path, name = item.name}
+                        entries[
+                            #entries + 1
+                        ] = new pageMod.Entry(path = item.path, name = item.name, items = memberOutline(item.members))
                     end
-                    items[#items + 1] = {path = group.path, name = group.title, items = entries}
+                    items[#items + 1] = new pageMod.Entry(path = group.path, name = group.title, items = entries)
                 end
             end
-            markdown = doc.markdown({module}, nil, modules, overview, settings.constructorPattern)
+            markdown = doc.markdown({module}, nil, modules, overview)
             local links = symbolLinks(linkIndex, module, relativePrefix(file))
             body[#body + 1] = '<h1><code>' .. htmlEscape(module.name) .. '</code></h1>'
             -- An overview is what the author wanted said here, so it replaces the line
@@ -1214,7 +1231,7 @@ local function renderSite(root, outDir, modules, title, settings)
                     body[#body + 1] = '<div class="nuppdoc-empty">No public declarations.</div>'
                 end
             else
-                body[#body + 1] = moduleSummary(module, settings.constructorPattern)
+                body[#body + 1] = moduleSummary(module)
                 for _, group in ipairs(groups) do
                     if #group.items > 0 then
                         body[
@@ -1227,7 +1244,7 @@ local function renderSite(root, outDir, modules, title, settings)
                             group.path
                         ) .. '" aria-label="Link to ' .. htmlEscape(group.title) .. '">#</a></h2>'
                         for _, item in ipairs(group.items) do
-                            renderHtmlItem(body, item, links, settings.constructorPattern)
+                            renderHtmlItem(body, item, links)
                         end
                         body[#body + 1] = "</section>"
                     end
@@ -1495,7 +1512,7 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
     filesMod.collect(written)
     local code: integer, message: string? = 0, nil
     if format == "markdown" then
-        local ok, err = writeFile(output, doc.markdown(modules, title, nil, nil, settings.constructorPattern))
+        local ok, err = writeFile(output, doc.markdown(modules, title, nil, nil))
         if not ok then
             code, message = 1, tostring(err)
         end
@@ -1507,10 +1524,7 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
     elseif format == "both" then
         local ok, err = renderSite(root, output, modules, title, settings)
         if ok then
-            ok, err = writeFile(
-                join(output, "api.md"),
-                doc.markdown(modules, title, nil, nil, settings.constructorPattern)
-            )
+            ok, err = writeFile(join(output, "api.md"), doc.markdown(modules, title, nil, nil))
         end
         if not ok then
             code, message = 1, tostring(err)

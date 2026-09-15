@@ -648,8 +648,7 @@ neighbor keeps its name and drops its link.
 ## Module pages
 
 Every module gets its own page: its blurb, a table of the modules nested under
-it, and a table per group of what it declares: constructors, types, functions,
-and values. The detailed reference repeats those group headings, nests each
+it, and a table per group of what it declares: types, functions, and values. The detailed reference repeats those group headings, nests each
 declaration beneath its group, and uses the same hierarchy in the page outline
 and companion Markdown.
 
@@ -659,11 +658,10 @@ it would otherwise be the one name in the reference that led nowhere. Such a
 page is titled `Namespace:` rather than `Module:`, and its entries in the
 sidebar, the search index, and the Markdown output say the same.
 
-A constructor is a function whose last name segment matches
-`constructorPattern`, which defaults to `^new`. Set it to another Lua pattern to
-match a different convention, or to `""` to leave every function in Functions.
-Deciding by result type instead would file every accessor and query under
-Constructors, so the name is what answers.
+Construction is what `new` does. A `constructor` declaration documents inside
+the record it belongs to, where a caller reads it beside the fields it fills. A
+module-level function that happens to return an instance is a function, whatever
+it is named, so no naming convention promotes one to a kind of its own.
 
 ### Module overview pages
 

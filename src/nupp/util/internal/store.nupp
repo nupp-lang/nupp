@@ -109,17 +109,17 @@ export interface Store
     type Step = function(Store, integer): (integer, string?, string)
 
     --- Answers the value held under a key.
-    get: function<T>(self, key: Key<T>): T?
+    get: function<T>(self: Store, key: Key<T>): T?
 
     --- Stores a non-nil value under a key.
     --- @raises when value is nil; use [](nupp.util.Store.remove) to delete an entry
-    set: function<T>(self, key: Key<T>, value: T): nil
+    set: function<T>(self: Store, key: Key<T>, value: T): nil
 
     --- Removes the value held under a key.
-    remove: function<T>(self, key: Key<T>): nil
+    remove: function<T>(self: Store, key: Key<T>): nil
 
     --- Removes every value without touching key registration.
-    clear: function(self): nil
+    clear: function(self: Store): nil
 
     --- Walks every occupied key ascending by id, without its value.
     entries: function(

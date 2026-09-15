@@ -330,6 +330,68 @@ end
 -- let the language's own formatter decide indentation and line breaks. Keeping the
 -- function's closing `end` leaves the complete structure parseable for highlighting and
 -- member links without publishing an interface default, method, or constructor body.
+-- A member whose declaration wraps is hard to tell from the one below it when the two
+-- are flush: the reader has to count brackets to find where one ends. Giving a wrapped
+-- member a blank line on each side it has a neighbour on says that where a tighter list
+-- of one-liners needs nothing said. The structure's own first and last lines are not
+-- neighbours, so a wrapped member at either end gains no leading or trailing gap.
+local function spacedMembers(lines: {string}): {string}
+    local indent: integer? = nil
+    for index = 2, #lines - 1 do
+        local width = #(lines[index]:match("^( *)") or "")
+        if lines[index]:match("%S") and width > 0 and (indent == nil or width < indent) then
+            indent = width
+        end
+    end
+    if indent == nil then
+        return lines
+    end
+    -- Where each member begins, so a wrapped one is the run between two of them rather
+    -- than a line that merely happens to be long. A continuation closing a bracket the
+    -- member opened sits at the same column as the member itself, so the depth decides
+    -- rather than the column alone.
+    local starts: {integer} = {}
+    local depth: integer = 0
+    for index = 2, #lines - 1 do
+        local line = lines[index]
+        if depth == 0 and line:match("%S") and #(line:match("^( *)") or "") == indent then
+            starts[#starts + 1] = index
+        end
+        for character in line:gmatch("[%(%)%[%]{}]") do
+            depth = depth + ((character == "(" or character == "[" or character == "{") and 1 or -1)
+        end
+        if depth < 0 then
+            depth = 0
+        end
+    end
+    if #starts < 2 then
+        return lines
+    end
+    local wrapped: {boolean} = {}
+    for position, first in ipairs(starts) do
+        local last = (starts[position + 1] or #lines) - 1
+        while last > first and not lines[last]:match("%S") do
+            last = last - 1
+        end
+        wrapped[position] = last > first
+    end
+    local gapBefore: {[integer]: boolean} = {}
+    for position = 2, #starts do
+        if wrapped[position] or wrapped[position - 1] then
+            gapBefore[starts[position]] = true
+        end
+    end
+    local out: {string} = {}
+    for index, line in ipairs(lines) do
+        if gapBefore[index] and (out[#out] or ""):match("%S") then
+            out[#out + 1] = ""
+        end
+        out[#out + 1] = line
+    end
+
+    return out
+end
+
 local function structureSignature(node, includePrivate)
     local parts: {string} = {}
     local dropped = hiddenNodes(node, includePrivate)
@@ -418,7 +480,7 @@ local function structureSignature(node, includePrivate)
         end
     end
 
-    return withoutHiddenTerminals(trim(table.concat(lines, "\n")))
+    return withoutHiddenTerminals(trim(table.concat(spacedMembers(lines), "\n")))
 end
 
 ----------------------------------------------------------------------------
@@ -1073,6 +1135,33 @@ end
 -- `export =` table. `function m.thing()` says where it lands in its own spelling and
 -- needs no such list; a `cdef` does not, so the table boundary is all that separates a
 -- published binding from plumbing a module happens to call C for.
+-- The locals a module assigns onto its own table, as `simd.reducer = reducer` does. A
+-- function written on one of those is reached through the module by the field's name,
+-- so it is as public as one written on the module table itself.
+local function publishedTables(root, moduleLocal: string?): {[string]: boolean}
+    local tables: {[string]: boolean} = {}
+    if moduleLocal == nil then
+        return tables
+    end
+    for _, block in ipairs(root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            if stat.kind == "assignStmt" then
+                for index, target in ipairs(stat.targets or {}) do
+                    local value = stat.exprs and stat.exprs[index]
+                    if value
+                        and value.kind == "name"
+                        and value.token
+                        and syntax(target):match("^" .. moduleLocal .. "%.[%w_]+$") then
+                        tables[value.token.text] = true
+                    end
+                end
+            end
+        end
+    end
+
+    return tables
+end
+
 local function returnedNames(root): {[string]: boolean}
     local names: {[string]: boolean} = {}
 
@@ -1260,9 +1349,30 @@ end
 -- module's function listing is the functions a reader calls through the module, not
 -- the ones reached through a type it happens to declare. Folding the implementation
 -- into that type puts it where the reader looks for it and lets it supply what the
--- declaration left out. A method whose type this file never declares has nowhere to
--- fold into and stays a listed function rather than disappearing; one whose type this
--- file declares but does not document goes wherever its type went, which is nowhere.
+-- declaration left out. One whose type this file declares but does not document goes
+-- wherever its type went, which is nowhere, and so does one hung off a table the file
+-- keeps to itself: a metatable a reader is never handed has no name they could call
+-- `Metatable.method` through.
+-- Whether the table a qualified function was written on is one the module hands back.
+-- `function job.Worker.send` attaches to the module's own table, so a reader reaches it
+-- however `job.Worker` is declared, and `simd.reducer = reducer` publishes a second
+-- table under the first. `function TaskMT.await` attaches to a local the module keeps,
+-- and no caller has a name for that.
+local function unreachableOwner(
+    name: string,
+    moduleName: string,
+    moduleLocal: string?,
+    publishedTables: {[string]: boolean}
+): boolean
+    local qualifiers = name:match("^(.*)[.:][^.:]+$")
+    if qualifiers == nil then
+        return false
+    end
+    local head = qualifiers:match("^([^.:]+)") or qualifiers
+
+    return head ~= moduleLocal and head ~= (moduleName:match("([^.]+)$") or moduleName) and not publishedTables[head]
+end
+
 local function memberNamed(item: extract.Item, name: string): extract.Member?
     for _, member in ipairs(item.members) do
         if member.name == name then
@@ -1276,7 +1386,10 @@ end
 local function foldMethods(
     items: {extract.Item},
     declaredTypes: {[string]: boolean},
-    hiddenMembers: {[string]: boolean}
+    hiddenMembers: {[string]: boolean},
+    moduleName: string,
+    moduleLocal: string?,
+    publishedTables: {[string]: boolean}
 ): {extract.Item}
     local types: {[string]: extract.Item} = {}
     for _, item in ipairs(items) do
@@ -1294,6 +1407,9 @@ local function foldMethods(
             -- An out-of-line implementation cannot republish a private field.
         elseif not owner and ownerPath and declaredTypes[ownerPath] then
             -- Its type is private, so it is too: the reader has no way to hold one.
+        elseif callable and unreachableOwner(item.name, moduleName, moduleLocal, publishedTables) then
+            -- Attached to a table the module never hands out, so there is no spelling
+            -- a reader could use to reach it.
         elseif owner then
             local name = item.name:match("([^.:]+)$") or item.name
             local declared = memberNamed(owner, name)
@@ -1417,7 +1533,7 @@ function extract.extract(
         items = {},
         documentationInternal = parsed.root.documentationInternal,
         imports = {},
-        moduleLocal = cst.exportedLocal(parsed.root),
+        moduleLocal = cst.exportedLocal(parsed.root) or cst.returnedLocal(parsed.root),
     }
     for _, block in ipairs(parsed.root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
@@ -1517,7 +1633,14 @@ function extract.extract(
             end
         end
     end
-    result.items = foldMethods(result.items, declaredTypes, hiddenMembers)
+    result.items = foldMethods(
+        result.items,
+        declaredTypes,
+        hiddenMembers,
+        name,
+        result.moduleLocal,
+        publishedTables(parsed.root, result.moduleLocal)
+    )
     table.sort(result.items, byKindThenName)
 
     return result, {}, extraModules

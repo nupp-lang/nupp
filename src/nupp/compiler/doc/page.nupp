@@ -73,16 +73,15 @@ type page.Nav = {
 
 --- What the outline lists. A heading of a page and a declaration of a module both
 --- answer to a slug and a label, and the outline wants nothing else from either.
-type page.EntryChild = {
-    name: string,
+---
+--- Nesting repeats: a group holds its declarations and a declaration holds the
+--- members it documents, so a record's methods are reachable from the outline
+--- rather than only from the page body.
+record page.Entry
+    name: string
     path: string
-}
-
-type page.Entry = {
-    name: string,
-    path: string,
-    items: {page.EntryChild}?
-}
+    items: {page.Entry}?
+end
 
 -- A `public`-relative asset path is served from the site root, so it needs the page's
 -- depth-dependent prefix; an absolute URL or an already-rooted path does not.
@@ -330,7 +329,16 @@ local function sidebar(modules, current, prefix, pages, currentPath)
     return table.concat(out)
 end
 
-local function outlineEntries(items: {page.Entry}): string
+local outlineEntries: function({page.Entry}, integer): string
+
+-- One level of the outline. A declaration that documents members is a section of its
+-- own, the same shape a group of declarations is, so the list nests for as long as the
+-- page does rather than stopping at a fixed depth.
+--
+-- The top level opens with the page; a declaration's own members do not, because every
+-- method of every record at once is a list nobody reads. The script opens whichever one
+-- holds the heading being read.
+outlineEntries = function(items: {page.Entry}, depth: integer): string
     local out = {}
     for _, item in ipairs(items or {}) do
         local children = item.items or {}
@@ -338,14 +346,12 @@ local function outlineEntries(items: {page.Entry}): string
             item.path
         ) .. '" title="' .. htmlEscape(item.name) .. '">' .. htmlEscape(item.name) .. "</a>"
         if #children > 0 then
-            out[#out + 1] = '<li class="nuppdoc-outline-section"><details open><summary>' .. link .. "</summary><ol>"
-            for _, child in ipairs(children) do
-                out[
-                    #out + 1
-                ] = '<li><a href="#' .. htmlEscape(
-                    child.path
-                ) .. '" title="' .. htmlEscape(child.name) .. '">' .. htmlEscape(child.name) .. "</a></li>"
-            end
+            out[
+                #out + 1
+            ] = '<li class="nuppdoc-outline-section"><details' .. (
+                depth == 0 and " open" or ""
+            ) .. "><summary>" .. link .. "</summary><ol>"
+            out[#out + 1] = outlineEntries(children, depth + 1)
             out[#out + 1] = "</ol></details></li>"
         else
             out[#out + 1] = "<li>" .. link .. "</li>"
@@ -360,7 +366,7 @@ local function outline(items: {page.Entry}?): string
         '<aside class="nuppdoc-outline" id="nuppdoc-outline" aria-label="On this page">'
         .. '<div class="nuppdoc-outline-title">On this page</div><ol>'
     }
-    out[#out + 1] = outlineEntries(items or {})
+    out[#out + 1] = outlineEntries(items or {}, 0)
     out[#out + 1] = "</ol></aside>"
 
     return table.concat(out)

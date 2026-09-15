@@ -200,11 +200,11 @@ local function renderMarkdownMembers(out, members, level)
     end
 end
 
-local function renderMarkdownItem(out, item, constructorPattern, level)
+local function renderMarkdownItem(out, item, level)
     level = level or 3
     local h, hSub = heading(level), heading(level + 1)
     out[#out + 1] = '<a id="' .. item.path .. '"></a>'
-    out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item, constructorPattern) .. "_"
+    out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item) .. "_"
     out[#out + 1] = ""
     out[#out + 1] = "```nupp"
     out[#out + 1] = item.signature
@@ -241,12 +241,11 @@ end
 ---
 --- @param items the declarations to render, in the order they should be read
 --- @param level the heading depth of an item's name, 3 by default
---- @param constructorPattern what names a constructor, for the kind beside the name
 --- @return the markdown, or the empty string when there is nothing to render
-function markdown.items(items: {Item}, level: integer?, constructorPattern: string?): string
+function markdown.items(items: {Item}, level: integer?): string
     local out = {}
     for _, item in ipairs(items) do
-        renderMarkdownItem(out, item, constructorPattern, level or 3)
+        renderMarkdownItem(out, item, level or 3)
     end
 
     return table.concat(out, "\n")
@@ -261,13 +260,7 @@ end
 ---
 --- `overview` is the handwritten prose a page opens with, which is why it only makes
 --- sense for a single module: it belongs to one page rather than to the set.
-function markdown.render(
-    modules: {Module},
-    title: string?,
-    all: {Module}?,
-    overview: string?,
-    constructorPattern: string?
-): string
+function markdown.render(modules: {Module}, title: string?, all: {Module}?, overview: string?): string
     local all = all or modules
     anchors = symbolLinkIndex(modules, function(module: string, path: string?): string
         return "#" .. (path or module)
@@ -321,12 +314,12 @@ function markdown.render(
             end
             out[#out + 1] = ""
         end
-        for _, group in ipairs(itemGroups(module.items, constructorPattern)) do
+        for _, group in ipairs(itemGroups(module.items)) do
             if #group.items > 0 then
                 out[#out + 1] = "## " .. group.title
                 out[#out + 1] = ""
                 for _, item in ipairs(group.items) do
-                    renderMarkdownItem(out, item, constructorPattern)
+                    renderMarkdownItem(out, item)
                 end
             end
         end

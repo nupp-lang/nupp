@@ -335,7 +335,6 @@ local DOCS_KEYS = {
     "includePrivate",
     "all",
     "pages",
-    "constructorPattern",
     "diagnostics",
     "stdlib",
     -- taken by any build target
