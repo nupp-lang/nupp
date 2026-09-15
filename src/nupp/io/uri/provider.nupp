@@ -1,3 +1,4 @@
+@!internal
 module nupp.io.uri.provider
 
 const contracts = require("nupp.runtime.services.contracts")

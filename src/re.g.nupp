@@ -1,5 +1,17 @@
 module re
 
+--[[
+LPeg 1.1's official `re` frontend, bundled so `require("re")` answers it.
+
+This is upstream's Lua source, carried rather than reimplemented: it compiles
+`re` pattern text into LPeg patterns at runtime, and its `compile`, `match`,
+`find`, `gsub` and `updatelocale` behave exactly as
+[LPeg's own documentation](http://www.inf.puc-rio.br/~roberto/lpeg/re.html)
+describes. Nupp's static pattern support is [](nupp.peg), which parses the same
+syntax into a typed graph at compile time; reach for this module when the
+pattern is only known at runtime and no typed captures are wanted.
+]]
+
 local tonumber, type, error = tonumber, type, error
 local setmetatable = setmetatable
 local m = require("lpeg")

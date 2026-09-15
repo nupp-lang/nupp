@@ -1,6 +1,19 @@
 module nupp.io.storage
 
---[[Persistent key/value storage owned by the current host.]]
+--[[
+Persistent string key/value storage owned by the current host.
+
+Values outlive the process: on a browser host this is `localStorage`, scoped to
+whatever namespace the host chose, and on any other host it is whichever
+`host.storage` provider was registered before this module loaded. Keys and
+values are UTF-8 strings, so a structured value has to be encoded first --
+[](nupp.codec.json) is the usual choice.
+
+The near-neighbour in name is [](nupp.store), which is a different thing
+entirely: an in-process bag indexed by typed keys, holding live values, gone
+when the program exits. This module persists untyped text between runs; that one
+holds typed values within one.
+]]
 
 const contracts = require("nupp.runtime.services.contracts")
 

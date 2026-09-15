@@ -1,3 +1,4 @@
+@!internal
 module nupp.runtime.workersprovider
 
 local contracts = require("nupp.runtime.services.workers")

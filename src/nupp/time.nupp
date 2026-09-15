@@ -1,3 +1,33 @@
 module nupp.time
 
-export = assert(require("nupp.runtime.timeprovider").provider, "nupp.time: no clock provider is available")
+--[[
+Monotonic time, wall time, and sleeps, owned by the current host.
+
+`now` is the clock durations and deadlines are measured in: it only moves
+forward, and its zero is whatever the host chose, so a reading is meaningful
+only against another reading. `wallTime` is calendar time and may jump.
+]]
+
+const contracts = require("nupp.runtime.services.contracts")
+
+const provider: contracts.TimeProvider = assert(
+    require("nupp.runtime.timeprovider").provider,
+    "nupp.time: no clock provider is available"
+)
+
+--- Answers monotonic milliseconds, the domain durations and deadlines use.
+export const now: function(): number = provider.now
+
+--- Answers milliseconds since the Unix epoch.
+export const wallTime: function(): number = provider.wallTime
+
+--- Waits for a relative interval through the current suspension context.
+export const sleep: function(milliseconds: number): nil = provider.sleep
+
+--- Waits until an absolute deadline in the [](now) domain; a deadline already
+--- past returns without waiting.
+export const sleepUntil: function(deadline: number): nil = provider.sleepUntil
+
+--- Schedules one callback for a deadline in the [](now) domain and answers the
+--- function that cancels it. Registration itself does not suspend.
+export const wakeAt: function(deadline: number, resume: function(boolean): nil): function(): nil = provider.wakeAt

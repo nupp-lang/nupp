@@ -1,5 +1,15 @@
 module nupp.runtime.bitops
 
+--[[
+The selected `numeric.bitops` implementation, as a module.
+
+Portable programs require this rather than LuaJIT's `bit`: on a host that has
+the native provider it *is* `bit`, and on stock Lua it is the scalar fallback
+beneath [](nupp.runtime.services.contracts.BitopsProvider), which the same
+names and signatures answer for. Every operand is normalized to a signed 32-bit
+word first, so a wider integer has to be split into limbs by its caller.
+]]
+
 const contracts = require("nupp.runtime.services.contracts")
 
 export = contracts.bitops:assemble(function(): contracts.BitopsProvider
