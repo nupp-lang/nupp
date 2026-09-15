@@ -301,16 +301,45 @@ sealed interface simd.Vector<T, S>
     extract: function(borrows self: simd.Vector<T, S>, lane: integer): T
 
     insert: function(borrows self: simd.Vector<T, S>, lane: integer, value: T): simd.Vector<T, S>
+
+    --- Reverses logical lane order.
+    reverse: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
+
+    --- Rotates logical lanes. Counts are reduced modulo the species width.
+    rotateLeft: function(borrows self: simd.Vector<T, S>, count: integer): simd.Vector<T, S>
+
+    rotateRight: function(borrows self: simd.Vector<T, S>, count: integer): simd.Vector<T, S>
+
+    --- Selects one species-width window from `previous .. self`. Offset zero
+    --- returns `self`; positive offsets bring trailing lanes of `previous` into
+    --- the beginning. The offset is compile-time constant.
+    align: function(borrows self: simd.Vector<T, S>, previous: simd.Vector<T, S>, offset: integer): simd.Vector<T, S>
+
+    --- Packs selected lanes toward lane one and zeroes the remainder.
+    compress: function(borrows self: simd.Vector<T, S>, selected: simd.Mask<T, S>): simd.Vector<T, S>
+
+    --- Distributes packed lanes into selected positions and zeroes the rest.
+    expand: function(borrows self: simd.Vector<T, S>, selected: simd.Mask<T, S>): simd.Vector<T, S>
+
+    --- Inclusive, logical-lane-order prefix operations.
+    prefixSumOrdered: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
+
+    prefixXor: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
 end
 
 --- Opaque lane bits for one mask species. Bit zero denotes lane one.
 --- @export
 sealed interface simd.BitMask<T, S>
+    metamethod __eq: function(left: simd.BitMask<T, S>, right: simd.BitMask<T, S>): boolean
+
     any: function(borrows self: simd.BitMask<T, S>): boolean
     count: function(borrows self: simd.BitMask<T, S>): uint32
 
     --- Returns the first set lane, or zero when the bitmask is empty.
     first: function(borrows self: simd.BitMask<T, S>): integer
+
+    --- Returns this mask with its lowest set lane cleared.
+    clearFirst: function(borrows self: simd.BitMask<T, S>): simd.BitMask<T, S>
 end
 
 --- Operations whose lane count is selected from `T` and `S` at AOT lowering.

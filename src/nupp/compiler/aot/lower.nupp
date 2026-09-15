@@ -2583,6 +2583,77 @@ local function simdMethod(
                 type = vectorType,
                 source = source
             )
+        elseif genericFamily == "vector" and method == "reverse" and #raw == 0 then
+            return new scalarIR.Simd(
+                op = "simd_permute",
+                args = {receiver as scalarIR.Expr},
+                intrinsic = "reverse",
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "vector" and (method == "rotateLeft" or method == "rotateRight") and #raw == 1 then
+            local count = lower.convert(
+                lower.expression(raw[1], environment, activeIndex, kernel),
+                "f64",
+                source,
+                kernel.context
+            )
+            local constant = count.op == "constant" and tonumber((count as scalarIR.Constant).value) or nil
+            if constant == nil or constant < 0 or constant % 1 ~= 0 then
+                kernel.context.reject(source, "SIMD rotation needs a nonnegative compile-time lane count")
+            end
+            return new scalarIR.Simd(
+                op = "simd_permute",
+                args = {receiver as scalarIR.Expr, count},
+                intrinsic = method == "rotateLeft" and "rotate_left" or "rotate_right",
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "vector" and method == "align" and #raw == 2 then
+            local previous = lower.expression(raw[1], environment, activeIndex, kernel)
+            if previous.type ~= vectorType then
+                kernel.context.reject(source, "SIMD align operands need the same element and species")
+            end
+            local count = lower.convert(
+                lower.expression(raw[2], environment, activeIndex, kernel),
+                "f64",
+                source,
+                kernel.context
+            )
+            local constant = count.op == "constant" and tonumber((count as scalarIR.Constant).value) or nil
+            if constant == nil or constant < 0 or constant % 1 ~= 0 then
+                kernel.context.reject(source, "SIMD alignment needs a nonnegative compile-time lane count")
+            end
+            return new scalarIR.Simd(
+                op = "simd_permute",
+                args = {previous, receiver as scalarIR.Expr, count},
+                intrinsic = "align",
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "vector" and (method == "compress" or method == "expand") and #raw == 1 then
+            local selected = lower.expression(raw[1], environment, activeIndex, kernel)
+            if selected.type ~= maskType then
+                kernel.context.reject(source, "SIMD " .. method .. " mask has a different species")
+            end
+            return new scalarIR.Simd(
+                op = method == "compress" and "simd_compress" or "simd_expand",
+                args = {receiver as scalarIR.Expr, selected},
+                intrinsic = method,
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "vector" and (method == "prefixSumOrdered" or method == "prefixXor") and #raw == 0 then
+            if method == "prefixXor" and tostring(genericElement):sub(1, 1) == "f" then
+                kernel.context.reject(source, "SIMD prefixXor requires an integer vector element")
+            end
+            return new scalarIR.Simd(
+                op = "simd_prefix",
+                args = {receiver as scalarIR.Expr},
+                intrinsic = method == "prefixXor" and "prefix_xor" or "prefix_sum_ordered",
+                type = vectorType,
+                source = source
+            )
         elseif genericFamily == "mask" and #raw == 0 then
             local reductions = {
                 any = {op = "simd_mask_any", type = "bool"},
@@ -2609,6 +2680,10 @@ local function simdMethod(
                 any = {op = "simd_bitmask_any", type = "bool"},
                 count = {op = "simd_bitmask_count", type = "u32"},
                 first = {op = "simd_bitmask_first", type = "f64"},
+                clearFirst = {
+                    op = "simd_bitmask_clear_first",
+                    type = "simd_bitmask_" .. tostring(genericElement) .. "_" .. tostring(genericShape)
+                },
             }
             local reduction = reductions[method]
             if reduction ~= nil then

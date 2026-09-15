@@ -2169,6 +2169,21 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             if rotated and originalExprs then
                 (callArgs as cst.Args).exprs = originalExprs
             end
+            if nominal ~= nil and origin ~= nil and (
+                origin.moduleName or (nominal as T.Nominal).moduleName or origin.sealedModule
+            ) == "nupp.simd" and origin.name == "Vector" and member.text == "extract" and (
+                nominal as T.Nominal
+            ).typeArgs then
+                local concrete = nominal as T.Nominal
+                local element = T.unwrapOwnership((concrete.typeArgs as {Type})[1])
+                local widened = (
+                    element.tag == "uint8" or element.tag == "uint16"
+                ) and T.uint32 or (element.tag == "int8" or element.tag == "int16") and T.int32 or nil
+                if widened then
+                    first, rets, pack = widened, {widened}, T.pack({widened})
+                    c.fixedWidth.mark(node, widened)
+                end
+            end
             local indexedProducer = callable and indexedViews.methodProducer(rawReceiver, member.text, first) or nil
             if indexedProducer then
                 node.indexedViewProducer = {producer = indexedProducer, source = receiver,}

@@ -2204,6 +2204,61 @@ return {increment = increment}
     assert(asm:find("0 vector", 1, true), "the narrow scalar oracle has no vector instructions: " .. asm)
 end
 
+function M.structuralVectorOperationsHaveScalarReferenceSemantics()
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function transform(
+    exclusive output: span.WriteSpan<uint8>,
+    borrows input: span.Span<uint8>
+): uint32
+    local species: simd.Species<uint8, simd.Fixed<8>> = simd.fixed()
+    local active = species:tail(#input)
+    local values = species:load(input, 1, active)
+    local selected = values > 4
+    local packed = values:compress(selected)
+    local expanded = packed:expand(selected)
+    local aligned = values:align(values:reverse(), 2):rotateLeft(1):rotateRight(1)
+    local prefix = expanded:prefixSumOrdered()
+    local parity = values:prefixXor()
+    species:store(output, 1, prefix + aligned + parity, active)
+    return selected:bits():clearFirst():count()
+end
+
+return {transform = transform}
+]]
+    local dir = project{["structural.nupp"] = source}
+    local decoded, raw, code, where = lowered(
+        dir,
+        "--target aarch64-apple-darwin --features neon --json structural.nupp"
+    )
+    test.equal(code, 0, raw)
+    for _, intrinsic in ipairs({
+        "simd_permute.reverse",
+        "simd_permute.align",
+        "simd_permute.rotate_left",
+        "simd_permute.rotate_right",
+        "simd_compress.compress",
+        "simd_expand.expand",
+        "simd_prefix.prefix_sum_ordered",
+        "simd_prefix.prefix_xor",
+        "simd_bitmask_clear_first.clearFirst",
+    }) do
+        assert(decoded.ir:find(intrinsic, 1, true), where .. ": missing intrinsic " .. intrinsic .. "\n" .. decoded.ir)
+    end
+    assert(decoded.c:find("ks_scalar_exp_compress_u8x8", 1, true), where .. ": compress has scalar semantics")
+    assert(decoded.c:find("ks_scalar_exp_prefix_xor_u8x8", 1, true), where .. ": scan has scalar semantics")
+
+    local asm, asmCode = run(
+        dir,
+        "--target aarch64-apple-darwin --features neon --emit asm structural.nupp"
+    )
+    test.equal(asmCode, 0, asm)
+    assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), "fixed structural operations retain real vector work: " .. asm)
+end
+
 function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity()
     local source = GENERIC_EXPLICIT_SIMD
         :gsub("simd%.Preferred", "simd.Fixed<8>", 1)

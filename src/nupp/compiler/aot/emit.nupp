@@ -687,9 +687,14 @@ function emit.scalar(node: scalarIR.Expr): string
             or operation == "simd_mask_bits"
             or operation == "simd_extract"
             or operation == "simd_insert"
+            or operation == "simd_permute"
+            or operation == "simd_compress"
+            or operation == "simd_expand"
+            or operation == "simd_prefix"
             or operation == "simd_bitmask_any"
             or operation == "simd_bitmask_count"
             or operation == "simd_bitmask_first"
+            or operation == "simd_bitmask_clear_first"
         then
             local shapedType = operation == "simd_species" and simd.type or operation == "simd_lanes_generic" and args[
                 1
@@ -803,6 +808,22 @@ function emit.scalar(node: scalarIR.Expr): string
                 return genericHelper .. "insert_" .. genericSuffix .. "(" .. emit.scalar(
                     args[1]
                 ) .. ", " .. emit.scalar(args[2]) .. ", " .. emit.scalar(args[3]) .. ")"
+            elseif operation == "simd_permute" then
+                local rendered: {string} = {}
+                for _, argument in ipairs(args) do
+                    rendered[#rendered + 1] = emit.scalar(argument)
+                end
+                return genericHelper .. tostring(
+                    simd.intrinsic
+                ) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
+            elseif operation == "simd_compress" or operation == "simd_expand" or operation == "simd_prefix" then
+                local rendered: {string} = {}
+                for _, argument in ipairs(args) do
+                    rendered[#rendered + 1] = emit.scalar(argument)
+                end
+                return genericHelper .. tostring(
+                    simd.intrinsic
+                ) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
             elseif operation == "simd_bitmask_any" then
                 return "(" .. emit.scalar(args[1]) .. " != UINT64_C(0))"
             elseif operation == "simd_bitmask_count" then
@@ -810,6 +831,9 @@ function emit.scalar(node: scalarIR.Expr): string
             elseif operation == "simd_bitmask_first" then
                 local bits = emit.scalar(args[1])
                 return "((double)(" .. bits .. " == UINT64_C(0) ? 0u : (uint32_t)__builtin_ctzll(" .. bits .. ") + 1u))"
+            elseif operation == "simd_bitmask_clear_first" then
+                local bits = emit.scalar(args[1])
+                return "(" .. bits .. " & (" .. bits .. " - UINT64_C(1)))"
             else
                 local bits = genericHelper .. "bits_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
                 if operation == "simd_mask_bits" then
@@ -4200,6 +4224,134 @@ local function genericSimdPrelude(width: integer): {string}
             .. " value, double lane, "
             .. element.c
             .. " replacement) { value[(uint32_t)lane - 1u] = replacement; return value; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_reverse_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " value) { "
+            .. vector
+            .. " out; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) out[i] = value[" .. tostring(lanes - 1) .. "u - i]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_rotate_left_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " value, double count) { "
+            .. vector
+            .. " out; uint32_t n = (uint32_t)count % "
+            .. tostring(
+            lanes
+        ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+            lanes
+        ) .. "u; ++i) out[i] = value[(i + n) % " .. tostring(lanes) .. "u]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_rotate_right_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " value, double count) { "
+            .. vector
+            .. " out; uint32_t n = (uint32_t)count % "
+            .. tostring(
+            lanes
+        ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+            lanes
+        ) .. "u; ++i) out[i] = value[(i + " .. tostring(lanes) .. "u - n) % " .. tostring(lanes) .. "u]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_align_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " previous, "
+            .. vector
+            .. " current, double count) { "
+            .. vector
+            .. " out; uint32_t n = (uint32_t)count; if (n > "
+            .. tostring(
+            lanes
+        ) .. "u) n = " .. tostring(
+            lanes
+        ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+            lanes
+        ) .. "u; ++i) out[i] = i < n ? previous[" .. tostring(lanes) .. "u - n + i] : current[i - n]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_compress_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " value, "
+            .. mask
+            .. " selected) { "
+            .. vector
+            .. " out = ("
+            .. vector
+            .. "){0}; uint32_t cursor = 0u; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (selected[i]) out[cursor++] = value[i]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_expand_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " value, "
+            .. mask
+            .. " selected) { "
+            .. vector
+            .. " out = ("
+            .. vector
+            .. "){0}; uint32_t cursor = 0u; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (selected[i]) out[i] = value[cursor++]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_prefix_sum_ordered_"
+            .. suffix
+            .. "("
+            .. vector
+            .. " value) { for (uint32_t i = 1u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) value[i] = value[i - 1u] + value[i]; return value; }"
+        if element.name:sub(1, 1) ~= "f" then
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_prefix_xor_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " value) { for (uint32_t i = 1u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) value[i] = value[i - 1u] ^ value[i]; return value; }"
+        end
 
         lines[
             #lines + 1
@@ -4325,6 +4477,134 @@ local function genericSimdPrelude(width: integer): {string}
             .. " value, double lane, "
             .. element.c
             .. " replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_reverse_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " value) { "
+            .. scalarVector
+            .. " out; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) out.lane[i] = value.lane[" .. tostring(lanes - 1) .. "u - i]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_rotate_left_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " value, double count) { "
+            .. scalarVector
+            .. " out; uint32_t n = (uint32_t)count % "
+            .. tostring(
+            lanes
+        ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+            lanes
+        ) .. "u; ++i) out.lane[i] = value.lane[(i + n) % " .. tostring(lanes) .. "u]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_rotate_right_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " value, double count) { "
+            .. scalarVector
+            .. " out; uint32_t n = (uint32_t)count % "
+            .. tostring(
+            lanes
+        ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+            lanes
+        ) .. "u; ++i) out.lane[i] = value.lane[(i + " .. tostring(
+            lanes
+        ) .. "u - n) % " .. tostring(lanes) .. "u]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_align_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " previous, "
+            .. scalarVector
+            .. " current, double count) { "
+            .. scalarVector
+            .. " out; uint32_t n = (uint32_t)count; if (n > "
+            .. tostring(
+            lanes
+        ) .. "u) n = " .. tostring(
+            lanes
+        ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+            lanes
+        ) .. "u; ++i) out.lane[i] = i < n ? previous.lane[" .. tostring(
+            lanes
+        ) .. "u - n + i] : current.lane[i - n]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_compress_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " value, "
+            .. scalarMask
+            .. " selected) { "
+            .. scalarVector
+            .. " out = {{0}}; uint32_t cursor = 0u; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (selected.lane[i]) out.lane[cursor++] = value.lane[i]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_expand_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " value, "
+            .. scalarMask
+            .. " selected) { "
+            .. scalarVector
+            .. " out = {{0}}; uint32_t cursor = 0u; for (uint32_t i = 0u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) if (selected.lane[i]) out.lane[i] = value.lane[cursor++]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_prefix_sum_ordered_"
+            .. suffix
+            .. "("
+            .. scalarVector
+            .. " value) { for (uint32_t i = 1u; i < "
+            .. tostring(
+            lanes
+        ) .. "u; ++i) value.lane[i] = value.lane[i - 1u] + value.lane[i]; return value; }"
+        if element.name:sub(1, 1) ~= "f" then
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_prefix_xor_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " value) { for (uint32_t i = 1u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) value.lane[i] = value.lane[i - 1u] ^ value.lane[i]; return value; }"
+        end
         for _, operation in ipairs(binaries) do
             if operation.name == "add"
                 or operation.name == "sub"
@@ -4703,6 +4983,146 @@ local function fixedSimdPrelude(width: integer): {string}
                 nativeLanes
             ) .. "u][index % " .. tostring(nativeLanes) .. "u] = replacement; return value; }"
 
+            for _, permutation in ipairs({"reverse", "rotate_left", "rotate_right"}) do
+                local index = permutation == "reverse" and tostring(
+                    lanes
+                ) .. "u - 1u - i" or permutation == "rotate_left" and "(i + n) % " .. tostring(
+                    lanes
+                ) .. "u" or "(i + " .. tostring(lanes) .. "u - n) % " .. tostring(lanes) .. "u"
+                local countParameter = permutation == "reverse" and "" or ", double count"
+                local countSetup = permutation == "reverse" and "" or "uint32_t n = (uint32_t)count % " .. tostring(
+                    lanes
+                ) .. "u; "
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. vector
+                    .. " ks_exp_"
+                    .. permutation
+                    .. "_"
+                    .. suffix
+                    .. "("
+                    .. vector
+                    .. " value"
+                    .. countParameter
+                    .. ") { "
+                    .. vector
+                    .. " out = ks_exp_splat_"
+                    .. suffix
+                    .. "(("
+                    .. element.c
+                    .. ")0); "
+                    .. countSetup
+                    .. "for (uint32_t i = 0u; i < "
+                    .. tostring(
+                    lanes
+                )
+                    .. "u; ++i) out = ks_exp_insert_"
+                    .. suffix
+                    .. "(out, (double)(i + 1u), ks_exp_extract_"
+                    .. suffix
+                    .. "(value, (double)("
+                    .. index
+                    .. " + 1u))); return out; }"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_align_"
+                .. suffix
+                .. "("
+                .. vector
+                .. " previous, "
+                .. vector
+                .. " current, double count) { "
+                .. vector
+                .. " out = ks_exp_splat_"
+                .. suffix
+                .. "(("
+                .. element.c
+                .. ")0); uint32_t n = (uint32_t)count; if (n > "
+                .. tostring(
+                lanes
+            ) .. "u) n = " .. tostring(
+                lanes
+            ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+                lanes
+            )
+                .. "u; ++i) out = ks_exp_insert_"
+                .. suffix
+                .. "(out, (double)(i + 1u), i < n ? ks_exp_extract_"
+                .. suffix
+                .. "(previous, (double)("
+                .. tostring(
+                lanes
+            ) .. "u - n + i + 1u)) : ks_exp_extract_" .. suffix .. "(current, (double)(i - n + 1u))); return out; }"
+            for _, packing in ipairs({"compress", "expand"}) do
+                local assignment = packing == "compress"
+                    and "out = ks_exp_insert_"
+                    .. suffix
+                    .. "(out, (double)(cursor++ + 1u), ks_exp_extract_"
+                    .. suffix
+                    .. "(value, (double)(i + 1u)))"
+                    or "out = ks_exp_insert_"
+                    .. suffix
+                    .. "(out, (double)(i + 1u), ks_exp_extract_"
+                    .. suffix
+                    .. "(value, (double)(cursor++ + 1u)))"
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. vector
+                    .. " ks_exp_"
+                    .. packing
+                    .. "_"
+                    .. suffix
+                    .. "("
+                    .. vector
+                    .. " value, "
+                    .. mask
+                    .. " selected) { "
+                    .. vector
+                    .. " out = ks_exp_splat_"
+                    .. suffix
+                    .. "(("
+                    .. element.c
+                    .. ")0); uint64_t bits = ks_exp_bits_"
+                    .. suffix
+                    .. "(selected); uint32_t cursor = 0u; for (uint32_t i = 0u; i < "
+                    .. tostring(
+                    lanes
+                ) .. "u; ++i) if ((bits & (UINT64_C(1) << i)) != 0u) " .. assignment .. "; return out; }"
+            end
+            for _, prefix in ipairs({"prefix_sum_ordered", "prefix_xor"}) do
+                if prefix ~= "prefix_xor" or tostring(elementName):sub(1, 1) ~= "f" then
+                    local operator = prefix == "prefix_xor" and "^" or "+"
+                    lines[
+                        #lines + 1
+                    ] = unused
+                        .. vector
+                        .. " ks_exp_"
+                        .. prefix
+                        .. "_"
+                        .. suffix
+                        .. "("
+                        .. vector
+                        .. " value) { for (uint32_t i = 1u; i < "
+                        .. tostring(
+                        lanes
+                    )
+                        .. "u; ++i) value = ks_exp_insert_"
+                        .. suffix
+                        .. "(value, (double)(i + 1u), ks_exp_extract_"
+                        .. suffix
+                        .. "(value, (double)i) "
+                        .. operator
+                        .. " ks_exp_extract_"
+                        .. suffix
+                        .. "(value, (double)(i + 1u))); return value; }"
+                end
+            end
+
             for _, operation in ipairs(binaries) do
                 if operation.name == "add"
                     or operation.name == "sub"
@@ -4934,6 +5354,114 @@ local function fixedSimdPrelude(width: integer): {string}
                 .. " value, double lane, "
                 .. element.c
                 .. " replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_reverse_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " value) { "
+                .. scalarVector
+                .. " out; for (uint32_t i = 0u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) out.lane[i] = value.lane[" .. tostring(lanes - 1) .. "u - i]; return out; }"
+            for _, rotation in ipairs({"rotate_left", "rotate_right"}) do
+                local index = rotation == "rotate_left" and "(i + n) % " .. tostring(
+                    lanes
+                ) .. "u" or "(i + " .. tostring(lanes) .. "u - n) % " .. tostring(lanes) .. "u"
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. scalarVector
+                    .. " ks_scalar_exp_"
+                    .. rotation
+                    .. "_"
+                    .. suffix
+                    .. "("
+                    .. scalarVector
+                    .. " value, double count) { "
+                    .. scalarVector
+                    .. " out; uint32_t n = (uint32_t)count % "
+                    .. tostring(
+                    lanes
+                ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+                    lanes
+                ) .. "u; ++i) out.lane[i] = value.lane[" .. index .. "]; return out; }"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_align_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " previous, "
+                .. scalarVector
+                .. " current, double count) { "
+                .. scalarVector
+                .. " out; uint32_t n = (uint32_t)count; if (n > "
+                .. tostring(
+                lanes
+            ) .. "u) n = " .. tostring(
+                lanes
+            ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
+                lanes
+            ) .. "u; ++i) out.lane[i] = i < n ? previous.lane[" .. tostring(
+                lanes
+            ) .. "u - n + i] : current.lane[i - n]; return out; }"
+            for _, packing in ipairs({"compress", "expand"}) do
+                local assignment = packing == "compress"
+                    and "out.lane[cursor++] = value.lane[i]"
+                    or "out.lane[i] = value.lane[cursor++]"
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. scalarVector
+                    .. " ks_scalar_exp_"
+                    .. packing
+                    .. "_"
+                    .. suffix
+                    .. "("
+                    .. scalarVector
+                    .. " value, "
+                    .. scalarMask
+                    .. " selected) { "
+                    .. scalarVector
+                    .. " out = {{0}}; uint32_t cursor = 0u; for (uint32_t i = 0u; i < "
+                    .. tostring(
+                    lanes
+                ) .. "u; ++i) if (selected.lane[i]) " .. assignment .. "; return out; }"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_prefix_sum_ordered_"
+                .. suffix
+                .. "("
+                .. scalarVector
+                .. " value) { for (uint32_t i = 1u; i < "
+                .. tostring(
+                lanes
+            ) .. "u; ++i) value.lane[i] = value.lane[i - 1u] + value.lane[i]; return value; }"
+            if tostring(elementName):sub(1, 1) ~= "f" then
+                lines[
+                    #lines + 1
+                ] = unused
+                    .. scalarVector
+                    .. " ks_scalar_exp_prefix_xor_"
+                    .. suffix
+                    .. "("
+                    .. scalarVector
+                    .. " value) { for (uint32_t i = 1u; i < "
+                    .. tostring(
+                    lanes
+                ) .. "u; ++i) value.lane[i] = value.lane[i - 1u] ^ value.lane[i]; return value; }"
+            end
             for _, operation in ipairs(binaries) do
                 if operation.name == "add"
                     or operation.name == "sub"

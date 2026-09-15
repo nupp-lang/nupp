@@ -568,9 +568,14 @@ local GENERIC_SIMD: {
     simd_mask_bits = true,
     simd_extract = true,
     simd_insert = true,
+    simd_permute = true,
+    simd_compress = true,
+    simd_expand = true,
+    simd_prefix = true,
     simd_bitmask_any = true,
     simd_bitmask_count = true,
     simd_bitmask_first = true,
+    simd_bitmask_clear_first = true,
 }
 
 local function genericSimdType(typeName: string): (string?, string?, string?)
@@ -837,9 +842,55 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 ].type == node.type and args[2].type == "f64" and args[3].type == genericSimdScalar(element),
                 "invalid generic SIMD insert"
             )
-        elseif op == "simd_bitmask_any" or op == "simd_bitmask_count" or op == "simd_bitmask_first" then
+        elseif op == "simd_permute" then
+            local intrinsic = tostring(simd.intrinsic)
+            holds(family == "vector", "invalid generic SIMD permutation result")
+            if intrinsic == "reverse" then
+                holds(#args == 1 and args[1].type == node.type, "invalid generic SIMD reverse")
+            elseif intrinsic == "rotate_left" or intrinsic == "rotate_right" then
+                holds(
+                    #args == 2 and args[1].type == node.type and args[2].op == "constant",
+                    "invalid generic SIMD rotation"
+                )
+            elseif intrinsic == "align" then
+                holds(
+                    #args == 3 and args[1].type == node.type and args[2].type == node.type and args[3].op == "constant",
+                    "invalid generic SIMD alignment"
+                )
+            else
+                holds(false, "unknown generic SIMD permutation")
+            end
+        elseif op == "simd_compress" or op == "simd_expand" then
+            holds(
+                family == "vector" and #args == 2 and args[
+                    1
+                ].type == node.type and args[2].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape),
+                "invalid generic SIMD packing operation"
+            )
+        elseif op == "simd_prefix" then
+            holds(
+                family == "vector" and #args == 1 and args[
+                    1
+                ].type == node.type and (
+                    simd.intrinsic == "prefix_sum_ordered" or simd.intrinsic == "prefix_xor"
+                ) and not (simd.intrinsic == "prefix_xor" and tostring(element):sub(1, 1) == "f"),
+                "invalid generic SIMD prefix operation"
+            )
+        elseif op == "simd_bitmask_any"
+            or op == "simd_bitmask_count"
+            or op == "simd_bitmask_first"
+            or op == "simd_bitmask_clear_first"
+        then
             local bitFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
-            local result = op == "simd_bitmask_any" and "bool" or op == "simd_bitmask_count" and "u32" or "f64"
+            local result = op == "simd_bitmask_any"
+                and "bool"
+                or op == "simd_bitmask_count"
+                and "u32"
+                or op == "simd_bitmask_first"
+                and "f64"
+                or args[
+                1
+            ].type
             holds(#args == 1 and bitFamily == "bitmask" and node.type == result, "invalid generic SIMD bitmask query")
         else
             local maskFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
