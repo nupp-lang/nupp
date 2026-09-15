@@ -34,7 +34,7 @@ local binding = nupp.serde.of(User)
 local prepared = nupp.serde.json():prepare(binding)
 local text = prepared:encode(new User(id = 41, name = "Ada"))
 local restored, problem = prepared:decode(text)
-local output = require("nupp.text.buffer").new()
+local output = require("nupp.text").newBuffer()
 prepared:write(new User(id = 42), output)
 
 assert(text == [[{"id":41,"name":"Ada"}]])
@@ -129,7 +129,7 @@ result on the binding:
 local prepared = serde.prepareDebug(binding)
 local text = prepared:format(value)
 
-local output = require("nupp.text.buffer").new()
+local output = require("nupp.text").newBuffer()
 prepared:write(value, output)
 ```
 

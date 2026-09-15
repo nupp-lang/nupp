@@ -43,8 +43,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.browser_gpu"
     ] = {
         name = "browser_gpu",
-        module = "nupp.browser.gpu",
-        runtimeModule = "nupp.browser.gpu",
+        module = "nupp.browser",
+        runtimeModule = "nupp.browser",
         portableRuntime = true,
         requires = {"runtime.suspension"}
     },
@@ -384,8 +384,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.text_buffer"
     ] = {
         name = "text_buffer",
-        module = "nupp.text.buffer",
-        runtimeModule = "nupp.text.buffer",
+        module = "nupp.text",
+        runtimeModule = "nupp.text",
         portableRuntime = true,
         requires = {"runtime.service_contracts"}
     },

@@ -405,7 +405,7 @@ end
 
 -- Compile the hot worker loop in every lane before measuring it.
 with scope = workers.scope() do
-    local warm: {workers.Task<function(integer): number>} = {}
+    local warm: {workers.Job<function(integer): number>} = {}
     for index = 1, lanes do
         warm[index] = scope:spawn(iterations, jobs.burn)
     end
@@ -425,7 +425,7 @@ for _ = 1, SAMPLES do
 
     local parallelStarted = now()
     with scope = workers.scope() do
-        local tasks: {workers.Task<function(integer): number>} = {}
+        local tasks: {workers.Job<function(integer): number>} = {}
         for index = 1, lanes do
             tasks[index] = scope:spawn(iterations, jobs.burn)
         end

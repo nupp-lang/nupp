@@ -172,11 +172,11 @@ host around this kernel.
 
 ## Browser convenience operation
 
-The ordinary `nupp.browser.gpu` module provides `xorU32` for a program
+The ordinary `nupp.browser` module provides `xorU32` for a program
 that needs one checked WebGPU operation without owning a generated kernel binding:
 
 ```nupp:playground
-local gpu = require("nupp.browser.gpu")
+local gpu = require("nupp.browser")
 local u32 = nupp.math.u32.wrap
 
 local values = {u32(0), u32(0x00ff00ff), u32(0xffffffff)}

@@ -295,7 +295,7 @@ function M.randomUsesPortableBitops()
         table.concat(
             {
                 "local random = require('nupp.random')",
-                "local generator = random.newRandom(12345)",
+                "local generator = new random.Xoshiro128(12345)",
                 "return generator:next(), generator:integer(1, 100)",
             },
             "\n"
@@ -748,7 +748,7 @@ function M.randomSurfaceIsBundledOutsideThisCheckout()
     local source = table.concat(
         {
             "local random = require('nupp.random')",
-            "local generator = random.newRandom(12345)",
+            "local generator = new random.Xoshiro128(12345)",
             "assert(generator:next() >= 0)",
         },
         "\n"

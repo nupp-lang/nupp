@@ -295,7 +295,7 @@ io.write("direct")
     assert(not code:find("_G.__nuppStructvalue", 1, true), code)
     assert(not exists(dir .. "/out/nupp/runtime/provider/nativestorage.lua"))
     assert(not exists(dir .. "/out/nupp/workers/native.lua"))
-    assert(not exists(dir .. "/out/nupp/text/buffer/types.lua"))
+    assert(not exists(dir .. "/out/nupp/text/internal/buffer.lua"))
     remove(dir)
 end
 

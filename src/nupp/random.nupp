@@ -2,10 +2,10 @@ module nupp.random
 
 --[[
 Random generation. `randomBytes` obtains cryptographically secure bytes from the
-host, while `Random` provides deterministic sequences with explicit, serializable
-state.
+host, while `Xoshiro128` provides deterministic sequences with explicit,
+serializable state.
 
-Each `Random` owns an independent xoshiro128** sequence. A seed is always
+Each `Xoshiro128` owns an independent xoshiro128** sequence. A seed is always
 interpreted as one 32-bit word, and omitting it chooses a fixed seed rather
 than consulting a clock, so every sequence is reproducible. Generators are
 mutable and intentionally not safe to share between concurrent workers.
@@ -13,7 +13,7 @@ mutable and intentionally not safe to share between concurrent workers.
 ```nupp
 local random = require("nupp.random")
 
-local dice = random.newRandom(42)
+local dice = new random.Xoshiro128(42)
 local d20 = dice:integer(20)
 local unit = dice:next()
 local nonce = random.randomBytes(32)
@@ -75,7 +75,7 @@ end
 
 --- An independent deterministic xoshiro128** sequence.
 --- @export
-export record Random
+export record Xoshiro128
     private s0: int32
     private s1: int32
     private s2: int32
@@ -167,10 +167,4 @@ export record Random
         end
         self.s0, self.s1, self.s2, self.s3 = s0, s1, s2, s3
     end
-end
-
---- Creates a generator outside any host or scheduler.
---- @export
-export function newRandom(seed: integer?): Random
-    return new Random(seed)
 end

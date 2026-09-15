@@ -64,7 +64,7 @@ print(storage.get("key"), mac.hexDigest("hmac-sha256", "key", "message"), uuid.u
 
     local browserGpu = session:compile(
         [[
-local gpu = require("nupp.browser.gpu")
+local gpu = require("nupp.browser")
 local u32 = nupp.math.u32.wrap
 local values: {uint32} = {u32(0), u32(1)}
 local result = gpu.xorU32(values, u32(0xa5a5a5a5))

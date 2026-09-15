@@ -432,19 +432,19 @@ function M.bundledAliasesShareStagedNominalTypes()
     local incremental = require("nupp.compiler.incremental")
     local dir = os.tmpname()
     os.remove(dir)
-    assert(fs.mkdir(dir .. "/src/nupp/text/buffer"))
+    assert(fs.mkdir(dir .. "/src/nupp/text/internal"))
     assert(fs.writeFile(dir .. "/nupp.lua", 'return {include = {"src"}}'))
-    local declaration = assert(require("nupp.compiler.bundled").source("/nupp/text/buffer/types.d.nupp"))
-    local typePath = dir .. "/src/nupp/text/buffer/types.d.nupp"
+    local declaration = assert(require("nupp.compiler.bundled").source("/nupp/text/internal/buffer.d.nupp"))
+    local typePath = dir .. "/src/nupp/text/internal/buffer.d.nupp"
     assert(fs.writeFile(typePath, declaration))
     local main = dir .. "/src/main.g.nupp"
     assert(
         fs.writeFile(
             main,
             [[
-local {type Buffer} = require("nupp.text.buffer.types")
+local {type Buffer} = require("nupp.text")
 local contracts = require("nupp.runtime.services.contracts")
-local function writer(exclusive out: nupp.text.buffer.Buffer, nullValue: any?): any
+local function writer(exclusive out: nupp.text.Buffer, nullValue: any?): any
     out:put("value")
     return nil
 end

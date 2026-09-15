@@ -766,7 +766,7 @@ module holder
 
 const workers = require("nupp.workers")
 
-export type Handle = workers.Task<function(): integer>
+export type Handle = workers.Job<function(): integer>
 
 export function uses(value: Handle): nil
     print(value:isDone())

@@ -109,7 +109,7 @@ local type TransferState = {
 local contracts = require("nupp.runtime.services.workers")
 local type Callable = function(...: any): any
 type workers.Submittable = contracts.Submittable
-type workers.Task<F is Callable> = contracts.Task<F>
+type workers.Job<F is Callable> = contracts.Job<F>
 
 ----------------------------------------------------------------------------
 -- Sendable functions
@@ -1466,7 +1466,7 @@ local spawnSurface: function<F is workers.Submittable>(
     borrows self: workers.Scope,
     F,
     ...: unpackof contracts.Submitted(F)
-): workers.Task<F>
+): workers.Job<F>
 unsafe do
     spawnSurface = spawnImpl as any
 end

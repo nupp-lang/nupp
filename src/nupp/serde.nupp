@@ -33,7 +33,7 @@ local binding = nupp.serde.dynamic(builder:freeze())
 local value = binding:bind{id = 41, name = "Ada"}
 ```
 ]==]
-const {type Buffer} = require("nupp.text.buffer")
+const {type Buffer} = require("nupp.text")
 const {type Writer} = require("nupp.codec.json")
 
 local extensions = require("nupp.compiler.runtime.extensions")
@@ -1055,7 +1055,7 @@ local record PreparedDebugImpl<T> is PreparedDebug<T>
     function format(self, value: T): string
         local out = self.buffers[#self.buffers]
         if out == nil then
-            out = require("nupp.text.buffer").new() as Buffer
+            out = require("nupp.text").newBuffer() as Buffer
         else
             self.buffers[#self.buffers] = nil
         end
@@ -1683,7 +1683,7 @@ export record JsonCodec
             -- codec independent of a C++ host module and shares JSON semantics
             -- with ordinary encode/decode.
             fallbackEncode = function(value: any): string
-                local buffer = require("nupp.text.buffer").new()
+                local buffer = require("nupp.text").newBuffer()
                 local writer = json.writer(buffer)
                 writeDocument(writer, value, schema, self.profile, access)
                 writer:close()
@@ -1846,7 +1846,7 @@ end
 export function loadStore(exclusive value: store.Store, saved: {[string]: any}): nil
     local profile = json().profile
     for name, plain in pairs(saved) do
-        local found = store.findKey(name)
+        local found = store.Key.find(name)
         if found == nil then
             error("nupp: key " .. name .. " is not registered", 2)
         end

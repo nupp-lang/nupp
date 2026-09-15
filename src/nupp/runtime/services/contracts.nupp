@@ -33,7 +33,7 @@ for registration, package descriptors, initialization, and worker setup.
 ]]
 
 const services = require("nupp.services")
-local {type Buffer as SharedBuffer} = require("nupp.text.buffer.types")
+local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 
 local comptime function shape(info: nupp.reflect.Info): any
     local result = {}
@@ -107,7 +107,7 @@ end)
 
 --- Construction of the canonical portable FIFO Buffer.
 ---
---- Return the shared Buffer type from nupp.text.buffer.types. Implementations may
+--- Return the shared Buffer type from nupp.text.internal.buffer. Implementations may
 --- use native objects or portable state, but all signatures and chaining results
 --- must retain that identity. Native pointer and serializer facilities are outside
 --- this portable contract.

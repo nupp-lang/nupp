@@ -63,23 +63,13 @@ export const newPool = pool.new
 --- A typed identity for one value in a [](Store).
 export type Key<T> = store.Key<T>
 
+export const Key = store.Key
+
 --- An independent typed bag indexed by keys.
 export type Store = store.Store
 
---- The step of [](registeredKeys).
-export type KeyStep = store.KeyStep
-
---- The step of [](Store.entries).
-export type StoreStep = store.StoreStep
-
 --- Registers a new key, optionally under a name.
 export const newKey = store.newKey
-
---- Answers the key registered under a name, or nil.
-export const findKey = store.findKey
-
---- Walks every registered key ascending by id.
-export const registeredKeys = store.registeredKeys
 
 --- Creates an empty store.
 export const newStore = store.newStore

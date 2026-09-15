@@ -107,7 +107,7 @@ how many children it will have.
 ```nupp
 export function hashEach(inputs: {string}): {string}
     with scope = workers.scope() do
-        local tasks: {workers.Task<function(string): string>} = {}
+        local tasks: {workers.Job<function(string): string>} = {}
         for index, bytes in ipairs(inputs) do
             tasks[index] = scope:spawn(bytes, jobs.hash)
         end
@@ -126,9 +126,9 @@ Submit the whole list before awaiting any of it. Awaiting inside the first loop
 would spawn one task, wait for it, and spawn the next: still correct, and
 exactly as parallel as calling the function. A single task rarely needs a type
 annotation, because `const task = scope:spawn(bytes, jobs.hash)` infers one;
-a table of them names the submitted function's type as `workers.Task<F>`. The
+a table of them names the submitted function's type as `workers.Job<F>`. The
 handle is derived from the signature alone, so it is spelled
-`workers.Task<function(string): string>` even though [`spawn` took an
+`workers.Job<function(string): string>` even though [`spawn` took an
 sendable one](#functions-that-can-be-submitted).
 
 ### Work in the caller
@@ -156,7 +156,7 @@ than its elements when the work per element is small:
 ```nupp
 export function hashChunks(inputs: {string}, size: integer): {string}
     with scope = workers.scope() do
-        local tasks: {workers.Task<function({string}): {string}>} = {}
+        local tasks: {workers.Job<function({string}): {string}>} = {}
         for first = 1, #inputs, size do
             local chunk: {string} = {}
             for offset = first, math.min(first + size - 1, #inputs) do
@@ -230,7 +230,7 @@ const indexJobs = jobs.index
 
 export function countAll(shards: {{string}}): number
     with scope = workers.scope() do
-        local tasks: {workers.Task<function({string}): integer>} = {}
+        local tasks: {workers.Job<function({string}): integer>} = {}
         for at, paths in ipairs(shards) do
             tasks[at] = scope:spawn(paths, indexJobs.count)
         end

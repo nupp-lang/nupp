@@ -1,0 +1,35 @@
+module nupp.text
+
+--[[
+Working with text a byte at a time.
+
+`newBuffer` hands back a FIFO byte buffer: append to one end, read from the
+other, and the string is built once instead of once per concatenation.
+
+```nupp
+local text = require("nupp.text")
+
+const out = text.newBuffer()
+out:put("hello", ", ", "world")
+print(out:get())
+```
+
+A buffer comes from the host. On LuaJIT it is `string.buffer`; everywhere else
+it is a portable one written in Nupp. Both answer to the same [](Buffer), so a
+program that only ever writes and reads bytes does not notice which it has.
+
+[](nupp.text.utf8) is the other half of this namespace: codepoints rather than
+bytes.
+]]
+
+local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
+local contracts = require("nupp.runtime.services.contracts")
+local provider = contracts.buffer:assemble(function(): contracts.TextBufferProvider
+    return contracts.buffer:lookup("nupp.native") or contracts.buffer:require("nupp.portable")
+end)
+
+--- A mutable FIFO byte sequence.
+export type Buffer = SharedBuffer
+
+--- Creates an empty FIFO byte buffer.
+export const newBuffer = provider.new

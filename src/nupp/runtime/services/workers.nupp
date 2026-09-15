@@ -5,7 +5,7 @@ Typed structured-worker contract for `host.workers` API 1.
 
 Import `service` to select an implementation before requiring [](nupp.workers).
 A provider owns its lane scheduler, but uses the canonical Scope, PublicScope,
-ScopeToken, Task, and submitted-signature types declared here. Generic spawn must
+ScopeToken, Job, and submitted-signature types declared here. Generic spawn must
 preserve the exact argument and result packs of the sendable function.
 
 Arguments and results cross isolated Lua states as copies. Only explicitly
@@ -150,11 +150,11 @@ local comptime function unsendable(T: type, label: string): string?
 end
 
 --- The arguments a submitted function takes, once its whole signature is known to be
---- copyable. Reached only from `spawn`: naming `Task<F>` describes a handle rather than
+--- copyable. Reached only from `spawn`: naming `Job<F>` describes a handle rather than
 --- a crossing, so a signature is held to this where it is submitted and nowhere else.
 comptime function workers.Submitted(F: type): typepack
     if nupp.types.kind(F) ~= "function" then
-        return nupp.types.error("a worker task must name a function type")
+        return nupp.types.error("a worker job must name a function type")
     end
     local packs = {{of = nupp.types.parameters(F), what = "argument"}, {of = nupp.types.results(F), what = "result"},}
     for _, one in ipairs(packs) do
@@ -193,9 +193,9 @@ comptime function workers.Submitted(F: type): typepack
     return nupp.types.parameters(F)
 end
 
-local comptime function TaskType(F: type): type
+local comptime function JobType(F: type): type
     if nupp.types.kind(F) ~= "function" then
-        return nupp.types.error("a worker task must name a function type")
+        return nupp.types.error("a worker job must name a function type")
     end
     return nupp.types.shape({
         {
@@ -243,7 +243,7 @@ local comptime function TaskType(F: type): type
 end
 
 --- The typed handle for one submitted function.
-type workers.Task<F is Callable> = TaskType(F)
+type workers.Job<F is Callable> = JobType(F)
 
 --- The cleanup contract a structured worker scope carries.
 affine interface workers.ScopeToken
@@ -263,7 +263,7 @@ record workers.Scope is workers.ScopeToken
         borrows self: workers.Scope,
         F,
         ...: unpackof workers.Submitted(F)
-    ): workers.Task<F>
+    ): workers.Job<F>
 
     --- Waits for every child. Idempotent.
     close: function(borrows self: workers.Scope): nil
@@ -281,7 +281,7 @@ interface workers.PublicScope is workers.ScopeToken
         borrows self: workers.PublicScope,
         F,
         ...: unpackof workers.Submitted(F)
-    ): workers.Task<F>
+    ): workers.Job<F>
     readonly close: function(borrows self: workers.PublicScope): nil
     readonly drop: function(takes self: workers.PublicScope): nil
 end

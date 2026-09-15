@@ -20,12 +20,12 @@ pair and honor their unknown-member policy.
 and generic ownership signatures come from the canonical service declaration,
 and hot parser and writer calls do not query SPI.
 ]]
-const {type Buffer} = require("nupp.text.buffer")
+const {type Buffer} = require("nupp.text")
 
 local eagerDecoder = require("nupp.codec.json.internal.decoder.eager")
 local pullDecoder = require("nupp.codec.json.internal.decode")
 local serdeDecoder = require("nupp.codec.json.internal.decoder.serde")
-local newBuffer = require("nupp.text.buffer").new
+local newBuffer = require("nupp.text").newBuffer
 local bit = require("bit")
 local contracts = require("nupp.runtime.services.contracts")
 

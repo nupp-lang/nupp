@@ -78,18 +78,18 @@ function M.emptyAndDuplicateNamesRaiseBeforeAnIdIsUsed()
     check.equal(after.id, named.id + 1)
 end
 
-function M.findKeyReturnsTheRegisteredIdentityOrNil()
+function M.keyFindReturnsTheRegisteredIdentityOrNil()
     local key = data.newKey("store.test.find")
-    check.assert(rawequal(data.findKey("store.test.find"), key), "lookup returned another table")
-    check.equal(data.findKey("store.test.absent"), nil)
+    check.assert(rawequal(data.Key.find("store.test.find"), key), "lookup returned another table")
+    check.equal(data.Key.find("store.test.absent"), nil)
 end
 
-function M.registeredKeysWalksNamesAscendingByIdWithoutTheRegistry()
+function M.keyRegisteredWalksNamesAscendingByIdWithoutTheRegistry()
     local first = data.newKey("store.test.list.first")
     local anonymous = data.newKey(nil)
     local second = data.newKey("store.test.list.second")
     local seen = {}
-    for id, name in data.registeredKeys() do
+    for id, name in data.Key.registered() do
         seen[name] = id
         check.assert(id ~= anonymous.id, "an anonymous key was walked")
     end
@@ -97,14 +97,14 @@ function M.registeredKeysWalksNamesAscendingByIdWithoutTheRegistry()
     check.equal(seen["store.test.list.second"], second.id)
     -- Ascending by id, where the old snapshot came back in pairs order.
     local ids = {}
-    for id in data.registeredKeys() do
+    for id in data.Key.registered() do
         ids[#ids + 1] = id
     end
     for index = 2, #ids do
         check.assert(ids[index] > ids[index - 1], "ids did not ascend")
     end
     -- The loop is handed a step and an integer, so there is no registry to reach.
-    local _, state = data.registeredKeys()
+    local _, state = data.Key.registered()
     check.equal(state, nil)
 end
 
@@ -153,7 +153,7 @@ function M.clearDropsValuesAndKeepsRegistrations()
     store:set(key, "ready")
     store:clear()
     check.equal(store:get(key), nil)
-    check.assert(rawequal(data.findKey("store.test.clear"), key), "clearing touched the registry")
+    check.assert(rawequal(data.Key.find("store.test.clear"), key), "clearing touched the registry")
     store:set(key, "again")
     check.equal(store:get(key), "again")
 end
@@ -263,7 +263,7 @@ function M.lookupRequiresACast()
     check.equal(
         codes(
             PRELUDE .. [=[
-local direct: nupp.util.Key<integer>? = nupp.util.findKey("fixture.frames")
+local direct: nupp.util.Key<integer>? = nupp.util.Key.find("fixture.frames")
 print(direct)
 ]=]
         )[1],
@@ -273,7 +273,7 @@ print(direct)
         #errors(
             PRELUDE
             .. [=[
-local found = nupp.util.findKey("fixture.frames") as nupp.util.Key<integer>
+local found = nupp.util.Key.find("fixture.frames") as nupp.util.Key<integer>
 store:set(found, 2)
 print(store:get(found))
 ]=]

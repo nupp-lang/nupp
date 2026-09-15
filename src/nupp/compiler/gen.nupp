@@ -1301,13 +1301,13 @@ function gen.generate(
 
     -- A module projected through a builtin namespace is required once per generated
     -- module. Reserved rather than assumed, so a user local with the preferred name
-    -- does not collide with it. OPT-5 reaches nupp.text.buffer through the same
+    -- does not collide with it. OPT-5 reaches nupp.text through the same
     -- registry.
 
     local function compilerModuleName(moduleName: string): string
         local name = compilerModules[moduleName]
         if not name then
-            local preferred = moduleName == "nupp.text.buffer" and "__nuppBuffer" or "__nuppModule"
+            local preferred = moduleName == "nupp.text" and "__nuppBuffer" or "__nuppModule"
             name = reservedName(preferred)
             compilerModules[moduleName] = name
             compilerModuleOrder[#compilerModuleOrder + 1] = moduleName
@@ -1323,11 +1323,11 @@ function gen.generate(
     end
 
     local function concatBufferName()
-        return compilerModuleName("nupp.text.buffer")
+        return compilerModuleName("nupp.text")
     end
 
     -- The suspension runtime, bound once per module that installs a handler, the way
-    -- `nupp.text.buffer` is. A file that never writes `handle suspension` requires
+    -- `nupp.text` is. A file that never writes `handle suspension` requires
     -- nothing.
     local function suspensionModule()
         needsSuspension = true
@@ -8003,7 +8003,7 @@ function gen.generate(
 
         elseif kind == "dotIndex" and x.compilerModule then
             -- The module the checker projected through a builtin namespace. OPT-5
-            -- shares this binding when the module is nupp.text.buffer.
+            -- shares this binding when the module is nupp.text.
             e(compilerModuleName(x.compilerModule), sourceLine(x))
 
         elseif kind == "localStmt" and #(
@@ -8056,7 +8056,7 @@ function gen.generate(
             -- loop reads a string and needs no rewriting. The buffer is opened beside
             -- it, on the same line.
             emitChildren(x)
-            e(("local %s = %s.new()"):format(x.concatBuffer.name, concatBufferName()), sourceLine(x))
+            e(("local %s = %s.newBuffer()"):format(x.concatBuffer.name, concatBufferName()), sourceLine(x))
 
         elseif kind == "assignStmt" and x.concatBuffer then
             -- `s = s .. a .. b` becomes `buf:put(a, b)`. Lua's `..` is
@@ -8347,7 +8347,7 @@ function gen.generate(
         local recordDefinitions = {}
         if #exportedRecords > 0 then
             -- A worker state loads the same immutable module graph into a different Lua
-            -- heap. Publish only the stable module/member address: nupp.text.buffer
+            -- heap. Publish only the stable module/member address: nupp.text
             -- maps the sender's and receiver's distinct record tables through the
             -- matching index. The weak keys do not retain a module replaced by hot
             -- reload.

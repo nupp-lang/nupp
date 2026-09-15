@@ -9,7 +9,7 @@ local workers = {}
 
 local type Callable = function(...: any): any
 type workers.Submittable = contracts.Submittable
-type workers.Task<F is Callable> = contracts.Task<F>
+type workers.Job<F is Callable> = contracts.Job<F>
 type workers.ScopeToken = contracts.ScopeToken
 type workers.Scope = contracts.PublicScope
 

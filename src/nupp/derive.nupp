@@ -9,7 +9,7 @@ See [derives.md](docs/reference/derives.md) for what each standard derive writes
 against.
 ]]
 const {type JSONEncodable} = require("nupp.codec.json")
-const {type Buffer} = require("nupp.text.buffer")
+const {type Buffer} = require("nupp.text")
 const {type Writer} = require("nupp.codec.json")
 const {type EncodedString} = require("nupp.codec.json")
 const {type EncodedValue} = require("nupp.codec.json")
@@ -58,7 +58,7 @@ local derivedByType: any = setmetatable({}, {__mode = "k"})
 -- kept here rather than assumed.
 local reflect: any = nil
 
-local bufferModule = require("nupp.text.buffer")
+local textModule = require("nupp.text")
 local serdeRuntime: any = nil
 
 ----------------------------------------------------------------------------
@@ -66,7 +66,7 @@ local serdeRuntime: any = nil
 ----------------------------------------------------------------------------
 
 local function newBuffer(): Buffer
-    return bufferModule.new() as Buffer
+    return textModule.newBuffer() as Buffer
 end
 
 --- Copies a field default so two instances never share one table.

@@ -73,7 +73,7 @@ provider, or dependency cycle fails the require with service context.
 | Handle | Interface and consumer |
 | --- | --- |
 | `contracts.bitops` | Signed, variadic word operations; `nupp.runtime.bitops` |
-| `contracts.buffer` | Portable buffers; `nupp.text.buffer` |
+| `contracts.buffer` | Portable buffers; `nupp.text` |
 | `contracts.json` | JSON values and markers; `nupp.codec.json` |
 | `contracts.cstorage` | Target storage and its representation operations |
 | `contracts.path`, `contracts.uri` | Path and URI operations |
@@ -88,7 +88,7 @@ provider, or dependency cycle fails the require with service context.
 Here `contracts` names `nupp.runtime.services.contracts`, and `services.*` names
 the corresponding module under `nupp.runtime.services`.
 
-`nupp.text.buffer` owns the portable buffer surface and one shared `Buffer` type.
+`nupp.text` owns the portable buffer surface and one shared `Buffer` type.
 Its native adapter uses LuaJIT's `string.buffer`. Explicitly native pointer and
 serialization facilities remain on the native `string.buffer` surface.
 

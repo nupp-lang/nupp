@@ -39,7 +39,7 @@ end
 local expected = jobs.checksum("browser-worker", 64)
 local fanned: {integer} = {}
 with scope = workers.scope() do
-    local submitted: {workers.Task<function(string, integer): integer>} = {}
+    local submitted: {workers.Job<function(string, integer): integer>} = {}
     for index = 1, 8 do
         submitted[index] = scope:spawn("browser-worker", 64, jobs.checksum)
     end
@@ -144,7 +144,7 @@ with scope = workers.scope() do
     -- More waiting tasks than any browser pool has lanes, so the tail is still
     -- queued when the first of them settles, and cancelling it is a cancellation
     -- that never loads or invokes its function.
-    local busy: {workers.Task<function(integer): integer>} = {}
+    local busy: {workers.Job<function(integer): integer>} = {}
     for index = 1, 32 do
         busy[index] = scope:spawn(60, jobs.patient)
     end

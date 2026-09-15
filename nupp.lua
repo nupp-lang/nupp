@@ -130,8 +130,8 @@ local TEMPLATE_FILES = {
 -- how they would start to.
 local RESOURCES = {
     {source = "src/re.g.nupp", output = "nupp/compiler/re.g.nupp"},
-    {source = "src/nupp/text/buffer/types.d.nupp", output = "nupp/compiler/nupp/text/buffer/types.d.nupp"},
-    {source = "src/nupp/text/buffer/init.nupp", output = "nupp/compiler/nupp/text/buffer/init.nupp"},
+    {source = "src/nupp/text/internal/buffer.d.nupp", output = "nupp/compiler/nupp/text/internal/buffer.d.nupp"},
+    {source = "src/nupp/text/init.nupp", output = "nupp/compiler/nupp/text/init.nupp"},
     {source = "src/nupp/cli/init.g.nupp", output = "nupp/compiler/nupp/cli/init.g.nupp"},
     {source = "src/nupp/cli/internal/optparser.nupp", output = "nupp/compiler/nupp/cli/internal/optparser.nupp"},
     {source = "src/nupp/cli/internal/decode.g.nupp", output = "nupp/compiler/nupp/cli/internal/decode.g.nupp"},
@@ -389,7 +389,7 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/http.g.nupp",
     "src/nupp/runtime/browser/path.nupp",
     "src/nupp/runtime/browser/storage.g.nupp",
-    "src/nupp/browser/gpu.nupp",
+    "src/nupp/browser/init.nupp",
     "src/nupp/runtime/browser/suspension.g.nupp",
     "src/nupp/runtime/browser/time.g.nupp",
     "src/nupp/runtime/browser/workers.g.nupp",

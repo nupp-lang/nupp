@@ -3,7 +3,7 @@
 
 return function()
     assert(package.loaded["nupp.gpu"] == nil, "playground startup resolved the resident GPU service")
-    local gpu = require("nupp.browser.gpu")
+    local gpu = require("nupp.browser")
     assert(type(gpu.xorU32) == "function", "the browser compute module is absent")
     assert(#gpu.xorU32({}, 0) == 0, "empty browser compute input must return immediately")
     local result = __nuppPlaygroundRun([[print("hello", 42)]])

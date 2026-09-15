@@ -10,7 +10,7 @@ local function assertSame(left: const{number}, right: const{number}): nil
 end
 
 function M.reproducesTheTecsSequenceAndState(): nil
-    local generator = random.newRandom(12345)
+    local generator = new random.Xoshiro128(12345)
     local expected: {
         number
     } = {
@@ -30,7 +30,7 @@ function M.reproducesTheTecsSequenceAndState(): nil
 end
 
 function M.reproducesTheTecsIntegerSequence(): nil
-    local generator = random.newRandom(12345)
+    local generator = new random.Xoshiro128(12345)
     local expected = {26, 5, 88, 89, 98, 19, 32, 95, 87, 90, 75, 51}
     for index = 1, #expected do
         assert(generator:integer(1, 100) == expected[index], "integer differs at " .. tostring(index))
@@ -38,7 +38,7 @@ function M.reproducesTheTecsIntegerSequence(): nil
 end
 
 function M.restoresStateAndReseedsInPlace(): nil
-    local generator = random.newRandom(9)
+    local generator = new random.Xoshiro128(9)
     for _ = 1, 12 do
         generator:next()
     end
@@ -48,18 +48,18 @@ function M.restoresStateAndReseedsInPlace(): nil
     assertSame({generator:next(), generator:next(), generator:next()}, expected)
 
     generator:reseed(9)
-    local fresh = random.newRandom(9)
+    local fresh = new random.Xoshiro128(9)
     assert(generator:next() == fresh:next())
 end
 
 function M.readsSeedsAndStateAsSigned32BitWords(): nil
-    local positive = random.newRandom(2147483648)
-    local negative = random.newRandom(-2147483648)
+    local positive = new random.Xoshiro128(2147483648)
+    local negative = new random.Xoshiro128(-2147483648)
     for _ = 1, 20 do
         assert(positive:next() == negative:next())
     end
 
-    local generator = random.newRandom(1)
+    local generator = new random.Xoshiro128(1)
     assert(
         not pcall(function(): nil
             generator:setState({0, 0, 0, 0})
@@ -73,7 +73,7 @@ function M.readsSeedsAndStateAsSigned32BitWords(): nil
 end
 
 function M.drawsRangesAndDeterministicPermutations(): nil
-    local generator = random.newRandom(11)
+    local generator = new random.Xoshiro128(11)
     local seen: {[integer]: boolean} = {}
     for _ = 1, 2000 do
         local value = generator:integer(-3, 3)
@@ -93,8 +93,8 @@ function M.drawsRangesAndDeterministicPermutations(): nil
 
     local first = {1, 2, 3, 4, 5, 6, 7, 8}
     local second = {1, 2, 3, 4, 5, 6, 7, 8}
-    local returned = random.newRandom(99):shuffle(first)
-    random.newRandom(99):shuffle(second)
+    local returned = new random.Xoshiro128(99):shuffle(first)
+    new random.Xoshiro128(99):shuffle(second)
     assert(returned == first)
     assertSame(first, second)
 end

@@ -1,0 +1,55 @@
+module nupp.browser
+
+--[[
+What a Nupp program can ask the browser it is running in to do.
+
+Today that is one thing: `xorU32` hands a block of `uint32` values to WebGPU and
+gets the xored block back.
+
+```nupp
+local browser = require("nupp.browser")
+
+const masked = browser.xorU32({1, 2, 3}, 0xFF)
+```
+
+The work runs on a Worker, so the call suspends until the GPU reports it done,
+and the result is copied back only then. Everything here raises on a host
+without WebGPU rather than falling back to the CPU: a program that wants a
+fallback writes the one it wants.
+]]
+
+local response = require("nupp.runtime.browser.response")
+local json = require("nupp.codec.json.provider")
+local browser = {}
+const MAX_XOR_VALUES = 262144
+
+--- Xors every uint32 in `values` with `mask`, one WebGPU invocation per element.
+---
+--- The result is copied back only after the Worker observes completion.
+--- @param values the words to xor, at most 262144 of them
+--- @param mask the word every element is xored with
+--- @return a fresh list of the xored words, in the order they were given
+--- @raises when WebGPU is unavailable or the request is outside the portable cap
+function browser.xorU32(values: {uint32}, mask: uint32): {uint32}
+    if #values == 0 then
+        return {}
+    end
+    if #values > MAX_XOR_VALUES then
+        error("nupp: browser GPU xor accepts at most " .. MAX_XOR_VALUES .. " uint32 values", 2)
+    end
+
+    local input: {any} = json.asArray({})
+    for index, value in ipairs(values) do
+        input[index] = value
+    end
+
+    local answer = response.await("gpu", {operation = "xor-u32", values = input, mask = mask,})
+    local output = answer.values
+    if type(output) ~= "table" or #output ~= #values then
+        error("nupp: browser GPU returned an invalid xor result", 2)
+    end
+
+    return output as {uint32}
+end
+
+export = browser

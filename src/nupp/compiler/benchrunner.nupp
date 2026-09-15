@@ -1114,7 +1114,7 @@ local function machineKey(): string?
             return trimmed
         end
     end
-    local generator = random.newRandom(math.floor(os.time() * 1000 + os.clock() * 1000000))
+    local generator = new random.Xoshiro128(math.floor(os.time() * 1000 + os.clock() * 1000000))
     local letters = "0123456789abcdef"
     local built: {string} = {}
     for _ = 1, 32 do
@@ -1438,7 +1438,7 @@ function runner.run(options: runner.Options): integer
         executionFailures
     )
     local seed = options.seed or math.floor(os.time() * 1000 + os.clock() * 1000) % 0x7FFFFFFF
-    local shuffler = random.newRandom(seed)
+    local shuffler = new random.Xoshiro128(seed)
 
     -- Rounds outside, benchmarks inside. Running every fork of one benchmark back to
     -- back would give that benchmark one contiguous slice of the machine's thermal and

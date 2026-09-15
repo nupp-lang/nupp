@@ -8,7 +8,7 @@ Portable implementation of `data.json` API 2 using vendored Lunajson.
 The independent decoder and encoder factories require neither FFI nor the `io`
 library. Lunajson handles JSON syntax, Unicode, numbers, and escaping; this
 adapter supplies Nupp's array/object markers, projection, verified fragments,
-and the writer backed by the shared [](nupp.text.buffer.types) contract.
+and the writer backed by the shared [](nupp.text.internal.buffer) contract.
 
 Import through [](nupp.codec.json). The facade retains this provider's functions
 and marker objects for the lifetime of the loaded module. Markers and verified
@@ -19,7 +19,7 @@ return the original table and preserve its ownership.
 Native serde compilation hooks are optional and are not supplied here. Portable
 encoding and decoding remain available without a native parser artifact.
 ]]
-const {type Buffer} = require("nupp.text.buffer")
+const {type Buffer} = require("nupp.text")
 
 local newDecoder = require(
     "nupp.runtime.vendor.lunajson.decoder"

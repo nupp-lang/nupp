@@ -7,7 +7,7 @@ local agreed = true
 local lanes: integer = 0
 
 with scope = workers.scope() do
-    local submitted: {workers.Task<function(integer, number): {number}>} = {}
+    local submitted: {workers.Job<function(integer, number): {number}>} = {}
     for index = 1, 8 do
         submitted[index] = scope:spawn(64, 2, kernels.scaled)
     end

@@ -1,4 +1,4 @@
-local buffer = require("nupp.text.buffer")
+local text = require("nupp.text")
 local span = require("nupp.mem.span")
 
 local M = {}
@@ -118,7 +118,7 @@ function M.readsThroughAnyReader(): nil
 end
 
 function M.readsAStringBufferInPlace(): nil
-    local queue = buffer.new()
+    local queue = text.newBuffer()
     queue:put("head:")
     queue:put("!")
 
@@ -131,7 +131,7 @@ function M.readsAStringBufferInPlace(): nil
 end
 
 function M.bridgesAStringBufferIntoTheReaderContract(): nil
-    local queue = buffer.new()
+    local queue = text.newBuffer()
     queue:put("payload")
 
     local destination = nupp.io.newBuffer()
