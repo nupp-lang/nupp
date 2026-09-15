@@ -1,6 +1,18 @@
 module nupp.codec.hex
 
---[[Hexadecimal byte encoding. Encoders emit lowercase; decoders accept either case.]]
+--[[
+Bytes as hexadecimal.
+
+```nupp
+const hex = require("nupp.codec.hex")
+
+print(hex.encode("Nu"))          -- 4e75
+print(hex.decode("4E75"))        -- Nu
+```
+
+`encode` writes lowercase; `decode` reads either case, and wants nothing around
+the digits -- no whitespace, no `0x`.
+]]
 
 --- Encodes raw bytes as lowercase hexadecimal.
 export function encode(bytes: string): string

@@ -1,11 +1,23 @@
 module nupp.test
 
 --[[
-Assertions shared by Nupp's bundled test runner and project test suites.
+Assertions, for Nupp's own test runner and for project suites.
 
-Every failure names the values that differed. The functions return their
-successful input where that is useful, so an assertion may narrow or validate a
-value without forcing the caller to spell it twice.
+```nupp
+const test = nupp.test
+
+test.equal(2 + 2, 4)
+test.matches(greeting, "^hello")
+test.raises(function(): nil error("nope") end, "nope")
+```
+
+Every failure names the values that differed. An assertion answers the input it
+was given where that is useful, so one can narrow or validate a value in place
+rather than spelling it twice:
+
+```nupp
+const name = test.assert(lookup(id), "no row for " .. id)
+```
 ]]
 
 local function show(value: any, seen: table?, depth: integer?): string

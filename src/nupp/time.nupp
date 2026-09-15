@@ -1,11 +1,23 @@
 module nupp.time
 
 --[[
-Monotonic time, wall time, and sleeps, owned by the current host.
+Clocks and sleeps, from whichever host is running.
 
-`now` is the clock durations and deadlines are measured in: it only moves
-forward, and its zero is whatever the host chose, so a reading is meaningful
-only against another reading. `wallTime` is calendar time and may jump.
+```nupp
+const time = nupp.time
+
+const started = time.now()
+time.sleep(50)
+print(time.now() - started)  -- about 50
+
+print(time.wallTime())       -- milliseconds since the Unix epoch
+```
+
+`now` is the clock durations and deadlines are measured in. It only moves
+forward and its zero is whatever the host picked, so one reading means nothing
+except against another. `wallTime` is calendar time and may jump backwards when
+the machine's clock is corrected -- never subtract two of those to measure how
+long something took.
 ]]
 
 const contracts = require("nupp.runtime.services.contracts")

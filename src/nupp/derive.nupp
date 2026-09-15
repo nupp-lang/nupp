@@ -1,12 +1,28 @@
 module nupp.derive
 
 --[[
-Both halves of the standard derives: the comptime providers that decide what a
-derived member is, and the runtime that member calls.
+What `@derive` writes, and the runtime the written members call.
 
-See [derives.md](docs/reference/derives.md) for what each standard derive writes, and
-[reflection.md](docs/learn/language/reflection.md) for the descriptors the JSON codec is memoized
-against.
+```nupp
+@derive(nupp.derive.Debug, nupp.derive.JSON)
+local record Point
+    x: integer
+    y: integer
+end
+
+const point = new Point(x = 1, y = 2)
+
+print(point:debug())                     -- Point { x = 1, y = 2 }
+print(Point.fromJSON('{"x":1,"y":2}'))   -- the same point, decoded
+```
+
+Both halves live here: the comptime providers that decide what a derived member
+is, and the runtime those members call once written.
+
+See [derives.md](docs/reference/derives.md) for what each standard derive
+writes, and
+[reflection.md](docs/learn/language/reflection.md) for the descriptors the JSON
+codec is memoized against.
 ]]
 const {type JSONEncodable} = require("nupp.codec.json")
 const {type Buffer} = require("nupp.text")

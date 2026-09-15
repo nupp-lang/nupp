@@ -1,14 +1,33 @@
 module nupp.mac
 
---[[Keyed message authentication. Keys are raw bytes. HMAC-SHA256 is built in;
-setup selects a typed catalog through nupp.runtime.services.mac before this
-module loads. Algorithm lookup and state creation use retained descriptors.
+--[[
+Keyed hashes, for bytes somebody could have tampered with.
 
-## Builtin algorithms
+Same shape as [](nupp.digest), plus a key.
+
+```nupp
+const mac = nupp.mac
+
+print(mac.hexDigest("hmac-sha256", key, "hello"))
+
+local running = mac.create("hmac-sha256", key)
+
+running:update("hel")
+running:update("lo")
+
+print(running:hexDigest())
+```
+
+The key is raw bytes. Finalizing consumes the context.
+
+## Built-in algorithms
 
 | Name | Output | Construction |
 | --- | ---: | --- |
 | `hmac-sha256` | 32 bytes | HMAC over SHA-256 |
+
+A host may supply its own catalog through [](nupp.runtime.services.mac),
+selected during setup before this module loads. It is read once, at load.
 ]]
 
 const context = require("nupp.digest.internal.context")

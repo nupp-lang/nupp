@@ -9,7 +9,7 @@ under a name, setup picks the name, and the facade that uses it asks for it.
 ```nupp
 local services = require("nupp.services")
 
-interface Codec
+local interface Codec
     readonly encode: function(value: string): string
 end
 

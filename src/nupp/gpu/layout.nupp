@@ -1,6 +1,26 @@
 module nupp.gpu.layout
 
--- Checked non-generic tensor layout algebra used by nupp.gpu.
+--[[
+Where an element of a tensor actually is.
+
+A layout is a shape, a stride per dimension, and an offset. [](nupp.gpu) uses
+these to say what a view of a buffer covers without copying it, and the algebra
+here -- slicing, transposing, reshaping -- answers a new layout over the same
+storage.
+
+```nupp
+const layout = require("nupp.gpu.layout")
+
+const rows = layout.new(0, {4, 4}, {4, 1})
+const column = layout.subview(rows, {0, 2}, {4, 1})
+
+print(layout.offset(column), layout.isDense(column))
+```
+
+Every operation is checked, so a layout that would read outside its extent is
+refused rather than produced. A layout knows whether it is dense and whether it
+is injective, which is what says when a write through it is well defined.
+]]
 
 local layout = {}
 

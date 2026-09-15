@@ -1,17 +1,26 @@
 module nupp.codec.base64
 
 --[[
-Standard base64, encoded and decoded as `@aot` entries.
+Standard base64.
 
-The alphabet and its inverse are `const` strings, so a compiled entry reads
-them out of static arrays whose bounds the C compiler holds rather than out of
-a rooted argument whose length it must load. With `aot = "off"` this is the
-same source on LuaJIT.
+```nupp
+const base64 = require("nupp.codec.base64")
 
-Whole words rather than single bytes on both sides: twelve input bytes are
-three aligned words and four twenty-four bit groups, and four output bytes are
-one word. `bench/base64` measures what that is worth, and measures this
-against the vectorized C it could be.
+const text = base64.encode("Nupp")
+
+print(text)                  -- TnVwcA==
+print(base64.decode(text))   -- Nupp
+```
+
+Both entries are `@aot`, and both work a word at a time rather than a byte at a
+time: twelve input bytes are three aligned words and four twenty-four bit
+groups, and four output bytes are one word. The alphabet and its inverse are
+`const` strings, so a compiled entry reads them out of static arrays whose
+bounds the C compiler holds rather than out of a rooted argument whose length it
+has to load. With `aot = "off"` this is the same source running on LuaJIT.
+
+`bench/base64` measures what that is worth, and measures it against the
+vectorized C it could have been.
 ]]
 
 local valuebuilder = require("nupp.codec.valuebuilder")

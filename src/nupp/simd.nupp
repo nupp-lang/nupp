@@ -1,5 +1,53 @@
 module nupp.simd
 
+--[[
+Explicit SIMD, for an algorithm whose register is itself a data structure.
+
+Nothing here names a width. A species is whatever the artifact tier chose --
+sixteen bytes on the x86-64 baseline and on NEON, thirty-two on AVX2 -- and
+`species.lanes` is what you loop by.
+
+```nupp
+local span = nupp.mem.span
+local simd = nupp.simd
+
+@aot(vectorize = false)
+local function countQuotes(borrows source: span.Span<uint8>): uint32
+    local species = simd.preferredU8()
+    local cursor: integer = 0
+    local found: uint32 = 0
+
+    while cursor < #source do
+        local bytes = species:load(source, cursor)
+        local tail = species:tail(#source - cursor)
+        local matches = bytes:equal(34)
+
+        found = nupp.math.u32.add(found, matches:andBits(tail):count())
+        cursor = cursor + species.lanes
+    end
+
+    return found
+end
+```
+
+Loads are span-checked, inactive tail lanes read as zero, and `bits()` maps the
+first logical lane to bit zero. A vector and a mask have no boxed Lua
+representation, so neither can leave the kernel and calling `preferredU8` under
+`aot = "off"` is a named checking error. Importing the module without
+constructing a species is ordinary Lua.
+
+Reach for this only where a scalar loop cannot say what you mean -- shuffles,
+transposes, prefix scans, fixed-tree reductions, gathers, compress and expand.
+A loop that merely wants to be vectorized should be `@simd` instead and let the
+compiler do it. `simd.reducer` carries one contribution per logical iteration of
+such a loop back into scalar code, and `simd.horizontal` reduces a vector to one
+value.
+
+See
+[vectorization.md](docs/learn/performance/ahead-of-time/vectorization.md) for
+the whole of it.
+]]
+
 const {type Span, type WriteSpan} = require("nupp.mem.span")
 
 -- Packed operations use the target's AOT instructions inside compiled entries.

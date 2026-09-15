@@ -1,19 +1,27 @@
 module nupp.checksum
 
---[[Incremental numeric checksums for accidental corruption detection.
-The canonical CRC variants are crc32-ieee, crc32c and crc64-ecma (ECMA-182,
-non-reflected, zero initialization and zero final xor). Adler-32 is adler32.
-value() is a non-consuming snapshot; protocol code chooses byte order when
-serializing the number. These algorithms provide no authentication.
+--[[
+Numeric checksums, for noticing that bytes got corrupted.
 
-Setup selects a typed catalog through nupp.runtime.services.checksum before this
-module loads. Initialization validates and retains algorithm descriptors. An
-explicit selection overrides matching built-ins and may add names; unselected
-built-ins remain available. Lookup and context operations use the retained catalog
-without SPI resolution. Provider names identify implementations, independently
-of the algorithm names in their catalogs.
+One call for a whole string, or a context you feed in pieces.
 
-## Builtin algorithms
+```nupp
+const checksum = nupp.checksum
+
+print(checksum.value("crc32c", "hello"))
+
+with running = checksum.create("crc32-ieee") do
+    running:update("hel")
+    running:update("lo")
+    print(running:value())
+end
+```
+
+`value` is a snapshot rather than a finish, so a context keeps going after one
+is taken. These say nothing about whether bytes were changed on purpose: for
+that reach for [](nupp.mac).
+
+## Built-in algorithms
 
 | Name | Width | Parameters |
 | --- | ---: | --- |
@@ -21,6 +29,14 @@ of the algorithm names in their catalogs.
 | `crc32-ieee` | 32 | Reflected IEEE CRC-32 |
 | `crc32c` | 32 | Reflected Castagnoli CRC-32C |
 | `crc64-ecma` | 64 | ECMA-182, non-reflected, zero initialization and xor |
+
+A snapshot is a number, so whatever writes one to the wire picks its byte order.
+
+A host may supply its own catalog through
+[](nupp.runtime.services.checksum), selected during setup before this module
+loads. Its entries override the built-ins of the same name and may add others,
+and the ones it does not name stay available. The catalog is read once, at load,
+so no lookup or update resolves a service.
 ]]
 
 const span = require("nupp.mem.span")

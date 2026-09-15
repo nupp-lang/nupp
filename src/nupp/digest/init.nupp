@@ -1,15 +1,37 @@
 module nupp.digest
 
---[[Provider-selected fixed-output message digests.
+--[[
+Cryptographic hashes: SHA-256 and the rest.
 
-`create("sha256")` uses the descriptor retained when this module loads. Setup
-selects a typed provider catalog before requiring this facade. Its entries override
-matching built-ins; other built-ins remain available. Descriptor names and sizes
-must agree with the algorithm. No context operation resolves services.
-`digest()` returns raw bytes, `digest(destination)` writes into an existing
-writable byte span, and `hexDigest()` returns lowercase hexadecimal. Each
-final operation consumes the digest. Dropping an unfinished digest closes its
-provider context. MD5 and SHA-1 are for legacy interoperability only.
+One call for a whole string, or a context you feed in pieces and then consume.
+
+```nupp
+const digest = nupp.digest
+
+print(digest.hexDigest("sha256", "hello"))
+
+local running = digest.create("sha256")
+
+running:update("hel")
+running:update("lo")
+
+print(running:hexDigest())
+```
+
+Finalizing consumes the context, so a digest is taken once and the binding is
+spent afterwards. `digest()` answers
+raw bytes, `digest(destination)` writes them into a writable byte span you
+already have, and `hexDigest()` answers lowercase hexadecimal. Dropping a
+context that was never finalized closes its provider state.
+
+MD5 and SHA-1 are here for talking to things that already use them, and for
+nothing else.
+
+A host may supply its own catalog through [](nupp.runtime.services.digest),
+selected during setup before this module loads. Its entries override the
+built-ins of the same name, the ones it does not name stay available, and a
+descriptor whose size disagrees with its algorithm is refused. The catalog is
+read once, at load, so no context operation resolves a service.
 ]]
 
 const provider = require("nupp.runtime.services.digest")

@@ -1,5 +1,38 @@
 module nupp.suspension
 
+--[[
+Waiting without blocking the thread.
+
+A suspension-aware call parks the frame it is in rather than stopping the
+process, and whoever installed a handler decides what runs meanwhile -- an
+event loop, a poll, the next frame.
+
+```nupp
+local frame = require("scheduler")
+
+local function application(): nil
+    handle suspension with frame.handler do
+        work()
+    end
+end
+```
+
+`install` puts a handler on the current frame and `handled` says whether there
+is one; without one, a park blocks after all. `source` builds something that
+will be ready later, `suspend` parks on one, `create` makes a coroutine that
+inherits the handler, and `poll` is what a handler calls to make progress.
+
+This is the layer underneath. Somewhere to put children discovered over time,
+with one answer for failure and cancellation, is [](nupp.tasks); real
+parallelism is [](nupp.workers). Come here directly to write a host
+integration, or a combinator neither of those has.
+
+An arbitrary blocking Lua or C call still blocks the thread. A library opts in
+by parking through this module; nothing intercepts calls that do not.
+
+See [suspension.md](docs/learn/runtime/concurrency/suspension.md).
+]]
+
 local contract = require("nupp.runtime.services.suspension")
 local cancellation = require("nupp.runtime.services.cancellation")
 local provider = contract.service:assemble(function(): contract.Provider
