@@ -2192,6 +2192,44 @@ return {refine = refine}
     )
 end
 
+function M.exactReducersKeepNativeWidthAndLogicalPositionsAtEveryTier()
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+@aot
+local function folds(borrows input: span.Span<uint64>, seed: uint64): (uint64, integer, uint64, boolean)
+    local sum = simd.reducer.u64.wrappingSum(4294967296ULL)
+    local arg: simd.IntegerArgMax<uint64> = simd.reducer.integerArgMax()
+    local count = simd.reducer.count()
+    local all = simd.reducer.all()
+    @simd
+    for i = 3, #input do
+        sum:add(input[i])
+        arg:add(input[i])
+        count:add(input[i] > seed)
+        all:add(true)
+    end
+    return sum:value(), arg:value(), count:value(), all:value()
+end
+return {folds = folds}
+]]
+    local dir = project{["folds.nupp"] = source}
+    for _, tier in ipairs({
+        "--target x86_64-unknown-linux-gnu --features baseline ",
+        "--target x86_64-unknown-linux-gnu --features avx2 ",
+        "--target x86_64-unknown-linux-gnu --features avx512f ",
+        "--target aarch64-apple-darwin --features neon ",
+        "--target wasm32-unknown-emscripten --features simd128 ",
+    }) do
+        local decoded, raw, code = lowered(dir, tier .. "--json folds.nupp")
+        test.equal(code, 0, raw)
+        assert(decoded.ir:find("vreducer.exact.sum", 1, true), tier .. decoded.ir)
+        assert(decoded.ir:find("vspan:u64x", 1, true), tier .. decoded.ir)
+        assert(decoded.c:find("reduce_acc_", 1, true), tier .. ": missing lane accumulator")
+        assert(decoded.c:find("ks_reduce_integer_argmax_u64_add", 1, true), tier .. ": missing indexed extremum")
+    end
+end
+
 function M.requiredSimdReducersCarryTheirArithmeticContractAcrossTheRegion()
     local source = [[
 local span = require("nupp.mem.span")

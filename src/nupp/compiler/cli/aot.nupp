@@ -296,7 +296,7 @@ local function simdRegions(program: any): {any}
                     binding = value.reducer,
                     order = value.order,
                     operation = value.operation,
-                    serialized = value.order ~= "algebraic",
+                    serialized = value.order ~= "algebraic" and value.order ~= "exact",
                 }
             end
         end

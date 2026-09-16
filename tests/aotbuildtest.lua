@@ -2968,6 +2968,202 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     trace("complete")
 end
 
+function M.exactLoopReducersAgreeAcrossLuaScalarAndLaneExecution()
+    if not hasToolchain() then
+        return
+    end
+    local ffi = require("ffi")
+    local cases, exports = {}, {}
+    local source = {'local span = require("nupp.mem.span")', 'local simd = require("nupp.simd")'}
+
+    local function add(name, element, ctype, construction, method, result, resultC, predicate, first)
+        local constructor = construction:gsub("TYPE", element)
+        source[
+            #source + 1
+        ] = (
+            [[
+@aot
+local function %s(borrows input: span.Span<%s>, seed: %s): %s
+    %s
+    @simd
+    for i = %d, #input do
+        fold:%s(%s)
+    end
+    return fold:value()
+end
+]]
+        ):format(name, element, element, result, constructor, first or 1, method, predicate or "input[i]")
+        exports[#exports + 1] = name .. " = " .. name
+        cases[#cases + 1] = {name = name, element = element, ctype = ctype, resultC = resultC}
+    end
+
+    for _, ty in ipairs({
+        {"i32", "int32", "int32_t"},
+        {"u32", "uint32", "uint32_t"},
+        {"i64", "int64", "int64_t"},
+        {"u64", "uint64", "uint64_t"},
+    }) do
+        for _, op in ipairs({
+            {"wrappingSum", "add"},
+            {"wrappingProduct", "multiply"},
+            {"andBits", "combine"},
+            {"orBits", "combine"},
+            {"xorBits", "combine"}
+        }) do
+            add(
+                ty[1] .. "_" .. op[1]:lower(),
+                ty[2],
+                ty[3],
+                "local fold = simd.reducer." .. ty[1] .. "." .. op[1] .. "(seed)",
+                op[2],
+                ty[2],
+                ty[3],
+                ty[1] == "i32" and "nupp.math.i32.wrap(((input[i] as number) / 2.0 * 2.0) as integer)" or nil
+            )
+        end
+        for _, extreme in ipairs({"Min", "Max"}) do
+            add(
+                ty[1] .. "_" .. extreme:lower(),
+                ty[2],
+                ty[3],
+                "local fold = simd.reducer.integer" .. extreme .. "(seed)",
+                "add",
+                ty[2],
+                ty[3]
+            )
+            add(
+                ty[1] .. "_arg" .. extreme:lower(),
+                ty[2],
+                ty[3],
+                "local fold: simd.IntegerArg" .. extreme .. "<TYPE> = simd.reducer.integerArg" .. extreme .. "()",
+                "add",
+                "integer",
+                "double",
+                nil,
+                3
+            )
+        end
+    end
+    for _, policy in ipairs({"propagating", "number"}) do
+        for _, extreme in ipairs({"Min", "Max", "ArgMin", "ArgMax"}) do
+            local arg = extreme:find("Arg", 1, true)
+            add(
+                policy .. "_" .. extreme:lower(),
+                "number",
+                "double",
+                "local fold = simd.reducer." .. policy .. extreme .. "(" .. (arg and "" or "seed") .. ")",
+                "add",
+                arg and "integer" or "number",
+                "double",
+                nil,
+                arg and 3 or 1
+            )
+        end
+    end
+    for _, op in ipairs({"any", "all", "count"}) do
+        add(
+            "predicate_" .. op,
+            "number",
+            "double",
+            "local fold = simd.reducer." .. op .. "()",
+            "add",
+            op == "count" and "uint64" or "boolean",
+            op == "count" and "uint64_t" or "bool",
+            "input[i] > seed"
+        )
+    end
+    source[#source + 1] = "return {" .. table.concat(exports, ", ") .. "}"
+    source = table.concat(source, "\n")
+    local ordinary, native
+    for _, policy in ipairs({"off", "require"}) do
+        local dir = project(policy)
+        local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+        handle:write(source);
+        handle:close()
+        local out, code = build(dir)
+        test.equal(code, 0, policy .. ": " .. out)
+        if policy == "off" then
+            ordinary = dir
+        else
+            native = dir
+        end
+    end
+    -- The AOT-off body executes the Lua reducers over the same physical inputs;
+    -- neither scalar-source C nor lane C participates in its arithmetic.
+    local reference = assert(loadfile(ordinary .. "/build/native/kernel.lua"))()
+    local spans = require("nupp.mem.span")
+
+    local function expectedPosition(name, ctype, values, seed, expected)
+        local input = ffi.new(ctype .. "[?]", #values, values)
+        test.equal(reference[name](spans.fromCarray(input, #values), seed), expected)
+    end
+
+    expectedPosition(
+        "u64_argmin",
+        "uint64_t",
+        {0ULL, 0ULL, 9007199254740993ULL, 9007199254740992ULL, 9007199254740992ULL},
+        0ULL,
+        2
+    )
+    expectedPosition("i64_argmax", "int64_t", {0LL, 0LL, 7LL, 7LL}, 0LL, 1)
+    expectedPosition("i64_argmax", "int64_t", {0LL, 0LL}, 0LL, 0)
+    expectedPosition("propagating_argmin", "double", {0, 0, 1, 0 / 0, 0 / 0}, 0, 2)
+    expectedPosition("number_argmin", "double", {0, 0, 0 / 0, 0 / 0}, 0, 1)
+    expectedPosition("number_argmin", "double", {0, 0, 0.0, -0.0}, 0, 2)
+    expectedPosition("number_argmax", "double", {0, 0, -0.0, 0.0}, 0, 2)
+    local lib = ffi.load(libraryPath(native))
+    local integerValues = {
+        0LL,
+        -1LL,
+        1LL,
+        3LL,
+        4294967295LL,
+        4294967296LL,
+        9007199254740993LL,
+        9223372036854775807LL,
+        -9223372036854775807LL - 1LL,
+        18446744073709551615ULL,
+        2LL,
+        2LL
+    }
+    local floatValues = {0, -0.0, 7, -7, math.huge, -math.huge, 0 / 0, 7, -7, 0 / 0}
+    for _, case in ipairs(cases) do
+        local actualName = librarySymbol(lib, "ks_" .. case.name)
+        local scalarName = librarySymbol(lib, "ks_" .. case.name .. "_forced_scalar")
+        for _, name in ipairs({actualName, scalarName}) do
+            ffi.cdef(("%s %s(const %s *, %s, size_t);"):format(case.resultC, name, case.ctype, case.ctype))
+        end
+        local values = case.element == "number" and floatValues or integerValues
+        local input = ffi.new(case.ctype .. "[40]")
+        for offset = 0, #values - 1 do
+            for i = 0, 39 do
+                input[i] = values[(i + offset) % #values + 1]
+            end
+            local seed = ffi.cast(case.ctype, values[offset + 1])
+            if case.ctype == "double" or case.ctype:find("32", 1, true) then
+                seed = tonumber(seed)
+            end
+            for count = 0, 39 do
+                local expected = reference[case.name](spans.fromCarray(input, count), seed)
+                for _, name in ipairs({actualName, scalarName}) do
+                    local actual = lib[name](input, seed, count)
+                    local label = case.name .. " offset=" .. offset .. " count=" .. count .. " " .. name
+                    if case.resultC == "double" and expected ~= expected then
+                        assert(actual ~= actual, label .. " expected NaN")
+                    else
+                        assert(actual == expected, label .. ": " .. tostring(actual) .. " ~= " .. tostring(expected))
+                        if case.resultC == "double" and actual == 0 then
+                            test.equal(1 / actual, 1 / expected, label .. " signed zero")
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+require("jit").off(M.exactLoopReducersAgreeAcrossLuaScalarAndLaneExecution, true)
+
 function M.numericSimdConversionsMatchLuaJitAndIndependentScalarResults()
     if not hasToolchain() then
         return

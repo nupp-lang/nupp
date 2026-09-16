@@ -59,7 +59,61 @@ local provider = require("nupp.runtime.provider.scalarsimd")
 --- Closed reduction values used to carry one contribution from each logical
 --- iteration of an `@simd` loop back into scalar code.
 --- @export
-local reducer = {}
+local reducer: {
+    orderedSum: function(initial: number): reducer.OrderedSum,
+    pairwiseSum: function(initial: number): reducer.PairwiseSum,
+    compensatedSum: function(initial: number): reducer.CompensatedSum,
+    algebraicSum: function(initial: number): reducer.AlgebraicSum,
+    orderedProduct: function(initial: number): reducer.OrderedProduct,
+    pairwiseProduct: function(initial: number): reducer.PairwiseProduct,
+    algebraicProduct: function(initial: number): reducer.AlgebraicProduct,
+    orderedDot: function(initial: number): reducer.OrderedDot,
+    pairwiseDot: function(initial: number): reducer.PairwiseDot,
+    algebraicDot: function(initial: number): reducer.AlgebraicDot,
+    i32: {
+        wrappingSum: function(initial: int32): simd.WrappingSum<int32>,
+        wrappingProduct: function(initial: int32): simd.WrappingProduct<int32>,
+        andBits: function(initial: int32): simd.AndBits<int32>,
+        orBits: function(initial: int32): simd.OrBits<int32>,
+        xorBits: function(initial: int32): simd.XorBits<int32>
+    },
+    u32: {
+        wrappingSum: function(initial: uint32): simd.WrappingSum<uint32>,
+        wrappingProduct: function(initial: uint32): simd.WrappingProduct<uint32>,
+        andBits: function(initial: uint32): simd.AndBits<uint32>,
+        orBits: function(initial: uint32): simd.OrBits<uint32>,
+        xorBits: function(initial: uint32): simd.XorBits<uint32>
+    },
+    i64: {
+        wrappingSum: function(initial: int64): simd.WrappingSum<int64>,
+        wrappingProduct: function(initial: int64): simd.WrappingProduct<int64>,
+        andBits: function(initial: int64): simd.AndBits<int64>,
+        orBits: function(initial: int64): simd.OrBits<int64>,
+        xorBits: function(initial: int64): simd.XorBits<int64>
+    },
+    u64: {
+        wrappingSum: function(initial: uint64): simd.WrappingSum<uint64>,
+        wrappingProduct: function(initial: uint64): simd.WrappingProduct<uint64>,
+        andBits: function(initial: uint64): simd.AndBits<uint64>,
+        orBits: function(initial: uint64): simd.OrBits<uint64>,
+        xorBits: function(initial: uint64): simd.XorBits<uint64>
+    },
+    any: function(): simd.Any,
+    all: function(): simd.All,
+    count: function(): simd.Count,
+    integerMin: function<T is int32 | uint32 | int64 | uint64>(initial: T): simd.IntegerMin<T>,
+    integerMax: function<T is int32 | uint32 | int64 | uint64>(initial: T): simd.IntegerMax<T>,
+    integerArgMin: function<T is int32 | uint32 | int64 | uint64>(): simd.IntegerArgMin<T>,
+    integerArgMax: function<T is int32 | uint32 | int64 | uint64>(): simd.IntegerArgMax<T>,
+    propagatingMin: function(initial: number): simd.PropagatingMin,
+    propagatingMax: function(initial: number): simd.PropagatingMax,
+    propagatingArgMin: function(): simd.PropagatingArgMin,
+    propagatingArgMax: function(): simd.PropagatingArgMax,
+    numberMin: function(initial: number): simd.NumberMin,
+    numberMax: function(initial: number): simd.NumberMax,
+    numberArgMin: function(): simd.NumberArgMin,
+    numberArgMax: function(): simd.NumberArgMax
+} = {} as any
 
 --- A floating-point sum committed in logical iteration order.
 --- @export
@@ -340,6 +394,648 @@ end
 --- @export
 function reducer.algebraicDot(initial: number): reducer.AlgebraicDot
     return new reducer.AlgebraicDot(total = initial)
+end
+
+--- Fixed-width reducers use the same namespaces as explicit scalar arithmetic.
+--- Their initial value participates in the fold. Narrow storage loads contribute
+--- to i32 or u32; i64 and u64 never pass through a Lua double.
+--- @export
+record simd.WrappingSum<T is int32 | uint32 | int64 | uint64>
+    private total: T
+    private operation: function(T, T): T
+
+    function add(self, value: T): nil
+        self.total = self.operation(self.total, value)
+    end
+
+    function value(self): T
+        return self.total
+    end
+end
+
+--- @export
+record simd.WrappingProduct<T is int32 | uint32 | int64 | uint64>
+    private total: T
+    private operation: function(T, T): T
+
+    function multiply(self, value: T): nil
+        self.total = self.operation(self.total, value)
+    end
+
+    function value(self): T
+        return self.total
+    end
+end
+
+--- @export
+record simd.AndBits<T is int32 | uint32 | int64 | uint64>
+    private total: T
+    private operation: function(T, T): T
+
+    function combine(self, value: T): nil
+        self.total = self.operation(self.total, value)
+    end
+
+    function value(self): T
+        return self.total
+    end
+end
+
+--- @export
+record simd.OrBits<T is int32 | uint32 | int64 | uint64>
+    private total: T
+    private operation: function(T, T): T
+
+    function combine(self, value: T): nil
+        self.total = self.operation(self.total, value)
+    end
+
+    function value(self): T
+        return self.total
+    end
+end
+
+--- @export
+record simd.XorBits<T is int32 | uint32 | int64 | uint64>
+    private total: T
+    private operation: function(T, T): T
+
+    function combine(self, value: T): nil
+        self.total = self.operation(self.total, value)
+    end
+
+    function value(self): T
+        return self.total
+    end
+end
+
+--- int32 exact, wrapping reductions.
+--- @export
+local i32 = {}
+
+--- Constructs a int32 wrappingSum fold, including the supplied initial value.
+--- @export
+function i32.wrappingSum(initial: int32): simd.WrappingSum<int32>
+    return new simd.WrappingSum(total = initial, operation = nupp.math.i32.add)
+end
+
+--- Constructs a int32 wrappingProduct fold, including the supplied initial value.
+--- @export
+function i32.wrappingProduct(initial: int32): simd.WrappingProduct<int32>
+    return new simd.WrappingProduct(total = initial, operation = nupp.math.i32.mul)
+end
+
+--- Constructs a int32 andBits fold, including the supplied initial value.
+--- @export
+function i32.andBits(initial: int32): simd.AndBits<int32>
+    return new simd.AndBits(total = initial, operation = nupp.math.i32.andBits)
+end
+
+--- Constructs a int32 orBits fold, including the supplied initial value.
+--- @export
+function i32.orBits(initial: int32): simd.OrBits<int32>
+    return new simd.OrBits(total = initial, operation = nupp.math.i32.orBits)
+end
+
+--- Constructs a int32 xorBits fold, including the supplied initial value.
+--- @export
+function i32.xorBits(initial: int32): simd.XorBits<int32>
+    return new simd.XorBits(total = initial, operation = nupp.math.i32.xorBits)
+end
+
+reducer.i32 = i32
+
+--- uint32 exact, wrapping reductions.
+--- @export
+local u32 = {}
+
+--- Constructs a uint32 wrappingSum fold, including the supplied initial value.
+--- @export
+function u32.wrappingSum(initial: uint32): simd.WrappingSum<uint32>
+    return new simd.WrappingSum(total = initial, operation = nupp.math.u32.add)
+end
+
+--- Constructs a uint32 wrappingProduct fold, including the supplied initial value.
+--- @export
+function u32.wrappingProduct(initial: uint32): simd.WrappingProduct<uint32>
+    return new simd.WrappingProduct(total = initial, operation = nupp.math.u32.mul)
+end
+
+--- Constructs a uint32 andBits fold, including the supplied initial value.
+--- @export
+function u32.andBits(initial: uint32): simd.AndBits<uint32>
+    return new simd.AndBits(total = initial, operation = nupp.math.u32.andBits)
+end
+
+--- Constructs a uint32 orBits fold, including the supplied initial value.
+--- @export
+function u32.orBits(initial: uint32): simd.OrBits<uint32>
+    return new simd.OrBits(total = initial, operation = nupp.math.u32.orBits)
+end
+
+--- Constructs a uint32 xorBits fold, including the supplied initial value.
+--- @export
+function u32.xorBits(initial: uint32): simd.XorBits<uint32>
+    return new simd.XorBits(total = initial, operation = nupp.math.u32.xorBits)
+end
+
+reducer.u32 = u32
+
+--- int64 exact, wrapping reductions.
+--- @export
+local i64 = {}
+
+local function i64WrappingSum(a: int64, b: int64): int64
+    return (a + b) as int64
+end
+
+--- Constructs a int64 wrappingSum fold, including the supplied initial value.
+--- @export
+function i64.wrappingSum(initial: int64): simd.WrappingSum<int64>
+    return new simd.WrappingSum(total = initial, operation = i64WrappingSum)
+end
+
+local function i64WrappingProduct(a: int64, b: int64): int64
+    return (a * b) as int64
+end
+
+--- Constructs a int64 wrappingProduct fold, including the supplied initial value.
+--- @export
+function i64.wrappingProduct(initial: int64): simd.WrappingProduct<int64>
+    return new simd.WrappingProduct(total = initial, operation = i64WrappingProduct)
+end
+
+local function i64AndBits(a: int64, b: int64): int64
+    return (a & b) as int64
+end
+
+--- Constructs a int64 andBits fold, including the supplied initial value.
+--- @export
+function i64.andBits(initial: int64): simd.AndBits<int64>
+    return new simd.AndBits(total = initial, operation = i64AndBits)
+end
+
+local function i64OrBits(a: int64, b: int64): int64
+    return (a | b) as int64
+end
+
+--- Constructs a int64 orBits fold, including the supplied initial value.
+--- @export
+function i64.orBits(initial: int64): simd.OrBits<int64>
+    return new simd.OrBits(total = initial, operation = i64OrBits)
+end
+
+local function i64XorBits(a: int64, b: int64): int64
+    return (a ~ b) as int64
+end
+
+--- Constructs a int64 xorBits fold, including the supplied initial value.
+--- @export
+function i64.xorBits(initial: int64): simd.XorBits<int64>
+    return new simd.XorBits(total = initial, operation = i64XorBits)
+end
+
+reducer.i64 = i64
+
+--- uint64 exact, wrapping reductions.
+--- @export
+local u64 = {}
+
+local function u64WrappingSum(a: uint64, b: uint64): uint64
+    return (a + b) as uint64
+end
+
+--- Constructs a uint64 wrappingSum fold, including the supplied initial value.
+--- @export
+function u64.wrappingSum(initial: uint64): simd.WrappingSum<uint64>
+    return new simd.WrappingSum(total = initial, operation = u64WrappingSum)
+end
+
+local function u64WrappingProduct(a: uint64, b: uint64): uint64
+    return (a * b) as uint64
+end
+
+--- Constructs a uint64 wrappingProduct fold, including the supplied initial value.
+--- @export
+function u64.wrappingProduct(initial: uint64): simd.WrappingProduct<uint64>
+    return new simd.WrappingProduct(total = initial, operation = u64WrappingProduct)
+end
+
+local function u64AndBits(a: uint64, b: uint64): uint64
+    return (a & b) as uint64
+end
+
+--- Constructs a uint64 andBits fold, including the supplied initial value.
+--- @export
+function u64.andBits(initial: uint64): simd.AndBits<uint64>
+    return new simd.AndBits(total = initial, operation = u64AndBits)
+end
+
+local function u64OrBits(a: uint64, b: uint64): uint64
+    return (a | b) as uint64
+end
+
+--- Constructs a uint64 orBits fold, including the supplied initial value.
+--- @export
+function u64.orBits(initial: uint64): simd.OrBits<uint64>
+    return new simd.OrBits(total = initial, operation = u64OrBits)
+end
+
+local function u64XorBits(a: uint64, b: uint64): uint64
+    return (a ~ b) as uint64
+end
+
+--- Constructs a uint64 xorBits fold, including the supplied initial value.
+--- @export
+function u64.xorBits(initial: uint64): simd.XorBits<uint64>
+    return new simd.XorBits(total = initial, operation = u64XorBits)
+end
+
+reducer.u64 = u64
+
+--- Whether any contribution is true; false for an empty loop.
+--- @export
+record simd.Any
+    private total: boolean
+
+    function add(self, value: boolean): nil
+        self.total = self.total or value
+    end
+
+    function value(self): boolean
+        return self.total
+    end
+end
+
+--- Constructs a any reducer.
+--- @export
+function reducer.any(): simd.Any
+    return new simd.Any(total = false)
+end
+
+--- Whether every contribution is true; true for an empty loop.
+--- @export
+record simd.All
+    private total: boolean
+
+    function add(self, value: boolean): nil
+        self.total = self.total and value
+    end
+
+    function value(self): boolean
+        return self.total
+    end
+end
+
+--- Constructs a all reducer.
+--- @export
+function reducer.all(): simd.All
+    return new simd.All(total = true)
+end
+
+--- Counts true contributions exactly, modulo 2^64.
+--- @export
+record simd.Count
+    private total: uint64
+
+    function add(self, value: boolean): nil
+        self.total = self.total + (value and 1ULL or 0ULL)
+    end
+
+    function value(self): uint64
+        return self.total
+    end
+end
+
+--- Constructs a count reducer.
+--- @export
+function reducer.count(): simd.Count
+    return new simd.Count(total = 0ULL)
+end
+
+-- A generic argument has no single static integer width. Native LuaJIT can
+-- compare its number/cdata representation directly; portable wide values
+-- belong to the selected integer provider instead.
+local portableIntegers = require("nupp.services").dialect() == "lua51"
+
+local function integerLess(left: any, right: any): boolean
+    if portableIntegers and type(left) ~= "number" then
+        return require("nupp.runtime.int64").compare(left, right) < 0
+    end
+
+    return left < right
+end
+
+--- An integer extremum including its initial value.
+--- @export
+record simd.IntegerMin<T is int32 | uint32 | int64 | uint64>
+    private best: T
+
+    function add(self, value: T): nil
+        if integerLess(value, self.best) then
+            self.best = value
+        end
+    end
+
+    function value(self): T
+        return self.best
+    end
+end
+
+--- Constructs an integer min reducer.
+--- @export
+function reducer.integerMin<T is int32 | uint32 | int64 | uint64>(initial: T): simd.IntegerMin<T>
+    return new simd.IntegerMin(best = initial) as simd.IntegerMin<T>
+end
+
+--- First one-based logical position of the integer extremum; zero when empty.
+--- @export
+record simd.IntegerArgMin<T is int32 | uint32 | int64 | uint64>
+    private best: T?
+    private position: integer
+    private count: integer
+
+    function add(self, value: T): nil
+        self.count = self.count + 1
+        if self.position == 0 or integerLess(value, self.best) then
+            self.best = value
+            self.position = self.count
+        end
+    end
+
+    function value(self): integer
+        return self.position
+    end
+end
+
+--- Constructs an integer argmin reducer.
+--- @export
+function reducer.integerArgMin<T is int32 | uint32 | int64 | uint64>(): simd.IntegerArgMin<T>
+    return new simd.IntegerArgMin(best = nil as any, position = 0, count = 0) as simd.IntegerArgMin<T>
+end
+
+--- An integer extremum including its initial value.
+--- @export
+record simd.IntegerMax<T is int32 | uint32 | int64 | uint64>
+    private best: T
+
+    function add(self, value: T): nil
+        if integerLess(self.best, value) then
+            self.best = value
+        end
+    end
+
+    function value(self): T
+        return self.best
+    end
+end
+
+--- Constructs an integer max reducer.
+--- @export
+function reducer.integerMax<T is int32 | uint32 | int64 | uint64>(initial: T): simd.IntegerMax<T>
+    return new simd.IntegerMax(best = initial) as simd.IntegerMax<T>
+end
+
+--- First one-based logical position of the integer extremum; zero when empty.
+--- @export
+record simd.IntegerArgMax<T is int32 | uint32 | int64 | uint64>
+    private best: T?
+    private position: integer
+    private count: integer
+
+    function add(self, value: T): nil
+        self.count = self.count + 1
+        if self.position == 0 or integerLess(self.best, value) then
+            self.best = value
+            self.position = self.count
+        end
+    end
+
+    function value(self): integer
+        return self.position
+    end
+end
+
+--- Constructs an integer argmax reducer.
+--- @export
+function reducer.integerArgMax<T is int32 | uint32 | int64 | uint64>(): simd.IntegerArgMax<T>
+    return new simd.IntegerArgMax(best = nil as any, position = 0, count = 0) as simd.IntegerArgMax<T>
+end
+
+--- True when a candidate precedes the current floating extremum.
+--- Signed zeros are ordered (-0 below +0), then equal values keep the first
+--- logical position. Propagating contracts select the first NaN; number
+--- contracts select a NaN only if no number was contributed.
+local function extremumWins(candidate: number, best: number, maximum: boolean, propagate: boolean): boolean
+    if candidate ~= candidate then
+        return propagate and best == best
+    elseif best ~= best then
+        return not propagate
+    elseif candidate == 0 and best == 0 then
+        return maximum and 1 / candidate > 1 / best or not maximum and 1 / candidate < 1 / best
+    end
+
+    return maximum and candidate > best or not maximum and candidate < best
+end
+
+--- Floating extremum including the initial value; NaNs are canonicalized.
+--- A NaN wins over every number. Signed zero follows -0 < +0.
+--- @export
+record simd.PropagatingMin
+    private best: number
+
+    function add(self, value: number): nil
+        if extremumWins(value, self.best, false, true) then
+            self.best = value
+        end
+    end
+
+    function value(self): number
+        return self.best ~= self.best and math.abs(0 / 0) or self.best
+    end
+end
+
+--- Constructs a propagatingMin reducer.
+--- @export
+function reducer.propagatingMin(initial: number): simd.PropagatingMin
+    return new simd.PropagatingMin(best = initial)
+end
+
+--- First logical position, or zero when empty.
+--- A NaN wins over every number. Signed zero follows -0 < +0.
+--- @export
+record simd.PropagatingArgMin
+    private best: number
+    private position: integer
+    private count: integer
+
+    function add(self, value: number): nil
+        self.count = self.count + 1
+        if self.position == 0 or extremumWins(value, self.best, false, true) then
+            self.best = value
+            self.position = self.count
+        end
+    end
+
+    function value(self): integer
+        return self.position
+    end
+end
+
+--- Constructs a propagatingArgMin reducer.
+--- @export
+function reducer.propagatingArgMin(): simd.PropagatingArgMin
+    return new simd.PropagatingArgMin(best = 0.0, position = 0, count = 0)
+end
+
+--- Floating extremum including the initial value; NaNs are canonicalized.
+--- A NaN wins over every number. Signed zero follows -0 < +0.
+--- @export
+record simd.PropagatingMax
+    private best: number
+
+    function add(self, value: number): nil
+        if extremumWins(value, self.best, true, true) then
+            self.best = value
+        end
+    end
+
+    function value(self): number
+        return self.best ~= self.best and math.abs(0 / 0) or self.best
+    end
+end
+
+--- Constructs a propagatingMax reducer.
+--- @export
+function reducer.propagatingMax(initial: number): simd.PropagatingMax
+    return new simd.PropagatingMax(best = initial)
+end
+
+--- First logical position, or zero when empty.
+--- A NaN wins over every number. Signed zero follows -0 < +0.
+--- @export
+record simd.PropagatingArgMax
+    private best: number
+    private position: integer
+    private count: integer
+
+    function add(self, value: number): nil
+        self.count = self.count + 1
+        if self.position == 0 or extremumWins(value, self.best, true, true) then
+            self.best = value
+            self.position = self.count
+        end
+    end
+
+    function value(self): integer
+        return self.position
+    end
+end
+
+--- Constructs a propagatingArgMax reducer.
+--- @export
+function reducer.propagatingArgMax(): simd.PropagatingArgMax
+    return new simd.PropagatingArgMax(best = 0.0, position = 0, count = 0)
+end
+
+--- Floating extremum including the initial value; NaNs are canonicalized.
+--- A number wins over every NaN. Signed zero follows -0 < +0.
+--- @export
+record simd.NumberMin
+    private best: number
+
+    function add(self, value: number): nil
+        if extremumWins(value, self.best, false, false) then
+            self.best = value
+        end
+    end
+
+    function value(self): number
+        return self.best ~= self.best and math.abs(0 / 0) or self.best
+    end
+end
+
+--- Constructs a numberMin reducer.
+--- @export
+function reducer.numberMin(initial: number): simd.NumberMin
+    return new simd.NumberMin(best = initial)
+end
+
+--- First logical position, or zero when empty.
+--- A number wins over every NaN. Signed zero follows -0 < +0.
+--- @export
+record simd.NumberArgMin
+    private best: number
+    private position: integer
+    private count: integer
+
+    function add(self, value: number): nil
+        self.count = self.count + 1
+        if self.position == 0 or extremumWins(value, self.best, false, false) then
+            self.best = value
+            self.position = self.count
+        end
+    end
+
+    function value(self): integer
+        return self.position
+    end
+end
+
+--- Constructs a numberArgMin reducer.
+--- @export
+function reducer.numberArgMin(): simd.NumberArgMin
+    return new simd.NumberArgMin(best = 0.0, position = 0, count = 0)
+end
+
+--- Floating extremum including the initial value; NaNs are canonicalized.
+--- A number wins over every NaN. Signed zero follows -0 < +0.
+--- @export
+record simd.NumberMax
+    private best: number
+
+    function add(self, value: number): nil
+        if extremumWins(value, self.best, true, false) then
+            self.best = value
+        end
+    end
+
+    function value(self): number
+        return self.best ~= self.best and math.abs(0 / 0) or self.best
+    end
+end
+
+--- Constructs a numberMax reducer.
+--- @export
+function reducer.numberMax(initial: number): simd.NumberMax
+    return new simd.NumberMax(best = initial)
+end
+
+--- First logical position, or zero when empty.
+--- A number wins over every NaN. Signed zero follows -0 < +0.
+--- @export
+record simd.NumberArgMax
+    private best: number
+    private position: integer
+    private count: integer
+
+    function add(self, value: number): nil
+        self.count = self.count + 1
+        if self.position == 0 or extremumWins(value, self.best, true, false) then
+            self.best = value
+            self.position = self.count
+        end
+    end
+
+    function value(self): integer
+        return self.position
+    end
+end
+
+--- Constructs a numberArgMax reducer.
+--- @export
+function reducer.numberArgMax(): simd.NumberArgMax
+    return new simd.NumberArgMax(best = 0.0, position = 0, count = 0)
 end
 
 simd.reducer = reducer

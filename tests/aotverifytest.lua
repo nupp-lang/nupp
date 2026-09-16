@@ -101,6 +101,38 @@ end
 return {copy = copy}
 ]]
 
+function M.exactReducerVerifierPreservesItsInputAndResultContracts()
+    local program = lowered(
+        [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+@aot
+local function total(borrows input: span.Span<uint32>, seed: uint32): uint32
+    local fold = simd.reducer.u32.wrappingSum(seed)
+    @simd
+    for i = 1, #input do fold:add(input[i]) end
+    return fold:value()
+end
+return {total = total}
+]],
+        "exact-reducer.nupp"
+    )
+    local init = find(program.body, function(s)
+        return s.op == "let" and s.value and s.value.op == "reducer_init"
+    end)
+    assert(init, "no reducer initialization")
+    init.value.initial.type = "i32"
+    refuses(program, "invalid reducer construction")
+    init.value.initial.type = "u32"
+    verify.program(program)
+    local contribution = find(program.body, function(s)
+        return s.op == "reducer_add"
+    end)
+    assert(contribution, "no reducer contribution")
+    contribution.value.type = "f64"
+    refuses(program, "invalid reducer contribution")
+end
+
 function M.simdConversionRechecksWidthsAndLaneCounts()
     local program = lowered(
         [[

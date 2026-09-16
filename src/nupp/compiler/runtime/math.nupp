@@ -493,6 +493,9 @@ end
 --- Unsigned 64-bit bit operations.
 local u64 = {}
 
+-- Like the u32 runtime functions above, these return a Lua number. Each count
+-- is in 0..64; calling the public nupp.math namespace here would make its
+-- installer require itself on portable targets.
 function u64.popcount(a: uint64): number
     local remaining = a
     local count: integer = 0

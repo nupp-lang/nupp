@@ -15,6 +15,7 @@ narrowing that is not in the IR is a narrowing that did not happen.
 ]]
 
 local admit = require("nupp.compiler.aot.admit")
+local reducers = require("nupp.compiler.aot.reducers")
 local fold = require("nupp.compiler.aot.fold")
 local simdindices = require("nupp.compiler.aot.simdindices")
 local simdcast = require("nupp.compiler.aot.simdcast")
@@ -386,6 +387,18 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
     local generic = genericSimdType(raw)
     if generic ~= nil then
         return generic
+    end
+    for _, contract in pairs(reducers.CONSTRUCTORS) do
+        if origin.name == contract.recordName then
+            local argument = semanticRaw((raw.typeArgs or {})[1])
+            local element: string? = contract.element
+            if contract.order == "integer" or contract.order == "exact" and contract.element ~= "bool" then
+                element = argument ~= nil and admit.STORAGE[argument.tag] or nil
+            end
+            if element ~= nil and reducers.valid(contract.order, contract.operation, element) then
+                return reducers.typeName(contract.order, contract.operation, element)
+            end
+        end
     end
     local simdTypes: {
         [string]: scalarIR.Type
@@ -1663,6 +1676,38 @@ local function call(
             type = "lua_string",
             source = lower.site(node)
         )
+    elseif identity ~= nil and reducers.CONSTRUCTORS[identity] ~= nil then
+        local contract = reducers.CONSTRUCTORS[identity] as reducers.Contract
+        local resolved = semanticValueType((node as any).inferredType)
+        local order, operation, element = reducers.parse(resolved or "")
+        if element == nil or #args ~= (contract.seeded and 1 or 0) then
+            context.reject(
+                lower.site(node),
+                "an exact reducer needs a concrete element type and its declared initial value"
+            )
+        end
+        local initial: scalarIR.Expr = element == "bool" and new scalarIR.Bool(
+            op = "bool",
+            value = operation == "all",
+            type = "bool",
+            source = lower.site(node)
+        ) or lower.convert(
+            new scalarIR.Constant(op = "constant", value = "0", type = "f64", source = lower.site(node)),
+            element as string,
+            lower.site(node),
+            context
+        )
+        if contract.seeded then
+            initial = lower.convert(args[1], element as string, lower.site(node), context)
+        end
+        return new scalarIR.ReducerInit(
+            op = "reducer_init",
+            order = order as any,
+            operation = operation as any,
+            initial = initial,
+            type = resolved as string,
+            source = lower.site(node)
+        )
     elseif identity == "nupp.simd.reducer.orderedSum"
         or identity == "nupp.simd.reducer.pairwiseSum"
         or identity == "nupp.simd.reducer.compensatedSum"
@@ -2496,8 +2541,12 @@ local function simdMethod(
     kernel.usesSimd = true
 
     local reducerOrder, reducerOperation = tostring(receiverType):match("^simd_reducer_(%a+)_(%a+)$")
+    local exactOrder, exactOperation, reducerElement = reducers.parse(tostring(receiverType))
+    if exactOrder ~= nil then
+        reducerOrder, reducerOperation = exactOrder, exactOperation
+    end
     if reducerOrder ~= nil and (
-        reducerOperation == "sum" or reducerOperation == "product" or reducerOperation == "dot"
+        reducerElement ~= nil or reducerOperation == "sum" or reducerOperation == "product" or reducerOperation == "dot"
     ) then
         if receiver == nil or (receiver as scalarIR.Expr).op ~= "local" then
             kernel.context.reject(source, "a reducer operation must name its scoped reducer binding")
@@ -2510,7 +2559,7 @@ local function simdMethod(
         if reducerState == nil then
             kernel.context.reject(source, "a reducer cannot be copied or passed through another value")
         end
-        local contributionMethod = reducerOperation == "product" and "multiply" or "add"
+        local contributionMethod = reducers.method(reducerOperation as string)
         local argumentCount = reducerOperation == "dot" and 2 or 1
         if method == contributionMethod and #raw == argumentCount then
             if kernel.simdSource ~= true or kernel.simdRegion == nil then
@@ -2528,7 +2577,7 @@ local function simdMethod(
             if reducerOperation == "dot" then
                 right = lower.convert(
                     lower.expression(raw[2], environment, activeIndex, kernel),
-                    "f64",
+                    reducerElement or "f64",
                     source,
                     kernel.context
                 )
@@ -2538,7 +2587,7 @@ local function simdMethod(
                 reducer = receiver as scalarIR.Expr,
                 value = lower.convert(
                     lower.expression(raw[1], environment, activeIndex, kernel),
-                    "f64",
+                    reducerElement or "f64",
                     source,
                     kernel.context
                 ),
@@ -2564,7 +2613,7 @@ local function simdMethod(
                 reducer = receiver as scalarIR.Expr,
                 order = reducerOrder as any,
                 operation = reducerOperation as any,
-                type = "f64",
+                type = reducerElement ~= nil and reducers.result(reducerOperation as string, reducerElement) or "f64",
                 source = source
             )
         end
@@ -3490,6 +3539,15 @@ function lower.expression(
     elseif kind == "number" then
         local token = (node as cst.NumberLit).token
         local value = token ~= nil and (token as lexer.Token).text or ""
+        local wide = value:lower():match("ull$") and "u64" or value:lower():match("ll$") and "i64" or nil
+        if wide ~= nil then
+            return new scalarIR.Int64Constant(
+                op = "constant_i64",
+                value = value:sub(1, wide == "u64" and -4 or -3),
+                type = wide as any,
+                source = lower.site(node)
+            )
+        end
         if tonumber(value) == nil then
             context.reject(lower.site(node), "the kernel needs a finite decimal numeric literal")
         end
@@ -5508,8 +5566,8 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             local inner = inherit(environment)
             local binding = bind((loop.var as lexer.Token).text, "i32", nil, stat, inner, kernel)
             local bounding = from.op == "constant_i32" and (
-                from as scalarIR.IntConstant
-            ).value == "1" and to.op == "span_count" and (to as scalarIR.SpanCount).span or nil
+                tonumber((from as scalarIR.IntConstant).value) or 0
+            ) >= 1 and to.op == "span_count" and (to as scalarIR.SpanCount).span or nil
             -- Inside the nested loop only its own bound proves an index access,
             -- whatever the enclosing map's guard prologue related to the map
             -- index: the verifier admits exactly `boundSpan` under a nested

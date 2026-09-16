@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 34
+const scalarIR.VERSION = 35
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -801,11 +801,23 @@ record scalarIR.Simd
     source: scalarIR.Source?
 end
 
---- Creates one closed floating-point reducer before its authored SIMD region.
+--- Creates one closed reducer before its authored SIMD region.
 record scalarIR.ReducerInit
     op: 'reducer_init'
-    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated'
-    operation: 'sum' | 'product' | 'dot'
+    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
+    operation: 'sum'
+        | 'product'
+        | 'dot'
+        | 'and'
+        | 'or'
+        | 'xor'
+        | 'any'
+        | 'all'
+        | 'count'
+        | 'min'
+        | 'max'
+        | 'argmin'
+        | 'argmax'
     initial: scalarIR.Expr
     type: scalarIR.Type
     source: scalarIR.Source?
@@ -820,8 +832,20 @@ record scalarIR.ReducerAdd
     reducer: scalarIR.Expr
     value: scalarIR.Expr
     right: scalarIR.Expr?
-    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated'
-    operation: 'sum' | 'product' | 'dot'
+    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
+    operation: 'sum'
+        | 'product'
+        | 'dot'
+        | 'and'
+        | 'or'
+        | 'xor'
+        | 'any'
+        | 'all'
+        | 'count'
+        | 'min'
+        | 'max'
+        | 'argmin'
+        | 'argmax'
     type: 'lua_effect'
     source: scalarIR.Source?
 end
@@ -830,9 +854,21 @@ end
 record scalarIR.ReducerValue
     op: 'reducer_value'
     reducer: scalarIR.Expr
-    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated'
-    operation: 'sum' | 'product' | 'dot'
-    type: 'f64'
+    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
+    operation: 'sum'
+        | 'product'
+        | 'dot'
+        | 'and'
+        | 'or'
+        | 'xor'
+        | 'any'
+        | 'all'
+        | 'count'
+        | 'min'
+        | 'max'
+        | 'argmin'
+        | 'argmax'
+    type: scalarIR.Type
     source: scalarIR.Source?
 end
 

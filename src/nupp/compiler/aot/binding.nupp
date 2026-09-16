@@ -359,7 +359,11 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
         ) .. "(" .. table.concat(arguments, ", ") .. ")"
         local values: {string} = {}
         for position in ipairs(resultSourceTypes) do
-            values[position] = "nativeResult.v" .. tostring(position)
+            values[
+                position
+            ] = "nativeResult.v" .. tostring(
+                position
+            ) .. (resultSourceTypes[position] == "integer" and " as integer" or "")
         end
         lines[#lines + 1] = "        return " .. table.concat(values, ", ")
     else
@@ -367,7 +371,9 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
             #lines + 1
         ] = "        " .. (
             #resultSourceTypes == 0 and "" or "return "
-        ) .. (nativeSymbol or program.symbol) .. "(" .. table.concat(arguments, ", ") .. ")"
+        ) .. (
+            nativeSymbol or program.symbol
+        ) .. "(" .. table.concat(arguments, ", ") .. ")" .. (resultSourceTypes[1] == "integer" and " as integer" or "")
     end
     lines[#lines + 1] = "    end"
     lines[#lines + 1] = "end"

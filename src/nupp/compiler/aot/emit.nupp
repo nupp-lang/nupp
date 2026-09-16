@@ -19,6 +19,7 @@ programs different.
 ]]
 
 local admit = require("nupp.compiler.aot.admit")
+local reducers = require("nupp.compiler.aot.reducers")
 local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local target = require("nupp.compiler.aot.target")
@@ -360,6 +361,10 @@ function emit.cType(typeName: string): string
     then
         return "double"
     end
+    local _, _, reducerElement = reducers.parse(typeName)
+    if reducerElement ~= nil then
+        return "KsReduce_" .. reducerElement
+    end
     local layout = typeName:match("^ref:(.+)$")
     if layout ~= nil then
         return "Ks" .. (layout as string) .. " *"
@@ -430,7 +435,10 @@ local luaSite: function(source: scalarIR.Source?): string
 --- none and every site answering nil here emits an operator instead. Naming the
 --- two that do in one place keeps the six sites that construct, contribute to
 --- and finalize a reducer from each growing their own copy of the list.
-local function reducerHelper(order: string, operation: string): string?
+local function reducerHelper(order: string, operation: string, element: string?): string?
+    if element ~= nil and reducers.valid(order, operation, element) then
+        return reducers.helper(order, operation, element)
+    end
     if order == "pairwise" then
         return operation == "product" and "ks_pairwise_f64_product_" or "ks_pairwise_f64_"
     elseif order == "compensated" then
@@ -618,7 +626,8 @@ function emit.scalar(node: scalarIR.Expr): string
         ).span .. ")" or "((double)count)"
     elseif operation == "reducer_init" then
         local reducer = node as scalarIR.ReducerInit
-        local helper = reducerHelper(reducer.order, reducer.operation)
+        local _, _, element = reducers.parse(reducer.type)
+        local helper = reducerHelper(reducer.order, reducer.operation, element)
         if helper ~= nil then
             return helper .. "init(" .. emit.scalar(reducer.initial) .. ")"
         end
@@ -627,7 +636,8 @@ function emit.scalar(node: scalarIR.Expr): string
     elseif operation == "reducer_value" then
         local reducer = node as scalarIR.ReducerValue
         local name = emit.scalar(reducer.reducer)
-        local helper = reducerHelper(reducer.order, reducer.operation)
+        local _, _, element = reducers.parse(reducer.reducer.type)
+        local helper = reducerHelper(reducer.order, reducer.operation, element)
         if helper ~= nil then
             return helper .. "value(" .. name .. ")"
         end
@@ -1551,7 +1561,8 @@ function emit.lane(node: lane.Expr | scalarIR.Expr): string
 
     if operation == "reducer_init" then
         local reducer = node as scalarIR.ReducerInit
-        local helper = reducerHelper(reducer.order, reducer.operation)
+        local _, _, element = reducers.parse(reducer.type)
+        local helper = reducerHelper(reducer.order, reducer.operation, element)
         if helper ~= nil then
             return helper .. "init(" .. emit.lane(reducer.initial) .. ")"
         end
@@ -1560,7 +1571,8 @@ function emit.lane(node: lane.Expr | scalarIR.Expr): string
     elseif operation == "reducer_value" then
         local reducer = node as scalarIR.ReducerValue
         local name = emit.lane(reducer.reducer)
-        local helper = reducerHelper(reducer.order, reducer.operation)
+        local _, _, element = reducers.parse(reducer.reducer.type)
+        local helper = reducerHelper(reducer.order, reducer.operation, element)
         if helper ~= nil then
             return helper .. "value(" .. name .. ")"
         end
@@ -3766,6 +3778,9 @@ local function vectorTypes(shape: lane.Shape): {string}
         vectors[vector] = true
     end
     vectors[shape.bits] = true
+    -- Exact integer reductions operate on unsigned lanes even in a gang that
+    -- otherwise carries its int32 values in signed or binary64 vectors.
+    vectors["u32x" .. tostring(shape.lanes)] = true
     -- The narrow vectors a rounding goes out through. Emitted whether or not
     -- this body rounds, like everything else in the prelude, and unused there
     -- costs a typedef.
@@ -4155,7 +4170,12 @@ end
 
 --- The helpers no gang owns, emitted once however many gangs a file uses.
 function emit.scalarPrelude(): {string}
-    return scalarHelpers()
+    local lines = scalarHelpers()
+    for _, line in ipairs(reducers.cHelpers()) do
+        lines[#lines + 1] = line
+    end
+
+    return lines
 end
 
 --- One power of two per lane position within an eight-lane half.
@@ -8592,26 +8612,29 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body, repeatCo
             lines[#lines + 1] = prefix .. emit.cType(vectorType) .. " " .. temp .. " = " .. contributed .. ";"
             local _, width = emit.vectorParts(vectorType)
             local algebraic = body.algebraicReducers ~= nil and body.algebraicReducers[contribution.reducer] or nil
-            if contribution.order == "algebraic" and algebraic ~= nil then
+            if contribution.order == "exact" and algebraic ~= nil then
+                lines[
+                    #lines + 1
+                ] = prefix .. reducers.accumulate(
+                    contribution.operation,
+                    contribution.element as string,
+                    vectorType,
+                    algebraic,
+                    temp
+                )
+            elseif contribution.order == "algebraic" and algebraic ~= nil then
                 lines[
                     #lines + 1
                 ] = prefix .. algebraic .. (contribution.operation == "product" and " *= " or " += ") .. temp .. ";"
             else
-                local stateful = reducerHelper(contribution.order, contribution.operation)
+                local stateful = reducerHelper(contribution.order, contribution.operation, contribution.element)
                 for laneIndex = 0, width - 1 do
                     if stateful ~= nil then
                         lines[
                             #lines + 1
-                        ] = prefix
-                            .. stateful
-                            .. "add(&"
-                            .. contribution.reducerCName
-                            .. ", (double)"
-                            .. temp
-                            .. "["
-                            .. tostring(
-                                laneIndex
-                            ) .. "]);"
+                        ] = prefix .. stateful .. "add(&" .. contribution.reducerCName .. ", (" .. emit.cType(
+                            contribution.element or "f64"
+                        ) .. ")" .. temp .. "[" .. tostring(laneIndex) .. "]);"
                     else
                         local operator = contribution.operation == "product" and " *= " or " += "
                         lines[
@@ -8628,7 +8651,7 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body, repeatCo
             local contributed = contribution.right ~= nil and "(" .. emit.lane(
                 contribution.value
             ) .. " * " .. emit.lane(contribution.right as scalarIR.Expr) .. ")" or emit.lane(contribution.value)
-            local stateful = reducerHelper(contribution.order, contribution.operation)
+            local stateful = reducerHelper(contribution.order, contribution.operation, contribution.value.type)
             if stateful ~= nil then
                 lines[
                     #lines + 1
@@ -8644,7 +8667,7 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body, repeatCo
             local algebraicReducers: {[string]: string} = {}
             local algebraicOrder: {lane.ReducerAdd} = {}
             for _, laneStatement in ipairs(lanes.statements) do
-                if laneStatement.op == "vreducer_add" and laneStatement.order == "algebraic" then
+                if laneStatement.op == "vreducer_add" and reducers.parallel(laneStatement.order) then
                     local contribution = laneStatement as lane.ReducerAdd
                     algebraicOrder[#algebraicOrder + 1] = contribution
                     algebraicReducers[contribution.reducer] = "reduce_acc_" .. tostring(temporary + #algebraicOrder)
@@ -8661,13 +8684,18 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body, repeatCo
             lines[#lines + 1] = prefix .. "{"
             for _, contribution in ipairs(algebraicOrder) do
                 local accumulator = algebraicReducers[contribution.reducer] as string
+                local vector = reducers.accumulatorType(
+                    contribution.order,
+                    contribution.element or "f64",
+                    contribution.value.type
+                )
                 lines[
                     #lines + 1
                 ] = prefix .. "    " .. emit.cType(
-                    contribution.value.type
-                ) .. " " .. accumulator .. " = ks_splat_" .. tostring(
-                    contribution.value.type
-                ) .. (contribution.operation == "product" and "(1.0);" or "(0.0);")
+                    vector
+                ) .. " " .. accumulator .. " = (" .. emit.cType(
+                    vector
+                ) .. "){" .. repeated(reducers.identity(contribution.operation), lanes.lanes) .. "};"
             end
             lines[#lines + 1] = prefix .. "    size_t i = (size_t)((int32_t)(" .. emit.lane(region.from) .. ") - 1);"
             lines[#lines + 1] = prefix .. "    size_t end = (size_t)(int32_t)(" .. emit.lane(region.to) .. ");"
@@ -8682,19 +8710,30 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body, repeatCo
             for _, contribution in ipairs(algebraicOrder) do
                 local accumulator = algebraicReducers[contribution.reducer] as string
                 for laneIndex = 0, lanes.lanes - 1 do
-                    local operator = contribution.operation == "product" and " *= " or " += "
-                    lines[
-                        #lines + 1
-                    ] = prefix
-                        .. "    "
-                        .. contribution.reducerCName
-                        .. operator
-                        .. "(double)"
-                        .. accumulator
-                        .. "["
-                        .. tostring(
-                            laneIndex
-                        ) .. "];"
+                    if contribution.order == "exact" then
+                        lines[
+                            #lines + 1
+                        ] = prefix .. "    " .. reducers.finish(
+                            contribution.operation,
+                            contribution.element as string,
+                            contribution.reducerCName,
+                            accumulator .. "[" .. tostring(laneIndex) .. "]"
+                        )
+                    else
+                        local operator = contribution.operation == "product" and " *= " or " += "
+                        lines[
+                            #lines + 1
+                        ] = prefix
+                            .. "    "
+                            .. contribution.reducerCName
+                            .. operator
+                            .. "(double)"
+                            .. accumulator
+                            .. "["
+                            .. tostring(
+                                laneIndex
+                            ) .. "];"
+                    end
                 end
             end
             lines[

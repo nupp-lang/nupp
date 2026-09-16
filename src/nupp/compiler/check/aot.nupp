@@ -1,5 +1,7 @@
 module nupp.compiler.check.aot
 
+local reducerContracts = require("nupp.compiler.aot.reducers")
+
 --[[
 The source subset an `@aot` body is allowed to be.
 
@@ -180,6 +182,10 @@ function aot.install(c: state.Checker): aot.Ops
                 local order: string?
                 local operation: string?
                 if identity ~= nil then
+                    local contract = reducerContracts.CONSTRUCTORS[identity]
+                    if contract ~= nil then
+                        return contract.order, contract.method
+                    end
                     order, operation = identity:match("^nupp%.simd%.reducer%.(%a+)(%u%l+)$")
                 end
                 if order ~= "ordered" and order ~= "pairwise" and order ~= "algebraic" and order ~= "compensated" then

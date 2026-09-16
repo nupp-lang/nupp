@@ -17,6 +17,7 @@ local function assertEq(got, want, label)
 end
 
 local diagnosticRun = 0
+
 local function diagnostics(source)
     diagnosticRun = diagnosticRun + 1
     env.loaded = {}
@@ -1817,168 +1818,274 @@ end
 -- typevar relation used to let it through, so `wrap(3)` built a `Reg<integer>`
 -- whose method then read a field no integer has.
 function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
-    local body = table.concat({
-        "local interface Named",
-        "   name: string",
-        "end",
-        "local interface Titled",
-        "   name: string",
-        "   title: string",
-        "end",
-        "local record Reg<T is Named>",
-        "   item: T",
-        "end",
-    }, "\n") .. "\n"
-    assertEq(codes(body .. table.concat({
-        "local function wrap<U>(x: U): Reg<U>",
-        "   return new Reg(item = x)",
-        "end",
-        "return wrap",
-    }, "\n")), "NUPP2116 NUPP2116")
+    local body = table.concat(
+        {
+            "local interface Named",
+            "   name: string",
+            "end",
+            "local interface Titled",
+            "   name: string",
+            "   title: string",
+            "end",
+            "local record Reg<T is Named>",
+            "   item: T",
+            "end",
+        },
+        "\n"
+    ) .. "\n"
+    assertEq(
+        codes(
+            body .. table.concat(
+                {"local function wrap<U>(x: U): Reg<U>", "   return new Reg(item = x)", "end", "return wrap",},
+                "\n"
+            )
+        ),
+        "NUPP2116 NUPP2116"
+    )
     assertEq(codes(body .. "local type Also<U> = Reg<U>\nreturn Also\n"), "NUPP2116")
-    clean(body .. table.concat({
-        "local function wrap<U is Named>(x: U): Reg<U>",
-        "   return new Reg(item = x)",
-        "end",
-        "local function narrow<U is Titled>(x: U): Reg<U>",
-        "   return new Reg(item = x)",
-        "end",
-        "local type Also<U is Named> = Reg<U>",
-        "return wrap, narrow, Also",
-    }, "\n"))
-    assertEq(codes(table.concat({
-        "local interface Named",
-        "   name: string",
-        "end",
-        "local interface Titled",
-        "   name: string",
-        "   title: string",
-        "end",
-        "local record Reg<T is Titled>",
-        "   item: T",
-        "end",
-        "local function wrap<U is Named>(x: U): Reg<U>",
-        "   return new Reg(item = x)",
-        "end",
-        "return wrap",
-    }, "\n")), "NUPP2116 NUPP2116")
+    clean(
+        body .. table.concat(
+            {
+                "local function wrap<U is Named>(x: U): Reg<U>",
+                "   return new Reg(item = x)",
+                "end",
+                "local function narrow<U is Titled>(x: U): Reg<U>",
+                "   return new Reg(item = x)",
+                "end",
+                "local type Also<U is Named> = Reg<U>",
+                "return wrap, narrow, Also",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "local interface Named",
+                    "   name: string",
+                    "end",
+                    "local interface Titled",
+                    "   name: string",
+                    "   title: string",
+                    "end",
+                    "local record Reg<T is Titled>",
+                    "   item: T",
+                    "end",
+                    "local function wrap<U is Named>(x: U): Reg<U>",
+                    "   return new Reg(item = x)",
+                    "end",
+                    "return wrap",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2116 NUPP2116"
+    )
 end
 
 -- A default is checked against the bound beside it where it is declared, since
 -- every application relying on it would otherwise be refused instead.
 function M.aDefaultTypeArgumentIsCheckedAgainstItsBoundWhereDeclared()
-    local body = table.concat({
-        "local interface Named",
-        "   name: string",
-        "end",
-        "local record P is Named",
-        "   name: string",
-        "end",
-    }, "\n") .. "\n"
+    local body = table.concat(
+        {"local interface Named", "   name: string", "end", "local record P is Named", "   name: string", "end",},
+        "\n"
+    ) .. "\n"
     assertEq(codes(body .. "local record Reg<T is Named = integer>\n   item: T\nend\nreturn Reg\n"), "NUPP2116")
     clean(body .. "local record Reg<T is Named = P>\n   item: T\nend\nreturn Reg\n")
-    assertEq(codes(body .. "local function make<T is Named = integer>(): T?\n   return nil\nend\nreturn make\n"), "NUPP2116")
+    assertEq(
+        codes(body .. "local function make<T is Named = integer>(): T?\n   return nil\nend\nreturn make\n"),
+        "NUPP2116"
+    )
 end
 
 function M.expectedResultInfersANullaryGenericConstructor()
-    clean(table.concat({
-        "local interface Token<T>",
-        "end",
-        "local function make<T>(): Token<T>",
-        "   error('not executed')",
-        "end",
-        "local value: Token<number> = make()",
-        "return value",
-    }, "\n"))
+    clean(
+        table.concat(
+            {
+                "local interface Token<T>",
+                "end",
+                "local function make<T>(): Token<T>",
+                "   error('not executed')",
+                "end",
+                "local value: Token<number> = make()",
+                "return value",
+            },
+            "\n"
+        )
+    )
 end
 
 function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
-    clean(table.concat({
-        'local simd = require("nupp.simd")',
-        "local species: simd.Species<float, simd.Preferred> = simd.species()",
-        "local fixed: simd.Species<float, simd.Fixed<8>> = simd.species()",
-        "local left: simd.Vector<float, simd.Preferred> = nil as any",
-        "local right: simd.Vector<float, simd.Preferred> = nil as any",
-        "local selected: simd.Mask<float, simd.Preferred> = (left < right) & (left <= right)",
-        "local positive: simd.Mask<float, simd.Preferred> = left > 0.0",
-        "return species, fixed, selected, positive",
-    }, "\n"))
-    assertEq(codes(table.concat({
-        'local simd = require("nupp.simd")',
-        "local function wrong(value: simd.Vector<number, simd.Fixed<4>>): simd.Vector<number, simd.Fixed<8>>",
-        "   return value",
-        "end",
-        "return wrong",
-    }, "\n")), "NUPP2002")
-    assertEq(codes(table.concat({
-        'local simd = require("nupp.simd")',
-        "local left: simd.Vector<float, simd.Preferred> = nil as any",
-        "local right: simd.Vector<float, simd.Preferred> = nil as any",
-        "return left & right",
-    }, "\n")), "NUPP2003")
+    clean(
+        table.concat(
+            {
+                'local simd = require("nupp.simd")',
+                "local species: simd.Species<float, simd.Preferred> = simd.species()",
+                "local fixed: simd.Species<float, simd.Fixed<8>> = simd.species()",
+                "local left: simd.Vector<float, simd.Preferred> = nil as any",
+                "local right: simd.Vector<float, simd.Preferred> = nil as any",
+                "local selected: simd.Mask<float, simd.Preferred> = (left < right) & (left <= right)",
+                "local positive: simd.Mask<float, simd.Preferred> = left > 0.0",
+                "return species, fixed, selected, positive",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    'local simd = require("nupp.simd")',
+                    "local function wrong(value: simd.Vector<number, simd.Fixed<4>>): simd.Vector<number, simd.Fixed<8>>",
+                    "   return value",
+                    "end",
+                    "return wrong",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2002"
+    )
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    'local simd = require("nupp.simd")',
+                    "local left: simd.Vector<float, simd.Preferred> = nil as any",
+                    "local right: simd.Vector<float, simd.Preferred> = nil as any",
+                    "return left & right",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2003"
+    )
 end
 
 function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
-    clean(table.concat({
-        'local simd = require("nupp.simd")',
-        "local species: simd.Species<uint8, simd.Preferred> = simd.species()",
-        "local vector: simd.Vector<uint8, simd.Preferred> = nil as any",
-        "local mask: simd.Mask<uint8, simd.Preferred> = vector == vector",
-        "local lane: uint32 = vector:extract(1)",
-        "local bits = mask:bits()",
-        "local shift: uint32 = 1",
-        "local changed: uint64 = ~(bits | bits) << shift",
-        "local same: boolean = changed == bits",
-        "return species, mask, lane, same",
-    }, "\n"))
+    clean(
+        table.concat(
+            {
+                'local simd = require("nupp.simd")',
+                "local species: simd.Species<uint8, simd.Preferred> = simd.species()",
+                "local vector: simd.Vector<uint8, simd.Preferred> = nil as any",
+                "local mask: simd.Mask<uint8, simd.Preferred> = vector == vector",
+                "local lane: uint32 = vector:extract(1)",
+                "local bits = mask:bits()",
+                "local shift: uint32 = 1",
+                "local changed: uint64 = ~(bits | bits) << shift",
+                "local same: boolean = changed == bits",
+                "return species, mask, lane, same",
+            },
+            "\n"
+        )
+    )
     assertEq(codes("local value: uint8 = 1\nreturn value\n"), "NUPP2012")
 end
 
 function M.simdHorizontalContractsPreserveTheirNestedIntrinsicIdentity()
-    clean(table.concat({
-        'local simd = require("nupp.simd")',
-        "local horizontal = simd.horizontal",
-        "local ordered = horizontal.orderedSum",
-        "local value: simd.Vector<float, simd.Fixed<8>> = nil as any",
-        "local result: float = ordered(value)",
-        "return result",
-    }, "\n"))
-    assertEq(codes(table.concat({
-        'local simd = require("nupp.simd")',
-        "local value: simd.Vector<uint32, simd.Fixed<8>> = nil as any",
-        "return simd.horizontal.orderedSum(value)",
-    }, "\n")), "NUPP2006")
+    clean(
+        table.concat(
+            {
+                'local simd = require("nupp.simd")',
+                "local horizontal = simd.horizontal",
+                "local ordered = horizontal.orderedSum",
+                "local value: simd.Vector<float, simd.Fixed<8>> = nil as any",
+                "local result: float = ordered(value)",
+                "return result",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    'local simd = require("nupp.simd")',
+                    "local value: simd.Vector<uint32, simd.Fixed<8>> = nil as any",
+                    "return simd.horizontal.orderedSum(value)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2006"
+    )
+end
+
+function M.exactReducerLifecycleAndTypesAreChecked()
+    local source = [[
+local simd = require("nupp.simd")
+@aot
+local function total(seed: uint32): uint32
+    local fold = simd.reducer.u32.wrappingSum(seed)
+    @simd
+    for i = 1, 4 do
+        fold:add(seed)
+    end
+    return fold:value()
+end
+return total
+]]
+    clean(source)
+    local bad = source:gsub("fold:add%(seed%)", "if i > 2 then fold:add(seed) end")
+    local found = diagnostics(bad)
+    local saw = false
+    for _, diagnostic in ipairs(found) do
+        saw = saw or diagnostic.msg:find("exactly one unconditional contribution", 1, true) ~= nil
+    end
+    assert(saw, "conditional exact contribution was not rejected")
+    assertEq(codes(source:gsub("fold:add%(seed%)", "fold:add(true)")), "NUPP2006")
+    clean(
+        [[
+local simd = require("nupp.simd")
+local minimum: simd.IntegerArgMin<uint64> = simd.reducer.integerArgMin()
+local flag: boolean = simd.reducer.any():value()
+local count: uint64 = simd.reducer.count():value()
+return minimum, flag, count
+]]
+    )
 end
 
 function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
-    clean(table.concat({
-        'local simd = require("nupp.simd")',
-        "@aot",
-        "local function total(): number",
-        "   local sum = simd.reducer.orderedSum(0.0)",
-        "   @simd",
-        "   for i = 1, 4 do",
-        "      sum:add(i)",
-        "   end",
-        "   return sum:value()",
-        "end",
-        "return total",
-    }, "\n"))
+    clean(
+        table.concat(
+            {
+                'local simd = require("nupp.simd")',
+                "@aot",
+                "local function total(): number",
+                "   local sum = simd.reducer.orderedSum(0.0)",
+                "   @simd",
+                "   for i = 1, 4 do",
+                "      sum:add(i)",
+                "   end",
+                "   return sum:value()",
+                "end",
+                "return total",
+            },
+            "\n"
+        )
+    )
 
-    local found = diagnostics(table.concat({
-        'local simd = require("nupp.simd")',
-        "@aot",
-        "local function total(): number",
-        "   local sum = simd.reducer.orderedSum(0.0)",
-        "   local copy = sum",
-        "   @simd",
-        "   for i = 1, 4 do",
-        "      copy:add(i)",
-        "   end",
-        "   return copy:value()",
-        "end",
-        "return total",
-    }, "\n"))
+    local found = diagnostics(
+        table.concat(
+            {
+                'local simd = require("nupp.simd")',
+                "@aot",
+                "local function total(): number",
+                "   local sum = simd.reducer.orderedSum(0.0)",
+                "   local copy = sum",
+                "   @simd",
+                "   for i = 1, 4 do",
+                "      copy:add(i)",
+                "   end",
+                "   return copy:value()",
+                "end",
+                "return total",
+            },
+            "\n"
+        )
+    )
     local lifecycle = false
     for _, diagnostic in ipairs(found) do
         lifecycle = lifecycle or diagnostic.msg:find(
@@ -1994,24 +2101,32 @@ end
 -- that names the interface with `is`, so a shape has to carry the member itself:
 -- one that does not is refused, wherever the interface is wanted.
 function M.aShapeMustCarryAnInterfacesDefaultMember()
-    local body = table.concat({
-        "local interface Named",
-        "   name: string",
-        "   function greet(self): string",
-        '      return "hi " .. self.name',
-        "   end",
-        "end",
-        "local function greet(v: Named): string",
-        "   return v:greet()",
-        "end",
-    }, "\n") .. "\n"
+    local body = table.concat(
+        {
+            "local interface Named",
+            "   name: string",
+            "   function greet(self): string",
+            '      return "hi " .. self.name',
+            "   end",
+            "end",
+            "local function greet(v: Named): string",
+            "   return v:greet()",
+            "end",
+        },
+        "\n"
+    ) .. "\n"
     assertEq(codes(body .. 'local n: Named = {name = "x"}\nreturn n\n'), "NUPP2001")
     assertEq(codes(body .. 'print(greet({name = "y"}))\n'), "NUPP2006")
     assertEq(codes(body .. 'local t: {name: string} = {name = "z"}\nprint(greet(t))\n'), "NUPP2006")
-    clean(body .. table.concat({
-        'local n: Named = {name = "x", greet = function(self: Named): string return "yo" end}',
-        "print(greet(n))",
-    }, "\n"))
+    clean(
+        body .. table.concat(
+            {
+                'local n: Named = {name = "x", greet = function(self: Named): string return "yo" end}',
+                "print(greet(n))",
+            },
+            "\n"
+        )
+    )
 end
 
 return M

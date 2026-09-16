@@ -50,7 +50,7 @@ type aotLane.Vector = string
 --- produces. Both are here because a field's storage type is looked up directly:
 --- collapsing them would mean the lookup had to translate first, and a lookup
 --- that translates is a place the two halves can disagree about a width.
-type aotLane.Element = 'f64' | 'f32' | 'i32' | 'u32' | 'bool'
+type aotLane.Element = 'f64' | 'f32' | 'i32' | 'u32' | 'i64' | 'u64' | 'bool'
 
 --- One gang: how many iterations run at once, and which vector type each element
 --- is carried in.
@@ -411,7 +411,15 @@ const aotLane.SHAPES = {
         lanes = 8,
         bytes = 64,
         mask = "m64x8",
-        vectorFor = {["f64"] = "f64x8", ["f32"] = "f32x8", ["i32"] = "f64x8", ["u32"] = "f64x8", ["bool"] = "m64x8"},
+        vectorFor = {
+            ["f64"] = "f64x8",
+            ["f32"] = "f32x8",
+            ["i32"] = "f64x8",
+            ["u32"] = "f64x8",
+            ["i64"] = "i64x8",
+            ["u64"] = "u64x8",
+            ["bool"] = "m64x8"
+        },
         maskFor = {["f32"] = "m32x8"},
         bits = "u32x8"
     ),
@@ -424,7 +432,15 @@ const aotLane.SHAPES = {
         -- exact binary64 value, which is also what ordinary Nupp does with them.
         -- Binary32 does not: it rode there too until measuring showed what that
         -- cost, and it has its own lanes now.
-        vectorFor = {["f64"] = "f64x4", ["f32"] = "f32x4", ["i32"] = "f64x4", ["u32"] = "f64x4", ["bool"] = "m64x4"},
+        vectorFor = {
+            ["f64"] = "f64x4",
+            ["f32"] = "f32x4",
+            ["i32"] = "f64x4",
+            ["u32"] = "f64x4",
+            ["i64"] = "i64x4",
+            ["u64"] = "u64x4",
+            ["bool"] = "m64x4"
+        },
         maskFor = {["f32"] = "m32x4"},
         bits = "u32x4"
     ),
@@ -443,7 +459,15 @@ const aotLane.SHAPES = {
         lanes = 2,
         bytes = 16,
         mask = "m64x2",
-        vectorFor = {["f64"] = "f64x2", ["f32"] = "f32x2", ["i32"] = "f64x2", ["u32"] = "f64x2", ["bool"] = "m64x2"},
+        vectorFor = {
+            ["f64"] = "f64x2",
+            ["f32"] = "f32x2",
+            ["i32"] = "f64x2",
+            ["u32"] = "f64x2",
+            ["i64"] = "i64x2",
+            ["u64"] = "u64x2",
+            ["bool"] = "m64x2"
+        },
         maskFor = {["f32"] = "m32x2"},
         bits = "u32x2"
     ),
@@ -665,10 +689,26 @@ record aotLane.ReducerAdd
     reducer: string
     reducerCName: string
     value: aotLane.Expr
+
+    --- Scalar contribution type, before the gang selected its carrier.
+    element: scalarIR.Type?
+
     right: aotLane.Expr?
     mask: aotLane.Expr?
-    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated'
-    operation: 'sum' | 'product' | 'dot'
+    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
+    operation: 'sum'
+        | 'product'
+        | 'dot'
+        | 'and'
+        | 'or'
+        | 'xor'
+        | 'any'
+        | 'all'
+        | 'count'
+        | 'min'
+        | 'max'
+        | 'argmin'
+        | 'argmax'
     source: aotLane.Source?
 end
 

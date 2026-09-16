@@ -46,6 +46,7 @@ local function main(): string
 
     local calls: integer = 0
     local target: {value: integer}? = nil
+
     local function sideEffect(): integer
         calls += 1
         return calls
@@ -73,6 +74,27 @@ local function main(): string
     local digits = species:loadString("aZ09............", 0):inRange(48, 57):count()
     local wideValue: int64 = 9223372036854775807LL
     local wideWrapped = wideValue + 1LL
+
+    -- Reducers must agree even when wide values are provider-owned objects,
+    -- rather than LuaJIT cdata, and loading their math support must not recurse.
+    local wrapping = simd.reducer.u64.wrappingSum(18446744073709551615ULL)
+    wrapping:add(2ULL)
+    assert(wrapping:value() == 1ULL)
+    local minimum: simd.IntegerArgMin<uint64> = simd.reducer.integerArgMin()
+    minimum:add(9007199254740993ULL)
+    minimum:add(9007199254740992ULL)
+    minimum:add(9007199254740992ULL)
+    assert(minimum:value() == 2)
+    local maximum = simd.reducer.integerMax(-1LL)
+    maximum:add(1LL)
+    assert(maximum:value() == 1LL)
+    local countTrue = simd.reducer.count()
+    countTrue:add(true)
+    countTrue:add(false)
+    assert(countTrue:value() == 1ULL)
+    assert(nupp.math.u64.popcount(255ULL) == 8)
+    assert(nupp.math.u64.trailingZeros(4294967296ULL) == 32)
+    assert(nupp.math.u64.leadingZeros(4294967296ULL) == 31)
 
     return `${settings.label}:${selected}:${defaulted}:${twice(
         4

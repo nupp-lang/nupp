@@ -366,6 +366,52 @@ compress and expand. That is the case the non-escaping vocabulary answers, and a
 kernel that merely vectorizes imperfectly is not it.
 :::
 
+## Exact loop reducers
+
+Reducers collect exactly one unconditional contribution per logical iteration
+of an `@simd` loop and are finalized once, after that loop. They also have
+ordinary Lua implementations when AOT is off.
+
+| Constructor under `simd.reducer` | Contribution | Result on an empty loop |
+| --- | --- | --- |
+| `i32/u32/i64/u64.wrappingSum(initial)` | `:add(value)` | Initial value |
+| `i32/u32/i64/u64.wrappingProduct(initial)` | `:multiply(value)` | Initial value |
+| `i32/u32/i64/u64.andBits/orBits/xorBits(initial)` | `:combine(value)` | Initial value |
+| `any()`, `all()` | `:add(boolean)` | `false`, `true` |
+| `count()` | `:add(boolean)` | `0` as `uint64` |
+| `integerMin(initial)`, `integerMax(initial)` | `:add(value)` | Initial value |
+| `propagatingMin/Max(initial)`, `numberMin/Max(initial)` | `:add(number)` | Initial value, NaNs canonicalized |
+| `integerArgMin/Max()`, `propagatingArgMin/Max()`, `numberArgMin/Max()` | `:add(value)` | Logical position `0` |
+
+Integer arithmetic wraps modulo the selected width, including signed overflow.
+Count counts true contributions modulo 2^64. Narrow integer storage contributes
+to the corresponding 32-bit reducer.
+
+Wrapping, bitwise, boolean, and count reducers use per-lane accumulators.
+Extrema currently commit candidates in logical order; AOT reports these
+serialized edges explicitly.
+
+An arg reducer returns a one-based **logical position**, not the loop variable.
+Equal candidates keep the first position. For integer arg reducers, the result
+annotation selects the input type:
+
+```nupp
+local winner: simd.IntegerArgMin<uint64> = simd.reducer.integerArgMin()
+@simd
+for i = 3, #values do
+    winner:add(values[i])
+end
+return winner:value() -- 1 means values[3]; 0 means no iterations.
+```
+
+Floating extrema use binary64 values, including exactly widened binary32 inputs.
+Propagating contracts select the first NaN if any exists. Number-preferring
+contracts ignore NaNs when a number exists and select the first NaN otherwise.
+Value results canonicalize NaNs; arg results identify the original contribution.
+Both order `-0` below `+0`, then break equal-value ties by first position.
+Infinities compare normally. Only value reducers take an initial candidate;
+arg reducers do not invent an index for a seed.
+
 ## Explicit SIMD
 
 ### Numeric conversion and bit reinterpretation

@@ -80,7 +80,15 @@ end
 --- several results and the layout names a span element takes. Neither is
 --- something a lane carries, so crossing from one to the other is a check
 --- rather than a cast.
-const rewrite.ELEMENTS = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] = true, ["bool"] = true,}
+const rewrite.ELEMENTS = {
+    ["f64"] = true,
+    ["f32"] = true,
+    ["i32"] = true,
+    ["u32"] = true,
+    ["i64"] = true,
+    ["u64"] = true,
+    ["bool"] = true,
+}
 
 --- The lane element a scalar type names, when it names one.
 function rewrite.asElement(scalarType: scalarIR.Type): lane.Element?
@@ -1762,7 +1770,13 @@ function rewrite.block(
             local value = rewrite.varying(
                 contribution.value,
                 state
-            ) and rewrite.expression(contribution.value, state) or rewrite.splat(contribution.value, "f64", state)
+            ) and rewrite.expression(
+                contribution.value,
+                state
+            ) or contribution.value.type == "bool" and rewrite.boolMask(
+                contribution.value,
+                state
+            ) or rewrite.splat(contribution.value, contribution.value.type as lane.Element, state)
             local right: lane.Expr? = nil
             if contribution.right ~= nil then
                 right = (
@@ -1782,6 +1796,7 @@ function rewrite.block(
                 reducer = named.name,
                 reducerCName = tostring(named.cName),
                 value = value as lane.Expr,
+                element = contribution.value.type,
                 right = right,
                 order = contribution.order,
                 operation = contribution.operation,
