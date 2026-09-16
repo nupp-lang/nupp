@@ -125,6 +125,35 @@ a shift count, a helper argument and the bound a cursor is compared against.
 That last one is why a counted loop compares in its own width rather than
 converting to binary64 to meet its bound.
 
+## Explicit SIMD conversions
+
+The destination species selects the numeric type: `integers:convert(values)`
+converts each lane; `integers:reinterpret(values)` preserves each lane's bits.
+Both require equal logical lane counts. Reinterpretation also requires equal
+element widths. Use `Fixed<N>` when changing element width: preferred species
+of different element widths have different lane counts.
+
+Numeric conversion follows LuaJIT FFI rules, not saturating conversion:
+
+- Integer narrowing keeps the low bits; widening extends the source value.
+- Float-to-integer truncates toward zero through `int64`, then narrows. Thus
+  `4294967296` converted to an `int32` lane becomes `0`, not `2147483647`.
+- Float-to-`uint64` accepts the union of the signed and unsigned 64-bit ranges;
+  negative signed-range values retain their two's-complement representation.
+- Integer-to-floating conversion goes through double, including the possible
+  double rounding of a 64-bit integer converted to `float`.
+
+NaN, infinities, and float inputs outside the conversion's supported range
+produce unspecified target-dependent integer values, never undefined behavior.
+Do not use those values as a portable overflow test. This does not promise the
+same exceptional integer that a particular LuaJIT build happens to return.
+
+Conversions lower to vector operations, with target-dependent instruction
+counts; some targets must decompose 64-bit conversions. Generated C guards
+floating inputs before any potentially undefined integer conversion.
+Reinterpretation does no numeric work and preserves NaN payloads and signed
+zero as bits.
+
 ## Verification
 
 Generated C is a backend representation and not the safety boundary. Every span

@@ -162,6 +162,8 @@ local PURE_OPS: {
     simd_extract = true,
     simd_insert = true,
     simd_permute = true,
+    simd_convert = true,
+    simd_reinterpret = true,
     simd_compress = true,
     simd_expand = true,
     simd_prefix = true,

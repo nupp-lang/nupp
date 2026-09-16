@@ -477,6 +477,19 @@ end
 --- @export
 sealed interface simd.Species<T, S>
     readonly lanes: integer
+
+    --- Converts each lane using LuaJIT FFI numeric conversion rules. Integer
+    --- narrowing keeps low bits; float-to-integer truncates through int64,
+    --- except uint64 which accepts the union of signed and unsigned ranges.
+    --- Integer-to-float follows LuaJIT's double intermediate, including the
+    --- possible double rounding when converting a 64-bit integer to float.
+    --- NaN, infinities and out-of-range inputs have target-specific results,
+    --- never undefined behavior. Both species must have the same lane count.
+    convert: function<U>(borrows self: simd.Species<T, S>, value: simd.Vector<U, S>): simd.Vector<T, S>
+
+    --- Preserves every lane's bits. Element widths and lane counts must match.
+    reinterpret: function<U>(borrows self: simd.Species<T, S>, value: simd.Vector<U, S>): simd.Vector<T, S>
+
     splat: function(borrows self: simd.Species<T, S>, value: T): simd.Vector<T, S>
     iota: function(borrows self: simd.Species<T, S>, first: T, step: T): simd.Vector<T, S>
     tail: function(borrows self: simd.Species<T, S>, active: integer): simd.Mask<T, S>

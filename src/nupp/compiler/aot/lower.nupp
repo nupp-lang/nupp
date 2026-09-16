@@ -17,6 +17,7 @@ narrowing that is not in the IR is a narrowing that did not happen.
 local admit = require("nupp.compiler.aot.admit")
 local fold = require("nupp.compiler.aot.fold")
 local simdindices = require("nupp.compiler.aot.simdindices")
+local simdcast = require("nupp.compiler.aot.simdcast")
 local lexer = require("nupp.compiler.lexer")
 local cst = require("nupp.compiler.cst")
 local relations = require("nupp.compiler.aot.relations")
@@ -2585,6 +2586,25 @@ local function simdMethod(
                 op = "simd_splat",
                 args = {value},
                 intrinsic = "splat",
+                type = vectorType,
+                source = source
+            )
+        elseif genericFamily == "species" and (method == "convert" or method == "reinterpret") and #raw == 1 then
+            local value = lower.expression(raw[1], environment, activeIndex, kernel)
+            if not simdcast.matches(value.type, vectorType, method == "reinterpret") then
+                kernel.context.reject(
+                    source,
+                    "SIMD " .. method .. " requires matching logical lane counts" .. (
+                        method == "reinterpret"
+                        and " and equal element widths"
+                        or "; use Fixed<N> when changing element width"
+                    )
+                )
+            end
+            return new scalarIR.Simd(
+                op = method == "convert" and "simd_convert" or "simd_reinterpret",
+                args = {value},
+                intrinsic = method,
                 type = vectorType,
                 source = source
             )

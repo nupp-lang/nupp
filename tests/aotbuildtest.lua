@@ -2060,9 +2060,12 @@ function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
         test.equal(code, 0, ("the aot=%s wide-bitwise fixture at %s builds: %s"):format(policy, dir, out))
         local pipe = assert(
             io.popen(
-                ("cd %q && luajit -e %q 2>&1"):format(
+                (
+                    "cd %q && luajit -e %q 2>&1"
+                ):format(
                     dir,
-                    searchPathPrelude() .. 'local w=require("wide"); print(w.answer()); print(w.literalCounts()); print(w.literalForms())'
+                    searchPathPrelude()
+                    .. 'local w=require("wide"); print(w.answer()); print(w.literalCounts()); print(w.literalForms())'
                 )
             )
         )
@@ -2079,7 +2082,11 @@ function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
         ordinary,
         ("uint64 bitwise differs between aot=require at %s and aot=off at %s"):format(compiledDir, ordinaryDir)
     )
-    test.equal(compiled, "4294967296ULL\n36\t32\t64\t3ULL\n1017ULL", "uint64 literals and operations agree on both routes")
+    test.equal(
+        compiled,
+        "4294967296ULL\n36\t32\t64\t3ULL\n1017ULL",
+        "uint64 literals and operations agree on both routes"
+    )
 end
 
 function M.aWrapIsModularOnBothRoutes()
@@ -2961,11 +2968,167 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     trace("complete")
 end
 
+function M.numericSimdConversionsMatchLuaJitAndIndependentScalarResults()
+    if not hasToolchain() then
+        return
+    end
+    local ffi = require("ffi")
+    local types = {
+        {name = "float", c = "float", bits = 32, floating = true},
+        {name = "number", c = "double", bits = 64, floating = true},
+        {name = "int8", c = "int8_t", bits = 8},
+        {name = "uint8", c = "uint8_t", bits = 8},
+        {name = "int16", c = "int16_t", bits = 16},
+        {name = "uint16", c = "uint16_t", bits = 16},
+        {name = "int32", c = "int32_t", bits = 32},
+        {name = "uint32", c = "uint32_t", bits = 32},
+        {name = "int64", c = "int64_t", bits = 64},
+        {name = "uint64", c = "uint64_t", bits = 64},
+    }
+    local dir = project("require")
+    local cases, modules = {}, {}
+    for _, from in ipairs(types) do
+        local source = {'local span = require("nupp.mem.span")', 'local simd = require("nupp.simd")'}
+        local exports = {}
+        for _, lanes in ipairs({3, 128 / from.bits}) do
+            for _, to in ipairs(types) do
+                for _, method in ipairs(from.bits == to.bits and {"convert", "reinterpret"} or {"convert"}) do
+                    local name = "cast_" .. from.name .. "_" .. to.name .. "_" .. method .. "_n" .. lanes
+                    source[
+                        #source + 1
+                    ] = (
+                        [[
+@aot
+local function %s(exclusive out: span.WriteSpan<%s>, borrows input: span.Span<%s>): nil
+    local source: simd.Species<%s, simd.Fixed<%d>> = simd.species()
+    local target: simd.Species<%s, simd.Fixed<%d>> = simd.species()
+    target:store(out, 1, target:%s(source:load(input, 1)))
+end
+]]
+                    ):format(name, to.name, from.name, from.name, lanes, to.name, lanes, method)
+                    exports[#exports + 1] = name .. " = " .. name
+                    cases[#cases + 1] = {name = name, from = from, to = to, method = method, lanes = lanes}
+                end
+            end
+        end
+        source[#source + 1] = "return {" .. table.concat(exports, ", ") .. "}"
+        local handle = assert(io.open(dir .. "/src/casts_" .. from.name .. ".nupp", "wb"))
+        handle:write(table.concat(source, "\n"))
+        handle:close()
+        modules[#modules + 1] = from.name .. ' = require("casts_' .. from.name .. '")'
+    end
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write("return {" .. table.concat(modules, ", ") .. "}")
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local lib = ffi.load(libraryPath(dir))
+    local floatValues = {
+        0,
+        -0.0,
+        3.9,
+        -3.9,
+        255.9,
+        -257.9,
+        4294967295,
+        4294967296,
+        -4294967297,
+        2 ^ 63 - 1024,
+        -2 ^ 63,
+        2 ^ 63,
+        2 ^ 64 - 2048,
+        2 ^ 64,
+        -2 ^ 64,
+        math.huge,
+        -math.huge,
+        0 / 0
+    }
+    local integerValues = {
+        0LL,
+        -1LL,
+        1LL,
+        255LL,
+        256LL,
+        -257LL,
+        4294967295LL,
+        4294967296LL,
+        9223372036854775807LL,
+        -9223372036854775807LL - 1LL,
+        18446744073709551615ULL,
+        9223372586610589697ULL
+    }
+    for _, case in ipairs(cases) do
+        local native = librarySymbol(lib, "ks_" .. case.name)
+        local scalar = librarySymbol(lib, "ks_" .. case.name .. "_forced_scalar")
+        for _, symbol in ipairs({native, scalar}) do
+            ffi.cdef(("void %s(%s *, const %s *, size_t, size_t);"):format(symbol, case.to.c, case.from.c))
+        end
+        local values = case.from.floating and floatValues or integerValues
+        for offset = 1, #values, case.lanes do
+            local input = ffi.new(case.from.c .. "[?]", case.lanes)
+            for i = 0, case.lanes - 1 do
+                input[i] = ffi.cast(case.from.c, values[offset + i] or 0)
+            end
+            local actual = ffi.new(case.to.c .. "[?]", case.lanes)
+            local reference = ffi.new(case.to.c .. "[?]", case.lanes)
+            lib[native](actual, input, case.lanes, case.lanes)
+            lib[scalar](reference, input, case.lanes, case.lanes)
+            if case.method == "reinterpret" then
+                test.equal(ffi.string(actual, ffi.sizeof(actual)), ffi.string(input, ffi.sizeof(input)), case.name)
+                test.equal(
+                    ffi.string(reference, ffi.sizeof(reference)),
+                    ffi.string(input, ffi.sizeof(input)),
+                    case.name
+                )
+            else
+                for i = 0, case.lanes - 1 do
+                    local value = tonumber(input[i])
+                    local valid = not case.from.floating or case.to.floating or (
+                        value >= -2 ^ 63 and value < (case.to.name == "uint64" and 2 ^ 64 or 2 ^ 63)
+                    )
+                    local expected = valid and ffi.cast(case.to.c, input[i]) or reference[i]
+                    local a, b = tonumber(actual[i]), tonumber(expected)
+                    if a == a and b == b then
+                        local equal
+                        if case.to.bits == 64 and not case.to.floating then
+                            equal = actual[i] == expected
+                        else
+                            equal = a == b
+                        end
+                        assert(
+                            equal,
+                            case.name .. " input " .. tostring(
+                                input[i]
+                            ) .. ": " .. tostring(actual[i]) .. " ~= " .. tostring(expected)
+                        )
+                        assert(actual[i] == reference[i], case.name .. " scalar mismatch")
+                        if case.to.floating and a == 0 then
+                            test.equal(1 / a, 1 / b, case.name .. " signed zero")
+                        end
+                    else
+                        assert(
+                            a ~= a and b ~= b and tonumber(reference[i]) ~= tonumber(reference[i]),
+                            case.name .. " NaN"
+                        )
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- The oracle is LuaJIT's interpreted FFI conversion, independent of its trace
+-- compiler's specialization of the changing ctype in this conversion matrix.
+require("jit").off(M.numericSimdConversionsMatchLuaJitAndIndependentScalarResults, true)
+
 function M.indexedSimdMemoryMatchesAnIndependentScalarReference()
-    if not hasToolchain() then return end
+    if not hasToolchain() then
+        return
+    end
     local dir = project("require")
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
-    handle:write([[
+    handle:write(
+        [[
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 @aot
@@ -2985,7 +3148,8 @@ local function gather(exclusive out: span.WriteSpan<float>, borrows input: span.
     data:store(out, 1, data:gather(input, indices, data:tail(#map)))
 end
 return {indexed = indexed, gather = gather}
-]])
+]]
+    )
     handle:close()
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -2998,14 +3162,19 @@ return {indexed = indexed, gather = gather}
         names[name] = symbol
     end
     local input = ffi.new("float[10]")
-    for i = 0, 9 do input[i] = i * 3 end
+    for i = 0, 9 do
+        input[i] = i * 3
+    end
     local map = ffi.new("int64_t[8]", {8, 1, 4, 12, 0, -1, 0x7fffffffffffffffLL, 3})
     for count = 0, 8 do
         for inputCount = 0, 10 do
             for _, body in ipairs({"ks_indexed", "ks_indexed_forced_scalar"}) do
                 local actual = ffi.new("float[16]")
                 local expected = {}
-                for i = 0, 15 do actual[i] = -99; expected[i] = -99 end
+                for i = 0, 15 do
+                    actual[i] = -99;
+                    expected[i] = -99
+                end
                 for i = 0, count - 1 do
                     local index = tonumber(map[i])
                     if index >= 1 and index <= 16 then
@@ -3013,7 +3182,9 @@ return {indexed = indexed, gather = gather}
                     end
                 end
                 lib[names[body]](actual, input, map, 16, inputCount, count)
-                for i = 0, 15 do test.equal(tonumber(actual[i]), expected[i], body .. " tail " .. count .. " lane " .. i) end
+                for i = 0, 15 do
+                    test.equal(tonumber(actual[i]), expected[i], body .. " tail " .. count .. " lane " .. i)
+                end
             end
         end
     end
@@ -3022,7 +3193,9 @@ return {indexed = indexed, gather = gather}
     for _, body in ipairs({"ks_gather", "ks_gather_forced_scalar"}) do
         local actual = ffi.new("float[8]")
         lib[names[body]](actual, input, map, 8, 10, 3)
-        for i = 0, 7 do test.equal(tonumber(actual[i]), i < 3 and 3 or 0, body) end
+        for i = 0, 7 do
+            test.equal(tonumber(actual[i]), i < 3 and 3 or 0, body)
+        end
     end
     local actual = ffi.new("float[16]")
     lib[names.ks_indexed](actual, input, map, 16, 10, 1)

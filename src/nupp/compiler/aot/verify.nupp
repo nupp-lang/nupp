@@ -36,6 +36,7 @@ local lane = require("nupp.compiler.aot.lane")
 local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local simdindices = require("nupp.compiler.aot.simdindices")
+local simdcast = require("nupp.compiler.aot.simdcast")
 local visit = require("nupp.compiler.aot.visit")
 
 local verify = {}
@@ -575,6 +576,8 @@ local GENERIC_SIMD: {
     simd_extract = true,
     simd_insert = true,
     simd_permute = true,
+    simd_convert = true,
+    simd_reinterpret = true,
     simd_compress = true,
     simd_expand = true,
     simd_prefix = true,
@@ -772,6 +775,13 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             for _, argument in ipairs(args) do
                 holds(argument.type == genericSimdScalar(element), "generic SIMD construction has the wrong element")
             end
+        elseif op == "simd_convert" or op == "simd_reinterpret" then
+            holds(
+                #args == 1 and simd.intrinsic == (
+                    op == "simd_convert" and "convert" or "reinterpret"
+                ) and simdcast.matches(args[1].type, node.type, op == "simd_reinterpret"),
+                "invalid generic SIMD conversion"
+            )
         elseif op == "simd_tail" then
             holds(family == "mask" and #args == 1 and args[1].type == "u32", "invalid generic SIMD tail")
         elseif op == "simd_load" then

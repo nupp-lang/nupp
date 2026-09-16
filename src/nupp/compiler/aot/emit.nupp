@@ -23,6 +23,7 @@ local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local target = require("nupp.compiler.aot.target")
 local visit = require("nupp.compiler.aot.visit")
+local simdcast = require("nupp.compiler.aot.simdcast")
 
 local emit = {}
 local explicitWidth = 0
@@ -802,6 +803,8 @@ function emit.scalar(node: scalarIR.Expr): string
             or operation == "simd_extract"
             or operation == "simd_insert"
             or operation == "simd_permute"
+            or operation == "simd_convert"
+            or operation == "simd_reinterpret"
             or operation == "simd_compress"
             or operation == "simd_expand"
             or operation == "simd_prefix"
@@ -848,6 +851,18 @@ function emit.scalar(node: scalarIR.Expr): string
             end
             if operation == "simd_species" or operation == "simd_lanes_generic" then
                 return "UINT32_C(" .. tostring(lanes) .. ")"
+            elseif operation == "simd_convert" or operation == "simd_reinterpret" then
+                local _, from = explicitType(args[1].type)
+                return simdcast.emit(
+                    emit.scalar(args[1]),
+                    from as string,
+                    element,
+                    emit.cType(args[1].type),
+                    emit.cType(simd.type),
+                    lanes,
+                    explicitScalar,
+                    operation == "simd_reinterpret"
+                )
             elseif operation == "simd_splat" then
                 return genericHelper .. "splat_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
             elseif operation == "simd_iota" then

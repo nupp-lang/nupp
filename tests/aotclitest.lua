@@ -1459,10 +1459,10 @@ local REFUSED = STREAMING:gsub(
     1
 )
     :gsub(
-    "        local position = positions%[i%]",
-    "        local position = positions[i]\n        local scale = compiledScale(position.x)",
-    1
-)
+        "        local position = positions%[i%]",
+        "        local position = positions[i]\n        local scale = compiledScale(position.x)",
+        1
+    )
     :gsub("velocity%.vx %* dt", "velocity.vx * scale", 1)
     :gsub("velocity%.vy %* dt", "velocity.vy * scale", 1)
 
@@ -2136,8 +2136,7 @@ function M.mandelbrotUsesRequiredSimdWithLaneLocalEarlyExit()
     local handle = assert(io.open(HERE .. "/../bench/simd-mandelbrot/mandelbrot.nupp", "rb"))
     local source = handle:read("*a")
     handle:close()
-    source = source
-        :gsub("@aot%(vectorize = true%)", "@aot", 1)
+    source = source:gsub("@aot%(vectorize = true%)", "@aot", 1)
         :gsub("    for i = first, last do", "    @simd\n    for i = first, last do", 1)
     local dir = project{["mandelbrot.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json mandelbrot.nupp")
@@ -2184,9 +2183,11 @@ return {refine = refine}
     local scalarOracle = decoded.c:match("ks_refine_forced_scalar.-\n}\n")
     assert(scalarOracle ~= nil, where .. ": repeat retains an independent scalar oracle")
     assert(
-        scalarOracle:find("goto ks_repeat_continue_", 1, true)
-            and scalarOracle:find("ks_repeat_continue_", 1, true)
-            and scalarOracle:find("if (v2_done) break;", 1, true),
+        scalarOracle:find(
+            "goto ks_repeat_continue_",
+            1,
+            true
+        ) and scalarOracle:find("ks_repeat_continue_", 1, true) and scalarOracle:find("if (v2_done) break;", 1, true),
         where .. ": scalar continue evaluates a body-local trailing condition\n" .. scalarOracle
     )
 end
@@ -2226,10 +2227,19 @@ return {totals = totals}
     test.equal(code, 0, raw)
     assert(decoded.ir:find("reducer.ordered.sum", 1, true), where .. ": ordered contract is explicit\n" .. decoded.ir)
     assert(decoded.ir:find("reducer.pairwise.sum", 1, true), where .. ": pairwise contract is explicit\n" .. decoded.ir)
-    assert(decoded.ir:find("reducer.algebraic.sum", 1, true), where .. ": algebraic contract is explicit\n" .. decoded.ir)
-    assert(decoded.ir:find("vreducer.pairwise.sum", 1, true), where .. ": pairwise contribution is lane IR\n" .. decoded.ir)
+    assert(
+        decoded.ir:find("reducer.algebraic.sum", 1, true),
+        where .. ": algebraic contract is explicit\n" .. decoded.ir
+    )
+    assert(
+        decoded.ir:find("vreducer.pairwise.sum", 1, true),
+        where .. ": pairwise contribution is lane IR\n" .. decoded.ir
+    )
     assert(decoded.c:find("ks_pairwise_f64_add", 1, true), where .. ": pairwise tree has its own native state")
-    assert(decoded.c:find("reduce_acc_", 1, true), where .. ": algebraic sum uses lane accumulators rather than an ordered chain")
+    assert(
+        decoded.c:find("reduce_acc_", 1, true),
+        where .. ": algebraic sum uses lane accumulators rather than an ordered chain"
+    )
     assert(decoded.c:find("ks_totals_forced_scalar", 1, true), where .. ": reducers retain the scalar-source C oracle")
     test.equal(decoded.functions[1].outcome, "lowered", where .. ": required regions are the function outcome")
     test.equal(#decoded.functions[1].regions, 3, where .. ": each authored region is reported")
@@ -2344,9 +2354,18 @@ function M.genericExplicitSimdKeepsIntrinsicTypesAndAnIndependentOracle()
         decoded.ir:find("simd_species.species:simd_species_f32_preferred", 1, true),
         where .. ": species identity is in IR\n" .. decoded.ir
     )
-    assert(decoded.ir:find("simd_binary.mul:simd_vector_f32_preferred", 1, true), where .. ": vector multiplication is intrinsic\n" .. decoded.ir)
-    assert(decoded.ir:find("simd_binary.add:simd_vector_f32_preferred", 1, true), where .. ": vector addition is intrinsic\n" .. decoded.ir)
-    assert(decoded.ir:find("simd_store.store:lua_effect", 1, true), where .. ": the masked store is intrinsic\n" .. decoded.ir)
+    assert(
+        decoded.ir:find("simd_binary.mul:simd_vector_f32_preferred", 1, true),
+        where .. ": vector multiplication is intrinsic\n" .. decoded.ir
+    )
+    assert(
+        decoded.ir:find("simd_binary.add:simd_vector_f32_preferred", 1, true),
+        where .. ": vector addition is intrinsic\n" .. decoded.ir
+    )
+    assert(
+        decoded.ir:find("simd_store.store:lua_effect", 1, true),
+        where .. ": the masked store is intrinsic\n" .. decoded.ir
+    )
     assert(decoded.c:find("typedef float ks_exp_f32x8", 1, true), where .. ": AVX2 selects eight binary32 lanes")
     assert(decoded.c:find("ks_saxpy_forced_scalar", 1, true), where .. ": the scalar-source oracle remains separate")
     assert(decoded.c:find("ks_scalar_exp_mul_f32x8", 1, true), where .. ": oracle primitives execute lane by lane")
@@ -2380,10 +2399,7 @@ end
 return {increment = increment}
 ]]
     local dir = project{["narrow.nupp"] = source}
-    local decoded, raw, code, where = lowered(
-        dir,
-        "--target aarch64-apple-darwin --features neon --json narrow.nupp"
-    )
+    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json narrow.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_vector_u8_preferred", 1, true), where .. ": physical byte identity reaches IR")
     assert(decoded.c:find("typedef uint8_t ks_exp_u8x16", 1, true), where .. ": NEON retains sixteen byte lanes")
@@ -2443,12 +2459,71 @@ return {transform = transform}
     assert(decoded.c:find("ks_scalar_exp_compress_u8x8", 1, true), where .. ": compress has scalar semantics")
     assert(decoded.c:find("ks_scalar_exp_prefix_xor_u8x8", 1, true), where .. ": scan has scalar semantics")
 
-    local asm, asmCode = run(
-        dir,
-        "--target aarch64-apple-darwin --features neon --emit asm structural.nupp"
-    )
+    local asm, asmCode = run(dir, "--target aarch64-apple-darwin --features neon --emit asm structural.nupp")
     test.equal(asmCode, 0, asm)
     assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), "fixed structural operations retain real vector work: " .. asm)
+end
+
+local CONVERT_SIMD = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+@aot
+local function convert(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
+    local source: simd.Species<number, simd.Fixed<8>> = simd.species()
+    local target: simd.Species<int32, simd.Fixed<8>> = simd.species()
+    target:store(out, 1, target:convert(source:load(input, 1)))
+end
+return {convert = convert}
+]]
+
+function M.numericSimdConversionsRetainVectorLoweringAcrossCpuTiers()
+    local dir = project{["convert.nupp"] = CONVERT_SIMD}
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json convert.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("simd_convert.convert", 1, true), decoded.ir)
+    assert(decoded.c:find("__builtin_convertvector(ks_cast_d, ks_cast_int64)", 1, true), decoded.c)
+    assert(decoded.c:find("ks_cast_result.lane[ks_cast_i]", 1, true), "independent scalar conversion")
+    local host = assert(require("nupp.compiler.aot.target").hostTriple())
+    for _, target in ipairs({
+        "--target aarch64-apple-darwin --features neon",
+        "--target " .. host:gsub("^[^-]+", "x86_64") .. " --features baseline",
+        "--target " .. host:gsub("^[^-]+", "x86_64") .. " --features avx2",
+        "--target " .. host:gsub("^[^-]+", "x86_64") .. " --features avx512f",
+    }) do
+        local asm, asmCode = run(dir, target .. " --emit asm convert.nupp")
+        test.equal(asmCode, 0, asm)
+        assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), asm)
+        if target:find("neon", 1, true) then
+            assert(asm:match("fcvtzs[^\n]*%.2d"), "conversion itself uses packed double lanes: " .. asm)
+        end
+    end
+end
+
+function M.numericSimdConversionsRejectLaneAndBitWidthMismatches()
+    for _, case in ipairs({
+        {source = CONVERT_SIMD:gsub("Fixed<8>", "Preferred"), reason = "matching logical lane counts"},
+        {source = CONVERT_SIMD:gsub("target:convert", "target:reinterpret"), reason = "equal element widths"},
+    }) do
+        local dir = project{["convert.nupp"] = case.source}
+        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c convert.nupp")
+        test.equal(code, 1, out)
+        assert(out:find(case.reason, 1, true), out)
+    end
+end
+
+function M.preferredSimdConversionsPreserveLanesAndReinterpretWithoutArithmetic()
+    local source = CONVERT_SIMD:gsub("number", "float"):gsub("Fixed<8>", "Preferred")
+    for _, method in ipairs({"convert", "reinterpret"}) do
+        local dir = project{["convert.nupp"] = source:gsub("target:convert", "target:" .. method)}
+        local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json convert.nupp")
+        test.equal(code, 0, raw)
+        assert(decoded.ir:find("simd_" .. method .. "." .. method, 1, true), decoded.ir)
+        local asm, asmCode = run(dir, "--target aarch64-apple-darwin --features neon --emit asm convert.nupp")
+        test.equal(asmCode, 0, asm)
+        if method == "reinterpret" then
+            assert(not asm:find("fcvt", 1, true), asm)
+        end
+    end
 end
 
 local INDEXED_SIMD = [[
@@ -2506,7 +2581,10 @@ function M.scatterProvesAConstantNonWrappingProgression()
     assert(decoded.ir:find("simd_store.scatter", 1, true), decoded.ir)
     local descending = source:gsub("uint32", "int32"):gsub("positions:iota%(1, 2%)", "positions:iota(8, -1)")
     local reversed = project{["indexed.nupp"] = descending}
-    local reverseOut, reverseStatus = run(reversed, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
+    local reverseOut, reverseStatus = run(
+        reversed,
+        "--target aarch64-apple-darwin --features neon --emit c indexed.nupp"
+    )
     test.equal(reverseStatus, 0, reverseOut)
     for _, progression in ipairs({"1, 0", "4294967295, 1", "1, 4294967295"}) do
         local rejected = source:gsub("positions:iota%(1, 2%)", "positions:iota(" .. progression .. ")")
@@ -2520,7 +2598,11 @@ end
 function M.indexedSimdRefusesFloatingIndicesAndMismatchedPreferredWidths()
     for _, source in ipairs({
         INDEXED_SIMD:gsub("Span<uint32>", "Span<float>"):gsub("Species<uint32", "Species<float"),
-        (INDEXED_SIMD:gsub("Span<float>", "Span<number>"):gsub("Species<float", "Species<number"):gsub("simd.Fixed<8>", "simd.Preferred")),
+        (
+            INDEXED_SIMD:gsub("Span<float>", "Span<number>")
+                :gsub("Species<float", "Species<number")
+                :gsub("simd.Fixed<8>", "simd.Preferred")
+        ),
     }) do
         local dir = project{["indexed.nupp"] = source}
         local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
@@ -2584,10 +2666,7 @@ return {horizontal = horizontal}
         decoded.c:find("ks_scalar_exp_horizontal_pairwise_sum_f32x8", 1, true),
         where .. ": the scalar executable reference is emitted"
     )
-    assert(
-        decoded.c:find("fmaf", 1, true),
-        where .. ": only the named algebraic dot helper requests contraction"
-    )
+    assert(decoded.c:find("fmaf", 1, true), where .. ": only the named algebraic dot helper requests contraction")
 end
 
 function M.bitwiseOperatorsKeepASixtyFourBitOperandAtItsWidth()
@@ -2653,10 +2732,7 @@ end
 return {lookup = lookup}
 ]]
     local dir = project{["swizzle.nupp"] = source}
-    local decoded, raw, code, where = lowered(
-        dir,
-        "--target aarch64-apple-darwin --features neon --json swizzle.nupp"
-    )
+    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json swizzle.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_permute.swizzle", 1, true), where .. ": the lookup is one permutation\n" .. decoded.ir)
     assert(
@@ -2667,10 +2743,7 @@ return {lookup = lookup}
         decoded.c:find("vqtbl1q_u8", 1, true),
         where .. ": a byte table reaches the target instruction rather than a lane loop"
     )
-    assert(
-        decoded.c:find("indices - 1", 1, true),
-        where .. ": one-based lane numbering is adapted once, not per lane"
-    )
+    assert(decoded.c:find("indices - 1", 1, true), where .. ": one-based lane numbering is adapted once, not per lane")
 end
 
 function M.aPairedSwizzleNumbersBothVectorsInOneRun()
@@ -2692,18 +2765,18 @@ end
 return {joined = joined}
 ]]
     local dir = project{["pair.nupp"] = source}
-    local decoded, raw, code, where = lowered(
-        dir,
-        "--target aarch64-apple-darwin --features neon --json pair.nupp"
-    )
+    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json pair.nupp")
     test.equal(code, 0, raw)
     assert(
         decoded.ir:find("simd_permute.swizzle_pair", 1, true),
         where .. ": the paired form is its own intrinsic\n" .. decoded.ir
     )
     assert(
-        decoded.c:find("ks_exp_swizzle_pair_u8x16", 1, true)
-            and decoded.c:find("ks_scalar_exp_swizzle_pair_u8x16", 1, true),
+        decoded.c:find(
+            "ks_exp_swizzle_pair_u8x16",
+            1,
+            true
+        ) and decoded.c:find("ks_scalar_exp_swizzle_pair_u8x16", 1, true),
         where .. ": production and oracle bodies are both emitted"
     )
 end
@@ -2763,10 +2836,7 @@ end
 return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
 ]]
     local dir = project{["extrema.nupp"] = source}
-    local decoded, raw, code, where = lowered(
-        dir,
-        "--target aarch64-apple-darwin --features neon --json extrema.nupp"
-    )
+    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json extrema.nupp")
     test.equal(code, 0, raw)
     for _, intrinsic in ipairs({
         "simd_horizontal.propagating_min",
@@ -2794,18 +2864,16 @@ return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
         decoded.c:find("ks_exp_number_min2_f32x8", 1, true) and decoded.c:find("ks_exp_number_min_f32x8", 1, true),
         where .. ": the number-preferring contract is a separate body"
     )
+    assert(decoded.c:find("signbit", 1, true), where .. ": both contracts order the two zeros by sign")
     assert(
-        decoded.c:find("signbit", 1, true),
-        where .. ": both contracts order the two zeros by sign"
-    )
-    assert(
-        decoded.ir:find("simd_horizontal.propagating_min", 1, true) and decoded.c:find("ks_exp_propagating_min_i32x", 1, true),
+        decoded.ir:find(
+            "simd_horizontal.propagating_min",
+            1,
+            true
+        ) and decoded.c:find("ks_exp_propagating_min_i32x", 1, true),
         where .. ": an extremum is defined at an integer element a sum is refused at\n" .. decoded.c
     )
-    assert(
-        not decoded.c:find("ks_exp_nan_i32x", 1, true),
-        where .. ": an integer extremum carries no NaN case"
-    )
+    assert(not decoded.c:find("ks_exp_nan_i32x", 1, true), where .. ": an integer extremum carries no NaN case")
 end
 
 function M.horizontalSumsStillRefuseANonFloatingElement()
@@ -2848,12 +2916,18 @@ return {total = total}
     local dir = project{["compensated.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json compensated.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.ir:find("reducer.compensated.sum", 1, true), where .. ": the exact contract is explicit\n" .. decoded.ir)
+    assert(
+        decoded.ir:find("reducer.compensated.sum", 1, true),
+        where .. ": the exact contract is explicit\n" .. decoded.ir
+    )
     assert(
         decoded.ir:find("vreducer.compensated.sum", 1, true),
         where .. ": the contribution is lane IR\n" .. decoded.ir
     )
-    assert(decoded.c:find("ks_compensated_f64_add", 1, true), where .. ": the compensated state has its own native form")
+    assert(
+        decoded.c:find("ks_compensated_f64_add", 1, true),
+        where .. ": the compensated state has its own native form"
+    )
     assert(decoded.c:find("KsCompensatedF64", 1, true), where .. ": the accumulator is more than one double")
     test.equal(
         decoded.functions[1].regions[1].reducers[1].serialized,
@@ -2919,8 +2993,14 @@ return {apply = apply}
     local dir = project{["helper.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json helper.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.ir:find("twice_simd_vector_f32_preferred", 1, true), where .. ": helper specialization retains species")
-    assert(decoded.c:find("twice_simd_vector_f32_preferred_returns_simd_vector_f32_preferred_forced_scalar", 1, true), where .. ": scalar oracle gets a type-correct helper twin")
+    assert(
+        decoded.ir:find("twice_simd_vector_f32_preferred", 1, true),
+        where .. ": helper specialization retains species"
+    )
+    assert(
+        decoded.c:find("twice_simd_vector_f32_preferred_returns_simd_vector_f32_preferred_forced_scalar", 1, true),
+        where .. ": scalar oracle gets a type-correct helper twin"
+    )
 end
 
 function M.explicitLaneAndBitmaskOperationsKeepOneBasedLaneIdentity()

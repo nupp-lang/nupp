@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 33
+const scalarIR.VERSION = 34
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -728,6 +728,8 @@ record scalarIR.Simd
         | 'simd_extract'
         | 'simd_insert'
         | 'simd_permute'
+        | 'simd_convert'
+        | 'simd_reinterpret'
         | 'simd_compress'
         | 'simd_expand'
         | 'simd_prefix'

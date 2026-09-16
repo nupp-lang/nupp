@@ -368,6 +368,14 @@ kernel that merely vectorizes imperfectly is not it.
 
 ## Explicit SIMD
 
+### Numeric conversion and bit reinterpretation
+
+`destination:convert(values)` converts lanes using LuaJIT FFI numeric rules.
+`destination:reinterpret(values)` preserves bits and requires equal element
+widths. Both preserve logical lane count; width-changing conversion uses
+`Fixed<N>`. See [numeric conversion contracts](numeric-semantics.md#explicit-simd-conversions)
+for narrowing, double rounding, exceptional inputs, and target costs.
+
 ### Indexed memory and conflicts
 
 Generic `simd.Species<T, S>` provides `gather`, `scatter`, and

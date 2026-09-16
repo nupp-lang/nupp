@@ -1,0 +1,149 @@
+module nupp.compiler.aot.simdcast
+
+local cast = {}
+
+const C_TYPES = {
+    f32 = "float",
+    f64 = "double",
+    i8 = "int8_t",
+    u8 = "uint8_t",
+    i16 = "int16_t",
+    u16 = "uint16_t",
+    i32 = "int32_t",
+    u32 = "uint32_t",
+    i64 = "int64_t",
+    u64 = "uint64_t",
+}
+
+--- A conversion preserves logical lanes at every selectable tier. Preferred
+--- species therefore cannot change element width; Fixed<N> species can.
+function cast.matches(source: string, destination: string, reinterpret: boolean): boolean
+    local from, fromShape = source:match("^simd_vector_([fiu]%d+)_(.+)$")
+    local to, toShape = destination:match("^simd_vector_([fiu]%d+)_(.+)$")
+    if from == nil or to == nil or C_TYPES[from] == nil or C_TYPES[to] == nil or fromShape ~= toShape then
+        return false
+    end
+
+    return not (reinterpret or fromShape == "preferred") or from:sub(2) == to:sub(2)
+end
+
+--- Independent lane-by-lane conversion, including guarded float conversion.
+--- Exceptional results are deliberately not a portable numeric guarantee.
+local function scalar(value: string, from: string, to: string): string
+    if from:sub(1, 1) == "f" and to:sub(1, 1) ~= "f" then
+        local signed = "("
+            .. value
+            .. " >= -0x1p63 && "
+            .. value
+            .. " < 0x1p63 ? (int64_t)"
+            .. value
+            .. " : INT64_C(0))"
+        if to == "u64" then
+            return "("
+                .. value
+                .. " >= 0x1p63 && "
+                .. value
+                .. " < 0x1p64 ? ((uint64_t)(int64_t)((double)"
+                .. value
+                .. " - 0x1p63) ^ (UINT64_C(1) << 63)) : (uint64_t)"
+                .. signed
+                .. ")"
+        end
+        return "(" .. C_TYPES[to] .. ")" .. signed
+    end
+
+    return "(" .. C_TYPES[to] .. ")" .. (to == "f32" and "(double)" or "") .. value
+end
+
+--- Uses vector conversions on flat, power-of-two lane groups. memcpy bridges
+--- the fixed-species chunk representation without aliasing or padding reads;
+--- Clang removes these copies and legalizes groups to the selected ISA.
+function cast.emit(
+    value: string,
+    from: string,
+    to: string,
+    sourceType: string,
+    targetType: string,
+    lanes: integer,
+    reference: boolean,
+    reinterpret: boolean
+): string
+    local lines = {
+        "({ " .. sourceType .. " ks_cast_input = " .. value .. "; " .. targetType .. " ks_cast_result = {0};"
+    }
+    local fromBytes = (tonumber(from:sub(2)) or 0) / 8
+    local toBytes = (tonumber(to:sub(2)) or 0) / 8
+    if reinterpret then
+        lines[#lines + 1] = "memcpy(&ks_cast_result, &ks_cast_input, " .. tostring(lanes * fromBytes) .. ");"
+    elseif reference then
+        lines[
+            #lines + 1
+        ] = "for (uint32_t ks_cast_i = 0; ks_cast_i < " .. tostring(
+            lanes
+        ) .. "u; ++ks_cast_i) ks_cast_result.lane[ks_cast_i] = " .. scalar(
+            "ks_cast_input.lane[ks_cast_i]",
+            from,
+            to
+        ) .. ";"
+    else
+        local count = 2
+        while count < lanes do
+            count = count * 2
+        end
+        lines[
+            #lines + 1
+        ] = "typedef " .. C_TYPES[
+            from
+        ] .. " ks_cast_from __attribute__((vector_size(" .. tostring(count * fromBytes) .. ")));"
+        lines[
+            #lines + 1
+        ] = "typedef " .. C_TYPES[
+            to
+        ] .. " ks_cast_to __attribute__((vector_size(" .. tostring(count * toBytes) .. ")));"
+        lines[
+            #lines + 1
+        ] = "ks_cast_from ks_cast_x = {0}; memcpy(&ks_cast_x, &ks_cast_input, " .. tostring(lanes * fromBytes) .. ");"
+        local expression = "__builtin_convertvector(ks_cast_x, ks_cast_to)"
+        if from:sub(1, 1) == "f" and to:sub(1, 1) ~= "f" then
+            -- A bare C/LLVM float-to-integer conversion is undefined outside
+            -- range. Mask the floating input BEFORE converting, not the result.
+            -- Zero is an implementation choice for exceptional inputs here,
+            -- not an API promise that constrains future native instructions.
+            lines[
+                #lines + 1
+            ] = "typedef double ks_cast_double __attribute__((vector_size(" .. tostring(count * 8) .. ")));"
+            lines[
+                #lines + 1
+            ] = "typedef int64_t ks_cast_int64 __attribute__((vector_size(" .. tostring(count * 8) .. ")));"
+            lines[#lines + 1] = "ks_cast_double ks_cast_d = __builtin_convertvector(ks_cast_x, ks_cast_double);"
+            if to == "u64" then
+                lines[#lines + 1] = "ks_cast_int64 ks_cast_high = ks_cast_d >= 0x1p63;"
+                lines[#lines + 1] = "ks_cast_d += __builtin_convertvector(ks_cast_high, ks_cast_double) * 0x1p63;"
+            end
+            lines[#lines + 1] = "ks_cast_int64 ks_cast_valid = (ks_cast_d >= -0x1p63) & (ks_cast_d < 0x1p63);"
+            lines[#lines + 1] = "ks_cast_d = (ks_cast_double)((ks_cast_int64)ks_cast_d & ks_cast_valid);"
+            lines[#lines + 1] = "ks_cast_int64 ks_cast_i64 = __builtin_convertvector(ks_cast_d, ks_cast_int64);"
+            if to == "u64" then
+                expression = "(ks_cast_to)ks_cast_i64 ^ ((ks_cast_to)(ks_cast_high & ks_cast_valid) & ((uint64_t)1 << 63))"
+            else
+                expression = "__builtin_convertvector(ks_cast_i64, ks_cast_to)"
+            end
+        elseif to == "f32" and (from == "i64" or from == "u64") then
+            -- LuaJIT's FFI conversion first rounds the integer to double.
+            lines[
+                #lines + 1
+            ] = "typedef double ks_cast_double __attribute__((vector_size(" .. tostring(count * 8) .. ")));"
+            expression = "__builtin_convertvector(__builtin_convertvector(ks_cast_x, ks_cast_double), ks_cast_to)"
+        end
+        lines[
+            #lines + 1
+        ] = "ks_cast_to ks_cast_y = " .. expression .. "; memcpy(&ks_cast_result, &ks_cast_y, " .. tostring(
+            lanes * toBytes
+        ) .. ");"
+    end
+    lines[#lines + 1] = "ks_cast_result; })"
+
+    return table.concat(lines, " ")
+end
+
+export = cast

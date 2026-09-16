@@ -101,8 +101,43 @@ end
 return {copy = copy}
 ]]
 
+function M.simdConversionRechecksWidthsAndLaneCounts()
+    local program = lowered(
+        [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+@aot
+local function cast(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
+    local source: simd.Species<number, simd.Fixed<3>> = simd.species()
+    local target: simd.Species<int32, simd.Fixed<3>> = simd.species()
+    target:store(out, 1, target:convert(source:load(input, 1)))
+end
+return {cast = cast}
+]],
+        "cast.nupp"
+    )
+    verify.program(program)
+    local store = assert(
+        find(program.body, function(node)
+            return node.op == "simd_store"
+        end)
+    )
+    local cast = store.args[3]
+    assert(cast.op == "simd_convert")
+    cast.op, cast.intrinsic = "simd_reinterpret", "reinterpret"
+    refuses(program, "invalid generic SIMD conversion")
+    cast.op, cast.intrinsic = "simd_convert", "convert"
+    local inputType = cast.args[1].type
+    cast.args[1].type = "simd_vector_f64_fixed4"
+    refuses(program, "invalid generic SIMD conversion")
+    cast.args[1].type = inputType
+    cast.intrinsic = "saturate"
+    refuses(program, "invalid generic SIMD conversion")
+end
+
 function M.scatterRechecksUniquenessAndAddressing()
-    local program = lowered([[
+    local program = lowered(
+        [[
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 @aot
@@ -112,9 +147,15 @@ local function write(exclusive out: span.WriteSpan<float>): nil
     data:scatter(out, offsets:iota(1, 2), data:splat(1))
 end
 return {write = write}
-]], "scatter.nupp")
+]],
+        "scatter.nupp"
+    )
     verify.program(program)
-    local store = assert(find(program.body, function(node) return node.op == "simd_store" end))
+    local store = assert(
+        find(program.body, function(node)
+            return node.op == "simd_store"
+        end)
+    )
     local step = store.args[2].args[2]
     store.args[2].args[2] = {op = "constant_i32", type = "u32", value = "0"}
     refuses(program, "SIMD scatter lost its index uniqueness proof")
