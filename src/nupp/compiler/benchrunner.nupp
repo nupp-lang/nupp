@@ -920,6 +920,20 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
             merged.p50Ms = statistics.median(summaries) * 1000.0
         end
     end
+
+    -- Allocation is measured once per fork in a collector-stopped pass. Keep the
+    -- merged report from presenting fork one's value as though it represented the
+    -- replicated run.
+    local allocated: {number} = {}
+    for _, fork in ipairs(forks) do
+        local measurement = onlyMeasurement(fork)
+        if measurement and measurement.allocatedKb ~= nil then
+            allocated[#allocated + 1] = measurement.allocatedKb
+        end
+    end
+    if #allocated > 0 then
+        merged.allocatedKb = statistics.median(allocated)
+    end
     if unsettled then
         merged.intervalWithheld = "trend-warning"
         notes[

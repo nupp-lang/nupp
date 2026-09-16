@@ -213,8 +213,9 @@ record bench.Measurement
     parameters: {[string]: any}?
     baselineVariant: string?
 
-    --- Kilobytes one round allocated, read with the collector stopped. A size rather
-    --- than a count of allocations, and recorded only.
+    --- Kilobytes allocated, read with the collector stopped. A case stores one round;
+    --- a suite stores one represented operation. A size rather than a count of
+    --- allocations, and recorded only.
     allocatedKb: number?
 
     --- Kilobytes still held once the collector has run again, which is what "retained"
@@ -1619,6 +1620,28 @@ function bench.format(record: any, options: bench.FormatOptions?): string
         return ("%.2f%%"):format(entry.intervalCoverage * 100.0)
     end
 
+    -- Allocation is measured in a separate collector-stopped pass and stored in
+    -- kilobytes. Suites already normalize it to one represented operation; a case
+    -- stores one round, so divide by the calibrated iteration count here just as its
+    -- duration score does.
+    local function allocationCell(entry: any): string
+        local allocated = entry.allocatedKb
+        if allocated == nil then
+            return "-"
+        end
+        if entry.kind == "case" then
+            local n = entry.n or 0
+            if n <= 0 then
+                return "-"
+            end
+            allocated = allocated / n
+        elseif entry.kind ~= "suite" then
+            return "-"
+        end
+
+        return ("%.3f"):format(allocated * 1024.0)
+    end
+
     for _, entry in ipairs(record.cases or {}) do
         if entry.kind == "case" then
             local n = entry.n or 0
@@ -1633,6 +1656,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 forkCount = tostring(entry.forkCount or 1),
                 score = ("%.3f"):format(score),
                 units = "ns/op",
+                allocation = allocationCell(entry),
                 ratio = "-",
                 spread = spreadCell(entry, scale),
                 interval = intervalCell(entry, scale),
@@ -1655,6 +1679,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 forkCount = tostring(entry.forkCount or 1),
                 score = ("%.3f"):format(score),
                 units = "ns/op",
+                allocation = allocationCell(entry),
                 ratio = ratio,
                 spread = spreadCell(entry, scale),
                 interval = intervalCell(entry, scale),
@@ -1671,6 +1696,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 forkCount = tostring(entry.forkCount or 1),
                 score = ("%.3f"):format(entry.p50Ms or 0.0),
                 units = "ms/frame",
+                allocation = "-",
                 ratio = "-",
                 spread = "-",
                 interval = "-",
@@ -1685,6 +1711,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 forkCount = tostring(entry.forkCount or 1),
                 score = ("%.3f"):format(entry.p99Ms or 0.0),
                 units = "ms/frame",
+                allocation = "-",
                 ratio = "-",
                 spread = "-",
                 interval = "-",
@@ -1699,6 +1726,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 forkCount = tostring(entry.forkCount or 1),
                 score = ("%.3f"):format(entry.p999Ms or 0.0),
                 units = "ms/frame",
+                allocation = "-",
                 ratio = "-",
                 spread = "-",
                 interval = "-",
@@ -1714,6 +1742,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                     forkCount = tostring(entry.forkCount or 1),
                     score = tostring(entry.overBudget),
                     units = "frames",
+                    allocation = "-",
                     ratio = "-",
                     spread = "-",
                     interval = "-",
@@ -1744,8 +1773,16 @@ function bench.format(record: any, options: bench.FormatOptions?): string
             spreadWidth = #cell as integer
         end
     end
-    local pattern = "%-" .. tostring(width) .. "s  %5s  %5s  %10s  %-8s  %" .. tostring(spreadWidth) .. "s"
-    local headings = {"Benchmark", "Mode", replicated and "Forks" or "Cnt", "Score", "Units", spreadHeading,}
+    local pattern = "%-" .. tostring(width) .. "s  %5s  %5s  %10s  %-8s  %12s  %" .. tostring(spreadWidth) .. "s"
+    local headings = {
+        "Benchmark",
+        "Mode",
+        replicated and "Forks" or "Cnt",
+        "Score",
+        "Units",
+        "Alloc B/op",
+        spreadHeading,
+    }
     if replicated then
         pattern = pattern .. "  %9s"
         headings[#headings + 1] = "Coverage"
@@ -1756,14 +1793,14 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     end
 
     local function emit(cells: {string}): string
-        if #cells == 6 then
-            return pattern:format(cells[1], cells[2], cells[3], cells[4], cells[5], cells[6])
-        end
         if #cells == 7 then
             return pattern:format(cells[1], cells[2], cells[3], cells[4], cells[5], cells[6], cells[7])
         end
+        if #cells == 8 then
+            return pattern:format(cells[1], cells[2], cells[3], cells[4], cells[5], cells[6], cells[7], cells[8])
+        end
 
-        return pattern:format(cells[1], cells[2], cells[3], cells[4], cells[5], cells[6], cells[7], cells[8])
+        return pattern:format(cells[1], cells[2], cells[3], cells[4], cells[5], cells[6], cells[7], cells[8], cells[9])
     end
 
     local lines = {emit(headings),}
@@ -1774,6 +1811,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
             (replicated and row.forkCount or row.count) or "0",
             row.score,
             row.units,
+            row.allocation,
             (replicated and row.interval or row.spread) or "-",
         }
         if replicated then

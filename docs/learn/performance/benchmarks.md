@@ -39,8 +39,8 @@ bench.report()
 # Benchmark: point.sized (bench/point.bench.nupp)
 # Result: point.sized  p50=16.897 ns/op  rounds=7  wall=2.944s
 
-Benchmark     Mode    Cnt       Score  Units                p25-p99
-point.sized    p50      7      16.897  ns/op       [16.626, 17.916]
+Benchmark     Mode    Cnt       Score  Units       Alloc B/op             p25-p99
+point.sized    p50      7      16.897  ns/op           64.000    [16.626, 17.916]
 
 note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence
       interval: samples inside one process share its heap, traces and thermal
@@ -54,6 +54,13 @@ closure `n` times would put a call boundary inside the measurement. `n` grows
 until a round is long enough to time, then every measured round uses that same
 `n`, so a loaded machine cannot change how much work was counted.
 
+`Alloc B/op` is measured in a separate pass with the collector stopped, so the
+account does not change the timing distribution. A suite divides the observed
+Lua-managed heap growth by `sampleIterations * operations`; a case divides it
+by its calibrated `n`. Replicated reports show the median across forks. It is a
+byte total, not an allocation-event count, and does not include native
+allocations. Frames and older records without the measurement show `-`.
+
 `p25-p99` is a **spread, not an error bar**. Rounds inside one process share a
 heap, a set of compiled traces and a thermal state, so no population interval
 follows from them — which is why one fork earns no interval and no verdict.
@@ -62,8 +69,8 @@ Read it as a sanity check on the score. Score near the middle of the range means
 the samples are centred on it; score outside means they are not:
 
 ```text
-Benchmark             Mode    Cnt       Score  Units                p25-p99
-presize.point.grown    p50     73      46.015  ns/op      [19.469, 153.456]
+Benchmark             Mode    Cnt       Score  Units       Alloc B/op             p25-p99
+presize.point.grown    p50     73      46.015  ns/op           72.000   [19.469, 153.456]
 ```
 
 Those samples alternate between ~21ns and ~140ns, and the harness says so:
@@ -162,11 +169,11 @@ bench.report()
 ```
 
 ```text
-Benchmark                      Mode    Cnt       Score  Units                    p25-p99     Ratio
-sum.floats.ipairs:size=100      p50   7261      68.166  ns/op           [67.834, 81.416]    1.000x
-sum.floats.index:size=100       p50  11168      43.792  ns/op           [43.291, 53.750]    1.557x
-sum.floats.ipairs:size=10000    p50     46   10889.875  ns/op     [10875.750, 11042.334]    1.000x
-sum.floats.index:size=10000     p50     99    5094.625  ns/op       [5069.042, 5248.041]    2.138x
+Benchmark                      Mode    Cnt       Score  Units       Alloc B/op                 p25-p99     Ratio
+sum.floats.ipairs:size=100      p50   7261      68.166  ns/op            0.000        [67.834, 81.416]    1.000x
+sum.floats.index:size=100       p50  11168      43.792  ns/op            0.000        [43.291, 53.750]    1.557x
+sum.floats.ipairs:size=10000    p50     46   10889.875  ns/op            0.000  [10875.750, 11042.334]    1.000x
+sum.floats.index:size=10000     p50     99    5094.625  ns/op            0.000    [5069.042, 5248.041]    2.138x
 
 Winners
 Workload               Winner   Speedup
@@ -236,11 +243,11 @@ nupp bench --file bench/sum.bench.nupp --forks 12
 ```
 
 ```text
-Benchmark                      Mode  Forks       Score  Units                   Interval   Coverage     Ratio
-sum.floats.ipairs:size=100      p50     12      73.292  ns/op          [73.167, 144.917]     96.14%    1.000x
-sum.floats.index:size=100       p50     12      46.834  ns/op           [46.542, 69.625]     96.14%    1.565x
-sum.floats.ipairs:size=10000    p50     12   11730.958  ns/op     [11710.625, 18245.708]     96.14%    1.000x
-sum.floats.index:size=10000     p50     12    5499.875  ns/op                   unstable          -    2.133x
+Benchmark                      Mode  Forks       Score  Units       Alloc B/op                  Interval   Coverage     Ratio
+sum.floats.ipairs:size=100      p50     12      73.292  ns/op            0.000         [73.167, 144.917]     96.14%    1.000x
+sum.floats.index:size=100       p50     12      46.834  ns/op            0.000          [46.542, 69.625]     96.14%    1.565x
+sum.floats.ipairs:size=10000    p50     12   11730.958  ns/op            0.000  [11710.625, 18245.708]     96.14%    1.000x
+sum.floats.index:size=10000     p50     12    5499.875  ns/op            0.000                  unstable          -    2.133x
 ```
 
 ### Coverage is attained, not requested
@@ -400,10 +407,10 @@ frames:report()
 ```
 
 ```text
-Benchmark   Mode  Cnt       Score  Units
-frame        p50   60       0.103  ms/frame
-frame        p99   60       0.134  ms/frame
-frame      p99.9   60       0.134  ms/frame
+Benchmark   Mode  Cnt       Score  Units       Alloc B/op
+frame        p50   60       0.103  ms/frame             -
+frame        p99   60       0.134  ms/frame             -
+frame      p99.9   60       0.134  ms/frame             -
 ```
 
 `more` is false once `count` frames are recorded, and `report` writes the record
@@ -457,10 +464,10 @@ allocations rose from 3 to 5 in src/parser.nupp
 sum.floats.index:size=100: new trace abort site: ...
 ```
 
-Everything else — durations, the calibrated `n`, retained-heap delta, the
-`--remarks` set — is recorded, never gated. A run with no comparable baseline
-says so, which is a result and a different one from a pass; a named baseline
-that is not there exits non-zero.
+Everything else — durations, the calibrated `n`, allocated bytes, retained-heap
+delta, the `--remarks` set — is recorded, never gated. A run with no comparable
+baseline says so, which is a result and a different one from a pass; a named
+baseline that is not there exits non-zero.
 
 Replication makes the abort gate stricter, not noisier. Whether a loop aborts is
 timing-dependent, so forks legitimately disagree; only a site present in

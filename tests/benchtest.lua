@@ -224,19 +224,19 @@ function M.formatsHumanResultsAsPerOperationScores()
     local bench = require("nupp.bench")
     local rendered = bench.format({
         cases = {
-            {name = "parse", kind = "case", n = 4, rounds = 7, medianSec = 0.000000004,},
+            {name = "parse", kind = "case", n = 4, rounds = 7, medianSec = 0.000000004, allocatedKb = 0.5,},
             {name = "frame", kind = "frames", frames = 60, p50Ms = 1.25, p99Ms = 2.5, p999Ms = 3.75, overBudget = 2,},
         },
     })
     assertEq(
         rendered,
         "\n"
-        .. [[Benchmark           Mode    Cnt       Score  Units                p25-p99
-parse                p50      7       1.000  ns/op                      -
-frame                p50     60       1.250  ms/frame                   -
-frame                p99     60       2.500  ms/frame                   -
-frame              p99.9     60       3.750  ms/frame                   -
-frame:over-budget  count     60           2  frames                     -
+        .. [[Benchmark           Mode    Cnt       Score  Units       Alloc B/op             p25-p99
+parse                p50      7       1.000  ns/op          128.000                   -
+frame                p50     60       1.250  ms/frame             -                   -
+frame                p99     60       2.500  ms/frame             -                   -
+frame              p99.9     60       3.750  ms/frame             -                   -
+frame:over-budget  count     60           2  frames               -                   -
 
 note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence
       interval: samples inside one process share its heap, traces and thermal
@@ -246,6 +246,27 @@ note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence
 ]],
         "human benchmark table"
     )
+end
+
+function M.formatsSuiteAllocationAsBytesPerRepresentedOperation()
+    local bench = require("nupp.bench")
+    local rendered = bench.format({
+        cases = {
+            {
+                name = "copy.block",
+                kind = "suite",
+                rounds = 20,
+                medianSec = 0.000001,
+                allocatedKb = 1.5,
+                suite = "copy",
+                caseName = "block",
+                variant = "base",
+                baselineVariant = "base",
+            },
+        },
+    })
+    assertTrue(rendered:find("Alloc B/op", 1, true) ~= nil, "the allocation unit is explicit")
+    assertTrue(rendered:find("1536.000", 1, true) ~= nil, "suite allocation is rendered in bytes per operation")
 end
 
 -- A single-fork table must never present its spread as an interval. The column heading
@@ -409,7 +430,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
     }
     local rendered = bench.format(record)
     assertTrue(
-        rendered:find("map%.lookup%.array:size=100%s+p50%s+20%s+10%.000%s+ns/op%s+%-%s+2%.000x") ~= nil,
+        rendered:find("map%.lookup%.array:size=100%s+p50%s+20%s+10%.000%s+ns/op%s+%-%s+%-%s+2%.000x") ~= nil,
         "the result table retains each baseline ratio\n" .. rendered
     )
     assertTrue(
@@ -580,9 +601,11 @@ end
 
 function M.verdictsSeparateEquivalenceFromIgnorance()
     local statistics = require("nupp.bench.internal.statistics")
+
     local function interval(low, upper)
         return {low = low, upper = upper, k = 2, attainedCoverage = 0.978515625}
     end
+
     -- Equivalence is demonstrated by a narrow interval inside the margin, not inferred
     -- from a test that failed to reach significance.
     assertEq(statistics.verdict(interval(-0.013, 0.006), 0.02, 0.4), "unchanged", "inside the margin is unchanged")
@@ -652,28 +675,41 @@ end
 -- or hide a compiler that stopped being deterministic.
 function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
     local runner = require("nupp.compiler.benchrunner")
-    local function fork(sites, aborts)
+
+    local function fork(sites, aborts, allocated)
         return {
             allocationSites = sites,
             remarks = {},
-            cases = {{name = "x", kind = "suite", medianSec = 0.000001, abortSites = aborts, samplesSec = {1.0}}},
+            cases = {
+                {
+                    name = "x",
+                    kind = "suite",
+                    medianSec = 0.000001,
+                    allocatedKb = allocated,
+                    abortSites = aborts,
+                    samplesSec = {1.0},
+                },
+            },
         }
     end
+
     local stable = {{file = "a.nupp", kind = "table", line = 1, col = 1}}
 
     -- A site every fork saw is the recorder reporting something reproducible.
     local merged, notes = runner.mergeForks("x", "a.nupp", {
-        fork(stable, {"warn|reason|a.nupp:1|"}),
-        fork(stable, {"warn|reason|a.nupp:1|"}),
+        fork(stable, {"warn|reason|a.nupp:1|"}, 1.0),
+        fork(stable, {"warn|reason|a.nupp:1|"}, 3.0),
+        fork(stable, {"warn|reason|a.nupp:1|"}, 2.0),
     })
     assertEq(#merged.summary.abortSites, 1, "a site every fork saw survives to the gated set")
+    assertEq(merged.summary.allocatedKb, 2.0, "the merged allocation figure is the median fork")
     assertEq(#notes, 0, "and needs no note")
 
     -- A site only one fork saw is reported and kept out of the gated set, because trace
     -- formation is timing-dependent and one observation is not a regression.
     local partial, partialNotes = runner.mergeForks("x", "a.nupp", {
-        fork(stable, {"warn|reason|a.nupp:1|"}),
-        fork(stable, {}),
+        fork(stable, {"warn|reason|a.nupp:1|"}, 2.0),
+        fork(stable, {}, 1.0),
     })
     assertEq(#partial.summary.abortSites, 0, "a site one fork missed does not gate")
     assertTrue(
@@ -684,8 +720,8 @@ function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
     -- Allocation sites are the compiler's account of its own output. Forks of one
     -- binary disagreeing is a defect, not a measurement, and must not be averaged away.
     local drifted, driftNotes = runner.mergeForks("x", "a.nupp", {
-        fork(stable, {}),
-        fork({{file = "a.nupp", kind = "closure", line = 9, col = 9}}, {}),
+        fork(stable, {}, 1.0),
+        fork({{file = "a.nupp", kind = "closure", line = 9, col = 9}}, {}, 1.0),
     })
     assertTrue(
         table.concat(driftNotes, "\n"):find("nondeterministic compiler output") ~= nil,
@@ -699,6 +735,7 @@ end
 -- the first nondeterministic and bury the real signal in noise.
 function M.identicalForksReportNoDisagreement()
     local runner = require("nupp.compiler.benchrunner")
+
     local function fork()
         return {
             allocationSites = {{file = "a.nupp", kind = "table", line = 1, col = 1}},
@@ -706,6 +743,7 @@ function M.identicalForksReportNoDisagreement()
             cases = {{name = "x", kind = "suite", medianSec = 0.000001, abortSites = {}, samplesSec = {1.0}}},
         }
     end
+
     local _, notes = runner.mergeForks("x", "a.nupp", {fork(), fork(), fork()})
     assertEq(#notes, 0, "three identical forks disagree about nothing")
 end
@@ -714,6 +752,7 @@ end
 -- cannot contribute to one at all. Both refusals name themselves.
 function M.mergeWithholdsIntervalsItCannotSupport()
     local runner = require("nupp.compiler.benchrunner")
+
     local function fork(median, trend)
         return {
             allocationSites = {},
@@ -730,6 +769,7 @@ function M.mergeWithholdsIntervalsItCannotSupport()
             },
         }
     end
+
     local few = {}
     for index = 1, 5 do
         few[index] = fork(0.000001 * index, "no-trend-detected")
@@ -781,6 +821,7 @@ function M.aWithheldIntervalCannotProduceAConfidentVerdict()
 
         return interval
     end
+
     assertEq(guard("trend-warning", narrow), nil, "a withheld interval is cleared")
     assertEq(guard(nil, narrow), narrow, "and an unwithheld one is passed through")
     assertEq(
@@ -806,10 +847,7 @@ function M.concentrationCatchesAMedianThatDescribesNoSample()
     for index = 1, 40 do
         tight[index] = 100.0 + (index % 4) * 0.5
     end
-    assertTrue(
-        statistics.concentration(tight, 0.10) > 0.9,
-        "a single-rate workload concentrates around its median"
-    )
+    assertTrue(statistics.concentration(tight, 0.10) > 0.9, "a single-rate workload concentrates around its median")
 
     -- Two clusters with a sparse middle, which is the shape a collector cycling on
     -- alternate samples actually produces.
@@ -831,10 +869,7 @@ function M.concentrationCatchesAMedianThatDescribesNoSample()
     end
     const scattered = statistics.concentration(split, 0.10)
     assertTrue(scattered < 0.1, "a two-cluster workload concentrates nowhere near its median")
-    assertTrue(
-        scattered < statistics.MIN_CONCENTRATION,
-        "and falls below the threshold the runner reports on"
-    )
+    assertTrue(scattered < statistics.MIN_CONCENTRATION, "and falls below the threshold the runner reports on")
 
     -- The threshold sits between two values an order of magnitude apart, so it is not
     -- adjudicating anything borderline.
@@ -850,6 +885,7 @@ end
 -- the reader can disagree with the threshold rather than only with the verdict.
 function M.mergeReportsAScatteredBenchmark()
     local runner = require("nupp.compiler.benchrunner")
+
     local function fork(samples)
         return {
             allocationSites = {},
@@ -866,6 +902,7 @@ function M.mergeReportsAScatteredBenchmark()
             },
         }
     end
+
     local samples = {}
     for index = 1, 40 do
         samples[index] = (index % 2 == 0) and 0.00000002 or 0.00000014
