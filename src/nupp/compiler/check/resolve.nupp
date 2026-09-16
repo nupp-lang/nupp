@@ -1090,6 +1090,7 @@ function resolve.install(c: state.Checker): nil
                 if not lexical then
                     lexical = names[1] and c.lookupType(names[1]) or nil
                 end
+                local lexicalNamespace = lexical and lexical.tag == "nominal"
                 if lexical then
                     for j = walkFrom, #names do
                         lexical = lexical.tag == "nominal" and lexical.nestedTypes and lexical.nestedTypes[
@@ -1138,6 +1139,15 @@ function resolve.install(c: state.Checker): nil
                             return projected
                         end
                     end
+                end
+                -- A lexical nominal owns this path even when the member is missing.
+                -- During signature hoisting its nested aliases may not be filled yet;
+                -- trying a module instead records a dependency that survives the
+                -- pre-pass. On a case-insensitive filesystem `Store.Step` could then
+                -- reload the current `store.nupp` under a different module name.
+                if lexicalNamespace then
+                    c.diag("NUPP2101", node, ("unknown nested type %q in %q"):format(typeName, moduleName))
+                    return T.any
                 end
                 -- `local T = require("nupp.compiler.types")` makes T.Type mean a type
                 -- from

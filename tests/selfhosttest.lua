@@ -896,6 +896,55 @@ function M.nestedRecordsResolveBeforeTheirOwnersBody()
     )
 end
 
+function M.hoistedNestedAliasesDoNotResolveAsModules()
+    local localEnv = envMod.new(HERE .. "/..")
+    local attempted = {}
+    localEnv.resolveQualifiedType = function(environment, filename, moduleName, typeName)
+        attempted[#attempted + 1] = moduleName .. "." .. typeName
+        return nil
+    end
+    local result = parse(
+        [[
+local interface Store
+    type Step = function(integer): integer
+end
+local record Bag
+end
+function Bag.step(): Store.Step
+    return function(value: integer): integer return value end
+end
+local step: Store.Step = Bag.step()
+return step(7)
+]]
+    )
+    local diags = check.check(result, "test.g.nupp", localEnv)
+    assertEq(#diags, 0, diags[1] and diags[1].msg)
+    assertEq(table.concat(attempted, ", "), "", "a lexical type never becomes a module dependency")
+end
+
+function M.missingNestedTypesDoNotFallThroughToModules()
+    local localEnv = envMod.new(HERE .. "/..")
+    local localSource = "local interface Store\nend\n"
+    local tableSource = "local box = {}\nrecord box.Store\nend\n"
+    local attempted = {}
+    localEnv.resolveQualifiedType = function(environment, filename, moduleName, typeName)
+        attempted[#attempted + 1] = moduleName .. "." .. typeName
+        return nil
+    end
+    for _, case in ipairs({
+        {localSource, "Store.Missing"},
+        {localSource, "Store.Missing.Step"},
+        {tableSource, "box.Store.Missing"},
+    }) do
+        local result = parse(case[1] .. "local value: " .. case[2] .. "\nreturn value\n")
+        local diags = check.check(result, "test.g.nupp", localEnv)
+        assertEq(#diags, 1, case[2])
+        assertEq(diags[1].code, "NUPP2101", case[2])
+        assert(diags[1].msg:find("unknown nested type", 1, true), diags[1].msg)
+    end
+    assertEq(table.concat(attempted, ", "), "", "a missing member does not change namespaces")
+end
+
 -- A declaration attaches to one table. A deeper path would bind the type under
 -- one name and assign the runtime value to another, which silently stamped a
 -- nil metatable.
