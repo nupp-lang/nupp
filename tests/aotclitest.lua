@@ -2499,6 +2499,51 @@ return {horizontal = horizontal}
     )
 end
 
+function M.bitwiseOperatorsKeepASixtyFourBitOperandAtItsWidth()
+    local source = [[
+@aot
+local function masks(a: uint64, b: uint64): (uint64, uint64, uint64, uint64)
+    return a & b, a | b, a ~ b, ~a
+end
+
+@aot
+local function shifted(a: uint64, n: uint64): (uint64, uint64)
+    return a << n, a >> n
+end
+
+return {masks = masks, shifted = shifted}
+]]
+    local dir = project{["wide.nupp"] = source}
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json wide.nupp")
+    test.equal(code, 0, raw)
+    for _, op in ipairs({"u64_and", "u64_or", "u64_xor", "u64_not", "u64_shl", "u64_shr"}) do
+        assert(decoded.ir:find(op, 1, true), where .. ": missing opcode " .. op .. "\n" .. decoded.ir)
+    end
+    assert(
+        decoded.c:find("(uint64_t)(p_a) & (uint64_t)(p_b)", 1, true),
+        where .. ": the pattern keeps its width rather than narrowing to 32 bits\n" .. decoded.c
+    )
+    assert(
+        decoded.c:find("UINT64_C(63)", 1, true),
+        where .. ": a shift count is masked one bit wider than the 32-bit pair"
+    )
+end
+
+function M.aThirtyTwoBitBitwiseOperandIsStillRefusedAtOtherWidths()
+    local source = [[
+@aot
+local function bad(a: number, b: number): number
+    return a & b
+end
+
+return {bad = bad}
+]]
+    local dir = project{["narrow.nupp"] = source}
+    local out, code = run(dir, PINNED .. "--json narrow.nupp")
+    assert(code ~= 0, "a binary64 operand names no width to operate on: " .. out)
+    assert(out:find("fixed 32-bit values", 1, true), "the refusal still names the 32-bit rule: " .. out)
+end
+
 function M.aSwizzleIsTheTableLookupAndReachesTheTargetsTableInstruction()
     local source = [[
 local simd = require("nupp.simd")

@@ -503,6 +503,45 @@ return {
     return dir
 end
 
+local function wideBitwiseProject(policy)
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+    manifest:write(
+        (
+            [[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"wide"}, outDir = "build/native",
+      aot = "%s",
+   }}},
+}
+]]
+        ):format(policy)
+    )
+    manifest:close()
+    local source = assert(io.open(dir .. "/src/wide.nupp", "wb"))
+    source:write(
+        [[
+module wide
+
+@aot(vectorize = false)
+local function answer(): uint64
+    local a: uint64 = 68719476735
+    local b: uint64 = 4294967296
+    return a & b
+end
+
+export const answer = answer
+]]
+    )
+    source:close()
+
+    return dir
+end
+
 local function gpuProject()
     local dir = os.tmpname()
     os.remove(dir)
@@ -1993,6 +2032,39 @@ function M.aKernelThatOnlyReadsALengthStillBuilds()
     local answered = pipe:read("*a")
     pipe:close()
     assert(answered:find("0 1 7 64", 1, true), "and the compiled entry answers the count at every length: " .. answered)
+end
+
+function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
+    if not hasToolchain() then
+        return
+    end
+
+    local function answer(policy)
+        local dir = wideBitwiseProject(policy)
+        local out, code = build(dir)
+        test.equal(code, 0, ("the aot=%s wide-bitwise fixture at %s builds: %s"):format(policy, dir, out))
+        local pipe = assert(
+            io.popen(
+                ("cd %q && luajit -e %q 2>&1"):format(
+                    dir,
+                    searchPathPrelude() .. 'print(require("wide").answer())'
+                )
+            )
+        )
+        local value = pipe:read("*a")
+        pipe:close()
+
+        return (value:gsub("%s+$", "")), dir
+    end
+
+    local ordinary, ordinaryDir = answer("off")
+    local compiled, compiledDir = answer("require")
+    test.equal(
+        compiled,
+        ordinary,
+        ("uint64 bitwise differs between aot=require at %s and aot=off at %s"):format(compiledDir, ordinaryDir)
+    )
+    test.equal(compiled, "4294967296ULL", "uint64 bitwise keeps the high bit on both routes")
 end
 
 function M.aWrapIsModularOnBothRoutes()

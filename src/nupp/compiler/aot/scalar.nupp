@@ -614,6 +614,11 @@ type scalarIR.FixedOp = 'f32_add'
     | 'u64_add'
     | 'u64_sub'
     | 'u64_mul'
+    | 'u64_and'
+    | 'u64_or'
+    | 'u64_xor'
+    | 'u64_shl'
+    | 'u64_shr'
 
 record scalarIR.Fixed
     op: scalarIR.FixedOp
@@ -623,8 +628,17 @@ record scalarIR.Fixed
     source: scalarIR.Source?
 end
 
---- `nupp.math.f32.sqrt`, which takes one operand.
-type scalarIR.FixedUnaryOp = 'f32_sqrt' | 'f32_exp' | 'u32_not' | 'u32_popcount' | 'u32_ctz' | 'u32_clz'
+--- Fixed-width operations that take one operand.
+type scalarIR.FixedUnaryOp = 'f32_sqrt'
+    | 'f32_exp'
+    | 'u32_not'
+    | 'u32_popcount'
+    | 'u32_ctz'
+    | 'u32_clz'
+    | 'u64_not'
+    | 'u64_popcount'
+    | 'u64_ctz'
+    | 'u64_clz'
 
 record scalarIR.FixedUnary
     op: scalarIR.FixedUnaryOp

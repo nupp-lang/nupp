@@ -214,6 +214,11 @@ const verify.FIXED_BINARY = {
     ["u64_add"] = "u64",
     ["u64_sub"] = "u64",
     ["u64_mul"] = "u64",
+    ["u64_and"] = "u64",
+    ["u64_or"] = "u64",
+    ["u64_xor"] = "u64",
+    ["u64_shl"] = "u64",
+    ["u64_shr"] = "u64",
     ["i64_add"] = "i64",
     ["i64_sub"] = "i64",
     ["i64_mul"] = "i64",
@@ -1165,6 +1170,16 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif op == "u32_not" or op == "u32_popcount" or op == "u32_ctz" or op == "u32_clz" then
         local counted = node as scalarIR.FixedUnary
         holds(node.type == "u32" and counted.value.type == "u32", "invalid uint32 bit count")
+        scalarWalk(counted.value, values, scope)
+    elseif op == "u64_not" then
+        local complemented = node as scalarIR.FixedUnary
+        holds(node.type == "u64" and complemented.value.type == "u64", "invalid uint64 complement")
+        scalarWalk(complemented.value, values, scope)
+    elseif op == "u64_popcount" or op == "u64_ctz" or op == "u64_clz" then
+        -- The count is a small number whatever the width it counted, so these
+        -- answer uint32 where the complement answers the pattern it inverted.
+        local counted = node as scalarIR.FixedUnary
+        holds(node.type == "u32" and counted.value.type == "u64", "invalid uint64 bit count")
         scalarWalk(counted.value, values, scope)
     elseif verify.FIXED_CORRECTED[tostring(op)] ~= nil then
         corrected(node as scalarIR.Corrected, values, scope)

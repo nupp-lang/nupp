@@ -1376,6 +1376,24 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
 
     local bitwise = admit.BITWISE[written]
     if bitwise ~= nil then
+        -- A 64-bit operand keeps its width rather than being narrowed to the
+        -- 32-bit pattern used by the ordinary bitwise family.
+        local wide = left.type == "u64" or right.type == "u64"
+        if wide and written ~= "~>>" then
+            local u64Ops: {
+                [string]: string
+            } = {["&"] = "u64_and", ["|"] = "u64_or", ["~"] = "u64_xor", ["<<"] = "u64_shl", [">>"] = "u64_shr",}
+
+            return new scalarIR.Fixed(
+                op = u64Ops[written] as scalarIR.FixedOp,
+                left = lower.convert(left, "u64", source, context),
+                -- A shift count is converted to the operand width and masked to
+                -- 63 in the backend, as the 32-bit pair masks its count to 31.
+                right = lower.convert(right, "u64", source, context),
+                type = "u64",
+                source = source
+            )
+        end
         if not bitOperand(left) or not bitOperand(right) then
             context.reject(source, "bitwise operands must be fixed 32-bit values or nonnegative uint32 literals")
         end
@@ -3246,6 +3264,8 @@ local function unary(node: cst.Unop, value: scalarIR.Expr, kernel: lower.Kernel)
         return new scalarIR.Unary(op = "neg", value = negated as scalarIR.Expr, type = "f64", source = source)
     elseif written == "not" and value.type == "bool" then
         return new scalarIR.Unary(op = "not", value = value, type = "bool", source = source)
+    elseif written == "~" and value.type == "u64" then
+        return new scalarIR.FixedUnary(op = "u64_not", value = value, type = "u64", source = source)
     elseif written == "~" and bitOperand(value) then
         return new scalarIR.Unary(op = "bnot", value = value, type = "i32", source = source)
     end

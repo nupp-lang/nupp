@@ -51,6 +51,9 @@ const WIDE_OPERATORS = {
     ["u64_add"] = "+",
     ["u64_sub"] = "-",
     ["u64_mul"] = "*",
+    ["u64_and"] = "&",
+    ["u64_or"] = "|",
+    ["u64_xor"] = "^",
     ["i64_add"] = "+",
     ["i64_sub"] = "-",
     ["i64_mul"] = "*",
@@ -1215,6 +1218,14 @@ function emit.scalarCall(node: scalarIR.Expr): string
         ) .. (operation == "u32_shl" and " << " or " >> ") .. shift .. "))"
     end
 
+    if operation == "u64_shl" or operation == "u64_shr" then
+        local binary = node as scalarIR.Fixed
+        local shift = "((uint64_t)(" .. emit.scalar(binary.right) .. ") & UINT64_C(63))"
+        return "((uint64_t)(" .. emit.scalar(
+            binary.left
+        ) .. ")" .. (operation == "u64_shl" and " << " or " >> ") .. shift .. ")"
+    end
+
     operator = WIDE_OPERATORS[operation]
     if operator ~= nil then
         local binary = node as scalarIR.Fixed
@@ -1238,6 +1249,16 @@ function emit.scalarCall(node: scalarIR.Expr): string
         return "nupp_u32_ctz(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
     elseif operation == "u32_clz" then
         return "nupp_u32_clz(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
+    elseif operation == "u64_not" then
+        return "((uint64_t)(~(uint64_t)(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")))"
+    elseif operation == "u64_popcount" then
+        return "((uint32_t)__builtin_popcountll((uint64_t)(" .. emit.scalar(
+            (node as scalarIR.FixedUnary).value
+        ) .. ")))"
+    elseif operation == "u64_ctz" then
+        return "nupp_u64_ctz(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
+    elseif operation == "u64_clz" then
+        return "nupp_u64_clz(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
     end
 
     local corrected = {["f32_min"] = "nupp_f32_min", ["f32_max"] = "nupp_f32_max", ["f32_fma"] = "nupp_f32_fma",}
@@ -3867,6 +3888,10 @@ local function scalarHelpers(): {string}
         .. "uint32_t nupp_u32_ctz(uint32_t value) { return value == 0u ? 32u : (uint32_t)__builtin_ctz(value); }",
         unused
         .. "uint32_t nupp_u32_clz(uint32_t value) { return value == 0u ? 32u : (uint32_t)__builtin_clz(value); }",
+        unused
+        .. "uint32_t nupp_u64_ctz(uint64_t value) { return value == UINT64_C(0) ? 64u : (uint32_t)__builtin_ctzll(value); }",
+        unused
+        .. "uint32_t nupp_u64_clz(uint64_t value) { return value == UINT64_C(0) ? 64u : (uint32_t)__builtin_clzll(value); }",
         unused .. "uint32_t nupp_u32_i32(int32_t value) { return (uint32_t)value; }",
         unused .. "uint32_t nupp_u32_u32(uint32_t value) { return value; }",
         "#define nupp_u32(value) _Generic((value), int32_t: nupp_u32_i32, uint32_t: nupp_u32_u32, default: nupp_u32)(value)",
