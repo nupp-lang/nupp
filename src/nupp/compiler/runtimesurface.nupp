@@ -193,12 +193,18 @@ function surface.requireIdentity(checker: any, root: string?, member: string?, a
         return
     end
     local identity = member and root .. "." .. member or root
+    -- The global is LuaJIT's, because a global cannot be supplied without writing to
+    -- `_G`. The module of the same name is not, so say which spelling carries over
+    -- rather than leaving a reader to find that out from the module list.
+    local help = root == "bit"
+        and 'require the module instead: `require("bit")` resolves on every dialect'
+        or "use a portable module adapter or bind an application value with a different definition"
     checker.diag(
         "NUPP3010",
         at,
         ("the `lua51` runtime surface does not include prelude identity `%s`"):format(identity),
         nil,
-        {help = "use a portable module adapter or bind an application value with a different definition"}
+        {help = help}
     )
 end
 

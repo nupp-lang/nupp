@@ -1409,14 +1409,20 @@ local coroutine: {
 -- check nobody can leave on protects nothing. A metamethod that does yield still fails
 -- loudly, because the C frame underneath raises.
 
---- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
---- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
---- come back signed.
-
 ----------------------------------------------------------------------------
 -- bit
 ----------------------------------------------------------------------------
 
+--- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
+--- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
+--- come back signed.
+---
+--- `require("bit")` resolves on every dialect, which no other module on this page
+--- does. Every name below has a scalar implementation with the same signature, so a
+--- portable target reaches that one and a LuaJIT target reaches the C library; the
+--- bare `bit` global is LuaJIT's alone, so portable source requires the module. Write
+--- the operator where there is one, and reach for this for `tohex`, `bswap`, `rol`,
+--- `ror` and `tobit`, which have none.
 local bit: {
     --- Normalizes `x` into the signed 32-bit integer range, wrapping around.
     ---

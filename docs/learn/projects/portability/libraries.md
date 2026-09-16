@@ -42,6 +42,31 @@ load if that representation is unavailable.
 Unsupported source operations still fail during checking. Foreign C calls need a
 native target; registering a provider cannot change that requirement.
 
+## LuaJIT modules
+
+`require("ffi")`, `require("string.buffer")`, `require("table.new")` and the
+`jit.*` modules are LuaJIT's, and the `lua51` dialect refuses them: each does
+something a portable target cannot do at all, or can only do in part. Reach
+them through an adapter instead, the way [](nupp.text) covers buffers with one
+`Buffer` type over both implementations.
+
+`bit` is the exception, and the only one. Every name BitOp declares has a scalar
+implementation with the same signature, so `require("bit")` resolves on every
+dialect: a LuaJIT target loads the C library and a portable target loads the
+scalar implementation beneath it.
+
+```nupp
+const bit = require("bit")
+
+print(bit.tohex(bit.bswap(0x11223344))) -- 44332211
+```
+
+Write `&`, `|`, `~`, `<<`, `>>` and `~>>` where an operator says it, since the
+compiler lowers each one per target and nothing has to name an implementation.
+Require the module for `tohex`, `bswap`, `rol`, `ror` and `tobit`, which have no
+operator. The bare `bit` global stays LuaJIT's: a global cannot be supplied
+without writing to `_G`, so portable source requires the module.
+
 ## Require-time selection
 
 SPI covers operations whose implementation varies. Fixed hashing, scalar SIMD,
