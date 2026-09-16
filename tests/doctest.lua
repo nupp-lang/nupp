@@ -3188,6 +3188,43 @@ function M.siteMatchesTheNuppdocPageModel()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A generated page heads each declaration with its name and then the one word that
+-- says what it is. The word is a badge beside the name, the way a module page renders
+-- one, rather than trailing italics: italics are part of the heading's text, and the
+-- outline and the search index beside the page were listing every declaration as its
+-- name followed by its kind.
+function M.headingKindsRenderAsBadgesAndStayOutOfTheOutline()
+    local html = require("nupp.compiler.doc.html")
+
+    local rendered = html.markdownHtml("### `string.format` _function_", {})
+    assert(
+        rendered:find('<span class="nuppdoc-kind-badge nuppdoc-kind-function">function</span>', 1, true),
+        rendered
+    )
+    assert(not rendered:find("<em>", 1, true), "the kind rendered as emphasis inside the heading")
+    -- The slug still carries the kind: a generated page anchors its declarations by the
+    -- name alone already, and the two would collide.
+    assert(rendered:find('id="stringformat-function"', 1, true), rendered)
+    assert(rendered:find('aria-label="Link to string.format"', 1, true), rendered)
+
+    local outline = html.markdownOutline("### `string.format` _function_")
+    assert(#outline == 1, "one heading")
+    assert(outline[1].name == "string.format", outline[1].name)
+    assert(outline[1].path == "stringformat-function", outline[1].path)
+
+    -- A comptime kind is two words, and a badge is what a member heading gets too.
+    local comptime = html.markdownHtml("#### `sizeof` _comptime function_", {})
+    assert(comptime:find("nuppdoc-kind-comptime-function", 1, true), comptime)
+
+    -- Nothing else loses its emphasis. A heading has to name a declaration in code
+    -- before its trailing emphasis reads as a kind at all.
+    local prose = html.markdownHtml("## Why _this_ matters", {})
+    assert(prose:find("<em>this</em>", 1, true), prose)
+    local trailing = html.markdownHtml("## Reading the output _carefully_", {})
+    assert(trailing:find("<em>carefully</em>", 1, true), trailing)
+    assert(html.markdownOutline("## Why _this_ matters")[1].name == "Why this matters")
+end
+
 -- Markdown is lunamark's now. These are the cases the pattern-based renderer
 -- it replaced got wrong, so they are the ones worth pinning.
 function M.markdownIsRenderedByLunamark()

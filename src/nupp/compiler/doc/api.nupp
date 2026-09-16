@@ -17,6 +17,7 @@ local htmlEscape = stringsMod.htmlEscape
 local summaryText = stringsMod.summaryText
 local markdownHtml, tableHtml = htmlMod.markdownHtml, htmlMod.tableHtml
 local inlineHtml = htmlMod.inlineHtml
+local kindBadge = htmlMod.kindBadge
 local highlightNupp = highlightMod.nuppSource
 local childModules = extractMod.children
 local moduleFile = urlsMod.moduleFile
@@ -29,14 +30,6 @@ type api.ItemGroup = {
     kinds: boolean,
     items: {extractMod.Item}
 }
-
-local function kindClass(kind)
-    return htmlEscape((kind:gsub("[^%w_-]+", "-")))
-end
-
-local function kindBadge(kind)
-    return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass(kind) .. '">' .. htmlEscape(kind) .. '</span>'
-end
 
 -- What a declaration was annotated with, rendered beside its name.
 local function annotationBadges(annotations)
@@ -376,11 +369,9 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links
         item.path
     ) .. '"><h3><code>' .. htmlEscape(
         item.name
-    ) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass(
+    ) .. "</code>" .. kindBadge(
         kind
-    ) .. '">' .. htmlEscape(
-        kind
-    ) .. '</span><a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
+    ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
         item.path
     ) .. '" aria-label="Link to ' .. htmlEscape(item.name) .. '">#</a></h3>'
     out[#out + 1] = memberCode(displaySignature(item), links)

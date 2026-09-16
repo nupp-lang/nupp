@@ -28,7 +28,11 @@ output, where the whole info string has been folded into one class attribute
 and `lua [caption]` no longer matches `lua`.
 
 Headings are the other thing kept: the id is Nupp's own slug, and each carries
-the anchor link the site's stylesheet expects.
+the anchor link the site's stylesheet expects. A heading a generated page ends
+with the kind of what it names -- `` ### `string.format` _function_ `` -- keeps
+that word out of its text and renders it as the badge the module pages carry, so
+the outline beside the page lists the declaration rather than the declaration
+and its kind.
 ]]
 const {type Links} = require("nupp.compiler.doc.urls")
 
@@ -71,6 +75,32 @@ local function tableHtml(headers: {string}, rows: {{string}}): string
     return table.concat(out)
 end
 
+local function kindClass(kind: string): string
+    local class = kind:gsub("[^%w_-]+", "-")
+    return (htmlEscape(class))
+end
+
+local function kindBadge(kind: string): string
+    return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass(kind) .. '">' .. htmlEscape(kind) .. "</span>"
+end
+
+-- A generated API heading names a declaration and then says in one word what it is:
+-- `` ### `string.format` _function_ ``. The word is a badge rather than part of the
+-- name, so it is split off here. The outline and the search index then list the
+-- declaration under the name a reader was looking for, and the heading renders the word
+-- as the same pill the module pages carry instead of as trailing italics.
+--
+-- The shape is what the generated pages write and what nothing else does: a code span,
+-- then emphasis holding lowercase words and nothing after it.
+local function headingBadge(heading: string): string, string?
+    local name, _, kind = heading:match("^(.-`[^`]+`)%s+([_*])([%l][%l ]*)%2$")
+    if not name then
+        return heading, nil
+    end
+
+    return name, kind
+end
+
 local function markdownOutline(text: string?): {html.Heading}
     local out, fenced = {}, nil
     for _, line in ipairs(syntax.lines:match(tostring(text or "")) or {}) do
@@ -79,7 +109,11 @@ local function markdownOutline(text: string?): {html.Heading}
         if not marker and not fenced then
             local hashes, heading = syntax.heading:match(line)
             if hashes and heading and #hashes <= 3 then
-                out[#out + 1] = {path = headingId(heading), name = heading:gsub("[`*_]", ""), level = #hashes}
+                local name = headingBadge(heading)
+                -- The slug still comes from the whole heading, badge and all: the page
+                -- has been anchoring its declarations that way, and the name alone
+                -- collides with the anchor a generated page writes above the heading.
+                out[#out + 1] = {path = headingId(heading), name = name:gsub("[`*_]", ""), level = #hashes}
             end
         end
     end
@@ -379,19 +413,28 @@ local function extractBlocks(text, links, rendered)
     return table.concat(out, "\n")
 end
 
--- The slug of each heading, in the order they appear. lunamark hands the writer a
--- heading's rendered content, which is HTML by then; the id has to come from the source
--- text, so it is computed here and matched up by position.
+-- The slug of each heading, in the order they appear, and the document with the kind
+-- badges taken out of them. lunamark hands the writer a heading's rendered content,
+-- which is HTML by then; the id has to come from the source text, so it is computed
+-- here and matched up by position. A badge is lifted for the same reason -- emphasis
+-- the grammar rendered would be part of the heading's text, and the writer puts it back
+-- as a pill once the name has been rendered without it.
 local function headingSlugs(text)
-    local slugs = {}
+    local slugs, out = {}, {}
     for line in (text .. "\n"):gmatch("(.-)\n") do
         local hashes, heading = line:match("^(#+)%s+(.+)$")
         if hashes then
-            slugs[#slugs + 1] = {id = headingId(heading), text = heading}
+            local name, badge = headingBadge(heading)
+            -- The label is read aloud by a screen reader following the anchor, so it is
+            -- the heading as it reads rather than as it was written.
+            slugs[#slugs + 1] = {id = headingId(heading), text = name:gsub("[`*_]", ""), badge = badge}
+            out[#out + 1] = badge and hashes .. " " .. name or line
+        else
+            out[#out + 1] = line
         end
     end
 
-    return slugs
+    return slugs, table.concat(out, "\n")
 end
 
 -- One parser, built once: lunamark compiles a PEG grammar, which is not something to do
@@ -428,6 +471,7 @@ local function lunamarkParser(): any
             htmlEscape(id),
             '">',
             content,
+            heading and heading.badge and kindBadge(heading.badge) or "",
             '<a class="nuppdoc-header-anchor" href="#',
             htmlEscape(id),
             '" aria-label="Link to ',
@@ -499,7 +543,8 @@ markdownHtml = function(text: string?, links: Links?, headingShift: integer?): s
             return links[name]
         end)
     end
-    headings, headingIndex = headingSlugs(prepared), 0
+    local slugs, withoutBadges = headingSlugs(prepared)
+    headings, headingIndex, prepared = slugs, 0, withoutBadges
     headingShiftBy = headingShift == nil and 1 or headingShift
     -- Annotated because the parser is reached through an untyped rock: without this the
     -- rendered document arrives as `any` and the replacement pass below narrows it to
@@ -532,6 +577,14 @@ end
 html.urlFragmentEscape = urlFragmentEscape
 
 html.tableHtml = tableHtml
+
+--- What a declaration is, as the pill that sits beside its name: the badge a module
+--- page carries and a generated page's heading ends with.
+---
+--- @param kind the one word the badge reads, such as `function` or `record`
+--- @return the badge's markup
+html.kindBadge = kindBadge
+
 html.markdownHtml = markdownHtml
 html.inlineHtml = inlineHtml
 html.markdownOutline = markdownOutline
