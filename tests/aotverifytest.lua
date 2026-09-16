@@ -438,4 +438,46 @@ function M.anExitWhenEmptyBreakBelongsToTheLaneLoopsOwnBody()
     refuses(program, "invalid immediate lane-loop exit")
 end
 
+function M.rearrangementsRecheckOperandShapesAndOutputSelection()
+    local source = [[
+local simd = require("nupp.simd")
+@aot
+local function rearrange(): number
+    local s: simd.Species<float, simd.Fixed<2>> = simd.species()
+    local a, b = s:splat(1.0):interleave(s:splat(2.0))
+    local c, d = a:deinterleave(b)
+    local e, f = simd.transpose(c, d)
+    return e:extract(1) + f:extract(2)
+end
+return {rearrange = rearrange}
+]]
+    for _, op in ipairs({"interleave", "deinterleave", "transpose"}) do
+        for _, damage in ipairs({
+            function(value)
+                value.args[#value.args].value = "2"
+            end,
+            function(value)
+                value.args[#value.args].value = "-1"
+            end,
+            function(value)
+                value.args[#value.args].value = "0.5"
+            end,
+            function(value)
+                value.args[1].type = "simd_vector_u32_fixed2"
+            end,
+        }) do
+            local program = lowered(source, "rearrangement.nupp")
+            local found
+            for _, helper in ipairs(program.helpers) do
+                if helper.values[1].intrinsic == op then
+                    found = helper.values[1]
+                end
+            end
+            assert(found, "missing rearrangement helper")
+            damage(found)
+            refuses(program, "invalid generic SIMD rearrangement")
+        end
+    end
+end
+
 return M

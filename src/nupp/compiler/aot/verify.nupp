@@ -871,6 +871,27 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                     #args == 2 and args[1].type == node.type and args[2].op == "constant",
                     "invalid generic SIMD rotation"
                 )
+            elseif intrinsic == "interleave" or intrinsic == "deinterleave" or intrinsic == "transpose" then
+                local rows = #args - 1
+                local part = args[#args]
+                local index = part ~= nil and part.op == "constant" and tonumber(
+                    (part as scalarIR.Constant).value
+                ) or nil
+                local valid = family == "vector"
+                    and index ~= nil
+                    and index >= 0
+                    and index % 1 == 0
+                    and index < rows
+                    and part.type == "f64"
+                if intrinsic == "transpose" then
+                    valid = valid and rows >= 2 and rows <= 64 and shape == "fixed" .. tostring(rows)
+                else
+                    valid = valid and rows == 2
+                end
+                for i = 1, rows do
+                    valid = valid and args[i].type == node.type
+                end
+                holds(valid, "invalid generic SIMD rearrangement")
             elseif intrinsic == "swizzle" or intrinsic == "swizzle_pair" then
                 local operands = intrinsic == "swizzle_pair" and 3 or 2
                 local sameShape = #args == operands
@@ -2144,7 +2165,7 @@ local function block(
 
             local resultTypes = statement.call.resultTypes or {}
             holds(
-                statement.call.type == "multi" and #statement.bindings == #resultTypes,
+                statement.call.type == "multi" and #statement.bindings > 0 and #statement.bindings <= #resultTypes,
                 "invalid multiple-result declaration"
             )
             for position, bound in ipairs(statement.bindings) do

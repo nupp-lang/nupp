@@ -414,6 +414,34 @@ arg reducers do not invent an index for a seed.
 
 ## Explicit SIMD
 
+### Interleave, deinterleave, and transpose
+
+`interleave` alternates the lanes of two vectors and returns both halves.
+`deinterleave` extracts the odd and even lanes of the concatenated inputs:
+
+```nupp
+local low, high = a:interleave(b)
+local originalA, originalB = low:deinterleave(high)
+```
+
+For `a = [1, 2, 3, 4]` and `b = [5, 6, 7, 8]`, the halves are
+`[1, 5, 2, 6]` and `[3, 7, 4, 8]`. Both operands have the same vector type.
+These operations work with `Preferred` and `Fixed<N>`, including odd lane
+counts; the split is always after exactly N lanes of the alternating sequence.
+
+`transpose` takes a square tile of N `Vector<T, Fixed<N>>` rows and returns
+N column vectors of the same type:
+
+```nupp
+local c1, c2, c3, c4 = simd.transpose(r1, r2, r3, r4)
+```
+
+These are multiple native results, not a boxed tuple or table. Each input is
+evaluated once. Every lane keeps its exact bits, including NaN payloads and
+signed zero. The compiler emits constant lane selections; the native backend
+chooses the shuffle sequence. Wider logical vectors may require cross-register
+work, so one source operation does not promise one machine instruction.
+
 ### Numeric conversion and bit reinterpretation
 
 `destination:convert(values)` converts lanes using LuaJIT FFI numeric rules.

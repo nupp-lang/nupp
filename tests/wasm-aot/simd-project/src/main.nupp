@@ -1,6 +1,7 @@
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
 local conformance = require("nupp.tests.wasmconformance")
+local simd = require("nupp.simd")
 
 local seamOk, seamWhy = conformance.run()
 assert(seamOk, seamWhy)
@@ -49,3 +50,40 @@ assert(#rows == 3)
 assert(rows[1].value == 4 and rows[1].bias == 12 and rows[1].weight == 3)
 assert(rows[2].value == 6 and rows[2].bias == 22 and rows[2].weight == 6)
 assert(rows[3].value == 10 and rows[3].bias == 32 and rows[3].weight == 9)
+
+@aot
+local function rearrange(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
+    local bits: simd.Species<uint32, simd.Fixed<3>> = simd.species()
+    local floats: simd.Species<float, simd.Fixed<3>> = simd.species()
+    local a, b = floats:reinterpret(bits:load(input, 1)):interleave(floats:reinterpret(bits:load(input, 4)))
+    local first, second = a:deinterleave(b)
+    local x, y, z = simd.transpose(first, second, floats:reinterpret(bits:load(input, 7)))
+    bits:store(output, 1, bits:reinterpret(x))
+    bits:store(output, 4, bits:reinterpret(y))
+    bits:store(output, 7, bits:reinterpret(z))
+end
+
+local tile = array.scalar(array.uint32, 9)
+do
+    local writable = tile:write()
+    for i = 1, 9 do
+        writable[i] = nupp.math.u32.wrap(i)
+    end
+    writable[1] = 0x80000000
+    writable[2] = 0x7fc12345
+    writable[3] = 0x7f812345
+    drop writable
+end
+local transposed = array.scalar(array.uint32, 9)
+do
+    local writable = transposed:write()
+    rearrange(writable, tile:read())
+    drop writable
+end
+local original = tile:read()
+local columns = transposed:read()
+for row = 1, 3 do
+    for column = 1, 3 do
+        assert(columns[(column - 1) * 3 + row] == original[(row - 1) * 3 + column])
+    end
+end

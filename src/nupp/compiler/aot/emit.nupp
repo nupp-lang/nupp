@@ -485,6 +485,59 @@ local function mixedComparison(operation: string, left: scalarIR.Expr, right: sc
     return nil
 end
 
+--- Constant lane selections let the C backend form target shuffles without
+--- runtime indices. Helper parameters ensure every input is evaluated once.
+function emit.rearrange(node: scalarIR.Simd): string
+    local _, element, lanes, shape = explicitType(node.type)
+    local width = lanes as integer
+    local native = math.floor(explicitWidth * 8 / (tonumber((element as string):match("%d+")) as number))
+    local composite = shape ~= "preferred" and width ~= native
+    local part = tonumber((node.args[#node.args] as scalarIR.Constant).value) as integer
+    local selected: {string} = {}
+    for i = 0, width - 1 do
+        local row: integer = 0
+        local index: integer = 0
+        if node.intrinsic == "interleave" then
+            local position = part * width + i
+            row = position % 2
+            index = math.floor(position / 2) as integer
+        elseif node.intrinsic == "deinterleave" then
+            local position = i * 2 + part
+            row = math.floor(position / width) as integer
+            index = position % width
+        else
+            row = i
+            index = part
+        end
+        local value = "(" .. emit.scalar(node.args[row + 1]) .. ")"
+        if explicitScalar then
+            selected[i + 1] = value .. ".lane[" .. tostring(index) .. "]"
+        elseif composite then
+            selected[
+                i + 1
+            ] = value .. ".chunk[" .. tostring(math.floor(index / native)) .. "][" .. tostring(index % native) .. "]"
+        else
+            selected[i + 1] = value .. "[" .. tostring(index) .. "]"
+        end
+    end
+    local contents = table.concat(selected, ", ")
+    if explicitScalar then
+        contents = ".lane = {" .. contents .. "}"
+    elseif composite then
+        local chunks: {string} = {}
+        for c = 0, math.ceil(width / native) - 1 do
+            local entries: {string} = {}
+            for i = 1, native do
+                entries[i] = selected[c * native + i] or "0"
+            end
+            chunks[#chunks + 1] = "{" .. table.concat(entries, ", ") .. "}"
+        end
+        contents = ".chunk = {" .. table.concat(chunks, ", ") .. "}"
+    end
+
+    return "(" .. emit.cType(node.type) .. "){" .. contents .. "}"
+end
+
 --- Indexed memory over logical lanes, including composite representations.
 --- @raises when the value and index representations have different lane counts
 function emit.indexedSimd(node: scalarIR.Simd): string
@@ -953,6 +1006,12 @@ function emit.scalar(node: scalarIR.Expr): string
                     args[1]
                 ) .. ", " .. emit.scalar(args[2]) .. ", " .. emit.scalar(args[3]) .. ")"
             elseif operation == "simd_permute" then
+                if simd.intrinsic == "interleave"
+                    or simd.intrinsic == "deinterleave"
+                    or simd.intrinsic == "transpose"
+                then
+                    return emit.rearrange(simd)
+                end
                 local rendered: {string} = {}
                 for _, argument in ipairs(args) do
                     rendered[#rendered + 1] = emit.scalar(argument)
@@ -4864,6 +4923,7 @@ local function genericSimdPrelude(width: integer): {string}
                 "    __m128i t, x, high, shuffled; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u); high = _mm_and_si128(x, _mm_set1_epi8((char)0xf0)); shuffled = _mm_shuffle_epi8(t, x); shuffled = _mm_and_si128(shuffled, _mm_cmpeq_epi8(high, _mm_setzero_si128())); memcpy(&out, &shuffled, 16u);",
                 "#elif defined(__wasm_simd128__) && " .. tostring(lanes) .. " == 16",
                 "    /* `i8x16.swizzle` is exactly this, zero for out of range. */",
+                "    typedef signed char KsSwizzle __attribute__((vector_size(16)));",
                 "    KsSwizzle t, x, y; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u);",
                 "    y = __builtin_wasm_swizzle_i8x16(t, x); memcpy(&out, &y, 16u);",
                 "#else",

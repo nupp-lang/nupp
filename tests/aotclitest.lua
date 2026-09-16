@@ -4721,4 +4721,75 @@ return {wrap = wrap}
     )
 end
 
+function M.pairedRearrangementsAndTransposeKeepNativeResultsAtEveryTier()
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+@aot
+local function rearrange(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    local s: simd.Species<float, simd.Fixed<4>> = simd.species()
+    local a, b = s:load(input, 1):interleave(s:load(input, 5))
+    local c, d = a:deinterleave(b)
+    local w, x, y, z = simd.transpose(a, b, c, d)
+    s:store(output, 1, w)
+    s:store(output, 5, x)
+    s:store(output, 9, y)
+    s:store(output, 13, z)
+end
+@aot
+local function preferred(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    local s: simd.Species<float, simd.Preferred> = simd.species()
+    local a, b = s:load(input, 1):interleave(s:load(input, s.lanes + 1))
+    local first = a:deinterleave(b)
+    s:store(output, 1, first)
+end
+return {rearrange = rearrange, preferred = preferred}
+]]
+    local dir = project{["rearrange.nupp"] = source}
+    for _, tier in ipairs({
+        "--target aarch64-apple-darwin --features neon",
+        "--target x86_64-unknown-linux-gnu --features baseline",
+        "--target x86_64-unknown-linux-gnu --features avx2",
+        "--target x86_64-unknown-linux-gnu --features avx512f",
+        "--target wasm32-unknown-emscripten --features simd128",
+    }) do
+        local decoded, raw, code = lowered(dir, tier .. " --json rearrange.nupp")
+        test.equal(code, 0, raw)
+        for _, op in ipairs({"interleave", "deinterleave", "transpose"}) do
+            assert(decoded.ir:find("rearrange_" .. op .. "_simd_vector_f32_fixed4", 1, true), decoded.ir)
+            assert(decoded.c:find("rearrange_" .. op .. "_simd_vector_f32_fixed4_forced_scalar", 1, true), decoded.c)
+        end
+        assert(not decoded.c:find("malloc(", 1, true), "rearrangements must not allocate")
+    end
+    local asm, code = run(dir, "--emit asm rearrange.nupp")
+    test.equal(code, 0, asm)
+    assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), asm)
+end
+
+function M.transposeRejectsNonSquareMixedAndPreferredRows()
+    for _, case in ipairs({
+        {shape = "simd.Fixed<4>", value = "s:splat(2.0)", reason = "square tile"},
+        {shape = "simd.Preferred", value = "s:splat(2.0)", reason = "fixed-width rows"},
+        {shape = "simd.Fixed<2>", value = "3.0", reason = "SIMD vector rows"},
+        {shape = "simd.Fixed<2>", value = "other:splat(2)", reason = "same vector type"},
+    }) do
+        local source = (
+            [[
+local simd = require("nupp.simd")
+@aot
+local function bad(): number
+    local s: simd.Species<float, %s> = simd.species()
+    local other: simd.Species<uint32, simd.Fixed<2>> = simd.species()
+    local a, b = simd.transpose(s:splat(1.0), %s)
+    return a:extract(1) + b:extract(1)
+end
+return {bad = bad}
+]]
+        ):format(case.shape, case.value)
+        local dir = project{["badtranspose.nupp"] = source}
+        local out, code = run(dir, "--json badtranspose.nupp")
+        assert(code ~= 0 and out:find(case.reason, 1, true), out)
+    end
+end
+
 return M

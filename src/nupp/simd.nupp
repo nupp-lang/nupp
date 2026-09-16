@@ -1121,6 +1121,20 @@ sealed interface simd.Vector<T, S>
     --- Reverses logical lane order.
     reverse: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
 
+    --- Alternates lanes from self and other, then splits that sequence into
+    --- two species-width results. No lane bits are changed.
+    interleave: function(
+        borrows self: simd.Vector<T, S>,
+        other: simd.Vector<T, S>
+    ): (simd.Vector<T, S>, simd.Vector<T, S>)
+
+    --- Returns the odd and even lanes of self followed by other. This is the
+    --- inverse of interleave, including for odd logical lane counts.
+    deinterleave: function(
+        borrows self: simd.Vector<T, S>,
+        other: simd.Vector<T, S>
+    ): (simd.Vector<T, S>, simd.Vector<T, S>)
+
     --- Rotates logical lanes. Counts are reduced modulo the species width.
     rotateLeft: function(borrows self: simd.Vector<T, S>, count: integer): simd.Vector<T, S>
 
@@ -1260,6 +1274,40 @@ end
 function simd.species<T, S>(): simd.Species<T, S>
     error("simd.species is available only inside an AOT-compiled function", 2)
 end
+
+local comptime function Transposed(Rows: typepack, Vector: type, Fixed: type): typepack
+    const rows = nupp.types.elements(Rows)
+    if #rows < 2 or #rows > 64 then
+        return nupp.types.error("transpose needs between 2 and 64 fixed-width rows")
+    end
+    for i = 1, #rows do
+        if not nupp.types.sameNominal(rows[i], Vector) then
+            return nupp.types.error("transpose needs SIMD vector rows")
+        end
+        const args = nupp.types.arguments(rows[i])
+        if not nupp.types.sameNominal(args[2], Fixed) then
+            return nupp.types.error("transpose needs fixed-width rows")
+        end
+        if rows[i] ~= rows[1] then
+            return nupp.types.error("transpose rows must have the same vector type")
+        end
+    end
+
+    return Rows
+end
+
+--- Transposes a square tile of Fixed<N> row vectors into N column vectors.
+--- All rows have the same element type; lane bits are preserved. Results are
+--- separate native vectors, not a table, and cannot escape the AOT kernel.
+--- @raises outside an AOT-compiled function
+--- @export
+local transpose: function<Rows...>(
+    ...: Rows...
+): unpackof Transposed(Rows..., simd.Vector<uint32, simd.Fixed<2>>, simd.Fixed<2>) = function(...: any): never
+    error("simd.transpose is available only inside an AOT-compiled function", 2)
+end
+
+const simd.transpose = transpose
 
 --- Named horizontal operations over one explicit register value.
 ---

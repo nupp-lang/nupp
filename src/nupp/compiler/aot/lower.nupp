@@ -1618,6 +1618,91 @@ local function mathCall(
     return new scalarIR.Math(op = "math", intrinsic = intrinsic.name, args = args, type = "f64", source = source)
 end
 
+--- Multiple vector results use the existing pure-helper return convention.
+--- Parameters capture each operand once, even when several outputs read it.
+function lower.rearrange(
+    operation: string,
+    args: {scalarIR.Expr},
+    source: scalarIR.Source,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    if args[1] == nil then
+        kernel.context.reject(source, operation .. " needs matching SIMD vectors")
+    end
+    local family, _, shape = genericSimdParts(args[1].type)
+    local count = operation == "transpose" and #args or 2
+    if family ~= "vector" or #args ~= count then
+        kernel.context.reject(source, operation .. " needs matching SIMD vectors")
+    end
+    for _, arg in ipairs(args) do
+        if arg.type ~= args[1].type then
+            kernel.context.reject(source, operation .. " needs matching SIMD vectors")
+        end
+    end
+    if operation == "transpose" and (count < 2 or count > 64 or shape ~= "fixed" .. tostring(count)) then
+        kernel.context.reject(source, "transpose needs a square tile of fixed-width vectors")
+    end
+    local key = "rearrange_" .. operation .. "_" .. args[1].type
+    local helper = kernel.helpers["$" .. key]
+    if helper == nil then
+        local params: {scalarIR.Name} = {}
+        local values: {scalarIR.Expr} = {}
+        local resultTypes: {scalarIR.Type} = {}
+        for i, arg in ipairs(args) do
+            params[
+                i
+            ] = new scalarIR.Name(
+                op = "helper_param",
+                name = "row" .. tostring(i),
+                cName = "row" .. tostring(i),
+                type = arg.type,
+                source = source
+            )
+        end
+        for i = 1, count do
+            local operands: {scalarIR.Expr} = {}
+            for _, param in ipairs(params) do
+                operands[#operands + 1] = param
+            end
+            operands[
+                #operands + 1
+            ] = new scalarIR.Constant(op = "constant", value = tostring(i - 1), type = "f64", source = source)
+            values[
+                i
+            ] = new scalarIR.Simd(
+                op = "simd_permute",
+                intrinsic = operation,
+                args = operands,
+                type = args[1].type,
+                source = source
+            )
+            resultTypes[i] = args[1].type
+        end
+        helper = new scalarIR.Helper(
+            name = "$" .. key,
+            cName = kernel.symbol .. "_" .. key,
+            params = params,
+            values = values,
+            resultType = args[1].type,
+            resultTypes = resultTypes,
+            source = source
+        )
+        kernel.helpers["$" .. key] = helper
+        kernel.helperOrder[#kernel.helperOrder + 1] = helper as scalarIR.Helper
+    end
+    kernel.usesSimd = true
+
+    return new scalarIR.HelperCall(
+        op = "helper_call",
+        helper = (helper as scalarIR.Helper).name,
+        cName = (helper as scalarIR.Helper).cName,
+        args = args,
+        type = "multi",
+        resultTypes = (helper as scalarIR.Helper).resultTypes,
+        source = source
+    )
+end
+
 --- One call, which is an intrinsic or a visible pure helper and nothing else.
 local function call(
     node: cst.Call,
@@ -1791,6 +1876,8 @@ local function call(
             type = (indexed and "f64" or genericSimdScalar(element)) as scalarIR.Type,
             source = lower.site(node)
         )
+    elseif identity == "nupp.simd.transpose" then
+        return lower.rearrange("transpose", args, lower.site(node), kernel)
     elseif identity == "nupp.simd.species" then
         if #args ~= 0 then
             context.reject(lower.site(node), "a generic SIMD species constructor takes no arguments")
@@ -2839,6 +2926,13 @@ local function simdMethod(
                 intrinsic = "insert",
                 type = vectorType,
                 source = source
+            )
+        elseif genericFamily == "vector" and (method == "interleave" or method == "deinterleave") and #raw == 1 then
+            return lower.rearrange(
+                method,
+                {receiver as scalarIR.Expr, lower.expression(raw[1], environment, activeIndex, kernel)},
+                source,
+                kernel
             )
         elseif genericFamily == "vector" and method == "reverse" and #raw == 0 then
             return new scalarIR.Simd(
@@ -4640,7 +4734,7 @@ local function localStmt(
             -- the call happens once, whatever it is later inlined into.
             local call = only as scalarIR.HelperCall
             local resultTypes = call.resultTypes or {}
-            if #resultTypes ~= #names then
+            if #resultTypes < #names then
                 context.reject(lower.site(stat), "multiple-result helper count does not match local names")
             end
 

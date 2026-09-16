@@ -3963,4 +3963,126 @@ return {
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.rearrangementsPreserveEveryLaneBitInNativeAndScalarCode()
+    if not hasToolchain() then
+        return
+    end
+    local ffi = require("ffi")
+    local dir = project("require")
+    local modules, cases = {}, {}
+    for _, ty in ipairs({
+        {"float", "float"},
+        {"number", "double"},
+        {"int8", "int8_t"},
+        {"uint8", "uint8_t"},
+        {"int16", "int16_t"},
+        {"uint16", "uint16_t"},
+        {"int32", "int32_t"},
+        {"uint32", "uint32_t"},
+        {"int64", "int64_t"},
+        {"uint64", "uint64_t"},
+    }) do
+        local source = {'local span = require("nupp.mem.span")', 'local simd = require("nupp.simd")'}
+        local exports = {}
+        for _, n in ipairs({2, 3, 4, 8, 17, 64}) do
+            for _, op in ipairs(
+                n <= 8 and {"interleave", "deinterleave", "transpose"} or {"interleave", "deinterleave"}
+            ) do
+                local name = op .. "_" .. ty[1] .. "_" .. n
+                local rows = op == "transpose" and n or 2
+                local names, inputs, stores = {}, {}, {}
+                for row = 1, rows do
+                    names[row] = "v" .. row
+                    inputs[row] = "s:load(input, " .. ((row - 1) * n + 1) .. ")"
+                    stores[row] = "s:store(output, " .. ((row - 1) * n + 1) .. ", " .. names[row] .. ")"
+                end
+                local call = op == "transpose" and "simd.transpose(" .. table.concat(
+                    inputs,
+                    ", "
+                ) .. ")" or inputs[1] .. ":" .. op .. "(" .. inputs[2] .. ")"
+                source[
+                    #source + 1
+                ] = (
+                    [[
+@aot
+local function %s(exclusive output: span.WriteSpan<%s>, borrows input: span.Span<%s>): nil
+    local s: simd.Species<%s, simd.Fixed<%d>> = simd.species()
+    local %s = %s
+    %s
+end
+]]
+                ):format(name, ty[1], ty[1], ty[1], n, table.concat(names, ", "), call, table.concat(stores, "\n    "))
+                exports[#exports + 1] = name .. " = " .. name
+                cases[#cases + 1] = {name = name, ctype = ty[2], n = n, rows = rows, op = op}
+            end
+        end
+        source[#source + 1] = "return {" .. table.concat(exports, ", ") .. "}"
+        local handle = assert(io.open(dir .. "/src/rearrange_" .. ty[1] .. ".nupp", "wb"))
+        handle:write(table.concat(source, "\n"))
+        handle:close()
+        modules[#modules + 1] = ty[1] .. ' = require("rearrange_' .. ty[1] .. '")'
+    end
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write("return {" .. table.concat(modules, ", ") .. "}")
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local lib = ffi.load(libraryPath(dir))
+    for _, case in ipairs(cases) do
+        local count = case.n * case.rows
+        local input = ffi.new(case.ctype .. "[?]", count)
+        local bytes = ffi.cast("uint8_t *", input)
+        local size = ffi.sizeof(case.ctype)
+        for i = 0, count * size - 1 do
+            bytes[i] = (i * 73 + math.floor(i / 3) * 17) % 256
+        end
+        -- Include signed zero and several NaN payloads, without converting them
+        -- through a Lua number (which could canonicalize the NaN).
+        if case.ctype == "float" then
+            local words = ffi.cast("uint32_t *", input)
+            words[0], words[1], words[2], words[3] = 0x80000000, 0x7fc12345, 0x7f812345, 0xffc54321
+        elseif case.ctype == "double" then
+            local words = ffi.cast("uint64_t *", input)
+            words[
+                0
+            ], words[
+                1
+            ], words[
+                2
+            ], words[3] = 0x8000000000000000ULL, 0x7ff8123456789abcULL, 0x7ff0123456789abcULL, 0xfff8fedcba987654ULL
+        end
+        local expected = {}
+        for _, active in ipairs({0, 1, count - 1, count}) do
+            local pieces = {}
+            for i = 0, count - 1 do
+                local index
+                if case.op == "interleave" then
+                    index = (i % 2) * case.n + math.floor(i / 2)
+                elseif case.op == "deinterleave" then
+                    index = (i % case.n) * 2 + math.floor(i / case.n)
+                else
+                    index = (i % case.n) * case.n + math.floor(i / case.n)
+                end
+                pieces[
+                    #pieces + 1
+                ] = index < active and ffi.string(bytes + index * size, size) or string.rep("\0", size)
+            end
+            expected[active] = table.concat(pieces)
+        end
+        for _, suffix in ipairs({"", "_forced_scalar"}) do
+            local symbol = librarySymbol(lib, "ks_" .. case.name .. suffix)
+            ffi.cdef(("void %s(%s *, const %s *, size_t, size_t);"):format(symbol, case.ctype, case.ctype))
+            for _, active in ipairs({0, 1, count - 1, count}) do
+                local actual = ffi.new(case.ctype .. "[?]", count)
+                lib[symbol](actual, input, count, active)
+                test.equal(
+                    ffi.string(actual, ffi.sizeof(actual)),
+                    expected[active],
+                    case.name .. suffix .. " tail " .. active
+                )
+            end
+        end
+    end
+end
+
 return M
