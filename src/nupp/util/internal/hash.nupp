@@ -3,7 +3,7 @@ module nupp.util.internal.hash
 --[[General-purpose noncryptographic hashing. For message digests use nupp.digest;
 for error-detection checksums use nupp.checksum.]]
 const {type ByteView} = require("nupp.io")
-const bits = require("nupp.bits")
+const bit = require("bit")
 
 --- Hashes bytes with FNV-1a over 64 bits.
 ---
@@ -20,8 +20,8 @@ export function fnv1a64(value: string | ByteView): string
         local high = hi < 0 and hi + 4294967296 or hi
         local product = low * 435
         local carry = math.floor(product / 4294967296)
-        lo = bits.tobit(product)
-        hi = bits.tobit(high * 435 + low * 256 + carry)
+        lo = bit.tobit(product)
+        hi = bit.tobit(high * 435 + low * 256 + carry)
     end
     local high = hi < 0 and hi + 4294967296 or hi
     local low = lo < 0 and lo + 4294967296 or lo

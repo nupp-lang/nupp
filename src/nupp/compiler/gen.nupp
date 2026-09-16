@@ -6353,6 +6353,12 @@ function gen.generate(
             e(")")
             return
 
+        elseif kind == "call" and x.rewrittenModule then
+            -- The source named a module this target does not have. Its replacement
+            -- answers to the same declaration, so only the name moves.
+            e(("require(%q)"):format(x.rewrittenModule), sourceLine(x))
+            return
+
         elseif kind == "call" and x.carrayElem then
             if pluck.storage.enabled then
                 pluck.needRuntimeEffect("runtime.cstorage")

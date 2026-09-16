@@ -187,6 +187,32 @@ function M.compatibilityDialectLowersSyntaxAndRetainsLuaJITCapabilities()
     )
 end
 
+-- `bit` is the one LuaJIT module a portable target can answer for exactly: every
+-- name in its declaration has a scalar implementation with the same signature. So
+-- the require is rewritten to that adapter rather than refused, and one spelling
+-- reaches the C library where there is one and Lua arithmetic where there is not.
+function M.requiringBitopsWorksOnEveryDialect()
+    local source = table.concat({'local bit = require("bit")', "return bit.tohex(bit.bswap(1))",}, "\n")
+
+    local native, nativeDiags = checked(source, "luajit")
+    assertEq(#nativeDiags, 0, "LuaJIT keeps its own BitOp module")
+    local nativeCode = gen.generate(native, "bitops.nupp")
+    assert(nativeCode:find('require ( "bit" )', 1, true), "LuaJIT output loads the C library:\n" .. nativeCode)
+
+    local portable, portableDiags = checked(source, "lua51")
+    assertEq(#portableDiags, 0, "portable checking accepts the BitOp surface")
+    local portableCode, loweringDiags = gen.generate(portable, "bitops.nupp", nil, nil, nil, "lua51")
+    assertEq(#loweringDiags, 0, "portable bitops source lowers")
+    assert(
+        portableCode:find('require("nupp.runtime.bitops")', 1, true),
+        "portable output reaches the adapter:\n" .. portableCode
+    )
+    assert(
+        not portableCode:find('require("bit")', 1, true) and not portableCode:find('require ( "bit" )', 1, true),
+        "portable output keeps no module the target cannot load:\n" .. portableCode
+    )
+end
+
 function M.authoredJumpsAreRefusedOnlyByThePortableDialect()
     local source = table.concat({"local answer = 1", "goto done", "answer = 2", "::done::", "return answer",}, "\n")
     local _, nativeDiags = checked(source, "luajit")

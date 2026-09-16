@@ -156,7 +156,6 @@ local RUNTIME_MODULES: {
     [string]: boolean
 } = {
     ffi = true,
-    bit = true,
     ["table.new"] = true,
     ["table.clear"] = true,
     ["string.buffer"] = true,
