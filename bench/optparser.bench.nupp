@@ -1,0 +1,173 @@
+-- The mutable OptParser cursor compared with the record-per-token API it replaced.
+-- Run: nupp bench --file bench/optparser.bench.nupp
+
+local bench = require("nupp.bench")
+local cli = require("nupp.cli")
+const {type Invocation} = require("nupp.bench")
+
+local record LegacyToken
+    kind: cli.TokenKind
+    key: string?
+    value: string?
+    raw: string
+    index: integer
+    attached: boolean
+    pattern: boolean = false
+end
+
+local record LegacyParser
+    argv: {string}
+    config: cli.OptParserConfig
+    index: integer
+    literal: boolean
+
+    function next(self): LegacyToken?
+        if self.index > #self.argv then
+            return nil
+        end
+
+        local index = self.index
+        local raw = self.argv[index]
+        self.index = index + 1
+
+        if self.literal then
+            return new LegacyToken(kind = cli.argument, raw = raw, index = index, attached = false)
+        end
+
+        if raw == "--" then
+            self.literal = true
+            if self.config.exposeTerminator == false then
+                return self:next()
+            end
+            return new LegacyToken(kind = cli.terminator, raw = raw, index = index, attached = false)
+        end
+
+        if raw ~= "-" and raw:sub(1, 1) == "-" then
+            local patterns = self.config.patterns or {}
+            for _, form in ipairs(patterns) do
+                local captured = raw:match(form.pattern)
+                if captured ~= nil then
+                    return new LegacyToken(
+                        kind = raw:sub(1, 2) == "--" and cli.longOption or cli.shortOption,
+                        key = form.key,
+                        value = captured,
+                        raw = raw,
+                        index = index,
+                        attached = true,
+                        pattern = true
+                    )
+                end
+            end
+
+            local long = raw:sub(1, 2) == "--"
+            local prefix = long and 3 or 2
+            local body = raw:sub(prefix)
+            local equals = body:find("=", 1, true)
+            local key = equals and body:sub(1, equals - 1) or body
+            local value = equals and body:sub(equals + 1) or nil
+            local attached = equals ~= nil
+            local arity = self.config.arity and self.config.arity[key] or cli.none
+
+            if not attached and arity == cli.required then
+                local following = self.argv[self.index]
+                if following == nil then
+                    error("option " .. raw .. " requires a value")
+                end
+                self.index = self.index + 1
+                value = following
+            elseif not attached and arity == cli.attachedOnly then
+                error("option " .. raw .. " requires an attached value")
+            end
+
+            return new LegacyToken(
+                kind = long and cli.longOption or cli.shortOption,
+                key = key,
+                value = value,
+                raw = raw,
+                index = index,
+                attached = attached
+            )
+        end
+
+        if self.config.stopAtFirstArgument then
+            self.literal = true
+        end
+
+        return new LegacyToken(kind = cli.argument, raw = raw, index = index, attached = false)
+    end
+end
+
+local ARGV = {
+    "-v",
+    "--output=result.txt",
+    "-O2",
+    "main.nupp",
+    "--jobs",
+    "8",
+    "--color=always",
+    "input-one.nupp",
+    "input-two.nupp",
+    "--",
+    "--literal",
+    "tail",
+}
+local CONFIG: cli.OptParserConfig = {
+    arity = {v = cli.none, output = cli.required, jobs = cli.required, color = cli.optionalAttached},
+    patterns = {{pattern = "^%-O(%d)$", key = "O"}},
+}
+local TOKEN_COUNT: integer = 11
+
+local function legacy(_: any, _: Invocation): integer
+    local stream = new LegacyParser(argv = ARGV, config = CONFIG, index = 1, literal = false)
+    local checksum: integer = 0
+    while true do
+        local token = stream:next()
+        if token == nil then
+            break
+        end
+        checksum = checksum + #token.raw + token.index
+        if token.kind == cli.shortOption or token.kind == cli.longOption then
+            checksum = checksum + #assert(token.key) + #(token.value or "")
+            checksum = checksum + (token.attached and 1 or 0) + (token.pattern and 1 or 0)
+        end
+    end
+
+    return checksum
+end
+
+local function cursor(_: any, _: Invocation): integer
+    local stream = cli.optParser(ARGV, CONFIG)
+    local checksum: integer = 0
+    while true do
+        local kind, problem = stream:next()
+        assert(problem == nil, problem and problem.message)
+        if kind == nil then
+            break
+        end
+        checksum = checksum + #stream:raw() + stream:index()
+        if kind == cli.shortOption or kind == cli.longOption then
+            checksum = checksum + #stream:key() + #(stream:value() or "")
+            checksum = checksum + (stream:attached() and 1 or 0) + (stream:pattern() and 1 or 0)
+        end
+    end
+
+    return checksum
+end
+
+assert(legacy(nil, nil as any) == cursor(nil, nil as any))
+
+bench.suite(
+    {
+        name = "optparser",
+        baselineVariant = "record-token",
+        variants = {{name = "record-token", run = legacy}, {name = "mutable-cursor", run = cursor},},
+        cases = {{name = "mixed-argv", operations = TOKEN_COUNT},},
+        warmupIterations = 20,
+        sampleIterations = 100000,
+        minSamples = 15,
+        minDurationSec = 1,
+        maxSamples = 100,
+        maxDurationSec = 10,
+    } as bench.SuiteOptions
+)
+bench.report()

@@ -68,12 +68,13 @@ local function requestsSchema(subject: any, argv: {string}): boolean
         stopAtFirstArgument = schema.stopAtFirstArgument,
     })
     while true do
-        local token = stream:next()
-        if token == nil then
+        local kind = stream:next()
+        if kind == nil then
             return false
         end
-        local field = not token.pattern and token.key and fields[token.key] or nil
-        if field ~= nil and field.field == "schema" and token.value == nil then
+        local option = kind == ansi.shortOption or kind == ansi.longOption
+        local field = option and not stream:pattern() and fields[stream:key()] or nil
+        if field ~= nil and field.field == "schema" and stream:value() == nil then
             return true
         end
     end

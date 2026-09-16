@@ -15,13 +15,21 @@ export type DecodeError = {
     readonly destination: string?
 }
 
-local function failure(kind: string, message: string, token: parser.Token?, field: any?): DecodeError
+local function failure(kind: string, message: string, token: parser.OptParser?, field: any?): DecodeError
+    local option: string? = nil
+    if token ~= nil then
+        local tokenKind = token:kind()
+        if tokenKind == parser.shortOption or tokenKind == parser.longOption then
+            option = token:key()
+        end
+    end
+
     return {
         kind = kind,
         message = message,
-        index = token and token.index or nil,
-        raw = token and token.raw or nil,
-        option = token and token.key or nil,
+        index = token and token:index() or nil,
+        raw = token and token:raw() or nil,
+        option = option,
         field = field and field.field or nil,
         destination = field and field.destination or nil,
     }
@@ -54,7 +62,7 @@ local function prepared(entry: Entry): any
     return plan
 end
 
-local function converted(text: string, field: any, token: parser.Token?): any, DecodeError?
+local function converted(text: string, field: any, token: parser.OptParser?): any, DecodeError?
     local kind = field.conversion
     if kind == "string" then
         return text, nil
@@ -106,7 +114,7 @@ local function assign(
     seen: {[integer]: boolean},
     field: any,
     text: string,
-    token: parser.Token?
+    token: parser.OptParser?
 ): DecodeError?
     local value, problem = converted(text, field, token)
     if problem ~= nil then
@@ -148,7 +156,7 @@ export function fromCLI(argv: {string}, entry: Entry): any, DecodeError?
     })
 
     while true do
-        local token, syntax = stream:next()
+        local tokenKind, syntax = stream:next()
         if syntax ~= nil then
             return nil, {
                 kind = syntax.kind,
@@ -157,28 +165,29 @@ export function fromCLI(argv: {string}, entry: Entry): any, DecodeError?
                 raw = syntax.raw,
                 option = syntax.key,
             }
-        elseif token == nil then
+        elseif tokenKind == nil then
             break
-        elseif token.kind == "terminator" then
-        elseif token.kind == "shortOption" or token.kind == "longOption" then
-            local field = token.pattern and plan.byPattern[token.key] or plan.byName[token.key]
+        elseif tokenKind == parser.terminator then
+        elseif tokenKind == parser.shortOption or tokenKind == parser.longOption then
+            local key = stream:key()
+            local field = stream:pattern() and plan.byPattern[key] or plan.byName[key]
             if field == nil then
                 if schema.preserveUnknown then
-                    local problem = assign(values, seen, schema.remainder, token.raw, token)
+                    local problem = assign(values, seen, schema.remainder, stream:raw(), stream)
                     if problem ~= nil then
                         return nil, problem
                     end
                 else
-                    return nil, failure("unknownOption", "unknown option " .. token.raw, token, nil)
+                    return nil, failure("unknownOption", "unknown option " .. stream:raw(), stream, nil)
                 end
             elseif field.conversion == "boolean" then
-                if token.value ~= nil then
-                    return nil, failure("unexpectedValue", field.display .. " takes no value", token, field)
+                if stream:value() ~= nil then
+                    return nil, failure("unexpectedValue", field.display .. " takes no value", stream, field)
                 elseif seen[field.index] then
                     return nil, failure(
                         "duplicateOption",
                         field.display .. " was specified more than once",
-                        token,
+                        stream,
                         field
                     )
                 end
@@ -188,31 +197,31 @@ export function fromCLI(argv: {string}, entry: Entry): any, DecodeError?
                     values[field.index] = true
                 end
                 seen[field.index] = true
-            elseif field.constants[token.key] ~= nil then
-                if token.value ~= nil then
-                    return nil, failure("unexpectedValue", token.raw .. " takes no value", token, field)
+            elseif field.constants[key] ~= nil then
+                if stream:value() ~= nil then
+                    return nil, failure("unexpectedValue", stream:raw() .. " takes no value", stream, field)
                 end
-                local problem = assign(values, seen, field, field.constants[token.key], token)
+                local problem = assign(values, seen, field, field.constants[key], stream)
                 if problem ~= nil then
                     return nil, problem
                 end
-            elseif token.value == nil and field.constant ~= nil then
+            elseif stream:value() == nil and field.constant ~= nil then
                 if seen[field.index] then
                     return nil, failure(
                         "duplicateOption",
                         field.display .. " was specified more than once",
-                        token,
+                        stream,
                         field
                     )
                 end
                 values[field.index] = field.constant
                 seen[field.index] = true
             else
-                local text = token.value
+                local text = stream:value()
                 if text == nil then
-                    return nil, failure("missingValue", field.display .. " needs " .. field.value, token, field)
+                    return nil, failure("missingValue", field.display .. " needs " .. field.value, stream, field)
                 end
-                local problem = assign(values, seen, field, text, token)
+                local problem = assign(values, seen, field, text, stream)
                 if problem ~= nil then
                     return nil, problem
                 end
@@ -222,7 +231,7 @@ export function fromCLI(argv: {string}, entry: Entry): any, DecodeError?
             if field ~= nil and field.optional and field.choices ~= nil then
                 local matches = false
                 for _, choice in ipairs(field.choices) do
-                    if choice == token.raw then
+                    if choice == stream:raw() then
                         matches = true
                     end
                 end
@@ -232,9 +241,9 @@ export function fromCLI(argv: {string}, entry: Entry): any, DecodeError?
                 end
             end
             if field == nil then
-                return nil, failure("unexpectedArgument", "unexpected argument " .. token.raw, token, nil)
+                return nil, failure("unexpectedArgument", "unexpected argument " .. stream:raw(), stream, nil)
             end
-            local problem = assign(values, seen, field, token.raw, token)
+            local problem = assign(values, seen, field, stream:raw(), stream)
             if problem ~= nil then
                 return nil, problem
             end

@@ -2,48 +2,81 @@ module tests.fixtures.cliparser
 
 local cliModule = require("nupp.cli")
 
+local function assertRaises(body: function(): nil): nil
+    local ok = pcall(body)
+    assert(not ok)
+end
+
 local parser = cliModule.optParser({"-v", "--output=result.txt", "main.nupp", "--", "--literal"}, {
     arity = {v = cliModule.none, output = cliModule.required},
 })
+assertRaises(function(): nil
+    parser:kind()
+end)
 local first = assert(parser:next())
-assert(first.kind == "shortOption" and first.key == "v" and first.index == 1)
+assert(first == cliModule.shortOption and parser:kind() == first)
+assert(parser:key() == "v" and parser:index() == 1)
 local second = assert(parser:next())
-assert(second.kind == "longOption" and second.key == "output")
-assert(second.value == "result.txt" and second.attached)
+assert(second == cliModule.longOption and parser:key() == "output")
+assert(parser:value() == "result.txt" and parser:attached())
 local third = assert(parser:next())
-assert(third.kind == "argument" and third.raw == "main.nupp")
+assert(third == cliModule.argument and parser:raw() == "main.nupp")
+assertRaises(function(): nil
+    parser:key()
+end)
+assertRaises(function(): nil
+    parser:value()
+end)
+assertRaises(function(): nil
+    parser:attached()
+end)
+assertRaises(function(): nil
+    parser:pattern()
+end)
 local fourth = assert(parser:next())
-assert(fourth.kind == "terminator")
+assert(fourth == cliModule.terminator and parser:raw() == "--")
 local fifth = assert(parser:next())
-assert(fifth.kind == "argument" and fifth.raw == "--literal")
+assert(fifth == cliModule.argument and parser:raw() == "--literal")
 local finished = parser:next()
 assert(finished == nil)
+assertRaises(function(): nil
+    parser:raw()
+end)
 assert(parser:original()[1] == "-v")
 assert(#parser:remaining() == 0)
 
 local hiddenTerminator = cliModule.optParser({"first", "--", "--second"}, {exposeTerminator = false})
-assert(assert(hiddenTerminator:next()).raw == "first")
-assert(assert(hiddenTerminator:next()).raw == "--second")
+assert(hiddenTerminator:next() == cliModule.argument and hiddenTerminator:raw() == "first")
+assert(hiddenTerminator:next() == cliModule.argument and hiddenTerminator:raw() == "--second")
 
 local iterated = {}
-for token, iterationProblem in cliModule.getopt({"--flag", "value"}) do
-    assert(iterationProblem == nil)
-    iterated[#iterated + 1] = assert(token).raw
+for kind, current in cliModule.getopt({"--flag", "value"}) do
+    assert(kind == assert(current):kind())
+    iterated[#iterated + 1] = current:raw()
 end
 assert(#iterated == 2 and iterated[2] == "value")
 
 local values = cliModule.optParser({"--unknown", "file", "--output", "next"}, {arity = {output = cliModule.required},})
 local unknown = assert(values:next())
-assert(unknown.key == "unknown" and unknown.value == nil)
-assert(assert(values:next()).raw == "file")
+assert(unknown == cliModule.longOption and values:key() == "unknown" and values:value() == nil)
+assert(values:next() == cliModule.argument and values:raw() == "file")
 local output = assert(values:next())
-assert(output.key == "output" and output.value == "next" and not output.attached)
+assert(output == cliModule.longOption and values:key() == "output")
+assert(values:value() == "next" and not values:attached())
 
 local missing = cliModule.optParser({"--output"}, {arity = {output = cliModule.required}})
 local missingToken, problem = missing:next()
 assert(missingToken == nil)
 assert(problem ~= nil and problem.kind == "missingValue")
 assert(problem.index == 1 and problem.key == "output")
+assertRaises(function(): nil
+    missing:raw()
+end)
+
+local iterMissing = cliModule.getopt({"--output"}, {arity = {output = cliModule.required}})
+assertRaises(function(): nil
+    iterMissing()
+end)
 
 local attached = cliModule.optParser({"-Zno-opt"}, {arity = {['Zno-opt'] = cliModule.attachedOnly}})
 local attachedToken, attachedProblem = attached:next()
@@ -55,10 +88,11 @@ local stopped = cliModule.optParser({"-O2", "program.nupp", "--flag"}, {
     stopAtFirstArgument = true,
 })
 local level = assert(stopped:next())
-assert(level.kind == "shortOption" and level.key == "O" and level.value == "2")
-assert(assert(stopped:next()).raw == "program.nupp")
+assert(level == cliModule.shortOption and stopped:key() == "O" and stopped:value() == "2")
+assert(stopped:pattern())
+assert(stopped:next() == cliModule.argument and stopped:raw() == "program.nupp")
 local literal = assert(stopped:next())
-assert(literal.kind == "argument" and literal.raw == "--flag")
+assert(literal == cliModule.argument and stopped:raw() == "--flag")
 
 --- Options accepted by a checked command.
 @derive(cliModule.Arguments)

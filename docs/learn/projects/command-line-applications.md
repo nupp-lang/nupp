@@ -8,7 +8,7 @@ order: 650
 
 ## Parse option tokens
 
-`optParser` is a Nim `parseopt`-style stream. Configure which options take values, then read tokens until it ends.
+`optParser` is a mutable token cursor that does not allocate a token object on each advance. Configure which options take values, then advance it until it ends. `next` returns a token kind; the token's data remains on the parser until the following `next` call.
 
 ```nupp
 local cli = require("nupp.cli")
@@ -17,14 +17,18 @@ local parser = cli.optParser(arg, {
     arity = {output = cli.required, verbose = cli.none},
 })
 while true do
-    local token, problem = parser:next()
+    local kind, problem = parser:next()
     assert(problem == nil, problem and problem.message)
-    if token == nil then break end
-    print(token.kind, token.key or token.raw, token.value or "")
+    if kind == nil then break end
+    if kind == cli.shortOption or kind == cli.longOption then
+        print(kind, parser:key(), parser:value() or "")
+    else
+        print(kind, parser:raw())
+    end
 end
 ```
 
-`cli.getopt` exposes the same parser as an iterator. `--` makes every remaining word an argument.
+`raw` and `index` are valid for every current token. `key`, `value`, `attached`, and `pattern` are option-only and raise when the current token is another kind. Every accessor raises before the first token and after the end. `cli.getopt` exposes the token kind and current parser as an iterator, raising on syntax errors. `--` makes every remaining word an argument.
 
 ## Derive typed arguments
 

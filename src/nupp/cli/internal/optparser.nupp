@@ -11,6 +11,11 @@ nothing about commands, field types, help, terminal policy, or process exits.
 --- The kind of one classified argv word.
 export type TokenKind = "shortOption" | "longOption" | "argument" | "terminator"
 
+export const shortOption: TokenKind = "shortOption"
+export const longOption: TokenKind = "longOption"
+export const argument: TokenKind = "argument"
+export const terminator: TokenKind = "terminator"
+
 --- How an option obtains a value.
 export type ValueArity = "none" | "required" | "optionalAttached" | "attachedOnly"
 
@@ -38,17 +43,6 @@ export type OptParserConfig = {
     exposeTerminator: boolean?
 }
 
---- One classified argv word.
-export record Token
-    kind: TokenKind
-    key: string?
-    value: string?
-    raw: string
-    index: integer
-    attached: boolean
-    pattern: boolean = false
-end
-
 --- A syntax failure found while consuming argv.
 export record SyntaxError
     kind: "missingValue" | "needsAttachedValue"
@@ -62,21 +56,41 @@ end
 export record OptParser
     private argv: {string}
     private config: OptParserConfig
-    private index: integer
+    private nextIndex: integer
     private literal: boolean
+    private currentKind: TokenKind?
+    private currentKey: string?
+    private currentValue: string?
+    private currentRaw: string?
+    private currentIndex: integer
+    private currentAttached: boolean
+    private currentPattern: boolean
 
-    --- Returns the next token, or a structured syntax error.
-    function next(self): Token?, SyntaxError?
-        if self.index > #self.argv then
+    --- Advances to the next token and returns its kind, or a syntax error.
+    ---
+    --- Token data remains on this parser until the next call to `next`.
+    function next(self): TokenKind?, SyntaxError?
+        self.currentKind = nil
+        self.currentKey = nil
+        self.currentValue = nil
+        self.currentRaw = nil
+        self.currentIndex = 0
+        self.currentAttached = false
+        self.currentPattern = false
+
+        if self.nextIndex > #self.argv then
             return nil, nil
         end
 
-        local index = self.index
+        local index = self.nextIndex
         local raw = self.argv[index]
-        self.index = index + 1
+        self.nextIndex = index + 1
 
         if self.literal then
-            return new Token(kind = "argument", raw = raw, index = index, attached = false), nil
+            self.currentKind = argument
+            self.currentRaw = raw
+            self.currentIndex = index
+            return argument, nil
         end
 
         if raw == "--" then
@@ -84,7 +98,10 @@ export record OptParser
             if self.config.exposeTerminator == false then
                 return self:next()
             end
-            return new Token(kind = "terminator", raw = raw, index = index, attached = false), nil
+            self.currentKind = terminator
+            self.currentRaw = raw
+            self.currentIndex = index
+            return terminator, nil
         end
 
         if raw ~= "-" and raw:sub(1, 1) == "-" then
@@ -92,15 +109,15 @@ export record OptParser
             for _, form in ipairs(patterns) do
                 local captured = raw:match(form.pattern)
                 if captured ~= nil then
-                    return new Token(
-                        kind = raw:sub(1, 2) == "--" and "longOption" or "shortOption",
-                        key = form.key,
-                        value = captured,
-                        raw = raw,
-                        index = index,
-                        attached = true,
-                        pattern = true
-                    ), nil
+                    local kind = raw:sub(1, 2) == "--" and longOption or shortOption
+                    self.currentKind = kind
+                    self.currentKey = form.key
+                    self.currentValue = captured
+                    self.currentRaw = raw
+                    self.currentIndex = index
+                    self.currentAttached = true
+                    self.currentPattern = true
+                    return kind, nil
                 end
             end
 
@@ -114,7 +131,7 @@ export record OptParser
             local arity = self.config.arity and self.config.arity[key] or "none"
 
             if not attached and arity == "required" then
-                local following = self.argv[self.index]
+                local following = self.argv[self.nextIndex]
                 if following == nil then
                     return nil, new SyntaxError(
                         kind = "missingValue",
@@ -124,7 +141,7 @@ export record OptParser
                         message = "option " .. raw .. " requires a value"
                     )
                 end
-                self.index = self.index + 1
+                self.nextIndex = self.nextIndex + 1
                 value = following
             elseif not attached and arity == "attachedOnly" then
                 return nil, new SyntaxError(
@@ -136,27 +153,107 @@ export record OptParser
                 )
             end
 
-            return new Token(
-                kind = long and "longOption" or "shortOption",
-                key = key,
-                value = value,
-                raw = raw,
-                index = index,
-                attached = attached
-            ), nil
+            local kind = long and longOption or shortOption
+            self.currentKind = kind
+            self.currentKey = key
+            self.currentValue = value
+            self.currentRaw = raw
+            self.currentIndex = index
+            self.currentAttached = attached
+            return kind, nil
         end
 
         if self.config.stopAtFirstArgument then
             self.literal = true
         end
 
-        return new Token(kind = "argument", raw = raw, index = index, attached = false), nil
+        self.currentKind = argument
+        self.currentRaw = raw
+        self.currentIndex = index
+
+        return argument, nil
+    end
+
+    --- Returns the current token kind.
+    ---
+    --- @raises when the parser has no current token
+    function kind(self): TokenKind
+        local kind = self.currentKind
+        if kind == nil then
+            error("OptParser has no current token", 2)
+        end
+
+        return kind
+    end
+
+    --- Returns the current option's normalized key.
+    ---
+    --- @raises when the parser has no current token or it is not an option
+    function key(self): string
+        local kind = self:kind()
+        if kind ~= shortOption and kind ~= longOption then
+            error("OptParser key is only available for an option token", 2)
+        end
+
+        return assert(self.currentKey)
+    end
+
+    --- Returns the current option's value, when it has one.
+    ---
+    --- @raises when the parser has no current token or it is not an option
+    function value(self): string?
+        local kind = self:kind()
+        if kind ~= shortOption and kind ~= longOption then
+            error("OptParser value is only available for an option token", 2)
+        end
+
+        return self.currentValue
+    end
+
+    --- Returns the original argv word for the current token.
+    ---
+    --- @raises when the parser has no current token
+    function raw(self): string
+        self:kind()
+        return assert(self.currentRaw)
+    end
+
+    --- Returns the one-based argv index of the current token.
+    ---
+    --- @raises when the parser has no current token
+    function index(self): integer
+        self:kind()
+        return self.currentIndex
+    end
+
+    --- Reports whether the current option carried an attached value.
+    ---
+    --- @raises when the parser has no current token or it is not an option
+    function attached(self): boolean
+        local kind = self:kind()
+        if kind ~= shortOption and kind ~= longOption then
+            error("OptParser attached is only available for an option token", 2)
+        end
+
+        return self.currentAttached
+    end
+
+    --- Reports whether the current option matched a configured whole-word form.
+    ---
+    --- @raises when the parser has no current token or it is not an option
+    function pattern(self): boolean
+        local kind = self:kind()
+        if kind ~= shortOption and kind ~= longOption then
+            error("OptParser pattern is only available for an option token", 2)
+        end
+
+        return self.currentPattern
     end
 
     --- Returns the unclassified suffix in its original order.
     function remaining(self): {string}
         local out: {string} = {}
-        for index = self.index, #self.argv do
+        for index = self.nextIndex, #self.argv do
             out[#out + 1] = self.argv[index]
         end
 
@@ -171,25 +268,35 @@ end
 
 --- Creates an incremental option parser.
 export function optParser(argv: {string}, config: OptParserConfig?): OptParser
-    return new OptParser(argv = argv, config = config or {}, index = 1, literal = false)
+    return new OptParser(
+        argv = argv,
+        config = config or {},
+        nextIndex = 1,
+        literal = false,
+        currentIndex = 0,
+        currentAttached = false,
+        currentPattern = false
+    )
 end
 
---- Iterates classified tokens until argv is exhausted or an error is found.
+--- Iterates classified token kinds and the parser carrying their current state.
 ---
---- The iterator returns the token and an optional syntax error. On an error the
---- token is nil and iteration ends after that result.
-export function getopt(argv: {string}, config: OptParserConfig?): function(): (Token?, SyntaxError?)
-    local parser = optParser(argv, config)
+--- Syntax errors raise. Use `optParser` directly when they need to remain data.
+export function getopt(argv: {string}, config: OptParserConfig?): function(): (TokenKind?, OptParser?)
+    local stream = optParser(argv, config)
     local done = false
-    return function(): (Token?, SyntaxError?)
+    return function(): (TokenKind?, OptParser?)
         if done then
             return nil, nil
         end
-        local token, problem = parser:next()
-        if token == nil then
+        local kind, problem = stream:next()
+        if problem ~= nil then
+            done = true
+            error(problem.message, 2)
+        elseif kind == nil then
             done = true
         end
 
-        return token, problem
+        return kind, kind and stream or nil
     end
 end

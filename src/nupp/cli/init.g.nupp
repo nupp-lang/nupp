@@ -53,7 +53,6 @@ type cliModule.TokenKind = parser.TokenKind
 type cliModule.ValueArity = parser.ValueArity
 type cliModule.Pattern = parser.Pattern
 type cliModule.OptParserConfig = parser.OptParserConfig
-type cliModule.Token = parser.Token
 type cliModule.SyntaxError = parser.SyntaxError
 type cliModule.OptParser = parser.OptParser
 type cliModule.DecodeError = DecodeError
@@ -113,6 +112,18 @@ cliModule.optionalAttached = "optionalAttached" as cliModule.ValueArity
 
 --- An option which requires an attached `=` value.
 cliModule.attachedOnly = "attachedOnly" as cliModule.ValueArity
+
+--- A short option token.
+cliModule.shortOption = parser.shortOption
+
+--- A long option token.
+cliModule.longOption = parser.longOption
+
+--- A positional or literal argument token.
+cliModule.argument = parser.argument
+
+--- The `--` option terminator token.
+cliModule.terminator = parser.terminator
 
 --- Creates an incremental syntax-only option parser.
 cliModule.optParser = parser.optParser
