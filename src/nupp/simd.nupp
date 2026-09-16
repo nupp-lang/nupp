@@ -1,7 +1,7 @@
 module nupp.simd
 
 --[[
-Explicit SIMD, for an algorithm whose register is itself a data structure.
+Explicit SIMD support.
 
 Nothing here names a width. A species is whatever the artifact tier chose --
 sixteen bytes on the x86-64 baseline and on NEON, thirty-two on AVX2 -- and

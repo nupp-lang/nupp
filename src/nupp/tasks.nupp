@@ -1,7 +1,7 @@
 module nupp.tasks
 
 --[[
-A place to put work that is discovered as you go.
+Structured concurrency: a scope owns the tasks spawned into it.
 
 Open a scope, spawn children into it, and the block that holds it does not end
 until every one of them has run, been cancelled, or unwound.
@@ -279,7 +279,11 @@ record tasks.Scope
         takes body: F,
         ...: unpackof Parameters(F)
     ): tasks.Task<F> borrows (self)
-        & function<F is Nullary>(borrows self: tasks.Scope, takes body: F, name: string): tasks.Task<F> borrows (self)
+        & function<F is Nullary>(
+            borrows self: tasks.Scope,
+            takes body: F,
+            name: string
+        ): tasks.Task<F> borrows (self)
 
     --- Where the named overload of [](nupp.tasks.Scope.spawn) lands.
     ---

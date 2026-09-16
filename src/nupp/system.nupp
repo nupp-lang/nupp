@@ -1,7 +1,7 @@
 module nupp.system
 
 --[[
-What the machine underneath this program is.
+Provides system information about the machine.
 
 Five facts, read once when the module loads.
 
