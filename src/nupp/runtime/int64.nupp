@@ -3,16 +3,33 @@ module nupp.runtime.int64
 
 local contracts = require("nupp.runtime.services.contracts")
 local representation = require("nupp.runtime.representation")
-export = contracts.int64:assemble(
-    function(): contracts.Int64Provider
-        return assert(representation.integers, "nupp.runtime.int64: this target requires an integer provider")
+
+-- Resolved as an optional service rather than a required one, because a module
+-- carrying 64-bit integer code requires this one from its preamble, before any of
+-- that code runs. `nupp.compiler.runtime.math` is such a module and the portable
+-- compiler bundle carries it on stock Lua 5.1, which has no integer provider at
+-- all. Loading the bundle there has to work; calling `nupp.math.u64` is the part
+-- that cannot, so absence is held until a member is actually read.
+local provider = contracts.int64:assembleOptional(
+    function(): contracts.Int64Provider?
+        return representation.integers
     end,
-    function(provider: contracts.Int64Provider): nil
+    function(candidate: contracts.Int64Provider): nil
         if representation.integers ~= nil then
             assert(
-                provider == representation.integers,
+                candidate == representation.integers,
                 "nupp.runtime.int64: integers must use the target storage implementation"
             )
         end
     end
 )
+
+-- A present provider is exported as itself, so the ordinary path reads a plain
+-- field and this module costs nothing once it has loaded.
+local absent: any = setmetatable({}, {
+    __index = function(_: any, name: string): any
+        error("nupp.runtime.int64: this target requires an integer provider", 2)
+    end,
+})
+
+export = (provider or absent) as contracts.Int64Provider
