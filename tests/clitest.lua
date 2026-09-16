@@ -91,9 +91,7 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
         style = plain,
     })
     assert(
-        rendered == "lint         level  summary\n"
-        .. "a            error  first\n"
-        .. "longer-name  off    second\n",
+        rendered == "lint         level  summary\n" .. "a            error  first\n" .. "longer-name  off    second\n",
         "columns are as wide as their widest cell, heading included:\n" .. rendered
     )
     -- The last column is not padded. A run of trailing spaces is invisible in a
@@ -142,9 +140,11 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
             plainRow = line
         end
     end
+
     local function columnAt(line)
         return #(line:gsub("\27%[[0-9;]*m", "")):match("^(.-)%s%s%S")
     end
+
     assert(
         columnAt(noted) == columnAt(plainRow),
         "an annotated cell is measured with its note, so the next column does not move"
@@ -152,7 +152,10 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
 
     ansi.setColorMode("never")
     assert(
-        ansi.table({columns = {{heading = "only"}}, rows = {}}) == "",
+        ansi.table({
+            columns = {{heading = "only"}},
+            rows = {}
+        }) == "",
         "no rows prints nothing at all rather than a heading over nothing"
     )
     assert(
@@ -167,6 +170,7 @@ end
 
 function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
     local long = "a description far longer than the window it is being printed into"
+
     -- The style decides whether a cut can be shown by dimming, so it is passed here
     -- rather than read from the process: a caller printing unpainted gets the marker
     -- whatever the mode says.
@@ -282,6 +286,25 @@ local function captureStatusAt(directory, argv)
     local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")), "no exit status in:\n" .. out)
 
     return (out:gsub("__exit__:%d+%s*$", "")), code
+end
+
+function M.aotHelpNamesArtifactsAndShowsHighlightedExamples()
+    local plain = capture("aot --help")
+    assert(
+        plain:find("Artifact to print: ir, c, spirv, wgsl, asm, or binding.", 1, true),
+        "--emit names every accepted artifact: " .. plain
+    )
+    assert(
+        plain:find("nupp aot --emit asm --function scale src/kernel.nupp", 1, true),
+        "the help includes an assembly example: " .. plain
+    )
+    assert(plain:find("nupp aot --check src/kernel.nupp", 1, true), "the help includes a check example: " .. plain)
+
+    local coloured = capture("aot --color=always --help")
+    assert(coloured:find("\27[1mExamples:\27[0m", 1, true), "the example heading is highlighted: " .. coloured)
+    assert(coloured:find("\27[1;36mnupp\27[0m", 1, true), "the executable is highlighted: " .. coloured)
+    assert(coloured:find("\27[1;32m--emit\27[0m", 1, true), "example options are highlighted: " .. coloured)
+    assert(coloured:find("\27[1;34msrc/kernel.nupp\27[0m", 1, true), "example paths are highlighted: " .. coloured)
 end
 
 function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()

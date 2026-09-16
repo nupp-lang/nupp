@@ -416,6 +416,19 @@ That is the whole of `return 1`, down to the newline the file ends with.
 ```text [nupp aot --help]
 Show what the @aot functions in a file compile to.
 
+With no artifact, reports the lowering decision for each function. Select
+verified IR, generated C, native GPU SPIR-V, browser GPU WGSL, native
+assembly, or the generated Nupp binding with `--emit`.
+
+Examples:
+
+    nupp aot bench/kernel-subset-spike/mandelbrot.nupp
+    nupp aot --emit ir src/kernel.nupp
+    nupp aot --emit c src/kernel.nupp
+    nupp aot --emit asm --function scale src/kernel.nupp
+    nupp aot --emit wgsl --function transform src/gpu.nupp
+    nupp aot --check src/kernel.nupp
+
 Usage:
   nupp aot [options] FILE
 
@@ -423,7 +436,7 @@ Arguments:
   FILE  Source file to inspect.
 
 Options:
-  --emit ARTIFACT  Artifact to print.
+  --emit ARTIFACT  Artifact to print: ir, c, spirv, wgsl, asm, or binding.
   --function NAME  Show only this function.
   --check          Exit non-zero when a loop wanted lanes and remained scalar.
   --target TRIPLE  Target triple to compile for.
@@ -446,7 +459,8 @@ bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, 5.19 operations per byte 
 ```
 
 `--emit` prints one artifact. `ir` is the verified IR with the lane body beside
-the scalar one it was rewritten from, `c` is the generated C, `asm` is the
+the scalar one it was rewritten from, `c` is the generated C, `spirv` is the
+native GPU module, `wgsl` is the browser WebGPU integer artifact, `asm` is the
 instructions that C became, and `binding` is the Nupp module that stands in
 front of it.
 

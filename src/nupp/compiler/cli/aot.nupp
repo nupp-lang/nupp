@@ -741,10 +741,23 @@ local function run(options: any): integer
 end
 
 --- Show what the @aot functions in a file compile to.
+---
+--- With no artifact, reports the lowering decision for each function. Select
+--- verified IR, generated C, native GPU SPIR-V, browser GPU WGSL, native
+--- assembly, or the generated Nupp binding with `--emit`.
+---
+--- Examples:
+---
+---     nupp aot bench/kernel-subset-spike/mandelbrot.nupp
+---     nupp aot --emit ir src/kernel.nupp
+---     nupp aot --emit c src/kernel.nupp
+---     nupp aot --emit asm --function scale src/kernel.nupp
+---     nupp aot --emit wgsl --function transform src/gpu.nupp
+---     nupp aot --check src/kernel.nupp
 @cli("aot")
 @derive(cliModule.Command)
 local record Aot
-    --- Artifact to print.
+    --- Artifact to print: ir, c, spirv, wgsl, asm, or binding.
     @cli(value = "ARTIFACT", choices = {"ir", "c", "spirv", "wgsl", "asm", "binding"})
     emit: string?
 

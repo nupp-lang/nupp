@@ -681,10 +681,38 @@ export record Application
 
     function styled(self, text: string, stream: LuaFile): string
         local style = terminal.style(stream)
-        local rendered = text:gsub("\n(Usage:)", "\n" .. style.strong("%1"))
+        local inExamples = false
+        local lines: {string} = {}
+        for line in (text .. "\n"):gmatch("(.-)\n") do
+            if line == "Examples:" then
+                inExamples = true
+            elseif inExamples and line:match("^    %S") then
+                local position = 0
+                line = line:gsub("%S+", function(token: string): string
+                    position = position + 1
+                    if token == self:programName() then
+                        return style.cyan(token)
+                    elseif token:sub(1, 1) == "-" then
+                        return style.green(token)
+                    elseif position == 2 then
+                        return style.strong(token)
+                    elseif token:find("/", 1, true) or token:find(".", 1, true) then
+                        return style.blue(token)
+                    end
+
+                    return style.yellow(token)
+                end)
+            elseif inExamples and line ~= "" then
+                inExamples = false
+            end
+            lines[#lines + 1] = line
+        end
+        local rendered = table.concat(lines, "\n")
+        rendered = rendered:gsub("\n(Usage:)", "\n" .. style.strong("%1"))
         rendered = rendered:gsub("\n(Commands:)", "\n" .. style.strong("%1"))
         rendered = rendered:gsub("\n(Options:)", "\n" .. style.strong("%1"))
         rendered = rendered:gsub("\n(Arguments:)", "\n" .. style.strong("%1"))
+        rendered = rendered:gsub("\n(Examples:)", "\n" .. style.strong("%1"))
 
         return rendered
     end
