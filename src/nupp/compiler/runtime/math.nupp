@@ -490,6 +490,60 @@ function u32.leadingZeros(a: number): number
     return count
 end
 
+--- Unsigned 64-bit bit operations.
+local u64 = {}
+
+function u64.popcount(a: uint64): uint32
+    local remaining = a
+    local count: integer = 0
+    while remaining ~= 0ULL do
+        remaining = remaining & (remaining - 1ULL)
+        count = count + 1
+    end
+
+    return nupp.math.u32.wrap(count)
+end
+
+function u64.trailingZeros(a: uint64): uint32
+    local remaining = a
+    if remaining == 0ULL then
+        return 64
+    end
+    local count: integer = 0
+    while (remaining & 1ULL) == 0ULL do
+        remaining = remaining >> 1ULL
+        count = count + 1
+    end
+
+    return nupp.math.u32.wrap(count)
+end
+
+function u64.leadingZeros(a: uint64): uint32
+    if a == 0ULL then
+        return 64
+    end
+    local count: integer = 0
+    local probe: uint64 = 9223372036854775808ULL
+    while (a & probe) == 0ULL do
+        probe = probe >> 1ULL
+        count = count + 1
+    end
+
+    return nupp.math.u32.wrap(count)
+end
+
+function u64.prefixXor(a: uint64): uint64
+    local bits = a
+    bits = bits ~ (bits << 1ULL)
+    bits = bits ~ (bits << 2ULL)
+    bits = bits ~ (bits << 4ULL)
+    bits = bits ~ (bits << 8ULL)
+    bits = bits ~ (bits << 16ULL)
+    bits = bits ~ (bits << 32ULL)
+
+    return bits
+end
+
 --- Single-precision floating point.
 local f32 = {}
 
@@ -898,6 +952,7 @@ export function install(namespace: any): nil
     namespace.deltaAngle = deltaAngle
     namespace.i32 = i32
     namespace.u32 = u32
+    namespace.u64 = u64
     namespace.f32 = f32
     namespace.vec2 = vec2
 end

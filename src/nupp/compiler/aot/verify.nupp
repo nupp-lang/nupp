@@ -578,18 +578,6 @@ local GENERIC_SIMD: {
     simd_expand = true,
     simd_prefix = true,
     simd_horizontal = true,
-    simd_bitmask_any = true,
-    simd_bitmask_all = true,
-    simd_bitmask_count = true,
-    simd_bitmask_first = true,
-    simd_bitmask_clear_first = true,
-    simd_bitmask_binary = true,
-    simd_bitmask_compare = true,
-    simd_bitmask_unary = true,
-    simd_bitmask_shift = true,
-    simd_bitmask_prefix_xor = true,
-    simd_bitmask_low = true,
-    simd_bitmask_high = true,
 }
 
 local function genericSimdType(typeName: string): (string?, string?, string?)
@@ -944,42 +932,6 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 ] == true and (extremum or vectorElement == "f32" or vectorElement == "f64"),
                 "invalid generic SIMD horizontal operation"
             )
-        elseif op == "simd_bitmask_binary" or op == "simd_bitmask_compare" then
-            local leftFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
-            holds(
-                #args == 2 and leftFamily == "bitmask" and args[
-                    1
-                ].type == args[2].type and node.type == (op == "simd_bitmask_compare" and "bool" or args[1].type),
-                "invalid generic SIMD bitmask operator"
-            )
-        elseif op == "simd_bitmask_shift" then
-            local leftFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
-            holds(
-                #args == 2 and leftFamily == "bitmask" and args[2].type == "u32" and node.type == args[1].type,
-                "invalid generic SIMD bitmask shift"
-            )
-        elseif op == "simd_bitmask_prefix_xor" then
-            local leftFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
-            holds(
-                #args == 2 and leftFamily == "bitmask" and args[2].type == "bool" and node.type == args[1].type,
-                "invalid generic SIMD bitmask prefix"
-            )
-        elseif op == "simd_bitmask_any"
-            or op == "simd_bitmask_all"
-            or op == "simd_bitmask_count"
-            or op == "simd_bitmask_first"
-            or op == "simd_bitmask_clear_first"
-            or op == "simd_bitmask_unary"
-            or op == "simd_bitmask_low"
-            or op == "simd_bitmask_high"
-        then
-            local bitFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
-            local result = (
-                op == "simd_bitmask_any" or op == "simd_bitmask_all"
-            ) and "bool" or (
-                op == "simd_bitmask_count" or op == "simd_bitmask_low" or op == "simd_bitmask_high"
-            ) and "u32" or op == "simd_bitmask_first" and "f64" or args[1].type
-            holds(#args == 1 and bitFamily == "bitmask" and node.type == result, "invalid generic SIMD bitmask query")
         else
             local maskFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
             local result = (
@@ -987,7 +939,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             ) and "bool" or op == "simd_mask_count" and "u32" or op == "simd_mask_first" and "f64" or nil
             holds(
                 #args == 1 and maskFamily == "mask" and (
-                    node.type == result or op == "simd_mask_bits" and family == "bitmask"
+                    node.type == result or op == "simd_mask_bits" and node.type == "u64"
                 ),
                 "invalid generic SIMD mask query"
             )
@@ -1181,6 +1133,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         local counted = node as scalarIR.FixedUnary
         holds(node.type == "u32" and counted.value.type == "u64", "invalid uint64 bit count")
         scalarWalk(counted.value, values, scope)
+    elseif op == "u64_prefix_xor" then
+        local prefixed = node as scalarIR.FixedUnary
+        holds(node.type == "u64" and prefixed.value.type == "u64", "invalid uint64 prefix xor")
+        scalarWalk(prefixed.value, values, scope)
     elseif verify.FIXED_CORRECTED[tostring(op)] ~= nil then
         corrected(node as scalarIR.Corrected, values, scope)
     elseif op == "constant_i32" then

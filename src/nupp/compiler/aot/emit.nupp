@@ -292,9 +292,7 @@ end
 local function genericSimdType(typeName: string): boolean
     return typeName:match(
         "^simd_vector_"
-    ) ~= nil or typeName:match(
-        "^simd_mask_"
-    ) ~= nil or typeName:match("^simd_species_") ~= nil or typeName:match("^simd_bitmask_") ~= nil
+    ) ~= nil or typeName:match("^simd_mask_") ~= nil or typeName:match("^simd_species_") ~= nil
 end
 
 --- The C type of one IR type.
@@ -708,18 +706,6 @@ function emit.scalar(node: scalarIR.Expr): string
             or operation == "simd_expand"
             or operation == "simd_prefix"
             or operation == "simd_horizontal"
-            or operation == "simd_bitmask_any"
-            or operation == "simd_bitmask_all"
-            or operation == "simd_bitmask_count"
-            or operation == "simd_bitmask_first"
-            or operation == "simd_bitmask_clear_first"
-            or operation == "simd_bitmask_binary"
-            or operation == "simd_bitmask_compare"
-            or operation == "simd_bitmask_unary"
-            or operation == "simd_bitmask_shift"
-            or operation == "simd_bitmask_prefix_xor"
-            or operation == "simd_bitmask_low"
-            or operation == "simd_bitmask_high"
         then
             local shapedType = operation == "simd_species" and simd.type or operation == "simd_lanes_generic" and args[
                 1
@@ -741,21 +727,7 @@ function emit.scalar(node: scalarIR.Expr): string
                 1
             ].type or operation == "simd_extract" and args[
                 1
-            ].type or operation == "simd_bitmask_any" and args[
-                1
-            ].type or operation == "simd_bitmask_all" and args[
-                1
-            ].type or operation == "simd_bitmask_count" and args[
-                1
-            ].type or operation == "simd_bitmask_first" and args[
-                1
-            ].type or operation == "simd_bitmask_low" and args[
-                1
-            ].type or operation == "simd_bitmask_high" and args[
-                1
-            ].type or operation == "simd_horizontal" and args[
-                1
-            ].type or operation == "simd_bitmask_compare" and args[1].type or simd.type
+            ].type or operation == "simd_horizontal" and args[1].type or simd.type
             local _, element, lanes, shape = explicitType(shapedType)
             if element == nil or lanes == nil or shape == nil then
                 error("generic SIMD operation has no resolved species", 0)
@@ -765,8 +737,8 @@ function emit.scalar(node: scalarIR.Expr): string
             local elementBits = tonumber(element:match("%d+")) or 0
             local nativeLanes = elementBits > 0 and math.floor(explicitWidth * 8 / elementBits) or 0
             local composite = shape ~= "preferred" and lanes ~= nativeLanes
-            if tostring(shapedType):match("^simd_bitmask_") ~= nil and lanes > 64 then
-                error("explicit SIMD bitmasks support at most 64 logical lanes", 0)
+            if operation == "simd_mask_bits" and lanes > 64 then
+                error("explicit SIMD masks with more than 64 lanes have no uint64 representation", 0)
             end
             if operation == "simd_extract" or operation == "simd_insert" then
                 local laneIndex = tonumber((args[2] as scalarIR.Constant).value)
@@ -876,62 +848,6 @@ function emit.scalar(node: scalarIR.Expr): string
                 return genericHelper .. "horizontal_" .. tostring(
                     simd.intrinsic
                 ) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
-            elseif operation == "simd_bitmask_any" then
-                return "(" .. emit.scalar(args[1]) .. " != UINT64_C(0))"
-            elseif operation == "simd_bitmask_all" then
-                local wanted = lanes == 64 and "UINT64_MAX" or "((UINT64_C(1) << " .. tostring(
-                    lanes
-                ) .. "u) - UINT64_C(1))"
-                return "((" .. emit.scalar(args[1]) .. " & " .. wanted .. ") == " .. wanted .. ")"
-            elseif operation == "simd_bitmask_count" then
-                return "((uint32_t)__builtin_popcountll(" .. emit.scalar(args[1]) .. "))"
-            elseif operation == "simd_bitmask_first" then
-                local bits = emit.scalar(args[1])
-                return "((double)(" .. bits .. " == UINT64_C(0) ? 0u : (uint32_t)__builtin_ctzll(" .. bits .. ") + 1u))"
-            elseif operation == "simd_bitmask_clear_first" then
-                local bits = emit.scalar(args[1])
-                return "(" .. bits .. " & (" .. bits .. " - UINT64_C(1)))"
-            elseif operation == "simd_bitmask_binary" then
-                local operator = ({['and'] = "&", ['or'] = "|", xor = "^",})[tostring(simd.intrinsic)]
-                return "(" .. emit.scalar(args[1]) .. " " .. tostring(operator) .. " " .. emit.scalar(args[2]) .. ")"
-            elseif operation == "simd_bitmask_compare" then
-                local operator = simd.intrinsic == "eq" and "==" or "!="
-                return "(" .. emit.scalar(args[1]) .. " " .. operator .. " " .. emit.scalar(args[2]) .. ")"
-            elseif operation == "simd_bitmask_unary" then
-                local masked = lanes == 64 and "UINT64_MAX" or "((UINT64_C(1) << " .. tostring(
-                    lanes
-                ) .. "u) - UINT64_C(1))"
-                return "((~" .. emit.scalar(args[1]) .. ") & " .. masked .. ")"
-            elseif operation == "simd_bitmask_shift" then
-                local bits, count = emit.scalar(args[1]), emit.scalar(args[2])
-                local operator = simd.intrinsic == "shl" and "<<" or ">>"
-                return "("
-                    .. count
-                    .. " >= UINT32_C(64) ? UINT64_C(0) : ("
-                    .. bits
-                    .. " "
-                    .. operator
-                    .. " "
-                    .. count
-                    .. "))"
-            elseif operation == "simd_bitmask_prefix_xor" then
-                local bits, carry = emit.scalar(args[1]), emit.scalar(args[2])
-                local masked = lanes == 64 and "UINT64_MAX" or "((UINT64_C(1) << " .. tostring(
-                    lanes
-                ) .. "u) - UINT64_C(1))"
-                return "({ uint64_t ks_bits = "
-                    .. bits
-                    .. "; ks_bits ^= ks_bits << 1u; ks_bits ^= ks_bits << 2u; ks_bits ^= ks_bits << 4u; "
-                    .. "ks_bits ^= ks_bits << 8u; ks_bits ^= ks_bits << 16u; ks_bits ^= ks_bits << 32u; "
-                    .. "if ("
-                    .. carry
-                    .. ") ks_bits = ~ks_bits; ks_bits & "
-                    .. masked
-                    .. "; })"
-            elseif operation == "simd_bitmask_low" then
-                return "((uint32_t)" .. emit.scalar(args[1]) .. ")"
-            elseif operation == "simd_bitmask_high" then
-                return "((uint32_t)(" .. emit.scalar(args[1]) .. " >> 32u))"
             else
                 local bits = genericHelper .. "bits_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
                 if operation == "simd_mask_bits" then
@@ -1259,6 +1175,12 @@ function emit.scalarCall(node: scalarIR.Expr): string
         return "nupp_u64_ctz(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
     elseif operation == "u64_clz" then
         return "nupp_u64_clz(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
+    elseif operation == "u64_prefix_xor" then
+        local bits = emit.scalar((node as scalarIR.FixedUnary).value)
+        return "({ uint64_t ks_bits = "
+            .. bits
+            .. "; ks_bits ^= ks_bits << 1u; ks_bits ^= ks_bits << 2u; ks_bits ^= ks_bits << 4u; "
+            .. "ks_bits ^= ks_bits << 8u; ks_bits ^= ks_bits << 16u; ks_bits ^= ks_bits << 32u; ks_bits; })"
     end
 
     local corrected = {["f32_min"] = "nupp_f32_min", ["f32_max"] = "nupp_f32_max", ["f32_fma"] = "nupp_f32_fma",}

@@ -596,6 +596,20 @@ function M.unsignedBitCountsDefineZeroAndLaneOrderCases()
    assertEq(m.u32.leadingZeros(0x40000000), 1)
 end
 
+function M.unsignedWideBitCountsAndPrefixParityCoverEveryBit()
+   local u64 = library().u64
+   local zero = ffi.new("uint64_t", 0)
+   local wide = 0x8000000000000005ULL
+   assertEq(u64.popcount(zero), 0)
+   assertEq(u64.popcount(wide), 3)
+   assertEq(u64.trailingZeros(zero), 64)
+   assertEq(u64.trailingZeros(0x100000000ULL), 32)
+   assertEq(u64.leadingZeros(zero), 64)
+   assertEq(u64.leadingZeros(wide), 0)
+   assertEq(tostring(u64.prefixXor(ffi.new("uint64_t", 5))), "3ULL")
+   assertEq(tostring(u64.prefixXor(ffi.new("uint64_t", 1))), "18446744073709551615ULL")
+end
+
 function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()
    -- int64 and uint64 are cdata boxes: a Lua number is not one and one is not a
    -- Lua number, so neither side converts silently and the signs do not mix

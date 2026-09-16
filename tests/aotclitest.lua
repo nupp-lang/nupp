@@ -2414,7 +2414,8 @@ local function transform(
     local prefix = expanded:prefixSumOrdered()
     local parity = values:prefixXor()
     species:store(output, 1, prefix + aligned + parity, active)
-    return selected:bits():clearFirst():count()
+    local bits = selected:bits()
+    return nupp.math.u64.popcount(bits & (bits - 1))
 end
 
 return {transform = transform}
@@ -2434,7 +2435,8 @@ return {transform = transform}
         "simd_expand.expand",
         "simd_prefix.prefix_sum_ordered",
         "simd_prefix.prefix_xor",
-        "simd_bitmask_clear_first.clearFirst",
+        "u64_and",
+        "u64_popcount",
     }) do
         assert(decoded.ir:find(intrinsic, 1, true), where .. ": missing intrinsic " .. intrinsic .. "\n" .. decoded.ir)
     end
@@ -2843,7 +2845,11 @@ local function inspect(borrows input: span.Span<float>): (float, uint32, integer
     local active = species:tail(#input)
     local values = species:load(input, 1, active):insert(2, 3.0)
     local bits = (values > 0.0):bits()
-    return values:extract(2), bits:count(), bits:first()
+    local first: integer = 0
+    if bits ~= 0 then
+        first = nupp.math.u64.trailingZeros(bits) + 1
+    end
+    return values:extract(2), nupp.math.u64.popcount(bits), first
 end
 
 return {inspect = inspect}
@@ -2853,26 +2859,31 @@ return {inspect = inspect}
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_insert.insert", 1, true), where .. ": insertion remains intrinsic")
     assert(decoded.ir:find("simd_extract.extract", 1, true), where .. ": extraction remains intrinsic")
-    assert(decoded.ir:find("simd_bitmask_count.count", 1, true), where .. ": bitmask count remains intrinsic")
-    assert(decoded.ir:find("simd_bitmask_first.first", 1, true), where .. ": bit zero maps back to lane one")
+    assert(decoded.ir:find("u64_popcount", 1, true), where .. ": uint64 population count remains intrinsic")
+    assert(decoded.ir:find("u64_ctz", 1, true), where .. ": bit zero maps back to lane one")
     assert(decoded.c:find("(uint32_t)lane - 1u", 1, true), where .. ": C uses the documented one-based lane convention")
 end
 
-function M.genericBitmasksReplaceTheFixedSixtyFourBitHelperSurface()
+function M.uint64MaskBitsReplaceTheFixedSixtyFourBitHelperSurface()
     local source = [[
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
 @aot
-local function inspect(borrows input: span.Span<float>): (uint32, uint32, uint32, boolean)
+local function inspect(borrows input: span.Span<float>): (uint32, integer, boolean, boolean)
     local species: simd.Species<float, simd.Fixed<8>> = simd.species()
     local values = species:load(input, 1, species:tail(#input))
     local positive = (values > 0.0):bits()
     local large = (values >= 4.0):bits()
-    local shift: uint32 = 1
-    local selected = ~((positive | large) & positive) << shift
-    local parity = selected:prefixXor(false)
-    return parity:lowBits(), parity:highBits(), parity:count(), parity:all()
+    local allBits = species:tail(species.lanes):bits()
+    local shift: uint64 = 1
+    local selected = (~((positive | large) & positive) << shift) & allBits
+    local parity = nupp.math.u64.prefixXor(selected) & allBits
+    local first: integer = 0
+    if parity ~= 0 then
+        first = nupp.math.u64.trailingZeros(parity) + 1
+    end
+    return nupp.math.u64.popcount(parity), first, parity ~= 0, parity == allBits
 end
 
 return {inspect = inspect}
@@ -2880,10 +2891,9 @@ return {inspect = inspect}
     local dir = project{["bits.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json bits.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.ir:find("simd_bitmask_binary.or", 1, true), where .. ": bitmask union remains intrinsic")
-    assert(decoded.ir:find("simd_bitmask_unary.not", 1, true), where .. ": bitmask complement remains intrinsic")
-    assert(decoded.ir:find("simd_bitmask_shift.shl", 1, true), where .. ": bitmask shift remains intrinsic")
-    assert(decoded.ir:find("simd_bitmask_prefix_xor.prefix_xor", 1, true), where .. ": prefix parity remains intrinsic")
+    for _, op in ipairs({"u64_or", "u64_not", "u64_shl", "u64_prefix_xor", "u64_popcount", "u64_ctz"}) do
+        assert(decoded.ir:find(op, 1, true), where .. ": missing uint64 operation " .. op .. "\n" .. decoded.ir)
+    end
     assert(decoded.c:find("ks_bits ^= ks_bits << 32u", 1, true), where .. ": the native contract executes all 64 bits")
     assert(decoded.c:find("ks_inspect_forced_scalar", 1, true), where .. ": the independent scalar oracle remains")
 end

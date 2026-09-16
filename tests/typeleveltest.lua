@@ -1927,7 +1927,7 @@ function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
         "local lane: uint32 = vector:extract(1)",
         "local bits = mask:bits()",
         "local shift: uint32 = 1",
-        "local changed: simd.BitMask<uint8, simd.Preferred> = ~(bits | bits) << shift",
+        "local changed: uint64 = ~(bits | bits) << shift",
         "local same: boolean = changed == bits",
         "return species, mask, lane, same",
     }, "\n"))

@@ -160,8 +160,9 @@ local nupp: {
     --- assert(nupp.math.u32.shiftRightLogical(nupp.math.u32.wrap(-1), 24) == 255)
     --- ```
     ---
-    --- `u32` also carries `popcount`, `trailingZeros` and `leadingZeros`, which
-    --- LuaJIT's `bit` library does not.
+    --- `u32` and `u64` also carry `popcount`, `trailingZeros` and
+    --- `leadingZeros`, which LuaJIT's `bit` library does not. `u64.prefixXor`
+    --- computes inclusive prefix parity over all sixty-four bits.
     ---
     --- ### Binary32 namespace
     ---
@@ -2189,6 +2190,15 @@ record nupp.U32MathLibrary
     leadingZeros: nosuspend function(a: uint32): uint32
 end
 
+--- Unsigned 64-bit bit counts and prefix parity.
+--- @internal
+record nupp.U64MathLibrary
+    popcount: nosuspend function(a: uint64): uint32
+    trailingZeros: nosuspend function(a: uint64): uint32
+    leadingZeros: nosuspend function(a: uint64): uint32
+    prefixXor: nosuspend function(a: uint64): uint64
+end
+
 --- Explicit IEEE-754 binary32 arithmetic. Every input and output is rounded to
 --- nearest, ties-to-even; NaNs use the canonical quiet payload 0x7fc00000.
 --- @internal
@@ -2237,6 +2247,10 @@ record nupp.MathLibrary
     --- Unsigned 32-bit wrapping arithmetic.
     --- @namespace
     u32: nupp.U32MathLibrary
+
+    --- Unsigned 64-bit bit counts and prefix parity.
+    --- @namespace
+    u64: nupp.U64MathLibrary
 
     --- IEEE-754 binary32 arithmetic with explicit rounding.
     --- @namespace

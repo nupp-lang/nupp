@@ -372,7 +372,8 @@ sealed interface simd.Mask<T, S>
     --- Returns the first set lane, or zero when the mask is empty.
     first: function(borrows self: simd.Mask<T, S>): integer
 
-    bits: function(borrows self: simd.Mask<T, S>): simd.BitMask<T, S>
+    --- Returns lane bits in a `uint64`; bit zero denotes lane one.
+    bits: function(borrows self: simd.Mask<T, S>): uint64
 end
 
 --- An immutable register-as-data value.
@@ -470,35 +471,6 @@ sealed interface simd.Vector<T, S>
     prefixSumOrdered: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
 
     prefixXor: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
-end
-
---- Opaque lane bits for one mask species. Bit zero denotes lane one.
---- @export
-sealed interface simd.BitMask<T, S>
-    metamethod __eq: function(left: simd.BitMask<T, S>, right: simd.BitMask<T, S>): boolean
-
-    --- These read as duplicates of `Mask`'s and are not. `prefixXor` and
-    --- `clearFirst` answer bitmasks no mask stands behind, and asking how many
-    --- lanes one of those has set is a question only this value can answer.
-    any: function(borrows self: simd.BitMask<T, S>): boolean
-
-    all: function(borrows self: simd.BitMask<T, S>): boolean
-    count: function(borrows self: simd.BitMask<T, S>): uint32
-
-    --- Returns the first set lane, or zero when the bitmask is empty.
-    first: function(borrows self: simd.BitMask<T, S>): integer
-
-    --- Returns this mask with its lowest set lane cleared.
-    clearFirst: function(borrows self: simd.BitMask<T, S>): simd.BitMask<T, S>
-
-    --- Inclusive prefix parity, optionally beginning under an existing carry.
-    prefixXor: function(borrows self: simd.BitMask<T, S>, carry: boolean): simd.BitMask<T, S>
-
-    --- The low and high halves of the opaque bits. Lanes beyond the species are
-    --- always zero; fixed shapes wider than 64 lanes are rejected by `bits()`.
-    lowBits: function(borrows self: simd.BitMask<T, S>): uint32
-
-    highBits: function(borrows self: simd.BitMask<T, S>): uint32
 end
 
 --- Operations whose lane count is selected from `T` and `S` at AOT lowering.

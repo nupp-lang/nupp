@@ -1029,7 +1029,6 @@ local function check(a: Type, b: Type): boolean, string?
             origin.name == "Vector"
             or origin.name == "Mask"
             or origin.name == "Species"
-            or origin.name == "BitMask"
             or origin.name == "Fixed"
             or origin.name == "Preferred"
         )
@@ -1160,7 +1159,6 @@ local function check(a: Type, b: Type): boolean, string?
             bOrigin.name == "Vector"
             or bOrigin.name == "Mask"
             or bOrigin.name == "Species"
-            or bOrigin.name == "BitMask"
             or bOrigin.name == "Fixed"
             or bOrigin.name == "Preferred"
         )

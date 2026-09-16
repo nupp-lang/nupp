@@ -523,7 +523,7 @@ function resolve.install(c: state.Checker): nil
             )
         ) or origin.moduleName == "nupp.mem.heap" and origin.name == "Array" or isGpuBuffer or (
             origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd"
-        ) and (origin.name == "Vector" or origin.name == "Mask" or origin.name == "BitMask" or origin.name == "Species")
+        ) and (origin.name == "Vector" or origin.name == "Mask" or origin.name == "Species")
         if not storageGeneric then
             local typePosition = 1
             for position, kind in ipairs(t.paramKinds or {}) do

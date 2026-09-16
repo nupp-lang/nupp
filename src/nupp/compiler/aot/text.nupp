@@ -91,6 +91,7 @@ const text.ONE_OPERAND = {
     ["u64_popcount"] = true,
     ["u64_ctz"] = true,
     ["u64_clz"] = true,
+    ["u64_prefix_xor"] = true,
 }
 
 --- Where something came from, as the IR text writes it.

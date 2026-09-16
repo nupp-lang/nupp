@@ -40,6 +40,10 @@ PATHS["nupp.math.u32.trailingZeros"] = "u32.trailingZeros"
 PATHS["nupp.math.u32.leadingZeros"] = "u32.leadingZeros"
 PATHS["nupp.math.u32.div"] = "u32.div"
 PATHS["nupp.math.u32.mod"] = "u32.mod"
+PATHS["nupp.math.u64.popcount"] = "u64.popcount"
+PATHS["nupp.math.u64.trailingZeros"] = "u64.trailingZeros"
+PATHS["nupp.math.u64.leadingZeros"] = "u64.leadingZeros"
+PATHS["nupp.math.u64.prefixXor"] = "u64.prefixXor"
 for _, operation in ipairs({
     "narrow",
     "round",
