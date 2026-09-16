@@ -231,51 +231,225 @@ local nupp: {
     --- declarations. Every member is an ordinary checked compile-time value; none has
     --- a runtime representation.
     types: {
+        --- The gradual type; compatible with everything, checked at neither end.
         readonly any: comptime type,
+
+        --- The top type; everything fits it, it fits nothing else.
         readonly unknown: comptime type,
+
+        --- The bottom type; fits everything, nothing fits it.
         readonly never: comptime type,
+
+        --- The nil singleton, spelled `nil_` because `nil` is a keyword.
         readonly nil_: comptime type,
+
+        --- `true` or `false`.
         readonly boolean: comptime type,
+
+        --- A Lua string.
         readonly string: comptime type,
+
+        --- A LuaJIT double.
         readonly number: comptime type,
+
+        --- A number known to be integral.
         readonly integer: comptime type,
+
+        --- Any table shape, gradual in both directions, spelled `table_` because
+        --- `table` names the standard library namespace.
         readonly table_: comptime type,
+
+        --- A coroutine.
         readonly thread: comptime type,
+
+        --- Userdata.
         readonly userdata: comptime type,
+
+        --- An established binary32 Lua number; widens to `number`.
         readonly float: comptime type,
+
+        --- Any cdata value.
         readonly cdata: comptime type,
+
+        --- `const char *`.
         readonly cstring: comptime type,
+
+        --- `void *`.
         readonly voidptr: comptime type,
+
+        --- Signed physical storage; loads as `int32`.
         readonly int8: comptime type,
+
+        --- Signed physical storage; loads as `int32`.
         readonly int16: comptime type,
+
+        --- An established signed 32-bit Lua integer.
         readonly int32: comptime type,
+
+        --- A boxed 64-bit signed cdata integer, as LuaJIT's `1LL`.
         readonly int64: comptime type,
+
+        --- Unsigned physical storage; loads as `uint32`.
         readonly uint8: comptime type,
+
+        --- Unsigned physical storage; loads as `uint32`.
         readonly uint16: comptime type,
+
+        --- An established unsigned 32-bit Lua integer.
         readonly uint32: comptime type,
+
+        --- A boxed 64-bit unsigned cdata integer, as LuaJIT's `1ULL`.
         readonly uint64: comptime type,
 
+        --- The singleton type inhabited by one value.
+        ---
+        --- A number must be an exact integer, since a literal type names a value the
+        --- checker compares for equality.
+        --- @param value the inhabitant to lift into type position
+        --- @return the type whose only value is `value`
+        --- @raises when the value is not a string, boolean, or exact integer
         readonly literal: comptime function(value: string | boolean | integer): type,
+
+        --- The member that keeps a union open, so a switch over it stays inexhaustive.
+        ---
+        --- No name resolves to this type, so calling for it is the only way to place
+        --- it in a union. That is what makes a non-exhaustive union a written decision
+        --- rather than an inferred one. It may be written directly in a type as well
+        --- as inside a generator.
+        --- @return the open member
+        --- @raises when given any argument
         readonly nonExhaustive: comptime function(): type,
+
+        --- The Lua array `{element}`, with integer keys and no fixed length.
+        --- @param element the element type
+        --- @return the array type
         readonly array: comptime function(element: type): type,
+
+        --- A fixed-length positional type, one slot per element in the order given.
+        --- @param elements the slot types, in position order
+        --- @return the tuple type
         readonly tuple: comptime function(elements: {type}): type,
+
+        --- The union of its members, as a set.
+        ---
+        --- Nested unions are flattened, duplicates dropped, and the rest ordered
+        --- canonically, so `union{A, union{A, B}}` and `union{A, B}` are one handle.
+        --- @param members the member types, in any order
+        --- @return the union type
         readonly union: comptime function(members: {type}): type,
+
+        --- The intersection of its members, as a set, flattened and deduplicated the
+        --- way `union` is. An intersection of function types is an overload set.
+        --- @param members the member types, in any order
+        --- @return the intersection type
         readonly intersection: comptime function(members: {type}): type,
+
+        --- `inner | nil`.
+        ---
+        --- Built as a union, so it is idempotent: `optional(optional(T))` and
+        --- `optional(T)` are one handle.
+        --- @param inner the type to admit nil alongside
+        --- @return the nilable type
         readonly optional: comptime function(inner: type): type,
+
+        --- A pointer to `inner`.
+        --- @param inner the pointee type
+        --- @return the pointer type
         readonly pointer: comptime function(inner: type): type,
+
+        --- `inner` behind a const capability, which permits reads and refuses writes.
+        --- @param inner the type to make const
+        --- @return the const type
         readonly constof: comptime function(inner: type): type,
+
+        --- A borrow of `inner`, valid for the region that borrows it and not stored.
+        --- @param inner the owned type being borrowed
+        --- @return the borrowed type
         readonly borrowed: comptime function(inner: type): type,
+
+        --- `inner` pinned to its address, so the collector may not move it.
+        --- @param inner the type to pin
+        --- @return the pinned type
         readonly pinned: comptime function(inner: type): type,
+
+        --- An affine resource over `representation`: used at most once, and never
+        --- copied.
+        ---
+        --- With a terminal, that const function is the operation consuming the
+        --- resource, the way `close` consumes a file. Without one the resource is
+        --- transfer-only, so ownership may move but nothing ends it.
+        --- @param representation the underlying representation type
+        --- @param terminal the const-function parameter that consumes it
+        --- @return the affine type
+        --- @raises when the terminal is not a const-function parameter
         readonly affine: comptime function(representation: type): type
         & comptime function(representation: type, const terminal: function): type,
+
+        --- A C array of `element`, sized when `count` is given and unsized when it is
+        --- not.
+        --- @param element the element type
+        --- @param count the fixed length, or nil for an unsized array
+        --- @return the C array type
+        --- @raises when the count is not a non-negative exact integer
         readonly carray: comptime function(element: type, count: integer?): type,
+
+        --- A type indexed by computed keys rather than by named fields.
+        ---
+        --- Each capability is a key/value pair: supply both halves or neither. At
+        --- least one capability is required, and a read-only or write-only indexer is
+        --- the point of taking them separately. `map` is the shorthand for the common
+        --- case where both sides agree.
+        --- @param readKey the key type reads accept
+        --- @param readValue the value type reads answer
+        --- @param writeKey the key type writes accept
+        --- @param writeValue the value type writes accept
+        --- @return the indexer type
+        --- @raises when a capability is missing half of its pair, or when neither
+        ---     capability is supplied
         readonly indexer: comptime function(readKey: type?, readValue: type?, writeKey: type?, writeValue: type?): type,
+
+        --- An indexer whose write side mirrors its read side unless stated otherwise.
+        ---
+        --- Equivalent to `indexer(readKey, readValue, writeKey or readKey,
+        --- writeValue or readValue)`, and it answers a handle of kind `"indexer"`.
+        --- @param readKey the key type reads accept
+        --- @param readValue the value type reads answer
+        --- @param writeKey the key type writes accept, defaulting to `readKey`
+        --- @param writeValue the value type writes accept, defaulting to `readValue`
+        --- @return the indexer type
         readonly map: comptime function(readKey: type, readValue: type, writeKey: type?, writeValue: type?): type,
+
+        --- A structural type with named fields, and optionally an indexer for the keys
+        --- the names do not cover.
+        ---
+        --- Each descriptor needs a non-empty name unique within the shape, and at
+        --- least one of `read` and `write`: a field with only `read` is readonly, one
+        --- with only `write` is writeonly. Field order does not affect identity, so
+        --- two shapes with the same fields are one handle however they were listed.
+        --- @param fields the field descriptors
+        --- @param indexer an indexer handle from `nupp.types.indexer` or
+        ---     `nupp.types.map`
+        --- @return the shape type
+        --- @raises when a name is empty or repeated, when a field declares neither
+        ---     capability, when the indexer did not come from an indexer builder, or
+        ---     when there are more than 1000 fields
         readonly shape: comptime function(fields: const{{
             readonly name: string,
             readonly read: type?,
             readonly write: type?
         }}, indexer: type?): type,
+
+        --- A type pack: a fixed head of slots, then an optional tail standing for
+        --- however many values remain.
+        ---
+        --- `modes` align with the head one for one and default to `"plain"`; the
+        --- others are `"affine"`, `"borrowed"`, `"exclusive"`, and `"pinned"`.
+        --- @param head the fixed slot types, in position order
+        --- @param tail the type of the remaining values, or nil for a closed pack
+        --- @param modes the ownership mode of each fixed slot
+        --- @return the pack
+        --- @raises when there are more modes than slots, or a mode is not one of the
+        ---     five
         readonly pack: comptime function(head: {type}, tail: type?, modes: {string}?): typepack,
 
         --- Computes the arguments consumed by a literal Lua format string.
@@ -285,10 +459,45 @@ local nupp: {
         --- @param format the format-string type to inspect
         --- @return the argument pack consumed by its directives
         readonly formatArguments: comptime function(format: type): typepack,
+
+        --- A function type from its parameter and result packs. Spelled with a
+        --- trailing underscore because `function` is a keyword.
+        --- @param parameters the parameter pack
+        --- @param results the result pack
+        --- @return the function type
         readonly function_: comptime function(parameters: typepack, results: typepack): type,
+
+        --- The parameter pack of a function type.
+        --- @param callable the function type to inspect
+        --- @return its parameters
+        --- @raises when the handle is not a function type
         readonly parameters: comptime function(callable: type): typepack,
+
+        --- The result pack of a function type.
+        --- @param callable the function type to inspect
+        --- @return its results
+        --- @raises when the handle is not a function type
         readonly results: comptime function(callable: type): typepack,
+
+        --- What a handle is, as a string, which is the usual way to branch on one.
+        ---
+        --- The answer is the handle's own kind, not the builder that made it: `map`
+        --- answers `"indexer"`, `optional` answers `"union"`, `pointer` answers
+        --- `"ptr"`, and `constof` answers `"const"`. A nominal declaration answers
+        --- `"reference"`, and `describe(T).declarationKind` says which category it
+        --- declares.
+        --- @param value the type or type pack to inspect
+        --- @return the kind, such as `"literal"`, `"array"`, `"shape"`, or `"pack"`
         readonly kind: comptime function(value: type | typepack): string,
+
+        --- Every fact about one handle at once, as a record whose members are
+        --- populated according to its kind.
+        ---
+        --- Reach for it when a generator needs several facts about the same handle, or
+        --- a fact no single accessor exposes, such as a pack's `tail` or a C array's
+        --- `count`. A member that does not apply to the handle's kind is nil.
+        --- @param value the type or type pack to inspect
+        --- @return its descriptor
         readonly describe: comptime function(value: type | typepack): {
             readonly kind: string,
             readonly sourceKind: string?,
@@ -350,15 +559,59 @@ local nupp: {
         --- @raises when the declaration has several constructors, which is no single
         ---     contract
         readonly construction: comptime function(value: type): typepack,
+
+        --- The public fields of a shape or of a nominal record, interface, or struct.
+        ---
+        --- A nominal keeps its declaration identity: reading its fields does not
+        --- expand it into a structural type. Each descriptor carries a `name` and
+        --- whichever of `read` and `write` the field has. `describe(T).fields`
+        --- reports the same descriptors.
+        --- @param value the shape or nominal type to inspect
+        --- @return one descriptor per field, in declaration order
+        --- @raises when the handle is neither a shape nor a nominal declaration
         readonly fields: comptime function(value: type): {{
             readonly name: string,
             readonly read: type?,
             readonly write: type?
         }},
+
+        --- Every key a type can be read at: one string literal per readable field,
+        --- plus the indexer's read key when it has one.
+        --- @param value the shape or indexer to inspect
+        --- @return one handle per readable key
+        --- @raises when the handle is neither a shape nor an indexer
         readonly readKeys: comptime function(value: type): {type},
+
+        --- Every key a type can be written at: one string literal per writable field,
+        --- plus the indexer's write key when it has one.
+        --- @param value the shape or indexer to inspect
+        --- @return one handle per writable key
+        --- @raises when the handle is neither a shape nor an indexer
         readonly writeKeys: comptime function(value: type): {type},
+
+        --- The type read at one key: the named field when the key is a string literal
+        --- naming a readable one, and otherwise the indexer's read value.
+        --- @param value the type to project
+        --- @param key the key to read at
+        --- @return the value type at that key
+        --- @raises NUPP2420 when the type has no read capability there
         readonly readAt: comptime function(value: type, key: type): type,
+
+        --- The type written at one key: the named field when the key is a string
+        --- literal naming a writable one, and otherwise the indexer's write value.
+        --- @param value the type to project
+        --- @param key the key to write at
+        --- @return the value type at that key
+        --- @raises NUPP2420 when the type has no write capability there
         readonly writeAt: comptime function(value: type, key: type): type,
+
+        --- Rejects this type application deliberately, with an authored message.
+        ---
+        --- Distinct from an evaluator crash or a timeout: the message is reported at
+        --- the application, with a bounded comptime call trace. It answers `never`, so
+        --- a generator may call it in a branch that has no type to return.
+        --- @param message what to report at the application
+        --- @return nothing; the call does not come back
         readonly error: comptime function(message: string): never
     },
 
