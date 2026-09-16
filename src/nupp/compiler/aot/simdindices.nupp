@@ -1,0 +1,64 @@
+module nupp.compiler.aot.simdindices
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+local fold = require("nupp.compiler.aot.fold")
+local indices = {}
+
+local function exactIndex(value: scalarIR.Expr): number?
+    if value.op == "numeric_cast" then
+        local folded = fold.apply(value, new fold.Context(helpers = {}))
+        return folded ~= nil and fold.exactInteger(folded) or nil
+    end
+
+    return fold.exactInteger(value)
+end
+
+--- Checks the integer element and logical shape, without selecting a tier.
+function indices.matches(indexType: string, speciesType: string): boolean
+    local element, shape = indexType:match("^simd_vector_([iu]%d+)_(.+)$")
+    local targetElement, targetShape = speciesType:match("^simd_species_([fiu]%d+)_(.+)$")
+    if element == nil or targetElement == nil or shape ~= targetShape then
+        return false
+    end
+    if element ~= "i32" and element ~= "u32" and element ~= "i64" and element ~= "u64" then
+        return false
+    end
+
+    return shape ~= "preferred" or element:sub(2) == targetElement:sub(2)
+end
+
+--- A constant arithmetic progression is injective when no lane wraps.
+--- Preferred species use the maximum supported logical count, so the proof
+--- is valid independently of tier selection. Refuse values beyond the exact
+--- binary64 range rather than approximate a 64-bit proof.
+function indices.unique(value: scalarIR.Expr): boolean
+    if value.op ~= "simd_iota" then
+        return false
+    end
+    local element, shape = value.type:match("^simd_vector_([iu]%d+)_(.+)$")
+    if element == nil then
+        return false
+    end
+    local args = (value as scalarIR.Simd).args
+    if #args ~= 2 then
+        return false
+    end
+    local first, step = exactIndex(args[1]), exactIndex(args[2])
+    local lanes = shape == "preferred" and 64 or tonumber((shape or ""):match("^fixed(%d+)$"))
+    if first == nil or step == nil or step == 0 or lanes == nil or lanes < 2 or lanes > 64 then
+        return false
+    end
+    local bits = tonumber(element:sub(2)) or 0
+    local signed = element:sub(1, 1) == "i"
+    local low = signed and -(2 ^ (bits - 1)) or 0
+    local high = 2 ^ (signed and bits - 1 or bits) - 1
+    local last = first + (lanes - 1) * step
+
+    return math.abs(
+        first
+    ) <= 9007199254740991 and math.abs(
+        last
+    ) <= 9007199254740991 and first >= low and first <= high and last >= low and last <= high
+end
+
+export = indices

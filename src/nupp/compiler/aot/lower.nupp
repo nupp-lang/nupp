@@ -16,6 +16,7 @@ narrowing that is not in the IR is a narrowing that did not happen.
 
 local admit = require("nupp.compiler.aot.admit")
 local fold = require("nupp.compiler.aot.fold")
+local simdindices = require("nupp.compiler.aot.simdindices")
 local lexer = require("nupp.compiler.lexer")
 local cst = require("nupp.compiler.cst")
 local relations = require("nupp.compiler.aot.relations")
@@ -2600,31 +2601,54 @@ local function simdMethod(
                 type = maskType,
                 source = source
             )
-        elseif genericFamily == "species" and (method == "load" or method == "store") then
-            local expected = method == "load" and (#raw == 2 or #raw == 3) or (#raw == 3 or #raw == 4)
+        elseif genericFamily == "species" and (
+            method == "load"
+            or method == "store"
+            or method == "gather"
+            or method == "scatter"
+            or method == "scatterUnchecked"
+        ) then
+            local reading = method == "load" or method == "gather"
+            local indexed = method == "gather" or method == "scatter" or method == "scatterUnchecked"
+            local expected = reading and (#raw == 2 or #raw == 3) or not reading and (#raw == 3 or #raw == 4)
             if not expected then
                 kernel.context.reject(source, "SIMD " .. method .. " has an unsupported argument count")
             end
             local spanName = lower.nameOf(raw[1])
             local span = spanName ~= nil and kernel.params[spanName as string] or nil
-            local wantedKind = method == "load" and "read_span" or "write_span"
+            local wantedKind = reading and "read_span" or "write_span"
             if span == nil or span.kind ~= wantedKind or genericSimdSpanElement(
                 span as scalarIR.Param
             ) ~= genericElement then
                 kernel.context.reject(
                     source,
-                    "SIMD " .. method .. " needs a matching " .. (
-                        method == "load" and "borrowed Span" or "exclusive WriteSpan"
-                    )
+                    "SIMD " .. method .. " needs a matching " .. (reading and "borrowed Span" or "exclusive WriteSpan")
                 )
             end
-            local offset = lower.convert(
-                lower.expression(raw[2], environment, activeIndex, kernel),
-                "f64",
-                source,
-                kernel.context
-            )
-            if method == "load" then
+            local offset = lower.expression(raw[2], environment, activeIndex, kernel)
+            if indexed then
+                if not simdindices.matches(offset.type, receiverType) then
+                    kernel.context.reject(
+                        source,
+                        "SIMD indexed memory needs 32-bit or 64-bit integer indices with the same logical lane count"
+                    )
+                end
+                if not reading and kernel.simdSource == true then
+                    kernel.context.reject(
+                        source,
+                        "SIMD scatter does not prove disjoint destinations between @simd iterations"
+                    )
+                end
+                if method == "scatter" and not simdindices.unique(offset) then
+                    kernel.context.reject(
+                        source,
+                        "SIMD scatter needs provably unique indices; scatterUnchecked explicitly asserts uniqueness without a runtime check"
+                    )
+                end
+            else
+                offset = lower.convert(offset, "f64", source, kernel.context)
+            end
+            if reading then
                 local loadArgs: {scalarIR.Expr} = {receiver as scalarIR.Expr, offset}
                 if raw[3] ~= nil then
                     local active = lower.expression(raw[3], environment, activeIndex, kernel)
@@ -2637,7 +2661,7 @@ local function simdMethod(
                     op = "simd_load",
                     args = loadArgs,
                     span = spanName,
-                    intrinsic = "load",
+                    intrinsic = method,
                     type = vectorType,
                     source = source
                 )
@@ -2658,7 +2682,7 @@ local function simdMethod(
                     op = "simd_store",
                     args = storeArgs,
                     span = spanName,
-                    intrinsic = "store",
+                    intrinsic = method,
                     type = "lua_effect",
                     source = source
                 )

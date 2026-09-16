@@ -493,6 +493,41 @@ sealed interface simd.Species<T, S>
         value: simd.Vector<T, S>,
         active: simd.Mask<T, S>?
     ): nil
+
+    --- Reads one-based element indices. Inactive or out-of-range lanes return
+    --- zero. Indices use int32, uint32, int64 or uint64 and must have the same
+    --- logical lane count as this species at every emitted tier.
+    gather: function<I>(
+        borrows self: simd.Species<T, S>,
+        borrows source: Span<T>,
+        indices: simd.Vector<I, S>,
+        active: simd.Mask<T, S>?
+    ): simd.Vector<T, S>
+
+    --- Writes one-based element indices, ignoring inactive or out-of-range
+    --- lanes. The compiler must prove that indices are unique; currently a
+    --- directly supplied constant, non-wrapping iota provides that proof.
+    --- No runtime collision check is emitted.
+    scatter: function<I>(
+        borrows self: simd.Species<T, S>,
+        exclusive destination: WriteSpan<T>,
+        indices: simd.Vector<I, S>,
+        value: simd.Vector<T, S>,
+        active: simd.Mask<T, S>?
+    ): nil
+
+    --- Asserts that all active indices are unique, without checking them.
+    --- Duplicate active indices are undefined behavior, even if the values
+    --- agree. This promises no winning lane or accumulation order and does
+    --- not authorize collisions between iterations of an enclosing @simd loop.
+    --- Bounds and inactive lanes behave as in scatter.
+    scatterUnchecked: function<I>(
+        borrows self: simd.Species<T, S>,
+        exclusive destination: WriteSpan<T>,
+        indices: simd.Vector<I, S>,
+        value: simd.Vector<T, S>,
+        active: simd.Mask<T, S>?
+    ): nil
 end
 
 --- Selects the species the result annotation names.

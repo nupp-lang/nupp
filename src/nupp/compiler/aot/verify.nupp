@@ -35,6 +35,7 @@ local effects = require("nupp.compiler.aot.effects")
 local lane = require("nupp.compiler.aot.lane")
 local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local simdindices = require("nupp.compiler.aot.simdindices")
 local visit = require("nupp.compiler.aot.visit")
 
 local verify = {}
@@ -775,6 +776,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             holds(family == "mask" and #args == 1 and args[1].type == "u32", "invalid generic SIMD tail")
         elseif op == "simd_load" then
             holds(family == "vector" and (#args == 2 or #args == 3), "invalid generic SIMD load")
+            holds(simd.intrinsic == "load" or simd.intrinsic == "gather", "invalid SIMD load addressing")
             holds(
                 args[
                     1
@@ -782,11 +784,12 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                     element
                 ) .. "_" .. tostring(
                     shape
-                ) and args[
-                    2
-                ].type == "f64" and (
-                    args[3] == nil or args[3].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
-                ),
+                ) and (
+                    simd.intrinsic == "gather" and simdindices.matches(
+                        args[2].type,
+                        args[1].type
+                    ) or simd.intrinsic == "load" and args[2].type == "f64"
+                ) and (args[3] == nil or args[3].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)),
                 "generic SIMD load operands do not match"
             )
             local span = simd.span ~= nil and scope.spans[simd.span as string] or nil
@@ -2303,15 +2306,25 @@ local function block(
             local vectorFamily, element, shape = genericSimdType(store.args[3].type)
             holds(store.type == "lua_effect" and (#store.args == 3 or #store.args == 4), "invalid generic SIMD store")
             holds(
+                store.intrinsic == "store" or store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked",
+                "invalid SIMD store addressing"
+            )
+            if store.intrinsic == "scatter" then
+                holds(simdindices.unique(store.args[2]), "SIMD scatter lost its index uniqueness proof")
+            end
+            holds(
                 vectorFamily == "vector" and store.args[
                     1
                 ].type == "simd_species_" .. tostring(
                     element
                 ) .. "_" .. tostring(
                     shape
-                ) and store.args[
-                    2
-                ].type == "f64" and (
+                ) and (
+                    store.intrinsic ~= "store" and simdindices.matches(
+                        store.args[2].type,
+                        store.args[1].type
+                    ) or store.intrinsic == "store" and store.args[2].type == "f64"
+                ) and (
                     store.args[
                         4
                     ] == nil or store.args[4].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)

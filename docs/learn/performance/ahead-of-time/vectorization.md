@@ -368,6 +368,37 @@ kernel that merely vectorizes imperfectly is not it.
 
 ## Explicit SIMD
 
+### Indexed memory and conflicts
+
+Generic `simd.Species<T, S>` provides `gather`, `scatter`, and
+`scatterUnchecked`. Their indices are one-based element positions in a span,
+carried by an `int32`, `uint32`, `int64`, or `uint64` vector with the same
+logical lane count. With `Preferred`, the index and data elements must have
+the same bit width; `Fixed<N>` permits different element widths.
+
+`gather(source, indices, active?)` returns zero for inactive or out-of-range
+lanes. Repeated read indices are permitted. Scatter ignores inactive or
+out-of-range lanes, as the contiguous `store` does.
+
+`scatter(destination, indices, values, active?)` requires a compiler proof
+that the indices are unique. A directly supplied `iota` with constant start
+and nonzero step is admitted when none of its lanes wraps. If the proof is
+unavailable, compilation fails; it does not insert a collision check.
+
+`scatterUnchecked(destination, indices, values, active?)` explicitly asserts
+that active indices are unique. Violating that precondition is undefined
+behavior. There is no last-lane-wins guarantee, reduction, or runtime
+uniqueness check. Inactive duplicate indices do not violate the contract.
+The assertion covers one scatter call, not collisions between iterations of
+an enclosing `@simd` loop; such loop scatter is refused.
+
+The operations retain the existing bounds checks. AVX-512 uses native indexed
+memory instructions for 32-bit and 64-bit elements; other cases currently use
+individual masked accesses. Absence of collision checks does not imply that
+scatter costs the same as a contiguous store.
+
+### Byte operations during the bootstrap transition
+
 An algorithm whose register is itself a data structure imports `nupp.simd`
 inside an `@aot` body. `preferredU8()` selects the artifact tier's packed byte
 species, 16 bytes for the x86-64 baseline and AArch64 NEON and 32 for AVX2:

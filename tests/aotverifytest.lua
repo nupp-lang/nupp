@@ -101,6 +101,31 @@ end
 return {copy = copy}
 ]]
 
+function M.scatterRechecksUniquenessAndAddressing()
+    local program = lowered([[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+@aot
+local function write(exclusive out: span.WriteSpan<float>): nil
+    local data: simd.Species<float, simd.Fixed<8>> = simd.species()
+    local offsets: simd.Species<uint32, simd.Fixed<8>> = simd.species()
+    data:scatter(out, offsets:iota(1, 2), data:splat(1))
+end
+return {write = write}
+]], "scatter.nupp")
+    verify.program(program)
+    local store = assert(find(program.body, function(node) return node.op == "simd_store" end))
+    local step = store.args[2].args[2]
+    store.args[2].args[2] = {op = "constant_i32", type = "u32", value = "0"}
+    refuses(program, "SIMD scatter lost its index uniqueness proof")
+    store.args[2].args[2] = step
+    store.intrinsic = "lastWins"
+    refuses(program, "invalid SIMD store addressing")
+    store.intrinsic = "scatterUnchecked"
+    store.args[2] = store.args[3]
+    refuses(program, "generic SIMD store operands do not match")
+end
+
 function M.mapBoundsAndLengthClaimsAreReprovedFromRelations()
     local program = lowered(MAP, "map.nupp")
     verify.program(program)

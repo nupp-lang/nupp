@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 32
+const scalarIR.VERSION = 33
 
 --- The calling convention selected for one complete AOT entry.
 ---

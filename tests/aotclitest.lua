@@ -2451,6 +2451,91 @@ return {transform = transform}
     assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), "fixed structural operations retain real vector work: " .. asm)
 end
 
+local INDEXED_SIMD = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+@aot
+local function move(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, borrows map: span.Span<uint32>): nil
+    local values: simd.Species<float, simd.Fixed<8>> = simd.species()
+    local positions: simd.Species<uint32, simd.Fixed<8>> = simd.species()
+    local indices = positions:load(map, 1)
+    local active = values:tail(#map)
+    local gathered = values:gather(input, indices, active)
+    values:scatterUnchecked(output, indices, gathered + 1, active)
+end
+return {move = move}
+]]
+
+function M.indexedSimdMemoryCarriesItsExplicitConflictContract()
+    local dir = project{["indexed.nupp"] = INDEXED_SIMD}
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json indexed.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("simd_load.gather", 1, true), decoded.ir)
+    assert(decoded.ir:find("simd_store.scatterUnchecked", 1, true), decoded.ir)
+    local asm, asmCode = run(dir, "--target aarch64-apple-darwin --features neon --emit asm indexed.nupp")
+    test.equal(asmCode, 0, asm)
+    assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), asm)
+end
+
+function M.scatterRefusesUnprovedUniquenessWithoutARuntimeFallback()
+    local source = INDEXED_SIMD:gsub("scatterUnchecked", "scatter")
+    local dir = project{["indexed.nupp"] = source}
+    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
+    test.equal(code, 1, out)
+    assert(out:find("provably unique indices", 1, true), out)
+    assert(out:find("scatterUnchecked", 1, true), out)
+end
+
+function M.indexedSimdUsesNativeAvx512MemoryInstructions()
+    local host = assert(require("nupp.compiler.aot.target").hostTriple())
+    local triple = host:gsub("^[^-]+", "x86_64")
+    for _, source in ipairs({INDEXED_SIMD, (INDEXED_SIMD:gsub("float", "number"):gsub("Fixed<8>", "Fixed<4>"))}) do
+        local dir = project{["indexed.nupp"] = source}
+        local asm, code = run(dir, "--target " .. triple .. " --features avx512f --emit asm indexed.nupp")
+        test.equal(code, 0, asm)
+        assert(asm:find("vpgather", 1, true), asm)
+        assert(asm:find("vpscatter", 1, true), asm)
+    end
+end
+
+function M.scatterProvesAConstantNonWrappingProgression()
+    local source = INDEXED_SIMD:gsub("scatterUnchecked%(output, indices", "scatter(output, positions:iota(1, 2)")
+    local dir = project{["indexed.nupp"] = source}
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json indexed.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("simd_store.scatter", 1, true), decoded.ir)
+    for _, progression in ipairs({"1, 0", "4294967295, 1", "1, 4294967295"}) do
+        local rejected = source:gsub("positions:iota%(1, 2%)", "positions:iota(" .. progression .. ")")
+        local failed = project{["indexed.nupp"] = rejected}
+        local out, status = run(failed, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
+        test.equal(status, 1, out)
+        assert(out:find("provably unique indices", 1, true), out)
+    end
+end
+
+function M.indexedSimdRefusesFloatingIndicesAndMismatchedPreferredWidths()
+    for _, source in ipairs({
+        INDEXED_SIMD:gsub("Span<uint32>", "Span<float>"):gsub("Species<uint32", "Species<float"),
+        (INDEXED_SIMD:gsub("Span<float>", "Span<number>"):gsub("Species<float", "Species<number"):gsub("simd.Fixed<8>", "simd.Preferred")),
+    }) do
+        local dir = project{["indexed.nupp"] = source}
+        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
+        test.equal(code, 1, out)
+        assert(out:find("integer indices with the same logical lane count", 1, true), out)
+    end
+end
+
+function M.scatterDoesNotAuthorizeCrossIterationCollisions()
+    local source = INDEXED_SIMD:gsub(
+        "    values:scatterUnchecked%(output, indices, gathered %+ 1, active%)",
+        "    @simd\n    for i = 1, #output do\n        values:scatterUnchecked(output, indices, gathered + 1, active)\n    end"
+    )
+    local dir = project{["indexed.nupp"] = source}
+    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
+    test.equal(code, 1, out)
+    assert(out:find("disjoint destinations between @simd iterations", 1, true), out)
+end
+
 function M.horizontalVectorOperationsNameTheirArithmeticContracts()
     local source = [[
 local simd = require("nupp.simd")

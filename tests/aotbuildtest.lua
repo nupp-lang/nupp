@@ -2946,6 +2946,74 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     trace("complete")
 end
 
+function M.indexedSimdMemoryMatchesAnIndependentScalarReference()
+    if not hasToolchain() then return end
+    local dir = project("require")
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write([[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+@aot
+local function indexed(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, borrows map: span.Span<int64>): nil
+    local data: simd.Species<float, simd.Fixed<8>> = simd.species()
+    local offsets: simd.Species<int64, simd.Fixed<8>> = simd.species()
+    local active = data:tail(#map)
+    local indices = offsets:load(map, 1)
+    local values = data:gather(input, indices, active)
+    data:scatterUnchecked(out, indices, values + 1, active)
+end
+@aot
+local function gather(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, borrows map: span.Span<int64>): nil
+    local data: simd.Species<float, simd.Fixed<8>> = simd.species()
+    local offsets: simd.Species<int64, simd.Fixed<8>> = simd.species()
+    local indices = offsets:load(map, 1)
+    data:store(out, 1, data:gather(input, indices, data:tail(#map)))
+end
+return {indexed = indexed, gather = gather}
+]])
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local ffi = require("ffi")
+    local lib = ffi.load(libraryPath(dir))
+    local names = {}
+    for _, name in ipairs({"ks_indexed", "ks_indexed_forced_scalar", "ks_gather", "ks_gather_forced_scalar"}) do
+        local symbol = librarySymbol(lib, name)
+        ffi.cdef(("void %s(float *, const float *, const int64_t *, size_t, size_t, size_t);"):format(symbol))
+        names[name] = symbol
+    end
+    local input = ffi.new("float[10]")
+    for i = 0, 9 do input[i] = i * 3 end
+    local map = ffi.new("int64_t[8]", {8, 1, 4, 12, 0, -1, 0x7fffffffffffffffLL, 3})
+    for count = 0, 8 do
+        for inputCount = 0, 10 do
+            for _, body in ipairs({"ks_indexed", "ks_indexed_forced_scalar"}) do
+                local actual = ffi.new("float[16]")
+                local expected = {}
+                for i = 0, 15 do actual[i] = -99; expected[i] = -99 end
+                for i = 0, count - 1 do
+                    local index = tonumber(map[i])
+                    if index >= 1 and index <= 16 then
+                        expected[index - 1] = (index <= inputCount and tonumber(input[index - 1]) or 0) + 1
+                    end
+                end
+                lib[names[body]](actual, input, map, 16, inputCount, count)
+                for i = 0, 15 do test.equal(tonumber(actual[i]), expected[i], body .. " tail " .. count .. " lane " .. i) end
+            end
+        end
+    end
+    -- Reads may repeat. A disabled duplicate never becomes a scatter conflict.
+    map[0], map[1], map[2] = 2, 2, 2
+    for _, body in ipairs({"ks_gather", "ks_gather_forced_scalar"}) do
+        local actual = ffi.new("float[8]")
+        lib[names[body]](actual, input, map, 8, 10, 3)
+        for i = 0, 7 do test.equal(tonumber(actual[i]), i < 3 and 3 or 0, body) end
+    end
+    local actual = ffi.new("float[16]")
+    lib[names.ks_indexed](actual, input, map, 16, 10, 1)
+    test.equal(tonumber(actual[1]), 4, "inactive duplicates do not write")
+end
+
 function M.explicitSimdNamesWhyAotOffCannotRunIt()
     local dir = project("off")
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))

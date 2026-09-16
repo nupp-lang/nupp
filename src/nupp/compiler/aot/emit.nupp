@@ -476,11 +476,111 @@ local function mixedComparison(operation: string, left: scalarIR.Expr, right: sc
     return nil
 end
 
+--- Indexed memory over logical lanes, including composite representations.
+--- @raises when the value and index representations have different lane counts
+function emit.indexedSimd(node: scalarIR.Simd): string
+    local reading = node.op == "simd_load"
+    local vectorType = reading and node.type or node.args[3].type
+    local _, element, lanes = explicitType(vectorType)
+    local _, indexElement, indexLanes = explicitType(node.args[2].type)
+    if element == nil or lanes == nil or indexElement == nil or lanes ~= indexLanes then
+        error("SIMD indexed memory needs matching logical lane counts", 0)
+    end
+    local narrow: {[string]: string} = {u8 = "uint8_t", i8 = "int8_t", u16 = "uint16_t", i16 = "int16_t"}
+    local elementC = emit.SCALAR_C[element] or narrow[element]
+    local maskC = "uint" .. element:sub(2) .. "_t"
+    local suffix = element .. "x" .. tostring(lanes)
+    local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
+    local maskType = "simd_mask_" .. vectorType:sub(#"simd_vector_" + 1)
+    local active = node.args[reading and 3 or 4]
+    local count = independentSpanCounts and "count_" .. tostring(node.span) or "count"
+    local parts = {
+        "({ " .. emit.cType(node.args[2].type) .. " ks_indices = " .. emit.scalar(node.args[2]) .. ";",
+        emit.cType(
+            maskType
+        ) .. " ks_active = " .. (
+            active ~= nil and emit.scalar(active) or helper .. "tail_" .. suffix .. "(" .. tostring(lanes) .. "u)"
+        ) .. ";",
+        emit.cType(vectorType) .. " ks_values = " .. (reading and "{0}" or emit.scalar(node.args[3])) .. ";",
+        tostring(
+            emit.SCALAR_C[indexElement]
+        ) .. " ks_index[" .. tostring(lanes) .. "]; memcpy(ks_index, &ks_indices, sizeof(ks_index));",
+        maskC .. " ks_mask[" .. tostring(lanes) .. "]; memcpy(ks_mask, &ks_active, sizeof(ks_mask));",
+        tostring(elementC) .. " ks_value[" .. tostring(lanes) .. "]; memcpy(ks_value, &ks_values, sizeof(ks_value));",
+    }
+    local native = not explicitScalar and (element:sub(2) == "32" or element:sub(2) == "64")
+    if native then
+        local bits = element:sub(2)
+        local register = bits == "32" and "__m256i" or "__m512i"
+        local zero = bits == "32" and "_mm256_setzero_si256()" or "_mm512_setzero_si512()"
+        local scale = bits == "32" and "4" or "8"
+        parts[#parts + 1] = "\n#if defined(__AVX512F__)\n"
+        parts[#parts + 1] = "for (uint32_t ks_base = 0u; ks_base < " .. tostring(lanes) .. "u; ks_base += 8u) {"
+        parts[
+            #parts + 1
+        ] = "int64_t ks_offsets[8] = {0}; " .. tostring(elementC) .. " ks_batch[8] = {0}; __mmask8 ks_enabled = 0;"
+        parts[
+            #parts + 1
+        ] = "uint32_t ks_width = " .. tostring(lanes) .. "u - ks_base; if (ks_width > 8u) ks_width = 8u;"
+        parts[
+            #parts + 1
+        ] = "for (uint32_t ks_part = 0u; ks_part < ks_width; ++ks_part) { uint32_t ks_lane = ks_base + ks_part;"
+        parts[
+            #parts + 1
+        ] = "if (ks_mask[ks_lane] && ks_index[ks_lane] >= 1 && (uint64_t)ks_index[ks_lane] <= (uint64_t)"
+            .. count
+            .. ") {"
+        parts[
+            #parts + 1
+        ] = "ks_enabled |= (__mmask8)(1u << ks_part); ks_offsets[ks_part] = (int64_t)((uint64_t)ks_index[ks_lane] - 1u); } }"
+        parts[#parts + 1] = "__m512i ks_addresses; memcpy(&ks_addresses, ks_offsets, sizeof(ks_addresses));"
+        if reading then
+            parts[
+                #parts + 1
+            ] = register
+                .. " ks_loaded = _mm512_mask_i64gather_epi"
+                .. bits
+                .. "("
+                .. zero
+                .. ", ks_enabled, ks_addresses, p_"
+                .. tostring(
+                node.span
+            ) .. ", " .. scale .. ");"
+            parts[
+                #parts + 1
+            ] = "memcpy(ks_batch, &ks_loaded, sizeof(ks_batch)); memcpy(ks_value + ks_base, ks_batch, ks_width * sizeof(ks_batch[0]));"
+        else
+            parts[
+                #parts + 1
+            ] = "memcpy(ks_batch, ks_value + ks_base, ks_width * sizeof(ks_batch[0])); "
+                .. register
+                .. " ks_written; memcpy(&ks_written, ks_batch, sizeof(ks_written));"
+            parts[
+                #parts + 1
+            ] = "_mm512_mask_i64scatter_epi" .. bits .. "(p_" .. tostring(
+                node.span
+            ) .. ", ks_enabled, ks_addresses, ks_written, " .. scale .. ");"
+        end
+        parts[#parts + 1] = "}\n#else\n"
+    end
+    parts[#parts + 1] = "for (uint32_t ks_lane = 0u; ks_lane < " .. tostring(lanes) .. "u; ++ks_lane) {"
+    parts[
+        #parts + 1
+    ] = "if (ks_mask[ks_lane] && ks_index[ks_lane] >= 1 && (uint64_t)ks_index[ks_lane] <= (uint64_t)" .. count .. ") {"
+    local address = "p_" .. tostring(node.span) .. "[(size_t)ks_index[ks_lane] - 1u]"
+    parts[#parts + 1] = reading and "ks_value[ks_lane] = " .. address .. ";" or address .. " = ks_value[ks_lane];"
+    parts[#parts + 1] = "} }"
+    if native then
+        parts[#parts + 1] = "\n#endif\n"
+    end
+    parts[#parts + 1] = reading and "memcpy(&ks_values, ks_value, sizeof(ks_value)); ks_values; })" or "(void)0; })"
+
+    return table.concat(parts, " ")
+end
+
 --- One scalar expression, as a C expression.
----
---- Parenthesised generously: the IR carries the tree, C would reparse it by
---- precedence, and the two do not have to agree for this to be right.
---- @raises when verified IR names an operation with no backend spelling
+--- Parenthesised generously so C preserves the IR tree's precedence.
+--- @raises when verified IR names an operation with no backend implementation
 function emit.scalar(node: scalarIR.Expr): string
     local operation = node.op
 
@@ -757,6 +857,9 @@ function emit.scalar(node: scalarIR.Expr): string
             elseif operation == "simd_tail" then
                 return genericHelper .. "tail_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
             elseif operation == "simd_load" then
+                if simd.intrinsic == "gather" then
+                    return emit.indexedSimd(simd)
+                end
                 local count = independentSpanCounts and "count_" .. tostring(simd.span) or "count"
                 local active = args[
                     3
@@ -4714,7 +4817,7 @@ local function genericSimdPrelude(width: integer): {string}
                 .. " value, "
                 .. vector
                 .. " indices) {",
-                "    " .. vector .. " out; " .. vector .. " zeroBased = indices - 1;",
+                "    " .. vector .. " out; " .. vector .. " zeroBased KS_UNUSED = indices - 1;",
                 "#if defined(__aarch64__)",
                 half
                 and "    uint8x16_t t, x; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u); x = vqtbl1q_u8(t, x); memcpy(&out, &x, 16u);"
@@ -7728,25 +7831,29 @@ function emit.luaBlock(
             lines[#lines + 1] = scratchWrite("ks_lua_scratch_u8_set", statement, prefix)
         elseif statement.op == "simd_store" then
             local store = statement as scalarIR.Simd
-            local _, element, lanes = explicitType(store.args[3].type)
-            if element == nil or lanes == nil then
-                error("generic SIMD store has no resolved species", 0)
+            if store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked" then
+                lines[#lines + 1] = prefix .. emit.indexedSimd(store) .. ";"
+            else
+                local _, element, lanes = explicitType(store.args[3].type)
+                if element == nil or lanes == nil then
+                    error("generic SIMD store has no resolved species", 0)
+                end
+                local suffix = element .. "x" .. tostring(lanes)
+                local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
+                local active = store.args[
+                    4
+                ] ~= nil and emit.scalar(
+                    store.args[4]
+                ) or helper .. "tail_" .. suffix .. "(UINT32_C(" .. tostring(lanes) .. "))"
+                local count = independentSpanCounts and "count_" .. tostring(store.span) or "count"
+                lines[
+                    #lines + 1
+                ] = prefix .. helper .. "store_" .. suffix .. "(p_" .. tostring(
+                    store.span
+                ) .. ", " .. count .. ", " .. emit.scalar(
+                    store.args[2]
+                ) .. ", " .. emit.scalar(store.args[3]) .. ", " .. active .. ");"
             end
-            local suffix = element .. "x" .. tostring(lanes)
-            local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
-            local active = store.args[
-                4
-            ] ~= nil and emit.scalar(
-                store.args[4]
-            ) or helper .. "tail_" .. suffix .. "(UINT32_C(" .. tostring(lanes) .. "))"
-            local count = independentSpanCounts and "count_" .. tostring(store.span) or "count"
-            lines[
-                #lines + 1
-            ] = prefix .. helper .. "store_" .. suffix .. "(p_" .. tostring(
-                store.span
-            ) .. ", " .. count .. ", " .. emit.scalar(
-                store.args[2]
-            ) .. ", " .. emit.scalar(store.args[3]) .. ", " .. active .. ");"
         elseif statement.op == "simd_store4_u8" then
             local store = statement as scalarIR.Simd
             local operands: {string} = {"L", "&" .. tostring((store.args[1] as scalarIR.Name).cName)}
@@ -8418,25 +8525,29 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body, repeatCo
             lines[#lines + 1] = prefix .. statement.executing.cName .. " &= ~(" .. emit.lane(statement.mask) .. ");"
         elseif op == "simd_store" then
             local store = statement as scalarIR.Simd
-            local _, element, lanes = explicitType(store.args[3].type)
-            if element == nil or lanes == nil then
-                error("generic SIMD store has no resolved species", 0)
+            if store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked" then
+                lines[#lines + 1] = prefix .. emit.indexedSimd(store) .. ";"
+            else
+                local _, element, lanes = explicitType(store.args[3].type)
+                if element == nil or lanes == nil then
+                    error("generic SIMD store has no resolved species", 0)
+                end
+                local suffix = element .. "x" .. tostring(lanes)
+                local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
+                local active = store.args[
+                    4
+                ] ~= nil and emit.scalar(
+                    store.args[4]
+                ) or helper .. "tail_" .. suffix .. "(UINT32_C(" .. tostring(lanes) .. "))"
+                local count = independentSpanCounts and "count_" .. tostring(store.span) or "count"
+                lines[
+                    #lines + 1
+                ] = prefix .. helper .. "store_" .. suffix .. "(p_" .. tostring(
+                    store.span
+                ) .. ", " .. count .. ", " .. emit.scalar(
+                    store.args[2]
+                ) .. ", " .. emit.scalar(store.args[3]) .. ", " .. active .. ");"
             end
-            local suffix = element .. "x" .. tostring(lanes)
-            local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
-            local active = store.args[
-                4
-            ] ~= nil and emit.scalar(
-                store.args[4]
-            ) or helper .. "tail_" .. suffix .. "(UINT32_C(" .. tostring(lanes) .. "))"
-            local count = independentSpanCounts and "count_" .. tostring(store.span) or "count"
-            lines[
-                #lines + 1
-            ] = prefix .. helper .. "store_" .. suffix .. "(p_" .. tostring(
-                store.span
-            ) .. ", " .. count .. ", " .. emit.scalar(
-                store.args[2]
-            ) .. ", " .. emit.scalar(store.args[3]) .. ", " .. active .. ");"
         elseif op == "vreducer_add" then
             local contribution = statement as lane.ReducerAdd
             temporary = temporary + 1
