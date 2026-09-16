@@ -77,7 +77,7 @@ export const newStore = store.newStore
 export const fnv1a64 = hash.fnv1a64
 
 --- Generates a random version 4 UUID, hyphenated and lowercase.
-export const uuid4 = uuid.uuid4
+export const uuid4: function(): string = uuid.uuid4
 
 --- Generates a time-ordered version 7 UUID, hyphenated and lowercase.
-export const uuid7 = uuid.uuid7
+export const uuid7: function(): string = uuid.uuid7

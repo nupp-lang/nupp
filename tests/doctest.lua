@@ -245,8 +245,8 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
     local markdown = doc.markdown({module})
     assert(markdown:find("### `newType` _comptime function_", 1, true), markdown)
     assert(markdown:find("comptime function newType(T: type): type", 1, true), markdown)
-    assert(markdown:find("##### `build` _comptime function_", 1, true), markdown)
-    assert(markdown:find("##### `value` _comptime type_", 1, true), markdown)
+    assert(markdown:find("#### `build` _comptime function_", 1, true), markdown)
+    assert(markdown:find("#### `value` _comptime type_", 1, true), markdown)
 
     local model = require("testjson").decode(doc.json({module}))
     assert(model.schemaVersion == 2)
@@ -281,11 +281,13 @@ function M.documentsFunctionTypedRecordFieldsAsMethods()
     assert(step.params[2].name == "by" and step.params[2].text == "How much to add.")
     assert(step.returns[1].text == "The counter itself.", step.returns[1].text)
     local markdown = doc.markdown({module})
-    assert(markdown:find("#### Methods", 1, true), "methods section missing")
-    assert(markdown:find("###### Arguments", 1, true), "method arguments missing")
-    assert(markdown:find("#### Fields", 1, true), "fields section missing")
+    assert(markdown:find("#### Members", 1, true), "members table missing")
+    assert(markdown:find("| [`step`](#num.Counter.step) | method |", 1, true), markdown)
+    assert(markdown:find("| [`count`](#num.Counter.count) | field |", 1, true), markdown)
+    assert(markdown:find("#### `step` _method_", 1, true), "method sub-heading missing")
+    assert(markdown:find("##### Arguments", 1, true), "method arguments missing")
     assert(markdown:find('<a id="num.Counter.count"></a>', 1, true), "field anchor missing")
-    assert(markdown:find("##### `count`", 1, true), "field sub-heading missing")
+    assert(markdown:find("#### `count` _field_", 1, true), "field sub-heading missing")
 end
 
 local NESTED_DECLARATIONS = table.concat(
@@ -336,10 +338,13 @@ function M.documentsNestedTypesAsTheirOwnSubHeadingWithMembers()
     assert(apply and apply.isFunction, "nested type's own function-typed field must document as a method")
     assert(apply.returns[1] and apply.returns[1].text == "The result.", apply.returns[1] and apply.returns[1].text)
     local markdown = doc.markdown({module})
-    assert(markdown:find("#### Types", 1, true), "types section missing")
-    assert(markdown:find("##### `Settings` _record_", 1, true), "nested type heading missing")
-    assert(markdown:find("###### Methods", 1, true), "nested type's own methods section missing")
-    assert(markdown:find("###### `enabled`", 1, true), "nested type's own field sub-heading missing")
+    assert(markdown:find("#### `Settings` _record_", 1, true), "nested type heading missing")
+    assert(markdown:find("##### Members", 1, true), "nested type's own members table missing")
+    assert(
+        markdown:find("| [`apply`](#config.Config.Settings.apply) | method |", 1, true),
+        "nested type's own method row missing"
+    )
+    assert(markdown:find("##### `enabled` _field_", 1, true), "nested type's own field sub-heading missing")
     assert(
         markdown:find('<a id="config.Config.Settings.enabled"></a>', 1, true),
         "nested type's own field anchor missing"
@@ -488,18 +493,7 @@ function M.documentsInheritedContractsMetamethodsAndInlineMethods()
     )
     local module = assert(doc.extract(source, "src/task.nupp", "task", {includeAll = true, includePrivate = true}))
     local task = module.items[1]
-    assert(
-        task.signature == table.concat(
-            {
-                "record Task<T is Value> is Named, Runnable where true",
-                "    metamethod __call: function(self, value: T): self",
-                "    function describe(prefix: string): string end",
-                "end",
-            },
-            "\n"
-        ),
-        task.signature
-    )
+    assert(task.signature == "record Task<T is Value> is Named, Runnable where true", task.signature)
     assert(not task.signature:find("---", 1, true), task.signature)
     assert(task.members[1].name == "__call" and task.members[1].isMetamethod)
     assert(task.members[2].name == "describe" and task.members[2].isFunction)
@@ -694,28 +688,18 @@ function M.omitsImplementationBodiesFromStructureSignatures()
         end
     end
     assert(named and user, "record and interface must both be documented")
-    assert(
-        named.signature == table.concat({"interface Named", "    function label(self): string end", "end",}, "\n"),
-        named.signature
-    )
-    assert(
-        user.signature == table.concat(
-            {
-                "record User is Named",
-                "    name: string",
-                "    constructor(name: string) end",
-                "",
-                "    function label(self): string end",
-                "end",
-            },
-            "\n"
-        ),
-        user.signature
-    )
-    for _, signature in ipairs({named.signature, user.signature}) do
-        assert(not signature:find("prefix", 1, true), signature)
-        assert(not signature:find("return", 1, true), signature)
-        assert(not signature:find("self.name =", 1, true), signature)
+    assert(named.signature == "interface Named", named.signature)
+    assert(user.signature == "record User is Named", user.signature)
+    local spellings = {named.signature, user.signature}
+    for _, item in ipairs({named, user}) do
+        for _, member in ipairs(item.members) do
+            spellings[#spellings + 1] = member.type
+        end
+    end
+    for _, spelling in ipairs(spellings) do
+        assert(not spelling:find("prefix", 1, true), spelling)
+        assert(not spelling:find("return", 1, true), spelling)
+        assert(not spelling:find("self.name =", 1, true), spelling)
     end
 end
 
@@ -780,8 +764,10 @@ function M.hidesPrivateCleanupNamesFromSignatures()
     local adopted = assert(byName["io.adopt"], "the adopting function was not documented")
     assert(adopted.signature:find("affine(Reader, closeReader)", 1, true), adopted.signature)
     local bytes = assert(byName["Bytes"], "the record was not documented")
-    assert(bytes.signature:find("affine(Reader, _)", 1, true), bytes.signature)
-    assert(not bytes.signature:find("__destroyReader", 1, true), bytes.signature)
+    assert(bytes.signature == "record io.Bytes", bytes.signature)
+    local newReader = assert(bytes.members[1], "the record's member was not documented")
+    assert(newReader.type:find("affine(Reader, _)", 1, true), newReader.type)
+    assert(not newReader.type:find("__destroyReader", 1, true), newReader.type)
 end
 
 function M.namespaceTagSynthesizesModulesFromAShapesFields()
@@ -1154,7 +1140,13 @@ function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()
             expected[member.name] = nil
         end
         if member.name == "Peg" then
-            assert(peg.signature:find("match: function", 1, true), "nupp.peg.Peg does not expose match")
+            local match = nil
+            for _, nested in ipairs(member.members or {}) do
+                if nested.name == "match" then
+                    match = nested
+                end
+            end
+            assert(match and match.type:find("function", 1, true), "nupp.peg.Peg does not expose match")
         elseif member.name == "compile" then
             assert(#member.params == 2, "nupp.peg.compile lost its parameters")
             assert(
@@ -1534,25 +1526,28 @@ function M.hidesPrivateMembersFromTheRenderedDeclaration()
         },
         "\n"
     )
-    local public = assert(doc.extract(source, "src/public.nupp", "public"))
-    local signature
-    for _, item in ipairs(public.items) do
-        if item.name == "Public" then
-            signature = item.signature
+    local function renderedNames(options)
+        local module = assert(doc.extract(source, "src/public.nupp", "public", options))
+        local names = {}
+        for _, item in ipairs(module.items) do
+            if item.name == "Public" then
+                for _, member in ipairs(item.members) do
+                    names[member.name] = true
+                end
+            end
         end
+
+        return names
     end
-    assert(signature:find("visible", 1, true), signature)
+
+    local public = renderedNames(nil)
+    assert(public.visible, "an ordinary member was dropped")
     for _, hidden in ipairs({"_secret", "_calculate", "_Backing", "_Key", "spare"}) do
-        assert(not signature:find(hidden, 1, true), hidden .. " leaked into the rendered declaration: " .. signature)
+        assert(not public[hidden], hidden .. " leaked into the rendered declaration")
     end
-    local complete = assert(doc.extract(source, "src/public.nupp", "public", {includePrivate = true}))
-    for _, item in ipairs(complete.items) do
-        if item.name == "Public" then
-            signature = item.signature
-        end
-    end
+    local complete = renderedNames({includePrivate = true})
     for _, shown in ipairs({"_secret", "_calculate", "_Backing", "_Key", "spare"}) do
-        assert(signature:find(shown, 1, true), "private docs lost " .. shown .. ": " .. signature)
+        assert(complete[shown], "private docs lost " .. shown)
     end
 end
 
@@ -1588,9 +1583,7 @@ function M.documentsMetamethodsDespiteTheirUnderscoredNames()
     assert(byName.__eq.isMetamethod, "__eq was not marked as a metamethod")
     assert(byName.__eq.text == "Compares two points.", byName.__eq.text)
     assert(not byName.__len, "an @internal metamethod leaked")
-    assert(record.signature:find("__eq", 1, true), record.signature)
-    assert(not record.signature:find("_scratch", 1, true), record.signature)
-    assert(not record.signature:find("__len", 1, true), record.signature)
+    assert(record.signature == "record Point", record.signature)
 end
 
 function M.hidesModulesNamedInternal()
@@ -2942,8 +2935,8 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(typesAt < pointAt and pointAt < functionsAt and functionsAt < addAt, module)
     assert(not module:find('<section class="nuppdoc-api-item" id="math.add"><h2>', 1, true), module)
     assert(
-        module:find('href="../../modules/math/index.html#math.Point.x"', 1, true),
-        "record members in the complete signature must link to their docs"
+        module:find('<a href="#math.Point.x"><code>x</code></a>', 1, true),
+        "the members table must link each member to its own section"
     )
     -- A declaration that documents members is a section of the outline in its own
     -- right, closed until the reader is inside it, so a record's fields and methods

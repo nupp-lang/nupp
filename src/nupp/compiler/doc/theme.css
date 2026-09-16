@@ -424,6 +424,8 @@ input {
 
 .nuppdoc-kind-badge {
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
     margin-left: .45rem;
     padding: .12rem .42rem;
     color: var(--nuppdoc-text-muted);
@@ -433,12 +435,15 @@ input {
     font-size: .62rem;
     font-weight: 650;
     letter-spacing: .035em;
+    text-align: center;
     text-transform: uppercase;
     vertical-align: middle
 }
 
 .nuppdoc-kind-function,
-.nuppdoc-kind-method {
+.nuppdoc-kind-method,
+.nuppdoc-kind-constructor,
+.nuppdoc-kind-metamethod {
     color: var(--nuppdoc-accent);
     border-color: color-mix(in srgb, var(--nuppdoc-accent) 35%, var(--nuppdoc-border));
     background: var(--nuppdoc-accent-soft)
@@ -515,13 +520,6 @@ input {
     text-transform: uppercase
 }
 
-.nuppdoc-empty {
-    padding: 2rem;
-    color: var(--nuppdoc-text-muted);
-    border: 1px dashed var(--nuppdoc-border);
-    border-radius: 8px;
-    text-align: center
-}
 
 .nuppdoc-module-grid {
     display: grid;
@@ -1304,8 +1302,17 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     width: 32%
 }
 
-.nuppdoc-module-summary .nuppdoc-kind-badge {
+.nuppdoc-module-summary .nuppdoc-kind-badge,
+.nuppdoc-api-members .nuppdoc-kind-badge {
     margin-left: 0
+}
+
+.nuppdoc-api-members th:first-child {
+    width: 22%
+}
+
+.nuppdoc-api-members th:nth-child(2) {
+    width: 14%
 }
 
 .nuppdoc-kind-record,

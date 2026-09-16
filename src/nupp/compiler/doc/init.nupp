@@ -485,6 +485,25 @@ local function loadModules(root, config, settings, requested)
                 if item.doc.text ~= "" then
                     expanded.doc = item.doc
                 end
+
+                -- A member spells the declaration it belongs to as often as the header
+                -- does -- `slice: function(borrows self: declared.Range):
+                -- declared.Range` is the whole of what a reader copies -- so the rename
+                -- reaches every type the member writes, not only the line above them.
+                local function renameMembers(members: any): nil
+                    for _, field in ipairs(members or {}) do
+                        field.type = field.type and renamed(field.type, member, item.name) or field.type
+                        for _, param in ipairs(field.params or {}) do
+                            param.type = param.type and renamed(param.type, member, item.name) or param.type
+                        end
+                        for _, value in ipairs(field.returns or {}) do
+                            value.type = value.type and renamed(value.type, member, item.name) or value.type
+                        end
+                        renameMembers(field.members)
+                    end
+                end
+
+                renameMembers(expanded.members)
                 for _, field in ipairs(expanded.members or {}) do
                     field.path = item.path .. "." .. field.name
                 end
@@ -1230,14 +1249,11 @@ local function renderSite(root, outDir, modules, title, settings)
                 body[#body + 1] = markdownHtml(module.text, links, 0)
             end
             body[#body + 1] = nestedModules(children, relativePrefix(file), modules)
-            if #module.items == 0 then
-                -- A namespace's table of nested modules is the whole of what it has to
-                -- say, so the notice below would be saying it holds no declarations
-                -- when nothing ever suggested it would.
-                if #children == 0 and not module.namespace then
-                    body[#body + 1] = '<div class="nuppdoc-empty">No public declarations.</div>'
-                end
-            else
+            -- A module with nothing to list says so by listing nothing. The notice that
+            -- used to stand here answered a question the page had not raised, and it
+            -- was the only thing on some pages below the prose that already said what
+            -- the module is for.
+            if #module.items > 0 then
                 body[#body + 1] = moduleSummary(module)
                 for _, group in ipairs(groups) do
                     if #group.items > 0 then

@@ -105,8 +105,8 @@ local function lineWriter(source)
                         .. href.style
                         .. '" href="'
                         .. htmlEscape(
-                        href.url
-                    ) .. '">' .. rendered .. "</a>"
+                            href.url
+                        ) .. '">' .. rendered .. "</a>"
                 end
             end
             lines[#lines] = lines[#lines] .. rendered

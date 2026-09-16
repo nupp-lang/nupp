@@ -167,8 +167,8 @@ local function moduleTreeHtml(node, current, prefix, path)
                     .. ' href="'
                     .. prefix
                     .. moduleFile(
-                    module.name
-                ) .. '" aria-label="' .. htmlEscape(module.name) .. '">' .. label .. "</a></summary>"
+                        module.name
+                    ) .. '" aria-label="' .. htmlEscape(module.name) .. '">' .. label .. "</a></summary>"
             end
             parts[#parts + 1] = item .. "<details" .. open .. ">" .. summary .. '<ul class="nuppdoc-module-tree">'
             parts[#parts + 1] = moduleTreeHtml(child, current, prefix, childPath)
@@ -305,11 +305,11 @@ local function sidebar(modules, current, prefix, pages, currentPath)
         .. '><summary>API reference</summary>'
         .. '<ul class="nuppdoc-module-tree">'
         .. moduleTreeHtml(
-        moduleTree(modules),
-        current,
-        prefix,
-        ""
-    )
+            moduleTree(modules),
+            current,
+            prefix,
+            ""
+        )
     -- A library Nupp documents without owning sits beside `nupp` rather than in the
     -- handwritten sections, because a reader looking a name up does not know which of
     -- the two libraries declared it until they have found it.
@@ -376,8 +376,8 @@ local function searchDialog(searchIndexUrl)
     return '<dialog class="nuppdoc-search-dialog" aria-label="Search documentation"'
         .. ' data-nuppdoc-search-index="'
         .. htmlEscape(
-        searchIndexUrl
-    )
+            searchIndexUrl
+        )
         .. '">'
         .. '<section class="nuppdoc-search-panel"><header><label>'
         .. '<span aria-hidden="true">⌕</span><input type="search"'
@@ -451,8 +451,8 @@ local function pageNavigation(route, pages, prefix)
             .. '"><span class="nuppdoc-page-nav-label">'
             .. '← Previous</span><span class="nuppdoc-page-nav-title">'
             .. htmlEscape(
-            previous.title
-        ) .. '</span></a>'
+                previous.title
+            ) .. '</span></a>'
     end
     if following then
         out[
@@ -464,8 +464,8 @@ local function pageNavigation(route, pages, prefix)
             .. '"><span class="nuppdoc-page-nav-label">'
             .. 'Next →</span><span class="nuppdoc-page-nav-title">'
             .. htmlEscape(
-            following.title
-        ) .. '</span></a>'
+                following.title
+            ) .. '</span></a>'
     end
     out[#out + 1] = '</nav>'
 
@@ -517,8 +517,8 @@ local function homeHero(config: page.Hero, links: urlsMod.Links?, resolveHref: (
         ] = '<div class="nuppdoc-hero-image"><div class="nuppdoc-hero-starburst"'
             .. ' aria-hidden="true"></div><img src="'
             .. htmlEscape(
-            config.heroImage
-        ) .. '" alt="' .. htmlEscape(config.heroImageAlt) .. '"></div>'
+                config.heroImage
+            ) .. '" alt="' .. htmlEscape(config.heroImageAlt) .. '"></div>'
     end
     out[#out + 1] = '</div>'
     out[#out + 1] = '</section>'
@@ -670,12 +670,12 @@ function page.render(
         .. '<meta name="viewport" content="width=device-width,initial-scale=1">'
         .. '<meta name="description" content="'
         .. htmlEscape(
-        settings.description
-    ) .. '">' .. "<title>" .. htmlEscape(
-        title
-    ) .. " | " .. htmlEscape(
-        siteTitle
-    )
+            settings.description
+        ) .. '">' .. "<title>" .. htmlEscape(
+            title
+        ) .. " | " .. htmlEscape(
+            siteTitle
+        )
         .. '</title>'
         .. favicon
         .. '<link rel="stylesheet" href="'
@@ -683,35 +683,35 @@ function page.render(
         .. 'assets/style.css">'
         .. '</head><body><div class="nuppdoc-site"><header class="nuppdoc-header"><nav class="nuppdoc-nav">'
         .. brand(
-        settings,
-        siteTitle,
-        prefix
-    )
+            settings,
+            siteTitle,
+            prefix
+        )
         .. '<div class="nuppdoc-top-nav"><a href="'
         .. prefix
         .. 'getting-started/index.html">Getting started</a><a href="'
         .. 'https://nupp.org/modules/nupp/index.html">API</a><a href="/playground/">Playground</a></div><div class="nuppdoc-actions">'
         .. table.concat(
-        actions
-    ) .. search .. mobileOutlineAction .. '</div></nav></header>' .. (
-        home
-        and ""
-        or '<button class="nuppdoc-sidebar-backdrop" type="button"'
-        .. ' data-mobile-nav-close aria-label="Close page navigation"></button>'
-        .. '<button class="nuppdoc-outline-backdrop" type="button"'
-        .. ' data-mobile-outline-close aria-label="Close table of contents"></button>'
-    ) .. '<div class="' .. shellClass .. '">' .. side .. '<main class="' .. contentClass .. '">' .. (
-        home and "" or breadcrumbs(route, title, pages, prefix)
-    ) .. body .. (
-        home and "" or pageNavigation(route, pages, prefix)
-    )
+            actions
+        ) .. search .. mobileOutlineAction .. '</div></nav></header>' .. (
+            home
+            and ""
+            or '<button class="nuppdoc-sidebar-backdrop" type="button"'
+            .. ' data-mobile-nav-close aria-label="Close page navigation"></button>'
+            .. '<button class="nuppdoc-outline-backdrop" type="button"'
+            .. ' data-mobile-outline-close aria-label="Close table of contents"></button>'
+        ) .. '<div class="' .. shellClass .. '">' .. side .. '<main class="' .. contentClass .. '">' .. (
+            home and "" or breadcrumbs(route, title, pages, prefix)
+        ) .. body .. (
+            home and "" or pageNavigation(route, pages, prefix)
+        )
         .. '</main>'
         .. right
         .. '</div><footer class="nuppdoc-footer"><a href="llms.txt">llms.txt</a>'
         .. '<span aria-hidden="true">·</span><span>Generated by nupp</span></footer></div>'
         .. searchDialog(
-        prefix .. 'assets/search-index.js'
-    ) .. playground .. '<script src="' .. prefix .. 'assets/site.js"></script></body></html>\n'
+            prefix .. 'assets/search-index.js'
+        ) .. playground .. '<script src="' .. prefix .. 'assets/site.js"></script></body></html>\n'
 end
 
 page.homeHero = homeHero

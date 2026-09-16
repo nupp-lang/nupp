@@ -13,7 +13,6 @@ local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local parser = require("nupp.compiler.parser")
 local docblock = require("nupp.compiler.docblock")
-local formatter = require("nupp.compiler.fmt")
 local stringsMod = require("nupp.compiler.doc.strings")
 local filesMod = require("nupp.compiler.doc.files")
 
@@ -62,6 +61,12 @@ record extract.Member
     isFunction: boolean?
     isMetamethod: boolean?
     isType: boolean?
+
+    --- This member is a nested `type` alias, so `type` above holds what it names
+    --- rather than what a value of it is, and `generics` holds its parameters.
+    isAlias: boolean?
+
+    generics: string?
     members: {Member}?
 
     --- The compiler-only value kind, when this member exists only during comptime.
@@ -298,197 +303,6 @@ local function hiddenEntry(entry, includePrivate)
     return entry.kind ~= "metamethodDecl" and privateName(entry.name and entry.name.text or "")
 end
 
--- Every node a signature must leave out to leave one entry out. An entry is not the
--- whole of what was written for it: an annotation is parsed before the entry it
--- modifies and attached to the enclosing structure, so dropping only the entry strands
--- its annotations in the block above the next visible one. Collecting the set up front
--- also keeps the walk from asking about nodes that are not entries at all, since it
--- reaches parameters, type references and expressions too, and any of those can be
--- named `_x` without that saying anything about what a reader may see.
-local function hiddenNodes(node, includePrivate)
-    local dropped = {}
-
-    local function mark(current)
-        if cst.isToken(current) then
-            return
-        end
-        for _, entry in ipairs(current.entries or current.fields or {}) do
-            if hiddenEntry(entry, includePrivate) then
-                dropped[entry] = true
-                for _, annotation in ipairs(entry.annotations or {}) do
-                    dropped[annotation] = true
-                end
-            end
-        end
-        for _, child in ipairs(current) do
-            mark(child)
-        end
-    end
-
-    mark(node)
-
-    return dropped
-end
-
--- A structure's signature is its complete declaration, not only its opening line.
--- Documentation is rendered beside the code block, so omit `---` trivia and executable
--- function blocks while preserving ordinary comments and every declaration token, then
--- let the language's own formatter decide indentation and line breaks. Keeping the
--- function's closing `end` leaves the complete structure parseable for highlighting and
--- member links without publishing an interface default, method, or constructor body.
--- A member whose declaration wraps is hard to tell from the one below it when the two
--- are flush: the reader has to count brackets to find where one ends. Giving a wrapped
--- member a blank line on each side it has a neighbour on says that where a tighter list
--- of one-liners needs nothing said. The structure's own first and last lines are not
--- neighbours, so a wrapped member at either end gains no leading or trailing gap.
-local function spacedMembers(lines: {string}): {string}
-    local indent: integer? = nil
-    for index = 2, #lines - 1 do
-        local width = #(lines[index]:match("^( *)") or "")
-        if lines[index]:match("%S") and width > 0 and (indent == nil or width < indent) then
-            indent = width
-        end
-    end
-    if indent == nil then
-        return lines
-    end
-    -- Where each member begins, so a wrapped one is the run between two of them rather
-    -- than a line that merely happens to be long. A continuation closing a bracket the
-    -- member opened sits at the same column as the member itself, so the depth decides
-    -- rather than the column alone.
-    local starts: {integer} = {}
-    local depth: integer = 0
-    for index = 2, #lines - 1 do
-        local line = lines[index]
-        if depth == 0 and line:match("%S") and #(line:match("^( *)") or "") == indent then
-            starts[#starts + 1] = index
-        end
-        for character in line:gmatch("[%(%)%[%]{}]") do
-            depth = depth + ((character == "(" or character == "[" or character == "{") and 1 or -1)
-        end
-        if depth < 0 then
-            depth = 0
-        end
-    end
-    if #starts < 2 then
-        return lines
-    end
-    local wrapped: {boolean} = {}
-    for position, first in ipairs(starts) do
-        local last = (starts[position + 1] or #lines) - 1
-        while last > first and not lines[last]:match("%S") do
-            last = last - 1
-        end
-        wrapped[position] = last > first
-    end
-    local gapBefore: {[integer]: boolean} = {}
-    for position = 2, #starts do
-        if wrapped[position] or wrapped[position - 1] then
-            gapBefore[starts[position]] = true
-        end
-    end
-    local out: {string} = {}
-    for index, line in ipairs(lines) do
-        if gapBefore[index] and (out[#out] or ""):match("%S") then
-            out[#out + 1] = ""
-        end
-        out[#out + 1] = line
-    end
-
-    return out
-end
-
-local function structureSignature(node, includePrivate)
-    local parts: {string} = {}
-    local dropped = hiddenNodes(node, includePrivate)
-    -- Leading trivia belongs to whatever the declaration follows rather than to the
-    -- declaration, so a signature starts at its own first token. A file's header
-    -- comment
-    -- is the case that shows: it sits on the first token of the first statement, and a
-    -- structure declared there would otherwise carry the whole header into its code
-    -- block, where the page has already rendered it as the module's prose.
-    local leading = true
-
-    local function walk(child)
-        if cst.isToken(child) then
-            local triviaParts: {string} = {}
-            local removedDocumentation = false
-            for index = 1, leading and 0 or child.triviaCount do
-                local text = lexer.triviaText(child, index)
-                if lexer.triviaKind(child, index) == "comment" and text:match("^%-%-%-") then
-                    removedDocumentation = true
-                else
-                    triviaParts[#triviaParts + 1] = text
-                end
-            end
-            local triviaText = table.concat(triviaParts)
-            if removedDocumentation then
-                if triviaText:match("^%s*$") then
-                    triviaText = "\n"
-                else
-                    repeat
-                        local collapsed, count = triviaText:gsub("\n[ \t]*\n[ \t]*", "\n")
-                        triviaText = collapsed
-                    until count == 0
-                end
-            end
-            parts[#parts + 1] = triviaText
-            parts[#parts + 1] = child.text
-            leading = false
-        else
-            -- A hidden node leaves with the trivia its first token owns, which is the
-            -- blank line and the `---` run written above it, so removing one from the
-            -- block reads as though it had never been written there.
-            if dropped[child] then
-                return
-            end
-            for _, nested in ipairs(child) do
-                if child.kind ~= "funcbody" or nested ~= child.body then
-                    walk(nested)
-                end
-            end
-        end
-    end
-
-    walk(node)
-    local source = trim(table.concat(parts))
-    local formatted, errors = formatter.format(source, "documentation-signature.nupp", {bindImports = false})
-    if #errors > 0 then
-        return withoutHiddenTerminals(source)
-    end
-
-    -- Formatter style normally places every block's `end` on its own line. A
-    -- documentation signature has already removed function bodies, so keeping that
-    -- empty block on one line makes records with several methods materially tighter.
-    local lines: {string} = {}
-    local inFunction = false
-    local justClosed = false
-    for line in (trim(formatted) .. "\n"):gmatch("([^\n]*)\n") do
-        if line:match("^%s*function%s") or line:match("^%s*constructor[%s%(]") then
-            inFunction = true
-        end
-        if inFunction and line:match("^%s*end%s*$") then
-            lines[#lines] = (lines[#lines] or "") .. " end"
-            inFunction = false
-            justClosed = true
-        else
-            if justClosed then
-                if line == "" then
-                    justClosed = false
-                elseif not line:match("^%s*end%s*$") then
-                    lines[#lines + 1] = ""
-                    justClosed = false
-                else
-                    justClosed = false
-                end
-            end
-            lines[#lines + 1] = line
-        end
-    end
-
-    return withoutHiddenTerminals(trim(table.concat(spacedMembers(lines), "\n")))
-end
-
 ----------------------------------------------------------------------------
 -- Annotations
 ----------------------------------------------------------------------------
@@ -567,6 +381,41 @@ end
 
 local function genericText(node)
     return node and node.generics and syntax(node.generics) or ""
+end
+
+-- A structure's signature is its opening line and nothing below it: the modifiers, the
+-- name, its generic parameters, the contracts written after `is`, and a `where`
+-- refinement. Rendering the whole declaration instead said everything twice, since the
+-- page documents every entry under its own heading beneath the block, and it buried
+-- the one line naming the type under a screen of reformatted source. The renderers
+-- write `...` after this where members follow, so the elision reads as an elision.
+local function structureHeader(stat): string
+    local parts: {string} = {}
+    if stat.modifier then
+        parts[#parts + 1] = stat.modifier.text
+    end
+    -- Source order, which is not the order the parser attached the two to the node:
+    -- `affine` is read before `sealed`, and both before the contextual introducer.
+    if stat.affineTok then
+        parts[#parts + 1] = stat.affineTok.text
+    end
+    if stat.sealedTok then
+        parts[#parts + 1] = stat.sealedTok.text
+    end
+    parts[#parts + 1] = stat.declKind or "record"
+    parts[#parts + 1] = declaredName(stat) .. genericText(stat)
+    local supertypes: {string} = {}
+    for _, supertype in ipairs(stat.supertypes or {}) do
+        supertypes[#supertypes + 1] = syntax(supertype)
+    end
+    if #supertypes > 0 then
+        parts[#parts + 1] = "is " .. table.concat(supertypes, ", ")
+    end
+    if stat.whereClause then
+        parts[#parts + 1] = syntax(stat.whereClause)
+    end
+
+    return table.concat(parts, " ")
 end
 
 -- The arguments table records which values a call borrows. Repeating a returned
@@ -1114,6 +963,25 @@ local function buildMembers(
                 members = buildMembers(entry.entries, nestedPath, includePrivate, entryInfo.fields),
                 annotations = annotationsOf(entry)
             )
+        elseif entry.kind == "typeAlias" and entryVisible then
+            -- A nested alias documents as the type it names. Falling through to the
+            -- catch-all below described it as a field whose type was the name of the
+            -- parser production, so the page read `Step: typeAlias` where the source
+            -- says what the alias is for.
+            members[
+                #members + 1
+            ] = new extract.Member(
+                name = entry.name.text,
+                type = syntax(entry.value),
+                text = entryInfo.text,
+                path = basePath .. "." .. entry.name.text,
+                params = {},
+                returns = {},
+                raises = {},
+                isAlias = true,
+                generics = genericText(entry) ~= "" and genericText(entry) or nil,
+                annotations = annotationsOf(entry)
+            )
         elseif entry.name and entryVisible then
             members[
                 #members + 1
@@ -1243,7 +1111,7 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
     elseif stat.kind == "recordDecl" then
         name, kind = stat.name.text, stat.declKind
         public = public or stat.visibility == "module" or stat.visibility == "global"
-        signature = structureSignature(stat, includePrivate)
+        signature = structureHeader(stat)
     elseif stat.kind == "cdefStruct" then
         name, kind = stat.name.text, "struct"
         public = public or (published or {})[name] == true
@@ -1555,8 +1423,8 @@ function extract.extract(
                     and source.obj.token
                     and source.obj.token.text == "require"
                     and (
-                    source.args as cst.Args?
-                ) or nil
+                        source.args as cst.Args?
+                    ) or nil
                 local argument = args and args.exprs and args.exprs[1]
                 local literal = argument and argument.kind == "string" and argument.token and argument.token.text or nil
                 local imported = literal and (literal:match('^"(.*)"$') or literal:match("^'(.*)'$")) or nil
@@ -1677,21 +1545,6 @@ function extract.extract(
     return result, {}, extraModules
 end
 
--- Function-typed members document like the functions they are, with their own arguments
--- and results, and a nested type documents like a declaration in its own right, with
--- its
--- own members, so both are listed apart from the data fields rather than flattened into
--- one table that has nowhere to put either.
-local function splitMembers(members: {extract.Member}?): {extract.Member}, {extract.Member}, {extract.Member}
-    local fields, methods, types = {}, {}, {}
-    for _, member in ipairs(members or {}) do
-        local into = member.isType and types or member.isFunction and methods or fields
-        into[#into + 1] = member
-    end
-
-    return fields, methods, types
-end
-
 --- The modules one module's page is responsible for listing: every module nested under
 --- its name whose nearest documented ancestor is that module.
 ---
@@ -1763,6 +1616,5 @@ end
 
 extract.internalModuleName = internalModuleName
 extract.moduleName = moduleName
-extract.splitMembers = splitMembers
 
 export = extract

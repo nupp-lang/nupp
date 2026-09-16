@@ -159,8 +159,8 @@ local function playgroundHtml(source: string, caption: string?): string
         fallback = '<div class="nuppdoc-code-block" data-lang="nupp"'
             .. ' data-reader-source slot="reader-source"><pre><code class="language-nupp">'
             .. htmlEscape(
-            trimmed
-        ) .. "</code></pre></div>"
+                trimmed
+            ) .. "</code></pre></div>"
     end
 
     return '<nupp-playground class="nuppdoc-playground" aria-label="' .. htmlEscape(
