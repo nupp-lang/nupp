@@ -1417,12 +1417,21 @@ local coroutine: {
 --- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
 --- come back signed.
 ---
+--- ```nupp
+--- const bit = require("bit")
+---
+--- -- No operator spells these, so the module does.
+--- print(bit.tohex(bit.bswap(0x11223344))) -- 44332211
+--- print(bit.rol(0xFF, 8))                 -- 65280
+---
+--- -- These have one, so write the operator and let it lower per target.
+--- print(0xF0 & 0x3C)                      -- 48
+--- ```
+---
 --- `require("bit")` resolves on every dialect, which no other module on this page
---- does. Every name below has a scalar implementation with the same signature, so a
---- portable target reaches that one and a LuaJIT target reaches the C library; the
---- bare `bit` global is LuaJIT's alone, so portable source requires the module. Write
---- the operator where there is one, and reach for this for `tohex`, `bswap`, `rol`,
---- `ror` and `tobit`, which have none.
+--- does: every name below has a scalar implementation with the same signature, so a
+--- portable target reaches that one and a LuaJIT target reaches the C library. The
+--- bare `bit` global is LuaJIT's alone, so portable source requires the module.
 local bit: {
     --- Normalizes `x` into the signed 32-bit integer range, wrapping around.
     ---
