@@ -3,6 +3,9 @@
 Nupp provides language-aware CLI tools for working on `.nupp` source. Run
 commands from the repository root with `./bin/nupp`.
 
+Repository skills live in `.agents/skills/<name>/SKILL.md`. Keep them there
+rather than in client-specific skill directories.
+
 ## Making changes
 
 Do changes in a worktree. When finished, rebase the originating branch,

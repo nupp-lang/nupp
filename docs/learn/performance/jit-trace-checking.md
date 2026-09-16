@@ -87,7 +87,7 @@ The static-first performance workflow ejects as a focused skill:
 
 ```bash
 nupp reference performance --skill \
-  -o .claude/skills/nupp-performance/SKILL.md
+  -o .agents/skills/nupp-performance/SKILL.md
 ```
 
 The generated skill belongs to the compiler that produced it. Its trigger covers
