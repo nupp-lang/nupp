@@ -326,6 +326,7 @@ local RESOURCES = {
     {source = "src/nupp/codec/hex.nupp", output = "nupp/compiler/nupp/codec/hex.nupp"},
     {source = "src/nupp/system.nupp", output = "nupp/compiler/nupp/system.nupp"},
     {source = "src/nupp/runtime/browser/system.nupp", output = "nupp/compiler/nupp/runtime/browser/system.nupp"},
+    {source = "src/nupp/bits.nupp", output = "nupp/compiler/nupp/bits.nupp"},
     {source = "src/nupp/util/init.nupp", output = "nupp/compiler/nupp/util/init.nupp"},
     {
         source = "src/nupp/util/internal/bitset.nupp",
