@@ -933,7 +933,12 @@ local function configuredPages(root, settings, title)
     -- out. The diagnostic codes and the standard library declarations are both the
     -- compiler's own, so a manifest carrying either would be a copy that goes stale the
     -- first time the compiler changed.
-    local function addGenerated(generated: doc.Generated?, what: string, api: boolean?): boolean?, string?
+    local function addGenerated(
+        generated: doc.Generated?,
+        what: string,
+        api: boolean?,
+        navigationTitle: string?
+    ): boolean?, string?
         if not generated then
             return true
         end
@@ -950,6 +955,7 @@ local function configuredPages(root, settings, title)
         ] = {
             path = route,
             title = generated.title,
+            navigationTitle = navigationTitle,
             markdown = generated.markdown,
             source = generated.source,
             redirects = generated.redirects,
@@ -987,7 +993,7 @@ local function configuredPages(root, settings, title)
     if not added then
         return nil, addErr
     end
-    added, addErr = addGenerated(stdlibMod.page(settings.stdlib), "standard library index", true)
+    added, addErr = addGenerated(stdlibMod.page(settings.stdlib), "standard library index", true, "LuaJIT")
     if not added then
         return nil, addErr
     end

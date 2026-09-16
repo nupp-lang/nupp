@@ -1328,6 +1328,7 @@ function M.standardMathApiHasCompleteDocumentation()
     assert(mathModule, "the prelude did not synthesize nupp.math")
     assert(vec2Module, "the prelude did not synthesize nupp.math.vec2")
     assert(#vec2Module.items > 0, "nupp.math.vec2 has no operations")
+
     local function assertDocumented(documentedModule)
         for _, item in ipairs(documentedModule.items) do
             assert(item.doc.text ~= "", documentedModule.name .. "." .. item.name .. " has no documentation")
@@ -1526,6 +1527,7 @@ function M.hidesPrivateMembersFromTheRenderedDeclaration()
         },
         "\n"
     )
+
     local function renderedNames(options)
         local module = assert(doc.extract(source, "src/public.nupp", "public", options))
         local names = {}
@@ -3639,6 +3641,10 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     local page = readFile(dir .. "/site/reference/luajit/index.html")
     assert(page:find("LuaJIT standard library", 1, true), page:sub(1, 400))
     assert(page:find("string.format", 1, true), "the page rendered without its declarations")
+    local sidebar = assert(page:match('<aside class="nuppdoc%-sidebar".-</aside>'), "the page has a sidebar")
+    assert(sidebar:find('<details open><summary>API reference</summary>', 1, true), sidebar)
+    assert(sidebar:find('aria%-current="page"[^>]*>LuaJIT</a>'), sidebar)
+    assert(not sidebar:find(">LuaJIT standard library</a>", 1, true), sidebar)
     local modulePage = readFile(dir .. "/site/modules/math/index.html")
     assert(
         modulePage:find('href="../../reference/luajit/index.html#LuaFile"', 1, true),
@@ -3984,8 +3990,10 @@ function M.everyPublishedModuleSaysWhatItIs()
     assert(#model.modules > 0, "documented no modules at all")
     assert(
         #empty == 0,
-        "modules published with nothing on their page:\n  " .. table.concat(empty, "\n  ") ..
-            "\nMark each `@!internal` or give it a blurb above `module`."
+        "modules published with nothing on their page:\n  " .. table.concat(
+            empty,
+            "\n  "
+        ) .. "\nMark each `@!internal` or give it a blurb above `module`."
     )
 end
 

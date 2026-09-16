@@ -67,6 +67,7 @@ type page.Hero = {
 --- it documents when it documents one.
 type page.Nav = {
     module: Module?,
+    navigationTitle: string?,
     path: string,
     title: string
 }
@@ -298,6 +299,14 @@ local function sidebar(modules, current, prefix, pages, currentPath)
     local out = {'<aside class="nuppdoc-sidebar" id="nuppdoc-sidebar"' .. ' aria-label="Page navigation"><ul>'}
     out[#out + 1] = pageTreeHtml(pageTree(pages), currentPath, prefix, "")
     local apiOpen = current and current ~= "" and " open" or ""
+    if apiOpen == "" then
+        for _, candidate in ipairs(pages or {}) do
+            if candidate.api and candidate.path == currentPath then
+                apiOpen = " open"
+                break
+            end
+        end
+    end
     out[
         #out + 1
     ] = '<li class="nuppdoc-sidebar-section"><details'
@@ -321,7 +330,7 @@ local function sidebar(modules, current, prefix, pages, currentPath)
             ] = '<li><a' .. active .. ' href="' .. pageLink(
                 prefix,
                 candidate.path
-            ) .. '">' .. htmlEscape(candidate.title) .. "</a></li>"
+            ) .. '">' .. htmlEscape(candidate.navigationTitle or candidate.title) .. "</a></li>"
         end
     end
     out[#out + 1] = "</ul></details></li></ul></aside>"
