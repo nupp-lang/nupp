@@ -1165,8 +1165,8 @@ function control.install(c: state.Checker): state.StatHandlers
             and allBranchesLeave
             and not dispatchTotal
             and memberSet(
-            dispatchStart
-        ) then
+                dispatchStart
+            ) then
             local remaining = accumulatedElse[dispatchKey]
             local missing = remaining and memberSet(remaining) or nil
             if missing and #missing > 0 then

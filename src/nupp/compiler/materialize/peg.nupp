@@ -1447,8 +1447,8 @@ local function compilePlan(validated)
                 and maximum <= 6
                 and #prefixes <= 8
                 and #separator[
-                2
-            ] == 1
+                    2
+                ] == 1
             if kernelShaped then
                 for index = 1, 8 do
                     if suffix[index] >= 256 then

@@ -458,8 +458,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             and typeTok.kind == "name"
             and typeTok.text == "type"
             and startsTypedecl(
-            at + 1
-        )
+                at + 1
+            )
     end
 
     local function startsExport(at: integer): boolean
@@ -494,8 +494,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             and name.kind == "name"
             and after ~= nil
             and (
-            after.kind == "=" or after.kind == ":"
-        )
+                after.kind == "=" or after.kind == ":"
+            )
     end
 
     ---------------------------------------------------------------------
@@ -3122,10 +3122,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 and value.kind ~= "{"
                 and value.kind ~= "string"
                 and (
-                EXPR_START[
-                    value.kind
-                ] or UNOPS[value.kind] or value.kind == "error" or (value.kind == "or" and value.text == "||")
-            )
+                    EXPR_START[
+                        value.kind
+                    ] or UNOPS[value.kind] or value.kind == "error" or (value.kind == "or" and value.text == "||")
+                )
             if contextual then
                 local n = new cst.SwitchYieldStmt(kind = "switchYieldStmt")
                 add(n, advance()).contextualOp = true

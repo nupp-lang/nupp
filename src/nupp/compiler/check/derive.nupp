@@ -451,8 +451,8 @@ function derive.install(c: state.Checker): derive.Ops
                     local sourceArgument = application
                         and application.annotationValues
                         and application.annotationValues[
-                        reflectedArgument.name
-                    ] or nil
+                            reflectedArgument.name
+                        ] or nil
                     for _, candidate in ipairs(application and application.arguments or {}) do
                         if candidate.name == reflectedArgument.name then
                             sourceArgument = candidate

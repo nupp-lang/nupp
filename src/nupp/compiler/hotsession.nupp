@@ -250,8 +250,8 @@ local function cdefFingerprint(parsed)
             or node.cheaderCdef
             or node.kind == "pragmaStmt"
             and wrapsCdef(
-            node
-        )
+                node
+            )
     end
 
     local function visit(node, inside)

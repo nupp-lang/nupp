@@ -333,8 +333,8 @@ function functions.install(c: state.Checker): state.StatHandlers
                         and callable.tag == "func"
                         and callable.preservesResults
                         and callable.preservesResults[
-                        1
-                    ] or nil
+                            1
+                        ] or nil
                 end
                 local argument = source and expr.args and expr.args.exprs and expr.args.exprs[source] or nil
                 if argument then

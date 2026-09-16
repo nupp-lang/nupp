@@ -1670,9 +1670,9 @@ export record JsonCodec
         local nativeDecode = decodeProvider ~= nil
             and decodeProvider.compileSerde ~= nil
             and decodeProvider.compileSerde(
-            decodePlan,
-            self.profile.unknownMembers
-        ) or nil
+                decodePlan,
+                self.profile.unknownMembers
+            ) or nil
         local nativeComplete = nativeDecode ~= nil and nativeDecode.complete == true
         local prepared = new PreparedImpl(token = binding)
         preparedStates[prepared] = {

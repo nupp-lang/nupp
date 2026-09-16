@@ -539,16 +539,16 @@ local function casesFor(
                 .. " ]; do sleep 1; __nupp_n=$((__nupp_n+1)); kill -0 $__nupp_job 2>/dev/null || exit 0; done; "
                 .. "kill -9 $__nupp_job 2>/dev/null && printf 1 >"
                 .. buildProcess.quote(
-                job.expired
-            )
+                    job.expired
+                )
                 .. " ) <"
                 .. NOWHERE
                 .. " >"
                 .. NOWHERE
                 .. " 2>&1 & __nupp_watch=$!; wait $__nupp_job; printf %d $? >"
                 .. buildProcess.quote(
-                job.status
-            ) .. "; kill $__nupp_watch 2>/dev/null ) &"
+                    job.status
+                ) .. "; kill $__nupp_watch 2>/dev/null ) &"
         end
         parts[#parts + 1] = "wait"
         -- The wave's own standard error goes nowhere. Every job already captures its

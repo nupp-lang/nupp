@@ -1941,8 +1941,8 @@ function gen.generate(
                 and plan.indexDefinition == indexDefinition
                 and plan.columnNames
                 and plan.columnNames[
-                ordinal
-            ] then
+                    ordinal
+                ] then
                 return plan
             end
         end
@@ -8959,10 +8959,10 @@ function gen.generate(
                 -- The body is wrapped rather than handed over: `coroutine.create`
                 -- takes a Lua function, and a protected call takes anything callable.
                 .. "local function __nuppProtected(handler,body,...) " .. (
-                "local thread=%s(function(...) return body(...) end);"
-            ):format(
-                portableCoroutineCreate
-            )
+                    "local thread=%s(function(...) return body(...) end);"
+                ):format(
+                    portableCoroutineCreate
+                )
                 .. "local input=__nuppYieldPack(...);"
                 .. "while true do "
                 .. "local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));"

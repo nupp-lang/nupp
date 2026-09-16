@@ -705,9 +705,9 @@ local function validateTarget(target, label, dependencies)
                     .. name
                     .. "; supported platforms: "
                     .. table.concat(
-                    distribution.keys(),
-                    ", "
-                )
+                        distribution.keys(),
+                        ", "
+                    )
             end
             if not layouts.has(name) then
                 return nil, label .. ".platforms names a platform with no C layout model " .. name
@@ -761,9 +761,9 @@ local function validateTarget(target, label, dependencies)
                 .. target.layoutTarget
                 .. "; supported targets: "
                 .. table.concat(
-                layouts.keys(),
-                ", "
-            )
+                    layouts.keys(),
+                    ", "
+                )
         end
     end
     if target.nativeFeatures ~= nil then

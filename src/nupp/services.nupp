@@ -92,15 +92,15 @@ local function validate(id: string, members: {Member}?, value: any): nil
                 or kind == "func"
                 and actual == "function"
                 or (
-                kind == "interface"
-                or kind == "record"
-                or kind == "nominal"
-                or kind == "shape"
-                or kind == "map"
-                or kind == "array"
-            ) and actual == "table" or (
-                kind == "integer" or kind == "fixedwidth" or kind == "literalnumber"
-            ) and actual == "number"
+                    kind == "interface"
+                    or kind == "record"
+                    or kind == "nominal"
+                    or kind == "shape"
+                    or kind == "map"
+                    or kind == "array"
+                ) and actual == "table" or (
+                    kind == "integer" or kind == "fixedwidth" or kind == "literalnumber"
+                ) and actual == "number"
         end
         if not accepted then
             error("nupp.services: " .. id .. "." .. member.name .. " has type " .. actual, 2)

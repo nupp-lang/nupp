@@ -1651,26 +1651,26 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     and previous
                     and previous.sourceHash == sourceHash
                     and previous.specializationHash == (
-                    specializationHashes[normalize(path)] or emptySpecializationHash
-                ) and previous.interfaceHash and type(
-                    previous.dependencies
-                ) == "table" and type(
-                    previous.projectDependencies
-                ) == "table" and type(
-                    previous.effects
-                ) == "table" and type(
-                    previous.runtimeModules
-                ) == "table" and type(
-                    previous.diags
-                ) == "table" and type(
-                    previous.materializations
-                ) == "table" and type(
-                    previous.derives
-                ) == "table" and type(
-                    previous.optimizationRemarks
-                ) == "table" and type(
-                    previous.allocationSites
-                ) == "table" and type(previous.optimizationAccounted) == "boolean"
+                        specializationHashes[normalize(path)] or emptySpecializationHash
+                    ) and previous.interfaceHash and type(
+                        previous.dependencies
+                    ) == "table" and type(
+                        previous.projectDependencies
+                    ) == "table" and type(
+                        previous.effects
+                    ) == "table" and type(
+                        previous.runtimeModules
+                    ) == "table" and type(
+                        previous.diags
+                    ) == "table" and type(
+                        previous.materializations
+                    ) == "table" and type(
+                        previous.derives
+                    ) == "table" and type(
+                        previous.optimizationRemarks
+                    ) == "table" and type(
+                        previous.allocationSites
+                    ) == "table" and type(previous.optimizationAccounted) == "boolean"
                 if usable and previous then
                     for _, dependency in ipairs(previous.projectDependencies or {}) do
                         if type(dependency) ~= "table" then

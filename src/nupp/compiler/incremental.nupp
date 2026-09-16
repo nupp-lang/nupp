@@ -795,12 +795,15 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             and left.deriveInterfaceFingerprint == right.deriveInterfaceFingerprint
             and left.comptimeFunctionFingerprint == right.comptimeFunctionFingerprint
             and sameTypeMap(
-            left.types,
-            right.types
-        ) and sameTypeMap(
-            left.values,
-            right.values
-        ) and sameDefinitionMap(left.typeDefs, right.typeDefs) and sameDefinitionMap(left.valueDefs, right.valueDefs)
+                left.types,
+                right.types
+            ) and sameTypeMap(
+                left.values,
+                right.values
+            ) and sameDefinitionMap(
+                left.typeDefs,
+                right.typeDefs
+            ) and sameDefinitionMap(left.valueDefs, right.valueDefs)
     end
 
     q:define(

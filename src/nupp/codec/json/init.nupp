@@ -243,7 +243,10 @@ export affine interface Writer is nupp.Closeable
         exclusive self: Writer,
         value: string | number | boolean | {any} | {[string]: any}
     ): Writer borrows (self)
-        & function(exclusive self: Writer, value: EncodedValue | EncodedString): Writer borrows (self)
+        & function(
+            exclusive self: Writer,
+            value: EncodedValue | EncodedString
+        ): Writer borrows (self)
 
     --- Appends JSON null.
     ---

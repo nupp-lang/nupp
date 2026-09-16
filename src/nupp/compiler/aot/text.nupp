@@ -507,8 +507,8 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
                 .. reducer.reducer
                 .. " <- "
                 .. text.expression(
-                reducer.value
-            ) .. (reducer.right ~= nil and ", " .. text.expression(reducer.right as lane.Expr) or "")
+                    reducer.value
+                ) .. (reducer.right ~= nil and ", " .. text.expression(reducer.right as lane.Expr) or "")
         elseif op == "reducer_add" then
             lines[#lines + 1] = prefix .. text.expression(statement as scalarIR.ReducerAdd)
         elseif op == "simd_store" then

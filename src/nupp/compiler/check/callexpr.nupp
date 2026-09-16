@@ -1099,8 +1099,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         and operationT.tag == "func"
                         and operationT.paramModes
                         and operationT.paramModes[
-                        1
-                    ] == "takes" and j < #args then
+                            1
+                        ] == "takes" and j < #args then
                         c.diag("NUPP2615", args[j], "only the final attemptAll operation may take the value")
                     end
                 end
@@ -1143,8 +1143,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         and state.automaticOwner
                         and state.conditionalMovedFields
                         and state.conditionalMovedFields[
-                        cleanup.field
-                    ] or false
+                            cleanup.field
+                        ] or false
                     if conditional then
                         node.ownerCleanups[#node.ownerCleanups + 1] = cleanup
                         node.ownerCleanupGuards = node.ownerCleanupGuards or {}
@@ -1210,8 +1210,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         and projectIndex
                         and projectIndex.declaredModules
                         and projectIndex.declaredModules[
-                        canonical
-                    ] then
+                            canonical
+                        ] then
                         c.diag(
                             "NUPP1002",
                             tok,
@@ -1281,9 +1281,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and c.env
             and c.env.moduleInitializing
             and c.env.moduleInitializing(
-            c.env,
-            selectedExport.module
-        ) then
+                c.env,
+                selectedExport.module
+            ) then
             c.diag(
                 "NUPP1002",
                 callee,
@@ -1497,8 +1497,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and tableGlobal
             and tableToken.definition == tableGlobal.definition
             and (
-            memberName == "new" or memberName == "clear" or memberName == "clone"
-        ) then
+                memberName == "new" or memberName == "clear" or memberName == "clone"
+            ) then
             node.tableIntrinsic = memberName
         end
         local knownAts = nil
@@ -1513,8 +1513,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and pairMap
             and pairMap.tag == "map"
             and pairMap.key == pairParams[
-            1
-        ] and pairMap.value == pairParams[2]
+                1
+            ] and pairMap.value == pairParams[2]
         if isPairsContract then
             local args = argExprs
             if #args == 1 then
@@ -1799,11 +1799,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         or phase == "dead"
                         and threadType.resumePack
                         or T.packUnion(
-                        {
-                            threadType.startPack,
-                            threadType.resumePack
-                        }
-                    )
+                            {
+                                threadType.startPack,
+                                threadType.resumePack
+                            }
+                        )
                     if accepted.alternatives then
                         local fits = false
                         local suppliedHead = {}
@@ -2001,10 +2001,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and callee
             and callee.exactCallExport
             and indexedViews.exportProducer(
-            callee.exactCallExport.module,
-            callee.exactCallExport.member,
-            first
-        ) or nil
+                callee.exactCallExport.module,
+                callee.exactCallExport.member,
+                first
+            ) or nil
         if indexedProducer then
             node.indexedViewProducer = {producer = indexedProducer, source = argExprs[1], count = argExprs[2],}
         end
@@ -2083,8 +2083,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and staticOwner.tag == "nominal"
             and staticOwner.staticByname
             and staticOwner.staticByname[
-            member.text
-        ]
+                member.text
+            ]
         if static then
             local owner = staticOwner as T.Nominal
             c.diag(

@@ -396,9 +396,9 @@ function ownership.install(c: state.Checker): ownership.Ops
             and c.env
             and c.env.moduleNameForPath
             and c.env.moduleNameForPath(
-            c.env,
-            definition.filename
-        )
+                c.env,
+                definition.filename
+            )
         local origin = stableOrigin(
             definitionModule or definition and definition.filename or c.result.moduleName or c.filename or "<module>"
         )
@@ -1125,8 +1125,8 @@ function ownership.install(c: state.Checker): ownership.Ops
                 and aggregate.tag == "nominal"
                 and aggregate.borrowedRootFields
                 and aggregate.borrowedRootFields[
-                field
-            ] then
+                    field
+                ] then
                 c.diag("NUPP2602", expr, ("owned field %q cannot move while a sibling field borrows it"):format(field))
                 return false
             end

@@ -1012,10 +1012,10 @@ local comptime function debugSpec(T: type, contract: type): any
             or value.name == "integer"
             or value.name == "float"
             or value.name:find(
-            "int",
-            1,
-            true
-        ) or value.name:find("uint", 1, true) then
+                "int",
+                1,
+                true
+            ) or value.name:find("uint", 1, true) then
             return {kind = value.name}
         end
     elseif value.kind == "array" then
@@ -1127,9 +1127,9 @@ local comptime function jsonSpec(T: type, contract: type): any
                             and nominal.kind == "record"
                             and nominal.deriveKey ~= nil
                             and nupp.derive.claims(
-                            member,
-                            contract
-                        ) then
+                                member,
+                                contract
+                            ) then
                             for _, field in ipairs(nominal.fields or {}) do
                                 if field.name == candidate.name then
                                     tagged = field

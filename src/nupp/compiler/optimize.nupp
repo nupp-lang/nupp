@@ -185,8 +185,8 @@ local function constructorField(stat, name, keys)
         or stat.automaticOwnerMoves
         or stat.automaticOwnerReinit
         or #(
-        stat.targets or {}
-    ) ~= 1 or #(stat.exprs or {}) ~= 1 then
+            stat.targets or {}
+        ) ~= 1 or #(stat.exprs or {}) ~= 1 then
         return nil
     end
     local target = stat.targets[1]
@@ -309,8 +309,8 @@ local function presizeBlock(stats, remarks)
             and stat.exprs
             and #stat.exprs == 1
             and isEmptyTable(
-            stat.exprs[1]
-        ) then
+                stat.exprs[1]
+            ) then
             local name = stat.names[1].text
             local constructor = stat.exprs[1]
             local array, hash, stoppedAt, constructorFields = planPresize(stats, i, name)

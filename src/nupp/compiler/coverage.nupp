@@ -249,16 +249,16 @@ local function page(title, tree, body, homeHref)
     return "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
         .. "<title>"
         .. escape(
-        title
-    )
+            title
+        )
         .. " | Nupp coverage</title><style>"
         .. STYLE
         .. STYLE_OVERLAY
         .. BREADCRUMB_STYLE
         .. "</style><div class=shell><aside><a class=brand href='"
         .. escape(
-        homeHref
-    )
+            homeHref
+        )
         .. "'>Nupp coverage</a>"
         .. tree
         .. "</aside><div class=sidebar-resizer role=separator tabindex=0 aria-label='Resize file tree' aria-orientation=vertical aria-valuemin=220 aria-valuemax=520 aria-valuenow=290></div><main>"
@@ -444,11 +444,11 @@ local function rows(files, currentPage)
             .. file.status
             .. "'></span><a href='"
             .. relativeHref(
-            currentPage,
-            filePage(file.path)
-        ) .. "'>" .. escape(
-            file.path
-        )
+                currentPage,
+                filePage(file.path)
+            ) .. "'>" .. escape(
+                file.path
+            )
             .. "</a></td><td>"
             .. file.lines.covered
             .. " / "
@@ -495,9 +495,9 @@ local function indexBody(summary, model, title, currentPage)
         .. "<th><button data-key=functions aria-sort=none>Functions <span class=sort-indicator aria-hidden=true></span></button></th><th><button data-key=missedFunctions aria-sort=none>Missed functions <span class=sort-indicator aria-hidden=true></span></button></th><th><button data-key=branches aria-sort=none>Branches <span class=sort-indicator aria-hidden=true></span></button></th>"
         .. "<th><button data-key=missedArms aria-sort=none>Missed arms <span class=sort-indicator aria-hidden=true></span></button></th></tr></thead><tbody>"
         .. rows(
-        summary.files,
-        currentPage
-    ) .. "</tbody></table>"
+            summary.files,
+            currentPage
+        ) .. "</tbody></table>"
 
     return table.concat(out)
 end
@@ -537,8 +537,8 @@ local function codeRows(source, file, language)
             .. detail
             .. "</span>"
             .. (
-            highlighted[line] or escape(text)
-        ) .. "</span>"
+                highlighted[line] or escape(text)
+            ) .. "</span>"
     end
 
     return table.concat(out)

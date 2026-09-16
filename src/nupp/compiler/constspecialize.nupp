@@ -79,8 +79,8 @@ local function candidate(node: any, filename: string): any?
             and annotation.typeArgs == nil
             and annotation.base ~= nil
             and byName[
-            annotation.base.text
-        ] or nil
+                annotation.base.text
+            ] or nil
         if binder ~= nil and param.name ~= nil then
             binder.carriers[
                 #binder.carriers + 1

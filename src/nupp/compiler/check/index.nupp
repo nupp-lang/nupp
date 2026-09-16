@@ -492,8 +492,8 @@ function index.install(c: state.Checker): state.ExprHandlers
                 and physicalOwner.declKind == "struct"
                 and physicalOwner.writeFieldDefs
                 and physicalOwner.writeFieldDefs[
-                memberName
-            ] then
+                    memberName
+                ] then
                 node.fixedWidthPhysicalStore = true
             end
             local after = c.fieldType(base, memberName)
@@ -647,8 +647,8 @@ function index.install(c: state.Checker): state.ExprHandlers
             and staticOwner.tag == "nominal"
             and staticOwner.overloadedStatics
             and staticOwner.overloadedStatics[
-            memberName
-        ] then
+                memberName
+            ] then
             node.staticOverloadOwner = staticOwner
             node.staticOverloadName = memberName
             if not node.callCallee then

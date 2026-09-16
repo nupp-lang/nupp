@@ -259,8 +259,8 @@ export record Application
                 .. " __complete bash \"$COMP_CWORD\" \"${COMP_WORDS[@]:1}\") )\n"
                 or "  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n  COMPREPLY=( $(compgen -W "
                 .. self:shellQuote(
-                words
-            ) .. " -- \"$cur\") )\n"
+                    words
+                ) .. " -- \"$cur\") )\n"
             return generated
                 .. "_"
                 .. program

@@ -1181,8 +1181,8 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         and target.obj.token.text == "self"
                         and constructor
                         and not constructor.assigned[
-                        field
-                    ]
+                            field
+                        ]
                     if constructorInit then
                         constructor.assigned[field] = true
                         if et and ownershipKind(et) then

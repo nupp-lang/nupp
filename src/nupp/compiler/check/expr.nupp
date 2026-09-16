@@ -871,8 +871,8 @@ function expr.install(c: state.Checker): nil
                 and c.moduleExports
                 and c.moduleExports.values
                 and c.moduleExports.values[
-                nameText
-            ] then
+                    nameText
+                ] then
                 local exportedType = c.moduleExports.values[nameText]
                 local definition = c.moduleExports.valueDefs and c.moduleExports.valueDefs[nameText] or nil
                 c.markToken(nameTok, definition, exportedType, definition and definition.kind or "variable")

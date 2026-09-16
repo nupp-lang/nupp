@@ -2474,8 +2474,8 @@ function calls.install(c: state.Checker): calls.Ops
                 local physical = node.cdefCall == true
                     or node.fixedWidthPhysicalParameters ~= nil
                     and node.fixedWidthPhysicalParameters[
-                    j
-                ] == true
+                        j
+                    ] == true
                 ok, why, reported = c.fixedWidth.fits(
                     actualForCheck,
                     expected,

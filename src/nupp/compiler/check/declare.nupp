@@ -1342,8 +1342,8 @@ function declare.install(
                         and value.kind == "name"
                         and value.token
                         and takes[
-                        value.token.text
-                    ] then
+                            value.token.text
+                        ] then
                         moves = true
                     end
                 end
@@ -2708,8 +2708,8 @@ function declare.install(
                         or settled.gradual == true
                         or resolvedTo == T.any
                         or (
-                        resolvedTo ~= nil and resolvedTo.tag == "projection"
-                    )
+                            resolvedTo ~= nil and resolvedTo.tag == "projection"
+                        )
                     if unsettled then
                         c.diag(
                             "NUPP2122",

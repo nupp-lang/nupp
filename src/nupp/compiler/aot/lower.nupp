@@ -3856,10 +3856,10 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
             or effects.raises == true
             or effects.external == true
             or next(
-            effects.writes or {}
-        ) ~= nil or next(
-            effects.shapes or {}
-        ) ~= nil or next(effects.metatables or {}) ~= nil or next(effects.escapes or {}) ~= nil then
+                effects.writes or {}
+            ) ~= nil or next(
+                effects.shapes or {}
+            ) ~= nil or next(effects.metatables or {}) ~= nil or next(effects.escapes or {}) ~= nil then
             context.reject(lower.site(body), "the checker reports side effects in this native helper")
         end
     end

@@ -181,8 +181,8 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                         and fieldType.tag ~= "func"
                         and fieldType.tag ~= "typeobject"
                         and not (
-                        t.nestedTypes and t.nestedTypes[name]
-                    ) and not (t.privateFields and t.privateFields[name])
+                            t.nestedTypes and t.nestedTypes[name]
+                        ) and not (t.privateFields and t.privateFields[name])
                     if stored then
                         local hasDefault = t.fieldDefaults ~= nil and t.fieldDefaults[name] ~= nil
                         params[

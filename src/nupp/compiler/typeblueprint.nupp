@@ -69,8 +69,8 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
         or envelope.family ~= "Type"
         and envelope.family ~= "Pack"
         or type(
-        envelope.payload
-    ) ~= "table" or type(envelope.fingerprint) ~= "string" then
+            envelope.payload
+        ) ~= "table" or type(envelope.fingerprint) ~= "string" then
         return nil, failure("the comptime worker returned a malformed type blueprint envelope")
     end
     local payload, nodes = envelope.payload, envelope.payload.nodes

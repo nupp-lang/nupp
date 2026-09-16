@@ -109,10 +109,10 @@ local function callsIn(info, queries, checker): {any}, {any}
                     and checker.env
                     and checker.env.resolveCallGuarantees
                     and checker.env.resolveCallGuarantees(
-                    checker.env,
-                    exact.module,
-                    exact.member
-                ) or nil
+                        checker.env,
+                        exact.module,
+                        exact.member
+                    ) or nil
                 if imported then
                     edges[#edges + 1] = {at = node, imported = imported}
                 else

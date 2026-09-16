@@ -188,10 +188,10 @@ local xpcall: function<E, A..., R...>(
     A...
 ): ((true, R...) | (false, E))
     & function<E, A..., R...>(
-    takes f: function(A...): R...,
-    scoped handler: function(any): E,
-    A...
-): ((true, R...) | (false, E))
+        takes f: function(A...): R...,
+        scoped handler: function(any): E,
+        A...
+    ): ((true, R...) | (false, E))
 
 --- Returns the elements of `t` from index `i` through `j` as separate values.
 ---

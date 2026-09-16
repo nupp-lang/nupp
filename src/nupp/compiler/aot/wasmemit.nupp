@@ -140,8 +140,10 @@ function wasmemit.registrar(programs: {scalarIR.Program}, unit: string, tier: st
                         .. element
                         .. " *)"
                         .. (
-                        param.kind == "write_span" and "nupp_wasm_write_pointer_address" or "nupp_wasm_pointer_address"
-                    ) .. "(L, " .. tostring(position) .. ", " .. tostring(count) .. " * sizeof(" .. element .. "));"
+                            param.kind == "write_span"
+                            and "nupp_wasm_write_pointer_address"
+                            or "nupp_wasm_pointer_address"
+                        ) .. "(L, " .. tostring(position) .. ", " .. tostring(count) .. " * sizeof(" .. element .. "));"
                     arguments[#arguments + 1] = "p_" .. param.name
                 else
                     local physical = ctype(param.type, param.sourceType)

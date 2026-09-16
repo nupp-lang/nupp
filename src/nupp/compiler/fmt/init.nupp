@@ -364,6 +364,23 @@ local function markLocalFunctionSeparation(stats)
     end
 end
 
+-- The parameter list of a function type written as one operand of an intersection. The
+-- first `(` under it is that list: generic parameters are written in `<>`, and both the
+-- result and a `borrows` clause follow the parameters rather than preceding them.
+local function firstParenthesis(node): any
+    if cst.isToken(node) then
+        return node.kind == "(" and node or nil
+    end
+    for _, child in ipairs(node) do
+        local found = firstParenthesis(child)
+        if found then
+            return found
+        end
+    end
+
+    return nil
+end
+
 -- Walks the tree assigning block depth, bracket-group membership, spacing hints, and
 -- statement spans.
 local function annotate(root)
@@ -398,6 +415,26 @@ local function annotate(root)
                 if cst.isToken(child) and (child.kind == "|" or child.kind == "&") then
                     child.breakOp = true
                     child.typeOp = true
+                end
+            end
+            -- Overloads read as parallel or not at all. Each operand's parameter list
+            -- learns where the others are, so that one overload spreading down the page
+            -- while the next stays on a single line is a layout the width pass cannot
+            -- produce: either all of them spread or none do.
+            if kind == "tintersection" then
+                local peers = {}
+                for _, child in ipairs(n) do
+                    if not cst.isToken(child) then
+                        local opener = firstParenthesis(child)
+                        if opener then
+                            peers[#peers + 1] = opener
+                        end
+                    end
+                end
+                if #peers > 1 then
+                    for _, opener in ipairs(peers) do
+                        opener.typeOperandPeers = peers
+                    end
                 end
             end
         elseif kind == "tborrows" or kind == "captureClause" then
@@ -479,6 +516,9 @@ local function annotate(root)
                 parent = group,
             }
             openTok.opensGroup = inner
+            -- The closer needs its own group to indent by, and its `groupRef` names the
+            -- group around this one so that the line it sits on returns to that depth.
+            closeTok.closesGroup = inner
             local atElement = true
             for idx = openIdx + 1, closeIdx - 1 do
                 local child = n[idx]
@@ -1041,8 +1081,16 @@ local function computeIndents(lines)
             end
         end
     end
+    -- What the line opening a group was indented by beyond the blocks and broken groups
+    -- holding it: the continuation steps it had taken. Block and bracket nesting the
+    -- contents work out for themselves, but a continuation they cannot see, and a group
+    -- opened on one has to hand it down. The second overload of an intersection opens
+    -- its parameter list on such a line, and without this its parameters land under the
+    -- declaration rather than under the overload they belong to.
+    local carriedBy = {}
     for idx, line in ipairs(lines) do
         local tok = lineFirstToken(line)
+        local carried = 0
         if tok then
             local depth = tok.blockDepth or 0
             local hang = 0
@@ -1053,7 +1101,15 @@ local function computeIndents(lines)
                 end
                 g = g.parent
             end
-            depth = depth + hang
+            -- A closer takes the indent of the line its own group opened on; everything
+            -- else takes that of the innermost broken group holding it.
+            local closing = tok.closesGroup
+            local holder = closing and closing.broken and closing or tok.groupRef
+            while holder and not holder.broken do
+                holder = holder.parent
+            end
+            carried = holder and carriedBy[holder] or 0
+            depth = depth + hang + carried
             -- A chain step continues the line above it wherever the chain sits:
             -- inside a broken group, a step at the group's own indent would read
             -- as an element of it rather than as the rest of one.
@@ -1061,6 +1117,7 @@ local function computeIndents(lines)
                 hang == 0 or tok.chainStep
             ) and not tok.startsStat and not CLOSERS[tok.kind] and not tok.withHeaderClose then
                 depth = depth + 1 -- continuation of the previous line
+                carried = carried + 1
             end
             line.indent = depth
         else
@@ -1078,6 +1135,12 @@ local function computeIndents(lines)
                 end
             end
             line.indent = nextIndent
+        end
+        for _, item in ipairs(line.items) do
+            local opens = item.kind == "token" and item.token.opensGroup or nil
+            if opens and carriedBy[opens] == nil then
+                carriedBy[opens] = carried
+            end
         end
     end
 end
@@ -1202,9 +1265,9 @@ local function splitLine(line)
                     and nextItem.token.kind == "{"
                     and nextItem.token.opensGroup
                     and indexOfToken(
-                    line.items,
-                    nextItem.token.opensGroup.close
-                ) == cIdx - 1
+                        line.items,
+                        nextItem.token.opensGroup.close
+                    ) == cIdx - 1
                 if wrapsTable then
                     -- the group is a table's parentheses, which break as the table
                 elseif item.token.kind == "<" then
@@ -1359,9 +1422,9 @@ local function spreadListGroups(lines, width)
                         and tail.first.lineIdx == g.open.lineIdx
                         and at ~= nil
                         and prefixWidth(
-                        opening,
-                        at
-                    ) <= width
+                            opening,
+                            at
+                        ) <= width
                     if not hugs then
                         for _, element in ipairs(g.elements) do
                             mark(element.first)
@@ -1381,6 +1444,26 @@ local function spreadListGroups(lines, width)
                             mark(element.first)
                         end
                         mark(body.close)
+                    end
+                end
+            end
+        end
+    end
+    -- One overload of an intersection having spread its parameters, the rest follow.
+    -- Read after the loop above rather than inside it, so an operand the width pass
+    -- has just spread brings its peers along in the same pass.
+    for _, line in ipairs(lines) do
+        for _, item in ipairs(line.items) do
+            local tok = item.kind == "token" and item.token or nil
+            local group = tok and tok.typeOperandPeers and tok.opensGroup or nil
+            if group and group.open.lineIdx ~= group.close.lineIdx then
+                for _, peer in ipairs(tok.typeOperandPeers) do
+                    local peerGroup = peer.opensGroup
+                    if peerGroup then
+                        for _, element in ipairs(peerGroup.elements) do
+                            mark(element.first)
+                        end
+                        mark(peerGroup.close)
                     end
                 end
             end

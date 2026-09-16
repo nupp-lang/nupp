@@ -2156,10 +2156,10 @@ local function block(
                 or statement.cursor == nil
                 and statement.index == scope.index
                 and (
-                scope.mapIndex == true and (
-                    scope.indexSpans as {[string]: boolean}
-                )[statement.span] == true or statement.span == scope.boundSpan
-            )
+                    scope.mapIndex == true and (
+                        scope.indexSpans as {[string]: boolean}
+                    )[statement.span] == true or statement.span == scope.boundSpan
+                )
             holds(scope.writes[statement.span] == true and bounded, "invalid store root")
             scalarWalk(statement.value, values, scope)
             holds(statement.value.type == (scope.spans[statement.span] as scalarIR.Param).type, "store type mismatch")
