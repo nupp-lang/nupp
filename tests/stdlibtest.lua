@@ -131,13 +131,19 @@ function M.portableWideIntegersUseFixedOperations()
 local a: int64 = 9223372036854775807LL
 local b: int64 = 2LL
 local c = (a + b) * b
-return c < a, c >> 1LL, ~c
+local wide: uint64 = 68719476735
+local bit: uint64 = 4294967296
+return c < a, c >> 1LL, ~c, wide & bit
 ]]
     local nativeTree = parser.parse(source, "native-int64.nupp")
     assertEq(#check.check(nativeTree, "native-int64.nupp", sharedEnv), 0, "native int64 checks")
     local nativeCode = gen.generate(nativeTree, "native-int64.nupp")
     assert(nativeCode:find("9223372036854775807LL", 1, true), "native output keeps cdata literals")
+    assert(nativeCode:find("68719476735ULL", 1, true), "native output materializes annotated uint64 literals")
     assert(not nativeCode:find("__nuppInt64", 1, true), "native output has no adapter")
+    local nativeChunk = assert(loadstring(nativeCode))
+    local _, _, _, masked = nativeChunk()
+    assertEq(tostring(masked), "4294967296ULL", "native annotated uint64 bitwise result")
 
     local portableTree = parser.parse(source, "portable-int64.nupp")
     assertEq(
@@ -150,7 +156,7 @@ return c < a, c >> 1LL, ~c
     )
     local code, diags = gen.generate(portableTree, "portable-int64.nupp")
     assertEq(#diags, 0, "portable int64 lowers")
-    for _, operation in ipairs({"int64", "add", "mul", "compare", "rshift", "bnot"}) do
+    for _, operation in ipairs({"int64", "uint64", "add", "mul", "compare", "rshift", "bnot", "band"}) do
         assert(code:find("__nuppInt64." .. operation, 1, true), "wide operation lowers through " .. operation)
     end
     assert(not code:find("LL", 1, true), "portable output has no LuaJIT cdata suffix")

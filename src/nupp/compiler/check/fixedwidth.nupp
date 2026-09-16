@@ -216,6 +216,10 @@ function fixedCheck.install(c: state.Checker): Ops
         end
 
         local ok, why = isA(source, target)
+        local rawTarget = T.unwrapOwnership(target)
+        if ok and node and node.kind == "number" and (rawTarget.tag == "int64" or rawTarget.tag == "uint64") then
+            node.wideIntegerLiteralTag = rawTarget.tag
+        end
         if ok and fixed.requiresTrust(target) and not sourceTrusted(node) then
             c.diag(
                 "NUPP2011",

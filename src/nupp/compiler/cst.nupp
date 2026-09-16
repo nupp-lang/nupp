@@ -69,6 +69,7 @@ interface cst.Hints
     fixedWidthCallableUntrusted: boolean?
     fixedWidthUntrustedResult: boolean?
     fixedWidthTargetTypeNode: any
+    wideIntegerLiteralTag: string?
     fixedWidthPhysicalStore: boolean?
     fixedWidthPhysicalParameters: any
 
