@@ -3957,4 +3957,36 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Every module the site publishes says something. A page with neither a blurb nor a
+-- documented member is a name in the index that answers nothing when followed, and it
+-- reaches the site by default: the extractor publishes whatever is not `@!internal`.
+-- Both ways out are one line -- `@!internal` when the module is wiring nobody outside
+-- the tree requires, a sentence above `module` when it is public -- so this asks for
+-- no judgement about which.
+--
+-- The namespace index pages are exempt. `nupp.io` is a name the modules beneath it
+-- imply rather than a file anyone wrote, and its page is generated from what it holds.
+function M.everyPublishedModuleSaysWhatItIs()
+    local root = HERE .. "/.."
+    local config = assert(doc.loadConfig(root))
+    local settings = assert(doc.manifestSettings(config, "docs"))
+    local output = os.tmpname()
+    assert(doc.build(root, config, settings, {format = "json", output = output}) == 0)
+    local model = require("testjson").decode(readFile(output))
+    os.remove(output)
+
+    local empty = {}
+    for _, module in ipairs(model.modules) do
+        if not module.namespace and module.text == "" and #module.items == 0 then
+            empty[#empty + 1] = module.name .. " (" .. tostring(module.path) .. ")"
+        end
+    end
+    assert(#model.modules > 0, "documented no modules at all")
+    assert(
+        #empty == 0,
+        "modules published with nothing on their page:\n  " .. table.concat(empty, "\n  ") ..
+            "\nMark each `@!internal` or give it a blurb above `module`."
+    )
+end
+
 return M
