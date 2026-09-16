@@ -1,17 +1,13 @@
+@!internal
 module nupp.runtime.bitops
 
 --[[
-Bitwise operations on 32-bit words, wherever the program is running.
+What a bitwise operator lowers to on a target without one.
 
-```nupp
-const bit = require("nupp.runtime.bitops")
-
-print(bit.band(0xF0, 0x3C))    -- 48
-print(bit.tohex(bit.bxor(1, 3)))
-```
-
-Require this rather than LuaJIT's `bit`: on a host with the native provider it
-*is* `bit`, and on stock Lua it is the scalar fallback beneath
+`a & b` compiles to `a & b` on LuaJIT and to a call on this module under
+`--dialect lua51`, so a program reaches it by writing the operator rather than
+by naming it. On a host with the native provider it *is* LuaJIT's `bit`; on
+stock Lua it is the scalar fallback beneath
 [](nupp.runtime.services.contracts.BitopsProvider), which answers to the same
 names and signatures.
 

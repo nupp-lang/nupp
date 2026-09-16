@@ -1,8 +1,6 @@
 module portable.int64
 
 -- Four-limb integer implementation for the stock Lua conformance matrix.
-local bits = require("nupp.runtime.bitops") as any
-
 local wide = {}
 local BASE = 65536
 
@@ -269,12 +267,24 @@ function wide.arshift(input: any, count: any): any
     return out
 end
 
+-- Written as operators rather than through the module they lower to: on a
+-- target without bitwise operators the compiler emits that call itself, and
+-- the module it emits is internal to the standard library.
 local function limbBits(left: any, right: any?, operation: string): any
     local out = {}
     for _, limb in ipairs({"a", "b", "c", "d"}) do
-        out[
-            limb
-        ] = operation == "not" and bits.bnot(left[limb]) % BASE or bits[operation](left[limb], right[limb]) % BASE
+        local value = left[limb] as integer
+        local other = right and right[limb] as integer or 0
+        if operation == "not" then
+            value = ~value
+        elseif operation == "band" then
+            value = value & other
+        elseif operation == "bor" then
+            value = value | other
+        else
+            value = value ~ other
+        end
+        out[limb] = value % BASE
     end
     out.unsigned = left.unsigned or right and right.unsigned or false
 
