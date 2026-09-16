@@ -133,7 +133,12 @@ local b: int64 = 2LL
 local c = (a + b) * b
 local wide: uint64 = 68719476735
 local bit: uint64 = 4294967296
-return c < a, c >> 1LL, ~c, wide & bit
+local decimal: uint64 = 1.0
+local exponent: uint64 = 1e3
+local hex: uint64 = 0x1p4
+local grouped: uint64 = (4294967296)
+local negative: int64 = -4294967296
+return c < a, c >> 1LL, ~c, wide & bit, decimal + exponent + hex, grouped, negative
 ]]
     local nativeTree = parser.parse(source, "native-int64.nupp")
     assertEq(#check.check(nativeTree, "native-int64.nupp", sharedEnv), 0, "native int64 checks")
@@ -142,8 +147,11 @@ return c < a, c >> 1LL, ~c, wide & bit
     assert(nativeCode:find("68719476735ULL", 1, true), "native output materializes annotated uint64 literals")
     assert(not nativeCode:find("__nuppInt64", 1, true), "native output has no adapter")
     local nativeChunk = assert(loadstring(nativeCode))
-    local _, _, _, masked = nativeChunk()
+    local _, _, _, masked, forms, grouped, negative = nativeChunk()
     assertEq(tostring(masked), "4294967296ULL", "native annotated uint64 bitwise result")
+    assertEq(tostring(forms), "1017ULL", "integral literal notation materializes at its width")
+    assertEq(tostring(grouped), "4294967296ULL", "parentheses preserve width")
+    assertEq(tostring(negative), "-4294967296LL", "negative literals preserve width")
 
     local portableTree = parser.parse(source, "portable-int64.nupp")
     assertEq(

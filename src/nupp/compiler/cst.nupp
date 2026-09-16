@@ -70,6 +70,7 @@ interface cst.Hints
     fixedWidthUntrustedResult: boolean?
     fixedWidthTargetTypeNode: any
     wideIntegerLiteralTag: string?
+    wideIntegerLiteralText: string?
     fixedWidthPhysicalStore: boolean?
     fixedWidthPhysicalParameters: any
 

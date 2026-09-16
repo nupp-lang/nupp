@@ -2504,6 +2504,10 @@ function M.scatterProvesAConstantNonWrappingProgression()
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json indexed.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_store.scatter", 1, true), decoded.ir)
+    local descending = source:gsub("uint32", "int32"):gsub("positions:iota%(1, 2%)", "positions:iota(8, -1)")
+    local reversed = project{["indexed.nupp"] = descending}
+    local reverseOut, reverseStatus = run(reversed, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
+    test.equal(reverseStatus, 0, reverseOut)
     for _, progression in ipairs({"1, 0", "4294967295, 1", "1, 4294967295"}) do
         local rejected = source:gsub("positions:iota%(1, 2%)", "positions:iota(" .. progression .. ")")
         local failed = project{["indexed.nupp"] = rejected}

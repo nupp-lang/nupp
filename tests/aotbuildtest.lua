@@ -535,6 +535,21 @@ local function answer(): uint64
 end
 
 export const answer = answer
+
+@aot(vectorize = false)
+local function literalCounts(): (uint32, uint32, uint32, uint64)
+    return nupp.math.u64.popcount(68719476735), nupp.math.u64.trailingZeros(4294967296), nupp.math.u64.leadingZeros(0), nupp.math.u64.prefixXor(5)
+end
+export const literalCounts = literalCounts
+
+@aot(vectorize = false)
+local function literalForms(): uint64
+    local decimal: uint64 = 1.0
+    local exponent: uint64 = (1e3)
+    local hex: uint64 = 0x1p4
+    return decimal + exponent + hex
+end
+export const literalForms = literalForms
 ]]
     )
     source:close()
@@ -2047,7 +2062,7 @@ function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
             io.popen(
                 ("cd %q && luajit -e %q 2>&1"):format(
                     dir,
-                    searchPathPrelude() .. 'print(require("wide").answer())'
+                    searchPathPrelude() .. 'local w=require("wide"); print(w.answer()); print(w.literalCounts()); print(w.literalForms())'
                 )
             )
         )
@@ -2064,7 +2079,7 @@ function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
         ordinary,
         ("uint64 bitwise differs between aot=require at %s and aot=off at %s"):format(compiledDir, ordinaryDir)
     )
-    test.equal(compiled, "4294967296ULL", "uint64 bitwise keeps the high bit on both routes")
+    test.equal(compiled, "4294967296ULL\n36\t32\t64\t3ULL\n1017ULL", "uint64 literals and operations agree on both routes")
 end
 
 function M.aWrapIsModularOnBothRoutes()

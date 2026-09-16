@@ -1308,10 +1308,10 @@ function M.standardLibraryBackingRecordsStayInternal()
             end
         end
     end
-    -- Math, Vec2 and the three fixed-width namespaces retain private top-level backing
+    -- Math, Vec2 and the four fixed-width namespaces retain private top-level backing
     -- records. Nothing nests one any more: Files.Library was the last, and it left with
     -- io.
-    assert(topLevelLibraries == 5, "private docs lost top-level backing records")
+    assert(topLevelLibraries == 6, "private docs lost top-level backing records")
     assert(nestedLibraries == 0, "private docs grew a nested backing record")
 end
 

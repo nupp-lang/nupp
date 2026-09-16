@@ -6,6 +6,18 @@ local indices = {}
 
 local function exactIndex(value: scalarIR.Expr): number?
     if value.op == "numeric_cast" then
+        local converted = value as scalarIR.Convert
+        if converted.value.op == "neg" then
+            local negative = fold.apply(converted.value, new fold.Context(helpers = {}))
+            if negative ~= nil then
+                value = new scalarIR.Convert(
+                    op = "numeric_cast",
+                    value = negative,
+                    type = value.type,
+                    source = value.source
+                )
+            end
+        end
         local folded = fold.apply(value, new fold.Context(helpers = {}))
         return folded ~= nil and fold.exactInteger(folded) or nil
     end

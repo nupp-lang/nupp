@@ -4746,25 +4746,26 @@ function gen.generate(
         -- same as `= 5ULL`, and until the annotation reached here only the
         -- second was carried at its width: the first stayed an ordinary Lua
         -- number, which every later bitwise operator then read as 32 bits.
-        if kind == "number" and x.token then
-            -- The width may be on the literal's own type or on the compatible
-            -- destination the checker recorded for it; either says the same thing
-            -- about the value.
-            local wideTag = pluck.int64.isWide(x.inferredType) and x.inferredType.tag or x.wideIntegerLiteralTag
-            local spelling = x.token.text:gsub("_", "")
-            local lower = spelling:lower()
-            if wideTag ~= nil and lower:sub(-3) ~= "ull" and lower:sub(-2) ~= "ll" then
-                if pluck.int64.enabled then
-                    pluck.needRuntimeEffect(pluck.int64.effect)
-                    e(
-                        ("%s.%s(%q)"):format(pluck.int64.name, wideTag == "uint64" and "uint64" or "int64", spelling),
-                        x.token.line
-                    )
-                else
-                    e(spelling .. (wideTag == "uint64" and "ULL" or "LL"), x.token.line)
-                end
-                return
+        if x.wideIntegerLiteralText ~= nil then
+            -- The checker retains the exact accepted value, including grouped
+            -- and negative literals. Decimal text also makes integral exponent
+            -- and hexadecimal-float forms valid integer constructor inputs.
+            if pluck.int64.enabled then
+                pluck.needRuntimeEffect(pluck.int64.effect)
+                e(
+                    (
+                        "%s.%s(%q)"
+                    ):format(
+                        pluck.int64.name,
+                        x.wideIntegerLiteralTag == "uint64" and "uint64" or "int64",
+                        x.wideIntegerLiteralText
+                    ),
+                    sourceLine(x)
+                )
+            else
+                e(x.wideIntegerLiteralText .. (x.wideIntegerLiteralTag == "uint64" and "ULL" or "LL"), sourceLine(x))
             end
+            return
         end
         if pluck.int64.enabled and kind == "number" and x.token then
             local spelling = x.token.text:gsub("_", "")

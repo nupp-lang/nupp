@@ -1448,6 +1448,11 @@ const FIXED_UNARY: {
     ["u32_popcount"] = true,
     ["u32_ctz"] = true,
     ["u32_clz"] = true,
+    ["u64_not"] = true,
+    ["u64_popcount"] = true,
+    ["u64_ctz"] = true,
+    ["u64_clz"] = true,
+    ["u64_prefix_xor"] = true,
 }
 
 --- One call to a fixed-width intrinsic.
@@ -1484,6 +1489,20 @@ local function fixedCall(
                 ] = new scalarIR.IntConstant(
                     op = "constant_i32",
                     value = literal.value,
+                    type = fixed.operand,
+                    source = literal.source
+                )
+            elseif fixed.operand == "i64" or fixed.operand == "u64" then
+                if number == nil or number % 1 ~= 0 or number > 9007199254740992 or number < (
+                    fixed.operand == "u64" and 0 or -9007199254740992
+                ) then
+                    context.reject(source, path .. " needs an exact " .. fixed.operand .. " literal")
+                end
+                args[
+                    position
+                ] = new scalarIR.Int64Constant(
+                    op = "constant_i64",
+                    value = ("%.0f"):format(number as number),
                     type = fixed.operand,
                     source = literal.source
                 )

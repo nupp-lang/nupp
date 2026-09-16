@@ -217,8 +217,16 @@ function fixedCheck.install(c: state.Checker): Ops
 
         local ok, why = isA(source, target)
         local rawTarget = T.unwrapOwnership(target)
-        if ok and node and node.kind == "number" and (rawTarget.tag == "int64" or rawTarget.tag == "uint64") then
-            node.wideIntegerLiteralTag = rawTarget.tag
+        if ok and node and (rawTarget.tag == "int64" or rawTarget.tag == "uint64") then
+            local literal = T.unwrapOwnership(source)
+            local inner = node
+            while inner and (inner.kind == "paren" or inner.kind == "unop" and inner.op and inner.op.kind == "-") do
+                inner = inner.kind == "paren" and inner.expr or inner.operand
+            end
+            if inner and inner.kind == "number" and literal.tag == "literal" and type(literal.constant) == "number" then
+                node.wideIntegerLiteralTag = rawTarget.tag
+                node.wideIntegerLiteralText = ("%.0f"):format(literal.constant)
+            end
         end
         if ok and fixed.requiresTrust(target) and not sourceTrusted(node) then
             c.diag(
