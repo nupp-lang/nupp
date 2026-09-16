@@ -941,27 +941,26 @@ local function collectItems(tokens)
 
     for _, tok in ipairs(tokens) do
         for triviaIndex = 1, tok.triviaCount do
-            local tr = lexer.triviaRecord(tok, triviaIndex)
-            if tr.kind == "whitespace" then
-                local _, n = tr.text:gsub("\n", "")
+            local kind, text = lexer.triviaFields(tok, triviaIndex)
+            if kind == "whitespace" then
+                local _, n = text:gsub("\n", "")
                 pending = pending + n
-            elseif tr.kind == "comment" then
+            elseif kind == "comment" then
                 local prev = items[#items]
-                if prev and prev.kind == "doc" and pending == 1 and isDocComment(tr.text) then
-                    prev.rawLines[#prev.rawLines + 1] = tr.text
+                if prev and prev.kind == "doc" and pending == 1 and isDocComment(text) then
+                    prev.rawLines[#prev.rawLines + 1] = text
                     pending = 0
-                elseif prev and prev.kind == "plain" and pending == 1 and isPlainComment(tr.text) then
-                    prev.rawLines[#prev.rawLines + 1] = tr.text
+                elseif prev and prev.kind == "plain" and pending == 1 and isPlainComment(text) then
+                    prev.rawLines[#prev.rawLines + 1] = text
                     pending = 0
-                elseif isDocComment(tr.text) and (pending > 0 or #items == 0) then
-                    push({kind = "doc", rawLines = {tr.text}})
-                elseif isPlainComment(tr.text) and (pending > 0 or #items == 0) then
-                    push({kind = "plain", rawLines = {tr.text}})
+                elseif isDocComment(text) and (pending > 0 or #items == 0) then
+                    push({kind = "doc", rawLines = {text}})
+                elseif isPlainComment(text) and (pending > 0 or #items == 0) then
+                    push({kind = "plain", rawLines = {text}})
                 else
-                    push({kind = "comment", text = tr.text})
+                    push({kind = "comment", text = text})
                 end
             else -- hashbang, BOM (hashbang trivia carries its own newline)
-                local text = tr.text
                 local _, n = text:gsub("\n", "")
                 push({kind = "raw", text = (text:gsub("\n+$", ""))})
                 pending = pending + n

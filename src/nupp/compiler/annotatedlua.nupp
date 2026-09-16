@@ -69,12 +69,12 @@ function annotated.tags(source: string, parsedTokens: {lexer.Token}?): {annotate
     end
     for _, token in ipairs(tokens) do
         for index = 1, token.triviaCount do
-            if lexer.triviaKind(token, index) == "comment" then
-                local record = lexer.triviaRecord(token, index)
-                local body = record.text:match("^%-%-%-%s*@(.+)$") or record.text:match("^%-%-%s+@(.+)$")
-                local member = not body and record.text:match("^%-%-%-%s*|%s*(.+)$") or nil
+            local kind, text, offset, line, col = lexer.triviaFields(token, index)
+            if kind == "comment" then
+                local body = text:match("^%-%-%-%s*@(.+)$") or text:match("^%-%-%s+@(.+)$")
+                local member = not body and text:match("^%-%-%-%s*|%s*(.+)$") or nil
                 if body then
-                    appendTag(out, body, record.line, record.col, record.offset, record.text)
+                    appendTag(out, body, line, col, offset, text)
                 elseif member then
                     -- A `---|` line lists one member of the multi-line alias above it.
                     out[
@@ -82,16 +82,16 @@ function annotated.tags(source: string, parsedTokens: {lexer.Token}?): {annotate
                     ] = new annotated.Tag(
                         name = "|",
                         value = trim(member),
-                        line = record.line,
-                        col = record.col,
-                        offset = record.offset,
-                        raw = record.text
+                        line = line,
+                        col = col,
+                        offset = offset,
+                        raw = text
                     )
                 else
-                    local opener = record.text:match("^(%-%-%[=*%[)")
+                    local opener = text:match("^(%-%-%[=*%[)")
                     if opener then
-                        local contents = record.text:sub(#opener + 1):gsub("%]=*%]$", "")
-                        local cursor, line = 0, record.line
+                        local contents = text:sub(#opener + 1):gsub("%]=*%]$", "")
+                        local cursor, currentLine = 0, line
                         for written in (contents .. "\n"):gmatch("(.-)\n") do
                             local prefix, blockBody = written:match("^(%s*%*?%s*)@(.+)$")
                             if not blockBody then
@@ -99,17 +99,17 @@ function annotated.tags(source: string, parsedTokens: {lexer.Token}?): {annotate
                             end
                             if blockBody then
                                 local matchedPrefix = prefix or ""
-                                local at = math.floor(record.offset + #opener + cursor + #matchedPrefix)
-                                local col = line == record.line
-                                    and record.col
+                                local at = math.floor(offset + #opener + cursor + #matchedPrefix)
+                                local currentCol = currentLine == line
+                                    and col
                                     + #opener
                                     + #matchedPrefix
                                     or #matchedPrefix
                                     + 1
-                                appendTag(out, blockBody, line, col, at, written)
+                                appendTag(out, blockBody, currentLine, currentCol, at, written)
                             end
                             cursor = cursor + #written + 1
-                            line = line + 1
+                            currentLine = currentLine + 1
                         end
                     end
                 end

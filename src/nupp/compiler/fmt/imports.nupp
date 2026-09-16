@@ -463,10 +463,10 @@ function imports.new(environment: any?, enabled: boolean?): any
             for _, token in ipairs(parsed.tokens) do
                 if token.offset >= insertion then
                     for index = 1, token.triviaCount do
-                        local trivia = lexer.triviaRecord(token, index)
-                        if trivia.offset >= insertion and trivia.kind == "comment" then
-                            if trivia.text:match("^%-%-%[=*%[") then
-                                insertion = trivia.offset + #trivia.text
+                        local kind, text, offset = lexer.triviaFields(token, index)
+                        if offset >= insertion and kind == "comment" then
+                            if text:match("^%-%-%[=*%[") then
+                                insertion = offset + #text
                                 if source:sub(insertion, insertion) == "\n" then
                                     insertion = insertion + 1
                                 end
@@ -480,12 +480,12 @@ function imports.new(environment: any?, enabled: boolean?): any
         else
             local first = parsed.tokens[1]
             for index = 1, first.triviaCount do
-                local trivia = lexer.triviaRecord(first, index)
-                if trivia.kind == "comment" and trivia.text:sub(1, 3) == "---" then
+                local kind, text, offset = lexer.triviaFields(first, index)
+                if kind == "comment" and text:sub(1, 3) == "---" then
                     break
                 end
-                if trivia.kind == "hashbang" or trivia.kind == "bom" or trivia.kind == "comment" then
-                    insertion = trivia.offset + #trivia.text
+                if kind == "hashbang" or kind == "bom" or kind == "comment" then
+                    insertion = offset + #text
                     if source:sub(insertion, insertion) == "\n" then
                         insertion = insertion + 1
                     end

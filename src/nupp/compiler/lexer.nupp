@@ -799,18 +799,20 @@ function lexer.triviaAt(tok: lexer.Token, index: integer): integer, integer, int
     return offset, line, col
 end
 
+--- One trivia as scalar fields, without constructing a record.
+function lexer.triviaFields(tok: lexer.Token, index: integer): string, string, integer, integer, integer
+    local arena = tok.trivia
+    local kind, offset, length, line, col = arena:record(triviaIndex(tok, index))
+
+    return TRIVIA_KIND_NAMES[kind] as string, sub(arena.source, offset, offset + length - 1), offset, line, col
+end
+
 --- One trivia as an ordinary record, for a caller that has to hand it on as plain data
 --- rather than read it where it lies.
 function lexer.triviaRecord(tok: lexer.Token, index: integer): lexer.Trivia
-    local offset, line, col = lexer.triviaAt(tok, index)
+    local kind, text, offset, line, col = lexer.triviaFields(tok, index)
 
-    return {
-        kind = lexer.triviaKind(tok, index),
-        text = lexer.triviaText(tok, index),
-        offset = offset,
-        line = line,
-        col = col
-    }
+    return {kind = kind, text = text, offset = offset, line = line, col = col}
 end
 
 ----------------------------------------------------------------------------

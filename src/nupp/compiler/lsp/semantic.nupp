@@ -396,17 +396,14 @@ function semantic.install(s: semantic.Session): semantic.Api
         local embedded = embeddedStringTokens(doc.result)
         for _, tok in ipairs(doc.result.tokens or {}) do
             for triviaIndex = 1, tok.triviaCount do
-                local trivia = lexer.triviaRecord(tok, triviaIndex)
-                local docComment = trivia.kind == "comment" and trivia.text:sub(
-                    1,
-                    3
-                ) == "---" and trivia.text:sub(4, 4) ~= "-"
+                local kind, text, offset = lexer.triviaFields(tok, triviaIndex)
+                local docComment = kind == "comment" and text:sub(1, 3) == "---" and text:sub(4, 4) ~= "-"
                 -- Doc comments contain finer TextMate scopes for tags and fenced NUPP.
                 -- A semantic token covering the whole line would override those scopes
                 -- in VS Code, so leave doc comments to the grammar while retaining
                 -- semantic tokens for ordinary comments and hashbangs.
-                if not docComment and (trivia.kind == "comment" or trivia.kind == "hashbang") then
-                    addSemanticSpan(entries, doc.text, trivia.offset, trivia.text, "comment")
+                if not docComment and (kind == "comment" or kind == "hashbang") then
+                    addSemanticSpan(entries, doc.text, offset, text, "comment")
                 end
             end
             local kind = nil

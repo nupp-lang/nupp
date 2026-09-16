@@ -1,0 +1,62 @@
+-- Transient trivia records compared with record-free scalar fields.
+-- Run: nupp bench --file bench/trivia-record.bench.nupp
+
+local bench = require("nupp.bench")
+const {type Invocation} = require("nupp.bench")
+-- The benchmark is outside the compiler package but intentionally measures its
+-- private lexer surface, so keep this one import dynamic.
+local loadModule: function(string): any = require
+local lexer = loadModule("nupp.compiler.lexer")
+
+local parts: {string} = {}
+for index = 1, 256 do
+    parts[#parts + 1] = ("--- item %d\nlocal value_%d = %d -- trailing %d\n\n"):format(index, index, index, index)
+end
+local source = table.concat(parts)
+local tokens = select(1, lexer.lex(source, "trivia-benchmark.nupp"))
+local triviaCount = 0
+for _, token in ipairs(tokens) do
+    triviaCount = triviaCount + token.triviaCount
+end
+
+local function recordTrivia(_: any, _: Invocation): number
+    local checksum = 0
+    for _, token in ipairs(tokens) do
+        for index = 1, token.triviaCount do
+            local trivia = lexer.triviaRecord(token, index)
+            checksum = checksum + #trivia.kind + #trivia.text + trivia.offset + trivia.line + trivia.col
+        end
+    end
+
+    return checksum
+end
+
+local function scalarTrivia(_: any, _: Invocation): number
+    local checksum = 0
+    for _, token in ipairs(tokens) do
+        for index = 1, token.triviaCount do
+            local kind, text, offset, line, col = lexer.triviaFields(token, index)
+            checksum = checksum + #kind + #text + offset + line + col
+        end
+    end
+
+    return checksum
+end
+
+assert(recordTrivia(nil, nil as any) == scalarTrivia(nil, nil as any))
+
+bench.suite(
+    {
+        name = "trivia-record",
+        baselineVariant = "record",
+        variants = {{name = "record", run = recordTrivia}, {name = "scalar", run = scalarTrivia},},
+        cases = {{name = "mixed-trivia", operations = math.floor(triviaCount)},},
+        warmupIterations = 20,
+        sampleIterations = 2000,
+        minSamples = 15,
+        minDurationSec = 1,
+        maxSamples = 100,
+        maxDurationSec = 10,
+    } as bench.SuiteOptions
+)
+bench.report()

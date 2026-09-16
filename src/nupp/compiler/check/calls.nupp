@@ -587,18 +587,18 @@ function calls.install(c: state.Checker): calls.Ops
         -- so the gap between them goes with the brace. A plain one-line gap only: a
         -- comment written there is the author's, and a line break is a layout this
         -- rewrite has no opinion about.
-        local gap = nil
+        local gapOffset: integer? = nil
         for index = 1, open.triviaCount do
-            local trivia = lexer.triviaRecord(open, index)
-            if trivia.kind ~= "whitespace" or trivia.text:find("\n", 1, true) then
-                gap = nil
+            local kind, text, offset = lexer.triviaFields(open, index)
+            if kind ~= "whitespace" or text:find("\n", 1, true) then
+                gapOffset = nil
                 break
             end
-            gap = gap or trivia
+            gapOffset = gapOffset or offset
         end
-        local opening = gap and {
-            offset = gap.offset,
-            length = open.offset + #open.text - gap.offset,
+        local opening = gapOffset and {
+            offset = gapOffset,
+            length = open.offset + #open.text - gapOffset,
             newText = "("
         } or c.edits.replaceToken(open, "(")
         local edits = {opening, c.edits.replaceToken(close, ")")}
