@@ -8,8 +8,20 @@ local envMod = require("nupp.compiler.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
--- Load LPeg's C module directly from the test rock tree so differential tests keep
--- an independent handle even when generated bootstrap code changes package.loaded.
+-- What `nupp.compiler.runtime.peg` raises LPeg's backtrack limit to when it loads.
+-- The limit is one process-wide value inside the C module rather than per pattern,
+-- so anything that re-enters `luaopen_lpeg` has to put it back.
+local MAXSTACK = 10000
+
+-- Load LPeg's C module directly from the test rock tree so differential tests reach
+-- it without going through package.loaded, which generated bootstrap code rewrites.
+--
+-- The handle is not a second instance: the loader caches the library, so this is the
+-- same table `require` answers. What re-running `luaopen_lpeg` does do is reset the
+-- backtrack limit to LPeg's 400 default, which is a limit the runtime raised once at
+-- load and no later matcher raises again. Left alone, the next test in this process
+-- to match deeper than 400 fails with a stack overflow, and which test that is
+-- depends on how the suite happens to shard.
 local function officialLpeg()
     for template in package.cpath:gmatch("[^;]+") do
         local path = template:gsub("%?", "lpeg")
@@ -18,7 +30,10 @@ local function officialLpeg()
             file:close()
             local opener, why = package.loadlib(path, "luaopen_lpeg")
             assert(opener, why)
-            return opener()
+            local lpeg = opener()
+            lpeg.setmaxstack(MAXSTACK)
+
+            return lpeg
         end
     end
     error("the LPeg oracle is not installed in package.cpath")
@@ -873,6 +888,25 @@ return Nested(subject)
 ]]
     )
     assertEq(matched, 4002, "deep recursive match")
+end
+
+-- The same grammar, with the LPeg oracle opened first. Re-entering `luaopen_lpeg`
+-- resets the backtrack limit, and the runtime raises it once at load and never
+-- again, so without officialLpeg putting it back the test above passes or fails by
+-- which shard it lands in rather than by anything it measures.
+function M.keepsTheBacktrackLimitWhenTheOracleIsOpened()
+    officialLpeg()
+    local matched = run(
+        [[
+const Nested: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile("start <- value !. value <- 'x' / '(' value ')'", {backend = "lpeg"})
+end
+local depth = 2000
+local subject = string.rep("(", depth) .. "x" .. string.rep(")", depth)
+return Nested(subject)
+]]
+    )
+    assertEq(matched, 4002, "deep recursive match after the oracle was opened")
 end
 
 function M.supportsPositionAnyAndOptionalPatterns()
