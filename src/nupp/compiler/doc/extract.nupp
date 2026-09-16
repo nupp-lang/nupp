@@ -431,6 +431,20 @@ local function documentedResultType(value)
     return syntax(value)
 end
 
+-- A return pack the parser could not split into a list leaves `rets` empty while the
+-- annotation is still there: `...any` and a union of packs each describe the results
+-- as a whole rather than one per position. Documenting the pack itself is the only
+-- honest reading, and the alternative is a signature that says the function returns
+-- nothing.
+local function declaredResults(node): {any}
+    local rets = node and node.rets or {}
+    if #rets == 0 and node and node.returnPack then
+        return {node.returnPack}
+    end
+
+    return rets
+end
+
 local function functionSignature(stat, name)
     local body = stat.body
     local params = {}
@@ -447,7 +461,7 @@ local function functionSignature(stat, name)
         params[#params + 1] = piece
     end
     local returns = {}
-    for _, value in ipairs(body and body.rets or {}) do
+    for _, value in ipairs(declaredResults(body)) do
         returns[#returns + 1] = documentedResultType(value)
     end
     local prefix
@@ -517,7 +531,7 @@ local function functionDetails(stat, info)
             text = info.params[name] or "",
         }
     end
-    local returns = stat.body and stat.body.rets or (stat.ret and {stat.ret} or {})
+    local returns = stat.body and declaredResults(stat.body) or (stat.ret and {stat.ret} or {})
     for index, value in ipairs(returns or {}) do
         details.returns[#details.returns + 1] = {type = documentedResultType(value), text = info.returns[index] or "",}
     end
@@ -591,7 +605,7 @@ local function typeFunctionDetails(node, info)
             text = info.params[name] or "",
         }
     end
-    for index, value in ipairs(node.rets or {}) do
+    for index, value in ipairs(declaredResults(node)) do
         details.returns[#details.returns + 1] = {type = syntax(value), text = info.returns[index] or "",}
     end
 

@@ -7,9 +7,14 @@ This is upstream's Lua source, carried rather than reimplemented: it compiles
 `re` pattern text into LPeg patterns at runtime, and its `compile`, `match`,
 `find`, `gsub` and `updatelocale` behave exactly as
 [LPeg's own documentation](http://www.inf.puc-rio.br/~roberto/lpeg/re.html)
-describes. Nupp's static pattern support is [](nupp.peg), which parses the same
-syntax into a typed graph at compile time; reach for this module when the
-pattern is only known at runtime and no typed captures are wanted.
+describes. It is here for Lua that already requires it, and because
+`nupp.peg.compile` reaches it for a grammar only known at run time.
+
+Write [](nupp.peg) instead. It accepts the same syntax at either phase: a
+`comptime` grammar is parsed and validated by the compiler and carries typed
+captures, and a genuinely dynamic one compiles through `nupp.peg.compile` and
+answers `Peg<...any>`. Both spellings select the same native LPeg feature, so
+requiring this module directly buys no portability -- only untyped results.
 ]]
 
 local tonumber, type, error = tonumber, type, error
@@ -22,8 +27,16 @@ local Predef = {nl = m.P"\n"}
 local mem;
 local fmem;
 local gmem
+local re = {}
 
-local function updatelocale()
+--- Rereads the locale, so the predefined classes follow it.
+---
+--- `%a`, `%d`, `%s` and the rest of the predefined classes are read out of the
+--- locale when this module loads. Call this after changing the locale to rebuild
+--- them. It also empties the pattern caches `match`, `find` and `gsub` keep, since
+--- a cached pattern still holds the classes it was compiled against.
+--- @export
+function re.updatelocale()
     mm.locale(Predef)
     Predef.a = Predef.alpha;
     Predef.c = Predef.cntrl;
@@ -54,7 +67,7 @@ local function updatelocale()
     setmetatable(gmem, weak)
 end
 
-updatelocale()
+re.updatelocale()
 
 local function patt_error(s, i)
     local msg = (#s < i + 20) and s:sub(i) or s:sub(i, i + 20) .. "...";
@@ -181,7 +194,21 @@ local exp = m.P{
 }
 local pattern = S * (m.Cg as any)(m.Cc(false), "G") * exp / mm.P * (-any + patt_error)
 
-local function compile(p, defs): any
+--- Compiles `re` pattern text into an LPeg pattern.
+---
+--- An argument that is already an LPeg pattern is handed back unchanged, so a
+--- caller may accept either spelling. Nothing is cached here: `match`, `find` and
+--- `gsub` keep their own caches, and a pattern compiled with definitions is not
+--- a function of its text alone.
+---
+--- @param p the pattern text, or an LPeg pattern to pass through
+--- @param defs the values `%name` and the `->`, `=>`, `>>` and `~>` actions refer
+---     to by name, or nil when the pattern names none
+--- @return the compiled LPeg pattern
+--- @raises when the text is not a well-formed pattern, or names something `defs`
+---     does not define
+--- @export
+function re.compile(p, defs): any
     if mm.type(p) == "pattern" then
         return p
     end;
@@ -193,20 +220,47 @@ local function compile(p, defs): any
     return cp
 end
 
-local function match(s, p, i)
+--- Matches a pattern against `s`, anchored at `i`.
+---
+--- The pattern has to match at the starting position rather than somewhere after
+--- it; `find` is the searching form. Compiled patterns are cached weakly by their
+--- text, so repeating one does not recompile it. A pattern needing definitions
+--- cannot be spelled here, because the cache is keyed by text alone: compile it
+--- with `compile` and match the result.
+---
+--- @param s the subject bytes
+--- @param p the pattern text, or an LPeg pattern
+--- @param i the 1-based position to match at, or nil for the beginning
+--- @return the pattern's captures, or the position after the match when it
+---     captures nothing, or nil when it does not match
+--- @raises when the text is not a well-formed pattern
+--- @export
+function re.match(s, p, i): ...any
     local cp = mem[p];
     if not cp then
-        cp = compile(p);
+        cp = re.compile(p);
         mem[p] = cp
     end;
 
     return cp:match(s, i or 1)
 end
 
-local function find(s, p, i)
+--- Searches `s` for the first position at or after `i` where the pattern matches.
+---
+--- The pattern's own captures are discarded: what a search answers is where the
+--- match is, and a caller wanting the captures matches at the position it reports.
+---
+--- @param s the subject bytes
+--- @param p the pattern text, or an LPeg pattern
+--- @param i the 1-based position to begin searching at, or nil for the beginning
+--- @return the 1-based positions the match begins and ends at, both inclusive, or
+---     nil when the pattern matches nowhere at or after `i`
+--- @raises when the text is not a well-formed pattern
+--- @export
+function re.find(s, p, i): ((integer, integer) | (nil))
     local cp = fmem[p];
     if not cp then
-        cp = compile(p) / 0;
+        cp = re.compile(p) / 0;
         cp = mm.P{mm.Cp() * cp * mm.Cp() + 1 * mm.V(1)};
         fmem[p] = cp
     end;
@@ -218,12 +272,21 @@ local function find(s, p, i)
     return first
 end
 
-local function gsub(s, p, rep)
+--- Replaces every match of the pattern in `s`.
+---
+--- @param s the subject bytes
+--- @param p the pattern text, or an LPeg pattern
+--- @param rep a replacement string, a table the first capture indexes, or a
+---     function of the captures
+--- @return the subject with every match replaced
+--- @raises when the text is not a well-formed pattern
+--- @export
+function re.gsub(s, p, rep): string
     local g = gmem[p] or {};
     gmem[p] = g;
     local cp = g[rep];
     if not cp then
-        cp = compile(p);
+        cp = re.compile(p);
         cp = (mm.Cs as any)((cp / rep + 1) ^ 0);
         g[rep] = cp
     end;
@@ -231,5 +294,4 @@ local function gsub(s, p, rep)
     return cp:match(s)
 end
 
-local re = {compile = compile, match = match, find = find, gsub = gsub, updatelocale = updatelocale}
 export = re
