@@ -493,7 +493,7 @@ end
 --- Unsigned 64-bit bit operations.
 local u64 = {}
 
-function u64.popcount(a: uint64): uint32
+function u64.popcount(a: uint64): number
     local remaining = a
     local count: integer = 0
     while remaining ~= 0ULL do
@@ -501,10 +501,10 @@ function u64.popcount(a: uint64): uint32
         count = count + 1
     end
 
-    return nupp.math.u32.wrap(count)
+    return count
 end
 
-function u64.trailingZeros(a: uint64): uint32
+function u64.trailingZeros(a: uint64): number
     local remaining = a
     if remaining == 0ULL then
         return 64
@@ -515,10 +515,10 @@ function u64.trailingZeros(a: uint64): uint32
         count = count + 1
     end
 
-    return nupp.math.u32.wrap(count)
+    return count
 end
 
-function u64.leadingZeros(a: uint64): uint32
+function u64.leadingZeros(a: uint64): number
     if a == 0ULL then
         return 64
     end
@@ -529,7 +529,7 @@ function u64.leadingZeros(a: uint64): uint32
         count = count + 1
     end
 
-    return nupp.math.u32.wrap(count)
+    return count
 end
 
 function u64.prefixXor(a: uint64): uint64
