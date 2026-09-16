@@ -5,6 +5,12 @@ module nupp.compiler.cli.completionscommand
 local cliModule = require("nupp.cli")
 
 --- Print a shell completion script.
+---
+--- Examples:
+---
+---     nupp completions bash
+---     nupp completions zsh
+---     nupp completions fish
 @cli("completions")
 @derive(cliModule.Command)
 local record Completions

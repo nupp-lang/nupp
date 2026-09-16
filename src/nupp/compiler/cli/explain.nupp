@@ -172,6 +172,12 @@ end
 ---
 --- A code with no worked example still resolves through its family rather than
 --- inventing an example to fit it.
+---
+--- Examples:
+---
+---     nupp explain NUPP2004
+---     nupp explain --list
+---     nupp explain NUPP2004 --json
 @cli("explain")
 @derive(cliModule.Command)
 local record Explain

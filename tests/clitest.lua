@@ -288,6 +288,53 @@ local function captureStatusAt(directory, argv)
     return (out:gsub("__exit__:%d+%s*$", "")), code
 end
 
+function M.everyPublicCommandHelpHasExamples()
+    local root = require("nupp.compiler.cli.root").Root
+    local grammar = ansi.application(root, {name = "nupp"})
+
+    local function requireExamples(argv, label)
+        local help = capture(argv)
+        assert(help:find("\nExamples:\n\n    nupp ", 1, true), label .. " help has no command example:\n" .. help)
+        local found = 0
+        local inExamples = false
+        for line in (help .. "\n"):gmatch("(.-)\n") do
+            if line == "Examples:" then
+                inExamples = true
+            elseif inExamples and line:match("^    nupp%s") then
+                local example = assert(line:match("^    nupp%s+(.+)$"))
+                local arguments = {}
+                for word in example:gmatch("%S+") do
+                    arguments[#arguments + 1] = word
+                end
+                if arguments[1] == "--version" then
+                    arguments[1] = "version"
+                end
+                local invocation, problem = grammar:resolve(arguments)
+                assert(
+                    invocation ~= nil,
+                    label .. " has an invalid example: " .. line .. "\n" .. tostring(problem and problem.message)
+                )
+                found = found + 1
+            elseif inExamples and line ~= "" then
+                break
+            end
+        end
+        assert(found > 0, label .. " help has an empty Examples section")
+    end
+
+    requireExamples("--help", "nupp")
+
+    local function visit(subject, prefix)
+        for _, child in ipairs(subject.subcommands and subject.subcommands() or {}) do
+            local path = prefix == "" and child.cliName() or prefix .. " " .. child.cliName()
+            requireExamples(path .. " --help", "nupp " .. path)
+            visit(child, path)
+        end
+    end
+
+    visit(root, "")
+end
+
 function M.aotHelpNamesArtifactsAndShowsHighlightedExamples()
     local plain = capture("aot --help")
     assert(
@@ -305,6 +352,12 @@ function M.aotHelpNamesArtifactsAndShowsHighlightedExamples()
     assert(coloured:find("\27[1;36mnupp\27[0m", 1, true), "the executable is highlighted: " .. coloured)
     assert(coloured:find("\27[1;32m--emit\27[0m", 1, true), "example options are highlighted: " .. coloured)
     assert(coloured:find("\27[1;34msrc/kernel.nupp\27[0m", 1, true), "example paths are highlighted: " .. coloured)
+
+    local nested = capture("lsp inspect --color=always --help")
+    assert(
+        nested:find("\27[1mlsp\27[0m \27[1minspect\27[0m", 1, true),
+        "every component of a nested command is highlighted: " .. nested
+    )
 end
 
 function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()

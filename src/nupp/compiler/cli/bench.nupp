@@ -197,6 +197,13 @@ end
 ---
 --- Selectors are Lua string patterns. Repeated patterns within one dimension
 --- are alternatives; the command interprets and validates those strings.
+---
+--- Examples:
+---
+---     nupp bench --list
+---     nupp bench --file bench/optparser.bench.nupp --forks 15
+---     nupp bench --case mixed-argv --variant record-token --json
+---     nupp bench --against ./build/baseline/bin/nupp --margin 2
 @cli("bench")
 @derive(cliModule.Command)
 local record Bench

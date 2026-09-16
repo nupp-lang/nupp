@@ -1257,6 +1257,13 @@ end
 --- Ask `nupp lsp <operation> --schema` for an operation's JSON schema.
 --- Source positions are one-based byte line and column numbers. Rename
 --- previews by default and changes files only with `--write`.
+---
+--- Examples:
+---
+---     nupp lsp
+---     nupp lsp inspect src/main.nupp 12 8
+---     nupp lsp references --include-declaration src/main.nupp 12 8
+---     nupp lsp artifact --kind lua -O 2 src/main.nupp
 @cli("lsp")
 @derive(cliModule.Command)
 local record Lsp
@@ -1270,6 +1277,11 @@ local record Lsp
 end
 
 --- Run the language server over stdio.
+---
+--- Examples:
+---
+---     nupp lsp serve
+---     nupp lsp serve ./examples/greeter
 @cli(name = "serve", aliases = {"server"})
 @derive(cliModule.Command)
 local record Serve
@@ -1283,6 +1295,11 @@ local record Serve
 end
 
 --- Describe the symbol at a position.
+---
+--- Examples:
+---
+---     nupp lsp inspect src/main.nupp 12 8
+---     nupp lsp inspect --json src/main.nupp 12 8
 @cli("inspect")
 @derive(cliModule.Command)
 local record Inspect
@@ -1315,6 +1332,11 @@ local record Inspect
 end
 
 --- Find where the symbol at a position is defined.
+---
+--- Examples:
+---
+---     nupp lsp definition src/main.nupp 12 8
+---     nupp lsp definition --json src/main.nupp 12 8
 @cli("definition")
 @derive(cliModule.Command)
 local record Definition
@@ -1347,6 +1369,11 @@ local record Definition
 end
 
 --- Find registered implementations of a service member.
+---
+--- Examples:
+---
+---     nupp lsp implementation src/services.nupp 24 18
+---     nupp lsp implementation --json src/services.nupp 24 18
 @cli("implementation")
 @derive(cliModule.Command)
 local record Implementation
@@ -1379,6 +1406,11 @@ local record Implementation
 end
 
 --- Find semantic references to the symbol at a position.
+---
+--- Examples:
+---
+---     nupp lsp references src/main.nupp 12 8
+---     nupp lsp references --include-declaration src/main.nupp 12 8
 @cli("references")
 @derive(cliModule.Command)
 local record References
@@ -1414,6 +1446,12 @@ local record References
 end
 
 --- Search workspace or document symbols.
+---
+--- Examples:
+---
+---     nupp lsp symbols Parser
+---     nupp lsp symbols --file src/main.nupp parse
+---     nupp lsp symbols --json
 @cli("symbols")
 @derive(cliModule.Command)
 local record Symbols
@@ -1442,6 +1480,11 @@ local record Symbols
 end
 
 --- Rename a symbol and every semantic reference to it.
+---
+--- Examples:
+---
+---     nupp lsp rename src/main.nupp 12 8 newName
+---     nupp lsp rename --write src/main.nupp 12 8 newName
 @cli("rename")
 @derive(cliModule.Command)
 local record Rename
@@ -1482,6 +1525,11 @@ local record Rename
 end
 
 --- List code actions available at a position.
+---
+--- Examples:
+---
+---     nupp lsp actions src/main.nupp 12 8
+---     nupp lsp actions --only quickfix src/main.nupp 12 8
 @cli("actions")
 @derive(cliModule.Command)
 local record Actions
@@ -1518,6 +1566,11 @@ local record Actions
 end
 
 --- Check the function at a position for LuaJIT trace blockers.
+---
+--- Examples:
+---
+---     nupp lsp trace-check src/main.nupp 12 8
+---     nupp lsp trace-check --json src/main.nupp 12 8
 @cli("trace-check")
 @derive(cliModule.Command)
 local record TraceCheck
@@ -1550,6 +1603,11 @@ local record TraceCheck
 end
 
 --- List the compiled artifacts available at a position.
+---
+--- Examples:
+---
+---     nupp lsp artifacts src/main.nupp 12 8
+---     nupp lsp artifacts --json src/main.nupp 12 8
 @cli("artifacts")
 @derive(cliModule.Command)
 local record Artifacts
@@ -1582,6 +1640,11 @@ local record Artifacts
 end
 
 --- Print what a file compiles to.
+---
+--- Examples:
+---
+---     nupp lsp artifact --kind lua -O 2 src/main.nupp
+---     nupp lsp artifact --kind bytecode --json src/main.nupp
 @cli("artifact")
 @derive(cliModule.Command)
 local record Artifact

@@ -503,6 +503,13 @@ end
 --- diagnostics, written artifacts, materialization facts, and timing data.
 --- Progress and timing stay on standard error so machine-readable standard
 --- output remains one document.
+---
+--- Examples:
+---
+---     nupp build
+---     nupp build --target app
+---     nupp build -O2 --remarks
+---     nupp build -o build/generated src/main.nupp
 @cli("build")
 @derive(cliModule.Command)
 local record Build

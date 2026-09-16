@@ -3,6 +3,12 @@ module nupp.compiler.cli.root
 local cliModule = require("nupp.cli")
 
 --- Nupp compiler and project tool.
+---
+--- Examples:
+---
+---     nupp check
+---     nupp build
+---     nupp run src/main.nupp
 @cli(name = "nupp", group = true)
 @derive(cliModule.Command)
 export record Root
@@ -11,6 +17,12 @@ end
 --- Show general or command-specific help.
 ---
 --- With no command, prints the command list.
+---
+--- Examples:
+---
+---     nupp help
+---     nupp help build
+---     nupp help lsp rename
 @cli("help")
 @derive(cliModule.Command)
 export record Help

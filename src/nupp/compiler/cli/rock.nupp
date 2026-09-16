@@ -29,6 +29,11 @@ end
 --- declarations in its versioned `nupp/` directory. `pack` validates and
 --- builds that layout; `test` installs the result into a fresh tree and checks
 --- a fresh consumer. `nupp init lib <name>` writes a project in that shape.
+---
+--- Examples:
+---
+---     nupp rock pack
+---     nupp rock test
 @cli(name = "rock", group = true)
 @derive(cliModule.Command)
 local record Rock
@@ -37,6 +42,11 @@ end
 --- Build and pack the current Nupp library.
 ---
 --- With no path, uses the one rockspec in the current directory.
+---
+--- Examples:
+---
+---     nupp rock pack
+---     nupp rock pack mylib-1.0.0-1.rockspec
 @cli("pack")
 @derive(cliModule.Command)
 local record Pack
@@ -52,6 +62,11 @@ end
 --- Install and check the rock from a clean consumer.
 ---
 --- Packs first, installs into a temporary tree, and checks every declared module.
+---
+--- Examples:
+---
+---     nupp rock test
+---     nupp rock test mylib-1.0.0-1.rockspec
 @cli("test")
 @derive(cliModule.Command)
 local record Test

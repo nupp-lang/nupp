@@ -135,6 +135,11 @@ end
 --- List the lints and the level each runs at.
 ---
 --- Levels are off, note, warning and error; only an error stops a build.
+---
+--- Examples:
+---
+---     nupp lints
+---     nupp lints --json
 @cli("lints")
 @derive(cliModule.Command)
 local record Lints

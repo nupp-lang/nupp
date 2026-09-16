@@ -202,6 +202,12 @@ end
 --- Otherwise runs `tasks.<name>` from nupp.lua: builds `tasks.<name>.build` first when
 --- it names one, then executes `tasks.<name>.argv` from `tasks.<name>.cwd`
 --- (the project root by default) with every trailing argument appended.
+---
+--- Examples:
+---
+---     nupp task --list
+---     nupp task --list app
+---     nupp task serve --port 8080
 @cli(name = "task", stopAtFirstArgument = true)
 @derive(cliModule.Command)
 local record Task

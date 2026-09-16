@@ -334,6 +334,12 @@ end
 ---
 --- With no files, scans Nupp sources under src. The report enumerates trusted
 --- C contracts and explicit unsafe regions.
+---
+--- Examples:
+---
+---     nupp ownership-audit
+---     nupp ownership-audit --regions src/native.nupp
+---     nupp ownership-audit --json src/native.nupp
 @cli("ownership-audit")
 @derive(cliModule.Command)
 local record OwnershipAudit

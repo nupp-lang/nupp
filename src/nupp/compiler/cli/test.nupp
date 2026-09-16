@@ -317,6 +317,13 @@ end
 --- Coverage uses `build/coverage` without changing the ordinary build cache
 --- and writes under `build/reports/coverage` by default. `--report-json` reads
 --- that report without rebuilding or rerunning tests.
+---
+--- Examples:
+---
+---     nupp test
+---     nupp test clitest doctest
+---     nupp test --group=docs --json
+---     nupp test --coverage clitest
 @cli(name = "test", preserveUnknown = true)
 @derive(cliModule.Command)
 local record Test

@@ -139,6 +139,11 @@ end
 ---
 --- The lossless tree includes structural children, tokens, trivia, locations,
 --- and parse errors.
+---
+--- Examples:
+---
+---     nupp ast src/main.nupp
+---     nupp ast --json-pretty src/main.nupp
 @cli("ast")
 @derive(cliModule.Command)
 local record Ast

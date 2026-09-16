@@ -323,6 +323,12 @@ local function run(options: any): integer
 end
 
 --- Create a project from a template.
+---
+--- Examples:
+---
+---     nupp init --list
+---     nupp init app hello
+---     nupp init lib math
 @cli("init")
 @derive(cliModule.Command)
 local record Init

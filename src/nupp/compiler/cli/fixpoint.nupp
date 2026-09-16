@@ -62,6 +62,12 @@ local function run(options: any): integer
 end
 
 --- Verify a byte-identical self-hosting rebuild.
+---
+--- Examples:
+---
+---     nupp fixpoint
+---     nupp fixpoint --binary
+---     nupp fixpoint --emit-stage0 build/stage0/nupp.lua
 @cli("fixpoint")
 @derive(cliModule.Command)
 local record Fixpoint

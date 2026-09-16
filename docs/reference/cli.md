@@ -182,6 +182,12 @@ print(greet.greet("world"))
 ```text [nupp init --help]
 Create a project from a template.
 
+Examples:
+
+    nupp init --list
+    nupp init app hello
+    nupp init lib math
+
 Usage:
   nupp init [options] [TEMPLATE] [DIRECTORY]
 
@@ -322,6 +328,11 @@ Dump a Nupp file's parsed syntax tree as JSON.
 
 The lossless tree includes structural children, tokens, trivia, locations,
 and parse errors.
+
+Examples:
+
+    nupp ast src/main.nupp
+    nupp ast --json-pretty src/main.nupp
 
 Usage:
   nupp ast [options] FILE
@@ -531,6 +542,12 @@ Show the bytecode a Nupp file compiles to.
 Source lines are shown beside their instructions. `--check` identifies
 operations which prevent a containing loop from being recorded by LuaJIT.
 
+Examples:
+
+    nupp bc src/main.nupp
+    nupp bc --check src/hot-loop.nupp
+    nupp bc --json src/main.nupp
+
 Usage:
   nupp bc [options] FILE
 
@@ -624,6 +641,13 @@ Type-check source without emitting Lua.
 
 With no files, checks the configured project target. Named files are
 checked with project context when available.
+
+Examples:
+
+    nupp check
+    nupp check src/main.nupp
+    nupp check --strict --json
+    nupp check --target app
 
 Usage:
   nupp check [options] [FILE...]
@@ -782,6 +806,12 @@ Format Nupp source.
 With named files, formats each to stdout or rewrites it. With none, reports
 files in the project which are not formatted.
 
+Examples:
+
+    nupp fmt --check
+    nupp fmt --write src/main.nupp
+    nupp fmt --width 100 src/main.nupp
+
 Usage:
   nupp fmt [options] [FILE...]
 
@@ -851,6 +881,13 @@ rather than mixing artifacts compiled at two levels. JSON output carries
 diagnostics, written artifacts, materialization facts, and timing data.
 Progress and timing stay on standard error so machine-readable standard
 output remains one document.
+
+Examples:
+
+    nupp build
+    nupp build --target app
+    nupp build -O2 --remarks
+    nupp build -o build/generated src/main.nupp
 
 Usage:
   nupp build [options] [FILE...]
@@ -990,6 +1027,12 @@ Remove build outputs configured in nupp.lua.
 With no target, cleans every configured target output. Paths outside the
 project and paths that resolve to the project root are always rejected.
 
+Examples:
+
+    nupp clean --dry-run
+    nupp clean
+    nupp clean --target app
+
 Usage:
   nupp clean [options]
 
@@ -1028,6 +1071,13 @@ Run isolated benchmark programs.
 
 Selectors are Lua string patterns. Repeated patterns within one dimension
 are alternatives; the command interprets and validates those strings.
+
+Examples:
+
+    nupp bench --list
+    nupp bench --file bench/optparser.bench.nupp --forks 15
+    nupp bench --case mixed-argv --variant record-token --json
+    nupp bench --against ./build/baseline/bin/nupp --margin 2
 
 Usage:
   nupp bench [options]
@@ -1090,6 +1140,11 @@ List the lints and the level each runs at.
 
 Levels are off, note, warning and error; only an error stops a build.
 
+Examples:
+
+    nupp lints
+    nupp lints --json
+
 Usage:
   nupp lints [options]
 
@@ -1135,6 +1190,12 @@ List foreign pointer contracts and unsafe assertion sites.
 
 With no files, scans Nupp sources under src. The report enumerates trusted
 C contracts and explicit unsafe regions.
+
+Examples:
+
+    nupp ownership-audit
+    nupp ownership-audit --regions src/native.nupp
+    nupp ownership-audit --json src/native.nupp
 
 Usage:
   nupp ownership-audit [options] [FILE...]
@@ -1209,6 +1270,12 @@ Describe a diagnostic code, with an example either way.
 
 A code with no worked example still resolves through its family rather than
 inventing an example to fit it.
+
+Examples:
+
+    nupp explain NUPP2004
+    nupp explain --list
+    nupp explain NUPP2004 --json
 
 Usage:
   nupp explain [options] [CODE]
@@ -1381,6 +1448,12 @@ are running. Printing it from the binary makes the two the same artifact.
 ```text [nupp completions --help]
 Print a shell completion script.
 
+Examples:
+
+    nupp completions bash
+    nupp completions zsh
+    nupp completions fish
+
 Usage:
   nupp completions SHELL
 
@@ -1433,6 +1506,13 @@ this command because a project may configure a different test executable.
 Coverage uses `build/coverage` without changing the ordinary build cache
 and writes under `build/reports/coverage` by default. `--report-json` reads
 that report without rebuilding or rerunning tests.
+
+Examples:
+
+    nupp test
+    nupp test clitest doctest
+    nupp test --group=docs --json
+    nupp test --coverage clitest
 
 Usage:
   nupp test [options] [ARG...]
@@ -1530,6 +1610,12 @@ Otherwise runs `tasks.<name>` from nupp.lua: builds `tasks.<name>.build` first w
 it names one, then executes `tasks.<name>.argv` from `tasks.<name>.cwd`
 (the project root by default) with every trailing argument appended.
 
+Examples:
+
+    nupp task --list
+    nupp task --list app
+    nupp task serve --port 8080
+
 Usage:
   nupp task [options] [NAME] [ARG...]
 
@@ -1591,6 +1677,12 @@ Generate API documentation from source comments.
 The first argument may name the documentation format. Remaining arguments
 are source paths; with none, the manifest's configured sources are used.
 
+Examples:
+
+    nupp doc
+    nupp doc markdown -o docs/api.md
+    nupp doc site --target library --output build/site
+
 Usage:
   nupp doc [options] [KIND] [PATH...]
 
@@ -1630,6 +1722,12 @@ configuring a documentation target.
 
 ```text [nupp fixpoint --help]
 Verify a byte-identical self-hosting rebuild.
+
+Examples:
+
+    nupp fixpoint
+    nupp fixpoint --binary
+    nupp fixpoint --emit-stage0 build/stage0/nupp.lua
 
 Usage:
   nupp fixpoint [options]
@@ -1680,6 +1778,13 @@ Use `--` before a program path beginning with a dash. `--profile` writes
 collapsed-stack samples, while `--jit-aborts` records where LuaJIT stopped
 tracing. `--watch` is development-only, uses `-O0`, and applies valid
 changed-body patches at cooperative poll boundaries.
+
+Examples:
+
+    nupp run src/main.nupp
+    nupp run src/main.nupp first second
+    nupp run --profile=2 --profile-out hot.txt src/main.nupp
+    nupp run --jit-aborts=jit-aborts.csv src/main.nupp
 
 Usage:
   nupp run [options] FILE [ARG...]
@@ -1743,6 +1848,12 @@ detail and its stable normalized reason identity.
 
 ```text [nupp import-c --help]
 Generate typed Nupp bindings from a C header.
+
+Examples:
+
+    nupp import-c include/widget.h
+    nupp import-c -l widget -o src/widget.d.nupp include/widget.h
+    nupp import-c --inspect --json include/widget.h
 
 Usage:
   nupp import-c [options] HEADER
@@ -1875,6 +1986,12 @@ Migrate typed foreign source into gradual Nupp.
 Without --check, each destination is checked and written atomically before
 its source is removed. Existing destinations are never replaced.
 
+Examples:
+
+    nupp migrate --check src/legacy.lua
+    nupp migrate src/legacy.lua
+    nupp migrate --dialect luacats src/one.lua src/two.lua
+
 Usage:
   nupp migrate [options] FILE...
 
@@ -1900,6 +2017,12 @@ planner. `--check` reports the complete plan without writing or removing files.
 
 ```text [nupp export-c --help]
 Export canonical C declarations for Nupp structs.
+
+Examples:
+
+    nupp export-c -o include/game.h src/game.nupp game.Position
+    nupp export-c --target library -o include/library.h library.Widget
+    nupp export-c --json -o include/game.h src/game.nupp game.Position
 
 Usage:
   nupp export-c [options] INPUT...
@@ -1934,6 +2057,11 @@ A Nupp rock installs runtime Lua normally and carries matching public
 declarations in its versioned `nupp/` directory. `pack` validates and
 builds that layout; `test` installs the result into a fresh tree and checks
 a fresh consumer. `nupp init lib <name>` writes a project in that shape.
+
+Examples:
+
+    nupp rock pack
+    nupp rock test
 
 Usage:
   nupp rock
@@ -1995,6 +2123,13 @@ artifact only: `--kind`, `--opt-level`.
 Ask `nupp lsp <operation> --schema` for an operation's JSON schema.
 Source positions are one-based byte line and column numbers. Rename
 previews by default and changes files only with `--write`.
+
+Examples:
+
+    nupp lsp
+    nupp lsp inspect src/main.nupp 12 8
+    nupp lsp references --include-declaration src/main.nupp 12 8
+    nupp lsp artifact --kind lua -O 2 src/main.nupp
 
 Usage:
   nupp lsp [ROOT]
@@ -2124,6 +2259,12 @@ Print the compiler version.
 The text form is the single line `nupp VERSION`, which is what an install
 script should read. `nupp --version` prints the same line.
 
+Examples:
+
+    nupp version
+    nupp --version
+    nupp version --json
+
 Usage:
   nupp version [options]
 
@@ -2166,6 +2307,12 @@ Show general or command-specific help.
 
 With no command, prints the command list.
 
+Examples:
+
+    nupp help
+    nupp help build
+    nupp help lsp rename
+
 Usage:
   nupp help [COMMAND...]
 
@@ -2182,6 +2329,12 @@ Bare `nupp` prints the same list:
 
 ```text [nupp help]
 Nupp compiler and project tool.
+
+Examples:
+
+    nupp check
+    nupp build
+    nupp run src/main.nupp
 
 Usage:
   nupp <command> [options]

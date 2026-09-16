@@ -280,6 +280,13 @@ end
 --- collapsed-stack samples, while `--jit-aborts` records where LuaJIT stopped
 --- tracing. `--watch` is development-only, uses `-O0`, and applies valid
 --- changed-body patches at cooperative poll boundaries.
+---
+--- Examples:
+---
+---     nupp run src/main.nupp
+---     nupp run src/main.nupp first second
+---     nupp run --profile=2 --profile-out hot.txt src/main.nupp
+---     nupp run --jit-aborts=jit-aborts.csv src/main.nupp
 @cli(name = "run", stopAtFirstArgument = true)
 @derive(cliModule.Command)
 local record Run

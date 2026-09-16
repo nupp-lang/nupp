@@ -56,6 +56,12 @@ end
 ---
 --- With no target, cleans every configured target output. Paths outside the
 --- project and paths that resolve to the project root are always rejected.
+---
+--- Examples:
+---
+---     nupp clean --dry-run
+---     nupp clean
+---     nupp clean --target app
 @cli("clean")
 @derive(cliModule.Command)
 local record Clean

@@ -240,6 +240,12 @@ end
 ---
 --- With named files, formats each to stdout or rewrites it. With none, reports
 --- files in the project which are not formatted.
+---
+--- Examples:
+---
+---     nupp fmt --check
+---     nupp fmt --write src/main.nupp
+---     nupp fmt --width 100 src/main.nupp
 @cli("fmt")
 @derive(cliModule.Command)
 local record Fmt

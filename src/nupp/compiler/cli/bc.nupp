@@ -230,6 +230,12 @@ end
 ---
 --- Source lines are shown beside their instructions. `--check` identifies
 --- operations which prevent a containing loop from being recorded by LuaJIT.
+---
+--- Examples:
+---
+---     nupp bc src/main.nupp
+---     nupp bc --check src/hot-loop.nupp
+---     nupp bc --json src/main.nupp
 @cli("bc")
 @derive(cliModule.Command)
 local record Bytecode

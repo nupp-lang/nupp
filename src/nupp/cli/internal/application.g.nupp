@@ -68,7 +68,10 @@ export record Application
         if not self.root.group then
             return self:renderCommandHelp(self.root, {})
         end
-        local out = {self.root.documentation ~= "" and self.root.summary or self.options.name or self.root.name, ""}
+        local out = {
+            self.root.documentation ~= "" and self.root.documentation or self.options.name or self.root.name,
+            ""
+        }
         out[#out + 1] = "Usage:"
         out[#out + 1] = self:indent() .. self:programName() .. " <command> [options]"
         out[#out + 1] = self:indent() .. self:programName() .. " help [command ...]"
@@ -688,15 +691,23 @@ export record Application
                 inExamples = true
             elseif inExamples and line:match("^    %S") then
                 local position = 0
+                local command: Descriptor? = self.root
                 line = line:gsub("%S+", function(token: string): string
                     position = position + 1
                     if token == self:programName() then
                         return style.cyan(token)
                     elseif token:sub(1, 1) == "-" then
                         return style.green(token)
-                    elseif position == 2 then
-                        return style.strong(token)
-                    elseif token:find("/", 1, true) or token:find(".", 1, true) then
+                    end
+                    if position > 1 and command ~= nil then
+                        local child = self:child((command as Descriptor).subject, token)
+                        if child ~= nil then
+                            command = child
+                            return style.strong(token)
+                        end
+                        command = nil
+                    end
+                    if token:find("/", 1, true) or token:find(".", 1, true) then
                         return style.blue(token)
                     end
 

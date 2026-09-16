@@ -101,6 +101,12 @@ end
 ---
 --- The first argument may name the documentation format. Remaining arguments
 --- are source paths; with none, the manifest's configured sources are used.
+---
+--- Examples:
+---
+---     nupp doc
+---     nupp doc markdown -o docs/api.md
+---     nupp doc site --target library --output build/site
 @cli("doc")
 @derive(cliModule.Command)
 local record Doc

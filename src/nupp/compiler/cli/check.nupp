@@ -288,6 +288,13 @@ end
 ---
 --- With no files, checks the configured project target. Named files are
 --- checked with project context when available.
+---
+--- Examples:
+---
+---     nupp check
+---     nupp check src/main.nupp
+---     nupp check --strict --json
+---     nupp check --target app
 @cli("check")
 @derive(cliModule.Command)
 local record Check

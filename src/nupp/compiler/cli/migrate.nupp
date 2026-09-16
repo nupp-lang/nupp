@@ -165,6 +165,12 @@ end
 ---
 --- Without --check, each destination is checked and written atomically before
 --- its source is removed. Existing destinations are never replaced.
+---
+--- Examples:
+---
+---     nupp migrate --check src/legacy.lua
+---     nupp migrate src/legacy.lua
+---     nupp migrate --dialect luacats src/one.lua src/two.lua
 @cli("migrate")
 @derive(cliModule.Command)
 local record Migrate

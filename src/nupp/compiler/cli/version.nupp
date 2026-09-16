@@ -52,6 +52,12 @@ end
 ---
 --- The text form is the single line `nupp VERSION`, which is what an install
 --- script should read. `nupp --version` prints the same line.
+---
+--- Examples:
+---
+---     nupp version
+---     nupp --version
+---     nupp version --json
 @cli("version")
 @derive(cliModule.Command)
 local record Version
