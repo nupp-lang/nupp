@@ -1413,9 +1413,8 @@ local coroutine: {
 -- bit
 ----------------------------------------------------------------------------
 
---- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
---- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
---- come back signed.
+--- Nupp provides access to LuaJIT's BitOp library. `require("bit")` works with any
+--- Nupp compiler target using a polyfill when necessary.
 ---
 --- ```nupp
 --- const bit = require("bit")
@@ -1427,11 +1426,6 @@ local coroutine: {
 --- -- These have one, so write the operator and let it lower per target.
 --- print(0xF0 & 0x3C)                      -- 48
 --- ```
----
---- `require("bit")` resolves on every dialect, which no other module on this page
---- does: every name below has a scalar implementation with the same signature, so a
---- portable target reaches that one and a LuaJIT target reaches the C library. The
---- bare `bit` global is LuaJIT's alone, so portable source requires the module.
 local bit: {
     --- Normalizes `x` into the signed 32-bit integer range, wrapping around.
     ---
