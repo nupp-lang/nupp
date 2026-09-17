@@ -54,9 +54,28 @@ local function identifier(value: string): string
     return (value:gsub("[^%w_]", "_"))
 end
 
+--- What a profile refusal unwinds with, so `program` can tell it from a bug.
+const OUTSIDE = {}
+
+local outsideReason: string? = nil
+
+--- Leaves the emission: the program is outside webgpu-int32 for `reason`.
+---
+--- A raise rather than a return because the rules are checked wherever the
+--- IR is walked, several closures deep; `program` catches it at its top and
+--- hands the reason back as a value.
+--- @raises always, with the sentinel `program` catches
+local function refuse(reason: string): nil
+    outsideReason = reason
+    error(OUTSIDE, 0)
+end
+
 local function typeName(value: string): string
     local named = WGSL_TYPE[value]
-    assert(named ~= nil, "webgpu-int32 only admits int32 and uint32 values, got " .. value)
+    if named == nil then
+        refuse("webgpu-int32 only admits int32 and uint32 values, got " .. value)
+    end
+
     return named as string
 end
 
@@ -70,37 +89,56 @@ local function literal(value: any, type_: string): string
 end
 
 --- Emits a verified integer map kernel for the browser WebGPU profile.
---- @raises when verified IR lies outside webgpu-int32
-function wgslemit.program(
+local function emitProgram(
     program: scalarIR.Program,
     readonly: {scalarIR.Param},
     writable: {scalarIR.Param},
     uniforms: {scalarIR.Param},
     threads: integer
 ): string
-    assert(program.executionTarget == "gpu", "WGSL emission requires @aot(target = \"gpu\")")
+    if program.executionTarget ~= "gpu" then
+        refuse("WGSL emission requires @aot(target = \"gpu\")")
+    end
     local loop = program.loop
-    assert(program.workgroup == nil and loop ~= nil, "webgpu-int32 currently admits complete-span map kernels")
-    assert(#(program.layouts or {}) == 0, "webgpu-int32 does not yet admit struct storage")
-    assert(threads > 0 and threads <= 256, "webgpu-int32 workgroup size must be between 1 and 256")
+    if program.workgroup ~= nil or loop == nil then
+        refuse("webgpu-int32 currently admits complete-span map kernels")
+    end
+    if #(program.layouts or {}) > 0 then
+        refuse("webgpu-int32 does not yet admit struct storage")
+    end
+    if threads < 1 or threads > 256 then
+        refuse("webgpu-int32 workgroup size must be between 1 and 256")
+    end
 
     local spans: {scalarIR.Param} = {}
     for _, param in ipairs(readonly) do
-        assert(param.type == "i32" or param.type == "u32", "webgpu-int32 storage must be int32 or uint32")
         spans[#spans + 1] = param
     end
     for _, param in ipairs(writable) do
-        assert(param.type == "i32" or param.type == "u32", "webgpu-int32 storage must be int32 or uint32")
         spans[#spans + 1] = param
     end
-    assert(#spans <= 8, "webgpu-int32 admits at most eight storage buffers")
+    for _, param in ipairs(spans) do
+        if param.type ~= "i32" and param.type ~= "u32" then
+            refuse("webgpu-int32 storage must be int32 or uint32")
+        end
+    end
+    if #spans > 8 then
+        refuse("webgpu-int32 admits at most eight storage buffers")
+    end
     for _, param in ipairs(uniforms) do
-        assert(param.type == "i32" or param.type == "u32", "webgpu-int32 uniforms must be int32 or uint32")
+        if param.type ~= "i32" and param.type ~= "u32" then
+            refuse("webgpu-int32 uniforms must be int32 or uint32")
+        end
     end
 
     local function spanIndex(value: any): string
-        assert(value.cursor == nil, "webgpu-int32 does not yet admit cursor-indexed spans")
-        assert(value.index == (loop as scalarIR.Loop).index, "webgpu-int32 spans must use the dispatch index")
+        if value.cursor ~= nil then
+            refuse("webgpu-int32 does not yet admit cursor-indexed spans")
+        end
+        if value.index ~= (loop as scalarIR.Loop).index then
+            refuse("webgpu-int32 spans must use the dispatch index")
+        end
+
         return "[uniforms." .. identifier(value.span) .. "_offset + dispatch_index]"
     end
 
@@ -132,7 +170,9 @@ function wgslemit.program(
         elseif op == "bnot" or op == "u32_not" then
             return "(~" .. expression(value.value) .. ")"
         end
-        error("webgpu-int32 does not emit expression " .. tostring(op), 0)
+        refuse("webgpu-int32 does not emit expression " .. tostring(op))
+
+        return ""
     end
 
     local lines: {string} = {}
@@ -171,7 +211,9 @@ function wgslemit.program(
         for _, statement in ipairs(values) do
             local op = statement.op
             if op == "let" then
-                assert(not statement.type:match("^ref:"), "webgpu-int32 does not yet admit element references")
+                if statement.type:match("^ref:") then
+                    refuse("webgpu-int32 does not yet admit element references")
+                end
                 line(
                     depth,
                     (
@@ -181,10 +223,9 @@ function wgslemit.program(
                     ) .. ": " .. typeName(statement.type) .. " = " .. expression(statement.value) .. ";"
                 )
             elseif op == "assign" then
-                assert(
-                    #statement.values == 1 and statement.values[1].target.kind == "local",
-                    "webgpu-int32 only assigns locals"
-                )
+                if #statement.values ~= 1 or statement.values[1].target.kind ~= "local" then
+                    refuse("webgpu-int32 only assigns locals")
+                end
                 local assignment = statement.values[1]
                 line(
                     depth,
@@ -226,7 +267,7 @@ function wgslemit.program(
                 statements(statement.body, depth + 1)
                 line(depth, "}")
             else
-                error("webgpu-int32 does not emit statement " .. tostring(op), 0)
+                refuse("webgpu-int32 does not emit statement " .. tostring(op))
             end
         end
     end
@@ -275,6 +316,34 @@ function wgslemit.program(
     line(0, "}")
 
     return table.concat(lines, "\n")
+end
+
+--- Emits a verified integer map kernel for the browser WebGPU profile, or says
+--- which of the profile's rules the program is outside.
+---
+--- A rule is answered as a value because both callers want it that way: a
+--- browser build reports it, and a native build only wanted to know whether
+--- there was a WGSL artifact to carry. Anything else the emission raises is a
+--- bug, and goes on raising.
+--- @return the WGSL source, or nil and the rule the program is outside
+--- @raises when passed malformed or unverified IR
+function wgslemit.program(
+    program: scalarIR.Program,
+    readonly: {scalarIR.Param},
+    writable: {scalarIR.Param},
+    uniforms: {scalarIR.Param},
+    threads: integer
+): (string?, string?)
+    outsideReason = nil
+    local ok, source = pcall(emitProgram, program, readonly, writable, uniforms, threads)
+    if ok then
+        return source as string, nil
+    end
+    if source ~= OUTSIDE then
+        error(source, 0)
+    end
+
+    return nil, outsideReason
 end
 
 export = wgslemit

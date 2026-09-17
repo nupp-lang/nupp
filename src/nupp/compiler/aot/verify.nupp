@@ -3600,6 +3600,19 @@ local function stringBufferOrder(statements: {scalarIR.Statement}, seen: boolean
     return seen, count
 end
 
+--- The Lua stack slots a verified builder reserves on entry.
+---
+--- A function of the body rather than a fact recorded on it, so an optimizer
+--- that reshapes the body has nothing to keep current: whoever emits the
+--- reservation computes it from the body being emitted. The four are the
+--- registrar's own working slots.
+--- @param program a builder `program` accepted
+function verify.builderStack(program: scalarIR.Program): integer
+    local roots, depth = constructionStack(program.body or {}, false)
+
+    return roots + depth + 4
+end
+
 --- Checks one whole AOT program, and everything under it.
 ---
 --- @param program the lowered function
@@ -3630,16 +3643,10 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         holds(streamBuilders(program.body or {}) <= 1, "a Lua builder entry has more than one value stream")
         local _, stringBufferCount = stringBufferOrder(program.body or {}, false)
         holds(stringBufferCount <= 1, "a Lua builder entry has more than one string accumulator")
-        local needed = roots + depth + 4
-        holds(needed <= 256, "Lua builder exceeds the 256-slot construction limit")
-        holds(program.maxStack == nil or program.maxStack == needed, "Lua builder stack bound changed")
-        program.maxStack = needed
+        holds(roots + depth + 4 <= 256, "Lua builder exceeds the 256-slot construction limit")
     else
         holds(
-            program.runtimeAbi == nil
-            and program.registrar == nil
-            and program.maxStack == nil
-            and program.builderMode == nil,
+            program.runtimeAbi == nil and program.registrar == nil and program.builderMode == nil,
             "kernel carried a Lua runtime ABI"
         )
     end

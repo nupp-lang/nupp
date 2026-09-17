@@ -753,14 +753,12 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
                 }
                 return
             end
-            local attempts = rewrite.selectRegion(program, region, shapes)
+            local refusals = rewrite.selectRegion(program, region, shapes)
             if region.lanes == nil then
-                local last = attempts[#attempts]
-                local refusals: {compile.Diagnostic} = {}
-                for _, why in ipairs(last ~= nil and last.refusals or {}) do
-                    refusals[#refusals + 1] = regionDiagnostic(region, filename, why)
+                program.laneRefusals = {}
+                for _, why in ipairs(refusals) do
+                    program.laneRefusals[#program.laneRefusals + 1] = regionDiagnostic(region, filename, why)
                 end
-                program.laneRefusals = refusals
                 return
             end
         end
@@ -797,19 +795,12 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
         return
     end
 
-    -- Only the last attempt's refusals are kept, which is the narrowest gang's.
-    -- A loop that cannot lower at all cannot lower in any width, and the
-    -- binary64 refusal is the one that names the construct rather than the
-    -- width.
-    local attempts = rewrite.select(program, shapes)
-    local last = attempts[#attempts]
-    local refusals: {compile.Diagnostic} = {}
-    for _, why in ipairs(last ~= nil and last.refusals or {}) do
-        refusals[#refusals + 1] = loopDiagnostic(program, filename, why)
-    end
-
+    local refusals = rewrite.select(program, shapes)
     if program.lanes == nil then
-        program.laneRefusals = refusals
+        program.laneRefusals = {}
+        for _, why in ipairs(refusals) do
+            program.laneRefusals[#program.laneRefusals + 1] = loopDiagnostic(program, filename, why)
+        end
         -- Lanes were wanted and not taken, which is the case a vectorisation
         -- check has something to say about. Declining is the other case.
         program.vectorizeDeclined = false
@@ -882,21 +873,15 @@ function compile.artifacts(
     for position, program in ipairs(programs) do
         optimizations[position] = aotOptimize.program(program)
         -- Every optimized body is checked, whether or not lane lowering will
-        -- later be requested or accepted. This also recomputes derived builder
-        -- stack state cleared by the optimizer.
+        -- later be requested or accepted.
         verify.program(program)
         if program.executionTarget == "gpu" then
-            local ok, artifact = pcall(gpuartifact.program, program, browser)
-            if not ok then
+            local artifact, rule = gpuartifact.program(program, browser)
+            if artifact == nil then
                 local site = sites[position]
                 local line, column = sitePosition(source, site ~= nil and (site as compile.Site).from or 1)
                 return nil, {
-                    new compile.Diagnostic(
-                        file = filename,
-                        line = line,
-                        column = column,
-                        message = tostring(artifact):gsub("^.-:%d+: ", "")
-                    )
+                    new compile.Diagnostic(file = filename, line = line, column = column, message = rule as string)
                 }
             end
             (artifact as gpuartifact.Artifact).exportTypes = declaredModule

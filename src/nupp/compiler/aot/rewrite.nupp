@@ -2163,23 +2163,15 @@ end
 ----------------------------------------------------------------------------
 
 --- What one attempt at a gang width came to.
-record rewrite.Attempt
-    --- The gang that was tried.
-    shape: string
-
-    --- Why it was refused. Empty when it was taken.
-    refusals: {string}
-end
-
 --- The sentinel a refusal unwinds with, so a refused attempt is told apart from
 --- a real error rather than swallowing one.
 local REFUSED = {}
 
---- Rewrites the loop to the gang that runs the most iterations at once.
+--- Tries each gang, most lanes first, until one takes the loop.
 ---
---- Most lanes first. The 32-bit gang refuses the moment any varying value turns
---- out to be binary64, so a loop written with ordinary operators lands on the
---- binary64 gang exactly as it would have, and a loop whose values the source
+--- The 32-bit gang refuses the moment any varying value turns out to be
+--- binary64, so a loop written with ordinary operators lands on the binary64
+--- gang exactly as it would have, and a loop whose values the source
 --- established as `float` or `int32` gets twice the lanes for the same
 --- registers. Each attempt builds fresh IR and touches nothing else, so a
 --- refused one costs a retry and leaves no state behind.
@@ -2191,15 +2183,22 @@ local REFUSED = {}
 --- rule is written down instead of arranged.
 ---
 --- A body that cannot lower at any width is not an error: it keeps its scalar
---- loop, and the refusals say which construct stopped it.
+--- loop, and the refusals say which construct stopped it. Only the narrowest
+--- gang's are answered: a loop that cannot lower at all cannot lower in any
+--- width, and the binary64 refusal is the one that names the construct rather
+--- than the width.
 ---
 --- @param shapes the gangs this target can hold, in any order. Empty when it can
 ---   hold none, in which case there is nothing to try.
---- @return one entry per gang that was refused, in the order they were tried.
----   Empty when the first one took it.
+--- @param lower rewrites the body for one gang, or reports through the refusal
+---   it is handed why it cannot
+--- @return the lowered body, or nil and why the narrowest gang refused it
 --- @raises when an attempt fails for any reason other than refusing the loop,
 ---   which is a compiler bug rather than a width that does not fit
-function rewrite.select(program: scalarIR.Program, shapes: {lane.Shape}): {rewrite.Attempt}
+local function widest(
+    shapes: {lane.Shape},
+    lower: function(lane.Shape, function(string): nil): scalarIR.LaneBody
+): (scalarIR.LaneBody?, {string})
     local ordered: {lane.Shape} = {}
     for _, shape in ipairs(shapes) do
         ordered[#ordered + 1] = shape
@@ -2220,76 +2219,56 @@ function rewrite.select(program: scalarIR.Program, shapes: {lane.Shape}): {rewri
         return a.name < b.name
     end)
 
-    local attempts: {rewrite.Attempt} = {}
-    for position = 1, #ordered do
-        local shape = ordered[position]
-        local refusals: {string} = {}
+    local refusals: {string} = {}
+    for _, shape in ipairs(ordered) do
+        refusals = {}
         local lowered: scalarIR.LaneBody? = nil
         local ok, problem = pcall(function(): nil
-            lowered = rewrite.loop(program, shape, function(why: string): nil
+            lowered = lower(shape, function(why: string): nil
                 refusals[#refusals + 1] = why
                 error(REFUSED, 0)
             end)
         end)
         if ok then
-            program.lanes = lowered
-
-            return attempts
+            return lowered, {}
         end
         if problem ~= REFUSED then
             error(problem, 0)
         end
-        attempts[#attempts + 1] = new rewrite.Attempt(shape = shape.name, refusals = refusals)
     end
 
-    return attempts
+    return nil, refusals
+end
+
+--- Rewrites the loop to the gang that runs the most iterations at once.
+--- @return why the narrowest gang refused, empty when one took it
+--- @raises when an attempt fails for any reason other than refusing the loop
+function rewrite.select(program: scalarIR.Program, shapes: {lane.Shape}): {string}
+    local lowered, refusals = widest(shapes, function(
+        shape: lane.Shape,
+        reject: function(string): nil
+    ): scalarIR.LaneBody
+        return rewrite.loop(program, shape, reject)
+    end)
+    program.lanes = lowered
+
+    return refusals
 end
 
 --- Lowers one authored counted-loop region without searching the rest of its
 --- function. The containing scalar body remains in source order around it.
+--- @return why the narrowest gang refused, empty when one took it
 --- @raises when an attempt fails for any reason other than refusing the region
-function rewrite.selectRegion(
-    program: scalarIR.Program,
-    region: scalarIR.Fornum,
-    shapes: {lane.Shape}
-): {rewrite.Attempt}
-    local ordered: {lane.Shape} = {}
-    for _, shape in ipairs(shapes) do
-        ordered[#ordered + 1] = shape
-    end
-    table.sort(ordered, function(a: lane.Shape, b: lane.Shape): boolean
-        if a.lanes ~= b.lanes then
-            return a.lanes > b.lanes
-        end
-        if a.bytes ~= b.bytes then
-            return a.bytes < b.bytes
-        end
-
-        return a.name < b.name
+function rewrite.selectRegion(program: scalarIR.Program, region: scalarIR.Fornum, shapes: {lane.Shape}): {string}
+    local lowered, refusals = widest(shapes, function(
+        shape: lane.Shape,
+        reject: function(string): nil
+    ): scalarIR.LaneBody
+        return regionBody(program, region.binding.name, region.body, shape, reject)
     end)
+    region.lanes = lowered
 
-    local attempts: {rewrite.Attempt} = {}
-    for _, shape in ipairs(ordered) do
-        local refusals: {string} = {}
-        local lowered: scalarIR.LaneBody? = nil
-        local ok, problem = pcall(function(): nil
-            lowered = regionBody(program, region.binding.name, region.body, shape, function(why: string): nil
-                refusals[#refusals + 1] = why
-                error(REFUSED, 0)
-            end)
-        end)
-        if ok then
-            region.lanes = lowered
-
-            return attempts
-        end
-        if problem ~= REFUSED then
-            error(problem, 0)
-        end
-        attempts[#attempts + 1] = new rewrite.Attempt(shape = shape.name, refusals = refusals)
-    end
-
-    return attempts
+    return refusals
 end
 
 export = rewrite

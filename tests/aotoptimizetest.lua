@@ -15,7 +15,7 @@ local function constant(value)
 end
 
 local function program(body)
-   return {body = body, helpers = {}, maxStack = 19}
+   return {body = body, helpers = {}}
 end
 
 local function integer(value, valueType)
@@ -77,7 +77,6 @@ function M.foldsConstantsAndRemovesDeadPureDeclarations()
    assert(#ir.body == 1)
    assert(ir.body[1].op == "return")
    assert(ir.body[1].values[1].value == "5.0")
-   assert(ir.maxStack == nil, "derived stack state must be recomputed by verification")
 end
 
 function M.optimizesWorkgroupRegionsWithoutCrossingPhaseBoundaries()
@@ -95,7 +94,6 @@ function M.optimizesWorkgroupRegionsWithoutCrossingPhaseBoundaries()
    }
    local ir = {
       helpers = {},
-      maxStack = 19,
       workgroup = {
          prelude = {{
             op = "let", name = "groups", cName = "groups_1", type = "u32", value = groups,

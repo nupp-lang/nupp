@@ -1541,10 +1541,6 @@ record scalarIR.Program
     --- The exported registrar which returns the Lua C closure.
     registrar: string?
 
-    --- Conservative additional Lua stack slots required by verified
-    --- construction. Builders check this once on entry.
-    maxStack: integer?
-
     params: {scalarIR.Param}
     layouts: {scalarIR.Layout}?
     regions: {scalarIR.Region}

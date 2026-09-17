@@ -3969,13 +3969,13 @@ function M.everyAotFunctionInAFileIsCompiled()
     test.equal(decoded.functions[1].lanes.shape, "mixed4", "ordinary arithmetic takes four lanes")
     test.equal(decoded.functions[2].lanes.shape, "f32x8", "explicit binary32 takes eight")
 
-    -- One struct declared once, both gangs present, and each function bringing
+    -- One struct declared once, both gangs in use, and each function bringing
     -- its own pair of bodies.
     local c = decoded.c
     test.equal(select(2, c:gsub("} KsSample;", "")), 1, "the shared struct is declared once")
     assert(
-        c:find("ks_any_m64x4", 1, true) and c:find("ks_any_m32x8", 1, true),
-        "each gang brings its own mask helpers, named so they cannot collide"
+        c:find("ks_splat_f64x4(p_factor)", 1, true) and c:find("ks_splat_f32x8(p_lift)", 1, true),
+        "each function's body runs on the gang it chose"
     )
     test.equal(
         select(2, c:gsub("float nupp_f32_nan", "")),

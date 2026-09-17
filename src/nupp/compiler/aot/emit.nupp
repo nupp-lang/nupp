@@ -24,6 +24,7 @@ local reducers = require("nupp.compiler.aot.reducers")
 local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local target = require("nupp.compiler.aot.target")
+local verify = require("nupp.compiler.aot.verify")
 local visit = require("nupp.compiler.aot.visit")
 local simdcast = require("nupp.compiler.aot.simdcast")
 
@@ -7631,7 +7632,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
             lines[
                 #lines + 1
             ] = "    if (!lua_checkstack(L, " .. tostring(
-                (program.maxStack or 4) + byteRoots + (byteRoots > 0 and 2 or 0)
+                verify.builderStack(program) + byteRoots + (byteRoots > 0 and 2 or 0)
             ) .. ")) return luaL_error(L, \"AOT builder Lua stack exhausted\");"
             for position, param in ipairs(program.params) do
                 if param.kind == "uniform" then

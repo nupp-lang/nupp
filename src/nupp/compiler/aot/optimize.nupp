@@ -942,10 +942,6 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
 
     removeUnusedHelpers(program, helpers)
 
-    -- Verification owns this derived fact. Clearing it makes the second verify
-    -- recompute the bound instead of merely agreeing with the first pass.
-    program.maxStack = nil
-
     local applications: {optimize.RuleApplication} = {}
     local expressionFolds: integer = 0
     for id, count in pairs(state.ruleApplications) do

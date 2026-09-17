@@ -668,9 +668,6 @@ local function preamble(program: scalarIR.Program): {string}
 
     local resultTypes = program.resultTypes or {}
     lines[#lines + 1] = "results " .. (#resultTypes == 0 and "nil" or table.concat(resultTypes, ","))
-    if program.maxStack ~= nil then
-        lines[#lines + 1] = "lua_stack " .. tostring(program.maxStack)
-    end
 
     local loop = program.loop
     local workgroup = program.workgroup
