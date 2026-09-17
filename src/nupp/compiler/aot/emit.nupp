@@ -451,7 +451,64 @@ end
 --- bare operator answers a different question than the source wrote and the
 --- constant folder answers. Pairings whose implicit conversion preserves the
 --- value keep the bare operator; the rest compare by value here.
+--- The integer under a binary64 promotion, if the operand is one.
+local function integerOperand(node: scalarIR.Expr): scalarIR.Expr?
+    if INTEGER_FIXED[tostring(node.type)] == true then
+        return node
+    end
+    local widened = node as any
+    if widened.op == "int_to_f64" and INTEGER_FIXED[tostring((widened.value as scalarIR.Expr).type)] == true then
+        return widened.value as scalarIR.Expr
+    end
+
+    return nil
+end
+
+--- A comparison between a span's count and an integer, made in integers.
+---
+--- The count is a `size_t` the IR carries as binary64, and the cursor idiom
+--- compares a `uint32` against it on every iteration. Written as the double
+--- comparison the types say, that is a conversion and a float compare each
+--- time, and the C compiler cannot carry the bound it establishes to the
+--- vector load it guards. Both operands are exact as integers, so the answer
+--- is the same and the bound is visible.
+local function countComparison(operation: string, left: scalarIR.Expr, right: scalarIR.Expr): string?
+    if COMPARISON_SWAP[operation] == nil then
+        return nil
+    end
+    local counted, other, swapped = left, right, false
+    if counted.op ~= "span_count" then
+        counted, other, swapped = right, left, true
+    end
+    if counted.op ~= "span_count" then
+        return nil
+    end
+    local integer = integerOperand(other)
+    if integer == nil then
+        return nil
+    end
+    local count = independentSpanCounts and "count_" .. (counted as scalarIR.SpanCount).span or "count"
+    local operator = emit.BINARY[operation] as string
+    local relation = swapped and operation or COMPARISON_SWAP[operation] as string
+    if SIGNED_FIXED[tostring((integer as scalarIR.Expr).type)] == true then
+        return "ks_" .. relation .. "_i64_u64((int64_t)" .. emit.scalar(
+            integer as scalarIR.Expr
+        ) .. ", (uint64_t)" .. count .. ")"
+    end
+    if swapped then
+        return "((uint64_t)" .. emit.scalar(
+            integer as scalarIR.Expr
+        ) .. " " .. operator .. " (uint64_t)" .. count .. ")"
+    end
+
+    return "((uint64_t)" .. count .. " " .. operator .. " (uint64_t)" .. emit.scalar(integer as scalarIR.Expr) .. ")"
+end
+
 local function mixedComparison(operation: string, left: scalarIR.Expr, right: scalarIR.Expr): string?
+    local counted = countComparison(operation, left, right)
+    if counted ~= nil then
+        return counted
+    end
     if COMPARISON_SWAP[operation] == nil or left.type == right.type then
         return nil
     end
@@ -536,6 +593,52 @@ function emit.rearrange(node: scalarIR.Simd): string
     end
 
     return "(" .. emit.cType(node.type) .. "){" .. contents .. "}"
+end
+
+--- The zero-based index a generic load or store starts at, from its one-based
+--- offset.
+---
+--- Lowering promotes the offset to binary64 so the IR has one type for it,
+--- but the cursor idiom writes it as `cursor + 1` on a `uint32`, and that
+--- promotion is undone here rather than carried into the helper: an integer
+--- offset needs no `floor` and no float compare on the way to `size_t`, which
+--- is where the C compiler can see the bounds the loop condition established.
+function emit.spanFirst(offset: scalarIR.Expr): string
+    local widened = offset as any
+    if widened.op == "int_to_f64" then
+        local inner = widened.value as scalarIR.Expr
+        if inner.type == "u32" or inner.type == "u64" then
+            return "nupp_first_u64((uint64_t)" .. emit.scalar(inner) .. ")"
+        elseif inner.type == "i32" or inner.type == "i64" then
+            return "nupp_first_i64((int64_t)" .. emit.scalar(inner) .. ")"
+        end
+    end
+
+    return "nupp_first_f64(" .. emit.scalar(offset) .. ")"
+end
+
+--- A generic store statement: one whole-vector helper when no mask was
+--- given, the masked one otherwise.
+--- @raises when the stored value has no resolved species
+function emit.genericStore(store: scalarIR.Simd): string
+    if store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked" then
+        return emit.indexedSimd(store)
+    end
+    local _, element, lanes = explicitType(store.args[3].type)
+    if element == nil or lanes == nil then
+        error("generic SIMD store has no resolved species", 0)
+    end
+    local suffix = element .. "x" .. tostring(lanes)
+    local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
+    local count = independentSpanCounts and "count_" .. tostring(store.span) or "count"
+    local at = "p_" .. tostring(
+        store.span
+    ) .. ", " .. count .. ", " .. emit.spanFirst(store.args[2]) .. ", " .. emit.scalar(store.args[3])
+    if store.args[4] == nil then
+        return helper .. "store_full_" .. suffix .. "(" .. at .. ")"
+    end
+
+    return helper .. "store_" .. suffix .. "(" .. at .. ", " .. emit.scalar(store.args[4]) .. ")"
 end
 
 --- Indexed memory over logical lanes, including composite representations.
@@ -939,14 +1042,11 @@ function emit.scalar(node: scalarIR.Expr): string
                     return emit.indexedSimd(simd)
                 end
                 local count = independentSpanCounts and "count_" .. tostring(simd.span) or "count"
-                local active = args[
-                    3
-                ] ~= nil and emit.scalar(
-                    args[3]
-                ) or genericHelper .. "tail_" .. genericSuffix .. "(UINT32_C(" .. tostring(lanes) .. "))"
-                return genericHelper .. "load_" .. genericSuffix .. "(p_" .. tostring(
-                    simd.span
-                ) .. ", " .. count .. ", " .. emit.scalar(args[2]) .. ", " .. active .. ")"
+                local at = "p_" .. tostring(simd.span) .. ", " .. count .. ", " .. emit.spanFirst(args[2])
+                if args[3] == nil then
+                    return genericHelper .. "load_full_" .. genericSuffix .. "(" .. at .. ")"
+                end
+                return genericHelper .. "load_" .. genericSuffix .. "(" .. at .. ", " .. emit.scalar(args[3]) .. ")"
             elseif operation == "simd_binary" then
                 -- An extremum has no C operator and a contract a bare `<` would
                 -- not keep, so every representation calls the helper the prelude
@@ -4025,6 +4125,25 @@ local function scalarHelpers(): {string}
         "}",
         unused .. "int32_t nupp_wrap_i32(double value) { return (int32_t)nupp_wrap_u32(value); }",
         "",
+        "/* A one-based span offset as the zero-based index a vector load starts at.",
+        " * Anything a span cannot hold -- zero, a negative, a fraction, a value past",
+        " * what size_t counts -- answers SIZE_MAX, which every load and store reads as",
+        " * out of range, so the vector helpers make one comparison against the count",
+        " * rather than sixteen. */",
+        unused .. "size_t nupp_first_u64(uint64_t offset) {",
+        "#if SIZE_MAX < UINT64_MAX",
+        "    if (offset - UINT64_C(1) > (uint64_t)SIZE_MAX) { return SIZE_MAX; }",
+        "#endif",
+        "    return offset >= UINT64_C(1) ? (size_t)(offset - UINT64_C(1)) : SIZE_MAX;",
+        "}",
+        unused .. "size_t nupp_first_i64(int64_t offset) {",
+        "    return offset >= INT64_C(1) ? nupp_first_u64((uint64_t)offset) : SIZE_MAX;",
+        "}",
+        unused .. "size_t nupp_first_f64(double offset) {",
+        "    if (!(offset >= 1.0) || offset != floor(offset) || !(offset - 1.0 < (double)SIZE_MAX)) { return SIZE_MAX; }",
+        "    return (size_t)(offset - 1.0);",
+        "}",
+        "",
         unused .. "int32_t nupp_arshift(uint32_t value, uint32_t shift) {",
         "    if (shift == 0u) { return (int32_t)value; }",
         "    uint32_t shifted = value >> shift;",
@@ -4748,22 +4867,73 @@ local function genericSimdPrelude(width: integer): {string}
                 iotaValues,
                 ", "
             ) .. " }; }"
+        -- A tail mask is one vector comparison of the lane numbers against
+        -- the active count, and the all-active test one comparison against
+        -- zero folded through its words: both used to be lane loops, which the
+        -- C compiler ran through a stack slot one lane at a time in every
+        -- masked iteration. The mask type is signed, so a lane comparison's
+        -- result already has it.
+        local laneNumbers, laneLimits = {}, {}
+        for laneIndex = 1, lanes do
+            laneNumbers[laneIndex] = "(" .. element.mask .. ")" .. tostring(laneIndex - 1)
+            laneLimits[laneIndex] = "(" .. element.mask .. ")active"
+        end
+        lines[
+            #lines + 1
+        ] = unused .. mask .. " ks_exp_tail_" .. suffix .. "(uint32_t active) { if (active > " .. tostring(
+            lanes
+        ) .. "u) active = " .. tostring(
+            lanes
+        ) .. "u; " .. mask .. " lane = (" .. mask .. "){ " .. table.concat(
+            laneNumbers,
+            ", "
+        ) .. " }; " .. mask .. " limit = (" .. mask .. "){ " .. table.concat(
+            laneLimits,
+            ", "
+        ) .. " }; return (" .. mask .. ")(lane < limit); }"
+        -- A load or store that starts at `first` and has a whole vector's worth
+        -- of elements ahead of it is one memcpy, which the C compiler turns
+        -- into the one vector instruction; the lane loop is only for a
+        -- partial or masked one. `first` is out of range at or past the count,
+        -- which is what nupp_first_* answer for an offset no span can hold, so
+        -- `first + i` never wraps once that comparison has been made.
+        local laneCount = tostring(lanes) .. "u"
+        local words = {}
+        for word = 1, (width / 8) as integer do
+            words[word] = "words[" .. tostring(word - 1) .. "]"
+        end
         lines[
             #lines + 1
         ] = unused
-            .. mask
-            .. " ks_exp_tail_"
+            .. "bool ks_exp_full_"
             .. suffix
-            .. "(uint32_t active) { "
+            .. "("
             .. mask
-            .. " out = ("
+            .. " active) { "
             .. mask
-            .. "){0}; if (active > "
+            .. " inactive = ("
+            .. mask
+            .. ")(active == ("
+            .. mask
+            .. "){0}); uint64_t words["
             .. tostring(
-                lanes
-            ) .. "u) active = " .. tostring(
-                lanes
-            ) .. "u; for (uint32_t i = 0u; i < active; ++i) out[i] = (" .. element.mask .. ")-1; return out; }"
+                #words
+            ) .. "]; memcpy(words, &inactive, sizeof words); return (" .. table.concat(words, " | ") .. ") == 0u; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_load_full_"
+            .. suffix
+            .. "(const "
+            .. element.c
+            .. " *source, size_t count, size_t first) { "
+            .. vector
+            .. " out = ("
+            .. vector
+            .. "){0}; if (first >= count) return out; size_t room = count - first; if (room >= "
+            .. laneCount
+            .. ") { memcpy(&out, source + first, sizeof out); return out; } for (size_t i = 0u; i < room; ++i) out[i] = source[first + i]; return out; }"
         lines[
             #lines + 1
         ] = unused
@@ -4772,16 +4942,33 @@ local function genericSimdPrelude(width: integer): {string}
             .. suffix
             .. "(const "
             .. element.c
-            .. " *source, size_t count, double offset, "
+            .. " *source, size_t count, size_t first, "
             .. mask
-            .. " active) { "
+            .. " active) { if (ks_exp_full_"
+            .. suffix
+            .. "(active)) return ks_exp_load_full_"
+            .. suffix
+            .. "(source, count, first); "
             .. vector
             .. " out = ("
             .. vector
-            .. "){0}; if (!(offset >= 1.0) || offset != floor(offset)) return out; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
-            .. tostring(
-                lanes
-            ) .. "u; ++i) if (active[i] && first + i < count) out[i] = source[first + i]; return out; }"
+            .. "){0}; if (first >= count) return out; size_t room = count - first; if (room > "
+            .. laneCount
+            .. ") room = "
+            .. laneCount
+            .. "; for (size_t i = 0u; i < room; ++i) if (active[i]) out[i] = source[first + i]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. "void ks_exp_store_full_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " *destination, size_t count, size_t first, "
+            .. vector
+            .. " value) { if (first >= count) return; size_t room = count - first; if (room >= "
+            .. laneCount
+            .. ") { memcpy(destination + first, &value, sizeof value); return; } for (size_t i = 0u; i < room; ++i) destination[first + i] = value[i]; }"
         lines[
             #lines + 1
         ] = unused
@@ -4789,14 +4976,19 @@ local function genericSimdPrelude(width: integer): {string}
             .. suffix
             .. "("
             .. element.c
-            .. " *destination, size_t count, double offset, "
+            .. " *destination, size_t count, size_t first, "
             .. vector
             .. " value, "
             .. mask
-            .. " active) { if (!(offset >= 1.0) || offset != floor(offset)) return; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
-            .. tostring(
-                lanes
-            ) .. "u; ++i) if (active[i] && first + i < count) destination[first + i] = value[i]; }"
+            .. " active) { if (ks_exp_full_"
+            .. suffix
+            .. "(active)) { ks_exp_store_full_"
+            .. suffix
+            .. "(destination, count, first, value); return; } if (first >= count) return; size_t room = count - first; if (room > "
+            .. laneCount
+            .. ") room = "
+            .. laneCount
+            .. "; for (size_t i = 0u; i < room; ++i) if (active[i]) destination[first + i] = value[i]; }"
         lines[
             #lines + 1
         ] = unused
@@ -5116,6 +5308,8 @@ local function genericSimdPrelude(width: integer): {string}
             ) .. "u; for (uint32_t i = 0u; i < " .. tostring(
                 lanes
             ) .. "u; ++i) out.lane[i] = i < active ? (" .. element.mask .. ")-1 : 0; return out; }"
+        -- The scalar forms stay lane-wise on purpose: they are the oracle the
+        -- vector fast path is compared against.
         lines[
             #lines + 1
         ] = unused
@@ -5124,14 +5318,30 @@ local function genericSimdPrelude(width: integer): {string}
             .. suffix
             .. "(const "
             .. element.c
-            .. " *source, size_t count, double offset, "
+            .. " *source, size_t count, size_t first, "
             .. scalarMask
             .. " active) { "
             .. scalarVector
-            .. " out = {{0}}; if (!(offset >= 1.0) || offset != floor(offset)) return out; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
+            .. " out = {{0}}; if (first >= count) return out; for (uint32_t i = 0u; i < "
             .. tostring(
                 lanes
-            ) .. "u; ++i) if (active.lane[i] && first + i < count) out.lane[i] = source[first + i]; return out; }"
+            ) .. "u; ++i) if (active.lane[i] && i < count - first) out.lane[i] = source[first + i]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
+            .. " ks_scalar_exp_load_full_"
+            .. suffix
+            .. "(const "
+            .. element.c
+            .. " *source, size_t count, size_t first) { return ks_scalar_exp_load_"
+            .. suffix
+            .. "(source, count, first, ks_scalar_exp_tail_"
+            .. suffix
+            .. "("
+            .. tostring(
+                lanes
+            ) .. "u)); }"
         lines[
             #lines + 1
         ] = unused
@@ -5139,14 +5349,31 @@ local function genericSimdPrelude(width: integer): {string}
             .. suffix
             .. "("
             .. element.c
-            .. " *destination, size_t count, double offset, "
+            .. " *destination, size_t count, size_t first, "
             .. scalarVector
             .. " value, "
             .. scalarMask
-            .. " active) { if (!(offset >= 1.0) || offset != floor(offset)) return; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
+            .. " active) { if (first >= count) return; for (uint32_t i = 0u; i < "
             .. tostring(
                 lanes
-            ) .. "u; ++i) if (active.lane[i] && first + i < count) destination[first + i] = value.lane[i]; }"
+            ) .. "u; ++i) if (active.lane[i] && i < count - first) destination[first + i] = value.lane[i]; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. "void ks_scalar_exp_store_full_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " *destination, size_t count, size_t first, "
+            .. scalarVector
+            .. " value) { ks_scalar_exp_store_"
+            .. suffix
+            .. "(destination, count, first, value, ks_scalar_exp_tail_"
+            .. suffix
+            .. "("
+            .. tostring(
+                lanes
+            ) .. "u)); }"
         lines[
             #lines + 1
         ] = unused
@@ -5657,7 +5884,7 @@ local function fixedSimdPrelude(width: integer): {string}
                 .. suffix
                 .. "(const "
                 .. element.c
-                .. " *source, size_t count, double offset, "
+                .. " *source, size_t count, size_t first, "
                 .. mask
                 .. " active) { "
                 .. vector
@@ -5667,10 +5894,56 @@ local function fixedSimdPrelude(width: integer): {string}
                 )
                 .. "u; ++c) out.chunk[c] = ks_exp_load_"
                 .. nativeSuffix
-                .. "(source, count, offset + (double)(c * "
+                .. "(source, count, first >= count ? SIZE_MAX : first + (size_t)(c * "
                 .. tostring(
                     nativeLanes
                 ) .. "u), active.chunk[c]); return out; }"
+            -- A whole fixed vector is its full native chunks, then whatever
+            -- of the last chunk the lane count reaches.
+            local wholeChunks = math.floor(lanes / nativeLanes) as integer
+            local remainder = lanes - wholeChunks * nativeLanes
+            local chunkFull: {string} = {}
+            for chunk = 0, wholeChunks - 1 do
+                chunkFull[
+                    #chunkFull + 1
+                ] = "out.chunk[" .. tostring(
+                    chunk
+                )
+                    .. "] = ks_exp_load_full_"
+                    .. nativeSuffix
+                    .. "(source, count, first >= count ? SIZE_MAX : first + "
+                    .. tostring(
+                        chunk * nativeLanes
+                    ) .. "u);"
+            end
+            if remainder > 0 then
+                chunkFull[
+                    #chunkFull + 1
+                ] = "out.chunk[" .. tostring(
+                    wholeChunks
+                )
+                    .. "] = ks_exp_load_"
+                    .. nativeSuffix
+                    .. "(source, count, first >= count ? SIZE_MAX : first + "
+                    .. tostring(
+                        wholeChunks * nativeLanes
+                    ) .. "u, ks_exp_tail_" .. nativeSuffix .. "(" .. tostring(remainder) .. "u));"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. vector
+                .. " ks_exp_load_full_"
+                .. suffix
+                .. "(const "
+                .. element.c
+                .. " *source, size_t count, size_t first) { "
+                .. vector
+                .. " out; "
+                .. table.concat(
+                    chunkFull,
+                    " "
+                ) .. " return out; }"
             lines[
                 #lines + 1
             ] = unused
@@ -5678,7 +5951,7 @@ local function fixedSimdPrelude(width: integer): {string}
                 .. suffix
                 .. "("
                 .. element.c
-                .. " *destination, size_t count, double offset, "
+                .. " *destination, size_t count, size_t first, "
                 .. vector
                 .. " value, "
                 .. mask
@@ -5688,10 +5961,47 @@ local function fixedSimdPrelude(width: integer): {string}
                 )
                 .. "u; ++c) ks_exp_store_"
                 .. nativeSuffix
-                .. "(destination, count, offset + (double)(c * "
+                .. "(destination, count, first >= count ? SIZE_MAX : first + (size_t)(c * "
                 .. tostring(
                     nativeLanes
                 ) .. "u), value.chunk[c], active.chunk[c]); }"
+            local chunkStore: {string} = {}
+            for chunk = 0, wholeChunks - 1 do
+                chunkStore[
+                    #chunkStore + 1
+                ] = "ks_exp_store_full_"
+                    .. nativeSuffix
+                    .. "(destination, count, first >= count ? SIZE_MAX : first + "
+                    .. tostring(
+                        chunk * nativeLanes
+                    ) .. "u, value.chunk[" .. tostring(chunk) .. "]);"
+            end
+            if remainder > 0 then
+                chunkStore[
+                    #chunkStore + 1
+                ] = "ks_exp_store_"
+                    .. nativeSuffix
+                    .. "(destination, count, first >= count ? SIZE_MAX : first + "
+                    .. tostring(
+                        wholeChunks * nativeLanes
+                    ) .. "u, value.chunk[" .. tostring(
+                        wholeChunks
+                    ) .. "], ks_exp_tail_" .. nativeSuffix .. "(" .. tostring(remainder) .. "u));"
+            end
+            lines[
+                #lines + 1
+            ] = unused
+                .. "void ks_exp_store_full_"
+                .. suffix
+                .. "("
+                .. element.c
+                .. " *destination, size_t count, size_t first, "
+                .. vector
+                .. " value) { "
+                .. table.concat(
+                    chunkStore,
+                    " "
+                ) .. " }"
             lines[
                 #lines + 1
             ] = unused
@@ -6133,14 +6443,30 @@ local function fixedSimdPrelude(width: integer): {string}
                 .. suffix
                 .. "(const "
                 .. element.c
-                .. " *source, size_t count, double offset, "
+                .. " *source, size_t count, size_t first, "
                 .. scalarMask
                 .. " active) { "
                 .. scalarVector
-                .. " out = {{0}}; if (!(offset >= 1.0) || offset != floor(offset)) return out; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
+                .. " out = {{0}}; if (first >= count) return out; for (uint32_t i = 0u; i < "
                 .. tostring(
                     lanes
-                ) .. "u; ++i) if (active.lane[i] && first + i < count) out.lane[i] = source[first + i]; return out; }"
+                ) .. "u; ++i) if (active.lane[i] && i < count - first) out.lane[i] = source[first + i]; return out; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. scalarVector
+                .. " ks_scalar_exp_load_full_"
+                .. suffix
+                .. "(const "
+                .. element.c
+                .. " *source, size_t count, size_t first) { return ks_scalar_exp_load_"
+                .. suffix
+                .. "(source, count, first, ks_scalar_exp_tail_"
+                .. suffix
+                .. "("
+                .. tostring(
+                    lanes
+                ) .. "u)); }"
             lines[
                 #lines + 1
             ] = unused
@@ -6148,14 +6474,31 @@ local function fixedSimdPrelude(width: integer): {string}
                 .. suffix
                 .. "("
                 .. element.c
-                .. " *destination, size_t count, double offset, "
+                .. " *destination, size_t count, size_t first, "
                 .. scalarVector
                 .. " value, "
                 .. scalarMask
-                .. " active) { if (!(offset >= 1.0) || offset != floor(offset)) return; size_t first = (size_t)offset - 1u; for (uint32_t i = 0u; i < "
+                .. " active) { if (first >= count) return; for (uint32_t i = 0u; i < "
                 .. tostring(
                     lanes
-                ) .. "u; ++i) if (active.lane[i] && first + i < count) destination[first + i] = value.lane[i]; }"
+                ) .. "u; ++i) if (active.lane[i] && i < count - first) destination[first + i] = value.lane[i]; }"
+            lines[
+                #lines + 1
+            ] = unused
+                .. "void ks_scalar_exp_store_full_"
+                .. suffix
+                .. "("
+                .. element.c
+                .. " *destination, size_t count, size_t first, "
+                .. scalarVector
+                .. " value) { ks_scalar_exp_store_"
+                .. suffix
+                .. "(destination, count, first, value, ks_scalar_exp_tail_"
+                .. suffix
+                .. "("
+                .. tostring(
+                    lanes
+                ) .. "u)); }"
             lines[
                 #lines + 1
             ] = unused
@@ -7943,30 +8286,7 @@ function emit.luaBlock(
         elseif statement.op == "lua_scratch_u8_set" then
             lines[#lines + 1] = scratchWrite("ks_lua_scratch_u8_set", statement, prefix)
         elseif statement.op == "simd_store" then
-            local store = statement as scalarIR.Simd
-            if store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked" then
-                lines[#lines + 1] = prefix .. emit.indexedSimd(store) .. ";"
-            else
-                local _, element, lanes = explicitType(store.args[3].type)
-                if element == nil or lanes == nil then
-                    error("generic SIMD store has no resolved species", 0)
-                end
-                local suffix = element .. "x" .. tostring(lanes)
-                local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
-                local active = store.args[
-                    4
-                ] ~= nil and emit.scalar(
-                    store.args[4]
-                ) or helper .. "tail_" .. suffix .. "(UINT32_C(" .. tostring(lanes) .. "))"
-                local count = independentSpanCounts and "count_" .. tostring(store.span) or "count"
-                lines[
-                    #lines + 1
-                ] = prefix .. helper .. "store_" .. suffix .. "(p_" .. tostring(
-                    store.span
-                ) .. ", " .. count .. ", " .. emit.scalar(
-                    store.args[2]
-                ) .. ", " .. emit.scalar(store.args[3]) .. ", " .. active .. ");"
-            end
+            lines[#lines + 1] = prefix .. emit.genericStore(statement as scalarIR.Simd) .. ";"
         elseif statement.op == "simd_store4_u8" then
             local store = statement as scalarIR.Simd
             local operands: {string} = {"L", "&" .. tostring((store.args[1] as scalarIR.Name).cName)}
@@ -8637,30 +8957,7 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body, repeatCo
         elseif op == "vcontinue" then
             lines[#lines + 1] = prefix .. statement.executing.cName .. " &= ~(" .. emit.lane(statement.mask) .. ");"
         elseif op == "simd_store" then
-            local store = statement as scalarIR.Simd
-            if store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked" then
-                lines[#lines + 1] = prefix .. emit.indexedSimd(store) .. ";"
-            else
-                local _, element, lanes = explicitType(store.args[3].type)
-                if element == nil or lanes == nil then
-                    error("generic SIMD store has no resolved species", 0)
-                end
-                local suffix = element .. "x" .. tostring(lanes)
-                local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
-                local active = store.args[
-                    4
-                ] ~= nil and emit.scalar(
-                    store.args[4]
-                ) or helper .. "tail_" .. suffix .. "(UINT32_C(" .. tostring(lanes) .. "))"
-                local count = independentSpanCounts and "count_" .. tostring(store.span) or "count"
-                lines[
-                    #lines + 1
-                ] = prefix .. helper .. "store_" .. suffix .. "(p_" .. tostring(
-                    store.span
-                ) .. ", " .. count .. ", " .. emit.scalar(
-                    store.args[2]
-                ) .. ", " .. emit.scalar(store.args[3]) .. ", " .. active .. ");"
-            end
+            lines[#lines + 1] = prefix .. emit.genericStore(statement as scalarIR.Simd) .. ";"
         elseif op == "vreducer_add" then
             local contribution = statement as lane.ReducerAdd
             temporary = temporary + 1

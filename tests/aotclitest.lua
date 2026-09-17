@@ -833,7 +833,7 @@ return {copyFirst = copyFirst}
     })
     local c, code = run(dir, "--emit c shared-count.nupp")
     test.equal(code, 0, c)
-    assert(c:find("< ((double)count)", 1, true), c)
+    assert(c:find("(uint64_t)v1_cursor < (uint64_t)count)", 1, true), c)
     assert(not c:find("count_input", 1, true), c)
 end
 
@@ -4844,7 +4844,7 @@ function M.aSpeciesBindingIsDecidedPerTier()
     -- scalar tail that follows is the same C on every tier, its span read
     -- proved by the left of the `and` it sits under.
     local dir = project{["scan.nupp"] = CONDITIONAL_SCAN}
-    local tail = "while (((v1_cursor < ((double)count_cps)) && (p_cps[((size_t)v1_cursor)] > UINT32_C(15))))"
+    local tail = "while ((((uint64_t)v1_cursor < (uint64_t)count_cps) && (p_cps[((size_t)v1_cursor)] > UINT32_C(15))))"
     for _, tier in ipairs({
         {args = "--target aarch64-apple-darwin --features neon", lanes = 4},
         {args = "--target x86_64-unknown-linux-gnu --features baseline", lanes = 4},
@@ -4854,9 +4854,9 @@ function M.aSpeciesBindingIsDecidedPerTier()
         local decoded, raw, code = lowered(dir, tier.args .. " --json scan.nupp")
         test.equal(code, 0, raw)
         local body = scanBody(decoded.c)
-        assert(body:find("ks_exp_load_u32x" .. tier.lanes .. "(", 1, true), tier.args .. ": the arm is the vector loop\n" .. body)
+        assert(body:find("ks_exp_load_full_u32x" .. tier.lanes .. "(", 1, true), tier.args .. ": the arm is the vector loop\n" .. body)
         assert(
-            body:find("<= ((double)count_cps)", 1, true) and body:find("UINT32_C(" .. tier.lanes .. "))", 1, true),
+            body:find("<= (uint64_t)count_cps)", 1, true) and body:find("UINT32_C(" .. tier.lanes .. "))", 1, true),
             tier.args .. ": species.lanes is the tier's constant\n" .. body
         )
         assert(body:find("uint32_t v3_first = ((uint32_t)(", 1, true), tier.args .. ": first() is a uint32\n" .. body)
@@ -4869,6 +4869,69 @@ function M.aSpeciesBindingIsDecidedPerTier()
     assert(not body:find("ks_exp_", 1, true), "the scalar tier drops the arm\n" .. body)
     assert(body:find(tail, 1, true), "and keeps the tail\n" .. body)
     assert(not decoded.ir:find("species", 1, true), "nothing of the test survives lowering\n" .. decoded.ir)
+end
+
+function M.aFullVectorAccessIsOneCopyAndAnIntegerCompare()
+    -- An unmasked load or store is the `_full` helper, whose whole-vector
+    -- case is one memcpy the C compiler turns into the vector instruction;
+    -- the lane loop is only for the elements a partial tail has. A masked
+    -- one tests all-active with a vector compare rather than a lane loop,
+    -- and builds a tail mask the same way. The cursor is compared with the
+    -- span count as an integer, and reaches the helper as a 0-based size_t
+    -- through nupp_first_*, so nothing in the loop goes through a double.
+    local dir = project{
+        [
+            "map.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function add(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>): nil
+    local s = assert(simd.species(array.uint8))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input and cursor + s.lanes <= #output do
+        s:store(output, cursor + 1, s:load(input, cursor + 1) + 90)
+        cursor = cursor + s.lanes
+    end
+    if cursor < #output then
+        local active = s:tail(#output - cursor)
+        s:store(output, cursor + 1, s:load(input, cursor + 1, active) + 90, active)
+    end
+end
+return {add = add}
+]],
+    }
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json map.nupp")
+    test.equal(code, 0, raw)
+    local c = decoded.c
+    local body = c:match("KS_API void ks_add%(.-\n}\n")
+    assert(body, "the kernel is emitted:\n" .. c)
+    assert(body:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "the unmasked load\n" .. body)
+    assert(body:find("ks_exp_store_full_u8x16(p_output, count_output, nupp_first_u64(", 1, true), "the unmasked store\n" .. body)
+    assert(body:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "the masked tail load\n" .. body)
+    assert(body:find("<= (uint64_t)count_output)", 1, true), "the count is compared as an integer\n" .. body)
+    local loop = body:match("while %(.-\n    }\n")
+    assert(loop and not loop:find("(double)", 1, true), "nothing in the loop goes through a double\n" .. body)
+    assert(
+        c:find("ks_exp_load_full_u8x16(const uint8_t *source, size_t count, size_t first) {", 1, true)
+            and c:find("if (room >= 16u) { memcpy(&out, source + first, sizeof out); return out; }", 1, true),
+        "a whole vector loads as one copy\n" .. c
+    )
+    assert(
+        c:find("if (room >= 16u) { memcpy(destination + first, &value, sizeof value); return; }", 1, true),
+        "and stores as one\n" .. c
+    )
+    assert(
+        c:find("bool ks_exp_full_u8x16(ks_exp_mask_u8x16 active) { ks_exp_mask_u8x16 inactive = (ks_exp_mask_u8x16)(active == (ks_exp_mask_u8x16){0});", 1, true),
+        "all-active is a vector compare\n" .. c
+    )
+    assert(
+        c:find("ks_exp_mask_u8x16 ks_exp_tail_u8x16(uint32_t active) { if (active > 16u) active = 16u; ks_exp_mask_u8x16 lane = (ks_exp_mask_u8x16){ (int8_t)0, (int8_t)1,", 1, true)
+            and c:find("return (ks_exp_mask_u8x16)(lane < limit); }", 1, true),
+        "and so is a tail mask\n" .. c
+    )
 end
 
 function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
@@ -4987,7 +5050,7 @@ return {total = total}
         test.equal(code, 0, raw)
         assert(decoded.ir:find("simd_species_f32_preferred", 1, true), tier.args .. ": the preferred shape\n" .. decoded.ir)
         assert(decoded.ir:find("simd_vector_f32_fixed8", 1, true), tier.args .. ": the fixed shape\n" .. decoded.ir)
-        assert(decoded.c:find("ks_exp_load_f32x" .. tier.lanes .. "(", 1, true), tier.args .. ": the tier's width\n" .. decoded.c)
+        assert(decoded.c:find("ks_exp_load_full_f32x" .. tier.lanes .. "(", 1, true), tier.args .. ": the tier's width\n" .. decoded.c)
         assert(not decoded.c:find("assert", 1, true), tier.args .. ": nothing of the assert survives\n" .. decoded.c)
     end
 
