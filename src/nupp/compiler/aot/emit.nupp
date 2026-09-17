@@ -129,10 +129,93 @@ const MASK64_UNARY = {
     ["simd_mask64_clear_first"] = "clear_first",
 }
 
---- The block-of-64 SIMD operations that render as one helper call over their
+--- The generic SIMD operations, each with the type that names its species:
+--- the node's own (0) or that of one argument.
+const GENERIC_SPECIES = {
+    ["simd_species"] = 0,
+    ["simd_lanes_generic"] = 1,
+    ["simd_splat"] = 0,
+    ["simd_iota"] = 0,
+    ["simd_tail"] = 0,
+    ["simd_load"] = 0,
+    ["simd_binary"] = 0,
+    ["simd_unary"] = 0,
+    ["simd_compare"] = 0,
+    ["simd_select"] = 0,
+    ["simd_mask_any"] = 1,
+    ["simd_mask_all"] = 1,
+    ["simd_mask_count"] = 1,
+    ["simd_mask_first"] = 1,
+    ["simd_mask_bits"] = 1,
+    ["simd_extract"] = 1,
+    ["simd_insert"] = 0,
+    ["simd_permute"] = 0,
+    ["simd_convert"] = 0,
+    ["simd_reinterpret"] = 0,
+    ["simd_compress"] = 0,
+    ["simd_expand"] = 0,
+    ["simd_prefix"] = 0,
+    ["simd_horizontal"] = 1,
+}
+
+--- The generic SIMD operations that render as one helper call over their
+--- arguments in order, by the verb the helper is named for. The rest that
+--- render so are named for their intrinsic.
+const GENERIC_CALLS = {
+    ["simd_splat"] = "splat",
+    ["simd_iota"] = "iota",
+    ["simd_tail"] = "tail",
+    ["simd_select"] = "select",
+    ["simd_extract"] = "extract",
+    ["simd_insert"] = "insert",
+    ["simd_mask_any"] = "any",
+    ["simd_mask_first"] = "first",
+    ["simd_mask_bits"] = "bits",
+}
+
+--- The C operator a packed generic binary or comparison intrinsic is.
+const GENERIC_OPERATORS = {
+    ["add"] = "+",
+    ["sub"] = "-",
+    ["mul"] = "*",
+    ["div"] = "/",
+    ["and"] = "&",
+    ["or"] = "|",
+    ["xor"] = "^",
+    ["shl"] = "<<",
+    ["shr"] = ">>",
+    ["lt"] = "<",
+    ["le"] = "<=",
+    ["gt"] = ">",
+    ["ge"] = ">=",
+    ["eq"] = "==",
+    ["ne"] = "!=",
+}
+
+--- The byte-vector logic operations, by helper verb and C operator: the
+--- vector and mask forms are the same C, the scalar tier calls the helper and
+--- the packed one writes the operator.
+const U8_LOGIC = {
+    ["simd_vec_and"] = {"and", "&"},
+    ["simd_mask_and"] = {"and", "&"},
+    ["simd_vec_or"] = {"or", "|"},
+    ["simd_mask_or"] = {"or", "|"},
+    ["simd_vec_xor"] = {"xor", "^"},
+    ["simd_mask_xor"] = {"xor", "^"},
+}
+
+--- The byte-vector SIMD operations that render as one helper call over their
 --- arguments in order: the helper's name, then the C prefix each argument
 --- takes -- an address, a byte narrowing, or nothing.
-const BLOCK64_CALLS = {
+const U8_CALLS = {
+    ["simd_shr_u8"] = {"shr_", "", ""},
+    ["simd_shl_u8"] = {"shl_", "", ""},
+    ["simd_lookup16_u8"] = {"lookup16_", "", ""},
+    ["simd_lookup64_u8"] = {"lookup64_", "", "", "", "", ""},
+    ["simd_align_bytes_u8"] = {"align_", "", "", ""},
+    ["simd_padded_load_full_u8"] = {"padded_load_full_", "&", ""},
+    ["simd_padded_load_tail_u8"] = {"padded_load_tail_", "&"},
+    ["simd_bits"] = {"bits_", ""},
     ["simd_block64_load_u8"] = {"block64_load_", "&", ""},
     ["simd_block64_and_byte_u8"] = {"block64_and_byte_", "", "(uint8_t)"},
     ["simd_block64_and_u8"] = {"block64_and_", "", ""},
@@ -970,52 +1053,9 @@ function emit.scalar(node: scalarIR.Expr): string
         local args = simd.args
         local suffix = "u8x" .. tostring(explicitWidth)
         local helper = explicitScalar and "ks_scalar_" or "ks_"
-        if operation == "simd_species"
-            or operation == "simd_lanes_generic"
-            or operation == "simd_splat"
-            or operation == "simd_iota"
-            or operation == "simd_tail"
-            or operation == "simd_load"
-            or operation == "simd_binary"
-            or operation == "simd_unary"
-            or operation == "simd_compare"
-            or operation == "simd_select"
-            or operation == "simd_mask_any"
-            or operation == "simd_mask_all"
-            or operation == "simd_mask_count"
-            or operation == "simd_mask_first"
-            or operation == "simd_mask_bits"
-            or operation == "simd_extract"
-            or operation == "simd_insert"
-            or operation == "simd_permute"
-            or operation == "simd_convert"
-            or operation == "simd_reinterpret"
-            or operation == "simd_compress"
-            or operation == "simd_expand"
-            or operation == "simd_prefix"
-            or operation == "simd_horizontal"
-        then
-            local shapedType = operation == "simd_species" and simd.type or operation == "simd_lanes_generic" and args[
-                1
-            ].type
-                or operation == "simd_load"
-                and simd.type
-                or operation == "simd_select"
-                and simd.type
-                or operation == "simd_mask_any"
-                and args[
-                    1
-                ].type or operation == "simd_mask_all" and args[
-                    1
-                ].type or operation == "simd_mask_count" and args[
-                    1
-                ].type or operation == "simd_mask_first" and args[
-                    1
-                ].type or operation == "simd_mask_bits" and args[
-                    1
-                ].type or operation == "simd_extract" and args[
-                    1
-                ].type or operation == "simd_horizontal" and args[1].type or simd.type
+        local speciesArg = GENERIC_SPECIES[tostring(operation)]
+        if speciesArg ~= nil then
+            local shapedType = speciesArg == 0 and simd.type or args[speciesArg as integer].type
             local _, element, lanes, shape = explicitType(shapedType)
             if element == nil or lanes == nil or shape == nil then
                 error("generic SIMD operation has no resolved species", 0)
@@ -1048,14 +1088,6 @@ function emit.scalar(node: scalarIR.Expr): string
                     explicitScalar,
                     operation == "simd_reinterpret"
                 )
-            elseif operation == "simd_splat" then
-                return genericHelper .. "splat_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
-            elseif operation == "simd_iota" then
-                return genericHelper .. "iota_" .. genericSuffix .. "(" .. emit.scalar(
-                    args[1]
-                ) .. ", " .. emit.scalar(args[2]) .. ")"
-            elseif operation == "simd_tail" then
-                return genericHelper .. "tail_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
             elseif operation == "simd_load" then
                 if simd.intrinsic == "gather" then
                     return emit.indexedSimd(simd)
@@ -1075,32 +1107,23 @@ function emit.scalar(node: scalarIR.Expr): string
                     return genericHelper .. "load_full_" .. genericSuffix .. "(" .. at .. ")"
                 end
                 return genericHelper .. "load_" .. genericSuffix .. "(" .. at .. ", " .. emit.scalar(args[3]) .. ")"
-            elseif operation == "simd_binary" then
+            elseif operation == "simd_binary" or operation == "simd_compare" then
                 -- An extremum has no C operator and a contract a bare `<` would
                 -- not keep, so every representation calls the helper the prelude
-                -- generated for its lanes rather than only the two that call a
+                -- defines for its lanes rather than only the two that call a
                 -- helper for everything.
                 local named = tostring(simd.intrinsic)
                 local extremum = named:match("_min$") ~= nil or named:match("_max$") ~= nil
                 if explicitScalar or composite or extremum then
                     local family = explicitType(args[1].type)
-                    local name = family == "mask" and "mask_" .. tostring(simd.intrinsic) or tostring(simd.intrinsic)
+                    local name = family == "mask" and "mask_" .. named or named
                     return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(
                         args[1]
                     ) .. ", " .. emit.scalar(args[2]) .. ")"
                 end
-                local operator = ({
-                    add = "+",
-                    sub = "-",
-                    mul = "*",
-                    div = "/",
-                    ['and'] = "&",
-                    ['or'] = "|",
-                    xor = "^",
-                    shl = "<<",
-                    shr = ">>",
-                })[tostring(simd.intrinsic)]
-                return "(" .. emit.scalar(args[1]) .. " " .. tostring(operator) .. " " .. emit.scalar(args[2]) .. ")"
+                return "(" .. emit.scalar(
+                    args[1]
+                ) .. " " .. tostring(GENERIC_OPERATORS[named]) .. " " .. emit.scalar(args[2]) .. ")"
             elseif operation == "simd_unary" then
                 if explicitScalar or composite then
                     local family = explicitType(simd.type)
@@ -1108,78 +1131,30 @@ function emit.scalar(node: scalarIR.Expr): string
                     return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
                 end
                 return "(" .. (simd.intrinsic == "neg" and "-" or "~") .. emit.scalar(args[1]) .. ")"
-            elseif operation == "simd_compare" then
-                if explicitScalar or composite then
-                    local family = explicitType(args[1].type)
-                    local name = family == "mask" and "mask_" .. tostring(simd.intrinsic) or tostring(simd.intrinsic)
-                    return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(
-                        args[1]
-                    ) .. ", " .. emit.scalar(args[2]) .. ")"
-                end
-                local comparisonOperators: {
-                    [string]: string
-                } = {lt = "<", le = "<=", gt = ">", ge = ">=", eq = "==", ne = "!=",}
-                local operator = comparisonOperators[tostring(simd.intrinsic)]
-                return "(" .. emit.scalar(args[1]) .. " " .. tostring(operator) .. " " .. emit.scalar(args[2]) .. ")"
-            elseif operation == "simd_select" then
-                return genericHelper .. "select_" .. genericSuffix .. "(" .. emit.scalar(
-                    args[1]
-                ) .. ", " .. emit.scalar(args[2]) .. ", " .. emit.scalar(args[3]) .. ")"
-            elseif operation == "simd_extract" then
-                return genericHelper .. "extract_" .. genericSuffix .. "(" .. emit.scalar(
-                    args[1]
-                ) .. ", " .. emit.scalar(args[2]) .. ")"
-            elseif operation == "simd_insert" then
-                return genericHelper .. "insert_" .. genericSuffix .. "(" .. emit.scalar(
-                    args[1]
-                ) .. ", " .. emit.scalar(args[2]) .. ", " .. emit.scalar(args[3]) .. ")"
-            elseif operation == "simd_permute" then
-                if simd.intrinsic == "interleave"
-                    or simd.intrinsic == "deinterleave"
-                    or simd.intrinsic == "transpose"
-                then
-                    return emit.rearrange(simd)
-                end
-                local rendered: {string} = {}
-                for _, argument in ipairs(args) do
-                    rendered[#rendered + 1] = emit.scalar(argument)
-                end
-                return genericHelper .. tostring(
-                    simd.intrinsic
-                ) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
-            elseif operation == "simd_compress" or operation == "simd_expand" or operation == "simd_prefix" then
-                local rendered: {string} = {}
-                for _, argument in ipairs(args) do
-                    rendered[#rendered + 1] = emit.scalar(argument)
-                end
-                return genericHelper .. tostring(
-                    simd.intrinsic
-                ) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
-            elseif operation == "simd_horizontal" then
-                local rendered: {string} = {}
-                for _, argument in ipairs(args) do
-                    rendered[#rendered + 1] = emit.scalar(argument)
-                end
-                return genericHelper .. "horizontal_" .. tostring(
-                    simd.intrinsic
-                ) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
-            else
+            elseif operation == "simd_permute" and (
+                simd.intrinsic == "interleave" or simd.intrinsic == "deinterleave" or simd.intrinsic == "transpose"
+            ) then
+                return emit.rearrange(simd)
+            elseif operation == "simd_mask_all" or operation == "simd_mask_count" then
                 local bits = genericHelper .. "bits_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
-                if operation == "simd_mask_bits" then
-                    return bits
-                elseif operation == "simd_mask_any" then
-                    return genericHelper .. "any_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
-                elseif operation == "simd_mask_all" then
-                    local all = lanes == 64 and "UINT64_MAX" or "((UINT64_C(1) << " .. tostring(
-                        lanes
-                    ) .. "u) - UINT64_C(1))"
-                    return "(" .. bits .. " == " .. all .. ")"
-                elseif operation == "simd_mask_count" then
+                if operation == "simd_mask_count" then
                     return "((uint32_t)__builtin_popcountll(" .. bits .. "))"
-                else
-                    return genericHelper .. "first_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
                 end
+                local all = lanes == 64 and "UINT64_MAX" or "((UINT64_C(1) << " .. tostring(
+                    lanes
+                ) .. "u) - UINT64_C(1))"
+                return "(" .. bits .. " == " .. all .. ")"
             end
+            -- Everything else is one helper call over the arguments in order,
+            -- named for the operation or for the intrinsic it carries.
+            local verb = GENERIC_CALLS[
+                tostring(operation)
+            ] or (operation == "simd_horizontal" and "horizontal_" or "") .. tostring(simd.intrinsic)
+            local rendered: {string} = {}
+            for _, argument in ipairs(args) do
+                rendered[#rendered + 1] = emit.scalar(argument)
+            end
+            return genericHelper .. tostring(verb) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
         elseif operation == "simd_species_u8" or operation == "simd_lanes" then
             return "UINT32_C(" .. tostring(explicitWidth) .. ")"
         elseif operation == "simd_load_u8" then
@@ -1201,28 +1176,12 @@ function emit.scalar(node: scalarIR.Expr): string
             ) .. ", " .. emit.scalar(args[3]) .. ", " .. emit.scalar(args[4]) .. ")"
         elseif operation == "simd_splat_u8" then
             return helper .. "splat_" .. suffix .. "((uint8_t)" .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_shr_u8" then
-            return helper .. "shr_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_shl_u8" then
-            return helper .. "shl_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
         elseif operation == "simd_table_u8x16" then
             local values: {string} = {}
             for index, argument in ipairs(args) do
                 values[index] = "(uint8_t)" .. emit.scalar(argument)
             end
             return "((KsTableU8x16){{" .. table.concat(values, ", ") .. "}})"
-        elseif operation == "simd_lookup16_u8" then
-            return helper .. "lookup16_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_lookup64_u8" then
-            return helper .. "lookup64_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", " .. emit.scalar(
-                args[2]
-            ) .. ", " .. emit.scalar(args[3]) .. ", " .. emit.scalar(args[4]) .. ", " .. emit.scalar(args[5]) .. ")"
-        elseif operation == "simd_align_bytes_u8" then
-            return helper .. "align_" .. suffix .. "(" .. emit.scalar(
-                args[1]
-            ) .. ", " .. emit.scalar(args[2]) .. ", " .. emit.scalar(args[3]) .. ")"
         elseif operation == "simd_padded_string_u8" then
             local bytes = args[1] as scalarIR.Name
             return "ks_padded_string_" .. suffix .. "(ks_bytes_" .. tostring(
@@ -1234,14 +1193,8 @@ function emit.scalar(node: scalarIR.Expr): string
             return "(" .. emit.scalar(args[1]) .. ").full_length"
         elseif operation == "simd_padded_tail_length" then
             return "(" .. emit.scalar(args[1]) .. ").tail_length"
-        elseif operation == "simd_padded_load_full_u8" then
-            return helper .. "padded_load_full_" .. suffix .. "(&" .. emit.scalar(
-                args[1]
-            ) .. ", " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_padded_load_tail_u8" then
-            return helper .. "padded_load_tail_" .. suffix .. "(&" .. emit.scalar(args[1]) .. ")"
-        elseif BLOCK64_CALLS[tostring(operation)] ~= nil then
-            local call = BLOCK64_CALLS[tostring(operation)] as {string}
+        elseif U8_CALLS[tostring(operation)] ~= nil then
+            local call = U8_CALLS[tostring(operation)] as {string}
             local rendered: {string} = {}
             for position = 2, #call do
                 rendered[#rendered + 1] = call[position] .. emit.scalar(args[position - 1])
@@ -1268,21 +1221,14 @@ function emit.scalar(node: scalarIR.Expr): string
             return "((" .. value .. " >= ks_splat_" .. suffix .. "((uint8_t)" .. emit.scalar(
                 args[2]
             ) .. ")) & (" .. value .. " <= ks_splat_" .. suffix .. "((uint8_t)" .. emit.scalar(args[3]) .. ")))"
-        elseif operation == "simd_vec_and" or operation == "simd_mask_and" then
+        elseif U8_LOGIC[tostring(operation)] ~= nil then
+            local logic = U8_LOGIC[tostring(operation)] as {string}
             if explicitScalar then
-                return helper .. "and_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+                return helper .. logic[
+                    1
+                ] .. "_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
             end
-            return "(" .. emit.scalar(args[1]) .. " & " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_vec_or" or operation == "simd_mask_or" then
-            if explicitScalar then
-                return helper .. "or_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
-            end
-            return "(" .. emit.scalar(args[1]) .. " | " .. emit.scalar(args[2]) .. ")"
-        elseif operation == "simd_vec_xor" or operation == "simd_mask_xor" then
-            if explicitScalar then
-                return helper .. "xor_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
-            end
-            return "(" .. emit.scalar(args[1]) .. " ^ " .. emit.scalar(args[2]) .. ")"
+            return "(" .. emit.scalar(args[1]) .. " " .. logic[2] .. " " .. emit.scalar(args[2]) .. ")"
         elseif operation == "simd_vec_not" or operation == "simd_mask_not" then
             if explicitScalar then
                 return helper .. "not_" .. suffix .. "(" .. emit.scalar(args[1]) .. ")"
@@ -1299,8 +1245,6 @@ function emit.scalar(node: scalarIR.Expr): string
             ) .. " & " .. emit.scalar(
                 args[2]
             ) .. ") | (~" .. emit.scalar(args[1]) .. " & " .. emit.scalar(args[3]) .. "))"
-        elseif operation == "simd_bits" then
-            return helper .. "bits_" .. suffix .. "(" .. emit.scalar(args[1]) .. ")"
         elseif operation == "simd_any" then
             return "(" .. helper .. "any_" .. suffix .. "(" .. emit.scalar(args[1]) .. ") != 0u)"
         elseif operation == "simd_all" then
@@ -2094,51 +2038,13 @@ function emit.includes(): {string}
     return lines
 end
 
---- The baseline runtime detector shared by every wrapper in one AOT library.
----
---- Compiler builtins account for the processor and the operating system's
---- enabled register state. This unit is compiled without an optional tier, so
---- asking the question cannot itself execute the instructions it is asking
---- about.
----
---- `__builtin_cpu_supports` is answered at run time by a support routine in the
---- compiler's own runtime library -- `__cpu_model` and `__cpu_indicator_init`.
---- Targeting the MSVC ABI links against the Microsoft runtime instead, which
---- has neither, so the builtin compiles and then fails to link. There the same
---- question is asked of `CPUID` directly, which needs no runtime library at
---- all.
+--- The baseline runtime detector shared by every wrapper in one AOT library:
+--- `ks_feature_tier.h` as the whole of one translation unit.
 function emit.featureDetector(): string
     local lines = emit.includes()
-    lines[#lines + 1] = "#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))"
-    lines[#lines + 1] = "#include <intrin.h>"
-    lines[#lines + 1] = "#endif"
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = "KS_API int ks_aot_feature_tier(void) {"
-    lines[#lines + 1] = "#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))"
-    lines[#lines + 1] = "    int regs[4];"
-    lines[#lines + 1] = "    unsigned int enabled;"
-    lines[#lines + 1] = "    __cpuid(regs, 0);"
-    lines[#lines + 1] = "    /* Leaf 7 is where both extended feature bits live. */"
-    lines[#lines + 1] = "    if (regs[0] < 7) return 0;"
-    lines[#lines + 1] = "    __cpuid(regs, 1);"
-    lines[#lines + 1] = "    /* Without OSXSAVE the operating system has enabled no wider register"
-    lines[#lines + 1] = "     * state and XGETBV is not available to ask which. */"
-    lines[#lines + 1] = "    if ((regs[2] & (1 << 27)) == 0) return 0;"
-    lines[#lines + 1] = "    enabled = (unsigned int)_xgetbv(0);"
-    lines[#lines + 1] = "    /* XMM and YMM state. A processor that has AVX2 while the operating"
-    lines[#lines + 1] = "     * system saves neither cannot run it. */"
-    lines[#lines + 1] = "    if ((enabled & 0x6u) != 0x6u) return 0;"
-    lines[#lines + 1] = "    __cpuidex(regs, 7, 0);"
-    lines[#lines + 1] = "    /* And opmask, ZMM_Hi256 and Hi16_ZMM on top of those for AVX-512. */"
-    lines[#lines + 1] = "    if ((enabled & 0xE6u) == 0xE6u && (regs[1] & (1 << 16)) != 0) return 2;"
-    lines[#lines + 1] = "    if ((regs[1] & (1 << 5)) != 0) return 1;"
-    lines[#lines + 1] = "#elif defined(__x86_64__) || defined(_M_X64)"
-    lines[#lines + 1] = "    __builtin_cpu_init();"
-    lines[#lines + 1] = "    if (__builtin_cpu_supports(\"avx512f\")) return 2;"
-    lines[#lines + 1] = "    if (__builtin_cpu_supports(\"avx2\")) return 1;"
-    lines[#lines + 1] = "#endif"
-    lines[#lines + 1] = "    return 0;"
-    lines[#lines + 1] = "}"
+    for _, line in ipairs(carried("ks_feature_tier.h")) do
+        lines[#lines + 1] = line
+    end
 
     return table.concat(lines, "\n") .. "\n"
 end
