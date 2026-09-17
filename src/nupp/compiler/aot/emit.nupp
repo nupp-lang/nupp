@@ -33,7 +33,6 @@ local emit = {}
 --- Fresh names belong to the entire translation unit. Target choices and
 --- type caches belong to a single function variant.
 record emit.Serials
-    laneTemporary: integer
     luaTemporary: integer
 end
 
@@ -67,7 +66,7 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
         reusableScratchName = parent ~= nil and parent.reusableScratchName or nil,
         builderEager = parent ~= nil and parent.builderEager,
         fpTranscendentals = parent ~= nil and parent.fpTranscendentals,
-        serials = parent ~= nil and parent.serials or new emit.Serials(laneTemporary = 0, luaTemporary = 0),
+        serials = parent ~= nil and parent.serials or new emit.Serials(luaTemporary = 0),
         types = {},
         helperNames = parent ~= nil and program == nil and parent.helperNames or {},
         scalarHelperNames = parent ~= nil and program == nil and parent.scalarHelperNames or {},
@@ -1640,28 +1639,28 @@ local function collectExplicitFixed(context: emit.Context, programs: {scalarIR.P
     end
 end
 
---- Expands a vector operation one lane at a time, each operand evaluated once.
+--- Expands a vector operation one lane at a time.
 ---
---- Without the temporaries every operand is rendered into every lane slot, so a
---- vector expression is recomputed once per lane to take one element out of it,
---- and nesting multiplies that. It is what made a memory-bound kernel eight
---- times slower lane-parallel than scalar.
+--- Every operand is a lane local by now -- the lane rewrite bound anything
+--- else to one before the statement -- so each lane takes one element of a
+--- name rather than of an expression rendered once per lane.
 ---
---- @param build the scalar expression for one lane, given the temporaries
----   holding the operand vectors and which lane this is
+--- @param build the scalar expression for one lane, given the names holding
+---   the operand vectors and which lane this is
+--- @raises when an operand is not a lane local, which is a body the rewrite
+---   did not finish rather than anything the source did
 function emit.perLane(
     context: emit.Context,
     vector: string,
     args: {any},
     build: function({string}, integer): string
 ): string
-    context.serials.laneTemporary = context.serials.laneTemporary + 1
-
     local names: {string} = {}
-    local bindings: {string} = {}
     for position, argument in ipairs(args) do
-        names[position] = ("lt%d_%d"):format(context.serials.laneTemporary, position)
-        bindings[position] = ("ks_%s %s = %s;"):format(vector, names[position], emit.lane(context, argument))
+        if argument.op ~= "local" then
+            error("a per-lane operand the lane rewrite did not bind: " .. tostring(argument.op))
+        end
+        names[position] = argument.cName as string
     end
 
     local _, lanes = emit.vectorParts(vector)
@@ -1670,7 +1669,7 @@ function emit.perLane(
         parts[index + 1] = build(names, index)
     end
 
-    return "({ " .. table.concat(bindings, " ") .. " (ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "}; })"
+    return "(ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "}"
 end
 
 --- Every operand of one lane operation, each taken from the same lane.

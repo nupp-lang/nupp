@@ -710,6 +710,76 @@ function M.anExitWhenEmptyBreakBelongsToTheLaneLoopsOwnBody()
     refuses(program, "invalid immediate lane-loop exit")
 end
 
+local RADII = [[
+local span = require("nupp.mem.span")
+
+local struct Point
+    x: number
+    y: number
+end
+
+@aot
+local function radii(
+    exclusive out: span.WriteSpan<number>,
+    borrows points: span.Span<Point>,
+    limit: number
+): nil
+    if #out ~= #points then
+        error("length mismatch", 2)
+    end
+    for i = 1, #out do
+        local point = points[i]
+        local x = point.x
+        local y = point.y
+        local steps = 0.0
+        while math.sqrt(x * x + y * y) < limit do
+            x = x * 1.5
+            y = y * 1.5
+            steps = steps + 1.0
+        end
+        out[i] = steps + math.sqrt(x * x)
+    end
+end
+
+return {radii = radii, Point = Point}
+]]
+
+function M.aPerLaneOperandIsBoundBeforeTheStatementThatReadsIt()
+    -- A `vmath` is emitted one lane at a time, each lane taking one element
+    -- of every operand, so the lane rewrite binds any operand that is not
+    -- already a name. The loop condition is evaluated at the bottom of each
+    -- iteration, so its binding is the last statement of the body, and the
+    -- verifier checks the condition in that scope.
+    local program = vectorised(RADII, "radii.nupp")
+    local loop = find(program.lanes.statements, function(statement)
+        return statement.op == "vwhile"
+    end)
+    assert(loop, "the radius loop runs in lanes")
+    local condition = loop.condition.args[1]
+    assert(condition.op == "vmath", "the condition compares a per-lane square root")
+    local operand = condition.args[1]
+    assert(operand.op == "local", "the square root reads a name, not an expression")
+    local bound = loop.body[#loop.body]
+    assert(bound.op == "let" and bound.name == operand.name, "bound by the last statement of the body")
+    assert(bound.value.op == "vbinary" and bound.value.verb == "add", "the binding holds what the operand was")
+    assert(loop.initial.args[1].args[1].name ~= operand.name, "the entry mask has a binding of its own")
+    verify.program(program)
+
+    -- Bound after the store that reads it instead.
+    local store, position
+    for index, statement in ipairs(program.lanes.statements) do
+        if statement.op == "vassign" then
+            store, position = statement, index
+        end
+    end
+    assert(store, "the result is stored in lanes")
+    local before = program.lanes.statements[position - 1]
+    assert(before.op == "let" and before.name:match("^%$lt"), "the store's square root operand is bound just before it")
+    table.remove(program.lanes.statements, position - 1)
+    table.insert(program.lanes.statements, position, before)
+    refuses(program, "a lane local of the wrong type")
+end
+
 function M.rearrangementsRecheckOperandShapesAndOutputSelection()
     local source = [[
 local array = require("nupp.mem.array")

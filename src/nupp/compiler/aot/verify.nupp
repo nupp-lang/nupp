@@ -2969,13 +2969,14 @@ local function validImmediateExit(statements: {any}): boolean
     return true
 end
 
+--- Checks one lane block, returning the names in scope at its end.
 local function laneBlock(
     statements: {any},
     inherited: {[string]: string},
     context: verify.Context,
     loopContext: any,
     direct: boolean
-): nil
+): {[string]: string}
     local mask = context.shape.mask
     local values = inherit(inherited)
     for _, statement in ipairs(statements) do
@@ -3090,17 +3091,19 @@ local function laneBlock(
                 "invalid lane-loop mask bindings"
             )
             laneWalk(statement.initial, values, context)
-            laneWalk(statement.condition, values, context)
-            laneHolds(
-                statement.initial.type == mask and statement.condition.type == mask,
-                "invalid lane-loop condition"
-            )
             laneHolds(validImmediateExit(statement.body), "invalid immediate lane-loop exit")
 
             local inner = inherit(values)
             inner[statement.live.name] = mask
             inner[statement.executing.name] = mask
-            laneBlock(statement.body, inner, context, statement, true)
+            -- The condition is evaluated at the bottom of each iteration, in
+            -- the body's own scope: what it reads may be bound there.
+            local atBottom = laneBlock(statement.body, inner, context, statement, true)
+            laneWalk(statement.condition, atBottom, context)
+            laneHolds(
+                statement.initial.type == mask and statement.condition.type == mask,
+                "invalid lane-loop condition"
+            )
         elseif statement.op == "vwhile_uniform" then
             -- No masks, because there is nothing for them to say: the condition
             -- is an ordinary scalar and every lane runs the loop the same
@@ -3142,6 +3145,8 @@ local function laneBlock(
             refuse("unknown lane statement opcode " .. tostring(statement.op))
         end
     end
+
+    return values
 end
 
 local function regionLaneBlocks(

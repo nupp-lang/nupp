@@ -19,6 +19,7 @@ an explicitly binary32 multiply in a binary64 gang would round somewhere the
 source did not ask for, and answering differently is not an optimisation.
 ]]
 
+local hoist = require("nupp.compiler.aot.hoist")
 local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
@@ -2143,7 +2144,8 @@ local function regionBody(
     )
     rewrite.markVarying(statements, state)
 
-    local lowered = rewrite.block(statements, nil, nil, nil, new rewrite.BlockState(serial = 0), state)
+    local block = new rewrite.BlockState(serial = 0)
+    local lowered = hoist.body(rewrite.block(statements, nil, nil, nil, block, state), block.serial)
 
     return new scalarIR.LaneBody(
         lanes = shape.lanes,
